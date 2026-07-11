@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 720" role="img" aria-labelledby="title desc">
+  <title id="title">The proposed Surface runtime boundaries</title>
+  <desc id="desc">Individual Surfaces become supervised runtimes. A higher Surface Suite combines fixed Surface runtimes and Surface Map runtimes for Kolu and Drishti. Surface App, Surface Remote, and Surface MCP keep their distinct lifetimes. Odu exposes a projected local Surface to MCP rather than exposing its coordinator socket directly.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)" />
+    </marker>
+    <style>
+      .box { fill: var(--surface); stroke: var(--rule); stroke-width: 2; }
+      .core { fill: var(--code-bg); stroke: var(--amber); stroke-width: 2.5; }
+      .suite { fill: var(--surface); stroke: var(--teal); stroke-width: 2.5; }
+      .remote { fill: var(--surface); stroke: var(--gold); stroke-width: 2.5; }
+      .mcp { fill: var(--surface); stroke: var(--green); stroke-width: 2.5; }
+      .consumer { fill: var(--paper); stroke: var(--rule); stroke-width: 2; }
+      .title { fill: var(--ink); font: 650 22px ui-sans-serif, system-ui, sans-serif; }
+      .label { fill: var(--ink); font: 650 17px ui-sans-serif, system-ui, sans-serif; }
+      .small { fill: var(--ink-dim); font: 14px ui-sans-serif, system-ui, sans-serif; }
+      .tiny { fill: var(--ink-muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .arrow { fill: none; stroke: var(--ink-faint); stroke-width: 2.2; marker-end: url(#arrow); }
+      .rule { stroke: var(--rule-soft); stroke-width: 1.5; }
+      .tag { fill: var(--amber); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+    </style>
+  </defs>
+
+  <text x="40" y="38" class="title">One shape; several honest lifetimes</text>
+  <text x="40" y="64" class="small">The suite owns multiplexed topology. App reconnect, remote membership, and MCP projection remain separate boundaries.</text>
+
+  <rect x="40" y="105" width="270" height="500" rx="18" class="box" />
+  <text x="65" y="145" class="tag">DECLARATIONS</text>
+
+  <rect x="65" y="175" width="220" height="95" rx="10" class="core" />
+  <text x="85" y="207" class="label">Surface</text>
+  <text x="85" y="233" class="small">cells · collections · streams</text>
+  <text x="85" y="255" class="small">feeds · events · procedures</text>
+
+  <rect x="65" y="295" width="220" height="95" rx="10" class="remote" />
+  <text x="85" y="327" class="label">SurfaceMap</text>
+  <text x="85" y="353" class="small">key · membership id · failure</text>
+  <text x="85" y="375" class="small">complete entry client view</text>
+
+  <rect x="65" y="415" width="220" height="105" rx="10" class="mcp" />
+  <text x="85" y="447" class="label">Projected Surface B</text>
+  <text x="85" y="473" class="small">Odu agent vocabulary</text>
+  <text x="85" y="495" class="small">backed by leases to Surface A</text>
+
+  <text x="65" y="557" class="tiny">declarations contain no server</text>
+  <text x="65" y="580" class="tiny">or Solid implementation imports</text>
+
+  <path d="M310 222 C335 222 340 222 365 222" class="arrow" />
+  <path d="M310 342 C335 342 340 475 365 475" class="arrow" />
+
+  <rect x="370" y="105" width="305" height="225" rx="18" class="core" />
+  <text x="395" y="145" class="tag">@kolu/surface</text>
+  <text x="395" y="177" class="label">SurfaceRuntime</text>
+  <line x1="395" y1="195" x2="650" y2="195" class="rule" />
+  <text x="415" y="225" class="small">final router + typed ctx</text>
+  <text x="415" y="251" class="small">private mount material</text>
+  <text x="415" y="277" class="small">supervised done + idempotent close</text>
+  <text x="415" y="303" class="tiny">no caller can serve a fragment</text>
+
+  <rect x="370" y="375" width="305" height="230" rx="18" class="suite" />
+  <text x="395" y="415" class="tag">@kolu/surface-suite</text>
+  <text x="395" y="447" class="label">SurfaceSuite</text>
+  <line x1="395" y1="465" x2="650" y2="465" class="rule" />
+  <text x="415" y="495" class="small">closed union: Surface | SurfaceMap</text>
+  <text x="415" y="521" class="small">one contract · router · client key set</text>
+  <text x="415" y="547" class="small">split /define · /server · /solid</text>
+  <text x="415" y="577" class="tiny">thin composition leaf, not electricity</text>
+
+  <path d="M520 330 L520 370" class="arrow" />
+  <path d="M675 475 C705 475 710 185 740 185" class="arrow" />
+  <path d="M675 250 C705 250 710 365 740 365" class="arrow" />
+  <path d="M310 467 C515 467 535 555 740 555" class="arrow" />
+
+  <rect x="745" y="105" width="310" height="150" rx="16" class="suite" />
+  <text x="770" y="140" class="tag">@kolu/surface-app</text>
+  <text x="770" y="170" class="label">SurfaceAppConnection</text>
+  <text x="770" y="197" class="small">logical reconnecting session</text>
+  <text x="770" y="220" class="small">one watchdog · identity · suite health</text>
+  <text x="770" y="243" class="tiny">not a one-socket lease</text>
+
+  <rect x="745" y="285" width="310" height="160" rx="16" class="remote" />
+  <text x="770" y="320" class="tag">@kolu/surface-remote + map</text>
+  <text x="770" y="350" class="label">Remote session</text>
+  <text x="770" y="377" class="small">attempts · reconnect · membership</text>
+  <text x="770" y="400" class="small">delta mirror · retryable relay end</text>
+  <text x="770" y="423" class="tiny">keeps its richer state machine</text>
+
+  <rect x="745" y="475" width="310" height="160" rx="16" class="mcp" />
+  <text x="770" y="510" class="tag">@kolu/surface-mcp</text>
+  <text x="770" y="540" class="label">MCP projection of B</text>
+  <text x="770" y="567" class="small">keyed Feed templates · typed tools</text>
+  <text x="770" y="590" class="small">subscription ownership · disposal</text>
+  <text x="770" y="613" class="tiny">never dials Surface A as if it were B</text>
+
+  <path d="M1055 180 C1080 180 1085 180 1110 180" class="arrow" />
+  <path d="M1055 365 C1080 365 1085 365 1110 365" class="arrow" />
+  <path d="M1055 555 C1080 555 1085 555 1110 555" class="arrow" />
+
+  <rect x="1115" y="120" width="165" height="120" rx="14" class="consumer" />
+  <text x="1140" y="162" class="label">Kolu · Drishti</text>
+  <text x="1140" y="190" class="small">multiplexed app</text>
+  <text x="1140" y="212" class="small">suite clients</text>
+
+  <rect x="1115" y="305" width="165" height="120" rx="14" class="consumer" />
+  <text x="1140" y="347" class="label">All three</text>
+  <text x="1140" y="375" class="small">remote/lease</text>
+  <text x="1140" y="397" class="small">mechanisms as used</text>
+
+  <rect x="1115" y="495" width="165" height="120" rx="14" class="consumer" />
+  <text x="1140" y="537" class="label">Odu</text>
+  <text x="1140" y="565" class="small">stable local B</text>
+  <text x="1140" y="587" class="small">exposed to MCP</text>
+
+  <rect x="370" y="650" width="685" height="44" rx="12" class="box" />
+  <text x="395" y="677" class="small">SurfaceLease = one owned Unix/stdio attempt. App and remote reconnectors compose leases; they are not leases.</text>
+</svg>

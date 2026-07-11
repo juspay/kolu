@@ -1,0 +1,650 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A Complete Surface Runtime · the kolu Atlas</title><meta name="description" content="A proposal to remove hand-built topology, lifetime, and projection machinery across Kolu, Drishti, and Odu."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/surface-runtime-boundary.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="A Complete Surface Runtime · the kolu Atlas"><meta property="og:description" content="A proposal to remove hand-built topology, lifetime, and projection machinery across Kolu, Drishti, and Odu."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/surface-runtime-boundary.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-11T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="A Complete Surface Runtime · the kolu Atlas"><meta name="twitter:description" content="A proposal to remove hand-built topology, lifetime, and projection machinery across Kolu, Drishti, and Odu."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.cite[data-astro-cid-5pdjtcv2]{font-family:var(--mono);color:var(--ink);background:var(--code-bg);border:1px solid var(--rule);white-space:nowrap;border-radius:5px;padding:.04em .35em;font-size:.85em;text-decoration:none}.cite[data-astro-cid-5pdjtcv2]:hover{color:var(--amber);border-color:var(--amber)}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">A Complete Surface Runtime</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-11T00:00:00.000Z">JUL 11, 2026</time></div><p class="note-sub">A proposal to remove hand-built topology, lifetime, and projection machinery across Kolu, Drishti, and Odu.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-the-three-consumers-reveal" data-astro-cid-rda6bqd5>What the three consumers reveal</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-proposed-api" data-astro-cid-rda6bqd5>The proposed API</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#a-runtime-owns-the-server-side" data-astro-cid-rda6bqd5>A runtime owns the server side</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#a-higher-package-owns-mixed-topology" data-astro-cid-rda6bqd5>A higher package owns mixed topology</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#hello-world" data-astro-cid-rda6bqd5>Hello world</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#member-semantics-become-explicit" data-astro-cid-rda6bqd5>Member semantics become explicit</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#maps-and-remote-mirrors-own-membership-time" data-astro-cid-rda6bqd5>Maps and remote mirrors own membership time</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#transport-and-protocol-adapters-keep-distinct-lifetimes" data-astro-cid-rda6bqd5>Transport and protocol adapters keep distinct lifetimes</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#how-the-consumers-become-smaller" data-astro-cid-rda6bqd5>How the consumers become smaller</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#kolu" data-astro-cid-rda6bqd5>Kolu</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#drishti" data-astro-cid-rda6bqd5>Drishti</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#odu" data-astro-cid-rda6bqd5>Odu</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#landing-and-proof" data-astro-cid-rda6bqd5>Landing and proof</a></li></ul></nav></header><div class="prose"><p>Surface declarations are already the source of truth for data shape. They stop one layer too early. Kolu, Drishti, and Odu receive a typed declaration, then each rebuilds some combination of router topology, subscription ordering, reconnect identity, procedure clients, or protocol projection by hand.</p>
+<p>The proposal is to let a Surface become a supervised runtime, and to let one higher <strong>Surface suite</strong> value describe Kolu and Drishti’s multiplexed topology. The hard lifetimes remain separate: a Unix process attempt is not a reconnecting app connection; remote membership is not a WebSocket; an MCP projection is not the Surface it reads from.</p>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 720" role="img" aria-labelledby="title desc">
+  <title id="title">The proposed Surface runtime boundaries</title>
+  <desc id="desc">Individual Surfaces become supervised runtimes. A higher Surface Suite combines fixed Surface runtimes and Surface Map runtimes for Kolu and Drishti. Surface App, Surface Remote, and Surface MCP keep their distinct lifetimes. Odu exposes a projected local Surface to MCP rather than exposing its coordinator socket directly.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)" />
+    </marker>
+    <style>
+      .box { fill: var(--surface); stroke: var(--rule); stroke-width: 2; }
+      .core { fill: var(--code-bg); stroke: var(--amber); stroke-width: 2.5; }
+      .suite { fill: var(--surface); stroke: var(--teal); stroke-width: 2.5; }
+      .remote { fill: var(--surface); stroke: var(--gold); stroke-width: 2.5; }
+      .mcp { fill: var(--surface); stroke: var(--green); stroke-width: 2.5; }
+      .consumer { fill: var(--paper); stroke: var(--rule); stroke-width: 2; }
+      .title { fill: var(--ink); font: 650 22px ui-sans-serif, system-ui, sans-serif; }
+      .label { fill: var(--ink); font: 650 17px ui-sans-serif, system-ui, sans-serif; }
+      .small { fill: var(--ink-dim); font: 14px ui-sans-serif, system-ui, sans-serif; }
+      .tiny { fill: var(--ink-muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .arrow { fill: none; stroke: var(--ink-faint); stroke-width: 2.2; marker-end: url(#arrow); }
+      .rule { stroke: var(--rule-soft); stroke-width: 1.5; }
+      .tag { fill: var(--amber); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+    </style>
+  </defs>
+
+  <text x="40" y="38" class="title">One shape; several honest lifetimes</text>
+  <text x="40" y="64" class="small">The suite owns multiplexed topology. App reconnect, remote membership, and MCP projection remain separate boundaries.</text>
+
+  <rect x="40" y="105" width="270" height="500" rx="18" class="box" />
+  <text x="65" y="145" class="tag">DECLARATIONS</text>
+
+  <rect x="65" y="175" width="220" height="95" rx="10" class="core" />
+  <text x="85" y="207" class="label">Surface</text>
+  <text x="85" y="233" class="small">cells · collections · streams</text>
+  <text x="85" y="255" class="small">feeds · events · procedures</text>
+
+  <rect x="65" y="295" width="220" height="95" rx="10" class="remote" />
+  <text x="85" y="327" class="label">SurfaceMap</text>
+  <text x="85" y="353" class="small">key · membership id · failure</text>
+  <text x="85" y="375" class="small">complete entry client view</text>
+
+  <rect x="65" y="415" width="220" height="105" rx="10" class="mcp" />
+  <text x="85" y="447" class="label">Projected Surface B</text>
+  <text x="85" y="473" class="small">Odu agent vocabulary</text>
+  <text x="85" y="495" class="small">backed by leases to Surface A</text>
+
+  <text x="65" y="557" class="tiny">declarations contain no server</text>
+  <text x="65" y="580" class="tiny">or Solid implementation imports</text>
+
+  <path d="M310 222 C335 222 340 222 365 222" class="arrow" />
+  <path d="M310 342 C335 342 340 475 365 475" class="arrow" />
+
+  <rect x="370" y="105" width="305" height="225" rx="18" class="core" />
+  <text x="395" y="145" class="tag">@kolu/surface</text>
+  <text x="395" y="177" class="label">SurfaceRuntime</text>
+  <line x1="395" y1="195" x2="650" y2="195" class="rule" />
+  <text x="415" y="225" class="small">final router + typed ctx</text>
+  <text x="415" y="251" class="small">private mount material</text>
+  <text x="415" y="277" class="small">supervised done + idempotent close</text>
+  <text x="415" y="303" class="tiny">no caller can serve a fragment</text>
+
+  <rect x="370" y="375" width="305" height="230" rx="18" class="suite" />
+  <text x="395" y="415" class="tag">@kolu/surface-suite</text>
+  <text x="395" y="447" class="label">SurfaceSuite</text>
+  <line x1="395" y1="465" x2="650" y2="465" class="rule" />
+  <text x="415" y="495" class="small">closed union: Surface | SurfaceMap</text>
+  <text x="415" y="521" class="small">one contract · router · client key set</text>
+  <text x="415" y="547" class="small">split /define · /server · /solid</text>
+  <text x="415" y="577" class="tiny">thin composition leaf, not electricity</text>
+
+  <path d="M520 330 L520 370" class="arrow" />
+  <path d="M675 475 C705 475 710 185 740 185" class="arrow" />
+  <path d="M675 250 C705 250 710 365 740 365" class="arrow" />
+  <path d="M310 467 C515 467 535 555 740 555" class="arrow" />
+
+  <rect x="745" y="105" width="310" height="150" rx="16" class="suite" />
+  <text x="770" y="140" class="tag">@kolu/surface-app</text>
+  <text x="770" y="170" class="label">SurfaceAppConnection</text>
+  <text x="770" y="197" class="small">logical reconnecting session</text>
+  <text x="770" y="220" class="small">one watchdog · identity · suite health</text>
+  <text x="770" y="243" class="tiny">not a one-socket lease</text>
+
+  <rect x="745" y="285" width="310" height="160" rx="16" class="remote" />
+  <text x="770" y="320" class="tag">@kolu/surface-remote + map</text>
+  <text x="770" y="350" class="label">Remote session</text>
+  <text x="770" y="377" class="small">attempts · reconnect · membership</text>
+  <text x="770" y="400" class="small">delta mirror · retryable relay end</text>
+  <text x="770" y="423" class="tiny">keeps its richer state machine</text>
+
+  <rect x="745" y="475" width="310" height="160" rx="16" class="mcp" />
+  <text x="770" y="510" class="tag">@kolu/surface-mcp</text>
+  <text x="770" y="540" class="label">MCP projection of B</text>
+  <text x="770" y="567" class="small">keyed Feed templates · typed tools</text>
+  <text x="770" y="590" class="small">subscription ownership · disposal</text>
+  <text x="770" y="613" class="tiny">never dials Surface A as if it were B</text>
+
+  <path d="M1055 180 C1080 180 1085 180 1110 180" class="arrow" />
+  <path d="M1055 365 C1080 365 1085 365 1110 365" class="arrow" />
+  <path d="M1055 555 C1080 555 1085 555 1110 555" class="arrow" />
+
+  <rect x="1115" y="120" width="165" height="120" rx="14" class="consumer" />
+  <text x="1140" y="162" class="label">Kolu · Drishti</text>
+  <text x="1140" y="190" class="small">multiplexed app</text>
+  <text x="1140" y="212" class="small">suite clients</text>
+
+  <rect x="1115" y="305" width="165" height="120" rx="14" class="consumer" />
+  <text x="1140" y="347" class="label">All three</text>
+  <text x="1140" y="375" class="small">remote/lease</text>
+  <text x="1140" y="397" class="small">mechanisms as used</text>
+
+  <rect x="1115" y="495" width="165" height="120" rx="14" class="consumer" />
+  <text x="1140" y="537" class="label">Odu</text>
+  <text x="1140" y="565" class="small">stable local B</text>
+  <text x="1140" y="587" class="small">exposed to MCP</text>
+
+  <rect x="370" y="650" width="685" height="44" rx="12" class="box" />
+  <text x="395" y="677" class="small">SurfaceLease = one owned Unix/stdio attempt. App and remote reconnectors compose leases; they are not leases.</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The suite owns multiplexed topology only. Individual Surfaces and projections still meet Remote and MCP through their own lifetime-specific adapters.</figcaption></figure>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Decision</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Add a finalized, supervised Surface runtime and a thin <code>@kolu/surface-suite</code> composition package. Then close the semantic gaps the migrations expose: bound procedures, exact Feed ordering, complete map entries, delta-aware mirroring, and keyed MCP resources. Distinct lifetimes get distinct constructors and types—never mode flags or inferred ownership.</p></div></aside>
+<h2 id="what-the-three-consumers-reveal">What the three consumers reveal</h2>
+<p>This audit used Kolu <code>843eb0f3450f</code>, Drishti <code>25f51e08e379</code> with Kolu pinned at <code>52d60bf1bf06</code>, and Odu <code>647d34821cc3</code> with Kolu pinned at <code>7d51cb2b290b</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The existing Atlas notes on this topic were deliberately not read. Evidence came from the three working trees, their exact framework pins, package documentation, and tests.</span></span></span> The recurring defect is not “too many lines.” It is that one fact has several authorities, or that a hard lifetime is left for a caller to reconstruct.</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Audited production use</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>@kolu/surface</code></td>
+<td>All three repositories</td>
+<td>Core shape is sound; runtime finalization, procedure binding, and stream time semantics are incomplete.</td>
+</tr>
+<tr>
+<td><code>@kolu/surface-app</code></td>
+<td>Kolu and Drishti</td>
+<td>Socket lifecycle and provider inputs are fragmented; service-worker deployment is separately inconsistent in Drishti.</td>
+</tr>
+<tr>
+<td><code>@kolu/surface-map</code></td>
+<td>Kolu and Drishti</td>
+<td>The map works, but is not composable with fixed surfaces and erases entry capability, failure shape, and membership time.</td>
+</tr>
+<tr>
+<td><code>@kolu/surface-remote</code></td>
+<td>All three repositories</td>
+<td>Session/reconnect electricity is correctly placed. Mirroring must adopt collection deltas and expose post-commit observation.</td>
+</tr>
+<tr>
+<td><code>@kolu/surface-mcp</code></td>
+<td>Odu</td>
+<td>Default-deny exposure is sound. Input-bearing streams and client ownership are the missing protocol seams.</td>
+</tr>
+<tr>
+<td><code>@kolu/surface-daemon</code> and <code>-supervisor</code></td>
+<td>Kolu</td>
+<td>Their process/convergence boundaries stay as they are. No downstream duplicate justified another primitive; only their stale “zero Kolu dependencies” README claims need correction.</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Repeated mechanism</th>
+<th>Concrete evidence</th>
+<th>Structural verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mixed fixed surfaces and a keyed map</td>
+<td>Kolu widens a contract with <code>(padiHostMap.contract as any).surface</code>, splices a map router, then reconnects it with the string <code>&quot;padi&quot;</code> in <a href="https://github.com/juspay/kolu/blob/843eb0f3450f/packages/server/src/surface.ts#L71-L99" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/server/src/surface.ts:71-99</a>, <a href="https://github.com/juspay/kolu/blob/843eb0f3450f/packages/server/src/index.ts#L460-L475" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/server/src/index.ts:460-475</a>, and <a href="https://github.com/juspay/kolu/blob/843eb0f3450f/packages/client/src/wire.ts#L145-L155" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/wire.ts:145-155</a>. Drishti repeats the three descriptions for <code>hosts</code> in <a href="https://github.com/srid/drishti/blob/25f51e08e379/packages/app/src/server/admin-router.ts#L173-L208" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/app/src/server/admin-router.ts:173-208</a> and <a href="https://github.com/srid/drishti/blob/25f51e08e379/packages/app/src/client/wire.ts#L87-L97" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/app/src/client/wire.ts:87-97</a>.</td>
+<td>One topology is fragmented into contract, router, client, and magic-key authorities. Graduate a heterogeneous suite.</td>
+</tr>
+<tr>
+<td>Finalizing a server</td>
+<td><code>implementSurface</code> returns a <code>{surface: …}</code> fragment that must pass through oRPC <code>implement(...).router(...)</code>. Kolu, both Drishti tiers, three Odu servers, <code>reServeSurface</code>, and examples repeat the wrap; serving the fragment produces <code>/surface/surface/*</code> and 404s.</td>
+<td>A headline API returns an intermediate invalid for its headline use. Return a final router and keep mount material private.</td>
+</tr>
+<tr>
+<td>Snapshot then changes</td>
+<td>Odu’s log source yields before subscribing in <a href="https://github.com/juspay/odu/blob/647d34821cc3/src/common/logTail.ts#L59-L65" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>src/common/logTail.ts:59-65</a>; Drishti repeats it for processes and history in <a href="https://github.com/srid/drishti/blob/25f51e08e379/packages/app/src/server/router.ts#L188-L216" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/app/src/server/router.ts:188-216</a>. Surface’s normal cell path and <code>pollOnEvent</code> have the same first-read/install gap, while collections have a private synchronous safe path.</td>
+<td>Ordering is time semantics, not generator style. Give local and externally-opened state different source roles.</td>
+</tr>
+<tr>
+<td>Remote collections at scale</td>
+<td>Drishti declares <code>processes</code> as a collection, then adds a second snapshot/delta schema, agent bus, parent cache/bus, and browser reducer because <code>mirrorRemoteSurface</code> still opens <code>keys + N get</code> streams in <a href="https://github.com/juspay/kolu/blob/843eb0f3450f/packages/surface/src/mirrorRemoteSurface.ts#L415-L442" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/surface/src/mirrorRemoteSurface.ts:415-442</a>.</td>
+<td>One process fact has two protocols. Make the mirror consume the collection’s existing <code>deltas</code> verb.</td>
+</tr>
+<tr>
+<td>Surface procedures</td>
+<td>Procedures remain reachable only through raw <code>.rpc</code>; there is no spec-derived <code>procedures</code> capability. Kolu casts <code>PadiRpc</code> and routes roughly forty calls through it, Drishti casts host/admin slices, and Odu copies callable client interfaces.</td>
+<td>The typed dual is incomplete. Bind declared procedures and preserve them through adapters.</td>
+</tr>
+<tr>
+<td>Connection lifetime</td>
+<td>Kolu and Drishti divide one logical app connection among <code>connectSurfaces</code>, lifecycle helpers, and a provider, coordinating watchdogs with Boolean opt-outs. Odu builds <code>redialingAClient</code> because its coordinator is replaceable while MCP memoizes a client.</td>
+<td>Attempt end, app reconnect, and remote respawn are different time models. Reuse one-attempt leases; keep app and remote supervisors distinct.</td>
+</tr>
+<tr>
+<td>Input-bearing stream in MCP</td>
+<td>Odu’s natural <code>nodeLog({id})</code> cannot be an MCP resource, so Odu presents it as a synthetic collection backed by a cache, follower set, and late-bound publish callback in <a href="https://github.com/juspay/odu/blob/647d34821cc3/src/mcp/agentSurface.ts#L276-L380" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>src/mcp/agentSurface.ts:276-380</a>.</td>
+<td>Protocol addressing is missing. Extend the existing collection-template mechanism to keyed Feeds; do not turn a stream into pretend state.</td>
+</tr>
+<tr>
+<td>Map identity and failure</td>
+<td>A same-key leave/rejoin is keyed only by the encoded key, so Kolu adds a generation/root rearm helper. <code>Cause</code> is a TypeScript generic while the wire accepts any string and the server invents <code>&quot;other&quot; as Cause</code>.</td>
+<td>Membership is <code>key × opaque membershipId</code>; failure is schema-validated domain data supplied by a total producer.</td>
+</tr>
+</tbody>
+</table>
+<p>Two workarounds are known incorrect, not merely awkward. Odu retains a <code>source: &quot;live&quot;</code> log after its follower ends, so the same node id in a later coordinator can return the old run without following the new one; the follower also has no MCP-shutdown owner. Snapshot-before-subscribe generators can permanently omit a delta. The framework changes must delete those states, not wrap the existing machines.</p>
+<p>There are also migrations to truth that need no new API. Odu should use <code>firstFrameOrThrow</code> and the session’s exact <code>onLog</code> occurrence stream. Drishti should adopt <code>acceptSurfaceSocket</code>, <code>setAttention</code>, <code>presentingDown</code>, and the combined health it already receives. Kolu should reuse <code>inMemoryStore</code> and remove its one-consumer late-bound context proxy.</p>
+<h2 id="the-proposed-api">The proposed API</h2>
+<h3 id="a-runtime-owns-the-server-side">A runtime owns the server side</h3>
+<p><code>implementSurface</code> returns a directly servable, supervised resource:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">interface</span><span style="color:#6F42C1"> SurfaceRuntime</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">S</span><span style="color:#D73A49"> extends</span><span style="color:#6F42C1"> SurfaceSpec</span><span style="color:#24292E">> {</span></span>
+<span class="line"><span style="color:#D73A49">  readonly</span><span style="color:#E36209"> router</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Router</span><span style="color:#24292E">;       </span><span style="color:#6A737D">// final top-level router</span></span>
+<span class="line"><span style="color:#D73A49">  readonly</span><span style="color:#E36209"> ctx</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> SurfaceCtx</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">S</span><span style="color:#24292E">>;</span></span>
+<span class="line"><span style="color:#D73A49">  readonly</span><span style="color:#E36209"> done</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Promise</span><span style="color:#24292E">&#x3C;</span><span style="color:#005CC5">void</span><span style="color:#24292E">>;  </span><span style="color:#6A737D">// rejects on an owned runtime fault</span></span>
+<span class="line"><span style="color:#6F42C1">  close</span><span style="color:#24292E">()</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Promise</span><span style="color:#24292E">&#x3C;</span><span style="color:#005CC5">void</span><span style="color:#24292E">>;        </span><span style="color:#6A737D">// idempotent; releases every owned source</span></span>
+<span class="line"><span style="color:#6A737D">  // package-private mount material for suite composition</span></span>
+<span class="line"><span style="color:#24292E">}</span></span></code></pre>
+<p>Async cell connectors receive an abort signal and return a disposer. Reactor subscriptions, map subscriptions, and re-served pumps all join <code>done</code> and <code>close</code>; suite composition observes every child, propagates failure, and closes each child exactly once. A <code>close</code> that ignores today’s <code>cell.connect</code>, reactor, or <code>reServeSurface.done</code> would be ceremonial and is not acceptable.</p>
+<p>The ordinary constructor owns <code>inMemoryChannelByName()</code> internally. Kolu’s shared publisher is a distinct, explicit implementation role because its cross-channel microtask order and diagnostics are load-bearing:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6F42C1">implementSurface</span><span style="color:#24292E">(surface, deps);</span></span>
+<span class="line"><span style="color:#6F42C1">implementSurfaceOnPublisher</span><span style="color:#24292E">(surface, publisher, deps);</span></span></code></pre>
+<p>This is not an override option. The constructors promise different ownership; neither accepts an arbitrary <code>channel(name)</code> factory that can return a fresh instance and silently lose every update.</p>
+<h3 id="a-higher-package-owns-mixed-topology">A higher package owns mixed topology</h3>
+<p><code>@kolu/surface-suite</code> is a thin composition leaf above <code>@kolu/surface</code> and <code>@kolu/surface-map</code>. It has split <code>/define</code>, <code>/server</code>, and <code>/solid</code> entrypoints so a common declaration imports no server or Solid implementation. A closed union covers the two proven node roles:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> appSuite</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> defineSurfaceSuite</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  kolu: </span><span style="color:#6F42C1">surfaceNode</span><span style="color:#24292E">(koluSurface),</span></span>
+<span class="line"><span style="color:#24292E">  app: </span><span style="color:#6F42C1">surfaceNode</span><span style="color:#24292E">(surfaceAppSurface),</span></span>
+<span class="line"><span style="color:#24292E">  padi: </span><span style="color:#6F42C1">surfaceMapNode</span><span style="color:#24292E">(padiHostMap),</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> koluRuntime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurfaceOnPublisher</span><span style="color:#24292E">(</span></span>
+<span class="line"><span style="color:#24292E">  koluSurface,</span></span>
+<span class="line"><span style="color:#24292E">  publisher,</span></span>
+<span class="line"><span style="color:#24292E">  koluDeps,</span></span>
+<span class="line"><span style="color:#24292E">);</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> appRuntime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurface</span><span style="color:#24292E">(surfaceAppSurface, surfaceAppDeps);</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> padiRuntime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> serveHostMap</span><span style="color:#24292E">(padiHostMap, pool, padiHostDeps);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> runtime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurfaceSuite</span><span style="color:#24292E">(appSuite, {</span></span>
+<span class="line"><span style="color:#24292E">  kolu: koluRuntime,</span></span>
+<span class="line"><span style="color:#24292E">  app: appRuntime,</span></span>
+<span class="line"><span style="color:#24292E">  padi: padiRuntime,</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6F42C1">serveRpc</span><span style="color:#24292E">(runtime); </span><span style="color:#6A737D">// serving owns runtime.done and closes it on shutdown</span></span></code></pre>
+<p>The suite derives the contract, final router, Solid clients, health, contexts, and teardown from the same key set. Its <code>/solid</code> connector imports <code>connectSurfaceMap</code>; its <code>/server</code> connector imports <code>serveSurfaceMap</code>; neither leaks through <code>/define</code>. <code>@kolu/surface-app</code> may depend on the higher suite package without creating a cycle.</p>
+<p>The audited consumers need no raw root. Kolu’s remaining <code>server.info</code>, <code>daemon.restart</code>, and host-management calls move into declared Surface procedures. If generic oRPC interoperability remains, it is an explicitly tagged <code>rpcNode</code>; its contract is rejected at type and boot time if it contains the reserved <code>surface</code> key, and none of the three migrations uses it.</p>
+<h3 id="hello-world">Hello world</h3>
+<p>This in-process example is complete: declaration, implementation, suite composition, typed procedure, and reactive cell consumption use the same values.</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="tsx"><code><span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { directLink } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface/links/direct"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { defineSurface } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface/define"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { inMemoryStore, implementSurface } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface/server"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { defineSurfaceSuite, surfaceNode } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface-suite/define"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { implementSurfaceSuite } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface-suite/server"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { connectSurfaceSuite } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/surface-suite/solid"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { createEffect, createRoot, onCleanup } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "solid-js"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { z } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "zod"</span><span style="color:#24292E">;</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> helloSurface</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> defineSurface</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  cells: {</span></span>
+<span class="line"><span style="color:#24292E">    message: {</span></span>
+<span class="line"><span style="color:#24292E">      schema: z.</span><span style="color:#6F42C1">string</span><span style="color:#24292E">(),</span></span>
+<span class="line"><span style="color:#24292E">      default: </span><span style="color:#032F62">"Hello"</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#24292E">      verbs: [</span><span style="color:#032F62">"get"</span><span style="color:#24292E">],</span></span>
+<span class="line"><span style="color:#24292E">    },</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">  procedures: {</span></span>
+<span class="line"><span style="color:#24292E">    greeter: {</span></span>
+<span class="line"><span style="color:#24292E">      greet: {</span></span>
+<span class="line"><span style="color:#24292E">        input: z.</span><span style="color:#6F42C1">object</span><span style="color:#24292E">({ name: z.</span><span style="color:#6F42C1">string</span><span style="color:#24292E">() }),</span></span>
+<span class="line"><span style="color:#24292E">        output: z.</span><span style="color:#6F42C1">string</span><span style="color:#24292E">(),</span></span>
+<span class="line"><span style="color:#24292E">      },</span></span>
+<span class="line"><span style="color:#24292E">    },</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> helloSuite</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> defineSurfaceSuite</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  hello: </span><span style="color:#6F42C1">surfaceNode</span><span style="color:#24292E">(helloSurface),</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> helloRuntime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurface</span><span style="color:#24292E">(helloSurface, {</span></span>
+<span class="line"><span style="color:#24292E">  cells: { message: { store: </span><span style="color:#6F42C1">inMemoryStore</span><span style="color:#24292E">(</span><span style="color:#032F62">"Hello"</span><span style="color:#24292E">) } },</span></span>
+<span class="line"><span style="color:#24292E">  procedures: {</span></span>
+<span class="line"><span style="color:#24292E">    greeter: {</span></span>
+<span class="line"><span style="color:#6F42C1">      greet</span><span style="color:#24292E">: ({ </span><span style="color:#E36209">input</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#032F62"> `Hello, ${</span><span style="color:#24292E">input</span><span style="color:#032F62">.</span><span style="color:#24292E">name</span><span style="color:#032F62">}!`</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#24292E">    },</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> runtime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurfaceSuite</span><span style="color:#24292E">(helloSuite, {</span></span>
+<span class="line"><span style="color:#24292E">  hello: helloRuntime,</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">let</span><span style="color:#24292E"> firstMessage</span><span style="color:#D73A49">!:</span><span style="color:#6F42C1"> Promise</span><span style="color:#24292E">&#x3C;</span><span style="color:#005CC5">string</span><span style="color:#24292E">>;</span></span>
+<span class="line"><span style="color:#D73A49">let</span><span style="color:#24292E"> greeting</span><span style="color:#D73A49">!:</span><span style="color:#6F42C1"> Promise</span><span style="color:#24292E">&#x3C;</span><span style="color:#005CC5">string</span><span style="color:#24292E">>;</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> stop</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> createRoot</span><span style="color:#24292E">((</span><span style="color:#E36209">dispose</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">  const</span><span style="color:#005CC5"> app</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> connectSurfaceSuite</span><span style="color:#24292E">(helloSuite, </span><span style="color:#6F42C1">directLink</span><span style="color:#24292E">(runtime.router));</span></span>
+<span class="line"><span style="color:#D73A49">  const</span><span style="color:#005CC5"> hello</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> app.surfaces.hello;</span></span>
+<span class="line"><span style="color:#D73A49">  const</span><span style="color:#005CC5"> message</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> hello.cells.message.</span><span style="color:#6F42C1">use</span><span style="color:#24292E">();</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E">  firstMessage </span><span style="color:#D73A49">=</span><span style="color:#D73A49"> new</span><span style="color:#005CC5"> Promise</span><span style="color:#24292E">((</span><span style="color:#E36209">resolve</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#6F42C1">    createEffect</span><span style="color:#24292E">(() </span><span style="color:#D73A49">=></span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">      const</span><span style="color:#005CC5"> value</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> message.</span><span style="color:#6F42C1">value</span><span style="color:#24292E">();</span></span>
+<span class="line"><span style="color:#D73A49">      if</span><span style="color:#24292E"> (value </span><span style="color:#D73A49">!==</span><span style="color:#005CC5"> undefined</span><span style="color:#24292E">) </span><span style="color:#6F42C1">resolve</span><span style="color:#24292E">(value);</span></span>
+<span class="line"><span style="color:#24292E">    });</span></span>
+<span class="line"><span style="color:#24292E">  });</span></span>
+<span class="line"><span style="color:#24292E">  greeting </span><span style="color:#D73A49">=</span><span style="color:#24292E"> hello.procedures.greeter.</span><span style="color:#6F42C1">greet</span><span style="color:#24292E">({ name: </span><span style="color:#032F62">"Ada"</span><span style="color:#24292E"> });</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6F42C1">  onCleanup</span><span style="color:#24292E">(app.dispose);</span></span>
+<span class="line"><span style="color:#D73A49">  return</span><span style="color:#24292E"> dispose;</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E">console.</span><span style="color:#6F42C1">log</span><span style="color:#24292E">(</span><span style="color:#D73A49">await</span><span style="color:#24292E"> firstMessage); </span><span style="color:#6A737D">// "Hello"</span></span>
+<span class="line"><span style="color:#24292E">console.</span><span style="color:#6F42C1">log</span><span style="color:#24292E">(</span><span style="color:#D73A49">await</span><span style="color:#24292E"> greeting);     </span><span style="color:#6A737D">// "Hello, Ada!"</span></span>
+<span class="line"><span style="color:#6F42C1">stop</span><span style="color:#24292E">();</span></span>
+<span class="line"><span style="color:#D73A49">await</span><span style="color:#24292E"> runtime.</span><span style="color:#6F42C1">close</span><span style="color:#24292E">();</span></span></code></pre>
+<h3 id="member-semantics-become-explicit">Member semantics become explicit</h3>
+<p>Every declared procedure appears at <code>client.procedures.&lt;namespace&gt;.&lt;verb&gt;</code> and on a map entry. Raw <code>.rpc</code> belongs only to an explicit suite <code>rpcNode</code>. The existing <code>ReadOnlyBoundCollection</code> is generalized: <code>BoundCollectionsFor</code> selects it when wire verbs omit mutation, while server <code>ctx</code> always retains internal <code>upsert</code> and <code>remove</code>.</p>
+<p><code>Stream</code> now means every frame is a complete replacement value enrolled in Surface health. <code>Event</code> remains occurrences with no snapshot. Snapshot-plus-delta data becomes <code>Feed</code>, with a generated wire union:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">type</span><span style="color:#6F42C1"> FeedFrame</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">Snapshot</span><span style="color:#24292E">, </span><span style="color:#6F42C1">Delta</span><span style="color:#24292E">> </span><span style="color:#D73A49">=</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "snapshot"</span><span style="color:#24292E">; </span><span style="color:#E36209">value</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Snapshot</span><span style="color:#24292E"> }</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "delta"</span><span style="color:#24292E">; </span><span style="color:#E36209">value</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Delta</span><span style="color:#24292E"> };</span></span></code></pre>
+<p>There are two source constructors, not a continuity flag. The local constructor owns both state and publication, so “mutate the snapshot, then remember to publish” is not a fallible paired obligation:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> runnerSurface</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> defineSurface</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  feeds: {</span></span>
+<span class="line"><span style="color:#24292E">    nodeLog: {</span></span>
+<span class="line"><span style="color:#24292E">      inputSchema: z.</span><span style="color:#6F42C1">object</span><span style="color:#24292E">({ id: TaskIdSchema }),</span></span>
+<span class="line"><span style="color:#24292E">      snapshotSchema: z.</span><span style="color:#6F42C1">object</span><span style="color:#24292E">({ text: z.</span><span style="color:#6F42C1">string</span><span style="color:#24292E">() }),</span></span>
+<span class="line"><span style="color:#24292E">      deltaSchema: z.</span><span style="color:#6F42C1">object</span><span style="color:#24292E">({ append: z.</span><span style="color:#6F42C1">string</span><span style="color:#24292E">() }),</span></span>
+<span class="line"><span style="color:#24292E">    },</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> nodeLog</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> feedState</span><span style="color:#24292E">(runnerSurface.descriptors.feeds.nodeLog, {</span></span>
+<span class="line"><span style="color:#6F42C1">  initial</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ text: </span><span style="color:#032F62">""</span><span style="color:#24292E"> }),</span></span>
+<span class="line"><span style="color:#6F42C1">  reduce</span><span style="color:#24292E">: (</span><span style="color:#E36209">state</span><span style="color:#24292E">, </span><span style="color:#E36209">delta</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ text: </span><span style="color:#6F42C1">clampLog</span><span style="color:#24292E">(state.text </span><span style="color:#D73A49">+</span><span style="color:#24292E"> delta.append) }),</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> runnerRuntime</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurface</span><span style="color:#24292E">(runnerSurface, {</span></span>
+<span class="line"><span style="color:#24292E">  feeds: { nodeLog },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E">nodeLog.</span><span style="color:#6F42C1">commit</span><span style="color:#24292E">({ id }, { append: text }); </span><span style="color:#6A737D">// update + publish atomically</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> attachFeed</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> feedFromOpenedSource</span><span style="color:#24292E">(</span><span style="color:#D73A49">async</span><span style="color:#24292E"> (</span><span style="color:#E36209">input</span><span style="color:#24292E">, </span><span style="color:#E36209">signal</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#6A737D">  // The endpoint returns an already-attached pair. It—not a later generic</span></span>
+<span class="line"><span style="color:#6A737D">  // subscriber—owns the asynchronous snapshot/delta boundary.</span></span>
+<span class="line"><span style="color:#D73A49">  const</span><span style="color:#005CC5"> attached</span><span style="color:#D73A49"> =</span><span style="color:#D73A49"> await</span><span style="color:#24292E"> terminalEndpoint.</span><span style="color:#6F42C1">attach</span><span style="color:#24292E">(input, signal);</span></span>
+<span class="line"><span style="color:#D73A49">  return</span><span style="color:#6F42C1"> withFeedEnd</span><span style="color:#24292E">(attached, </span><span style="color:#6F42C1">classifyTerminalAttachEnd</span><span style="color:#24292E">(attached, signal));</span></span>
+<span class="line"><span style="color:#24292E">});</span></span></code></pre>
+<p><code>feedState</code> registers the subscriber and reads its synchronous state in one JS stack; its state function cannot return a Promise. It owns per-input channels with the baked <code>FEED_QUEUE_LIMIT = 4096</code> and aborts on overflow so retry starts from a fresh snapshot; append deltas are never dropped. An arbitrary external <code>AsyncIterable</code> cannot masquerade as this source. <code>feedFromOpenedSource</code> instead requires the upstream opener to return an already-attached snapshot/delta pair and a classified end. Replacement streams receive equivalent safe constructors: install-before-read polling and channel-backed state. Subsequent read errors reject and reach retry/error state; the current log-and-continue <code>onStreamReadError</code> collapse is removed.</p>
+<p>The bound Feed reuses <code>createSubscription</code>’s existing reducer machinery. Declarative and ordinary imperative consumers enroll in health. The terminal exception is named at its call site:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> text</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> entry.feeds.nodeLog.</span><span style="color:#6F42C1">use</span><span style="color:#24292E">(</span></span>
+<span class="line"><span style="color:#24292E">  () </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ id }),</span></span>
+<span class="line"><span style="color:#24292E">  {</span></span>
+<span class="line"><span style="color:#24292E">    initial: </span><span style="color:#032F62">""</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#6F42C1">    snapshot</span><span style="color:#24292E">: ({ </span><span style="color:#E36209">text</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> text,</span></span>
+<span class="line"><span style="color:#6F42C1">    reduce</span><span style="color:#24292E">: (</span><span style="color:#E36209">text</span><span style="color:#24292E">, { </span><span style="color:#E36209">append</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> text </span><span style="color:#D73A49">+</span><span style="color:#24292E"> append,</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#24292E">entry.feeds.terminalAttach.</span><span style="color:#6F42C1">consumeUnenrolled</span><span style="color:#24292E">(</span></span>
+<span class="line"><span style="color:#24292E">  { terminalId },</span></span>
+<span class="line"><span style="color:#24292E">  {</span></span>
+<span class="line"><span style="color:#6F42C1">    onSnapshot</span><span style="color:#24292E">: (</span><span style="color:#E36209">bytes</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#6F42C1"> resetScrollLockAndWrite</span><span style="color:#24292E">(bytes),</span></span>
+<span class="line"><span style="color:#6F42C1">    onDelta</span><span style="color:#24292E">: (</span><span style="color:#E36209">bytes</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#6F42C1"> write</span><span style="color:#24292E">(bytes),</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">);</span></span></code></pre>
+<p>Both <code>consume</code> and <code>consumeUnenrolled</code> return owner-tied status and teardown; only the latter avoids the Surface-wide health registry. Every retry calls <code>onSnapshot</code> before deltas, so Kolu resets xterm and scroll lock at the correct boundary without a client-local reattach loop. The graduation sweep classifies Kaval <code>inventory</code>, <code>commandRun</code>, terminal attach, Drishti history, and Odu logs as Feeds. Drishti’s duplicate process stream is deleted in favor of collection <code>deltas</code>. Kaval <code>cwd</code>, <code>title</code>, and <code>exit</code> are Events; Kaval <code>foreground</code>, Padi activity, and Padi repo/file pulses remain replacement Streams.</p>
+<p><code>@kolu/surface/solid</code> also replaces Kolu’s six polled-query state machines with a thin adapter over Solid’s <a href="https://docs.solidjs.com/reference/basic-reactivity/create-resource"><code>createResource</code></a>, not another async-state engine. Identity is required data:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> status</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> createLiveQuery</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#6A737D">  // Stable by construction: membershipId is opaque, and a POSIX path</span></span>
+<span class="line"><span style="color:#6A737D">  // cannot contain NUL. Equal domain inputs produce the same key.</span></span>
+<span class="line"><span style="color:#6F42C1">  key</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=></span><span style="color:#032F62"> `${</span><span style="color:#24292E">entry</span><span style="color:#032F62">.</span><span style="color:#6F42C1">membershipId</span><span style="color:#032F62">()</span><span style="color:#032F62">}</span><span style="color:#005CC5">\0</span><span style="color:#032F62">${</span><span style="color:#24292E">props</span><span style="color:#032F62">.</span><span style="color:#24292E">repoPath</span><span style="color:#032F62">}`</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#6F42C1">  request</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({</span></span>
+<span class="line"><span style="color:#24292E">    membershipId: entry.</span><span style="color:#6F42C1">membershipId</span><span style="color:#24292E">(),</span></span>
+<span class="line"><span style="color:#24292E">    input: { repoPath: props.repoPath },</span></span>
+<span class="line"><span style="color:#24292E">  }),</span></span>
+<span class="line"><span style="color:#24292E">  invalidate: {</span></span>
+<span class="line"><span style="color:#24292E">    stream: entry.streams.subscribeRepoChange,</span></span>
+<span class="line"><span style="color:#6F42C1">    input</span><span style="color:#24292E">: ({ </span><span style="color:#E36209">input</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ repoPath: input.repoPath }),</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#6F42C1">  read</span><span style="color:#24292E">: ({ </span><span style="color:#E36209">input</span><span style="color:#24292E"> }, { </span><span style="color:#E36209">signal</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span></span>
+<span class="line"><span style="color:#24292E">    entry.procedures.git.</span><span style="color:#6F42C1">status</span><span style="color:#24292E">(input, { signal }),</span></span>
+<span class="line"><span style="color:#24292E">});</span></span></code></pre>
+<p>The adapter owns value-stable re-keying, abort-latest, completion, and pending/error state. The invalidation source is a retry-aware replacement Stream: its first snapshot and every reconnect snapshot trigger a refresh, which a plain Event could not guarantee. Kolu still owns which errors are domain-benign and how the result is rendered. The existing <code>createPolledQuery</code> regression suite is the acceptance test; if this adapter cannot pass it without adding policy flags, it does not graduate.</p>
+<h3 id="maps-and-remote-mirrors-own-membership-time">Maps and remote mirrors own membership time</h3>
+<p><code>SurfaceMap</code> takes a real failure schema, and failed status carries the value under one field:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">type</span><span style="color:#6F42C1"> EntryStatus</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">Failure</span><span style="color:#24292E">> </span><span style="color:#D73A49">=</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "warming"</span><span style="color:#24292E">; </span><span style="color:#E36209">membershipId</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E"> }</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "connected"</span><span style="color:#24292E">; </span><span style="color:#E36209">membershipId</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E">; </span><span style="color:#E36209">clockOffset</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> number</span><span style="color:#24292E"> }</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "failed"</span><span style="color:#24292E">; </span><span style="color:#E36209">membershipId</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> string</span><span style="color:#24292E">; </span><span style="color:#E36209">failure</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Failure</span><span style="color:#24292E"> };</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> padiHostMap</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> defineSurfaceMap</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  key: HostKeySchema,</span></span>
+<span class="line"><span style="color:#24292E">  codec: hostKeyCodec,</span></span>
+<span class="line"><span style="color:#24292E">  entry: padiSurface,</span></span>
+<span class="line"><span style="color:#24292E">  failure: PadiEntryFailureSchema,</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6F42C1">serveHostMap</span><span style="color:#24292E">(padiHostMap, pool, {</span></span>
+<span class="line"><span style="color:#6F42C1">  failureOf</span><span style="color:#24292E">(</span><span style="color:#E36209">host</span><span style="color:#24292E">, </span><span style="color:#E36209">session</span><span style="color:#24292E">, </span><span style="color:#E36209">downState</span><span style="color:#24292E">)</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> PadiEntryFailure</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">    return</span><span style="color:#6F42C1"> classifyPadiFailure</span><span style="color:#24292E">(host, session, downState); </span><span style="color:#6A737D">// exhaustive</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span></code></pre>
+<p>The migration starts from Padi’s real producers—contract skew, cross-supervisor, two drv failures, unconverged, link failure, and the structural cases currently collapsed into <code>other</code>—then gives every structural producer a named failure arm. An unclassified producer throws; neither Padi nor the framework may publish a renamed catch-all. Contract-skew detail is either <code>{kind: &quot;known&quot;, running, expected}</code> or <code>{kind: &quot;unknown&quot;}</code>—never a partially present pair. A schema validates this value; it does not derive one. <code>failureOf</code> is required and total, and a registry member cannot exist without a warming session, a live session, or a complete failure. Generic map code fabricates nothing.</p>
+<p><code>serveSurfaceMap</code> stamps <code>crypto.randomUUID()</code> as an opaque <code>membershipId</code> on every add. It keeps no per-key tombstones, never reuses an id after map-server restart, and publishes the id on every status arm. Clients key every cached owner on <code>{encodedKey, membershipId}</code>, so remove/re-add and authority restart rebuild subscriptions.</p>
+<p>A map entry exposes a non-owning <code>SurfaceClientView</code>: cells, read-only collection types, Streams, Feeds, Events, bound procedures, health, enrollment, and raw consumption. It does not expose <code>dispose</code>, because the map owns the shared cached client. <code>clockOffset</code> remains a typed wire fact on the connected arm and backs <code>entry.clock</code>; an adapter may add facts but may not erase underlying capability.</p>
+<p><code>mirrorRemoteSurface</code> selects collection <code>deltas</code> when declared and folds the initial snapshot plus batches into its existing sink. <code>reServeSurface</code> inherits that path and returns a normal supervised <code>SurfaceRuntime</code>. Relay loss crosses oRPC as a named retryable transport end; it is not flattened into the blanket non-retryable <code>ORPCError</code> arm.</p>
+<p>Parent-owned additions remain causally separate from mirroring:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// Shared by the parent server and browser client; collisions fail at type</span></span>
+<span class="line"><span style="color:#6A737D">// and boot time rather than overwriting a member by object spread.</span></span>
+<span class="line"><span style="color:#D73A49">export</span><span style="color:#D73A49"> const</span><span style="color:#005CC5"> browserSurface</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> extendSurface</span><span style="color:#24292E">(</span></span>
+<span class="line"><span style="color:#6F42C1">  mirroredSurface</span><span style="color:#24292E">(agentSurface),</span></span>
+<span class="line"><span style="color:#24292E">  historySurface,</span></span>
+<span class="line"><span style="color:#24292E">);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> remote</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> reServeSurface</span><span style="color:#24292E">({ source: agentSurface, session });</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> history</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> implementSurface</span><span style="color:#24292E">(historySurface, historyDeps);</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> recording</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> remote.observations.cells.system.</span><span style="color:#6F42C1">consume</span><span style="color:#24292E">(history.append);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> browser</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> extendSurfaceRuntime</span><span style="color:#24292E">(browserSurface, {</span></span>
+<span class="line"><span style="color:#24292E">  runtimes: { remote, history },</span></span>
+<span class="line"><span style="color:#24292E">  owned: { recording },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span></code></pre>
+<p>Observations fire after the remote fold commits. <code>recording.done</code> surfaces sampling failure without throwing from the mirror sink or corrupting its reconnect loop; the composed parent runtime supervises and closes both runtimes plus the recording. <code>extendSurface</code> rejects overlapping members both statically and at boot. Drishti can remove the inert agent history member and keep its 30-minute retention as local policy.</p>
+<h3 id="transport-and-protocol-adapters-keep-distinct-lifetimes">Transport and protocol adapters keep distinct lifetimes</h3>
+<p>The existing one-attempt role in Surface Remote moves down as the shared lease shape rather than being copied:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">interface</span><span style="color:#6F42C1"> SurfaceLease</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">Client</span><span style="color:#24292E">, </span><span style="color:#6F42C1">End</span><span style="color:#24292E">> {</span></span>
+<span class="line"><span style="color:#D73A49">  readonly</span><span style="color:#E36209"> client</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Client</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#D73A49">  readonly</span><span style="color:#E36209"> closed</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Promise</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">End</span><span style="color:#24292E">>;</span></span>
+<span class="line"><span style="color:#6F42C1">  isAlive</span><span style="color:#24292E">()</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Promise</span><span style="color:#24292E">&#x3C;</span><span style="color:#005CC5">void</span><span style="color:#24292E">>; </span><span style="color:#6A737D">// an actual round-trip half-open probe</span></span>
+<span class="line"><span style="color:#6F42C1">  teardown</span><span style="color:#24292E">()</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> void</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#24292E">}</span></span></code></pre>
+<p>Unix and owned stdio connections return leases with exhaustive peer-ended, transport-lost, protocol-failed, and owner-ended outcomes. A borrowed stdio link is not a lease because it owns neither stream. <code>SurfaceAppConnection</code> remains a logical reconnecting resource with reactive status, identity generations, combined suite health, and <code>dispose</code>; Surface Remote keeps its richer <code>Session</code> over successive leases. A transient transport end is not falsely called the end of either logical connection.</p>
+<p><code>connectSurfaceApp({ suite, url })</code> becomes the only owner of socket echo, one watchdog, stale-process retirement, and the suite clients. <code>&lt;SurfaceAppProvider connection={app}&gt;</code> consumes that resource instead of accepting overlapping socket/lifecycle pieces.</p>
+<p>Suite health is not “every map entry is ready.” It folds the shared transport, fixed Surface health, and each map’s membership-stream health. Domain readiness stays on <code>entry.health</code>/<code>entry.state</code>, so one failed remote host cannot close the global app gate.</p>
+<p>Service-worker deployment is a different lifetime. Two server-side constructors author a no-store bootstrap payload; browser boot parses that server-authored fact before exposing capabilities:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> deployment</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> notificationSurfaceApp</span><span style="color:#24292E">({ clickSchema });</span></span>
+<span class="line"><span style="color:#6F42C1">installSurfaceApp</span><span style="color:#24292E">(server, deployment); </span><span style="color:#6A737D">// serves mode in bootstrap payload</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> shell</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> bootSurfaceApp</span><span style="color:#24292E">(</span><span style="color:#6F42C1">readSurfaceAppBootstrap</span><span style="color:#24292E">());</span></span>
+<span class="line"><span style="color:#D73A49">if</span><span style="color:#24292E"> (shell.kind </span><span style="color:#D73A49">===</span><span style="color:#032F62"> "notify"</span><span style="color:#24292E">) shell.notify.</span><span style="color:#6F42C1">show</span><span style="color:#24292E">(</span><span style="color:#D73A49">...</span><span style="color:#24292E">);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">// A separate workerlessSurfaceApp() server definition can never produce</span></span>
+<span class="line"><span style="color:#6A737D">// the `notify` boot arm.</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> app</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> connectSurfaceApp</span><span style="color:#24292E">({ suite, url });</span></span></code></pre>
+<p>This completes the existing server-side mode discriminant without putting it on the WebSocket connection or trusting a separately bundled browser choice. Drishti cannot serve/retire a worker and still obtain a notification capability.</p>
+<p>Surface MCP extends its existing collection item templates with keyed Feed templates and uses the MCP SDK’s resource-template machinery:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6F42C1">serveSurfaceAsMcp</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  surface: agentSurface,</span></span>
+<span class="line"><span style="color:#24292E">  client: { kind: </span><span style="color:#032F62">"stable"</span><span style="color:#24292E">, client: agentClient },</span></span>
+<span class="line"><span style="color:#24292E">  expose: {</span></span>
+<span class="line"><span style="color:#24292E">    nodes: </span><span style="color:#032F62">"resource"</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#24292E">    nodeLog: {</span></span>
+<span class="line"><span style="color:#24292E">      resource: {</span></span>
+<span class="line"><span style="color:#24292E">        uriTemplate: </span><span style="color:#032F62">"surface://feeds/nodeLog/{id}"</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#6F42C1">        input</span><span style="color:#24292E">: ({ </span><span style="color:#E36209">id</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ id }),</span></span>
+<span class="line"><span style="color:#24292E">      },</span></span>
+<span class="line"><span style="color:#24292E">    },</span></span>
+<span class="line"><span style="color:#032F62">    "node.rerun"</span><span style="color:#24292E">: </span><span style="color:#032F62">"tool"</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">});</span></span></code></pre>
+<p>The mapper translates URI strings; the Feed’s existing input schema validates the result, so Odu does not duplicate <code>TaskIdSchema</code>. MCP owns each concrete URI’s abort, update notification, and disposal. It opens a new iterator only after a named retryable Feed end such as <code>source-replaced</code> or <code>source-unavailable</code>; normal finite completion stays complete. A stable client and an owned lease source are a discriminated API, never a bare-or-<code>{dispose}</code> union detected at runtime.</p>
+<p>For Odu, the stable client is projected Surface <strong>B</strong>, not the coordinator socket’s Surface <strong>A</strong>:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">type</span><span style="color:#6F42C1"> LeaseOpen</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">Client</span><span style="color:#24292E">, </span><span style="color:#6F42C1">End</span><span style="color:#24292E">> </span><span style="color:#D73A49">=</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "available"</span><span style="color:#24292E">; </span><span style="color:#E36209">lease</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> SurfaceLease</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">Client</span><span style="color:#24292E">, </span><span style="color:#6F42C1">End</span><span style="color:#24292E">> }</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> { </span><span style="color:#E36209">kind</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "unavailable"</span><span style="color:#24292E">; </span><span style="color:#E36209">reason</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "no-listener"</span><span style="color:#24292E"> };</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">type</span><span style="color:#6F42C1"> AgentSourcePort</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> SurfacePort</span><span style="color:#24292E">&#x3C;</span></span>
+<span class="line"><span style="color:#D73A49">  typeof</span><span style="color:#24292E"> oduSurface.spec,</span></span>
+<span class="line"><span style="color:#24292E">  {</span></span>
+<span class="line"><span style="color:#E36209">    cells</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "nodes"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#E36209">    feeds</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "nodeLog"</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#E36209">    procedures</span><span style="color:#D73A49">:</span><span style="color:#24292E"> { </span><span style="color:#E36209">node</span><span style="color:#D73A49">:</span><span style="color:#032F62"> "rerun"</span><span style="color:#24292E"> };</span></span>
+<span class="line"><span style="color:#24292E">  }</span></span>
+<span class="line"><span style="color:#24292E">>;</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> coordinator</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> surfaceClientFromLeases</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">AgentSourcePort</span><span style="color:#24292E">>(</span></span>
+<span class="line"><span style="color:#24292E">  oduSurface,</span></span>
+<span class="line"><span style="color:#24292E">  unixCoordinatorLeases,</span></span>
+<span class="line"><span style="color:#24292E">);</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> projection</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> projectSurface</span><span style="color:#24292E">&#x3C;</span><span style="color:#6F42C1">AgentSourcePort</span><span style="color:#24292E">>(oduSurface, agentProjection);</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> agentRuntime</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> projection.</span><span style="color:#6F42C1">implement</span><span style="color:#24292E">(coordinator, {</span></span>
+<span class="line"><span style="color:#24292E">  unavailable: {</span></span>
+<span class="line"><span style="color:#6F42C1">    nodes</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=></span><span style="color:#005CC5"> EMPTY_STATE</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#6F42C1">    nodeLog</span><span style="color:#24292E">: ({ </span><span style="color:#E36209">id</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">      const</span><span style="color:#005CC5"> context</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> resolveRunContext</span><span style="color:#24292E">();</span></span>
+<span class="line"><span style="color:#D73A49">      return</span><span style="color:#24292E"> context </span><span style="color:#D73A49">===</span><span style="color:#005CC5"> null</span></span>
+<span class="line"><span style="color:#D73A49">        ?</span><span style="color:#6F42C1"> missingLog</span><span style="color:#24292E">(id)</span></span>
+<span class="line"><span style="color:#D73A49">        :</span><span style="color:#6F42C1"> durableLog</span><span style="color:#24292E">(id, context.repoRoot, context.sha7);</span></span>
+<span class="line"><span style="color:#24292E">    },</span></span>
+<span class="line"><span style="color:#032F62">    "node.rerun"</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ ok: </span><span style="color:#005CC5">false</span><span style="color:#24292E"> }),</span></span>
+<span class="line"><span style="color:#24292E">  },</span></span>
+<span class="line"><span style="color:#24292E">}); </span><span style="color:#6A737D">// A -> stable local B</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> mcp</span><span style="color:#D73A49"> =</span><span style="color:#D73A49"> await</span><span style="color:#6F42C1"> serveSurfaceRuntimeAsMcp</span><span style="color:#24292E">({</span></span>
+<span class="line"><span style="color:#24292E">  runtime: agentRuntime,</span></span>
+<span class="line"><span style="color:#24292E">  expose: agentExposure,</span></span>
+<span class="line"><span style="color:#24292E">});</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">try</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">  await</span><span style="color:#24292E"> mcp.done;</span></span>
+<span class="line"><span style="color:#24292E">} </span><span style="color:#D73A49">finally</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">  await</span><span style="color:#24292E"> mcp.</span><span style="color:#6F42C1">close</span><span style="color:#24292E">(); </span><span style="color:#6A737D">// MCP + B runtime + every active A lease</span></span>
+<span class="line"><span style="color:#24292E">}</span></span></code></pre>
+<p><code>surfaceClientFromLeases</code> is spec-derived: each call or iterator is pinned to exactly one A lease and releases it on return/end. Lease acquisition returns the typed <code>unavailable</code> arm only for <code>ENOENT</code>/<code>ECONNREFUSED</code>; permission, descriptor, and protocol faults throw. The projection maps unavailability exhaustively per selected member to Odu’s no-run snapshot, durable log, or <code>{ok:false}</code>. It never silently attaches that iterator to a later coordinator—<code>wait_for_settle</code> therefore keeps its one-run contract. Only the MCP resource-subscription owner may open a successive B iterator after a named retryable end and an abortable backoff. MCP never mistakes A for B, and its composed owner closes B plus all A leases. This deletes the handwritten partial <code>redialingAClient</code> while preserving the two-Surface boundary.</p>
+<p>Bespoke MCP tools are contextually typed from <code>surface</code> inside <code>serveSurfaceAsMcp</code>; no separate <code>defineMcpTools</code> selection is added. <code>SurfacePort</code> is an explicit type-only selection—the single source-port description used by both <code>projectSurface</code> and the lease-derived client—so it avoids TS2590 without creating another runtime allowlist.</p>
+<h2 id="how-the-consumers-become-smaller">How the consumers become smaller</h2>
+<h3 id="kolu">Kolu</h3>
+<p>Kolu common exports one suite from <code>surfacesWithPadi</code>: <code>kolu</code>, <code>app</code>, and the <code>padi</code> map. Server-only contract widening, router splicing, the <code>&quot;padi&quot;</code> client key, and parallel root contract disappear. The remaining root RPCs become procedures on the Kolu Surface. The server retains <code>implementSurfaceOnPublisher</code> because its shared publisher ordering is real behavior.</p>
+<p>Member kinds replace <code>PADI_FORWARDING_POLICY</code>. Terminal attach plus Kaval inventory/command-run become Feeds; Kaval cwd/title/exit are Events; Kaval foreground, Padi repo/file pulses, and other replacement state remain Streams. Bound procedures delete <code>PadiRpc</code>; membership ids delete <code>connectionRearm</code>; retryable Feed relay deletes <code>consumeReattachingStream</code>. <code>createLiveQuery</code> receives an explicit stable key containing the entry membership id, so an active-host rebind cannot reuse stale async state. Active-host choice, daemon convergence, terminal painting, and user-facing failure copy remain Kolu.</p>
+<p>Kolu’s app connection becomes the sole socket lifecycle. Its HTTP+WebSocket RPC mount may get a dedicated Node/Hono constructor only after Drishti first adopts the existing <code>acceptSurfaceSocket</code> and a duplicate still remains; a universal HTTP+WS mount is rejected because Drishti intentionally serves WebSocket only.</p>
+<h3 id="drishti">Drishti</h3>
+<p>Drishti’s suite contains <code>admin</code>, <code>app</code>, and the <code>hosts</code> map. It no longer creates a server-only widened contract or calls <code>connectSurfaceMap(..., &quot;hosts&quot;)</code>. Each entry retains health and typed procedures, so a host view uses a normal <code>SurfaceGate</code> and <code>entry.procedures.process.kill</code>.</p>
+<p>The agent keeps one <code>processes</code> collection with read-only wire verbs plus <code>deltas</code>. The duplicate <code>processesSnapshot</code> schema, agent bus, parent relay bus/cache, and browser reducer disappear. Parent history is a separate local runtime extended onto the re-served agent surface, and post-commit observation records samples without becoming part of the mirror sink. Alert policy, history retention, charts, host persistence, and notification permission remain Drishti.</p>
+<p>The server’s <code>notificationSurfaceApp</code> or <code>workerlessSurfaceApp</code> definition authors the no-store browser bootstrap fact. Browser boot parses it before exposing capability. The current notify-plus-retire contradiction becomes unrepresentable without coupling worker deployment to WebSocket reconnect.</p>
+<h3 id="odu">Odu</h3>
+<p>Odu’s runner and coordinator hand each final <code>SurfaceRuntime</code> resource to stdio or Unix serving, which observes <code>done</code> and owns shutdown. Log tail is a local Feed with a framework-owned bounded channel; the lost-update window and unbounded append queue disappear.</p>
+<p>The coordinator remains Surface A. A lease-derived client feeds the local A-to-B projection, and Surface MCP receives only B’s stable direct client. The keyed log Feed becomes a resource template. The fake <code>logs</code> collection, relaxed duplicate key schema, stale cache, detached follower, late <code>setPublish</code>, handwritten partial client, and three manual router-finalization wraps disappear.</p>
+<p>Odu’s one-shot-after-first-attach lane rule stays local: CI task state cannot survive runner replacement, so a <code>reconnect: false</code> framework flag would mix two contracts. “No coordinator means no live run,” durable-log selection, task states, pipeline policy, and rerun meaning remain Odu. Its broad catches still need local correction: only <code>ENOENT</code> is a missing log, and a transport fault is not an ordinary <code>false</code> rerun result.</p>
+<h2 id="landing-and-proof">Landing and proof</h2>
+<p>This spans three repositories and changes Surface client/server contracts, so it lands in dependency order. These are real pinning boundaries, not decorative phases.</p>
+<table>
+<thead>
+<tr>
+<th>Change set</th>
+<th>Framework work</th>
+<th>Consumer proof that ships with it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Runtime and members</td>
+<td>Final supervised runtime, owned channels, bound procedures, verb-derived read-only collections, Stream/Event/Feed source roles, reducer and imperative Feed consumers.</td>
+<td>Migrate framework examples plus Odu runner/coordinator. Deterministically publish around the snapshot boundary, reject async local snapshots at type level, exercise opened terminal attach, overflow→retry→fresh snapshot, and prove runtime failure/close supervision.</td>
+</tr>
+<tr>
+<td>Suite, map, and remote</td>
+<td>New split-entrypoint <code>@kolu/surface-suite</code>, complete non-owning entry views, total failure schema/producer, opaque membership id, delta-aware mirror, retryable relay end, runtime extension and post-commit observation.</td>
+<td>Migrate Kolu and a paired, CI-green Drishti pin to the final Kolu head. Prove fixed+map suite parity, remove/re-add and authority restart, process deltas without N value streams, and parent history without an agent stub.</td>
+</tr>
+<tr>
+<td>Projection and MCP</td>
+<td>Lease-derived Surface client, keyed Feed templates, explicit stable/lease ownership, contextual tool types, projection-derived type port.</td>
+<td>Pin Odu to final Kolu head. Restart a coordinator through a no-listener gap on the same path and node id without stale text; close MCP with a live subscription and prove every follower/lease is gone.</td>
+</tr>
+<tr>
+<td>App shell</td>
+<td>One suite-aware <code>SurfaceAppConnection</code>, provider-by-connection, and shared notification/workerless deployment definitions.</td>
+<td>Migrate Kolu and Drishti. Prove one watchdog, stale-process retirement, server/browser worker agreement, and absence of notification capability in workerless mode.</td>
+</tr>
+</tbody>
+</table>
+<p>The implementation is complete only when these negative properties hold:</p>
+<ul>
+<li>No production consumer imports oRPC <code>implement</code> merely to finalize a Surface; no serving API accepts private mount material; every serving API observes <code>runtime.done</code> and owns shutdown.</li>
+<li>Every runtime-owned async source is abortable/disposable; child failure reaches <code>done</code>; repeated close is harmless.</li>
+<li>No production consumer casts a declared Surface procedure or copies its callable client shape.</li>
+<li>Kolu and Drishti contain no <code>as any</code> contract/map splice and no string sibling key at the connection site.</li>
+<li>A map member cannot enter failed state without a schema-valid domain failure, and no framework fallback cause exists.</li>
+<li>A map add always gets a never-reused membership id; every owner/cache switches on it.</li>
+<li>A failed map entry does not collapse the suite-wide app gate; entry readiness stays per entry.</li>
+<li>A Feed cannot publish a delta before its snapshot, append deltas are never dropped, and retry cannot append to the previous incarnation’s accumulator.</li>
+<li>Every client-side async iterator still carries <code>STREAM_RETRY</code>; imperative Feed consumption preserves terminal’s deliberate global-health carve-out.</li>
+<li>Drishti has one process protocol and no inert parent-owned member on the agent.</li>
+<li>Odu exposes projected B to MCP, has no synthetic log collection, and leaves no lease or follower after its owner closes.</li>
+</ul>
+<p>Update each affected package README and the Surface, Surface Suite, Surface Map, Surface Remote, Surface App, and Surface MCP reference pages with the change that introduces each API. Correct the two stale daemon/supervisor dependency claims in the same documentation pass. Update Kolu’s canonical architecture page when the suite replaces its contract/router assembly. Each framework change runs package tests and full CI; every downstream proof runs its own CI against the exact Kolu commit it pins.</p>
+<aside class="callout callout-good" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The boundary test</p><div class="callout-body" data-astro-cid-q2ml7llr><p>If a caller is choosing active hosts, retention windows, alert text, or what a failed CI lane means, it is application policy. If a caller is reconstructing router topology, subscription ordering, membership identity, attempt ownership, retry boundaries, or protocol disposal, the framework stopped too early.</p></div></aside></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+<script>
+  (function () {
+    var fns = Array.prototype.slice.call(
+      document.querySelectorAll(".fn[data-fn]"),
+    );
+    if (!fns.length) return;
+
+    // Position an open popover: reset, measure, then pull it back inside the
+    // viewport horizontally and flip it above the marker if it overflows below.
+    function place(fn) {
+      var pop = fn.querySelector(".fn-pop");
+      if (!pop) return;
+      pop.style.setProperty("--fn-x", "0px");
+      pop.classList.remove("fn-pop-above");
+      var r = pop.getBoundingClientRect();
+      var pad = 8;
+      var dx = 0;
+      if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+      else if (r.left < pad) dx = pad - r.left;
+      if (dx) pop.style.setProperty("--fn-x", dx + "px");
+      if (r.bottom > window.innerHeight - pad) pop.classList.add("fn-pop-above");
+    }
+
+    function setPinned(fn, on) {
+      fn.classList.toggle("is-pinned", on);
+      var btn = fn.querySelector(".fn-ref");
+      if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+
+    function unpinAll(except) {
+      fns.forEach(function (fn) {
+        if (fn !== except) setPinned(fn, false);
+      });
+    }
+
+    fns.forEach(function (fn) {
+      var btn = fn.querySelector(".fn-ref");
+      if (!btn) return;
+      // Place on reveal so the CSS-shown popover lands in the right spot.
+      btn.addEventListener("pointerenter", function () {
+        place(fn);
+      });
+      btn.addEventListener("focus", function () {
+        place(fn);
+      });
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pin = !fn.classList.contains("is-pinned");
+        unpinAll(fn);
+        setPinned(fn, pin);
+        if (pin) place(fn);
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.closest || !t.closest(".fn[data-fn]")) unpinAll(null);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") unpinAll(null);
+    });
+    window.addEventListener("resize", function () {
+      fns.forEach(function (fn) {
+        if (fn.classList.contains("is-pinned")) place(fn);
+      });
+    });
+  })();
+</script></body></html>
