@@ -32,6 +32,7 @@
 
 import { scopedByEntry } from "@kolu/surface-map/client";
 import type { Subscription } from "@kolu/surface/solid";
+import { windowedSub } from "../hostScope/windowedSub.ts";
 import { activeHost, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 
@@ -41,12 +42,12 @@ export function perHostPolledQuery<Input, PulseInput, Pulse, Result>(
   const scopes = scopedByEntry(padiMap, activeHost, (_host, ctx) =>
     createPolledQuery({ ...config, active: ctx.isActive }),
   );
-  // A stable facade over the active host's retained query instance. `undefined`
-  // during the removal race floors to a pre-first-value sub (pending, no value).
-  const activeSub = (): Subscription<Result> | undefined => scopes.active();
-  return Object.assign((): Result | undefined => activeSub()?.(), {
-    pending: (): boolean => activeSub()?.pending() ?? true,
-    error: (): Error | undefined => activeSub()?.error(),
-    complete: (): boolean => activeSub()?.complete?.() ?? false,
-  }) as Subscription<Result>;
+  // A stable facade over the active host's retained query instance, via the shared
+  // `windowedSub` floor helper. `undefined` during the removal race floors to a
+  // pre-first-value sub (pending, no value).
+  return windowedSub(
+    () => scopes.active(),
+    (v) => v,
+    undefined,
+  );
 }

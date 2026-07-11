@@ -30,6 +30,7 @@ import type { RecentAgent, RecentRepo, SavedSession } from "@kolu/padi/surface";
 import type { Subscription } from "@kolu/surface/solid";
 import type { TerminalId } from "kolu-common/surface";
 import { activeScope } from "./hostScopes.ts";
+import { windowedSub } from "./windowedSub.ts";
 
 export const recentRepos = (): RecentRepo[] =>
   activeScope()?.wire.activityFeed.value()?.recentRepos ?? [];
@@ -41,43 +42,6 @@ export const recentAgents = (): RecentAgent[] =>
  *  held value with no pending gap. */
 export const savedSession = (): SavedSession | null =>
   activeScope()?.wire.session.value() ?? null;
-
-/** Window an optional reactive owner (`select()`) into a floored `Subscription<T>`.
- *
- *  `savedSessionSub` and `terminalListSub` are the same concept — "window the active
- *  host's RETAINED sub into a STABLE facade" — differing only in which member they
- *  select and how they map its value. This helper is that concept, so the removal-race
- *  floor rule lives in ONE place and can't drift from `Subscription`'s shape or be
- *  re-stamped wrong at a new facade: `select()` is briefly `undefined` during the removal
- *  race (the active host left the pool; `wire.ts`'s reconcile re-points `activeHost` a
- *  tick later), and every field floors that gap the same way — `pending` to `true`
- *  (nothing to report reads pre-first-value), `error` passes through, `complete` to
- *  `false`, and the value to `floor` (the caller's empty form) when the source is absent
- *  or yields nullish.
- *
- *  `complete` is FORWARDED, not dropped: `session.sub` / `terminalKeys` are minted by
- *  this module's subscription factories, which always populate `complete` — omitting it
- *  would silently strand a consumer that checks it (there is none today, but the
- *  field-audit rule is "populate what the source has," not "only what today's readers
- *  use"). */
-function windowedSub<S, T>(
-  select: () => Subscription<S> | undefined,
-  map: (v: NonNullable<S>) => T,
-  floor: T | undefined,
-): Subscription<T> {
-  return Object.assign(
-    (): T | undefined => {
-      const s = select();
-      const v = s?.();
-      return v == null ? floor : map(v as NonNullable<S>);
-    },
-    {
-      pending: (): boolean => select()?.pending() ?? true,
-      error: (): Error | undefined => select()?.error(),
-      complete: (): boolean => select()?.complete?.() ?? false,
-    },
-  );
-}
 
 /** The active host's saved-session Subscription handle — a STABLE facade (held by
  *  reference: `useSessionRestore`, `TerminalCanvas`) delegating to the retained session
