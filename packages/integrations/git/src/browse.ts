@@ -5,10 +5,11 @@
  *  listing `node_modules/`, `.git/`, build artifacts, etc. */
 
 import { execFile } from "node:child_process";
-import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { open as fsOpen, readFile as fsReadFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { err, type GitResult, ok } from "./errors.ts";
+import { err, type GitResult, isFileGoneError, ok } from "./errors.ts";
 import { resolveExistingUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
@@ -127,20 +128,97 @@ export async function readFile(
   }
 }
 
-/** Stat a file's mtime in ms-since-epoch, used to cache-bust the iframe URL
- *  for binary previewable kinds. Same path-traversal guard as `readFile`. */
-export async function statFileMtimeMs(
+/** A cache-buster TAG for the iframe preview URL (the `?v=<tag>` on the binary
+ *  route). The contract: the tag changes **iff the file's bytes change**, so an
+ *  edit reloads the preview but an identical-content rewrite does NOT. The
+ *  latter — a `git checkout` across branches, or a formatter's atomic
+ *  write-and-rename — bumps mtime without changing content, and a mtime-keyed
+ *  URL would reload the iframe and scroll a mid-scrolled preview to the top.
+ *
+ *  So the tag is a hash of the CONTENT, not the mtime: the file's bytes are the
+ *  honest identity of "has this preview changed?", where mtime is only a proxy
+ *  that a working-tree re-materialization falsely trips. The WHOLE file is
+ *  hashed — no size cutoff, no leading-bytes shortcut — so a tail-only edit of a
+ *  large previewable file (a 40 MiB generated HTML report, a big PDF) is never
+ *  silently missed: every previewable kind reflects its full content, not a
+ *  prefix that a mid/tail edit leaves untouched.
+ *
+ *  Bounded heap regardless of size: the bytes stream through one open handle in
+ *  the read-stream's fixed-size chunks (`createReadStream`'s default 64 KiB
+ *  highWaterMark), fed to the hash chunk-by-chunk — so even a multi-GB video is
+ *  hashed without ever landing whole in the (possibly remote) padi heap,
+ *  honoring serve-dir's never-buffer invariant on this identity path too. The
+ *  single open handle pins ONE inode: an atomic write-and-rename mid-hash yields
+ *  a consistent snapshot of the file we opened, never a torn stat/read pair
+ *  where the size and the bytes describe different inodes (the same reason
+ *  serve-dir derives size + body from one `open`, not a `stat(path)` then a
+ *  separate read of the path).
+ *
+ *  The bytes are read once per on-disk *change* (the `subscribeFileChange` pulse
+ *  is debounced and fires only on real repo events, never on a timer), and only
+ *  for the bounded set of binary-previewable kinds. Same path-traversal guard as
+ *  `readFile`.
+ *
+ *  Cancellable: the caller (a superseded `createPolledQuery`) aborts the request
+ *  `signal` when its input changes or a fresh pulse re-fires. We check it before
+ *  opening and between chunks so a hash whose result is already stale — most
+ *  costly on a multi-GB video where a full read runs for seconds — stops promptly
+ *  instead of burning disk and CPU while overlapping the next scan. On abort we
+ *  re-throw the abort (not a `GIT_FAILED` err) so the surface framework sees a
+ *  cancellation, and the catch does not misclassify it as an I/O fault to log. */
+export async function filePreviewTag(
   repoPath: string,
   filePath: string,
   log?: Logger,
-): Promise<GitResult<number>> {
+  signal?: AbortSignal,
+): Promise<GitResult<string>> {
   const resolved = await resolveExistingUnder(repoPath, filePath, log);
-  if (!resolved.ok) return resolved as GitResult<number>;
+  if (!resolved.ok) return resolved as GitResult<string>;
+  const abs = resolved.value.abs;
   try {
-    const s = await fsStat(resolved.value.abs);
-    return ok(s.mtimeMs);
+    signal?.throwIfAborted();
+    const hash = createHash("sha1");
+    // One open handle for the whole read: size-and-bytes-from-one-inode (no
+    // TOCTOU on an atomic replace) and a bounded, streamed hash (never a
+    // whole-file slurp, whatever the size). `autoClose: false` so the `finally`
+    // owns the handle's close deterministically — including when an abort throws
+    // out of the loop mid-read (the iterator's `return()` destroys the stream,
+    // then `finally` closes the fd we still own).
+    const fh = await fsOpen(abs, "r");
+    try {
+      for await (const chunk of fh.createReadStream({ autoClose: false })) {
+        signal?.throwIfAborted();
+        hash.update(chunk as Buffer);
+      }
+    } finally {
+      // Close failures are not actionable once the read is done, and must never
+      // MASK a real error propagating out of the try (JS discards the original
+      // throw when a `finally` throws) — swallow close's own error so the
+      // caught error below is the true root cause.
+      await fh.close().catch(() => {});
+    }
+    return ok(hash.digest("hex"));
   } catch (e: unknown) {
+    // A superseded query aborted mid-hash: propagate the cancellation untouched
+    // — it is neither a missing file nor an I/O fault, so it must not log or
+    // collapse to a `GIT_FAILED` err the endpoint would then re-throw opaquely.
+    // Key off the ERROR's identity (the `AbortError` `throwIfAborted` raises),
+    // not `signal.aborted`: a genuine I/O fault that happens to land after the
+    // signal aborted for an unrelated reason must still be logged as a fault,
+    // not silently misread as the cancellation.
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
     const msg = e instanceof Error ? e.message : String(e);
-    return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });
+    // A file deleted while the Code tab is viewing it (ENOENT) is EXPECTED — the
+    // delete-while-viewing race servePadi maps to a typed NOT_FOUND — so it logs
+    // at debug, not error. Any other failure is a genuine, unexpected preview
+    // I/O fault and MUST surface at error level for operators (errors-must-log-
+    // at-error). The gone-file test is the SAME predicate servePadi's
+    // `fileGoneAsNotFound` maps on — one source of truth, so they can't drift.
+    if (isFileGoneError(e)) {
+      log?.debug({ err: msg, repoPath, filePath }, "preview-tag file gone");
+    } else {
+      log?.error({ err: msg, repoPath, filePath }, "preview-tag hash failed");
+    }
+    return err({ code: "GIT_FAILED", message: `Failed to hash file: ${msg}` });
   }
 }

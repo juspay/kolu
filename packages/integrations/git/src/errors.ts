@@ -21,3 +21,15 @@ export function ok<T>(value: T): GitResult<T> {
 export function err<T>(error: GitError): GitResult<T> {
   return { ok: false, error };
 }
+
+/** True when a caught error means "the file is gone" — a raw node `ENOENT`,
+ *  however it surfaced (a native `code`, or the message when the code was lost
+ *  crossing a boundary). The single source of truth for the delete-while-viewing
+ *  race, shared by the kolu-git leaf that classifies its own log level and by
+ *  servePadi's `fileGoneAsNotFound` wire mapping — so the two can't drift. */
+export function isFileGoneError(e: unknown): boolean {
+  return (
+    (e as { code?: string } | null)?.code === "ENOENT" ||
+    /ENOENT|no such file/i.test(String((e as Error | null)?.message ?? ""))
+  );
+}

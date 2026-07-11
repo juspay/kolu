@@ -28,13 +28,14 @@ describe("padiSurface 1.0 contract", () => {
     // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
     // `hostInventory` cell (the "Running daemons" leak diagnostic); 1.3 ADDS the
     // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host) —
-    // all additive minors over 1.0. 2.0 (BREAKING) ADDS the per-terminal right-panel
-    // `collapsed` field (the panel follows the terminal, #959): a MAJOR bump because
-    // its unsafe skew direction is old-client/new-padi — an older client's whole-record
-    // `chrome.setRightPanel` write OMITS `collapsed`, the shared schema defaults it
-    // false, and the record REPLACE clobbers a newer client's persisted `collapsed:true`.
-    // That is the direction `isContractVersionCompatible` waves through, so a minor bump
-    // would not catch it (mirrors `PTY_HOST_CONTRACT_VERSION` 5.0's reasoning).
+    // all additive minors over 1.0. 2.0 is the first MAJOR, carrying TWO breaking
+    // changes: (a) it ADDS the per-terminal right-panel `collapsed` field (the panel
+    // follows the terminal, #959) — a major because its unsafe skew is old-client/
+    // new-padi (an older client's whole-record `chrome.setRightPanel` write omits
+    // `collapsed`, the schema defaults it false, and the REPLACE clobbers a newer
+    // client's persisted `collapsed:true` — the direction `isContractVersionCompatible`
+    // otherwise waves through); and (b) it REMOVES `fs.statFileMtimeMs` for
+    // `fs.filePreviewTag` — a shape-breaking rename. Both must refuse a 1.x↔2.0 skew.
     expect(PADI_SURFACE_VERSION).toBe("2.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
@@ -116,7 +117,7 @@ describe("padiSurface 1.0 contract", () => {
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
       "readFile",
-      "statFileMtimeMs",
+      "filePreviewTag",
     ]);
     expect(Object.keys(procs.git ?? {})).toEqual([
       "getStatus",

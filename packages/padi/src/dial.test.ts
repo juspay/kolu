@@ -527,17 +527,17 @@ describe("assertPadiSurfaceCompatible", () => {
     );
   });
 
-  // Only expressible when this build's minor is > 0; at minor 0 (a fresh major,
-  // e.g. 2.0) an OLDER padi is necessarily an older MAJOR — the case above already
-  // proves that skew is refused — so there's no in-major older minor to construct.
-  it.skipIf(minor === 0)(
-    "REFUSES an older MINOR (a padi too old for this client)",
-    () => {
-      expect(() =>
-        assertPadiSurfaceCompatible(`${major}.${minor - 1}`),
-      ).toThrow(DaemonContractSkewError);
-    },
-  );
+  it("REFUSES an older version (a padi too old for this client)", () => {
+    // "Too old" is an earlier minor within the same major, or an earlier major
+    // entirely. At a `.0` build (this major's floor) only the earlier-major form
+    // is expressible, so pick whichever is genuinely older than this build — this
+    // keeps the older-skew covered even at a fresh major (2.0), where an in-major
+    // older minor doesn't exist.
+    const older = minor > 0 ? `${major}.${minor - 1}` : `${major - 1}.0`;
+    expect(() => assertPadiSurfaceCompatible(older)).toThrow(
+      DaemonContractSkewError,
+    );
+  });
 
   it("REFUSES an unparseable version string", () => {
     expect(() => assertPadiSurfaceCompatible("not-a-version")).toThrow(

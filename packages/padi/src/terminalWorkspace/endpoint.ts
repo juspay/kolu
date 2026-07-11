@@ -22,7 +22,7 @@ import {
   type GitResult,
   listAll,
   readFile,
-  statFileMtimeMs,
+  filePreviewTag,
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
@@ -46,7 +46,11 @@ export interface TerminalEndpointFs {
     repoPath: string,
     filePath: string,
   ): Promise<{ content: string; truncated: boolean }>;
-  statFileMtimeMs(repoPath: string, filePath: string): Promise<number>;
+  filePreviewTag(
+    repoPath: string,
+    filePath: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
   subscribeFileChange(
     repoPath: string,
@@ -129,8 +133,8 @@ export function createTerminalWorkspaceEndpoint(
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));
     },
-    async statFileMtimeMs(repoPath, filePath) {
-      return unwrapGit(await statFileMtimeMs(repoPath, filePath, log));
+    async filePreviewTag(repoPath, filePath, signal) {
+      return unwrapGit(await filePreviewTag(repoPath, filePath, log, signal));
     },
     subscribeRepoChange(repoPath, onChange) {
       return subscribeRepoChange(repoPath, onChange, log);

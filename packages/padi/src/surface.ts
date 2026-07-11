@@ -124,29 +124,36 @@ export * from "./vocab.ts";
  *  boot time, the per-host twin of the control-core `hello` — see
  *  {@link PadiIdentitySchema}).
  *
- *  2.0 (BREAKING · major) ADDS the `collapsed` field to the per-terminal right-panel
- *  record (`RightPanelPerTerminalStateSchema`, which rides BOTH the `terminals`
- *  metadata collection AND the `chrome.setRightPanel` command input) — the panel's
- *  collapsed posture moved off the global preference to follow the terminal (#959).
- *  Unlike the additive minors above, this is a MAJOR bump for the same reason
- *  `PTY_HOST_CONTRACT_VERSION` 5.0 is: the breaking direction is old-client/new-padi
- *  — the ONE direction `isContractVersionCompatible` actually WAVES THROUGH (an old
- *  client accepts a newer-minor padi, reported minor >= its own). `chrome.setRightPanel`
- *  is a whole-record REPLACE (`m.rightPanel = state` in `terminals.ts`), so an OLDER
- *  client that omits `collapsed` on a tab/file write has the shared schema's
- *  `.default(false)` fill it in, then the replace CLOBBERS a persisted `collapsed:true`
- *  set by a newer client on that same terminal — silent state loss a minor bump would
- *  not catch. (The new-client/old-padi direction — old padi can't persist the field —
- *  a minor bump WOULD have gated, but that is not the unsafe direction here.) A major
- *  bump makes `isContractVersionCompatible` reject the skew in BOTH directions (major
- *  mismatch), so each side forces an honest "upgrade the other side" recycle rather
- *  than a silently-clobbered record. Additive growth (a new optional field / stream /
- *  procedure / cell that does NOT ride a shared whole-record client write) stays a
- *  minor bump; a shape-breaking change — or a persisted-record field addition on a
- *  client-written whole-record command, as here — is a major. A remote dial gates an
- *  incompatible padi via `isContractVersionCompatible`. Distinct from
- *  {@link CONTROL_CORE_VERSION}, which is frozen forever so a contract-revving deploy
- *  can still reach the daemon's control core. */
+ *  2.0 is the first MAJOR bump, and it carries TWO independent breaking changes that
+ *  landed in the same release:
+ *
+ *  (a) the per-terminal right-panel `collapsed` field is ADDED to
+ *  `RightPanelPerTerminalStateSchema` (which rides BOTH the `terminals` metadata
+ *  collection AND the `chrome.setRightPanel` command input) — the panel's collapsed
+ *  posture moved off the global preference to follow the terminal (#959). Its unsafe
+ *  skew direction is old-client/new-padi — the ONE direction `isContractVersionCompatible`
+ *  would otherwise WAVE THROUGH (an old client accepts a newer-minor padi): a
+ *  `chrome.setRightPanel` write is a whole-record REPLACE (`m.rightPanel = state` in
+ *  `terminals.ts`), so an OLDER client that omits `collapsed` has the shared schema's
+ *  `.default(false)` fill it in, then the replace CLOBBERS a newer client's persisted
+ *  `collapsed:true` on that terminal — silent state loss a minor would not catch
+ *  (mirrors `PTY_HOST_CONTRACT_VERSION` 5.0's reasoning).
+ *
+ *  (b) `fs.statFileMtimeMs` (a stat-mtime probe) is REMOVED and `fs.filePreviewTag`
+ *  (a content-hash tag) put in its place — a shape-breaking rename in BOTH directions
+ *  (a 1.x binder calling `statFileMtimeMs` on a 2.0 padi, or a 2.0 binder calling
+ *  `filePreviewTag` on a 1.x padi, each hit a missing procedure).
+ *
+ *  Either one alone forces a major: only a major flips `isContractVersionCompatible`
+ *  to refuse the skew in BOTH directions, so each side forces an honest "upgrade the
+ *  other side" recycle rather than a silently-clobbered record or a vanished procedure.
+ *  Additive growth (a new optional field / stream / procedure / cell that does NOT ride
+ *  a shared whole-record client write) stays a minor bump; a shape-breaking change — or
+ *  a persisted-record field addition on a client-written whole-record command, as in
+ *  (a) — is a major. A remote dial gates an incompatible padi via
+ *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION}, which is
+ *  frozen forever so a contract-revving deploy can still reach the daemon's control
+ *  core. */
 export const PADI_SURFACE_VERSION = "2.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -721,7 +728,7 @@ export const padiSurface = defineSurface({
         input: FsFileInputSchema,
         output: FsReadFileTextOutputSchema,
       },
-      statFileMtimeMs: { input: FsFileInputSchema, output: z.number() },
+      filePreviewTag: { input: FsFileInputSchema, output: z.string() },
     },
     /** Git reads + worktree mutations scoped to a repo on the serving host — a
      *  worktree materializing on the wrong machine is unspellable. */

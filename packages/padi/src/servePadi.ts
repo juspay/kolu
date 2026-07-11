@@ -21,7 +21,7 @@ import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
 import { currentPtyHostIdentity } from "kaval";
-import { worktreeCreate, worktreeRemove } from "kolu-git";
+import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { cancelPendingAutosave } from "./autosaveGate.ts";
 import {
@@ -94,10 +94,7 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
  *  not-found, and typing it lets a delete-while-viewing be swallowed at the
  *  consumer instead of masking to a generic error panel. */
 function fileGoneAsNotFound(e: unknown, filePath: string): unknown {
-  const gone =
-    (e as { code?: string } | null)?.code === "ENOENT" ||
-    /ENOENT|no such file/i.test(String((e as Error | null)?.message ?? ""));
-  return gone
+  return isFileGoneError(e)
     ? new ORPCError("NOT_FOUND", { message: `File not found: ${filePath}` })
     : e;
 }
@@ -451,11 +448,16 @@ export function buildPadiSurfaceDeps(deps: {
             throw fileGoneAsNotFound(e, input.filePath);
           }
         },
-        statFileMtimeMs: async ({ input }) => {
+        filePreviewTag: async ({ input, signal }) => {
           try {
-            return await endpoint.fs.statFileMtimeMs(
+            // Thread the request `signal` so a superseded preview query (input
+            // changed, or a fresh file-change pulse re-fired) aborts the whole-
+            // file hash mid-read instead of running to completion — the cost is
+            // real on a multi-GB video where the read runs for seconds.
+            return await endpoint.fs.filePreviewTag(
               input.repoPath,
               input.filePath,
+              signal,
             );
           } catch (e) {
             throw fileGoneAsNotFound(e, input.filePath);
