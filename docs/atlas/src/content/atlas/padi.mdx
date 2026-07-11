@@ -1,6 +1,6 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W8 all shipped; next up W9 (instant host switch-back), with the cleanup ledger in parallel.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W8 all shipped; next up W9 (instant host switch-back), then W10 (host membership survives a restart), with the cleanup ledger in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
@@ -41,6 +41,7 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W6 · the honest connect — the connection type made perfect + the connect overlay", m: "#1730 · drishti#92 · 2026-07-09", h: "#w6" },
   { d: 0, g: "✓", c: "ship", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "#1759 · drishti#93 in review · 2026-07-11", h: "#w5" },
   { d: 0, g: "○", c: "prog", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "next — W5 ✓", h: "#w9" },
+  { d: 0, g: "○", c: "prog", l: "W10 · hosts survive a restart — pool membership persisted beside its one writer", m: "ratified 2026-07-11 · after W9", h: "#w10" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -168,13 +169,15 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="shipped" needs={["W4"]} links={[{ label: "#1759", href: "https://github.com/juspay/kolu/pull/1759" }]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
 <Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="todo" needs={["W7"]} />
+<Phase id="W10" name="hosts survive a restart — pool membership persisted beside its one writer" status="todo" needs={["W6"]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **As of 2026-07-11, in order:**
 
 1. **W9 — instant host switch-back** is the next feature phase: W5 shipped (<PrLink pr={1759} />, 2026-07-11), and a 2026-07-11 root-cause pinned why every host switch still rebuilds the whole canvas — the cure is completing W7's K1 (below).
-2. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
-3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
+2. **W10 — hosts survive a restart** follows (ratified 2026-07-11): server-side, no code dependency on W9 — it takes the next number because W9 is already in flight.
+3. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
+4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
 
 **The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
 
@@ -191,6 +194,20 @@ The contract's one novelty, forced by review: **every member declares how it may
 **Deliberately excluded:** xterm/WebGL stay active-host-only — a sub-second re-attach paint remains, mitigable later via a per-host screen snapshot. No server or padi changes.
 
 **Same class, same cure, as a follow-on:** `createPolledQuery` still blanks the Code-tab queries on a *genuine* host change — scoping the query per host removes it. (<PrLink pr={1758} /> already fixed the *spurious* blank — a fresh-reference-but-equal-value input no longer blanks, pinned by tests — and W9 builds on that value-keyed contract, never undoes it.)
+
+<a id="w10"></a>
+
+### W10 — hosts survive a restart *(ratified 2026-07-11 — after W9)*
+
+**In simple words:** the hosts you added through the selector strip come back after a kolu restart. Today a restart forgets everything but the local default, and you re-add your fleet by hand. After W10, every remembered host reappears in the strip and reconnects through the normal connect pipeline; a host that's gone shows its honest failed chip with the cause rather than silently vanishing. The only way a host leaves the strip is your explicit remove.<Footnote>Sequenced after W9 by number only — there is no code dependency between them: W10 is server-side, W9 is client-side. W9 is already numbered and in flight, so W10 takes the next slot.</Footnote>
+
+**Membership is a server fact, so its memory lives beside its one writer.** kolu-server's pool is the sole authority for who's in the map (P3) — persistence sits next to that authority, never in the browser, where localStorage would fork the one list into per-device copies (every client must see the same list). The persisted artifact is a value replaced whole, not a place edited (P1): a zod-schemed `{version, hosts}` JSON under `KOLU_STATE_DIR` (the existing state root — reuse the source of truth), written atomically (tmp + rename) inside the addHost/removeHost handlers themselves — no shutdown flush, no periodic sync; the file is always the last accepted membership change. It holds only the encoded host keys the pool already speaks — no connection state, no metadata (live facts the sessions re-derive) — and the unremovable local default is excluded: it's seeded in code before the server listens, so persisting it would mint a second authority for "local always exists".
+
+**Boot re-enters through the front door:** after the pool is built, each persisted host goes through the ordinary `pool.add` and flows the W6 connect pipeline — warming → probing → connected, or failed with its honest cause. No lazy-dial mode: surface-remote already retries network faults forever, and a lazy/eager toggle would be a knob. **Fail fast:** a file that exists but fails the schema *crashes the boot* with the path in the message (delete it to recover) — never "start with empty hosts", which silently eats the user's fleet (caught-error-must-not-collapse-to-empty).
+
+**Deliberately not:** no framework change — persistence policy is app-level; if drishti ever wants the same shape, graduate it then (prove-then-extract). No Nix/declarative host-config second path, no TTL or staleness pruning, and the client persists nothing.
+
+**One PR:** a new load/validate/atomic-save module in `packages/server` (schema `{version: 1, hosts: string[]}`), two call-site touches where the handlers live (grep `addHost:` in `packages/server/src/index.ts`, ~line 486 on master), and a boot loop after pool construction. Tests: round-trip add/remove/restart; a corrupt file crashes with the path in the message; the local default never enters the file; remove updates the file. Synergy with W9, not dependency: restart + re-add mints fresh per-host client worlds, composing with W9's retained subscriptions.
 
 <a id="cleanup"></a>
 
