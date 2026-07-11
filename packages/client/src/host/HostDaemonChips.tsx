@@ -39,6 +39,7 @@ import {
   daemonTransportLive,
   formatUptime,
   kavalDot,
+  reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import { channelLive } from "../kaval/daemonPresentation";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
@@ -120,13 +121,11 @@ function useHostKaval(host: HostKey): {
   // One reprojection per `daemonStatus` change, shared by every consumer
   // (`solidjs.md`: memo a multi-consumer derivation). Runs for every mounted
   // host chip (active and inactive), so it sits on the per-host-status path.
-  const daemon = createMemo((): DaemonStatus | undefined => {
-    const status = daemonSub.byKey(daemonKey)?.();
-    if (status === undefined || typeof status.startedAt !== "number")
-      return status;
-    const local = padiMap.entry(host).clock.toLocal(status.startedAt);
-    return { ...status, startedAt: local ?? 0 };
-  });
+  // Reprojection body is the shared `reprojectDaemonStatus` (useDaemonStatus.ts)
+  // — the local-daemon memo there reprojects through the SAME function.
+  const daemon = createMemo((): DaemonStatus | undefined =>
+    reprojectDaemonStatus(host, daemonSub.byKey(daemonKey)?.()),
+  );
   return { live, daemon };
 }
 

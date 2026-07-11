@@ -219,19 +219,6 @@ const CodeTab: Component<{
     ),
   );
 
-  // Dismiss any open comment composer when the user navigates away from
-  // the file/mode/repo the draft was anchored to. Without this, the
-  // composer floats over a different file's content and the user has
-  // to dismiss it manually. Draft body is lost, which matches every
-  // other modal-on-navigate behavior in kolu.
-  const composer = useComposer();
-  createEffect(
-    on(
-      () => [selectedPath(), view(), repoPath()] as const,
-      () => composer.close(),
-      { defer: true },
-    ),
-  );
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
@@ -265,6 +252,30 @@ const CodeTab: Component<{
     rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
   const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
+
+  // Dismiss any open comment composer when the user navigates away from the
+  // terminal / file / mode / repo the draft was anchored to. Without this, the
+  // composer floats over different content and the user has to dismiss it
+  // manually; worse, a save would attach the stale draft to whatever terminal
+  // is now active. Draft body is lost, which matches every other
+  // modal-on-navigate behavior in kolu.
+  //
+  // Key on the VALUE string, not the raw signals: `on` fires on every
+  // INVALIDATION of its source, so an array source re-closes the composer on any
+  // incidental invalidation (a same-repo active-terminal *clock* tick
+  // re-evaluates `repoPath()` to the same string). A primitive-string memo (the
+  // `slotKey` precedent above) notifies only on a real navigation. `terminalId`
+  // is in the key because a comment saves against the ACTIVE terminal: switching
+  // to another terminal (or host — a terminal is host-bound) at the same file
+  // must drop the draft, per composerState.ts's host-independent contract, even
+  // when repo/file/mode coincide. `\0` separators keep the key collision-safe
+  // without embedding literal NUL bytes in the source.
+  const composer = useComposer();
+  const composerAnchor = createMemo(
+    () =>
+      `${props.terminalId ?? ""}\0${selectedPath() ?? ""}\0${view()}\0${repoPath() ?? ""}`,
+  );
+  createEffect(on(composerAnchor, () => composer.close(), { defer: true }));
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.

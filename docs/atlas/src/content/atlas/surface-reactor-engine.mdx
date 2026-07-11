@@ -1,0 +1,48 @@
+---
+title: The reactor engine — decided
+description: "The ratified engine decision for the reactive bridge: @preact/signals-core behind reactor.ts now; @solidjs/signals the named swap target once Solid 2.0 and its ecosystem stabilize; kolu's frontend stays on Solid 1.9. Grounded in a live-Node-probed comparison of six engines — today's choice is maintenance posture, not architecture, because reactor.ts is a proven two-way door."
+parents: [reference, padi]
+status: accepted
+maturity: seedling
+updated: 2026-07-10
+---
+
+import PrLink from "../../components/PrLink.astro";
+
+**The decision.** [The reactive bridge](surface-reactive-bridge.html)'s engine is **`@preact/signals-core`**, behind `reactor.ts`, now; **`@solidjs/signals` is the named swap target** once Solid 2.0 and its ecosystem stabilize; kolu's **frontend stays on Solid 1.9**. Despite the name, `@preact/signals-core` imports nothing from preact — it is a framework-free graph library (zero deps, no DOM/global reach, fully synchronous) that happens to live in preact's monorepo; choosing it couples kolu to nothing React-shaped. And because `reactor.ts` is a demonstrated two-way door (below), **today's choice is maintenance posture and default semantics, not architecture**. Everything here is grounded in source reads and live Node probes (Node 24.14.1, 2026-07-10).
+
+## Why preact wins today
+
+It is the only candidate that passes every bridge law with zero patches in `reactor.ts`: explicit nested `batch()` with **promptly** reads (a signal modified within a batch reads updated — kolu's read-your-writes law); a throwing computed **caches and rethrows on every read** until a dependency changes, then recovers (probed) — loud, never swallowed; effect disposers + cleanup + per-signal `watched`/`unwatched` hooks (a direct fit for "a member knows when it has subscribers") and GC-able unreferenced subgraphs — built for long-lived processes. The one gap — no custom `equals` option — is a non-cost: the bridge's law already places equals at the single writer's publish gate inside the framework (`server.ts:198-207`); the engine never needs to own it.
+
+## The eliminations, one line each
+
+- **`@vue/reactivity` (standalone):** exports **no `batch`/`flush`** — Vue's batching lives in `@vue/runtime-core`'s scheduler, so reactor.ts would hand-roll exactly the frame the engine was supposed to own.
+- **`alien-signals`:** a throwing computed's **second read silently returns `undefined`** (probed) — the `caught-error-must-not-collapse-to-empty` defect class, verbatim; an effect throw aborts the rest of the flush queue.
+- **`@reactively/core`:** dead (last publish 2023) and **no effect disposal API at all** — the algorithm's lineage moved to `@solidjs/signals`.
+- **TC39 `signal-polyfill`:** the README's first line forbids production use; Stage 1 since April 2024 with no advancement; no effect, no batch (build both on `subtle.Watcher`). And **Solid 2.0 is not built on it** — 2.0's core is `@solidjs/signals`, its own API and repo; Solid is a design participant in the proposal, not an implementer (cited in the comparison's sources).
+- **solid-js 1.x deep-imported into Node:** the `node` condition routes to `dist/server.js` whose `createEffect` is a no-op; the `dist/solid.js` workaround risks **two disjoint silent reactive graphs in one process** (one plain `'solid-js'` import, yours or transitive, loads the server build alongside) — the worst failure mode under fail-fast, and an unsupported configuration.
+
+## The Solid 2.0 findings
+
+- `solid-js@2.0.0-beta.17` itself is still browser/SSR-shaped: the node build's `createEffect` passes the apply half as `undefined` — a live probe ran the effect **zero** times. The framework package is not the daemon's engine even in 2.0.
+- The ecosystem peer-excludes 2.x today: corvu → `^1.8`, solid-sonner → `^1.6.0`, the `@solid-primitives/*` kolu uses → `^1.6.12`, `@solidjs/testing-library`'s range unsatisfied by a `2.0.0-beta.x` prerelease. The UI stack kolu's conventions prefer does not install against the beta — frontend migration is blocked on the ecosystem, not just kolu's own code.
+- **But `@solidjs/signals` passes the full standalone Node probe** — `createRoot` + `createSignal` + `createMemo` + `createEffect(compute, apply)` + `flush()`, equality-cascade stop, root disposal. **One engine on both sides is the named future**: daemon imports `@solidjs/signals`, browser imports `solid-js@2` wrapping the same core — one algorithm, one semantics, two entry packages. Its one semantic caveat survives the swap: 2.0 defers writes (reads are stale until `flush()`), so reactor.ts adds a `flush()`-at-publish rule to preserve the promptly law — one rule, law-tested.
+
+## The two-way door, demonstrated
+
+The same four-primitive contract — `signal` · `computed` (glitch-free lazy pull + equality-cascade stop) · `effect` (with disposal) · `batch` — was exercised on five engines in this comparison with only surface-syntax differences. The wrapper owns the three things engines disagree on — **equals gating, error policy, flush discipline** — so those laws are pinned by reactor.ts's own tests, not by engine behavior. A later swap to `@solidjs/signals` is mechanical: rename the calls, add the `flush()`-at-publish rule, run the law tests.
+
+## The probed comparison
+
+| | **@preact/signals-core** | @vue/reactivity | alien-signals | @reactively/core | signal-polyfill (TC39) | solid-js 1.x deep-import | @solidjs/signals 2.0β |
+|---|---|---|---|---|---|---|---|
+| Node viability (probed) | ✅ zero deps, no globals | ✅ (+@vue/shared) | ✅ zero deps | ✅ | ✅ | ⚠️ works via `dist/solid.js`; dual-graph trap, unsupported | ✅ core pkg; `solid-js` itself still server-stubbed |
+| Glitch-free + batch | ✅ probed; explicit nested `batch()`, promptly reads | ✅ probed; **no batch export** — hand-roll scheduler | ✅ probed; `startBatch/endBatch`, sync flush | ✅ algorithm; manual `stabilize()` | graph yes; **no effect/batch — build on Watcher** | ✅ (browser build) | ✅ probed; implicit microtask batch, **reads stale until `flush()`** |
+| Equality-cascade stop / spec-equals | ✅ stop probed; no `equals` opt → gate in reactor (where kolu's law puts it anyway) | ✅ stop probed; no `equals` opt | ✅; no `equals`, `prev` param workaround | ✅ custom `equals` | ✅ spec `equals` | ✅ solid `equals` opt | ✅ solid `equals` opt |
+| Effect disposal / long-lived ownership | ✅ disposer + cleanup + watched/unwatched hooks; GC-able subgraphs | ✅ `effectScope` (probed) | ✅ disposer + scope | ❌ **no dispose API** | ⚠️ DIY on Watcher | ✅ `createRoot` | ✅ `createRoot` (probed) |
+| Error propagation | ✅ cached + **rethrown every read**, recovers (probed) — fail-fast | ✅ throws at reader/setter (probed) | ❌ **swallows: 2nd read returns `undefined`** (probed) | ❌ none | ✅ ERRORED rethrow | solid semantics | solid semantics |
+| Maintenance | ✅ Preact team, commit 3 days ago, stable 1.x | ✅ Vue team; 3.6 swaps internals | ✅ active; StackBlitz; Vue 3.6 basis | ❌ dead (2023) | ❌ 17 mo stale; "do not use in production" | ✅ solid team (but usage unsupported) | ⚠️ beta, active daily |
+| Size/deps | 259 KB unpacked, 0 deps (min ~4 KB) | 343 KB + 1 dep | 47 KB, 0 deps | 11 KB, 0 deps | 142 KB, 0 deps | 1 MB pkg | 357 KB, 0 deps |
+| reactor.ts adaptation | trivial (`.value`↔fn, equals gate) | medium (**write the scheduler**) | small + **must add error discipline** | large (disposal, scheduler) | large (**write effect+batch**) | none, but fragile | none API-wise; add `flush()`-at-publish |
+| Future alignment | neutral; easy to leave | 3.6 internals churn behind stable API | becomes Vue's core | lineage moved to @solidjs/signals | Stage 1, yrs away | dead end (2.0 replaces it) | **the named future target** |
