@@ -377,10 +377,13 @@ const padiSession = ((): PadiSession => {
 // object by reference, so two logically-equal `HostKey`s would never collide). `.done`
 // enacts the #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL
 // (fail-fast — the supervisor restarts kolu-server clean); a GUEST host's death RETIRES
-// just that host (`pool.remove` ends its map subs typed; the client's `hostReconcile`
+// just that host (`pool.retire` ends its map subs typed; the client's `hostReconcile`
 // effect then switches `activeHost` off the departed host to the local default, so the
-// canvas falls back with a toast rather than stranding the tab on a dead host). The map
-// forwards each host's calls to `directLink(reServeFor(h, s).router)`.
+// canvas falls back with a toast rather than stranding the tab on a dead host). This uses
+// `retire`, NOT `remove`: the pool sheds the dead host on its OWN initiative, which must
+// not be confused with the user's explicit remove — so it does not persist the departure
+// (a membership store re-seeds the host next boot). The map forwards each host's calls to
+// `directLink(reServeFor(h, s).router)`.
 const reServes = new Map<string, ReServedSurface<typeof padiSurface.spec>>();
 const reServeFor = (
   h: HostKey,
@@ -415,7 +418,12 @@ const reServeFor = (
           { err, host: enc },
           "guest padi re-serve pump died — retiring the host",
         );
-        void pool.remove(enc);
+        // `retire`, not `remove`: an internal shed, not a user removal — it tears the
+        // host out of the live pool WITHOUT persisting, so a remembered host returns on
+        // the next boot. `retire` has no persist step and swallows its own teardown
+        // fault, so it can't reject — a bare `void` needs no `.catch` to stay off the
+        // fatal `unhandledRejection` handler.
+        void pool.retire(enc);
       });
   }
   return r;

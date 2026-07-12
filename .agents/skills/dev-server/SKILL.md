@@ -132,26 +132,17 @@ done
 rm -f .dev-server/ports.json
 ```
 
-**Never** `pkill -f <substring>` / `pgrep -f <substring> | kill` at all — not
-`kolu` / `vite` / `tsx`, and not a "more specific" source path or socket path like
-`packages/server/src/index.ts` or `kaval-7692/pty-host.sock` either. Production
-runs that exact source from the nix store and a production daemon *listens on* that
-exact socket path/port, so a path substring is *not* safer than a name — it matched
-and killed production `kolu.service` once, and a `pgrep -f "<sock-path>"` matched
-and killed the production **kaval** daemon another time (the daemon's old **low**
-PID, not your freshly-spawned **high**-PID dialer). A bracket trick (`[v]ite`) only
-dodges self-match, not the production process. Match the remembered ports only; if
-you can't resolve a PID by port, leave the process.
-
-**Any background process *you* spawned — capture its PID at spawn and kill *that*
-exact PID, never re-resolve it.** This applies beyond the dev server: a kaval /
-padi-tui dialer you start for evidence capture, an ssh-tunnelled daemon, anything
-backgrounded with `&`. Record `$!` the instant you launch it
-(`nohup … & PID=$!; echo "$PID" >> .dev-server/spawned.pids`) and kill by `$PID`.
-A re-resolved `pgrep`/`pkill` can only *guess* which match is yours and will pick
-the wrong one — a production daemon on the same socket/port. Ephemeral test daemons
-are cheap; if you didn't capture the PID, **leave the process** for the user / OS
-rather than guess.
+- **Teardown kills ONLY the exact PIDs recorded at spawn time.** Capture `$!`
+  the instant you launch anything backgrounded (`nohup … & PID=$!; echo "$PID"
+  >> .dev-server/spawned.pids`) and kill those PIDs — plus the port-resolved
+  dev PIDs above — nothing else. Didn't capture it? Leave the process.
+- **NO pattern selection of processes, in ANY form.** `pkill -f`,
+  `pgrep | kill`, and a hand-rolled `ps | grep | kill` are the same banned
+  class — as is matching by marker, substring, socket path, or store path.
+  The hand-rolled variant is not a loophole: one such marker,
+  `kaval-<digest>/pty-host`, matched **every** kaval on the box and killed
+  production — every PTY died (2026-07-12). A stray the pids file missed is
+  **reported** (pid + args), never hunted.
 
 **A cleanup kill that returns non-zero (e.g. exit 144 — `SIGKILL`+128, you killed
 your own process group) or visibly kills your own shell means you mismatched the
