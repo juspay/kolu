@@ -26,10 +26,11 @@ import Steps from "../../components/docs/Steps.astro";
 kolu can put terminals from **other machines** right on your canvas. A remote
 host's terminals are first-class tiles — same [Code tab and file
 preview](/power-features), same paste, same session restore — just running on that
-host over ssh. The canvas shows **one host at a time**; a host strip in the top bar
-lets you switch which host you're looking at, and switching swaps the whole canvas
-**live, with no reload**. Each host keeps its own arrangement, so `you@box` looks
-the same from your laptop, your desktop, or your phone.
+host over ssh. The canvas shows **one host at a time**; a host row lets you switch
+which host you're looking at — a strip in the top bar on desktop, and a row in the
+pull-down chrome sheet on a phone — and switching swaps the whole canvas **live,
+with no reload**. Each host keeps its own arrangement, so `you@box` looks the same
+from your laptop, your desktop, or your phone.
 
 Under the hood that's [padi](/padi) — kolu's per-host workspace daemon — bound to
 the remote over the same ssh transport [`kaval-tui`](/kaval) uses from the shell;
@@ -59,10 +60,11 @@ from another device.
 
 ## Add a host
 
-The trailing **+ add** on the host strip is **always present** — you don't have
-to set anything to reach it. Clicking it opens a short popover: a reminder that
-remote hosts is alpha (linking back here) and an ssh-target box. What you type is
-added to the pool as a chip, and the canvas jumps to it. Your local host is
+The **+ add** affordance on the host row is **always present** — you don't have
+to set anything to reach it. It opens a short form: a reminder that remote hosts
+is alpha (linking back here) and an ssh-target box — an anchored popover on
+desktop, a full-width section inside the pull-down sheet on a phone. What you type
+is added to the pool as a chip, and the canvas jumps to it. Your local host is
 always the first, unremovable chip. Two formats work:
 
 - an `~/.ssh/config` alias — `zest`

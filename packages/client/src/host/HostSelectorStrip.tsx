@@ -66,7 +66,6 @@ import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
-  parseHostInput,
 } from "kolu-common/hostKey";
 import {
   type Component,
@@ -95,17 +94,15 @@ import {
 } from "./hostChipTone";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
+import { addHost } from "./addHost";
+import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
 import {
   activeHost,
   client,
   onHostMembershipError,
   padiMap,
-  requestActivateOnJoin,
   setActiveHost,
 } from "../wire";
-
-/** kolu.dev doc the alpha "+ add a host" popover links to. */
-const REMOTE_HOSTS_DOC = "https://kolu.dev/remote-hosts/";
 
 /** A host's on-screen identity: a house glyph (LOCAL only) immediately before
  *  its role word, glyph first — so the local chip reads as a role ("the machine
@@ -589,26 +586,13 @@ const AddHostAffordance: Component = () => {
       if (inputEl?.isConnected) inputEl.focus({ preventScroll: true });
     });
   });
-  const submit = (): void => {
-    const raw = draft().trim();
-    if (raw === "") return;
-    // `parseHostInput` is TOTAL (typing "local" just parses to the Local
-    // variant, already a pool member); `hosts.add`'s own rejection is the
-    // honest single error surface.
-    const host = parseHostInput(raw);
-    client.hosts
-      .add({ host })
-      .then(() => {
-        setDraft("");
-        setOpen(false);
-        // Jump to the new host once it JOINS membership — a bare setActiveHost
-        // here races the reconcile and bounces back to local.
-        requestActivateOnJoin(host);
-      })
-      .catch((err: Error) =>
-        toast.error(`Couldn't add ${raw}: ${err.message}`),
-      );
-  };
+  // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
+  // the shared `addHost`; this popover supplies only its own cleanup on success.
+  const submit = (): void =>
+    addHost(draft(), () => {
+      setDraft("");
+      setOpen(false);
+    });
   return (
     <>
       <button
@@ -631,23 +615,7 @@ const AddHostAffordance: Component = () => {
             class={`fixed z-50 w-[min(20rem,calc(100vw-1rem))] p-3 ${addHostChrome.class}`}
             style={{ ...panelStyle(), ...addHostChrome.style }}
           >
-            <div class="mb-1.5 flex items-center gap-1.5">
-              <span class="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 text-[9px] font-semibold uppercase leading-4 tracking-wide text-amber-600 dark:text-amber-400">
-                Alpha
-              </span>
-              <span class="text-xs font-semibold text-fg">Remote hosts</span>
-            </div>
-            <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
-              Connecting other machines over ssh is an early feature.{" "}
-              <a
-                href={REMOTE_HOSTS_DOC}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-accent hover:underline"
-              >
-                Learn more →
-              </a>
-            </p>
+            <RemoteHostsAlphaNotice />
             <input
               ref={inputEl}
               type="text"
