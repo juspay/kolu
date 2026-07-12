@@ -409,8 +409,9 @@ describe("W12 — the two absences persist the resume target differently (twin p
 
   it("PIN #1 — an UNOBSERVABLE terminal (sensor emits `unknown`) KEEPS the exact target", () => {
     // The 2026-07-12 incident shape: kaval is SIGKILLed, the pty-host taps fail, so
-    // `agentAbsence(observable=false)` routes the sensor to emit `unknown` (not
-    // `{value:null}`). The fold keeps the last agent, so `restoreTargetOf` STILL
+    // the resolved-null branch's `observable` discriminant is false and the sensor
+    // emits `unknown` (not `{value:null}`). The fold keeps the last agent, so
+    // `restoreTargetOf` STILL
     // yields `exact` — the resume id survives the unclean death on disk by
     // construction. Before the fix the sensor emitted `{value:null}` here and this
     // flipped to `none` (bare shells on restore).
@@ -425,7 +426,7 @@ describe("W12 — the two absences persist the resume target differently (twin p
 
   it("PIN #2 — a GENUINE end (sensor emits `{value:null}`) CLEARS the target to `none`", () => {
     // The inverse bug the fix must NOT introduce: an agent that genuinely quits while
-    // the taps are live (observable → `agentAbsence(true)` "ended") still emits
+    // the taps are live (`observable` is true → the agent really ended) still emits
     // authoritative null, so `restoreTargetOf` clears — a later restore wakes a bare
     // shell instead of resurrecting a dead agent.
     expect(restoreTargetOf(liveExact)).toEqual(exact);
