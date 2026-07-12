@@ -79,7 +79,6 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
-import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useCommandPalette } from "../useCommandPalette";
@@ -95,16 +94,13 @@ import {
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
+import { focusOnMount } from "./focusOnMount";
+import { HostAwaitingPill } from "./HostAwaitingPill";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
+import { useHostMembers } from "./useHostMembers";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import {
-  activeHost,
-  client,
-  onHostMembershipError,
-  padiMap,
-  setActiveHost,
-} from "../wire";
+import { activeHost, client, padiMap, setActiveHost } from "../wire";
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the
@@ -218,19 +214,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             host={props.host}
             labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
           />
-          {/* Urgency badge — the host's awaiting count, hidden at zero. */}
-          <Show when={awaiting() > 0}>
-            <span
-              // The awaiting-count pill — the pixel REFERENCE for the amber
-              // "needs you" cue. Its fill + shape + numerals are the shared
-              // `ATTENTION_PILL_CLASS` (the single styling source the Dock's
-              // unread badge also consumes); only the count-pill sizing is local.
-              class={`${ATTENTION_PILL_CLASS} shrink-0 min-w-4 px-1 h-4`}
-              title={`${awaiting()} awaiting your input`}
-            >
-              {awaiting()}
-            </span>
-          </Show>
+          {/* Urgency badge — the host's awaiting count, hidden at zero. The
+           *  shared `HostAwaitingPill` owns the amber token; only the sizing is
+           *  local. */}
+          <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
         </button>
         <div
           class="flex h-8 items-center transition-colors"
@@ -329,14 +316,7 @@ const HostSwitcherRow: Component<{
             {statusLabel(host)}
           </span>
         </span>
-        <Show when={awaiting() > 0}>
-          <span
-            class="shrink-0 min-w-4 px-1 h-4 inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums"
-            title={`${awaiting()} awaiting your input`}
-          >
-            {awaiting()}
-          </span>
-        </Show>
+        <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
       </button>
       <button
         type="button"
@@ -544,9 +524,7 @@ const AddHostAffordance: Component = () => {
   // dismiss that beats the microtask).
   createEffect(() => {
     if (!open()) return;
-    queueMicrotask(() => {
-      if (inputEl?.isConnected) inputEl.focus({ preventScroll: true });
-    });
+    focusOnMount(inputEl);
   });
   // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
   // the shared `addHost`; this popover supplies only its own cleanup on success.
@@ -618,13 +596,13 @@ const HostSearchButton: Component = () => {
 };
 
 const HostSelectorStrip: Component = () => {
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
-
   // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
   // gets a chip and the "+ add a host" affordance is always present (the alpha
   // warning rides the "+" popover — see AddHostAffordance). With no seed the
   // pool is just the local host, so this renders exactly the local chip + "+".
-  const renderableHosts = (): HostKey[] => [...members.keys()];
+  // `useHostMembers` owns the `padiMap.entries` subscription + `onError` (shared
+  // with the mobile row).
+  const renderableHosts = useHostMembers();
 
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,

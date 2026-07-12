@@ -23,19 +23,16 @@
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   type Component,
-  createEffect,
+  createMemo,
   createSignal,
   For,
+  onMount,
   Show,
 } from "solid-js";
-import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
-import {
-  activeHost,
-  onHostMembershipError,
-  padiMap,
-  setActiveHost,
-} from "../wire";
+import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
+import { focusOnMount } from "./focusOnMount";
+import { HostAwaitingPill } from "./HostAwaitingPill";
 import {
   dotClass,
   hostHue,
@@ -46,19 +43,23 @@ import {
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
+import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
 const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   props,
 ) => {
   // The host is fixed for this chip's lifetime (the `<For>` gives each chip its
-  // own reactive owner, disposed when the host leaves the pool), so these are
-  // plain per-chip lenses.
-  const state = () => padiMap.entry(props.host).state();
+  // own reactive owner, disposed when the host leaves the pool). Both derivations
+  // are memoized because each is read from several tracked positions in the JSX
+  // (`isActive` from aria-current + data-active + two classList keys; `state`
+  // from the title + the dot class), and each read otherwise re-runs the
+  // encode/membership-scan on every `activeHost`/entry change.
+  const state = createMemo(() => padiMap.entry(props.host).state());
   // Compare active-host vs. this chip's host by CANONICAL string (`sameHost`),
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
-  const isActive = () => sameHost(activeHost(), props.host);
+  const isActive = createMemo(() => sameHost(activeHost(), props.host));
   const awaiting = useHostAwaiting(props.host);
 
   return (
@@ -114,17 +115,10 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         glyphClass="h-3.5 w-3.5"
         labelClass="max-w-[10rem] truncate font-medium"
       />
-      {/* Unread pill — the host's awaiting count in the SHARED
-       *  `ATTENTION_PILL_CLASS` (the Dock's badge and the desktop strip's count
-       *  pill draw from the same token), hidden at zero. */}
-      <Show when={awaiting() > 0}>
-        <span
-          class={`${ATTENTION_PILL_CLASS} h-5 min-w-5 shrink-0 px-1.5`}
-          title={`${awaiting()} awaiting your input`}
-        >
-          {awaiting()}
-        </span>
-      </Show>
+      {/* Unread pill — the shared `HostAwaitingPill` (roomier mobile sizing),
+       *  the same token the desktop chip and switcher row render, hidden at
+       *  zero. */}
+      <HostAwaitingPill count={awaiting()} sizeClass="h-5 min-w-5 px-1.5" />
     </button>
   );
 };
@@ -137,13 +131,9 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   const [draft, setDraft] = createSignal("");
   let inputEl: HTMLInputElement | undefined;
 
-  // Focus the input the frame the section mounts (`isConnected` guards a
-  // collapse that beats the microtask).
-  createEffect(() => {
-    queueMicrotask(() => {
-      if (inputEl?.isConnected) inputEl.focus({ preventScroll: true });
-    });
-  });
+  // Focus the input on mount (the section mounts fresh via `<Show>`, so a plain
+  // `onMount` fires exactly once) — shared timing with the desktop popover.
+  onMount(() => focusOnMount(inputEl));
 
   const submit = (): void => addHost(draft(), props.onClose);
 
@@ -197,8 +187,7 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
  *  add trigger, and (when open) the in-sheet add section. `onSwitch` closes the
  *  sheet after a switch so the canvas is visible immediately. */
 const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
-  const hosts = (): HostKey[] => [...members.keys()];
+  const hosts = useHostMembers();
   const [addOpen, setAddOpen] = createSignal(false);
 
   return (
