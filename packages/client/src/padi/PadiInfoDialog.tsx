@@ -180,8 +180,7 @@ const PadiInfoDialog: Component<{
     ),
   );
   const connected = ():
-    | Extract<PadiPresence, { kind: "connected" }>
-    | undefined => {
+    Extract<PadiPresence, { kind: "connected" }> | undefined => {
     const p = presence();
     return p.kind === "connected" ? p : undefined;
   };
@@ -297,7 +296,8 @@ const PadiInfoDialog: Component<{
         <DetailRow label="lifetime">
           {/* padi's lifetime policy — `forever` for a durable production padi;
               `bound to run pid N` under a test/smoke run. Routed through
-              `connected()` (P4): a non-connected padi renders nothing here. */}
+              `connected()` (P4): a non-connected or pre-field survivor padi reads
+              an honest "—". */}
           <span data-testid="padi-dialog-lifetime">
             {formatLifetime(connected()?.identity.lifetime)}
           </span>
