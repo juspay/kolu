@@ -36,7 +36,7 @@ parallel record of "which hosts exist" beside it.
 
 - A key absent from `entries` **is** "not a member" — there is no `absent` status arm to keep in sync.
 - Add, remove, or retire a host through the pool's `add`/`remove`/`retire`; `entries` follows every one.
-- When a host leaves mid-stream — a user `remove` **or** an internal `retire` — its subscriptions end with a typed reason (`{ reason: "removed" }` / `{ reason: "retired" }`) **before** the session is destroyed, so a consumer sees a clean typed end, never a socket-error frame after it.
+- When a host leaves mid-stream — a user `remove` **or** an internal `retire` — its subscriptions complete cleanly (a typed stream end, not an error) **before** the session is destroyed, and the browser socket closes with a normal `1000` close whose reason names the verb (`host removed` / `host retired`). A consumer sees a clean typed end, never a socket-error frame after it.
 
 <Aside type="note" title="Live membership vs remembered membership">
   `remove` and `retire` run the **same** live teardown, but they answer different

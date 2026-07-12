@@ -364,9 +364,12 @@ export interface RemotePool<S extends DestroyableSession, H> {
    *  not because the user asked — retiring it must not be mistaken for the user's
    *  explicit remove, which is the only thing that should forget a host. No-op for an
    *  unknown host. A registry with no `persist` hook makes `retire` and `remove` behave
-   *  identically (neither writes anything). */
+   *  the same ON DISK (neither writes anything) — but they still differ on the wire:
+   *  the socket closes with reason `host retired` vs `host removed`, and the log line
+   *  names the verb. */
   retire(host: string): Promise<void>;
-  /** Track an open browser socket for `host`, so `remove(host)` can close it. */
+  /** Track an open browser socket for `host` so a teardown can close it — either
+   *  `remove(host)` or `retire(host)` (both run the shared teardown that closes it). */
   registerConnection(host: string, ws: ClosableSocket): void;
   /** Stop tracking a socket once it has closed on its own. */
   unregisterConnection(host: string, ws: ClosableSocket): void;
