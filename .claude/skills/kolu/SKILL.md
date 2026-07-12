@@ -283,6 +283,14 @@ Empty → fall back to `kaval-tui list` for the id: you're either not inside a
 kolu-spawned PTY, or in one that predates this var and hasn't been respawned yet
 (a fresh terminal — or sleep/wake — stamps it).
 
+> **A terminal id is not stable across a kaval restart.** kaval re-keys every
+> terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an
+> id you were *handed* — a coordinator's terminal from your brief, an id you cached
+> turns ago — can go stale mid-run; a `send`/`snapshot` to it then fails with **"no
+> terminal matching"**. Don't re-assume the id: run `kaval-tui list` and re-find the
+> terminal by its stable **title** (the label survives the re-key), then use its
+> current id. For any long-lived reference, remember the title, not the id.
+
 > **Flags go AFTER the subcommand.** It's `kaval-tui list --socket <path>` and
 > `kaval-tui snapshot <id> --socket <path>` — **not** `kaval-tui --socket <path>
 > list`. A flag before the subcommand fails with "no command"; the CLI error says
