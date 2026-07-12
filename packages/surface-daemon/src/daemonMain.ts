@@ -212,6 +212,15 @@ function waitForShutdown(
       for (const c of cleanups) c();
       resolve(reason);
     };
+    // The poll-timer scaffold, single-sourced: create the interval, unref it so it
+    // never keeps the event loop alive on its own, and register a clearInterval
+    // cleanup. Both poll sites (idleTimeout, boundToPid) supply only their period +
+    // predicate; the register/unref/cleanup idiom lives here once.
+    const registerPoll = (period: number, tick: () => void): void => {
+      const t = setInterval(tick, period);
+      t.unref?.();
+      cleanups.push(() => clearInterval(t));
+    };
 
     for (const sig of ["SIGTERM", "SIGINT"] as const) {
       const handler = (): void => finish("signal");
@@ -237,17 +246,14 @@ function waitForShutdown(
       // capped so a long timeout doesn't busy-poll.
       let idleSince: number | undefined;
       const period = Math.max(20, Math.min(lifetime.ms, 1000));
-      const timer = setInterval(() => {
+      registerPoll(period, () => {
         if (lifetime.isIdle()) {
           idleSince ??= Date.now();
           if (Date.now() - idleSince >= lifetime.ms) finish("idle");
         } else {
           idleSince = undefined;
         }
-      }, period);
-      // Don't let the poll timer keep the event loop alive on its own.
-      timer.unref?.();
-      cleanups.push(() => clearInterval(timer));
+      });
     }
 
     if (lifetime.kind === "boundToPid") {
@@ -263,12 +269,9 @@ function waitForShutdown(
         finish("pid-gone");
         return;
       }
-      const timer = setInterval(() => {
+      registerPoll(lifetime.pollMs ?? PID_WATCH_POLL_MS, () => {
         if (!isHolderLive(pid)) finish("pid-gone");
-      }, lifetime.pollMs ?? PID_WATCH_POLL_MS);
-      // Don't let the poll timer keep the event loop alive on its own.
-      timer.unref?.();
-      cleanups.push(() => clearInterval(timer));
+      });
     }
   });
 }
