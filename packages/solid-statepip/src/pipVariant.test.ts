@@ -5,6 +5,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
+  ATTENTION_PILL_CLASS,
   DOCK_ROW_PIP_BOX,
   INDICATOR_BASE,
   LIVE_RING_CLASS,
@@ -138,5 +139,19 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     // a badge, NOT a halo/ring — the alert uses a distinct shape so it never
     // compounds with the live ring into nested circles.
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
+  });
+
+  // The SINGLE styling source for the amber "needs you / unread" cue, shared by
+  // the host-tab awaiting-count pill and the Dock's unread badge (composed with
+  // ALERT_BADGE_CLASS) so the two can't drift in colour or shape. Pin the
+  // identity tokens — the amber fill, the pill rounding, and tabular numerals —
+  // so a colour swap (e.g. back to the mismatched `--color-attention`) or a shape
+  // change is caught here rather than only by eye across two surfaces.
+  it("ATTENTION_PILL_CLASS carries the shared amber-pill identity (fill + shape + numerals)", () => {
+    const cls = ATTENTION_PILL_CLASS.split(/\s+/);
+    expect(cls).toContain("bg-amber-500/90"); // the chip's amber, now the shared truth
+    expect(cls).toContain("rounded-full"); // the pill shape
+    expect(cls).toContain("tabular-nums"); // steady-width count numerals
+    expect(cls).toContain("text-black/80");
   });
 });
