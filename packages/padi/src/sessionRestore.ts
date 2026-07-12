@@ -67,6 +67,13 @@ function respawnActive(
     subPanel: t.subPanel,
     rightPanel: t.rightPanel,
     intent: t.intent,
+    // Carry the saved agent-resume facts onto the fresh terminal so the closing
+    // `saveSession(snapshotSession())` re-persists the EXACT target, not `none`
+    // (the fold's `updateMemory` re-derives both live once the resumed agent is
+    // re-observed; until then the saved value stands — a resume that never lands, or
+    // a second unclean death right after restore, still finds the target on disk).
+    lastAgentCommand: t.lastAgentCommand,
+    restoreTarget: t.restoreTarget,
     // Preserve the saved recency across the restart (RISK Q6) — without this the
     // fold reseeds the restored terminal to a fresh (never-active) recency and
     // the dock's recency ranking permanently collapses after a `session.restore`.

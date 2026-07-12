@@ -370,6 +370,17 @@ export const InitialTerminalMetadataSchema = z.object({
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   lastActivityAt: z.number().optional(),
   intent: z.string().min(1).optional(),
+  /** The remembered launch line + the fold-derived resume target — server-derived
+   *  authored facts, but (like `lastActivityAt`) session restore is the one path with
+   *  truth about their prior value, read from the saved blob. Threading them onto the
+   *  respawned terminal keeps the restore-time re-persist (`restoreSession`'s closing
+   *  `saveSession(snapshotSession())`) from writing `none` over a resuming agent's id
+   *  before the fold re-derives it — so a SECOND unclean death right after restore, or
+   *  a resume that never lands, still finds the target on disk. The client-facing
+   *  `lifecycle.create` drops both (a genuinely fresh terminal has no agent to
+   *  resume). */
+  lastAgentCommand: z.string().optional(),
+  restoreTarget: RestoreTargetSchema.optional(),
 });
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────

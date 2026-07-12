@@ -438,6 +438,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     };
     if (opts.initialMetadata?.lastActivityAt !== undefined)
       meta.lastActivityAt = opts.initialMetadata.lastActivityAt;
+    // Session restore threads the saved agent-resume facts through so the restore-time
+    // re-persist can't write `none` over a resuming agent before the fold re-derives
+    // them (the fold's `updateMemory` rewrites both live once the agent is re-observed).
+    if (opts.initialMetadata?.lastAgentCommand !== undefined)
+      meta.lastAgentCommand = opts.initialMetadata.lastAgentCommand;
+    if (opts.initialMetadata?.restoreTarget !== undefined)
+      meta.restoreTarget = opts.initialMetadata.restoreTarget;
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;

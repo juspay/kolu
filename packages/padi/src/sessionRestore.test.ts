@@ -245,4 +245,42 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     expect(activeByCwd("/sub")).toBeDefined();
     await done;
   });
+
+  it("W12 — a resuming agent's restoreTarget survives the restore re-persist (not clobbered to none)", async () => {
+    // Restore closes with `saveSession(snapshotSession())`. The fresh terminal must
+    // carry the saved EXACT resume target on disk — BEFORE the fix, `createTerminal`
+    // seeded no `restoreTarget`/`lastAgentCommand`, so that re-persist wrote `none`
+    // and a second unclean death (or a resume that never landed) left a bare shell.
+    const EXACT = {
+      kind: "exact",
+      command: "claude --model sonnet",
+      agent: { kind: "claude-code", sessionId: "S1" },
+    } as const;
+    const agentRecord: SavedActiveTerminal = {
+      ...base,
+      id: PARENT_ID,
+      state: "active",
+      cwd: "/agent",
+      lastActivityAt: 500,
+      lastAgentCommand: "claude --model sonnet",
+      restoreTarget: EXACT,
+    };
+    setSavedSession({
+      terminals: [agentRecord],
+      activeTerminalId: PARENT_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(agentRecord);
+
+    const done = restoreSession({});
+
+    const restored = getSavedSession()?.terminals.find(
+      (t) => t.cwd === "/agent",
+    );
+    expect(restored).toBeDefined();
+    expect(restored?.restoreTarget).toEqual(EXACT);
+    expect(restored?.lastAgentCommand).toBe("claude --model sonnet");
+
+    await done;
+  });
 });
