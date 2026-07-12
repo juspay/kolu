@@ -50,6 +50,17 @@ const DEFAULT_ROWS = 24;
  *  export reads the client buffer, so shrinking it regresses neither. See
  *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`. */
 export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
+/** How many scrollback lines the ATTACH snapshot serializes — the recent
+ *  screenful a cold/cross-host attach paints instantly, instead of the whole
+ *  {@link DEFAULT_MIRROR_SCROLLBACK}-deep mirror. Older lines are streamed in
+ *  on demand by {@link PtyHost.getHistory} as the client scrolls up (the
+ *  scrollback-backfill feature), so this bound sets the up-front paint cost, not
+ *  the reachable history: the full mirror is still readable, one older chunk at
+ *  a time. Deliberately far below the mirror depth — the whole point is to stop
+ *  shipping 10k lines on every host switch (the W9 full-replay cost). The client
+ *  seeds its backfill cursor from what it actually received, so the exact value
+ *  is a perf knob, not a correctness one. */
+export const SNAPSHOT_SCROLLBACK = 1_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
  *  `exitPromise(id)` resolves with the real code rather than a fabricated
  *  one. Bounded so the map can't grow without limit. */
@@ -61,6 +72,35 @@ const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
+
+/** The one reach into `@xterm/headless` privates the mirror needs: the normal
+ *  buffer's line list, whose `onTrim` (fired with the count evicted off the top
+ *  when scrollback overflows) is the ONLY faithful source of "lines evicted" —
+ *  the number {@link Entry.mirrorBaseLine} accumulates so `getHistory`'s absolute
+ *  cursor survives eviction. FAIL LOUD, deliberately: no public API exposes this
+ *  count, and a silently-missing `onTrim` would let `mirrorBaseLine` freeze while
+ *  the buffer renumbers underneath it, handing the client older-history chunks
+ *  off by the eviction total — a silent scrollback corruption. So a shape change
+ *  under an `@xterm/headless` bump throws here, caught by the contract-pin test
+ *  (`xtermMirrorContract.test.ts`) as red CI, never as user-visible corruption. */
+function onNormalBufferTrim(
+  headless: InstanceType<typeof Terminal>,
+  handler: (evicted: number) => void,
+): { dispose(): void } {
+  const lines = (
+    headless as unknown as {
+      _core?: { buffers?: { normal?: { lines?: unknown } } };
+    }
+  )._core?.buffers?.normal?.lines as
+    | { onTrim?: (l: (n: number) => void) => { dispose(): void } }
+    | undefined;
+  if (typeof lines?.onTrim !== "function") {
+    throw new Error(
+      "xterm-headless internals contract broken: _core.buffers.normal.lines.onTrim missing",
+    );
+  }
+  return lines.onTrim(handler);
+}
 
 /** The terminal-identity string the headless PTY reports in its XTVERSION
  *  (CSI > q) reply. The DCS reply is built from this — see the XTVERSION
@@ -179,12 +219,50 @@ export interface PtySpawnResult {
  *  the live output stream from exactly that point forward. */
 export interface PtyAttachment {
   /** Serialized screen state (VT escapes) at the instant of attach; empty
-   *  for a brand-new PTY. */
+   *  for a brand-new PTY. Bounded to the recent screenful
+   *  ({@link SNAPSHOT_SCROLLBACK}), not the whole mirror — older lines stream in
+   *  via {@link PtyHost.getHistory} as the client scrolls up. */
   snapshot: string;
+  /** Absolute mirror-line index of the snapshot's TOP row — the client's seed
+   *  cursor for backfill (`getHistory`'s first `before`). Rides WITH the
+   *  snapshot, from the same serialize, so the seed can't drift from the bytes
+   *  the client received (an anchor fetched separately would race live output).
+   *  0 for a brand-new/empty PTY. */
+  topLine: number;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, PTY exit, or a slow-subscriber drop (which also fires
    *  `attach`'s `onOverflow`, so the serving layer can tell that end apart). */
   deltas: AsyncIterable<string>;
+}
+
+/** One older-history chunk from {@link PtyHost.getHistory}: a serialized slice
+ *  of the mirror's scrollback the client replays and prepends into its own
+ *  buffer as the user scrolls up.
+ *
+ *  The cursor is an ABSOLUTE mirror-line index — the count of lines ever evicted
+ *  off the top of the mirror plus a line's current local buffer index, so it
+ *  keeps naming the same line as newer output pushes older lines out:
+ *  a `getHistory(before)` returns the `max` lines immediately ABOVE `before`.
+ *  Absolute addressing is what makes the seam where backfilled history meets the
+ *  client's existing content race-free: new output always appends at the mirror
+ *  BOTTOM, never shifting the index of a line the client already holds, so a
+ *  served chunk can neither duplicate nor skip a row regardless of how many live
+ *  deltas are in flight during the fetch. (A `have`-from-bottom cursor cannot:
+ *  it compares the server's produced-line count against the client's received
+ *  count, which differ by exactly the in-flight lag.) */
+export interface PtyHistoryChunk {
+  /** VT-serialized bytes for the chunk's rows, replayable through a terminal of
+   *  the same width to reproduce the lines. Empty when nothing older remains. */
+  chunk: string;
+  /** Absolute mirror-line index of the chunk's TOP row — the caller's new
+   *  cursor, passed as the next `before`. Equal to the input `before` when the
+   *  chunk is empty. May sit a wrapped line's continuation-rows lower than a
+   *  naive `before - max` because the top edge is snapped back to the wrapped
+   *  line's head, so a chunk boundary never splits a logical line. */
+  topLine: number;
+  /** True once the chunk reaches the oldest line the mirror still holds — the
+   *  caller stops backfilling. */
+  exhausted: boolean;
 }
 
 /** One foreground sample: the node-pty `process` name and the pty's
@@ -314,6 +392,11 @@ export interface PtyHost {
    *  to one slice (range / tail / viewport); omit it for the full buffer. See
    *  {@link ScreenExtent}. */
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
+  /** Serialize the older-history chunk of up to `max` rows sitting immediately
+   *  ABOVE absolute mirror line `before` — the backfill read the client pages as
+   *  it scrolls up. See {@link PtyHistoryChunk}. Returns an empty, exhausted
+   *  chunk for a gone PTY or when nothing older remains. */
+  getHistory(id: PtyId, before: number, max: number): PtyHistoryChunk;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** Kill every PTY this host owns. */
@@ -331,6 +414,17 @@ interface Entry {
    *  Read and invalidated ONLY through `snapshotOf` / `invalidateSnapshot`,
    *  which own the epoch invariant (see their definitions). */
   snapshotCache: string | undefined;
+  /** Memoized BOUNDED attach snapshot (recent screenful + its seed cursor) for
+   *  the current publish-epoch — the cheap paint a cold/cross-host attach gets
+   *  instead of the full-mirror `snapshotCache`. Shares the same epoch invariant:
+   *  read/invalidated only through `boundedSnapshotOf` / `invalidateSnapshot`. */
+  boundedSnapshotCache: { snapshot: string; topLine: number } | undefined;
+  /** Absolute-line origin: the running count of lines the headless mirror has
+   *  EVICTED off the top of its scrollback (the `onTrim` total). An absolute
+   *  mirror-line index is `mirrorBaseLine + localBufferIndex`, so it names the
+   *  same logical line even as eviction renumbers the local buffer — the stable
+   *  coordinate `getHistory` pages by. Only grows. */
+  mirrorBaseLine: number;
   cwd: string;
   title: string;
   lastActivity: number;
@@ -537,6 +631,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       headless,
       serialize,
       snapshotCache: undefined,
+      boundedSnapshotCache: undefined,
+      mirrorBaseLine: 0,
       cwd: spawnOpts.cwd,
       title: "",
       lastActivity: Date.now(),
@@ -555,6 +651,15 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       onDispose: spawnOpts.onDispose,
     };
     entries.set(id, entry);
+
+    // Track eviction so `getHistory`'s absolute cursor stays anchored: each time
+    // scrollback overflows and the oldest rows fall off, advance the origin by
+    // the count trimmed. Disposed with the rest on teardown.
+    entry.disposables.push(
+      onNormalBufferTrim(headless, (evicted) => {
+        entry.mirrorBaseLine += evicted;
+      }),
+    );
 
     // OSC 7 (CWD reporting) — the rc wrapper kolu injects makes the shell
     // emit these on every prompt.
@@ -706,8 +811,39 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.snapshotCache ??= entry.serialize.serialize();
     return entry.snapshotCache;
   }
+  /** Absolute mirror-line index of the row the bounded attach snapshot starts
+   *  at — the client's backfill seed cursor. `serialize({scrollback: S})`
+   *  serializes normal rows `[len - (S + rows), len - 1]` (clamped), so the top
+   *  local row is `max(0, len - S - rows)`; shift by the eviction origin to make
+   *  it absolute. Cheap (no serialize), so the aborted-attach fast path can seed
+   *  a cursor without paying for a snapshot it won't send. */
+  function snapshotTopLineOf(entry: Entry): number {
+    const normal = entry.headless.buffer.normal;
+    return (
+      entry.mirrorBaseLine +
+      Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows)
+    );
+  }
+  /** Bounded attach snapshot (recent screenful) + its seed cursor, memoized per
+   *  publish-epoch just like {@link snapshotOf}. The `{scrollback}` form keeps
+   *  the addon's faithful restore (cursor position, modes, alt buffer) while
+   *  capping the scrollback depth. Read this — not `snapshotOf` — for attach: it
+   *  is what stops shipping the whole 10k-line mirror on every (re)attach. */
+  function boundedSnapshotOf(entry: Entry): {
+    snapshot: string;
+    topLine: number;
+  } {
+    entry.boundedSnapshotCache ??= {
+      // Serialize and read `topLine` in the same synchronous breath (no await
+      // between), so the seed names the exact top row of the bytes returned.
+      topLine: snapshotTopLineOf(entry),
+      snapshot: entry.serialize.serialize({ scrollback: SNAPSHOT_SCROLLBACK }),
+    };
+    return entry.boundedSnapshotCache;
+  }
   function invalidateSnapshot(entry: Entry): void {
     entry.snapshotCache = undefined;
+    entry.boundedSnapshotCache = undefined;
   }
 
   function attach(
@@ -724,16 +860,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // reconnect storm, whose client has gone — does zero serialize work: the
     // subscribe above already returned an empty stream, so an empty snapshot
     // (a no-op `term.write("")` on the client) completes a no-op attach.
-    if (signal?.aborted) return { snapshot: "", deltas };
+    if (signal?.aborted)
+      return { snapshot: "", topLine: snapshotTopLineOf(entry), deltas };
     // Coalesce within the publish-epoch: the first attach serializes and
-    // memoizes via snapshotOf(); the rest of a burst reuse the identical
-    // immutable string. Race-free — the memo is set through snapshotOf() and
-    // cleared through invalidateSnapshot() in every mirror mutator, all
+    // memoizes via boundedSnapshotOf(); the rest of a burst reuse the identical
+    // immutable string. Race-free — the memo is set through boundedSnapshotOf()
+    // and cleared through invalidateSnapshot() in every mirror mutator, all
     // synchronous, and publish only fires from a later task; so a present cache
     // means the mirror is unchanged since it was taken, and every reusing
     // attacher's deltas (subscribed just above) begin at the next publish,
-    // exactly where the shared snapshot ends. No gap, no overlap.
-    return { snapshot: snapshotOf(entry), deltas };
+    // exactly where the shared snapshot ends. No gap, no overlap. `topLine`
+    // rides with the snapshot from the same serialize, so the backfill seed can
+    // never drift from the bytes the client received.
+    const { snapshot, topLine } = boundedSnapshotOf(entry);
+    return { snapshot, topLine, deltas };
   }
 
   function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
@@ -805,6 +945,33 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     }
   }
 
+  function getHistory(id: PtyId, before: number, max: number): PtyHistoryChunk {
+    const entry = entries.get(id);
+    // A gone PTY, or the client already holds the oldest line the mirror has:
+    // nothing older to serve. `before` is the client's absolute cursor; the row
+    // just above it is `before - mirrorBaseLine - 1` in the current local buffer.
+    if (!entry || max <= 0) return { chunk: "", topLine: before, exhausted: true };
+    const buffer = entry.headless.buffer.normal;
+    const localEnd = Math.min(before - entry.mirrorBaseLine - 1, buffer.length - 1);
+    if (localEnd < 0) return { chunk: "", topLine: before, exhausted: true };
+    let start = Math.max(0, localEnd - max + 1);
+    // Snap the top edge back over any wrapped-line continuation rows to the
+    // line's head, so a chunk boundary never bisects a logical line (which would
+    // drop the wrap and render a dangling continuation as a fresh line). The
+    // caller advances its cursor by the returned `topLine`, so the extra rows are
+    // accounted for exactly.
+    while (start > 0 && buffer.getLine(start)?.isWrapped) start--;
+    // Range serialize on the NORMAL buffer (its scrollback survives an alt-buffer
+    // switch); no modes, no alt-buffer tail — this is raw older content the
+    // client replays through a scratch terminal, not a screen restore.
+    const chunk = entry.serialize.serialize({
+      range: { start, end: localEnd },
+      excludeModes: true,
+      excludeAltBuffer: true,
+    });
+    return { chunk, topLine: entry.mirrorBaseLine + start, exhausted: start === 0 };
+  }
+
   function write(id: PtyId, data: string): void {
     entries.get(id)?.proc.write(data);
   }
@@ -868,6 +1035,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,
     getScreenText: getScreenTextFor,
+    getHistory,
     handle,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();

@@ -55,11 +55,40 @@ import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
  *  byte is lost or double-painted across the snapshot/delta boundary. */
 export interface TerminalAttachment {
   /** Serialized screen state (VT escape sequences) at the instant of
-   *  attach. Empty string when the PTY hasn't produced output yet. */
+   *  attach — the recent screenful, not the whole mirror (older history
+   *  streams in via `getHistory` as the client scrolls up). Empty string when
+   *  the PTY hasn't produced output yet. */
   snapshot: string;
+  /** Absolute mirror-line index of the snapshot's top row — the seed for the
+   *  client's scrollback-backfill cursor (see `TerminalHistoryChunk`). */
+  topLine: number;
   /** Live output deltas after the snapshot. Ends on iterator return,
-   *  signal abort, or PTY exit. */
-  deltas: AsyncIterable<string>;
+   *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
+   *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
+  deltas: AsyncIterable<TerminalAttachFrame>;
+}
+
+/** One frame of the terminal byte stream a client consumes. A plain delta is
+ *  just `data` (bytes to write). A frame that begins a FRESH snapshot (the
+ *  overflow-driven re-attach) also carries `topLine`, re-seeding the client's
+ *  backfill cursor for the reset scrollback. */
+export interface TerminalAttachFrame {
+  data: string;
+  topLine?: number;
+}
+
+/** One older-scrollback chunk for the client's in-place backfill — the padi
+ *  mirror of kaval's `PtyHistoryChunk`. `before`/`topLine` are absolute
+ *  mirror-line indices (see `TerminalHandle.getHistory`). */
+export interface TerminalHistoryChunk {
+  /** VT-serialized bytes for the chunk's rows, replayed at the live width.
+   *  Empty when nothing older remains. */
+  chunk: string;
+  /** Absolute mirror-line index of the chunk's top row — the caller's next
+   *  cursor. Equal to the input `before` when the chunk is empty. */
+  topLine: number;
+  /** True once the chunk reaches the oldest line the mirror still holds. */
+  exhausted: boolean;
 }
 
 /** Options the lifecycle layer hands to `spawnPty`. `cwd` resolves to
@@ -109,6 +138,11 @@ export interface TerminalHandle {
     endLine?: number,
     tailLines?: number,
   ): Promise<string>;
+  /** Older-scrollback read for the client's in-place backfill: serialize up to
+   *  `max` mirror rows immediately ABOVE absolute line `before` (the client's
+   *  cursor — the attach `topLine`, then each reply's `topLine`). Absolute
+   *  addressing keeps the backfill seam race-free against live output. */
+  getHistory(before: number, max: number): Promise<TerminalHistoryChunk>;
 }
 
 // `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint

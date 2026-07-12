@@ -54,6 +54,7 @@ import type {
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
+  TerminalHistoryChunk,
 } from "../endpoint.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
@@ -213,6 +214,11 @@ class PtyHostTerminalProxy implements TerminalHandle {
       extent,
     });
     return text;
+  }
+
+  async getHistory(before: number, max: number): Promise<TerminalHistoryChunk> {
+    await this.ready;
+    return this.client.surface.terminal.getHistory({ id: this.id, before, max });
   }
 }
 
@@ -1124,13 +1130,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       );
       const iter = stream[Symbol.asyncIterator]();
       const first = await iter.next();
-      if (first.done) return { snapshot: "", iter };
+      if (first.done) return { snapshot: "", topLine: 0, iter };
       if (first.value.kind !== "snapshot") {
         throw new Error(
           `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,
         );
       }
-      return { snapshot: first.value.data, iter };
+      return { snapshot: first.value.data, topLine: first.value.topLine, iter };
     };
 
     const initial = await open();
@@ -1139,6 +1145,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
     return {
       snapshot: initial.snapshot,
+      topLine: initial.topLine,
       deltas: reattachingDeltas(open, initial.iter),
     };
   }

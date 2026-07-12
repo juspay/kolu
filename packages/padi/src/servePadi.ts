@@ -21,7 +21,12 @@ import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
-import { currentPtyHostIdentity } from "kaval";
+import {
+  currentPtyHostIdentity,
+  DEFAULT_MIRROR_SCROLLBACK,
+  SNAPSHOT_SCROLLBACK,
+} from "kaval";
+import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { cancelPendingAutosave } from "./autosaveGate.ts";
@@ -86,6 +91,21 @@ import {
 import { exportTranscriptHtml } from "./transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
+
+// Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
+// degrade): a client's own scrollback must hold the ENTIRE reachable history —
+// the full mirror plus the bounded attach snapshot — so `prependScrollback`
+// never splices past its `CircularList`'s `maxLength` and silently evicts the
+// rows it just inserted (the one demonstrated corruption mode). Headroom is a
+// build-time fact across three packages that can't share a constant (kaval owns
+// the mirror depth, kolu-common the client depth); padi is the one daemon that
+// sees both, so it is where the three numbers meet and a violation crashes the
+// boot rather than corrupting a terminal in the field.
+if (DEFAULT_SCROLLBACK < DEFAULT_MIRROR_SCROLLBACK + SNAPSHOT_SCROLLBACK) {
+  throw new Error(
+    `scrollback-backfill headroom violated: client DEFAULT_SCROLLBACK (${DEFAULT_SCROLLBACK}) < mirror (${DEFAULT_MIRROR_SCROLLBACK}) + snapshot (${SNAPSHOT_SCROLLBACK}); the client buffer cannot hold the full reachable history`,
+  );
+}
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 
@@ -268,11 +288,14 @@ export function buildPadiSurfaceDeps(deps: {
       terminalAttach: {
         source: async function* ({ id }, signal) {
           const entry = requireActiveTerminal(id);
-          const { snapshot, deltas } = await resolveTerminalEndpoint(
+          const { snapshot, topLine, deltas } = await resolveTerminalEndpoint(
             entry.meta.location,
           ).attach(id, signal);
-          yield snapshot;
-          for await (const data of deltas) yield data;
+          // First frame carries the backfill seed (`topLine`) alongside the
+          // snapshot bytes; delta frames carry `data` only, except a re-attach
+          // frame which re-seeds (see `reattachingDeltas`).
+          yield { data: snapshot, topLine };
+          for await (const frame of deltas) yield frame;
         },
       },
     },
@@ -434,6 +457,11 @@ export function buildPadiSurfaceDeps(deps: {
           requireActiveTerminal(input.id).handle.getScreenText(
             input.startLine,
             input.endLine,
+          ),
+        history: ({ input }) =>
+          requireActiveTerminal(input.id).handle.getHistory(
+            input.before,
+            input.max,
           ),
       },
 

@@ -107,8 +107,22 @@ import { z } from "zod";
  *  is RECYCLED — its live PTYs killed (unlike padi, which drains). A cosmetic readout
  *  must never cost a terminal: leaving the field optional at 5.0 keeps the survivor
  *  handshake-compatible (adopted, PTYs intact), and the reader falls back to "—" until
- *  the user's next kaval restart reports it. */
-export const PTY_HOST_CONTRACT_VERSION = "5.0";
+ *  the user's next kaval restart reports it.
+ *
+ *  Bumped to 5.1 (additive · minor): scrollback-backfill. Two shape changes,
+ *  both breaking only in the new-client/old-daemon direction the predicate
+ *  already recycles. (1) A new `terminal.getHistory` read verb serves older
+ *  mirror scrollback in cursor-paged chunks (the client backfills its own
+ *  scrollback as it scrolls up; `kaval-tui history` is a second consumer). (2)
+ *  The `terminalAttach` `snapshot` frame gained a required `topLine` — the
+ *  absolute mirror-line seed the client's backfill cursor starts from. Like the
+ *  3.3 `commandRun.replayed` add, a 5.0 survivor serving a bare `{ kind, data }`
+ *  snapshot frame is rejected by the new schema and RECYCLED on adoption, rather
+ *  than seeding the client's backfill from a missing anchor. The attach snapshot
+ *  is also now BOUNDED (the recent screenful, not the whole 10k mirror) — a
+ *  payload-size change, invisible to the wire shape, so it needs no bump on its
+ *  own. */
+export const PTY_HOST_CONTRACT_VERSION = "5.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -186,7 +200,16 @@ const TerminalListEntrySchema = z.object({
 });
 
 const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("snapshot"), data: z.string() }),
+  // `topLine` (contract 5.1) is the absolute mirror-line index of the snapshot's
+  // top row — the seed the client's scrollback-backfill cursor pages older
+  // history down from (`terminal.getHistory`'s first `before`). Required, and
+  // riding on the SAME frame as the bytes it describes, so the seed can never
+  // drift from the snapshot a client actually received.
+  z.object({
+    kind: z.literal("snapshot"),
+    data: z.string(),
+    topLine: z.number().int().nonnegative(),
+  }),
   z.object({ kind: z.literal("delta"), data: z.string() }),
   // The host dropped THIS attach subscriber for exceeding its buffered-chunk
   // cap (a slow consumer), then ended the stream. A pure CONTROL frame (no
@@ -414,6 +437,26 @@ export const ptyHostSurface = defineSurface({
             .optional(),
         }),
         output: z.object({ text: z.string() }),
+      },
+      /** Older-scrollback read for the client's in-place backfill (contract
+       *  5.1). `before` is the caller's absolute cursor (the attach snapshot's
+       *  `topLine`, then each reply's `topLine`); the host serves up to `max`
+       *  mirror rows immediately ABOVE it, VT-serialized for replay. Absolute
+       *  addressing keeps the seam where backfill meets existing content
+       *  race-free against live output (see `PtyHistoryChunk`). `max` is a
+       *  positive count — a non-positive request is a caller bug, rejected at the
+       *  wire rather than silently returning nothing. */
+      getHistory: {
+        input: z.object({
+          id: PtyIdSchema,
+          before: z.number().int().nonnegative(),
+          max: z.number().int().positive(),
+        }),
+        output: z.object({
+          chunk: z.string(),
+          topLine: z.number().int().nonnegative(),
+          exhausted: z.boolean(),
+        }),
       },
     },
     system: {

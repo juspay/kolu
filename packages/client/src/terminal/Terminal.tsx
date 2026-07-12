@@ -65,6 +65,10 @@ import { createRenderRecovery } from "./renderRecovery";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { createSnapshotBoundary } from "./snapshotBoundary";
+import {
+  type BackfillController,
+  createBackfillController,
+} from "./scrollbackBackfill";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
@@ -129,6 +133,7 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   let linkProviderDisposable: { dispose(): void } | null = null;
+  let backfill: BackfillController | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
@@ -417,6 +422,8 @@ const Terminal: Component<{
     unloadWebgl();
     linkProviderDisposable?.dispose();
     linkProviderDisposable = null;
+    backfill?.dispose();
+    backfill = null;
     terminal?.dispose();
     terminal = null;
     // Null out the other addon slots on this component's Context. xterm
@@ -516,6 +523,20 @@ const Terminal: Component<{
           term.loadAddon(new ImageAddon());
           const serializeAddon = new SerializeAddon();
           term.loadAddon(serializeAddon);
+
+          // Scrollback backfill: attach paints only the recent screenful; as the
+          // user scrolls up, fetch older chunks from kaval and prepend them into
+          // this terminal's own scrollback. Seeded from the attach snapshot's
+          // `topLine` (below); self-manages the near-top trigger and the
+          // reset/resize races.
+          backfill = createBackfillController(term, {
+            fetch: (before, max) =>
+              activePadiRpc.surface.screen.history({
+                id: props.terminalId,
+                before,
+                max,
+              }),
+          });
 
           term.open(containerRef);
           // Canvas tiles render xterm inside a CSS `scale(zoom)` transform
@@ -804,6 +825,10 @@ const Terminal: Component<{
             terminal?.reset();
             scrollLock.reset();
             snapshotBoundary.armSnapshot();
+            // Forget the backfill cursor: the next frame is a fresh snapshot that
+            // re-seeds it (below). Fetching against the old cursor would splice
+            // onto the terminal we just reset.
+            backfill?.reset();
           };
           consumeReattachingStream(
             () =>
@@ -812,7 +837,12 @@ const Terminal: Component<{
                 { id: props.terminalId },
                 { signal, onRetry: resetForFreshSnapshot },
               ),
-            (data) => {
+            (frame) => {
+              // A frame carrying `topLine` begins a fresh snapshot (initial attach
+              // or an overflow re-attach) — seed/re-seed the backfill cursor to
+              // the absolute mirror line the snapshot starts at.
+              if (frame.topLine !== undefined) backfill?.seed(frame.topLine);
+              const data = frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
                 // the terminal's live-activity dot (dock + title), even when

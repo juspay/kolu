@@ -484,6 +484,24 @@ export const PadiScreenTextInputSchema = z.object({
   endLine: z.number().int().nonnegative().optional(),
 });
 
+/** `screen.history` — the client's scrollback-backfill read. `before` is the
+ *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then
+ *  each reply's `topLine`); the host serves up to `max` older rows above it. */
+export const PadiScreenHistoryInputSchema = z.object({
+  id: TerminalIdSchema,
+  before: z.number().int().nonnegative(),
+  max: z.number().int().positive(),
+});
+
+/** One older-scrollback chunk `screen.history` returns — mirrors kaval's
+ *  `getHistory` output. `chunk` is VT bytes replayed at the live width; `topLine`
+ *  is the caller's next cursor; `exhausted` ends the backfill. */
+export const PadiScreenHistoryOutputSchema = z.object({
+  chunk: z.string(),
+  topLine: z.number().int().nonnegative(),
+  exhausted: z.boolean(),
+});
+
 /** `scratch.write` — write base64 bytes into a terminal's on-disk scratch dir
  *  (the write half the paste/upload procedures build on). Returns the on-disk
  *  path so the caller can bracketed-paste it into the PTY. */
@@ -686,7 +704,13 @@ export const padiSurface = defineSurface({
      *  re-attaches end-to-end); the shipped overflow frame (#1591) rides it. */
     terminalAttach: {
       inputSchema: PadiTerminalIdInputSchema,
-      outputSchema: z.string(),
+      // A structured frame, not a bare string (contract): `data` is the bytes to
+      // write; `topLine` (present only on a snapshot/re-attach frame) is the
+      // absolute mirror-line seed for the client's scrollback-backfill cursor.
+      outputSchema: z.object({
+        data: z.string(),
+        topLine: z.number().int().nonnegative().optional(),
+      }),
     },
   },
   events: {
@@ -735,6 +759,10 @@ export const padiSurface = defineSurface({
     screen: {
       state: { input: PadiTerminalIdInputSchema, output: z.string() },
       text: { input: PadiScreenTextInputSchema, output: z.string() },
+      history: {
+        input: PadiScreenHistoryInputSchema,
+        output: PadiScreenHistoryOutputSchema,
+      },
     },
     /** Filesystem reads scoped to a repo on the serving host. */
     fs: {

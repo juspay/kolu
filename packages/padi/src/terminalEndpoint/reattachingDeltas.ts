@@ -22,6 +22,7 @@
  */
 
 import { ORPCError } from "@orpc/server";
+import type { TerminalAttachFrame } from "../endpoint.ts";
 import type { PtyHostDataMsg } from "kaval";
 
 /** RIS (`ESC c`) — a full terminal reset. Prepended to a re-attach snapshot so
@@ -37,6 +38,9 @@ export const REATTACH_PAUSE_MS = 150;
  *  plus the iterator positioned at the first delta. */
 export interface OpenedAttach {
   snapshot: string;
+  /** Absolute mirror-line seed for the fresh snapshot — carried onto the
+   *  re-attach frame so the client re-seeds its backfill cursor. */
+  topLine: number;
   iter: AsyncIterator<PtyHostDataMsg>;
 }
 
@@ -51,7 +55,7 @@ export interface OpenedAttach {
 export async function* reattachingDeltas(
   open: () => Promise<OpenedAttach>,
   firstIter: AsyncIterator<PtyHostDataMsg>,
-): AsyncGenerator<string> {
+): AsyncGenerator<TerminalAttachFrame> {
   let cur = firstIter;
   for (;;) {
     let overflowed = false;
@@ -62,7 +66,7 @@ export async function* reattachingDeltas(
         overflowed = true;
         break;
       }
-      yield msg.data;
+      yield { data: msg.data };
     }
     if (!overflowed) return; // graceful end: PTY exit / abort / clean close
     await new Promise((r) => setTimeout(r, REATTACH_PAUSE_MS));
@@ -73,7 +77,9 @@ export async function* reattachingDeltas(
       if (err instanceof ORPCError && err.code === "NOT_FOUND") return;
       throw err;
     }
-    yield TERMINAL_RESET + next.snapshot;
+    // A fresh snapshot: reset the screen (RIS) AND re-seed the backfill cursor
+    // with this re-attach's own `topLine`.
+    yield { data: TERMINAL_RESET + next.snapshot, topLine: next.topLine };
     cur = next.iter;
   }
 }

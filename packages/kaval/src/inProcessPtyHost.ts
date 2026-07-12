@@ -140,7 +140,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           const att = host.attach(input.id, signal, () => {
             overflow = true;
           });
-          yield { kind: "snapshot" as const, data: att.snapshot };
+          yield {
+            kind: "snapshot" as const,
+            data: att.snapshot,
+            topLine: att.topLine,
+          };
           for await (const data of att.deltas) {
             yield { kind: "delta" as const, data };
           }
@@ -323,6 +327,10 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         getScreenText: async ({ input }) => {
           requirePty(input.id as PtyId);
           return { text: host.getScreenText(input.id, input.extent) };
+        },
+        getHistory: async ({ input }) => {
+          requirePty(input.id as PtyId);
+          return host.getHistory(input.id, input.before, input.max);
         },
       },
       system: {
