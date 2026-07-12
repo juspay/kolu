@@ -67,13 +67,18 @@ function respawnActive(
     subPanel: t.subPanel,
     rightPanel: t.rightPanel,
     intent: t.intent,
-    // Carry the saved agent-resume facts onto the fresh terminal so the closing
-    // `saveSession(snapshotSession())` re-persists the EXACT target, not `none`
-    // (the fold's `updateMemory` re-derives both live once the resumed agent is
-    // re-observed; until then the saved value stands — a resume that never lands, or
-    // a second unclean death right after restore, still finds the target on disk).
-    lastAgentCommand: t.lastAgentCommand,
-    restoreTarget: t.restoreTarget,
+    // Carry the saved agent-resume facts onto the fresh terminal ONLY when actually
+    // resuming, so the closing `saveSession(snapshotSession())` re-persists the EXACT
+    // target, not `none` (the fold's `updateMemory` re-derives both live once the
+    // resumed agent is re-observed; until then the saved value stands — a resume that
+    // never lands, or a second unclean death right after restore, still finds the target
+    // on disk). An OPTED-OUT terminal (`resume` false) spawns a genuine bare shell: it
+    // has no agent to re-observe, so the fold would NEVER clear a seeded `exact` (its
+    // `restoreTargetOf` is already `none`, so `updateMemory` never fires to overwrite the
+    // seed) — the exact target would persist and a later WAKE would resume the very agent
+    // the user declined. So drop both, leaving the bare shell's target at `none`.
+    lastAgentCommand: resume ? t.lastAgentCommand : undefined,
+    restoreTarget: resume ? t.restoreTarget : undefined,
     // Preserve the saved recency across the restart (RISK Q6) — without this the
     // fold reseeds the restored terminal to a fresh (never-active) recency and
     // the dock's recency ranking permanently collapses after a `session.restore`.

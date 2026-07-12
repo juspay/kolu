@@ -354,15 +354,21 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
   SleepingTerminalSchema,
 ]);
 
-/** Client-owned metadata supplied at create time. Seeded onto the new
- *  terminal's `meta` before the first `terminal.list` yield, so session
- *  restore can't race the canvas default-cascade effect (#642).
+/** Initial metadata supplied at create time — the SHARED shape for two callers:
+ *  the CLIENT-facing `lifecycle.create` (genuinely fresh terminal) and the internal
+ *  `restoreSession` respawn. Seeded onto the new terminal's `meta` before the first
+ *  `terminal.list` yield, so session restore can't race the canvas default-cascade
+ *  effect (#642).
  *
- *  `lastActivityAt` is technically a server-derived field, but session
- *  restore is the one client-driven path with truth about its prior
- *  value (read from the saved session blob). Threading it through here
- *  keeps recency ordering stable across restart — without it,
- *  `createMetadata` would reset every restored terminal to `0`. */
+ *  Most fields are client-owned chrome (theme / layout / panels / intent). THREE are
+ *  server-derived authored facts a fresh create has no business setting —
+ *  `lastActivityAt`, `lastAgentCommand`, and the fold-derived `restoreTarget` — but
+ *  session RESTORE is the one path with truth about their prior value (read from the
+ *  saved blob), so the shape carries them for restore's sake. `lastActivityAt` keeps
+ *  recency ordering stable across restart (without it `createMetadata` would reset
+ *  every restored terminal to `0`); `lastAgentCommand` + `restoreTarget` bridge the
+ *  agent-resume window (see their field doc). The client-facing `PadiCreateInputSchema`
+ *  OMITS all three — a fresh terminal earns them from padi's own observation. */
 export const InitialTerminalMetadataSchema = z.object({
   themeName: z.string().min(1).optional(),
   canvasLayout: CanvasLayoutSchema.optional(),

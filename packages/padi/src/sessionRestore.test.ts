@@ -283,4 +283,46 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
 
     await done;
   });
+
+  it("W12 — an OPTED-OUT agent restores to a bare shell: its exact target does NOT persist", async () => {
+    // The inverse of the test above (F2). When the user opts OUT of resuming this
+    // terminal's agent, the fresh terminal is a genuine BARE SHELL — seeding the saved
+    // `exact` target would persist it (the bare shell's fold never clears it, having no
+    // agent to re-derive from) and a later WAKE would resume the very agent the user
+    // declined. So the seed is gated on `resume`: the opted-out terminal restores with
+    // NO resume target on disk. `resumeFormFor(undefined/none)` → bare shell, so wake
+    // can't replay the agent by construction.
+    const EXACT = {
+      kind: "exact",
+      command: "claude --model sonnet",
+      agent: { kind: "claude-code", sessionId: "S1" },
+    } as const;
+    const agentRecord: SavedActiveTerminal = {
+      ...base,
+      id: PARENT_ID,
+      state: "active",
+      cwd: "/agent",
+      lastActivityAt: 500,
+      lastAgentCommand: "claude --model sonnet",
+      restoreTarget: EXACT,
+    };
+    setSavedSession({
+      terminals: [agentRecord],
+      activeTerminalId: PARENT_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(agentRecord);
+
+    // Opt OUT of resuming this terminal (empty resume set).
+    const done = restoreSession({ resumeIds: [] });
+
+    const restored = getSavedSession()?.terminals.find(
+      (t) => t.cwd === "/agent",
+    );
+    expect(restored).toBeDefined();
+    expect(restored?.restoreTarget).toBeUndefined();
+    expect(restored?.lastAgentCommand).toBeUndefined();
+
+    await done;
+  });
 });

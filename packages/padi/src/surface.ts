@@ -414,13 +414,17 @@ export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 // These are the NEW contract shapes lifecycle/chrome/screen/bytes/session
 // migrate onto (the root `terminal.*` namespace dies across W1.R). They are
 // intentionally distinct from `kolu-common/contract`'s raw-oRPC schemas — most
-// notably `create` DROPS `lastActivityAt` (a fresh terminal seeds it to 0 and the
-// fold stamps recency later), so they are not duplicates to fold away.
+// notably `create` DROPS the three SERVER-DERIVED authored facts (`lastActivityAt`,
+// `lastAgentCommand`, `restoreTarget`) that padi earns from its own observation, so
+// they are not duplicates to fold away.
 
-/** Create input — client-owned initial metadata MINUS `lastActivityAt`: a fresh
- *  terminal seeds `lastActivityAt: 0` (`createAuthoredActive` → `seedMemory`) and
- *  the fold stamps recency later, so the client cannot supply it. (`session
- *  .restore` re-threads a saved recency through `respawnActive`, not this input.) */
+/** Create input — the shared initial metadata MINUS the three server-derived authored
+ *  facts a fresh terminal has no truth about: `lastActivityAt` (seeds to 0 via
+ *  `createAuthoredActive` → `seedMemory`, then the fold stamps recency), and the
+ *  agent-resume pair `lastAgentCommand` + `restoreTarget` (a fresh terminal has no
+ *  prior agent — the fold derives both once one is observed). The client supplies only
+ *  chrome; `session.restore` re-threads all three from the saved blob through
+ *  `respawnActive`, not this input. */
 export const PadiCreateInputSchema = z
   .object({
     cwd: z.string().optional(),

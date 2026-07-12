@@ -477,7 +477,11 @@ function emitAgentValue(
   emit({ kind: "agent", agent: { value: nextAgent } });
 }
 
-function startAgentSensor<Session, Info extends AgentInfoShape>(
+// Exported for the producer-level regression test (`sensors.observability.test.ts`),
+// which drives the resolved-null branch's observability discriminant directly — the
+// two absence flavors (observable→authoritative-null, unobservable→`unknown`) and the
+// unobservable→observable RECOVERY that must re-emit the authoritative null (W12 F1).
+export function startAgentSensor<Session, Info extends AgentInfoShape>(
   adapter: AgentAdapter<Session, Info>,
   agentState: AgentEngineState,
   pid: number,
@@ -495,6 +499,15 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     key: string;
     stopPoll: () => void;
   } | null = null;
+  // When resolution is ABSENT (no session), its FLAVOR: was the terminal observable
+  // (taps live → authoritative end) or unobservable (taps failed → keep-last `unknown`)?
+  // Tracked so the dedup below re-emits when the flavor FLIPS. The load-bearing case is
+  // unobservable→observable: an agent that ended WHILE the taps were down must clear
+  // once they recover, but `current` is already null by then, so a session-key-only
+  // dedup would swallow the authoritative null and leave the dead agent resurrectable
+  // (W12 F1). `null` while a session is MATCHED (reset on match) so the next absence
+  // always emits.
+  let lastAbsenceObservable: boolean | null = null;
   // The most recent watcher-derived info for the matched session — the screen
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
@@ -567,7 +580,17 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     }
     const next = adapter.resolveSession(state, plog);
     const nextKey = next ? adapter.sessionKey(next) : null;
-    if ((current?.key ?? null) === nextKey) return;
+    // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
+    // (session key + observability), not the key alone. A matched resolution dedups on
+    // the key as before; an ABSENT one must ALSO re-emit when observability flips, so an
+    // unobservable→observable absence (`current` already null, key still null) emits the
+    // authoritative null that clears an agent which ended while the taps were down (F1).
+    const observable = nextKey === null ? isObservable() : true;
+    if (
+      (current?.key ?? null) === nextKey &&
+      (nextKey !== null || lastAbsenceObservable === observable)
+    )
+      return;
     const hadCurrent = current !== null;
     destroyCurrent();
     if (!next || !nextKey) {
@@ -590,7 +613,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
       //    failure is the race-safe structural signal. Emit `unknown` so the fold
       //    KEEPS the last agent and its `restoreTarget`, and the resume id survives on
       //    disk by construction.
-      const observable = isObservable();
+      lastAbsenceObservable = observable;
       if (hadCurrent)
         plog.debug(
           observable
@@ -606,6 +629,9 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
       }
       return;
     }
+    // A matched resolution resets the absence flavor: the NEXT absence — whatever its
+    // observability — is a fresh transition that must emit rather than dedup.
+    lastAbsenceObservable = null;
     plog.debug({ session: nextKey }, "agent session matched");
     current = {
       key: nextKey,
