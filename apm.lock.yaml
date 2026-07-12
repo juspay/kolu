@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-11T20:03:47.439381+00:00'
+generated_at: '2026-07-12T03:06:52.315840+00:00'
 apm_version: 0.24.1
 dependencies:
 - repo_url: _local/agents
@@ -79,7 +79,7 @@ dependencies:
     .agents/skills/kolu/SKILL.md: sha256:d4575e21bbcd12e6c1c1ba3c79495a3a50503525cf583d3f208425ce0b20c4df
     .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
-    .agents/skills/orchestrator/SKILL.md: sha256:fdbe82888f1a91f508a6b9cd189c792681a48a80d3b47d23fc26e9acf1303f62
+    .agents/skills/orchestrator/SKILL.md: sha256:1fba659995af2de96b5fd366105f006f6b45e0f851eaf9cc180ff3f8eead8422
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .agents/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
@@ -97,7 +97,7 @@ dependencies:
     .claude/skills/kolu/SKILL.md: sha256:d4575e21bbcd12e6c1c1ba3c79495a3a50503525cf583d3f208425ce0b20c4df
     .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
-    .claude/skills/orchestrator/SKILL.md: sha256:fdbe82888f1a91f508a6b9cd189c792681a48a80d3b47d23fc26e9acf1303f62
+    .claude/skills/orchestrator/SKILL.md: sha256:1fba659995af2de96b5fd366105f006f6b45e0f851eaf9cc180ff3f8eead8422
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .claude/skills/surface/SKILL.md: sha256:407652ca44fc119dba06be3816009eaa4331189f9bf3807c6b65e95f95b0cbad
   source: local
