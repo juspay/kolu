@@ -1,5 +1,5 @@
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
-import { LOCAL_HOST } from "kolu-common/hostKey";
+import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
@@ -39,23 +39,56 @@ vi.mock("../wire", () => {
           : undefined,
     }),
   };
-  // The map shape: `padiMap.useEntry(activeHost)` returns the active host's Entry,
-  // whose `.collections.terminals` is the same controllable double.
+  // Benign no-op stubs for the OTHER retained subs `createHostWire` opens beside
+  // `terminals` (session / activityFeed / daemonStatus) — this test drives ONLY the
+  // metadata collection, so these just need to construct without throwing.
+  const stubCell = {
+    use: () => ({
+      value: () => undefined,
+      sub: Object.assign(() => undefined, {
+        pending: () => false,
+        error: () => undefined,
+        complete: () => false,
+      }),
+    }),
+  };
+  const stubCollection = {
+    use: () => ({ keys: () => [], byKey: () => undefined }),
+  };
+  // `padiMap.entry(host)` — the point lens `createHostWire` opens the host's retained
+  // subs through. `.clock.toLocal` is `ms − offset` reading the controllable offset
+  // (default 0 = identity; the reprojection test drives a real skew and null).
+  const entry = () => ({
+    clock: {
+      toLocal: (ms: number) => {
+        const off = bag.clockOffset();
+        return off === null ? null : ms - off;
+      },
+    },
+    collections: { terminals, daemonStatus: stubCollection },
+    cells: { session: stubCell, activityFeed: stubCell },
+  });
+  // The `terminals` collection now rides the active host's RETAINED `scopedByEntry`
+  // owner (W9), read via `activeScope().wire.terminals` — so the mock is
+  // scope-compatible: `entries`/`codec`/`live` for the membership kernel, `entry`
+  // for the per-host subs. Static single-host membership (LOCAL_HOST) — this test
+  // never switches hosts, so the LOCAL owner builds once and stays active.
   return {
     padiMap: {
-      useEntry: () => ({ collections: { terminals } }),
-      // `entry(host).clock.toLocal` — `ms − offset`, reading the controllable offset.
-      // Default 0 (identity) leaves the ordering tests untouched; the reprojection test
-      // drives a real skew (and null, the warming host) through `bag.clockOffset`.
-      entry: () => ({
-        clock: {
-          toLocal: (ms: number) => {
-            const off = bag.clockOffset();
-            return off === null ? null : ms - off;
-          },
-        },
-      }),
+      entries: {
+        use: () => ({ keys: () => [LOCAL_HOST], byKey: () => undefined }),
+      },
+      codec: { encode: encodeHostKey, decode: decodeHostKey },
+      live: () => true,
+      entry,
+      useEntry: entry,
     },
+    // `createHostWire`'s `terminalKeys` opens `padiRpcOf(host).surface.terminals.keys`
+    // — a no-op async iterable that completes at once (this test drives ids through
+    // `bag.keys`/`deps.list`, not the keys stream).
+    padiRpcOf: () => ({
+      surface: { terminals: { keys: async function* () {} } },
+    }),
     activeHost: () => LOCAL_HOST,
   };
 });

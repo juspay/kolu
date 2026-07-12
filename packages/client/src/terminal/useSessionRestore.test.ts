@@ -64,13 +64,18 @@ vi.mock("../wire", async () => {
         },
       },
     },
-    savedSessionSub: { pending: () => h.sessionPending },
-    savedSession: () => h.savedSession,
     // Per-host latch keying (shape B). These tests are single-host — a stable local
     // key keeps the latch behavior identical to the pre-per-host app-lifetime latch.
     activeHost: () => ({ kind: "local" }),
   };
 });
+// The saved-session facades moved OUT of `wire.ts` into `hostScope/activeWire` at W9
+// (to break the `wire ↔ hostScopes` cycle); `useSessionRestore` imports them from there
+// now. Drive them through the same hoisted bag.
+vi.mock("../hostScope/activeWire", () => ({
+  savedSessionSub: { pending: () => h.sessionPending },
+  savedSession: () => h.savedSession,
+}));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),

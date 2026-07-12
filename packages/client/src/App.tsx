@@ -81,13 +81,8 @@ import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
 import { hostHue } from "./host/hostChipTone";
-import {
-  activeHost,
-  activePadiRpc,
-  hostKeys,
-  savedSession as serverSavedSession,
-  setActiveHost,
-} from "./wire";
+import { savedSession as serverSavedSession } from "./hostScope/activeWire";
+import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();

@@ -28,7 +28,7 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 **A companion repo's darwin lane uses `--host`, never inline `$ODU_HOSTS`.** A `@kolu/surface` change drags a downstream repo's CI along (e.g. the drishti PR `surface.md` requires), and that repo's CI is the shelled-out `nix run … odu -- run` path, not `mcp__odu__run`. Its own `hosts.json` may name a *different*, possibly-dark darwin host (drishti's `zest`); pin the override with **`--host aarch64-darwin=nix-infra@rasam.tail12b27.ts.net`** (per the `/ci` skill) — **never** by exporting inline JSON into `$ODU_HOSTS`, which odu reads as a *file path*, not a value: an inline `$ODU_HOSTS='{…}'` is **silently ignored**, the lane falls back to the repo's on-disk `zest`, and you burn a full CI run on the dead host. If you must set `$ODU_HOSTS`, write a real hosts *file* and point at it.
 
-**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. Since the MCP owns the run, the lease can no longer wrap it; [`ci/pu/lease.sh`](../ci/pu/lease.sh) holds the box as a **separate background process** and you pass its box pin to `mcp__odu__run`. The four-step flow:
+**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. Since the MCP owns the run, the lease can no longer wrap it; [`ci/pu/lease.sh`](../ci/pu/lease.sh) holds the box as a **separate background process** and you pass its box pin to `mcp__odu__run`. The three-step flow:
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
@@ -50,14 +50,9 @@ host=$(. .ci/pu-lease.env; echo "$PU_LEASE_HOST")
 
 # 3) Release the box (frees the flock; or just stop the backgrounded task).
 ci/pu/lease.sh release
-
-# 4) Post the metrics comment — which box ran CI, per-recipe timings, pool status.
-ci/pu/report.sh "$pr"
 ```
 
 The lease auto-releases even on a hard crash: stop the backgrounded `acquire` (or end the session) and its open fd dies → the box's `flock` frees within seconds (a `read -t TTL` half-open backstop and a `MAX_HOLD` leak backstop cover the rest). An empty `PU_LEASE_HOST` means the pool was saturated/unreachable and `lease.sh` either took a cold ephemeral box (recorded in `.ci/pu-lease.env`) or left it to `hosts.json` — in that case drop the `$host` pin but **keep the rasam `aarch64-darwin` pin** so the macOS lane still runs.
-
-[`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/lease.sh` leaves in `.ci/pu-lease.env` (leased box, commit) plus odu's per-node timing sidecar (`.ci/<sha7>/timings.jsonl`, durations straight from odu's state cell — and the lane verdict, since there's no wrapper exit to read; it falls back to a legacy justci `.ci/pc.log` only when that's absent), and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
 
 A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the closure) and, pulling nothing from the substituter, never triggers the concurrent-load contention that stalls cold boxes when several PRs run at once (juspay/kolu#1173). Box lifecycle is the [`pu`](../.apm/skills/pu/SKILL.md) skill; runner mechanics are the [`ci`](../.apm/skills/ci/SKILL.md) skill; the MCP face is the [`odu-mcp`](../.apm/skills/odu-mcp/SKILL.md) skill.
 

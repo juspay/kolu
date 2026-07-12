@@ -8,10 +8,10 @@ import { activeScope } from "../hostScope/hostScopes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  activePadiRpc,
   savedSessionSub,
   savedSession as serverSavedSession,
-} from "../wire";
+} from "../hostScope/activeWire";
+import { activePadiRpc } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 

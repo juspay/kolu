@@ -37,7 +37,7 @@ import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
-import { savedSessionSub } from "../wire";
+import { savedSessionSub } from "../hostScope/activeWire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import Dock from "./dock/Dock";

@@ -2,16 +2,19 @@
  * The live status of this host's pty-host daemon (kaval), as the server's
  * supervisor endpoint reports it on the `daemonStatus` surface collection.
  *
- * A module-level singleton subscription (one local host, keyed `"local"`),
- * consumed by the ChromeBar's KAVAL rail column and App.tsx's DegradedCanvas
- * gate — so the UI can tell "the daemon is down" apart from "you have no
- * terminals" (B2, the empty-canvas-lie fix).
+ * The `daemonStatus` collection rides the active host's RETAINED per-host wire
+ * owner (`activeScope().wire.daemonStatus`, W9 — opened once per host in
+ * `hostScope/createHostWire`, held across switch-away); this module reads
+ * through that window, keyed `"local"` for the active host's kaval. Consumed by
+ * the ChromeBar's KAVAL rail column and App.tsx's DegradedCanvas gate — so the
+ * UI can tell "the daemon is down" apart from "you have no terminals" (B2, the
+ * empty-canvas-lie fix).
  *
  * The PURE presentation (tables + projections — `DAEMON_STATE_PRESENTATION`,
  * `kavalDot`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
  * side-effect-free `./daemonPresentation`, re-exported here so existing call
- * sites are unchanged. This module owns only the wire-coupled bits: the live
- * subscription and the accessors over it.
+ * sites are unchanged. This module owns only the wire-coupled bits: the
+ * accessors/windows over that retained per-host subscription.
  */
 
 import {
@@ -26,15 +29,12 @@ import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
 import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
 import { channelLive, liveDownState, liveWarming } from "./daemonPresentation";
-import {
-  isPendingTimedOut,
-  type PendingWindow,
-  reanchorPendingWindow,
-} from "./pendingWindow";
+import { isPendingTimedOut } from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
@@ -80,7 +80,8 @@ export function daemonTransportLive(): boolean {
 }
 
 /** The active host entry's own connection — the SECOND leg of the daemonStatus delivery
- *  path (see {@link channelLive}). `daemonStatus` rides `useEntry(activeHost)`, so for a
+ *  path (see {@link channelLive}). `daemonStatus` rides the active host's RETAINED per-host
+ *  entry (`activeScope().wire.daemonStatus`, W9), so for a
  *  REMOTE host the server→remote link is part of the channel that refreshes it, a leg the
  *  ws (`daemonTransportLive`) alone doesn't reflect. When the active entry is not
  *  `connected` (ssh flap/warming/failed) the re-served status is FROZEN stale. For
@@ -130,14 +131,19 @@ export function daemonChannelLive(): boolean {
 // (`daemonTransportLive`, `app.health().live`) is unchanged: padi and kolu are
 // siblings over the ONE socket, so the ws that delivers this is the same one
 // `app.health()` watches.
-// A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
-// `createRoot` (module-lifetime), so it re-keys when the active host switches.
-const sub = createRoot(() =>
-  padiMap.useEntry(activeHost).collections.daemonStatus.use({
-    keys: () => [encodeHostLocation(LOCAL_LOCATION)],
-    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
-  }),
-);
+//
+// The `daemonStatus` collection now RIDES the active host's RETAINED per-host owner
+// (`activeScope().wire.daemonStatus`, W9) — opened once per host in `createHostWire` and
+// held across switch-away — instead of a `useEntry(activeHost)` re-key under an app-scope
+// `createRoot` here, which reopened it from PENDING on every switch. That pending window
+// was a direct cause of the ~1s switch-back rebuild: `daemonStatusPending()` flipped true,
+// so `resolveCanvasMode` left `workspace` and `App.tsx`'s `<Switch>` unmounted the canvas
+// arm. Retained, a switch-BACK reads the held status with `pending()` already false, so the
+// canvas never leaves `workspace`. This accessor is the WINDOW onto whichever host is
+// active — the active host's LOCAL kaval status cell, `undefined` (⇒ pending) before its
+// first frame OR during the removal race (no active host to read this tick).
+const localDaemonEntry = () =>
+  activeScope()?.wire.daemonStatus.byKey(encodeHostLocation(LOCAL_LOCATION));
 
 /** Reproject a `DaemonStatus`'s `startedAt` from the serving host's clock onto THIS
  *  browser's clock (via `padiMap.entry(host).clock.toLocal`) — the foreign-clock fence
@@ -170,13 +176,10 @@ export function reprojectDaemonStatus(
  *  `HostDaemonChips`'s per-host `daemon` memo, so the repo has a single reprojection
  *  concept rather than two identical bodies kept in sync by hand. A memo is already a
  *  callable accessor, so this IS `localDaemonStatus` — no pass-through wrapper. Module-
- *  lifetime root like `sub` above. */
+ *  lifetime root like `sharedDaemonTransportLive` above. */
 export const localDaemonStatus = createRoot(() =>
   createMemo((): DaemonStatus | undefined =>
-    reprojectDaemonStatus(
-      activeHost(),
-      sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.(),
-    ),
+    reprojectDaemonStatus(activeHost(), localDaemonEntry()?.()),
   ),
 );
 
@@ -230,7 +233,7 @@ export function padiLinkState(): PadiLink | undefined {
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
-  return sub.byKey(encodeHostLocation(LOCAL_LOCATION))?.pending() ?? true;
+  return localDaemonEntry()?.pending() ?? true;
 }
 
 /** Mirrors `makeSession`'s default `connectTimeoutMs` (`@kolu/surface-remote`'s
@@ -241,42 +244,29 @@ export function daemonStatusPending(): boolean {
  *  agree on the same order of magnitude. */
 const LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS = 30_000;
 
-/** The CURRENT pending run's anchor — re-derived by {@link reanchorPendingWindow}
- *  every time the ACTIVE HOST changes, not just once at module load. `sub` (above)
- *  rides `padiMap.useEntry(activeHost)`, which RE-KEYS — tears down and rebuilds —
- *  on every host switch (W4 "the switch"), so a brand-new remote host's wait for
- *  its first status genuinely restarts, exactly like boot's. A single
- *  `Date.now()` snapshot frozen at module load would keep measuring the ORIGINAL
- *  (boot-time) wait's age forever, so switching to a freshly-connecting remote
- *  minutes into a session read the 30s ceiling as ALREADY passed the instant the
- *  switch happened — before the new host's own handshake even began — and
- *  resolved the terminal `dead`/"kaval didn't start" surface over a daemon that
- *  was simply warming (the first-connect race this fixes; see `pendingWindow.ts`'s
- *  header for the full narrative). A `createMemo` reducer: it only recomputes
- *  when `encodeHostKey(activeHost())` actually changes (the same key `sub`
- *  re-keys on), so it holds across every OTHER re-render. */
-const daemonStatusPendingWindow = createRoot(() =>
-  createMemo<PendingWindow>((prev) =>
-    reanchorPendingWindow(prev, encodeHostKey(activeHost()), Date.now()),
-  ),
-);
-
-/** True once the daemon-status stream's CURRENT pending run — anchored per
- *  {@link daemonStatusPendingWindow}, re-anchored on every host switch — has run
- *  longer than the local endpoint's own connect timeout ({@link
- *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s
- *  `pendingTimedOut` fact: a padi endpoint that never comes up (a spawn/adopt
- *  failure — the #1713 adopt-path sibling is one cause) would otherwise leave
- *  `daemonStatusPending()` true FOREVER, and the canvas would spin at
- *  "Connecting…" with no way out. Reactive (reads the shared 1s clock), so a
- *  consumer inside a tracking scope re-renders the instant the ceiling passes —
- *  and re-renders `false` the instant a host switch re-anchors the window, so a
- *  fresh remote connect gets its own full grace period rather than inheriting a
- *  stale one. */
+/** True once the daemon-status stream's pending run — anchored ONCE per host in the
+ *  RETAINED per-host scope ({@link createHostWire}'s `daemonPendingAnchorMs`) — has
+ *  run longer than the local endpoint's own connect timeout ({@link
+ *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s `pendingTimedOut`
+ *  fact: a padi endpoint that never comes up (a spawn/adopt failure — the #1713
+ *  adopt-path sibling is one cause) would otherwise leave `daemonStatusPending()`
+ *  true FOREVER, and the canvas would spin at "Connecting…" with no way out.
+ *
+ *  Reads the anchor from `activeScope().wire` so it tracks the SAME retained
+ *  lifetime as the `daemonStatus` sub it bounds: the wait begins on a host's first
+ *  activation and is NOT restarted on switch-back (the sub isn't re-subscribing
+ *  either), so a repeatedly-revisited wedged host keeps its original deadline and
+ *  the ceiling still fires — where a per-switch re-anchor would let it dodge the
+ *  timeout forever. During the removal race (no active host to anchor against) it
+ *  reads `false` — never a spurious timeout. Reactive (the shared 1s clock +
+ *  `activeScope()`), so a consumer inside a tracking scope re-renders the instant
+ *  the ceiling passes. */
 export function daemonStatusPendingTimedOut(): boolean {
+  const anchorMs = activeScope()?.wire.daemonPendingAnchorMs;
+  if (anchorMs === undefined) return false;
   return isPendingTimedOut(
     daemonStatusPending(),
-    daemonStatusPendingWindow(),
+    anchorMs,
     getClockNow()(),
     LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
   );

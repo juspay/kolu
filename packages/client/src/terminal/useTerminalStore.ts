@@ -1,8 +1,9 @@
 /** Terminal store — composes view state and metadata.
  *
- *  Server-derived state streams through the surface client bundle's
- *  module-level subscriptions in `wire.ts` (`terminalListSub`); client view
- *  state (activeId, attention, mruOrder) lives in local signals.
+ *  Server-derived state streams through `terminalListSub` — a window over the
+ *  active host's RETAINED terminal-keys stream, in `hostScope/activeWire.ts`
+ *  (W9; it left `wire.ts` when the per-host wire subs became retained); client
+ *  view state (activeId, attention, mruOrder) lives in local signals.
  *
  *  Singleton via `createSharedRoot`: every consumer (WorkspaceSwitcher,
  *  ChromeBar, TerminalCanvas, mobile sheet, tile theme) reads the same
@@ -14,7 +15,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useViewState } from "../useViewState";
-import { terminalListSub } from "../wire";
+import { terminalListSub } from "../hostScope/activeWire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 import {
