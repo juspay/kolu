@@ -1,6 +1,6 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W9 and W11 all shipped; W10 (hosts survive a restart) is finishing as a settings field in the conf store; W12 (restore survives an unclean kaval death) comes next, with the cleanup ledger in parallel.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W11 all shipped, W10 last (hosts persist as a settings field in the conf store); W12 (restore survives an unclean kaval death) is next, with the cleanup ledger in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
@@ -42,8 +42,8 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "#1759 · drishti#93 in review · 2026-07-11", h: "#w5" },
   { d: 0, g: "✓", c: "ship", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "#1764 · 2026-07-11", h: "#w9" },
   { d: 0, g: "✓", c: "ship", l: "W11 · one verb per fact — user-remove vs system-retire in the pool", m: "#1775 · 2026-07-12", h: "#w11" },
-  { d: 0, g: "▶", c: "prog", l: "W10 · hosts survive a restart — membership as a settings field in the conf store", m: "#1772 · reworked, in flight", h: "#w10" },
-  { d: 0, g: "○", c: "prog", l: "W12 · restore survives an unclean kaval death — agent-resume facts journaled on change", m: "ratified 2026-07-12 · independent", h: "#w12" },
+  { d: 0, g: "✓", c: "ship", l: "W10 · hosts survive a restart — membership as a settings field in the conf store", m: "#1772 · 2026-07-12", h: "#w10" },
+  { d: 0, g: "○", c: "prog", l: "W12 · restore survives an unclean kaval death — agent-resume facts journaled on change", m: "ratified 2026-07-12 · next up", h: "#w12" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -172,30 +172,17 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
 <Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="shipped" needs={["W7"]} links={[{ label: "#1764", href: "https://github.com/juspay/kolu/pull/1764" }]} />
 <Phase id="W11" name="one verb per fact — user-remove vs system-retire in surface-remote's pool" status="shipped" needs={["W6"]} links={[{ label: "#1775", href: "https://github.com/juspay/kolu/pull/1775" }]} />
-<Phase id="W10" name="hosts survive a restart — membership as a settings field in the conf store" status="next" needs={["W6"]} links={[{ label: "#1772 (being reworked)", href: "https://github.com/juspay/kolu/pull/1772" }]} />
-<Phase id="W12" name="restore survives an unclean kaval death — agent-resume facts journaled on change, not flushed at exit" status="todo" />
+<Phase id="W10" name="hosts survive a restart — membership as a settings field in the conf store" status="shipped" needs={["W6"]} links={[{ label: "#1772", href: "https://github.com/juspay/kolu/pull/1772" }]} />
+<Phase id="W12" name="restore survives an unclean kaval death — agent-resume facts journaled on change, not flushed at exit" status="next" />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **As of 2026-07-12, in order:**
 
-1. **W10 — hosts survive a restart** is the finishing phase: W9 (<PrLink pr={1764} />) and W11 (<PrLink pr={1775} />) both shipped, so W10 is unblocked — <PrLink pr={1772} /> is being reworked to the ratified conf-store shape (below), and needs codex + code-police on the delta, full two-platform CI, and restart-persistence evidence before merge.
-2. **W12 — restore survives an unclean kaval death** comes next after W10 — independent of it in code (it lives in kaval, not the host pool), but sequenced after so one phase finishes at a time.
-3. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
-4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
+1. **W12 — restore survives an unclean kaval death** is next: [W10](#w10) (<PrLink pr={1772} />) shipped 2026-07-12 in the ratified conf-store shape, clearing the numbered ladder. W12 is independent of it in code (it lives in kaval, not the host pool) and is still a seedling — it needs its own interview and grounding before build.
+2. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
+3. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
 
 **The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
-
-<a id="w10"></a>
-
-### W10 — hosts survive a restart *(implementation <PrLink pr={1772} /> — being reworked to this shape)*
-
-**In simple words:** the hosts you added through the selector strip come back after a kolu restart. Today a restart forgets everything but the local default, and you re-add your fleet by hand. After W10, every remembered host reappears in the strip and reconnects through the normal connect pipeline; a host that's gone shows its honest failed chip with the cause rather than silently vanishing. The only way a host leaves the strip is your explicit remove.
-
-**Hosts are settings** (ratified 2026-07-12). The remembered fleet is one field in `PersistedStateSchema` — a value in the conf store (`config.json`) beside every other preference — riding the same store, the same migrations ladder, and the same corruption behavior: conf **throws** on a corrupt file (`clearInvalidConfig` is false; it never resets to defaults), which is already the fail-fast doctrine, inherited rather than re-implemented. The pool's transactional persist-before-commit hook — firing only on user-intent mutations, [W11](#w11)'s split — writes through `store.set`; the unremovable local default never enters the field (it's seeded in code, and persisting it would mint a second authority for "local always exists"); an env seed (`KOLU_PADI_HOST`) stays declarative provenance, never captured into persistence; and validation is loud — a persisted value naming local or carrying duplicates is rejected, not repaired.<Footnote>The original design persisted membership as its own zod-schemed `hosts.json` with hand-rolled atomic writes (tmp + rename) and its own crash-on-corrupt rule. It was overturned by srid's 2026-07-12 ruling when its justifications failed fact-checking: conf does not reset-to-defaults on corruption (it throws — the same behavior the separate file was built to guarantee), and no concrete incident distinguished the two designs. Hosts are no different from settings, so they ride the settings store.</Footnote>
-
-**Boot re-enters through the front door:** each persisted host goes through the ordinary `pool.add` and flows the W6 connect pipeline — warming → probing → connected, or failed with its honest cause. No lazy-dial mode: surface-remote already retries network faults forever, and a lazy/eager toggle would be a knob.
-
-**Status:** unblocked — [W11](#w11) is in master. <PrLink pr={1772} /> is being reworked to the conf-store shape; before merge it needs codex + code-police on the delta, full two-platform CI, and restart-persistence evidence.
 
 <a id="w12"></a>
 
@@ -203,7 +190,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 **In simple words:** today, if kaval dies cleanly your agents come back after restore — but if it is killed or crashes, you get your terminals back *empty*: the agents are gone, and you restart each one by hand.<Footnote>The 2026-07-12 production incident: prod's kaval was killed un-gracefully; session restore brought back the terminal list, but every agent came back as a bare shell and srid restored them by hand. On zest, a *graceful* kaval restart restores agents fine — the two outcomes differ only in how kaval died.</Footnote> After W12 the two cases look the same: restore brings the agents back either way. The only thing an unclean death may still lose is the last few moments of screen output.
 
-**The defect is the class W10 fixes for host membership:** the per-terminal agent-resume facts — whatever a graceful shutdown persists today that lets restore respawn the agent — are written at *exit* time, and a crash is precisely the case where the end never runs (SIGKILL, crash, OOM all skip it). The cure is the same: move the facts from exit-time flush to change-time journaling — the persisted record is a value replaced whole on every change (P1), owned by kaval beside its existing state — so the file is always current no matter how the process dies. The graceful-shutdown path stops being load-bearing; it can remain as a final no-op write.
+**The defect is the class [W10](#w10) fixed for host membership:** the per-terminal agent-resume facts — whatever a graceful shutdown persists today that lets restore respawn the agent — are written at *exit* time, and a crash is precisely the case where the end never runs (SIGKILL, crash, OOM all skip it). The cure is the same: move the facts from exit-time flush to change-time journaling — the persisted record is a value replaced whole on every change (P1), owned by kaval beside its existing state — so the file is always current no matter how the process dies. The graceful-shutdown path stops being load-bearing; it can remain as a final no-op write.
 
 **Seedling — this phase needs its own interview and grounding before build.** The first implementation step is to ground what "agent-resume facts" concretely *are* in kaval's current code — what the graceful path persists today — rather than guessing the field list here. Independent of W10: that lives in kolu-server's host pool, this lives in kaval.
 
@@ -386,6 +373,12 @@ type SshProv = "probing" | "copying" | "building";
 ### W11 — one verb per fact: user-remove vs system-retire — *shipped* <PrLink pr={1775} />
 
 **Shipped 2026-07-12** (squash `7f2811539`) — surface-remote's pool now speaks two verbs for its two facts: `remove(host)` means the *user* removed it (fires the persist hook), `retire(host)` is the system shedding a faulted session (same teardown, no persist); kolu's <Issue n={1708} /> pump-death path uses retire, so an internal fault can never masquerade as a user decision — the prerequisite W10's persistence needed. The gauntlet's structural insight: the remembered fleet is its **own** ordered set (`persistedMembership`), a fact in its own right — never derived from the live pool's `entries.keys()`, because retire deliberately desyncs live from remembered. Codex caught two edges, both fixed: remove-after-retire was a no-op, and a throwing listener could make retire reject.
+
+<a id="w10"></a>
+
+### W10 — hosts survive a restart — *shipped* <PrLink pr={1772} />
+
+**Shipped 2026-07-12** (merge `9f516987c`) — the hosts you added through the selector strip come back after a kolu restart; the only way a host leaves the strip is your explicit remove. **Hosts are settings:** the remembered fleet is one field in `PersistedStateSchema`, a value in the conf store beside every other preference — same store, same migrations ladder, same throw-on-corrupt behavior (the fail-fast doctrine *inherited*, not re-implemented) — written through the pool's transactional persist-before-commit hook, which fires only on user-intent mutations ([W11](#w11)'s split). The unremovable local default never enters the field (it's seeded in code — persisting it would mint a second authority for "local always exists"); an env seed (`KOLU_PADI_HOST`) stays declarative provenance, never captured into persistence; validation is loud — a persisted value naming local or carrying duplicates is rejected, not repaired. Boot re-enters through the front door: each persisted host flows the ordinary `pool.add` and the [W6](#w6) connect pipeline (warming → probing → connected, or failed with its honest cause — no lazy-dial knob). The shape itself was a pre-merge overturn: the design originally persisted membership as its own separate `hosts.json`, killed when fact-checking dismantled its justifications — hosts are no different from settings.<Footnote>The separate `hosts.json` was zod-schemed with hand-rolled atomic writes (tmp + rename) and its own crash-on-corrupt rule. It was overturned by srid's 2026-07-12 ruling when its justifications failed fact-checking: conf does not reset-to-defaults on corruption (it throws — `clearInvalidConfig` is false — the same behavior the separate file was built to guarantee), and no concrete incident distinguished the two designs. Hosts are no different from settings, so they ride the settings store.</Footnote>
 
 ### Superseded by this note
 
