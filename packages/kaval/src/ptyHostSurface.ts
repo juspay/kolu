@@ -51,6 +51,7 @@
  * kolu in it. See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B0).
  */
 
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
 
@@ -96,7 +97,17 @@ import { z } from "zod";
  *  the predicate already recycles; this one's is old-client/new-daemon, which a
  *  minor bump would silently wave through. So it is a major bump: a 4.x peer on
  *  EITHER side is now a clean skew (recycled / refused with an honest restart
- *  message) instead of a silent mis-parse. */
+ *  message) instead of a silent mis-parse.
+ *
+ *  `system.version` also gained an optional `lifetime` sibling of `identity` (the
+ *  daemon's `DaemonLifetimeInfo`, for the Kaval dialog's lifetime row) — added
+ *  WITHOUT a contract bump, exactly like `identity` itself. `isContractVersionCompatible`
+ *  only accepts `reported.minor >= expected.minor`, so a bump would make a surviving
+ *  pre-field 5.0 kaval a SKEW against a freshly-deployed 5.1 padi, and a skewed kaval
+ *  is RECYCLED — its live PTYs killed (unlike padi, which drains). A cosmetic readout
+ *  must never cost a terminal: leaving the field optional at 5.0 keeps the survivor
+ *  handshake-compatible (adopted, PTYs intact), and the reader falls back to "—" until
+ *  the user's next kaval restart reports it. */
 export const PTY_HOST_CONTRACT_VERSION = "5.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
@@ -227,6 +238,20 @@ export const PtyHostIdentitySchema = z.object({
 });
 export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
 
+/** The daemon's serializable lifetime policy — mirrors `@kolu/surface-daemon`'s
+ *  `DaemonLifetimeInfo` (the wire projection of `DaemonLifetime`). Deliberately a
+ *  SIBLING of `identity` on `system.version` rather than a member of
+ *  `PtyHostIdentitySchema`: that schema doubles as padiSurface's `expectedKaval`
+ *  build constant, which has no lifetime — a running daemon's lifetime is a
+ *  runtime fact, not a build identity. The produce site (`inProcessPtyHost`'s
+ *  `system.version`, fed `lifetimeInfo(lifetime)`) pins this shape to the spine's
+ *  `DaemonLifetimeInfo`, so the two can't drift. */
+export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("forever") }),
+  z.object({ kind: z.literal("idleTimeout"), ms: z.number() }),
+  z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
+]) satisfies z.ZodType<DaemonLifetimeInfo>;
+
 // Exported so `systemVersionShape.test.ts` can pin its exact key-set: `system.version`
 // is the supervisor's VERSION-AGNOSTIC identity read (the convergence kit reads
 // `{ contractVersion, identity.staleKey }` off it BEFORE the compat check — Pin 3), so a
@@ -239,6 +264,13 @@ export const SystemVersionOutputSchema = z.object({
    *  wire-compatible without a forced restart (additive — no
    *  `PTY_HOST_CONTRACT_VERSION` bump). */
   identity: PtyHostIdentitySchema.optional(),
+  /** The daemon's lifetime policy (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — surfaced for the Kaval dialog's lifetime row. Optional for
+   *  the same reason as `identity`, and added the same way — WITHOUT a
+   *  `PTY_HOST_CONTRACT_VERSION` bump — so a survivor predating it stays
+   *  handshake-compatible (adopted, PTYs intact) rather than being recycled; the
+   *  reader falls back to "—" until the next kaval restart reports it. */
+  lifetime: DaemonLifetimeInfoSchema.optional(),
 });
 
 const SystemHeartbeatOutputSchema = z.object({

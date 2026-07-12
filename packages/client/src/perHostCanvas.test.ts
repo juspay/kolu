@@ -94,14 +94,18 @@ vi.mock("./wire", async () => {
         },
       },
     },
-    savedSessionSub: { pending: () => false },
-    savedSession: () => bag.savedSession(),
     // The per-tab active host — flips on a switch; drives the per-host keying in
     // the `scopedByEntry` owner that BOTH `useViewState` (view) and
     // `useSessionRestore` (the latch) read.
     activeHost: () => bag.activeHost(),
   };
 });
+// The saved-session facades moved OUT of `wire.ts` into `hostScope/activeWire` at W9
+// (to break the `wire ↔ hostScopes` cycle); `useSessionRestore` imports them from there.
+vi.mock("./hostScope/activeWire", () => ({
+  savedSessionSub: { pending: () => false },
+  savedSession: () => bag.savedSession(),
+}));
 
 // `createHostPrefs`'s per-host prefs (`showSleeping` via `perHostBoolPref`,
 // `activityWindow` via `perHostPref`) and `createViewState`'s posture

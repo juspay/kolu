@@ -25,6 +25,7 @@ import {
   daemonBuild,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
@@ -40,7 +41,15 @@ export type KavalConnection = DaemonConnection<
   KavalConnectionMetadata
 >;
 
-export type KavalConnectionMetadata = { contractVersion: string };
+export type KavalConnectionMetadata = {
+  contractVersion: string;
+  /** kaval's serialized lifetime (`forever` in production; `boundToPid` under a
+   *  test/smoke run), read off `system.version` — mirrored into `DaemonStatus`
+   *  for the Kaval dialog's lifetime row. Optional: a survivor predating the
+   *  field reports none, and the reader falls back to "—". Rides the metadata
+   *  channel (kolu's soul), not the supervisor's generic `identity`. */
+  lifetime?: DaemonLifetimeInfo;
+};
 
 /** Dial kaval at `socketPath`, handshake, and return the live connection.
  *
@@ -97,7 +106,10 @@ export async function connectKaval(
     client,
     identity: version.identity,
     startedAt: version.startedAt,
-    metadata: { contractVersion: version.contractVersion },
+    metadata: {
+      contractVersion: version.contractVersion,
+      lifetime: version.lifetime,
+    },
     dispose: () => socket.destroy(),
     onClose: (cb) => {
       if (closed) queueMicrotask(cb);

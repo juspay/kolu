@@ -14,6 +14,7 @@
 
 import { activeArm, activePr } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
+import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -518,13 +519,21 @@ const WorkspaceCard: Component<{
           style={{ "background-color": props.entry.info.branchColor }}
         />
       </Show>
+      {/* Unread ping — the card-corner twin of the dock row's unread badge.
+       *  Placement + ping motion stay; only the FILL is unified to the shared
+       *  `ATTENTION_PILL_CLASS` amber (was the cool `bg-alert` violet — the same
+       *  "your turn" state hue, a drift from the amber every OTHER unread mark
+       *  paints), so all three unread surfaces read as one cue. The pill class's
+       *  text utilities are inert here (no content); its fill + rounding carry. */}
       <Show when={props.unread}>
         <span
           class="absolute right-2 top-2 inline-flex h-2 w-2"
           aria-hidden="true"
         >
-          <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
-          <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+          <span
+            class={`absolute h-full w-full opacity-75 animate-ping ${ATTENTION_PILL_CLASS}`}
+          />
+          <span class={`relative h-2 w-2 ${ATTENTION_PILL_CLASS}`} />
         </span>
       </Show>
 

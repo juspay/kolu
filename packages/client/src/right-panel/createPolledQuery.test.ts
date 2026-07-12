@@ -18,44 +18,21 @@ const pulseCtl = vi.hoisted(() => ({
     emit: (e: { frame: true } | { err: Error }) => void;
   },
 }));
-vi.mock("@kolu/surface/client", () => ({
-  unenrolledStreamCall: async (
-    _proc: unknown,
-    _input: unknown,
-    opts?: { signal?: AbortSignal },
-  ) => {
-    const queue: Array<{ frame: true } | { err: Error }> = [];
-    let wake: (() => void) | null = null;
-    let ended = false;
-    const stop = () => {
-      ended = true;
-      wake?.();
-    };
-    opts?.signal?.addEventListener("abort", stop);
-    pulseCtl.latest = {
-      emit: (e) => {
-        queue.push(e);
-        wake?.();
-        wake = null;
-      },
-    };
-    return {
-      async *[Symbol.asyncIterator]() {
-        while (!ended) {
-          while (queue.length) {
-            const e = queue.shift();
-            if (e && "err" in e) throw e.err;
-            yield undefined;
-          }
-          if (ended) break;
-          await new Promise<void>((r) => {
-            wake = r;
-          });
-        }
-      },
-    };
-  },
-}));
+vi.mock("@kolu/surface/client", async () => {
+  // The SHARED abort-aware stream mock; this fixture tracks a single `latest` emitter.
+  const { makeAbortAwareStream } = await import("./streamMock.testlib");
+  return {
+    unenrolledStreamCall: async (
+      _proc: unknown,
+      _input: unknown,
+      opts?: { signal?: AbortSignal },
+    ) => {
+      const { iterable, push } = makeAbortAwareStream(opts?.signal);
+      pulseCtl.latest = { emit: push };
+      return iterable;
+    },
+  };
+});
 
 async function flush(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
@@ -444,5 +421,191 @@ describe("createPolledQuery", () => {
     expect(res.afterSwitch.pending).toBe(true);
     expect(res.after).toBe("A#2"); // re-queried on the new host's pulse
     expect(res.calls).toBe(2);
+  });
+
+  it("active pause gate: pauses (value held, pulse torn down) while inactive, RESUMES with no blank + an immediate refresh (padi W9)", async () => {
+    // The Code-tab half of instant switch-back, by OWNERSHIP: `hostCodeTab`
+    // builds one instance per host and wires `active = ctx.isActive`. Backgrounding a
+    // host flips `active` false — the value is HELD and the pulse torn down (no
+    // background polling); switching BACK flips it true — the held value stays (NO
+    // blank) and the pulse re-subscribes to refresh immediately.
+    const res = await new Promise<{
+      shown: unknown;
+      whilePaused: { v: unknown; pending: boolean; calls: number };
+      onResume: { v: unknown; pending: boolean };
+      afterResume: unknown;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [active, setActive] = createSignal(true);
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          },
+          active,
+        });
+        await flush();
+        pulse();
+        await flush();
+        const shown = q(); // "A#1"
+
+        // PAUSE (host backgrounded): value held, pulse torn down. A pulse frame while
+        // paused hits the aborted stream and must NOT requery.
+        setActive(false);
+        await flush();
+        pulse();
+        await flush();
+        const whilePaused = { v: q(), pending: q.pending(), calls };
+
+        // RESUME (switch-BACK) with unchanged input: NO blank (value held), then the
+        // re-subscribed pulse's first frame refreshes it immediately.
+        setActive(true);
+        await flush();
+        const onResume = { v: q(), pending: q.pending() };
+        pulse();
+        await flush();
+        const afterResume = q(); // "A#2"
+
+        resolve({ shown, whilePaused, onResume, afterResume });
+        dispose();
+      });
+    });
+    expect(res.shown).toBe("A#1");
+    // Held while paused; no background poll fired (the pulse was torn down on pause).
+    expect(res.whilePaused.v).toBe("A#1");
+    expect(res.whilePaused.pending).toBe(false);
+    expect(res.whilePaused.calls).toBe(1);
+    // Resume: the held value is shown instantly — NO blank, NOT pending…
+    expect(res.onResume.v).toBe("A#1");
+    expect(res.onResume.pending).toBe(false);
+    // …and the pulse refreshes it in the background (the immediate refresh on activation).
+    expect(res.afterResume).toBe("A#2");
+  });
+
+  it("active pause gate: an input change WHILE paused blanks + re-queries on resume (a genuine query change is not silently stale)", async () => {
+    // If the query genuinely changed while a host was backgrounded (e.g. the user
+    // changed the diff mode), resuming must NOT show the stale held value: the key
+    // differs from what is shown, so it blanks + re-queries like any new input.
+    const res = await new Promise<{
+      shownA: unknown;
+      whilePaused: { v: unknown; pending: boolean };
+      onResume: { v: unknown; pending: boolean };
+      afterResume: unknown;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const [input, setInput] = createSignal<{ repoPath: string }>({
+          repoPath: "A",
+        });
+        const [active, setActive] = createSignal(true);
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input,
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            return `${i.repoPath}#${calls}`;
+          },
+          active,
+        });
+        await flush();
+        pulse();
+        await flush();
+        const shownA = q(); // "A#1"
+
+        // Pause, then change the input WHILE paused (the effect no-ops while inactive,
+        // so the held value stays put — it does not blank yet).
+        setActive(false);
+        await flush();
+        setInput({ repoPath: "B" });
+        await flush();
+        const whilePaused = { v: q(), pending: q.pending() };
+
+        // Resume: the key changed (B ≠ the shown A), so it blanks + re-queries.
+        setActive(true);
+        await flush();
+        const onResume = { v: q(), pending: q.pending() };
+        pulse();
+        await flush();
+        const afterResume = q(); // "B#2"
+
+        resolve({ shownA, whilePaused, onResume, afterResume });
+        dispose();
+      });
+    });
+    expect(res.shownA).toBe("A#1");
+    // Paused: the held value stays (the effect does not act while inactive).
+    expect(res.whilePaused.v).toBe("A#1");
+    expect(res.whilePaused.pending).toBe(false);
+    // Resume with a changed query: blanks + goes pending (not silently stale).
+    expect(res.onResume.v).toBeUndefined();
+    expect(res.onResume.pending).toBe(true);
+    expect(res.afterResume).toBe("B#2");
+  });
+
+  it("active pause gate: an IN-FLIGHT query is aborted on pause — a late resolve never writes the now-background store (no cross-host mix)", async () => {
+    // A requery already DISPATCHED when a host is backgrounded must be torn down, not
+    // just the pulse: `BrowseFileDispatcher` reads `activeHost()` AFTER its await (the
+    // binary URL), so a late resolve would stamp the NEW host's URL with THIS host's tag
+    // into THIS host's retained store — a cross-host mix. Pausing aborts the in-flight
+    // query, so its resolve early-returns on `ctl.signal.aborted` and the held value is
+    // frozen. (Before the fix, the inactive branch returned WITHOUT aborting, so the late
+    // resolve overwrote the store with "A#LATE".)
+    const res = await new Promise<{
+      paused: unknown;
+      afterLateResolve: unknown;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const deferred: { release: (() => void) | null } = { release: null };
+        const [active, setActive] = createSignal(true);
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async (i) => {
+            calls += 1;
+            if (calls === 1) return `${i.repoPath}#1`;
+            // The 2nd query blocks until the test releases it — modelling an RPC
+            // round-trip (the `await`) that outlives the pause.
+            await new Promise<void>((r) => {
+              deferred.release = r;
+            });
+            return `${i.repoPath}#LATE`;
+          },
+          active,
+        });
+        await flush();
+        pulse(); // query#1 → "A#1"
+        await flush();
+
+        pulse(); // query#2 starts, then blocks on the deferred
+        await flush();
+        // Pause BEFORE query#2 resolves — it must be aborted, not left running.
+        setActive(false);
+        await flush();
+        const paused = q();
+
+        // Let the in-flight query resolve; it lands AFTER the pause.
+        deferred.release?.();
+        await flush();
+        const afterLateResolve = q();
+
+        resolve({ paused, afterLateResolve });
+        dispose();
+      });
+    });
+    expect(res.paused).toBe("A#1"); // held value frozen on pause
+    expect(res.afterLateResolve).toBe("A#1"); // late resolve discarded (aborted)
   });
 });

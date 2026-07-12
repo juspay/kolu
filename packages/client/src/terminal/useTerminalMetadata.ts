@@ -29,7 +29,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
-import { toast } from "solid-sonner";
+import { activeScope } from "../hostScope/hostScopes";
 import { activeHost, padiMap } from "../wire";
 import {
   buildTerminalDisplayInfos,
@@ -154,10 +154,16 @@ export function useTerminalMetadata(deps: {
   const keys = createMemo<TerminalId[]>(
     () => deps.list()?.map((t) => t.id) ?? [],
   );
-  const terminals = padiMap.useEntry(activeHost).collections.terminals.use({
-    keys,
-    onError: (err: Error) => toast.error(`Metadata error: ${err.message}`),
-  });
+  // The composed `terminals` collection now RIDES the active host's RETAINED per-host
+  // owner (`activeScope().wire.terminals`, W9) — opened once per host in `createHostWire`
+  // and held across switch-away — instead of a `useEntry(activeHost)` re-key HERE that
+  // reopened it from pending on every switch. This hook stays the app-lifetime metadata
+  // WINDOW: it layers the identity-stable projection (below) on whichever host is active,
+  // so a switch-BACK reads the held records in one frame (no pending window). A function
+  // (not a bound handle): `activeScope()` re-keys on switch and is briefly `undefined`
+  // during the removal race — a tick where the projection reads an empty collection,
+  // exactly as the pre-W9 pending sub read empty.
+  const terminals = () => activeScope()?.wire.terminals;
 
   // padi's `terminals` collection is typed `PadiTerminal` — a 3-arm union:
   // `active | sleeping | PARKED`, each carrying the reserved cross-host `host` axis
@@ -252,7 +258,7 @@ export function useTerminalMetadata(deps: {
    *  perturbed by `reprojectClock`'s activeHost/offset read + fresh-object-per-call (which
    *  only the value-reading `getMetadata` needs). */
   function rawTile(id: TerminalId): TerminalMetadata | undefined {
-    const record = terminals.byKey(id)?.();
+    const record = terminals()?.byKey(id)?.();
     return record === undefined || isParked(record) ? undefined : record;
   }
 
@@ -288,7 +294,7 @@ export function useTerminalMetadata(deps: {
     let parked = 0;
     let live = 0;
     for (const id of keys()) {
-      const record = terminals.byKey(id)?.();
+      const record = terminals()?.byKey(id)?.();
       if (record === undefined) awaited++;
       else if (isParked(record)) parked++;
       else live++;

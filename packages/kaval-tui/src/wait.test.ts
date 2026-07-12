@@ -66,6 +66,7 @@ beforeAll(async () => {
   const { servedRouter, client } = createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+    lifetime: { kind: "forever" },
   });
   killAll = () => client.surface.terminal.killAll({});
   const socketPath = join(

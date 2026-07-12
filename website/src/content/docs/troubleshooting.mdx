@@ -95,10 +95,12 @@ same palette opens the first terminal flow in
 ## kolu is using a lot of memory
 
 kolu runs entirely in your browser tab, and its memory grows with two things: how
-many terminals you have open, and how many hosts you are connected to. Each open
-terminal keeps its own scroll-back history, and **each connected host keeps its
-terminals live** — so two machines with a dozen busy terminals between them is a
-lot of live state in one tab. That is expected, not a leak.
+many terminals the host you're viewing has open, and how many hosts you are connected
+to. The terminals on the host you're looking at each keep their own scroll-back
+history in the browser, and **every connected host keeps its own per-host state
+warm** — its terminal list, sessions, and the view you last had — so switching back
+is instant. Two machines with a dozen busy terminals between them is a lot of state in
+one tab. That is expected, not a leak.
 
 If it climbs higher than feels right, check these in order:
 

@@ -33,6 +33,7 @@ function inProcessKavalClient() {
   return createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kaval-host-rc-")),
+    lifetime: { kind: "forever" },
   }).client;
 }
 

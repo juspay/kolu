@@ -4,6 +4,7 @@ import {
   channelLive,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
+  formatLifetime,
   kavalDot,
   liveDownState,
   liveWarming,
@@ -236,5 +237,51 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
     expect(
       toKavalPresence({ state: "connecting" } as DaemonStatus, true),
     ).toEqual({ kind: "warming" });
+  });
+
+  it("carries the wire `lifetime` onto the connected presence (and leaves it undefined for a survivor predating the field)", () => {
+    // The end of the mirror chain kaval → system.version → connection metadata →
+    // DaemonStatus: the projected lifetime must reach the presence the dialog row
+    // reads, not be dropped en route. A live daemon's value flows through…
+    const live = {
+      state: "connected",
+      identity: { staleKey: "abc", navigableCommit: "deadbeef" },
+      contractVersion: "5.0",
+      startedAt: 1000,
+      lifetime: { kind: "boundToPid", pid: 4321 },
+    } as DaemonStatus;
+    expect(toKavalPresence(live, true)).toMatchObject({
+      kind: "connected",
+      lifetime: { kind: "boundToPid", pid: 4321 },
+    });
+    // …while a survivor whose status carries no lifetime reads `undefined`, which
+    // `formatLifetime` renders as "—".
+    const survivor = {
+      state: "connected",
+      identity: { staleKey: "abc", navigableCommit: "deadbeef" },
+      contractVersion: "5.0",
+      startedAt: 1000,
+    } as DaemonStatus;
+    const presence = toKavalPresence(survivor, true);
+    expect(presence).toMatchObject({ kind: "connected" });
+    expect(
+      presence.kind === "connected" ? presence.lifetime : "unreachable",
+    ).toBeUndefined();
+  });
+});
+
+describe("formatLifetime — the shared humanizer for the Kaval/Padi dialog lifetime row", () => {
+  it("renders each lifetime arm, and a survivor predating the field reads the dash", () => {
+    expect(formatLifetime({ kind: "forever" })).toBe("forever");
+    expect(formatLifetime({ kind: "boundToPid", pid: 4321 })).toBe(
+      "bound to run pid 4321",
+    );
+    // idleTimeout renders through the shared `formatUptime` ladder (5000ms → "5s").
+    expect(formatLifetime({ kind: "idleTimeout", ms: 5000 })).toBe(
+      "idle timeout (5s)",
+    );
+    // `undefined` is a survivor predating the wire field — an honest dash, never a
+    // fabricated policy.
+    expect(formatLifetime(undefined)).toBe("—");
   });
 });

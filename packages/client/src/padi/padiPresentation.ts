@@ -12,6 +12,7 @@
 import type { PadiConvergence, PadiLink } from "kolu-common/surface";
 import {
   DAEMON_UNKNOWN_DOT,
+  type DaemonLifetimeView,
   type DaemonTone,
   toneDot,
 } from "../kaval/daemonPresentation";
@@ -57,6 +58,11 @@ export type PadiIdentityView = {
   buildCommit: string | null;
   surfaceVersion: string;
   convergence: PadiConvergence | null;
+  /** padi's lifetime policy (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
+   *  seeds it; `undefined` for a survivor padi predating the wire field, which the
+   *  row renders as "—". */
+  lifetime: DaemonLifetimeView | undefined;
 };
 
 /** The Padi dialog/rail's own honest presence sum — narrower than the raw wire facts
@@ -90,7 +96,13 @@ export type PadiPresence =
 export function toPadiPresence(
   link: PadiLink | undefined,
   live: boolean,
-  identity: { commit: string | null; surfaceVersion: string } | undefined,
+  identity:
+    | {
+        commit: string | null;
+        surfaceVersion: string;
+        lifetime?: DaemonLifetimeView;
+      }
+    | undefined,
   convergence: PadiConvergence | null,
 ): PadiPresence {
   if (!live || link === undefined || link === "connecting")
@@ -105,6 +117,7 @@ export function toPadiPresence(
       buildCommit: identity.commit,
       surfaceVersion: identity.surfaceVersion,
       convergence,
+      lifetime: identity.lifetime,
     },
   };
 }
