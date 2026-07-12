@@ -95,7 +95,7 @@ import {
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
-import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
+import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import {

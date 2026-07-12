@@ -44,7 +44,7 @@ import {
   statusTitle,
 } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
+import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
