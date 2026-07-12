@@ -277,12 +277,21 @@ const defaultHost = seed[0] ?? LOCAL_HOST;
 // `pool.add` loop) keeps the boot replay from re-firing `persist` — the file is only
 // ever rewritten by a genuine runtime add/remove, so an interrupted boot can't truncate
 // it. A file that EXISTS but fails the schema CRASHES here with the path in the message
-// (`loadPersistedHosts` — fail-fast), never starting with an empty fleet. The local
-// default is never in the file (the `persist` hook below excludes it).
+// (`loadPersistedHosts` — fail-fast), never starting with an empty fleet.
 const hostsFile = hostsFilePath(stateDir);
-const initialHostKeys = [
-  ...new Set([...seed.map(encodeHostKey), ...loadPersistedHosts(hostsFile)]),
-];
+const persistedAtBoot = loadPersistedHosts(hostsFile);
+const envSeedKeys = seed.map(encodeHostKey);
+const initialHostKeys = [...new Set([...envSeedKeys, ...persistedAtBoot])];
+// Env-seed provenance (the `persist` hook's exclusion set): a `KOLU_PADI_HOST` seed is
+// a DECLARATIVE knob, not a strip-added membership fact — persisting it would complect
+// the two and make an env host permanent on disk after any unrelated add/remove (and
+// survive its own removal from the env). Exclude env seeds from the file UNLESS they
+// were already persisted at boot — persisted-at-boot wins, so a host a user
+// strip-added and then LATER also named in `KOLU_PADI_HOST` keeps its persisted claim.
+const persistedAtBootSet = new Set(persistedAtBoot);
+const declarativeSeedKeys = new Set(
+  envSeedKeys.filter((k) => !persistedAtBootSet.has(k)),
+);
 
 // ── P0: the local-supervisor ownership gate ────────────────────────────────────
 // kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND
@@ -325,7 +334,7 @@ const pool = buildRemotePool<PadiSession, undefined>({
   // queue, and rolls back the just-built session if it throws. The callback only shapes
   // WHAT is written — the unremovable local default drops out (seeded in code, never
   // persisted, so the file can't mint a second authority for "local always exists").
-  persist: (hosts) => savePoolMembership(hostsFile, hosts),
+  persist: (hosts) => savePoolMembership(hostsFile, hosts, declarativeSeedKeys),
   buildEntry: (h) => {
     const key = decodeHostKey(h);
     return {

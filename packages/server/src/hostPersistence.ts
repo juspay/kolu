@@ -23,8 +23,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { open, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   encodeHostKey,
   isEncodedHostKey,
@@ -47,17 +47,26 @@ export function hostsFilePath(stateDir: string): string {
 }
 
 /** The on-disk shape. `version` pins the format for a future migration; `hosts` is
- *  the encoded-key list. Each entry must be a canonical encoded key
- *  ({@link isEncodedHostKey}), so a hand-corrupted host string fails the schema HERE
- *  (crashing the boot with the path) rather than throwing raw later at pool
- *  construction. */
+ *  the encoded-key list. A well-formed file is what {@link savePersistedHosts} writes:
+ *  canonical encoded keys, no `local` (the code-seeded default is never persisted),
+ *  no duplicates. Each of those is a schema-level invariant, so a hand-corrupted file
+ *  fails HERE (crashing the boot with the path) rather than being silently normalized
+ *  — the fail-fast stance: a file that doesn't match what we write is corruption to
+ *  surface, not a set to quietly repair. */
 const PersistedHostsSchema = z.object({
   version: z.literal(1),
-  hosts: z.array(
-    z.string().refine(isEncodedHostKey, {
-      message: "not a canonical encoded host key",
+  hosts: z
+    .array(
+      z.string().refine(isEncodedHostKey, {
+        message: "not a canonical encoded host key",
+      }),
+    )
+    .refine((hosts) => !hosts.includes(LOCAL_KEY), {
+      message: `the local default (${JSON.stringify(LOCAL_KEY)}) must never be persisted`,
+    })
+    .refine((hosts) => new Set(hosts).size === hosts.length, {
+      message: "duplicate host entries",
     }),
-  ),
 });
 
 export type PersistedHosts = z.infer<typeof PersistedHostsSchema>;
@@ -102,17 +111,24 @@ export function loadPersistedHosts(path: string): string[] {
   return result.data.hosts;
 }
 
-/** Atomically replace the host file with `hosts` (encoded keys). tmp-write +
- *  rename so a crash mid-write never leaves a torn file — a reader sees either the
- *  old file or the whole new one, never a half (`fs.promises.rename` is as atomic as
- *  the sync form). ASYNC on purpose: this fires from the pool's `persist` hook on a
- *  live `hosts.add`/`hosts.remove` RPC while the server is serving every other
- *  terminal, so a sync write on a slow/network-mounted `KOLU_STATE_DIR` would block
- *  the single event loop (`no-sync-blocking-on-the-serving-loop`). The pool serializes
- *  its mutations through one queue, so this is never invoked concurrently with itself
- *  (a fixed `.tmp` sibling can't be clobbered by a racing write). The low-level
- *  primitive — production wiring goes through {@link savePoolMembership} (the pool's
- *  `persist` hook), which drops the local default first. */
+/** Atomically AND durably replace the host file with `hosts` (encoded keys):
+ *  tmp-write → fsync(tmp) → rename → fsync(dir).
+ *
+ *  tmp+rename gives atomic VISIBILITY (a reader sees the old file or the whole new
+ *  one, never a half), but not durability on its own: without the fsyncs a power
+ *  loss can lose the just-written bytes or the rename's directory entry — and a lost
+ *  INITIAL creation reads back as an honestly-empty fleet, the silent-shrink class
+ *  W10 exists to prevent. So we fsync the tmp file's contents before the rename, and
+ *  the containing directory after it, so an acknowledged mutation survives a crash.
+ *
+ *  ASYNC on purpose: this fires from the pool's `persist` hook on a live
+ *  `hosts.add`/`hosts.remove` RPC while the server serves every other terminal, so a
+ *  sync write on a slow/network-mounted `KOLU_STATE_DIR` would block the single event
+ *  loop (`no-sync-blocking-on-the-serving-loop`). The pool serializes its mutations
+ *  through one queue, so this is never invoked concurrently with itself (a fixed
+ *  `.tmp` sibling can't be clobbered by a racing write). The low-level primitive —
+ *  production wiring goes through {@link savePoolMembership} (the pool's `persist`
+ *  hook), which drops the local default + declarative env seeds first. */
 export async function savePersistedHosts(
   path: string,
   hosts: readonly string[],
@@ -120,30 +136,52 @@ export async function savePersistedHosts(
   const payload: PersistedHosts = { version: 1, hosts: [...hosts] };
   const tmp = `${path}.tmp`;
   // mode 0600 — the file holds ssh targets (`user@host`); keep it owner-only rather
-  // than inherit the ambient umask's usually-world-readable 0644.
-  await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+  // than inherit the ambient umask's usually-world-readable 0644. `chmod` after open
+  // forces 0600 even when a stale `.tmp` from a prior crash pre-exists (the open
+  // mode only applies on CREATION, so a reused 0644 tmp would otherwise leak).
+  const fh = await open(tmp, "w", 0o600);
+  try {
+    await fh.chmod(0o600);
+    await fh.writeFile(`${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
   await rename(tmp, path);
+  // fsync the DIRECTORY so the rename's dirent update is durable too — otherwise a
+  // crash right after the rename can lose the new name and resurrect the old file
+  // (or, on an initial creation, leave no file at all).
+  const dir = await open(dirname(path), "r");
+  try {
+    await dir.sync();
+  } finally {
+    await dir.close();
+  }
 }
 
-/** Persist the pool's guest membership after an add/remove: every current member
- *  EXCEPT the unremovable local default ({@link LOCAL_KEY} — the code-seeded
- *  `LOCAL_HOST`, the actual invariant, not whichever host the canvas happens to
- *  boot on).
+/** Persist the pool's *strip-added* membership after an add/remove: every current
+ *  member EXCEPT two kinds of non-persistable host —
+ *   1. the unremovable local default ({@link LOCAL_KEY} — the code-seeded `LOCAL_HOST`,
+ *      always excluded, so a hand-edited `local` in the file can't mint a second
+ *      authority for "local always exists"); and
+ *   2. any host in `declarativeSeedKeys` — a `KOLU_PADI_HOST` seed the user has NOT
+ *      also strip-added. An env seed is a DECLARATIVE knob, not a membership fact;
+ *      persisting it would complect the two and make an env host permanent after any
+ *      unrelated add/remove. The caller computes this set as "env seed MINUS the
+ *      hosts already in the file at boot", so a host a user strip-added and later
+ *      ALSO named in the env keeps its persisted claim (persisted-at-boot wins).
  *
  *  Wired as `buildRemotePool`'s `persist` hook, so the pool's OWN contract carries
- *  the durability guarantees — the write is ordered BEFORE the in-memory commit,
+ *  the transactional guarantees — the write is ordered BEFORE the in-memory commit,
  *  serialized through the pool's mutation queue, and rolled back (the just-built
- *  session torn down) if it throws. This callback only shapes WHAT is written: the
- *  local default drops out because it is seeded in code, not persisted. */
+ *  session torn down) if it throws. This callback only shapes WHAT is written. */
 export function savePoolMembership(
   path: string,
   members: readonly string[],
+  declarativeSeedKeys: ReadonlySet<string>,
 ): Promise<void> {
   return savePersistedHosts(
     path,
-    members.filter((h) => h !== LOCAL_KEY),
+    members.filter((h) => h !== LOCAL_KEY && !declarativeSeedKeys.has(h)),
   );
 }

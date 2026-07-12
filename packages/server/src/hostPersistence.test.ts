@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRemotePool } from "@kolu/surface-remote";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   hostsFilePath,
   loadPersistedHosts,
@@ -13,13 +13,22 @@ import {
 } from "./hostPersistence.ts";
 
 const LOCAL = encodeHostKey(LOCAL_HOST); // "local"
+const NO_SEEDS: ReadonlySet<string> = new Set();
 
 // Each test gets its own ephemeral state dir; the module reads/writes an explicit
 // path (no KOLU_STATE_DIR coupling), so there's no env to set up or tear down. The
-// mkdtemp dirs live under the OS tmp root; cleanup is the OS's job.
+// dirs are removed in `afterEach` so a long watch run doesn't accrete tmp dirs.
+const createdDirs: string[] = [];
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "kolu-host-persist-"));
+  const dir = mkdtempSync(join(tmpdir(), "kolu-host-persist-"));
+  createdDirs.push(dir);
+  return dir;
 }
+afterEach(() => {
+  for (const dir of createdDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("loadPersistedHosts", () => {
   it("returns [] when the file is absent (a fresh install has no fleet)", () => {
@@ -75,6 +84,28 @@ describe("loadPersistedHosts", () => {
     const dir = freshDir();
     expect(() => loadPersistedHosts(dir)).toThrow();
   });
+
+  it("CRASHES when the file persists the local default (a second authority)", () => {
+    const path = hostsFilePath(freshDir());
+    writeFileSync(
+      path,
+      JSON.stringify({ version: 1, hosts: [LOCAL, "remote:a"] }),
+      "utf8",
+    );
+    // Fail-fast, not silent Set-normalization: `local` is never written, so a file
+    // that contains it is corrupt.
+    expect(() => loadPersistedHosts(path)).toThrow(/must never be persisted/);
+  });
+
+  it("CRASHES when the file contains duplicate hosts", () => {
+    const path = hostsFilePath(freshDir());
+    writeFileSync(
+      path,
+      JSON.stringify({ version: 1, hosts: ["remote:a", "remote:a"] }),
+      "utf8",
+    );
+    expect(() => loadPersistedHosts(path)).toThrow(/duplicate host entries/);
+  });
 });
 
 describe("savePersistedHosts", () => {
@@ -96,14 +127,37 @@ describe("savePersistedHosts", () => {
 describe("savePoolMembership", () => {
   it("excludes the unremovable local default — it never enters the file", async () => {
     const path = hostsFilePath(freshDir());
-    await savePoolMembership(path, [LOCAL, "remote:a", "remote:b"]);
+    await savePoolMembership(path, [LOCAL, "remote:a", "remote:b"], NO_SEEDS);
     expect(loadPersistedHosts(path)).toEqual(["remote:a", "remote:b"]);
   });
 
   it("writes an empty list when the pool holds only the local default", async () => {
     const path = hostsFilePath(freshDir());
-    await savePoolMembership(path, [LOCAL]);
+    await savePoolMembership(path, [LOCAL], NO_SEEDS);
     expect(loadPersistedHosts(path)).toEqual([]);
+  });
+
+  it("excludes declarative env seeds — a KOLU_PADI_HOST host is not persisted", async () => {
+    const path = hostsFilePath(freshDir());
+    // remote:env is a pure env seed; remote:strip was added at runtime.
+    await savePoolMembership(
+      path,
+      [LOCAL, "remote:env", "remote:strip"],
+      new Set(["remote:env"]),
+    );
+    expect(loadPersistedHosts(path)).toEqual(["remote:strip"]);
+  });
+
+  it("persists a host that is BOTH an env seed and already persisted (persisted-at-boot wins)", async () => {
+    const path = hostsFilePath(freshDir());
+    // `declarativeSeedKeys` is env-MINUS-persisted-at-boot, so a host in both is NOT
+    // in it — the caller's job — and therefore stays persisted. Model that here.
+    await savePoolMembership(
+      path,
+      [LOCAL, "remote:both", "remote:strip"],
+      new Set(), // remote:both was persisted-at-boot, so excluded from the seed set
+    );
+    expect(loadPersistedHosts(path)).toEqual(["remote:both", "remote:strip"]);
   });
 });
 
@@ -116,7 +170,8 @@ describe("round-trip through buildRemotePool's persist hook", () => {
 
   it("persists add/remove and restores the fleet on restart", async () => {
     const path = hostsFilePath(freshDir());
-    const persist = (hosts: string[]) => savePoolMembership(path, hosts);
+    const persist = (hosts: string[]) =>
+      savePoolMembership(path, hosts, NO_SEEDS);
 
     const pool = buildRemotePool<{ destroy(): void }, undefined>({
       initialHosts: [LOCAL], // the seeded local default
