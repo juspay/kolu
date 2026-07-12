@@ -99,11 +99,16 @@ import { z } from "zod";
  *  EITHER side is now a clean skew (recycled / refused with an honest restart
  *  message) instead of a silent mis-parse.
  *
- *  5.1 (additive · minor): `system.version` gained an optional `lifetime` sibling
- *  of `identity` (the daemon's `DaemonLifetimeInfo`, for the Kaval dialog's
- *  lifetime row). A survivor predating it still handshakes (old-daemon direction
- *  the predicate already allows), exactly like the 3.1/3.2/3.3 additive minors. */
-export const PTY_HOST_CONTRACT_VERSION = "5.1";
+ *  `system.version` also gained an optional `lifetime` sibling of `identity` (the
+ *  daemon's `DaemonLifetimeInfo`, for the Kaval dialog's lifetime row) — added
+ *  WITHOUT a contract bump, exactly like `identity` itself. `isContractVersionCompatible`
+ *  only accepts `reported.minor >= expected.minor`, so a bump would make a surviving
+ *  pre-field 5.0 kaval a SKEW against a freshly-deployed 5.1 padi, and a skewed kaval
+ *  is RECYCLED — its live PTYs killed (unlike padi, which drains). A cosmetic readout
+ *  must never cost a terminal: leaving the field optional at 5.0 keeps the survivor
+ *  handshake-compatible (adopted, PTYs intact), and the reader falls back to "—" until
+ *  the user's next kaval restart reports it. */
+export const PTY_HOST_CONTRACT_VERSION = "5.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -261,8 +266,10 @@ export const SystemVersionOutputSchema = z.object({
   identity: PtyHostIdentitySchema.optional(),
   /** The daemon's lifetime policy (`forever` in production; `boundToPid` under a
    *  test/smoke run) — surfaced for the Kaval dialog's lifetime row. Optional for
-   *  the same reason as `identity`: a survivor predating the field (5.0) still
-   *  handshakes; the reader falls back to "—". Additive → the 5.1 minor bump. */
+   *  the same reason as `identity`, and added the same way — WITHOUT a
+   *  `PTY_HOST_CONTRACT_VERSION` bump — so a survivor predating it stays
+   *  handshake-compatible (adopted, PTYs intact) rather than being recycled; the
+   *  reader falls back to "—" until the next kaval restart reports it. */
   lifetime: DaemonLifetimeInfoSchema.optional(),
 });
 

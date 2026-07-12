@@ -45,7 +45,7 @@ export type KavalConnectionMetadata = {
   contractVersion: string;
   /** kaval's serialized lifetime (`forever` in production; `boundToPid` under a
    *  test/smoke run), read off `system.version` — mirrored into `DaemonStatus`
-   *  for the Kaval dialog's lifetime row. Optional: a survivor predating the 5.1
+   *  for the Kaval dialog's lifetime row. Optional: a survivor predating the
    *  field reports none, and the reader falls back to "—". Rides the metadata
    *  channel (kolu's soul), not the supervisor's generic `identity`. */
   lifetime?: DaemonLifetimeInfo;

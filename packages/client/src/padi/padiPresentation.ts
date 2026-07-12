@@ -59,8 +59,9 @@ export type PadiIdentityView = {
   surfaceVersion: string;
   convergence: PadiConvergence | null;
   /** padi's lifetime policy (`forever` in production; `boundToPid` under a
-   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. Always present
-   *  on the connected arm (padi seeds it synchronously at boot). */
+   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
+   *  seeds it; `undefined` for a survivor padi predating the wire field, which the
+   *  row renders as "—". */
   lifetime: PadiIdentity["lifetime"];
 };
 
@@ -99,7 +100,7 @@ export function toPadiPresence(
     | {
         commit: string | null;
         surfaceVersion: string;
-        lifetime: PadiIdentity["lifetime"];
+        lifetime?: PadiIdentity["lifetime"];
       }
     | undefined,
   convergence: PadiConvergence | null,

@@ -579,7 +579,7 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
     /** kaval's lifetime policy (`forever` in production; `boundToPid` under a
      *  test/smoke run), mirrored from `system.version` via the connection
      *  metadata — surfaced for the Kaval dialog's lifetime row. Optional: a
-     *  survivor predating the 5.1 field reports none, and the reader falls back
+     *  survivor predating the field reports none, and the reader falls back
      *  to "—". Set once at boot, constant for the daemon's life. */
     lifetime: DaemonLifetimeInfoSchema.optional(),
   }),
