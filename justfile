@@ -257,19 +257,24 @@ test: install
     # unlimited; this is free insurance on every platform.
     ulimit -n 65536 2>/dev/null || true
     # Worker-count cap (the count itself is computed below, after the suite
-    # lock): 6 on darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam)
+    # lock): 3 on darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam)
     # maximizes throughput but its higher concurrent load pressures the
     # slow-hydration tail — under load a handful of interaction waits
     # (per-terminal Code-tab history enablement, content settle) intermittently
     # miss their POLL budget and a scenario loses all its retries, which is
-    # fatal to a *consecutive*-green requirement. PAR=6 trades part of the
-    # speed win for markedly fewer load-correlated races (the report's PAR=6
-    # hardened runs were 0/3 catastrophic). Linux's watch/render stack is
-    # reliable, so it keeps 8. Past the cap the slowest-scenario tail dominates
-    # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
-    # docs/ci-e2e-macos-ralph-report.md.
+    # fatal to a *consecutive*-green requirement. PAR=6 traded part of the speed
+    # win for fewer load-correlated races, but a WORSE class survived: the
+    # *concurrent-load* the workers + odu + nix put on one mac trips the LOCAL
+    # padi link's liveness watchdog ("remote wedged — force-cycling the link"),
+    # which force-cycles an alive-but-slow padi and 500s every proc during the
+    # down-window, queue-draining a worker (kolu#1776 — a load-marginal
+    # collision, not a per-PR defect). Dropping darwin to PAR=3 (srid-ratified)
+    # cuts the concurrent local-padi pressure below that liveness threshold.
+    # Linux's watch/render + link stack is reliable, so it keeps 8. Past the cap
+    # the slowest-scenario tail dominates anyway. See
+    # docs/ci-e2e-macos-ralph-report.md and kolu#1776.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
-    cap=8; [ "$(uname)" = Darwin ] && cap=6
+    cap=8; [ "$(uname)" = Darwin ] && cap=3
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
