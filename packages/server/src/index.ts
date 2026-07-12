@@ -280,14 +280,12 @@ const defaultHost = seed[0] ?? LOCAL_HOST;
 // (`loadPersistedHosts` — fail-fast), never starting with an empty fleet. The local
 // default is never in the file (the `persist` hook below excludes it).
 const hostsFile = hostsFilePath(stateDir);
-const seedKeys = seed.map(encodeHostKey);
-const initialHostKeys = [...seedKeys];
-const seenHostKeys = new Set(seedKeys);
-for (const h of loadPersistedHosts(hostsFile)) {
-  if (seenHostKeys.has(h)) continue;
-  seenHostKeys.add(h);
-  initialHostKeys.push(h);
-}
+// Seed keys first (local default at [0]), then the remembered guests — `new Set`
+// dedups while preserving insertion order, so a host listed in BOTH `KOLU_PADI_HOST`
+// and the file seeds exactly once, env-seed-first.
+const initialHostKeys = [
+  ...new Set([...seed.map(encodeHostKey), ...loadPersistedHosts(hostsFile)]),
+];
 
 // ── P0: the local-supervisor ownership gate ────────────────────────────────────
 // kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND

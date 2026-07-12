@@ -28,7 +28,7 @@ import { decodeHostKey } from "kolu-common/hostKey";
 import { z } from "zod";
 
 /** The file basename, beside `conf`'s `config.json` under the state root. */
-export const HOSTS_FILE_NAME = "hosts.json";
+const HOSTS_FILE_NAME = "hosts.json";
 
 /** The remembered-hosts file path under a given state root (`KOLU_STATE_DIR`). */
 export function hostsFilePath(stateDir: string): string {
@@ -39,7 +39,7 @@ export function hostsFilePath(stateDir: string): string {
  *  the encoded-key list. Each entry must round-trip {@link decodeHostKey}, so a
  *  hand-corrupted host string fails the schema HERE (crashing the boot with the
  *  path) rather than throwing raw later at pool construction. */
-export const PersistedHostsSchema = z.object({
+const PersistedHostsSchema = z.object({
   version: z.literal(1),
   hosts: z.array(
     z.string().refine(
@@ -92,7 +92,9 @@ export function loadPersistedHosts(path: string): string[] {
  *  rename so a crash mid-write never leaves a torn file — a reader sees either the
  *  old file or the whole new one, never a half. The pool serializes its mutations
  *  through one queue, so this is never invoked concurrently with itself (a fixed
- *  `.tmp` sibling can't be clobbered by a racing write). */
+ *  `.tmp` sibling can't be clobbered by a racing write). The low-level primitive —
+ *  production wiring goes through {@link savePoolMembership} (the pool's `persist`
+ *  hook), which drops the local default first. */
 export function savePersistedHosts(
   path: string,
   hosts: readonly string[],
