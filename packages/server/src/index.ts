@@ -80,12 +80,18 @@ import {
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
 import type { PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { stateDir } from "./state.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
   parseKoluPadiHostSeed,
 } from "./padi/remotePadiBinding.ts";
 import { pruneToMembers } from "./padi/reServeEviction.ts";
+import {
+  hostsFilePath,
+  loadPersistedHosts,
+  savePoolMembership,
+} from "./hostPersistence.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
 import {
@@ -262,6 +268,27 @@ const seed = parseKoluPadiHostSeed();
 // only satisfies the indexed-access optional — the parser always prepends it).
 const defaultHost = seed[0] ?? LOCAL_HOST;
 
+// W10 — restore the remembered fleet. Guest hosts added via the selector strip in a
+// prior run are persisted beside the pool (their one writer); merge them into the
+// initial host set so they re-enter through the SAME seed → `buildEntry` → W6 connect
+// pipeline the env seed uses (a gone host surfaces as a `failed` entry, never silently
+// dropped). Deduped against the env seed so a host listed in BOTH `KOLU_PADI_HOST` and
+// the file seeds exactly once. Seeding at construction (rather than a post-build
+// `pool.add` loop) keeps the boot replay from re-firing `persist` — the file is only
+// ever rewritten by a genuine runtime add/remove, so an interrupted boot can't truncate
+// it. A file that EXISTS but fails the schema CRASHES here with the path in the message
+// (`loadPersistedHosts` — fail-fast), never starting with an empty fleet. The local
+// default is never in the file (the `persist` hook below excludes it).
+const hostsFile = hostsFilePath(stateDir);
+const seedKeys = seed.map(encodeHostKey);
+const initialHostKeys = [...seedKeys];
+const seenHostKeys = new Set(seedKeys);
+for (const h of loadPersistedHosts(hostsFile)) {
+  if (seenHostKeys.has(h)) continue;
+  seenHostKeys.add(h);
+  initialHostKeys.push(h);
+}
+
 // ── P0: the local-supervisor ownership gate ────────────────────────────────────
 // kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND
 // kolu-server pointed at the SAME state root would co-supervise the one padi and
@@ -296,7 +323,15 @@ releaseLocalSupervisor = supervisorClaim.release;
 // meanwhile, exactly the same shape for either). The `?host=` handler is unused (the
 // map forwards by key-in-input, not a per-host socket), so `H = undefined`.
 const pool = buildRemotePool<PadiSession, undefined>({
-  initialHosts: seed.map(encodeHostKey),
+  initialHosts: initialHostKeys,
+  // W10 — persist membership beside its one writer (the pool). Fires on every runtime
+  // add/remove with the intended post-mutation host list; the pool's own contract
+  // orders this write BEFORE the in-memory commit, serializes it through one mutation
+  // queue, and rolls back the just-built session if it throws. The callback only shapes
+  // WHAT is written — the unremovable local default drops out (seeded in code, never
+  // persisted, so the file can't mint a second authority for "local always exists").
+  persist: async (hosts) =>
+    savePoolMembership(hostsFile, hosts, encodeHostKey(defaultHost)),
   buildEntry: (h) => {
     const key = decodeHostKey(h);
     return {

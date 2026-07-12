@@ -122,14 +122,21 @@ const SCHEMA_VERSION = "1.32.0";
 //   nix-built kolu → ~/.config/kolu (production)
 //   pnpm dev       → <worktree-root>/.kolu-dev (per-worktree, gitignored)
 //   tests          → an ephemeral $TMPDIR path
-const stateDir = process.env.KOLU_STATE_DIR;
-if (!stateDir) {
+const rawStateDir = process.env.KOLU_STATE_DIR;
+if (!rawStateDir) {
   throw new Error(
     "KOLU_STATE_DIR must be set to an absolute directory. The nix-built " +
       "kolu wrapper, `pnpm dev`, and the test harness each set their own — " +
       "bare launches are rejected to avoid clobbering production state.",
   );
 }
+
+/** The validated state root (`KOLU_STATE_DIR`) — the single source of truth for
+ *  where recoverable state lives. Exported (narrowed to `string`) so siblings that
+ *  keep their OWN file beside `conf`'s `config.json` — e.g. `hostPersistence.ts`'s
+ *  `hosts.json` — resolve the root through this one validated place rather than
+ *  re-reading (and re-guarding) the env. */
+export const stateDir: string = rawStateDir;
 
 log.info({ path: stateDir }, "state directory");
 
