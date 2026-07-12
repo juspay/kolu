@@ -90,6 +90,10 @@ vi.mock("../wire", () => {
       surface: { terminals: { keys: async function* () {} } },
     }),
     activeHost: () => LOCAL_HOST,
+    // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763). This mock's
+    // membership is a static single local host and it never switches, so LOCAL_HOST is
+    // always grounded — matching `activeHost` above.
+    groundedActiveHost: () => LOCAL_HOST,
   };
 });
 vi.mock("solid-sonner", () => ({

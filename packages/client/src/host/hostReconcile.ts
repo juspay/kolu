@@ -1,4 +1,4 @@
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { type HostKey, hostKeysInclude } from "kolu-common/hostKey";
 
 /** What wire.ts's ONE active-host effect should do this frame, or `null` for a no-op.
  *
@@ -35,9 +35,9 @@ export type HostReconcileAction =
  *  throws `MAP_KEY_UNKNOWN`, canvas frozen, no chip lit) — fall back to the unremovable local
  *  default. No-op when membership hasn't snapshotted yet (empty `keys` — the warming window, so
  *  a not-yet-arrived host isn't read as departed), the active host is the local default
- *  (unremovable, always a member), or it is still a member. Membership is `encodeHostKey`
- *  equality — a `HostKey` is an object with no reference identity across independent decodes,
- *  so membership is never `===`. */
+ *  (unremovable, always a member), or it is still a member. Membership is decided by the
+ *  shared `hostKeysInclude` authority (`encodeHostKey` equality) — the SAME predicate
+ *  `groundActiveHost` uses. */
 export function hostReconcileTarget(
   keys: readonly HostKey[],
   active: HostKey,
@@ -46,15 +46,13 @@ export function hostReconcileTarget(
 ): HostReconcileAction | null {
   // Join intent wins — activate a just-added host the instant it appears in membership.
   if (pendingJoin !== null) {
-    const pendingEnc = encodeHostKey(pendingJoin);
-    if (keys.some((k) => encodeHostKey(k) === pendingEnc)) {
+    if (hostKeysInclude(keys, pendingJoin)) {
       return { kind: "activate-joined", target: pendingJoin };
     }
   }
   // Departed-bounce: a stranded active host falls back to the local default.
   if (keys.length === 0) return null; // pre-snapshot warming window — nothing to reconcile against
   if (active.kind === "local") return null; // the default is unremovable — always a member
-  const activeEnc = encodeHostKey(active);
-  if (keys.some((k) => encodeHostKey(k) === activeEnc)) return null; // still a member — no-op
+  if (hostKeysInclude(keys, active)) return null; // still a member — no-op
   return { kind: "bounce-departed", target: localHost }; // departed → fall back, loudly
 }
