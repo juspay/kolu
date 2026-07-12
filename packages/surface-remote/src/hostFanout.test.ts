@@ -123,11 +123,12 @@ describe("buildRemotePool", () => {
     const ws = socket();
     registry.registerConnection("alpha", ws);
     await registry.retire("alpha");
-    // Same LIVE teardown as remove: gone from membership, session destroyed, socket closed.
+    // Same LIVE teardown as remove: gone from membership, session destroyed, socket
+    // closed — but the close reason follows the verb ("host retired", not "removed").
     expect(registry.has("alpha")).toBe(false);
     expect(registry.hosts()).toEqual(["beta"]);
     expect(built.get("alpha")?.session.destroy).toHaveBeenCalledOnce();
-    expect(ws.close).toHaveBeenCalledWith(1000, "host removed");
+    expect(ws.close).toHaveBeenCalledWith(1000, "host retired");
     // …but the departure is NOT written — an internal shed leaves the host remembered,
     // so a membership store re-seeds it next boot. This is the whole point of the verb split.
     expect(persist).not.toHaveBeenCalled();
