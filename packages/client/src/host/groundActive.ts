@@ -1,4 +1,4 @@
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { type HostKey, hostKeysInclude } from "kolu-common/hostKey";
 
 /** Ground the per-tab ACTIVE host against live membership — the pure, total decision
  *  wire.ts's `groundedActiveHost` enacts (kept here, dependency-free, so it is
@@ -21,13 +21,12 @@ import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
  *  departed-active case is re-pointed by wire.ts's ONE active-host reconcile
  *  ({@link hostReconcileTarget}) a tick later; until then the scope is honestly `null`.
  *
- *  Membership is `encodeHostKey` equality — a `HostKey` is an object with no reference
- *  identity across independent decodes, so it is never `===` (mirrors
- *  `hostReconcileTarget`). */
+ *  Membership is decided by the shared `hostKeysInclude` authority (`encodeHostKey`
+ *  equality), the SAME predicate `hostReconcileTarget` uses — so grounding and
+ *  reconcile agree by construction. */
 export function groundActiveHost(
   active: HostKey,
   members: readonly HostKey[],
 ): HostKey | null {
-  const activeEnc = encodeHostKey(active);
-  return members.some((k) => encodeHostKey(k) === activeEnc) ? active : null;
+  return hostKeysInclude(members, active) ? active : null;
 }

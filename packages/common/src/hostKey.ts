@@ -66,6 +66,21 @@ export function encodeHostKey(k: HostKey): string {
   return k.kind === "local" ? "local" : `${REMOTE_WIRE_PREFIX}${k.target}`;
 }
 
+/** THE membership-equality authority: is `key` a member of `keys`? Compared by
+ *  `encodeHostKey` — a `HostKey` is an object with no reference identity across
+ *  independent decodes, so it is never `===`. The single edit site for "how a
+ *  HostKey's pool-membership is decided", so the READ-side scope grounding
+ *  (`groundActiveHost`) and the WRITE-side active-host reconcile
+ *  (`hostReconcileTarget`) agree on membership BY CONSTRUCTION rather than by
+ *  hand-maintained byte-identical predicates. */
+export function hostKeysInclude(
+  keys: readonly HostKey[],
+  key: HostKey,
+): boolean {
+  const enc = encodeHostKey(key);
+  return keys.some((k) => encodeHostKey(k) === enc);
+}
+
 /** DECODE — the CANONICAL wire form's inverse: `"local"` → the local variant,
  *  `"remote:<target>"` → the remote variant (a `"remote:"` prefix with an empty
  *  target is rejected). Anything else is not a value this codec ever produced —
