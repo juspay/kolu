@@ -1,5 +1,5 @@
 /** `hostScopes` — the per-host client-state owner. THE thing padi W7 exists to
- *  build: a `scopedByEntry(padiMap, activeHost, …)` over the host map, so every
+ *  build: a `scopedByEntry(padiMap, groundedActiveHost, …)` over the host map, so every
  *  per-host CLIENT fact (focus, MRU, attention, camera, the restore latch) is
  *  born inside a per-host reactive root — per-host BY CONSTRUCTION, not by a
  *  hand-keyed record a new field can be forgotten in.
@@ -34,7 +34,7 @@ import { type ScopedByEntry, scopedByEntry } from "@kolu/surface-map/client";
 import type { HostKey } from "kolu-common/hostKey";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { activeHost, padiMap } from "../wire";
+import { groundedActiveHost, padiMap } from "../wire";
 import { createCamera, type HostCamera } from "./createCamera";
 import { createHostPrefs, type HostPrefs } from "./createHostPrefs";
 import { createHostWire, type HostWire } from "./createHostWire";
@@ -58,7 +58,9 @@ export interface HostScope {
 const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
   scopedByEntry(
     padiMap,
-    activeHost,
+    // GROUNDED against membership (juspay/kolu#1763) — never raw `activeHost`; a
+    // not-yet-grounded boot host reads as `null`, not a non-member. See `wire.groundedActiveHost`.
+    groundedActiveHost,
     (host: HostKey, ctx): HostScope => ({
       view: createViewState(host),
       prefs: createHostPrefs(host),
@@ -69,9 +71,11 @@ const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
   ),
 );
 
-/** The ACTIVE host's owned world — `undefined` only during the removal race (the
- *  active host left the pool; `wire.ts`'s membership reconcile re-points
- *  `activeHost` to LOCAL a tick later). Every facade floors this `undefined` to
- *  the empty view, exactly as the pre-W7 `hosts[hostKey()] ?? empty` did. */
+/** The ACTIVE host's owned world — `undefined` while nothing is grounded: the boot
+ *  window before the `entries` snapshot lands (`groundedActiveHost` is `null`,
+ *  juspay/kolu#1763) and the removal race (the active host left the pool; `wire.ts`'s
+ *  membership reconcile re-points `activeHost` to LOCAL a tick later). Every facade
+ *  floors this `undefined` to the empty view, exactly as the pre-W7
+ *  `hosts[hostKey()] ?? empty` did. */
 export const activeScope: Accessor<HostScope | undefined> = () =>
   scopes().active();

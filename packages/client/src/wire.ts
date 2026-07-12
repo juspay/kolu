@@ -29,7 +29,11 @@ import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
-import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import {
+  decodeHostKey,
+  encodeHostKey,
+  hostKeysInclude,
+} from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -43,10 +47,17 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
+import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -239,6 +250,28 @@ const hostScoped = createRoot(() => {
   // The membership authority — shared by the connection re-arm (below), the host-membership
   // reconcile (further down), and HostSelectorStrip (deduped via the base-client ref-count).
   const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // FAIL-FAST invariant guard (juspay/kolu#1766): `LOCAL_HOST` is the server's unremovable
+  // seed[0] (`server/index.ts`), so once membership has LOADED (a non-empty snapshot) it MUST
+  // contain local. Both `groundedActiveHost` (scans uniformly → `null` if local is absent) and
+  // `hostReconcileTarget` (short-circuits local → never bounces it) trust that invariant, so a
+  // violation would silently strand `activeScope()` at `undefined` (a blank canvas) with no
+  // toast, warn, or error — the exact silent-degradation the repo's fail-fast rule forbids.
+  // Surface it LOUDLY instead. Empty membership is the honest pre-snapshot warming window, NOT
+  // a violation, so it is excluded. Dev-gated (the diagnostic is compiled out of production, as
+  // with `scopedByEntry`'s non-member warn) — the real fix for a real violation is server-side.
+  if (process.env.NODE_ENV !== "production") {
+    createEffect(() => {
+      const keys = members.keys();
+      if (keys.length > 0 && !hostKeysInclude([...keys], LOCAL_HOST)) {
+        console.error(
+          "[wire] INVARIANT VIOLATION: membership loaded but LOCAL_HOST is absent — the " +
+            "local host is the unremovable seed and must always be a member. groundedActiveHost " +
+            "will read null and the reconcile will not bounce local, so the per-host scope stays " +
+            "undefined (blank canvas) with no other signal. This is a server-side pool bug.",
+        );
+      }
+    });
+  }
   // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
   // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
   // cold remote provision narrates its real phase instead of a mute "Connecting…".
@@ -338,6 +371,26 @@ export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
  *  authority `hostScoped` already holds, so the host-switcher palette group can
  *  list hosts without opening a second `entries` subscription. */
 export const hostKeys = hostScoped.hostKeys;
+
+/** The ACTIVE host GROUNDED against live membership — the accessor the per-host SCOPE
+ *  (`hostScope/hostScopes` → `scopedByEntry`) reads instead of raw `activeHost`: the
+ *  active host IFF a current member (`hostKeys`), else `null`. Fuses the per-tab INTENT
+ *  (`activeHost`) with the membership authority (`hostKeys`) through the pure
+ *  {@link groundActiveHost}, which owns the WHY (the boot-window false positive it closes,
+ *  and why `null` — not a local substitute). Feeding THIS, not raw `activeHost`, to
+ *  `scopedByEntry` makes "kolu hands the per-host world an ungrounded active host"
+ *  unconstructible; `activeHost` itself stays the non-null intent every other readout
+ *  (`useEntry`, `foldState`, `padiRpcOf`) keys on.
+ *
+ *  A `createMemo` (the repo's multi-consumer-derivation rule): `scopedByEntry` reads it from
+ *  several reactive contexts (`activeScope`, each per-key `isActive`, `activated`), and
+ *  `groundActiveHost` returns either `activeHost()`'s stable reference or `null` — so a
+ *  membership change that doesn't alter the grounded host recomputes only this cheap memo and
+ *  stops, instead of fanning every consumer out on unrelated pool churn. In its own app-lifetime
+ *  `createRoot`, like `localDaemonStatus`. */
+export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
+  createMemo(() => groundActiveHost(activeHost(), hostKeys())),
+);
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive

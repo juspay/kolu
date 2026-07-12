@@ -1,4 +1,8 @@
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  hostKeysInclude,
+} from "kolu-common/hostKey";
 import {
   type Accessor,
   createEffect,
@@ -36,8 +40,7 @@ export function createRejoinKeyedSub<T>(
   const [gen, setGen] = createSignal(0);
   let prevPresent = true;
   createEffect(() => {
-    const enc = encodeHostKey(activeHost());
-    const present = memberKeys().some((k) => encodeHostKey(k) === enc);
+    const present = hostKeysInclude(memberKeys(), activeHost());
     if (isRejoin(present, prevPresent)) setGen((g) => g + 1);
     prevPresent = present;
   });
