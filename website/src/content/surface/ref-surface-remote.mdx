@@ -74,14 +74,17 @@ end-to-end. Holding open a byte stream is a compile error.
 | `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (folding `clockOffset()`) into an entry status |
 
 `buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
-returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` run the
-**same** teardown (evict sockets, drop membership, destroy the session), differing
-only in persistence: `remove` is the **user's** departure — it calls the `persist`
-hook first — while `retire` is an **internal** shed (a dead session the pool sheds on
-its own) that does **not** persist, so a membership store re-seeds the host next boot.
-A pool with no `persist` hook makes the two identical. `serveHostMap` takes `{ linkFor, causeFor? }`;
-`linkFor(host, session)` is built once per host and evicted on removal. Together
-they are the server half of a host map — see
+returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` share the
+**same** teardown mechanics (evict sockets, drop membership, destroy the session), and
+differ in two ways: `remove` is the **user's** departure — it calls the `persist` hook
+first — while `retire` is an **internal** shed (a dead session the pool sheds on its
+own) that does **not** persist, so a membership store re-seeds the host next boot; and
+each verb labels its own WebSocket close reason and log line (`host removed` vs
+`host retired`). A pool with no `persist` hook makes them behave the same on disk —
+neither writes — though the close reason and log still name the verb.
+`serveHostMap` takes `{ linkFor, causeFor? }`; `linkFor(host, session)` is built once
+per host and evicted on **either** removal or retirement (both drop live membership).
+Together they are the server half of a host map — see
 [How to serve a map](/surface/serve-a-map).
 
 ## The connection cell

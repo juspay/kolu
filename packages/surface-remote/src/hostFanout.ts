@@ -15,8 +15,8 @@
  *
  *   - `buildRemotePool({ buildEntry })` — the keyed `Map<host, {session,
  *     handler}>` a `?host=` upgrade dispatcher reads. Owns only the map + its
- *     lifecycle (add/remove + per-host socket eviction, plus the optional fleet
- *     verbs a `controls` supplies); the app supplies `buildEntry` (how a host
+ *     lifecycle (add / remove / retire + per-host socket eviction, plus the optional
+ *     fleet verbs a `controls` supplies); the app supplies `buildEntry` (how a host
  *     becomes a session + an oRPC handler) and an optional `persist` hook.
  *
  * Both are lifted verbatim-in-shape from drishti's `bridgeAgentToParent` +
@@ -372,9 +372,11 @@ export interface RemotePool<S extends DestroyableSession, H> {
   unregisterConnection(host: string, ws: ClosableSocket): void;
   /** Destroy every host's session (server shutdown). */
   destroyAll(): void;
-  /** Subscribe to MEMBERSHIP changes (add / remove / destroyAll). `onChange` fires
-   *  only AFTER `hosts()`/`has()` reflect the change (the ordering clause a
-   *  `SurfaceMap`'s `entries` republish depends on); the returned fn unsubscribes.
+  /** Subscribe to LIVE-MEMBERSHIP changes (add / remove / retire / destroyAll — every
+   *  verb that mutates `entries`, retirement included). `onChange` fires only AFTER
+   *  `hosts()`/`has()` reflect the change (the ordering clause a `SurfaceMap`'s `entries`
+   *  republish depends on); the returned fn unsubscribes. A throwing listener is isolated
+   *  at the fan-out — it never aborts the other listeners nor escapes the mutation.
    *  Per-session STATUS transitions are NOT emitted here — an observer that needs
    *  them (the `serveHostMap` adapter) fuses this with each session's own `onState`. */
   subscribe(onChange: () => void): () => void;
@@ -433,8 +435,21 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   };
   // Fire membership listeners AFTER the `entries` Map is mutated — so a listener
   // reading `hosts()`/`has()` sees the change the notification announces (ordering).
+  // Each listener is isolated: one listener's throw (e.g. a `serveHostMap`
+  // reconcile/fire faulting) must not abort the fan-out (the rest still fire) NOR
+  // propagate OUT of the notification — a teardown notifies from `tearDownEntry`, and
+  // `retire` runs fire-and-forget (`void pool.retire(h)`), so an escaping listener throw
+  // would float an unhandledRejection → the server's fatal handler. Surface the fault
+  // loudly (never silently swallow), then carry on — the same teardown-fault treatment a
+  // throwing `session.destroy()` already gets.
   const notifyMembership = (): void => {
-    for (const l of [...membershipListeners]) l();
+    for (const l of [...membershipListeners]) {
+      try {
+        l();
+      } catch (err) {
+        log(`membership listener threw (ignored): ${err}`);
+      }
+    }
   };
 
   // Reject a duplicate in the seed list BEFORE building any entry. `Map.set`
@@ -477,7 +492,8 @@ export function buildRemotePool<S extends DestroyableSession, H>(
 
   // The destructive teardown shared by `remove` (which persists first) and `retire`
   // (which does not): close the host's browser sockets, drop membership + notify, then
-  // destroy the session LAST. `verb` only labels the log line — the two callers differ
+  // destroy the session LAST. `verb` labels BOTH the WebSocket close reason (`host
+  // removed` / `host retired`) and the log line — the two callers otherwise differ
   // solely in whether they `persistHosts` before calling this.
   //
   // Ordering is load-bearing: membership is dropped + notified BEFORE `session.destroy()`,
@@ -561,15 +577,25 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       // not persist off the other's pre-commit snapshot either).
       return enqueueMutation(async () => {
         const entry = entries.get(host);
-        if (entry === undefined) return;
+        // No-op ONLY when the host is unknown to BOTH the live pool AND the remembered
+        // set. A host `retire`d earlier is gone from `entries` but STILL in
+        // `persistedMembership` (that's the shed-but-remembered contract); a user's
+        // explicit remove is the one and only verb that forgets a host, so it MUST still
+        // persist the departure and drop the remembered claim even though no live entry
+        // remains — otherwise the authoritative user intent is silently lost and the
+        // retired host re-seeds next boot. (`entries` is always a subset of
+        // `persistedMembership`, so `has` on the remembered set is the whole test.)
+        if (!persistedMembership.has(host)) return;
         // USER intent — persist the post-removal set FIRST. If it rejects, the host
-        // stays fully live (session intact, sockets open, still in `entries`, still in
+        // stays fully as it was (any live session intact, sockets open, still in
         // `persistedMembership`) and matches the disk that still lists it — no
         // destroy-but-still-on-disk split.
         await persistHosts([...persistedMembership].filter((h) => h !== host));
-        // Persisted: drop it from the intended set, then commit the destructive teardown.
+        // Persisted: drop it from the intended set, then commit the destructive teardown —
+        // but only when a live entry actually remains (a retired host has none left to
+        // tear down; forgetting it is the whole job here).
         persistedMembership.delete(host);
-        tearDownEntry(host, entry, "removed");
+        if (entry !== undefined) tearDownEntry(host, entry, "removed");
       });
     },
 
@@ -580,8 +606,9 @@ export function buildRemotePool<S extends DestroyableSession, H>(
       // it survives every later add/remove (they persist `persistedMembership`, which
       // still lists it) until a reboot re-seeds it. A pool shedding a dead session on
       // its own initiative must never be mistaken for the user's explicit remove (the
-      // only thing that forgets a host). Because there's no persist step and the
-      // teardown swallows its destroy fault, `retire` can't reject — so a
+      // only thing that forgets a host). Because there's no persist step, the teardown
+      // swallows its destroy fault, AND the membership fan-out (`notifyMembership`)
+      // isolates every listener throw, `retire` has no step left that can reject — so a
       // fire-and-forget `void pool.retire(h)` needs no `.catch` to stay off the fatal
       // `unhandledRejection` handler.
       return enqueueMutation(async () => {

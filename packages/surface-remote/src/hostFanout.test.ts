@@ -180,13 +180,49 @@ describe("buildRemotePool", () => {
     expect(built.get("beta")?.session.destroy).not.toHaveBeenCalled();
   });
 
+  it("a user remove() AFTER a retire() still forgets the host — the remembered claim is dropped and the departure IS persisted", async () => {
+    // The retire→remove sequence: the pool sheds alpha (internal retire, host stays
+    // remembered), then the USER removes it. remove is the ONLY verb that forgets a host,
+    // so it must persist the shrunk set and drop the remembered claim EVEN THOUGH no live
+    // entry remains — otherwise the user's authoritative intent is lost and alpha
+    // re-seeds next boot.
+    const { registry, persist } = harness(["alpha", "beta"]);
+    await registry.retire("alpha"); // internal shed — alpha gone from live, still remembered
+    expect(persist).not.toHaveBeenCalled();
+    await registry.remove("alpha"); // user forgets the already-retired host
+    // The departure was written and no longer lists alpha…
+    expect(persist).toHaveBeenLastCalledWith(["beta"]);
+    // …so a LATER add doesn't re-introduce the forgotten host from the remembered set.
+    await registry.add("gamma");
+    expect(persist).toHaveBeenLastCalledWith(["beta", "gamma"]);
+    expect(registry.hosts()).toEqual(["beta", "gamma"]);
+  });
+
+  it("retire() with a THROWING membership listener still RESOLVES and still destroys the session — the fan-out isolates the throw", async () => {
+    // F2: `tearDownEntry` notifies membership BEFORE destroying the session. If a listener
+    // (e.g. serveHostMap's reconcile/fire) throws, an unisolated fan-out would (a) skip the
+    // session destroy and (b) reject the queued promise → `void pool.retire(h)` floats an
+    // unhandledRejection into the server's fatal handler. `notifyMembership` isolates each
+    // listener, so retire resolves AND the session is still destroyed.
+    const { registry, built } = harness(["alpha", "beta"]);
+    registry.subscribe(() => {
+      throw new Error("listener boom");
+    });
+    await expect(registry.retire("alpha")).resolves.toBeUndefined();
+    expect(registry.has("alpha")).toBe(false);
+    expect(built.get("alpha")?.session.destroy).toHaveBeenCalledOnce();
+    expect(registry.has("beta")).toBe(true);
+  });
+
   it("ISOLATION: a session.destroy() that THROWS on one guest's remove doesn't crash the pool — the OTHER entries survive", async () => {
     const { registry, built } = harness(["alpha", "beta"]);
     // Make alpha's teardown FAULT: `session.destroy()` can throw (it kills the ssh child +
-    // clears timers — documented + guarded in dialAgentOnce.ts). kolu calls `remove()`
-    // fire-and-forget (`void pool.remove(h)`), so an UNGUARDED throw would float an
-    // unhandledRejection → the deliberately-fatal `process.exit(1)`, taking down the WHOLE
-    // server on ONE guest's teardown.
+    // clears timers — documented + guarded in dialAgentOnce.ts). The teardown guard is
+    // shared by `remove` and `retire` via `tearDownEntry`; kolu sheds a dead guest
+    // fire-and-forget (`void pool.retire(h)`), so an UNGUARDED throw in this shared path
+    // would float an unhandledRejection → the deliberately-fatal `process.exit(1)`, taking
+    // down the WHOLE server on ONE guest's teardown. This case exercises the guard through
+    // `remove`; the `retire()`-specific twin is covered above.
     built.get("alpha")?.session.destroy.mockImplementation(() => {
       throw new Error("ssh child kill faulted");
     });
