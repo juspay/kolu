@@ -171,9 +171,8 @@ describe("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
-      lifetime: { kind: "boundToPid", pid: watched.pid },
+      lifetime: { kind: "boundToPid", pid: watched.pid, pollMs: 20 },
       log: silentLog,
-      pidWatchPollMs: 20,
       onReady: () => ready(),
     });
 
@@ -192,11 +191,10 @@ describe("daemonMain", () => {
       gatePath,
       socketPath,
       router: noRouter,
-      lifetime: { kind: "boundToPid", pid: await deadPid() },
-      log: silentLog,
       // A large poll would prove nothing here: the immediate check must fire
       // BEFORE the first tick, so a slow poll must not be able to mask it.
-      pidWatchPollMs: 60_000,
+      lifetime: { kind: "boundToPid", pid: await deadPid(), pollMs: 60_000 },
+      log: silentLog,
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "pid-gone" });
     expect(liveHolder(gatePath)).toBeUndefined();

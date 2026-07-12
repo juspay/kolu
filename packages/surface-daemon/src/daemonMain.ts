@@ -42,7 +42,7 @@ import {
 export type DaemonLifetime =
   | { kind: "forever" }
   | { kind: "idleTimeout"; ms: number; isIdle: () => boolean }
-  | { kind: "boundToPid"; pid: number };
+  | { kind: "boundToPid"; pid: number; pollMs?: number };
 
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
  *  `already-running` is a *success* (another live daemon serves this scope —
@@ -121,9 +121,6 @@ export interface DaemonSpec {
   /** Fired once, after the gate is held and the socket is listening — the boot
    *  log's hook and the readiness point a test awaits before connecting. */
   onReady?: (info: { socketPath: string; pid: number }) => void;
-  /** The `boundToPid` liveness-poll interval, in ms. A TEST seam (like `signal`):
-   *  production omits it and uses {@link PID_WATCH_POLL_MS}. */
-  pidWatchPollMs?: number;
   /** A gate the caller ALREADY acquired. Hand this in when the single-instance
    *  gate must be claimed BEFORE the caller's own boot side effects — padi claims
    *  it first so a daemon that lost the race never runs the legacy import, recycles
@@ -182,7 +179,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     log.info({ socketPath, gatePath, pid: process.pid }, "daemon listening");
     spec.onReady?.({ socketPath, pid: process.pid });
 
-    const reason = await waitForShutdown(lifetime, signal, spec.pidWatchPollMs);
+    const reason = await waitForShutdown(lifetime, signal);
 
     log.info({ reason }, "daemon shutting down");
     return { kind: "shutdown", reason };
@@ -194,7 +191,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
 
 /** The default `boundToPid` liveness-poll interval — frequent enough that a
  *  daemon dies within ~a couple seconds of its run, lazy enough not to busy-poll.
- *  Fixed, not a knob (tests inject a small value via {@link DaemonSpec.pidWatchPollMs}). */
+ *  Fixed, not a knob (tests inject a small value via the `boundToPid` arm's `pollMs`). */
 const PID_WATCH_POLL_MS = 2_000;
 
 /** Resolve when the daemon should stop: an OS signal (SIGTERM/SIGINT), the
@@ -205,7 +202,6 @@ const PID_WATCH_POLL_MS = 2_000;
 function waitForShutdown(
   lifetime: DaemonLifetime,
   external?: AbortSignal,
-  pidWatchPollMs = PID_WATCH_POLL_MS,
 ): Promise<"signal" | "abort" | "idle" | "pid-gone"> {
   return new Promise((resolve) => {
     let settled = false;
@@ -269,7 +265,7 @@ function waitForShutdown(
       }
       const timer = setInterval(() => {
         if (!isHolderLive(pid)) finish("pid-gone");
-      }, pidWatchPollMs);
+      }, lifetime.pollMs ?? PID_WATCH_POLL_MS);
       // Don't let the poll timer keep the event loop alive on its own.
       timer.unref?.();
       cleanups.push(() => clearInterval(timer));
