@@ -43,6 +43,7 @@ export const ROADMAP = [
   { d: 0, g: "○", c: "prog", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "next — W5 ✓", h: "#w9" },
   { d: 0, g: "○", c: "prog", l: "W11 · one verb per fact — user-remove vs system-retire in the pool", m: "ratified 2026-07-12 · blocks W10", h: "#w11" },
   { d: 0, g: "▶", c: "prog", l: "W10 · hosts survive a restart — pool membership persisted beside its one writer", m: "#1772 in gauntlet · BLOCKED on W11", h: "#w10" },
+  { d: 0, g: "○", c: "prog", l: "W12 · restore survives an unclean kaval death — agent-resume facts journaled on change", m: "ratified 2026-07-12 · independent", h: "#w12" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -172,6 +173,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="todo" needs={["W7"]} />
 <Phase id="W11" name="one verb per fact — user-remove vs system-retire in surface-remote's pool" status="next" needs={["W6"]} blocks={["W10"]} />
 <Phase id="W10" name="hosts survive a restart — pool membership persisted beside its one writer" status="todo" needs={["W6", "W11"]} links={[{ label: "#1772 (draft, in gauntlet)", href: "https://github.com/juspay/kolu/pull/1772" }]} />
+<Phase id="W12" name="restore survives an unclean kaval death — agent-resume facts journaled on change, not flushed at exit" status="todo" />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **As of 2026-07-12, in order:**
@@ -223,6 +225,16 @@ The contract's one novelty, forced by review: **every member declares how it may
 **The root defect: surface-remote's pool speaks ONE verb for TWO facts** — "the user removed this host" vs "the system retired a faulted session". Per the two-constructors-not-a-mode-flag doctrine, the pool gains two verbs (P4: two facts, two spellings): the persisting user-remove and a non-persisting internal retire, with the persist hook firing only on user-intent mutations — the one authority for "the remembered fleet" is the user. kolu wires #1708's pump-death path to the internal retire. Framework change → the drishti gate check applies (pair only if drishti consumes the touched API).
 
 **Sequencing:** W11 lands first as its own small PR; W10's implementation PR (<PrLink pr={1772} />, in gauntlet, otherwise complete) stays draft, rebases on W11, then ships. Honestly noted: the wart is pre-existing on master — #1708 already un-hosts the live pool on a pump death today; W10 only extends it across restarts. W11 fixes the class for both.
+
+<a id="w12"></a>
+
+### W12 — restore survives an unclean kaval death *(ratified 2026-07-12 — independent of W10/W11)*
+
+**In simple words:** today, if kaval dies cleanly your agents come back after restore — but if it is killed or crashes, you get your terminals back *empty*: the agents are gone, and you restart each one by hand.<Footnote>The 2026-07-12 production incident: prod's kaval was killed un-gracefully; session restore brought back the terminal list, but every agent came back as a bare shell and srid restored them by hand. On zest, a *graceful* kaval restart restores agents fine — the two outcomes differ only in how kaval died.</Footnote> After W12 the two cases look the same: restore brings the agents back either way. The only thing an unclean death may still lose is the last few moments of screen output.
+
+**The defect is the class W10 just fixed for host membership:** the per-terminal agent-resume facts — whatever a graceful shutdown persists today that lets restore respawn the agent — are written at *exit* time, and a crash is precisely the case where the end never runs (SIGKILL, crash, OOM all skip it). The cure is the same: move the facts from exit-time flush to change-time journaling — the persisted record is a value replaced whole on every change (P1), owned by kaval beside its existing state — so the file is always current no matter how the process dies. The graceful-shutdown path stops being load-bearing; it can remain as a final no-op write.
+
+**Seedling — this phase needs its own interview and grounding before build.** The first implementation step is to ground what "agent-resume facts" concretely *are* in kaval's current code — what the graceful path persists today — rather than guessing the field list here. Independent of W10 and W11: those live in kolu-server's host pool, this lives in kaval.
 
 <a id="cleanup"></a>
 
