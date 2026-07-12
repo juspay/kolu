@@ -497,7 +497,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
     if (sockets !== undefined) {
       for (const ws of sockets) {
         try {
-          ws.close(1000, "host removed");
+          ws.close(1000, `host ${verb}`);
         } catch {
           /* best-effort — a socket already closing is fine */
         }
