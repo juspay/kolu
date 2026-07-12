@@ -231,12 +231,36 @@ describe("prependScrollback", () => {
     ).rejects.toThrow(/internals contract broken/);
   });
 
-  it("skips (returns 0) on an empty chunk without touching the buffer", async () => {
+  it("skips (returns 0) on an empty chunk of an EMPTY range (servedRows 0)", async () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, newerChunk());
     const before = normalBuf(live).lines.length;
     expect(await prependScrollback(live, "", 0, { makeScratch })).toBe(0);
     expect(normalBuf(live).lines.length).toBe(before);
+  });
+
+  it("materializes an ALL-BLANK range (empty chunk, servedRows > 0)", async () => {
+    // An entirely-blank history range serializes to "" yet spans servedRows>0
+    // mirror rows. The empty-chunk fast path must NOT swallow it: those blank
+    // rows are real content and have to land, or a blank run in scrollback
+    // silently collapses (F10). Cover the exact one-row case codex named.
+    const one = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    await write(one, "new-000\r\n");
+    const beforeOne = normalBuf(one).lines.length;
+    expect(await prependScrollback(one, "", 1, { makeScratch })).toBe(1);
+    const bOne = normalBuf(one);
+    expect(bOne.lines.length).toBe(beforeOne + 1);
+    expect(bOne.lines.get(0)?.translateToString(true)).toBe(""); // the blank row
+    expect(bOne.lines.get(1)?.translateToString(true)).toBe("new-000"); // no gap
+
+    // A multi-row blank range materializes its full span too.
+    const many = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    await write(many, "new-000\r\n");
+    expect(await prependScrollback(many, "", 5, { makeScratch })).toBe(5);
+    const bMany = normalBuf(many);
+    for (let i = 0; i < 5; i++)
+      expect(bMany.lines.get(i)?.translateToString(true)).toBe("");
+    expect(bMany.lines.get(5)?.translateToString(true)).toBe("new-000");
   });
 
   it("skips (returns 0) while the alt buffer is active", async () => {
@@ -248,9 +272,9 @@ describe("prependScrollback", () => {
         live as unknown as { buffer: { active: { type: string } } },
       ),
     ).toBe(true);
-    expect(await prependScrollback(live, olderChunk(), 0, { makeScratch })).toBe(
-      0,
-    );
+    expect(
+      await prependScrollback(live, olderChunk(), 0, { makeScratch }),
+    ).toBe(0);
   });
 
   it("keeps the SEAM row of a real serialize({range}) chunk (no trailing newline)", async () => {
@@ -299,7 +323,9 @@ describe("prependScrollback", () => {
     // newline padding.
     const mirror = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     const ser = new SerializeAddon();
-    (mirror as unknown as { loadAddon(a: SerializeAddon): void }).loadAddon(ser);
+    (mirror as unknown as { loadAddon(a: SerializeAddon): void }).loadAddon(
+      ser,
+    );
     // Rows 0..4 content, then blank rows 5..7 — cursor ends on the blank row 7.
     await write(mirror, "c-0\r\nc-1\r\nc-2\r\nc-3\r\nc-4\r\n\r\n\r\n");
     const span = 8; // range rows 0..7 inclusive = before(8) - topLine(0)

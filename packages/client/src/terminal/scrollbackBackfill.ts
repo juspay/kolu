@@ -185,8 +185,10 @@ export function isAltBufferActive(term: {
  *  materializes that many rows so a range whose trailing blanks `serialize`
  *  trimmed still occupies its full height (see `stealContentLines`). Returns the
  *  number of rows inserted (M) — the caller advances its own bookkeeping by
- *  this. Returns 0 without touching the buffer when the chunk is empty or the
- *  alt buffer is active.
+ *  this. Returns 0 without touching the buffer when the range is truly empty
+ *  (`servedRows === 0`) or the alt buffer is active. An empty chunk that still
+ *  spans rows (`servedRows > 0`, an all-blank range) materializes those blank
+ *  rows rather than returning 0.
  *
  *  THROWS (never silently degrades) when xterm's internal shape is missing or
  *  the prepend would overflow the live buffer's `maxLength` — see the file
@@ -210,7 +212,14 @@ export async function prependScrollback(
     shouldCommit?: () => boolean;
   },
 ): Promise<number> {
-  if (rawChunk.length === 0) return 0;
+  // An empty serialized chunk is only a true no-op when the range it stands for
+  // is ALSO empty (`servedRows === 0` — the exhausted / gone-PTY reply). An
+  // ENTIRELY-BLANK range serializes to "" too (no content, no trailing newline)
+  // yet spans `servedRows > 0` mirror rows; those blank rows are real terminal
+  // content, so fall through and materialize them from the sized scratch's own
+  // initialized blank `BufferLine`s (see `stealContentLines`) — dropping them
+  // would compress the backfilled buffer's spacing below native history (F10).
+  if (rawChunk.length === 0 && servedRows === 0) return 0;
   // No scrollback to extend under a full-screen app; caller shouldn't ask, but
   // guard anyway (a deliberate skip, not a corruption).
   if (
