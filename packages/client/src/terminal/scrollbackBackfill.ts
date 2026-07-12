@@ -86,24 +86,43 @@ function coreOf(term: { cols: number }): CoreInternal {
   return core;
 }
 
-/** The scratch's content rows, stolen. Rows 0..(ybase + y - 1) are committed;
- *  the cursor row (ybase + y) is committed too WHEN it carries content — i.e.
- *  the replayed write ended mid-line, which `SerializeAddon.serialize({range})`
- *  (the production chunk source) ALWAYS produces: its output has no trailing
- *  newline and trims trailing blanks, so the last row is non-blank and the
- *  cursor lands on it (`x > 0`, including the deferred-wrap `x === cols` case).
- *  Missing that row silently drops the seam line — the row at absolute index
- *  `before - 1`, which the snapshot does not already hold — from every backfill
- *  boundary. A raw chunk that DID end in `\r\n` leaves `x === 0`, so nothing
- *  extra is taken. */
-function stealContentLines(scratch: ScratchTerminal): BufferLineInternal[] {
+/** The scratch's rows for this chunk, stolen. The content occupies rows
+ *  0..(ybase + y - 1); the cursor row (ybase + y) carries content too WHEN the
+ *  replayed write ended mid-line, which `SerializeAddon.serialize({range})` (the
+ *  production chunk source) produces for a non-blank last row: its output has no
+ *  trailing newline, so the cursor lands on it (`x > 0`, including the
+ *  deferred-wrap `x === cols` case). Missing that row silently drops the seam
+ *  line — the row at absolute index `before - 1`, which the snapshot does not
+ *  already hold — from every backfill boundary.
+ *
+ *  `servedRows` is the mirror-range row count the server actually consumed for
+ *  this chunk (`before - topLine`). A range that ENDS in blank rows replays to
+ *  FEWER rows than it spans: `serialize({range})` has no trailing newline, so
+ *  the scratch cursor comes to rest on the range's last blank row with `x === 0`
+ *  — which the content count does NOT include — while the server still advanced
+ *  its cursor across the full span. Dropping those trailing blank rows (at least
+ *  the final one, more if a blank tail collapses) compresses the backfilled
+ *  buffer's vertical spacing below native history (F10). So steal
+ *  `max(content, servedRows)` rows: the caller sizes the scratch to hold at
+ *  least `servedRows` rows (`replayToLines`), so the rows beyond the content are
+ *  the scratch's OWN distinct initialized blank `BufferLine`s — the trailing
+ *  blanks, materialized exactly, with no aliasing or newline padding. At stable
+ *  width `content <= servedRows` always (serializing N rows at width W and
+ *  replaying at W yields at most N rows), so `max` = `servedRows`; the `content`
+ *  leg only wins in the transient differing-width case (a foreign reflow, F3)
+ *  where stealing the full content avoids dropping real text. */
+function stealContentLines(
+  scratch: ScratchTerminal,
+  servedRows: number,
+): BufferLineInternal[] {
   const buf = coreOf(scratch).buffer;
-  const n = buf.ybase + buf.y + (buf.x > 0 ? 1 : 0);
+  const content = buf.ybase + buf.y + (buf.x > 0 ? 1 : 0);
+  const n = Math.max(content, servedRows);
   const out: BufferLineInternal[] = [];
   for (let i = 0; i < n; i++) {
     const line = buf.lines.get(i);
-    // A hole here would mean the scratch buffer disagrees with its own cursor —
-    // a broken invariant, not a recoverable gap. Fail loud.
+    // A hole here would mean the scratch buffer disagrees with its own cursor /
+    // sizing — a broken invariant, not a recoverable gap. Fail loud.
     if (!line)
       throw new Error(`scrollback-backfill: scratch line ${i} missing`);
     out.push(line);
@@ -127,18 +146,25 @@ function defaultScratch(cols: number, rows: number): ScratchTerminal {
 }
 
 /** Replay `rawChunk` through a scratch terminal (real parser) and return its
- *  content lines, stolen. Async because xterm's `write` is async — the buffer
- *  only reflects the bytes once the write callback fires. */
+ *  rows, stolen. Async because xterm's `write` is async — the buffer only
+ *  reflects the bytes once the write callback fires.
+ *
+ *  The scratch viewport is sized to `max(rows, servedRows)` so that when the
+ *  chunk's content is shorter than the mirror range it spans (trailing blanks
+ *  trimmed by `serialize`), the trailing rows the steal reconstructs are the
+ *  scratch's own distinct initialized blank `BufferLine`s (see
+ *  `stealContentLines`). Width stays the LIVE `cols` so wraps replay exactly. */
 async function replayToLines(
   rawChunk: string,
   cols: number,
   rows: number,
+  servedRows: number,
   makeScratch: (cols: number, rows: number) => ScratchTerminal,
 ): Promise<BufferLineInternal[]> {
-  const scratch = makeScratch(cols, rows);
+  const scratch = makeScratch(cols, Math.max(rows, servedRows));
   try {
     await new Promise<void>((resolve) => scratch.write(rawChunk, resolve));
-    return stealContentLines(scratch);
+    return stealContentLines(scratch, servedRows);
   } finally {
     scratch.dispose();
   }
@@ -154,9 +180,13 @@ export function isAltBufferActive(term: {
 }
 
 /** Prepend `rawChunk` (older raw PTY bytes, from kaval's `getHistory`) above the
- *  existing content of the live terminal. Returns the number of rows inserted
- *  (M) — the caller advances its own bookkeeping by this. Returns 0 without
- *  touching the buffer when the chunk is empty or the alt buffer is active.
+ *  existing content of the live terminal. `servedRows` is the mirror-range row
+ *  count the server consumed for this chunk (`before - topLine`); the prepend
+ *  materializes that many rows so a range whose trailing blanks `serialize`
+ *  trimmed still occupies its full height (see `stealContentLines`). Returns the
+ *  number of rows inserted (M) — the caller advances its own bookkeeping by
+ *  this. Returns 0 without touching the buffer when the chunk is empty or the
+ *  alt buffer is active.
  *
  *  THROWS (never silently degrades) when xterm's internal shape is missing or
  *  the prepend would overflow the live buffer's `maxLength` — see the file
@@ -174,6 +204,7 @@ export function isAltBufferActive(term: {
 export async function prependScrollback(
   term: XTerm,
   rawChunk: string,
+  servedRows: number,
   opts?: {
     makeScratch?: (cols: number, rows: number) => ScratchTerminal;
     shouldCommit?: () => boolean;
@@ -193,6 +224,7 @@ export async function prependScrollback(
     rawChunk,
     term.cols,
     term.rows,
+    servedRows,
     opts?.makeScratch ?? defaultScratch,
   );
   const m = lines.length;
@@ -272,13 +304,21 @@ export interface HistoryChunk {
  *     which resizes the shared mirror last-resize-wins) can reflow the mirror
  *     underneath us WITHOUT our `term.cols` changing, leaving our absolute cursor
  *     stale against a renumbered buffer — a subsequent `getHistory` can then
- *     duplicate or skip a band of rows until our next own-resize re-seeds. The
- *     sound fix is the SAME reflow-invariant (logical-line) cursor above, plus a
- *     server-side reflow generation the host rejects a stale cursor against; both
- *     are deferred together rather than threading new fail-loud control semantics
- *     through kaval→padi→client on the always-on attach path in this change. The
- *     window is narrow (concurrent multi-client backfill at differing widths) and
- *     self-heals; it is a fidelity gap, not data loss. */
+ *     splice a duplicated or skipped band. That band PERSISTS: our own later
+ *     resize only `pause()`s the cursor (it does NOT re-seed), so a fresh anchor
+ *     arrives only with the next snapshot frame (a re-attach). This is one facet
+ *     of an ALREADY-DOCUMENTED degraded state, not a new defect this cursor
+ *     introduces: at differing widths the mirror can be painted for only ONE
+ *     width, so a concurrently-attached tile shows live wrap artifacts REGARDLESS
+ *     of backfill (`kaval-tui/src/attach.ts` last-resize-wins policy — "may show
+ *     wrap artifacts until its own next resize"). The complete fix is a coherent
+ *     multi-width story — a reflow-invariant (logical-line) cursor plus the
+ *     size-negotiation that `attach.ts` earmarks as future work ("a size-change
+ *     tap would be contract 2.2") — delivered together, not a partial width-gate
+ *     that halts backfill while the live view stays garbled from the same root
+ *     cause. Until then the absolute cursor is correct for the SUPPORTED
+ *     single-width-per-PTY case; the concurrent-differing-width case is the
+ *     note-5 follow-up. */
 export interface BackfillController {
   /** Seed/re-seed the cursor from an attach (or re-attach) snapshot's topLine. */
   seed(topLine: number): void;
@@ -306,17 +346,20 @@ export function createBackfillController(
     triggerRows?: number;
     /** Test seam: substitute the prepend so a controller test can assert the
      *  epoch/dispose races without a real xterm splice. Receives `shouldCommit`,
-     *  the guard the production prepend re-checks after its async replay. */
+     *  the guard the production prepend re-checks after its async replay, and
+     *  `servedRows` (the mirror-range span for the chunk). */
     prepend?: (
       term: XTerm,
       chunk: string,
       shouldCommit: () => boolean,
+      servedRows: number,
     ) => Promise<number>;
   },
 ): BackfillController {
   const prepend =
     opts.prepend ??
-    ((t, c, shouldCommit) => prependScrollback(t, c, { shouldCommit }));
+    ((t, c, shouldCommit, servedRows) =>
+      prependScrollback(t, c, servedRows, { shouldCommit }));
   let cursor: number | null = null;
   let exhausted = false;
   let inFlight = false;
@@ -388,9 +431,15 @@ export function createBackfillController(
           return;
         }
         if (!stillValid()) return;
+        // The server advanced the cursor from `before` to `res.topLine`, so it
+        // consumed `before - res.topLine` mirror rows for this chunk. Hand that
+        // span to the prepend so a range whose trailing blanks `serialize`
+        // trimmed still occupies its full height (F10) — the client derives the
+        // count from the two cursors it already holds, no wire field needed.
+        const servedRows = before - res.topLine;
         // prepend re-checks `stillValid` after its own async replay, before the
         // splice; re-check here too before committing the cursor.
-        const inserted = await prepend(term, res.chunk, stillValid);
+        const inserted = await prepend(term, res.chunk, stillValid, servedRows);
         if (!stillValid()) return;
         cursor = res.topLine;
         exhausted = res.exhausted;

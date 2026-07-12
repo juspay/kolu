@@ -130,7 +130,7 @@ describe("prependScrollback", () => {
       "new-000",
     );
 
-    const m = await prependScrollback(live, olderChunk(), { makeScratch });
+    const m = await prependScrollback(live, olderChunk(), 0, { makeScratch });
     // 30 logical lines, one wraps to 3 rows at 20 cols => 32 buffer rows.
     expect(m).toBe(32);
 
@@ -169,7 +169,7 @@ describe("prependScrollback", () => {
     const anchored = viewportRows(live);
     expect(normalBuf(live).ydisp).toBe(normalBuf(live).ybase - 10);
 
-    await prependScrollback(live, olderChunk(), { makeScratch });
+    await prependScrollback(live, olderChunk(), 0, { makeScratch });
 
     expect(viewportRows(live)).toEqual(anchored);
     expect(normalBuf(live).ydisp).toBe(normalBuf(live).ybase - 10);
@@ -178,7 +178,7 @@ describe("prependScrollback", () => {
   it("reflows prepended history exactly like natively-written history", async () => {
     const a = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(a, newerChunk());
-    await prependScrollback(a, olderChunk(), { makeScratch });
+    await prependScrollback(a, olderChunk(), 0, { makeScratch });
 
     const b = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(b, olderChunk() + newerChunk());
@@ -200,7 +200,7 @@ describe("prependScrollback", () => {
   it("preserves SGR attributes through the scratch-replay theft", async () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, newerChunk());
-    await prependScrollback(live, olderChunk(), { makeScratch });
+    await prependScrollback(live, olderChunk(), 0, { makeScratch });
     // old-013 was written red; old-007 wrapped into 3 rows, so it sits at row 15.
     const line = (live.buffer.active.getLine(15) as unknown as {
       translateToString(t?: boolean): string;
@@ -215,7 +215,7 @@ describe("prependScrollback", () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 20 });
     await write(live, newerChunk());
     await expect(
-      prependScrollback(live, olderChunk(), { makeScratch }),
+      prependScrollback(live, olderChunk(), 0, { makeScratch }),
     ).rejects.toThrow(/would overflow/);
   });
 
@@ -227,7 +227,7 @@ describe("prependScrollback", () => {
       buffer: { active: { type: "normal" } },
     } as unknown as XTerm;
     await expect(
-      prependScrollback(broken, olderChunk(), { makeScratch }),
+      prependScrollback(broken, olderChunk(), 0, { makeScratch }),
     ).rejects.toThrow(/internals contract broken/);
   });
 
@@ -235,7 +235,7 @@ describe("prependScrollback", () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, newerChunk());
     const before = normalBuf(live).lines.length;
-    expect(await prependScrollback(live, "", { makeScratch })).toBe(0);
+    expect(await prependScrollback(live, "", 0, { makeScratch })).toBe(0);
     expect(normalBuf(live).lines.length).toBe(before);
   });
 
@@ -248,7 +248,7 @@ describe("prependScrollback", () => {
         live as unknown as { buffer: { active: { type: string } } },
       ),
     ).toBe(true);
-    expect(await prependScrollback(live, olderChunk(), { makeScratch })).toBe(
+    expect(await prependScrollback(live, olderChunk(), 0, { makeScratch })).toBe(
       0,
     );
   });
@@ -278,13 +278,54 @@ describe("prependScrollback", () => {
 
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, "new-000\r\n");
-    const m = await prependScrollback(live, chunk, { makeScratch });
+    const m = await prependScrollback(live, chunk, 15, { makeScratch });
     // All 15 older rows land — including the seam "h-14" that a `ybase+y` steal
     // would drop. Before the fix this returned 14 and dropped "h-14".
     expect(m).toBe(15);
     const b = normalBuf(live);
     expect(b.lines.get(14)?.translateToString(true)).toBe("h-14"); // seam kept
     expect(b.lines.get(15)?.translateToString(true)).toBe("new-000"); // no gap
+  });
+
+  it("materializes a range's trailing blank rows via servedRows (F10 fidelity)", async () => {
+    // A history range that ENDS in a blank row. `serialize({range})` has no
+    // trailing newline, so replaying its bytes leaves the scratch cursor on that
+    // final blank row with x === 0 — which the content-only steal (`x > 0`) does
+    // NOT count, silently dropping one blank row at every chunk seam and
+    // compressing the backfilled buffer's spacing below native history.
+    // `servedRows` (= before - topLine, the mirror-range span) restores it: the
+    // steal takes `max(content, servedRows)` rows, and the extra rows are the
+    // scratch's OWN distinct initialized blank BufferLines — no aliasing, no
+    // newline padding.
+    const mirror = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    const ser = new SerializeAddon();
+    (mirror as unknown as { loadAddon(a: SerializeAddon): void }).loadAddon(ser);
+    // Rows 0..4 content, then blank rows 5..7 — cursor ends on the blank row 7.
+    await write(mirror, "c-0\r\nc-1\r\nc-2\r\nc-3\r\nc-4\r\n\r\n\r\n");
+    const span = 8; // range rows 0..7 inclusive = before(8) - topLine(0)
+    const chunk = ser.serialize({
+      range: { start: 0, end: 7 },
+      excludeModes: true,
+      excludeAltBuffer: true,
+    });
+
+    // Baseline: servedRows = 0 replays content only, dropping the final blank row.
+    const dropped = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    await write(dropped, "new-000\r\n");
+    expect(await prependScrollback(dropped, chunk, 0, { makeScratch })).toBe(7);
+
+    // Fixed: servedRows = span materializes the full 8-row range (row 7 restored).
+    const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    await write(live, "new-000\r\n");
+    const m = await prependScrollback(live, chunk, span, { makeScratch });
+    expect(m).toBe(span);
+    const b = normalBuf(live);
+    expect(b.lines.get(4)?.translateToString(true)).toBe("c-4");
+    expect(b.lines.get(5)?.translateToString(true)).toBe(""); // blank rows kept
+    expect(b.lines.get(6)?.translateToString(true)).toBe("");
+    expect(b.lines.get(7)?.translateToString(true)).toBe(""); // the dropped one
+    // No compression: the seam still abuts the live content, the full span down.
+    expect(b.lines.get(8)?.translateToString(true)).toBe("new-000");
   });
 });
 
