@@ -564,7 +564,7 @@ const addHostChrome = surface({
  *  popover that LEADS with that notice + a kolu.dev link before the ssh-target
  *  input (the old inline input is gone). Enter commits via `client.hosts.add`;
  *  the canvas jumps to the new host once it joins membership. */
-const AddHostAffordance: Component = () => {
+export const AddHostAffordance: Component = () => {
   const [open, setOpen] = createSignal(false);
   const [draft, setDraft] = createSignal("");
   let triggerEl: HTMLButtonElement | undefined;

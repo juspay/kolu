@@ -24,6 +24,7 @@ import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
+import MobileHostRow from "./host/MobileHostRow";
 import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
@@ -64,6 +65,11 @@ const MobileChromeSheet: Component<{
           aria-label="Connection status"
         />
       </div>
+
+      {/* Host row — the mobile face of the keyed padi host map: per-host chips
+       *  (tap to switch), attention pills, and the shared add-host affordance.
+       *  Closes the sheet on a switch so the canvas is visible immediately. */}
+      <MobileHostRow onSwitch={props.onClose} />
 
       {/* Client out of sync with the server — the actionable mobile form of the
        *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
