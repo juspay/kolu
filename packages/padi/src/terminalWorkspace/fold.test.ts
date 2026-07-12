@@ -395,6 +395,49 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
   });
 });
 
+describe("W12 — the two absences persist the resume target differently (twin pins)", () => {
+  // A live claude with a remembered launch line → an `exact` resume target on disk.
+  const liveExact: TerminalState = {
+    snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
+    memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
+  };
+  const exact: RestoreTarget = {
+    kind: "exact",
+    command: "claude --model sonnet",
+    agent: { kind: "claude-code", sessionId: "A" },
+  };
+
+  it("PIN #1 — an UNOBSERVABLE foreground (sensor emits `unknown`) KEEPS the exact target", () => {
+    // The 2026-07-12 incident shape: kaval is SIGKILLed, the foreground goes
+    // unobservable, and `agentAbsence` routes the sensor to emit `unknown` (not
+    // `{value:null}`). The fold keeps the last agent, so `restoreTargetOf` STILL
+    // yields `exact` — the resume id survives the unclean death on disk by
+    // construction. Before the fix the sensor emitted `{value:null}` here and this
+    // flipped to `none` (bare shells on restore).
+    expect(restoreTargetOf(liveExact)).toEqual(exact);
+    const after = fold(
+      liveExact,
+      { kind: "agent", agent: "unknown" },
+      delta(2),
+    );
+    expect(restoreTargetOf(after)).toEqual(exact);
+  });
+
+  it("PIN #2 — a GENUINE end (sensor emits `{value:null}`) CLEARS the target to `none`", () => {
+    // The inverse bug the fix must NOT introduce: an agent that genuinely quits while
+    // the foreground is observable (a DEFINED foregroundPid → `agentAbsence` "ended")
+    // still emits authoritative null, so `restoreTargetOf` clears — a later restore
+    // wakes a bare shell instead of resurrecting a dead agent.
+    expect(restoreTargetOf(liveExact)).toEqual(exact);
+    const after = fold(
+      liveExact,
+      { kind: "agent", agent: { value: null } },
+      delta(2),
+    );
+    expect(restoreTargetOf(after)).toEqual({ kind: "none" });
+  });
+});
+
 describe("foldSnapshot — reference stability the autosave fence rides (#6 pin)", () => {
   it("PRESERVES the git/pr object reference when an UNRELATED field changes", () => {
     // `restoreRelevantEqual` (the disk fence in server/local.ts) compares git/pr by

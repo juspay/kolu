@@ -402,6 +402,32 @@ function snapshotSignals(
   };
 }
 
+/** What a resolved-null agent observation MEANS — two different facts hide behind
+ *  the one `null` `resolveSession` returns, and W12 requires they persist
+ *  differently:
+ *
+ *   - **`"ended"`** — a DEFINED `foregroundPid` that resolved to no agent: kolu
+ *     observed the foreground (the shell after a genuine quit, another program) and
+ *     it is authoritatively NOT this agent. The agent really ended → the sensor
+ *     emits `{ value: null }`, the fold clears `restoreTarget`, and a later restore
+ *     wakes to a bare shell (never resurrecting a dead agent).
+ *   - **`"unobservable"`** — `foregroundPid === undefined`: kolu cannot SEE the
+ *     foreground process group at all (the pty-host tap reported none). This is
+ *     IGNORANCE, not an observed end. An unclean kaval death drops the foreground to
+ *     `undefined` and fires this reconcile ~3 ms BEFORE the endpoint is even marked
+ *     `degraded` (the 2026-07-12 prod incident), so the discriminant MUST be the
+ *     observation's own `foregroundPid` — a structural fact carried IN the frame —
+ *     never the endpoint's `degraded` flag, which loses that race. The sensor emits
+ *     `unknown`, the fold KEEPS the last agent and its `restoreTarget`, and the
+ *     resume id survives the death on disk by construction.
+ *
+ *  A pure decision so it is pinned in isolation, both directions, without standing
+ *  the whole sensor set up. */
+export type AgentAbsence = "ended" | "unobservable";
+export function agentAbsence(foregroundPid: number | undefined): AgentAbsence {
+  return foregroundPid === undefined ? "unobservable" : "ended";
+}
+
 interface ExternalChangesActivation {
   reconcilers: Set<() => void>;
   installed: boolean;
@@ -570,13 +596,27 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     const hadCurrent = current !== null;
     destroyCurrent();
     if (!next || !nextKey) {
-      if (hadCurrent) plog.debug("agent session ended");
-      // Authoritative session-ended null — ONLY when THIS adapter owns the
-      // emitted tile (the mirror narrow). When no adapter owns it (a launch
-      // mid-resolution), nothing is emitted, so kolu keeps its value rather than
-      // seeing an ambiguous null.
+      // `resolveSession` found no agent — but "the shell is at the prompt" and "we
+      // can't see the foreground" are DIFFERENT facts sharing one `null`. Split them
+      // on the observation's own `foregroundPid` (see {@link agentAbsence}): an
+      // authoritative END clears the resume target; an UNOBSERVABLE foreground (an
+      // unclean kaval death drops it to `undefined` before the endpoint is even
+      // marked degraded) must NOT — emit `unknown` so the fold keeps the agent and
+      // its `restoreTarget` rather than journaling `none` over a still-running agent.
+      const absence = agentAbsence(state.foregroundPid);
+      if (hadCurrent)
+        plog.debug(
+          absence === "unobservable"
+            ? "agent foreground unobservable — keeping last (unknown)"
+            : "agent session ended",
+        );
+      // ONLY when THIS adapter owns the emitted tile (the mirror narrow). When no
+      // adapter owns it (a launch mid-resolution), nothing is emitted, so kolu keeps
+      // its value rather than seeing an ambiguous null.
       if (agentState.mirror?.kind === adapter.kind) {
-        emitAgentValue(agentState, emit, null);
+        if (absence === "unobservable")
+          emit({ kind: "agent", agent: "unknown" });
+        else emitAgentValue(agentState, emit, null);
       }
       return;
     }
