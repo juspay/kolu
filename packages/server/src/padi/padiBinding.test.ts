@@ -53,12 +53,14 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
   vi,
 } from "vitest";
 import {
+  daemonEnv,
   ensurePadiBinding,
   handlePadiBootFailure,
   localPadiDriver,
@@ -722,6 +724,43 @@ describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints
       undefined,
     );
     expect(args).not.toContain("--legacy-kaval-socket");
+  });
+});
+
+describe("daemonEnv — the server → padi forwarding hop for the run-bind pid", () => {
+  // Guards the ACTUAL server→padi hop (`daemonEnv` builds the env the padi driver
+  // spawns with). The cross-process sentinel test in `dial.test.ts` proves padi→kaval
+  // by spawning padi directly, so it never exercises THIS function; without this
+  // assertion, deleting the `DAEMON_BIND_PID_ENV` forward in `daemonEnv` would leave
+  // both suites green while silently stranding harness/smoke-spawned padis.
+  // Snapshot at RUNTIME (beforeEach), not collection time: the file-level `beforeAll`
+  // sets this var to the vitest pid for the whole file, so restoring must return it to
+  // THAT value — not the collection-time `undefined` — or later real-padi tests would
+  // spawn unbound.
+  let prev: string | undefined;
+  beforeEach(() => {
+    prev = process.env[DAEMON_BIND_PID_ENV];
+  });
+  afterEach(() => {
+    if (prev === undefined) delete process.env[DAEMON_BIND_PID_ENV];
+    else process.env[DAEMON_BIND_PID_ENV] = prev;
+  });
+
+  it("forwards the run-bind pid VERBATIM into padi's env when the server carries one", () => {
+    process.env[DAEMON_BIND_PID_ENV] = "4321";
+    expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("4321");
+  });
+
+  it("OMITS the var when the server's is truly unset (production padi stays `forever`)", () => {
+    delete process.env[DAEMON_BIND_PID_ENV];
+    expect(daemonEnv("/state/root", false)).not.toHaveProperty(
+      DAEMON_BIND_PID_ENV,
+    );
+  });
+
+  it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
+    process.env[DAEMON_BIND_PID_ENV] = "";
+    expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
   });
 });
 

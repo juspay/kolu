@@ -76,22 +76,28 @@ function isSingleProcessPid(pid: number): boolean {
 }
 
 /** Resolve the lifetime from {@link DAEMON_BIND_PID_ENV}: a valid pid value selects
- *  `boundToPid`; ABSENCE (unset or empty) selects the caller's production `fallback`
- *  (`forever` for kaval/padi). This is the ONE place the "absence = production"
- *  policy lives, so both daemon twins can't drift on it. A malformed value crashes
- *  loudly (fail-fast) rather than silently degrading to the fallback — a set-but-
- *  garbage bind pid is a harness bug, not a reason to leak the daemon it meant to
- *  bind. "Malformed" is strict: a real pid stringifies to plain canonical decimal,
- *  so anything else (`1e3`, `0x10`, ` 10 `, `010`, `12.5`, or a value past
- *  {@link MAX_PID}) is a corrupted forward we throw on, never silently coerce via
- *  `Number()`. Empty/unset is the ONE non-throw: the forwarders truthiness-filter
- *  empty, so a live pid can never arrive as `""` — it only ever means "the forward
- *  chose not to bind", i.e. production. */
+ *  `boundToPid`; true ABSENCE (the var is UNSET, `raw === undefined`) selects the
+ *  caller's production `fallback` (`forever` for kaval/padi). This is the ONE place
+ *  the "absence = production" policy lives, so both daemon twins can't drift on it.
+ *  Any PRESENT-but-invalid value crashes loudly (fail-fast) rather than silently
+ *  degrading to the fallback — a set-but-garbage bind pid is a harness bug, not a
+ *  reason to leak the daemon it meant to bind. That includes the empty string: in
+ *  Node an unset var is `undefined`, but `""` is a value that is *present and
+ *  invalid* (typically a broken harness/systemd expansion of `$SOMEPID`), and
+ *  silently treating it as absence is exactly how the leak this daemon prevents
+ *  would creep back. So only `raw === undefined` is absence; `""` throws with every
+ *  other malformed spelling. "Malformed" is otherwise strict: a real pid stringifies
+ *  to plain canonical decimal, so anything else (`1e3`, `0x10`, ` 10 `, `010`,
+ *  `12.5`, or a value past {@link MAX_PID}) is a corrupted forward we throw on,
+ *  never silently coerce via `Number()`. The forwarders (padiBinding / localDriver)
+ *  match this: they forward every DEFINED value, so a broken empty expansion
+ *  propagates the whole chain and crashes at the daemon rather than being dropped
+ *  mid-hop and silently reverting to `forever`. */
 export function daemonLifetimeFromEnv(
   fallback: DaemonLifetime,
 ): DaemonLifetime {
   const raw = process.env[DAEMON_BIND_PID_ENV];
-  if (raw === undefined || raw === "") return fallback;
+  if (raw === undefined) return fallback;
   const pid = Number(raw);
   // Canonical decimal ONLY (`^[1-9][0-9]*$`), then a single-process pid in range:
   // `Number()` alone would accept `1e3`/`0x10`/padded whitespace and coerce them to

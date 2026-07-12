@@ -88,9 +88,11 @@ function daemonEnv(): Record<string, string> {
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   // Forward the run-bind pid one hop further (server → padi → kaval): a harness/
-  // smoke-spawned kaval binds its lifetime to the run and dies with it. Absent in
-  // production → kaval stays `forever`.
-  if (process.env[DAEMON_BIND_PID_ENV])
+  // smoke-spawned kaval binds its lifetime to the run and dies with it. UNSET in
+  // production → kaval stays `forever`. Forward every DEFINED value (including an
+  // empty one from a broken expansion) so it propagates to kaval and crashes there
+  // via `daemonLifetimeFromEnv`'s fail-fast, never silently dropped back to `forever`.
+  if (process.env[DAEMON_BIND_PID_ENV] !== undefined)
     env[DAEMON_BIND_PID_ENV] = process.env[DAEMON_BIND_PID_ENV];
   // Forward the diagnostics base dir so the SPAWNED kaval — the actual heap-OOM
   // site (kaval-heap-oom.mdx) — arms its OWN heap-snapshot hooks + periodic

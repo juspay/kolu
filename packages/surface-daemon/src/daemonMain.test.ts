@@ -254,14 +254,18 @@ describe("daemonLifetimeFromEnv", () => {
 
   const forever = { kind: "forever" } as const;
 
-  it("selects the fallback when the bind var is absent (production untouched)", () => {
+  it("selects the fallback ONLY when the bind var is truly absent/unset (production untouched)", () => {
     delete process.env[DAEMON_BIND_PID_ENV];
     expect(daemonLifetimeFromEnv(forever)).toBe(forever);
   });
 
-  it("selects the fallback for an empty bind var", () => {
+  it("crashes loudly on an empty bind var (present-but-invalid, not absence)", () => {
+    // A broken harness/systemd expansion of `$SOMEPID` yields `""`: PRESENT and
+    // invalid, not unset. Treating it as absence is exactly how the daemon leak
+    // creeps back, so it must throw like any other malformed value — only a truly
+    // unset var is absence.
     process.env[DAEMON_BIND_PID_ENV] = "";
-    expect(daemonLifetimeFromEnv(forever)).toBe(forever);
+    expect(() => daemonLifetimeFromEnv(forever)).toThrow(DAEMON_BIND_PID_ENV);
   });
 
   it("selects boundToPid for a valid positive-integer pid value", () => {
