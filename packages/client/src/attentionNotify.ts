@@ -16,7 +16,7 @@
  *  to be active, focusing the wrong host's terminal (or nothing). */
 
 import { createNotify } from "@kolu/surface-app/notify";
-import { decodeHostKey } from "kolu-common/hostKey";
+import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 
 /** The routing payload carried on an attention notification. `kind` is the
@@ -25,19 +25,6 @@ import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
   | { kind: "host"; host: string; id: TerminalId };
-
-/** Whether a string is a CANONICAL encoded host key — the exact domain
- *  `decodeHostKey` accepts (`"local"` or `"remote:<target>"`). Validated at the
- *  parse boundary so a malformed `host` is DROPPED here rather than passed through to
- *  throw inside `decodeHostKey` at click time. */
-function isEncodedHostKey(s: string): boolean {
-  try {
-    decodeHostKey(s);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Validate a click envelope the framework relays (a live postMessage or a
  *  cold-start URL param). A stale notification from before an app upgrade, or a

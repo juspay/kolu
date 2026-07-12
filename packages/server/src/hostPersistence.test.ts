@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRemotePool } from "@kolu/surface-remote";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   hostsFilePath,
   loadPersistedHosts,
@@ -15,19 +15,11 @@ import {
 const LOCAL = encodeHostKey(LOCAL_HOST); // "local"
 
 // Each test gets its own ephemeral state dir; the module reads/writes an explicit
-// path (no KOLU_STATE_DIR coupling), so there's no env to set up or tear down.
-const dirs: string[] = [];
+// path (no KOLU_STATE_DIR coupling), so there's no env to set up or tear down. The
+// mkdtemp dirs live under the OS tmp root; cleanup is the OS's job.
 function freshDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "kolu-host-persist-"));
-  dirs.push(dir);
-  return dir;
+  return mkdtempSync(join(tmpdir(), "kolu-host-persist-"));
 }
-afterEach(() => {
-  // The mkdtemp dirs are ephemeral (OS tmp); leave cleanup to the OS to keep the
-  // test free of teardown flake. Reset the tracking list so it can't grow unbounded
-  // across a watch run.
-  dirs.length = 0;
-});
 
 describe("loadPersistedHosts", () => {
   it("returns [] when the file is absent (a fresh install has no fleet)", () => {

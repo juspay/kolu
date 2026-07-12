@@ -24,7 +24,11 @@
 
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  isEncodedHostKey,
+  LOCAL_HOST,
+} from "kolu-common/hostKey";
 import { z } from "zod";
 
 /** The file basename, beside `conf`'s `config.json` under the state root. */
@@ -42,23 +46,18 @@ export function hostsFilePath(stateDir: string): string {
 }
 
 /** The on-disk shape. `version` pins the format for a future migration; `hosts` is
- *  the encoded-key list. Each entry must round-trip {@link decodeHostKey}, so a
- *  hand-corrupted host string fails the schema HERE (crashing the boot with the
- *  path) rather than throwing raw later at pool construction. */
+ *  the encoded-key list. Each entry must be a canonical encoded key
+ *  ({@link isEncodedHostKey}), so a hand-corrupted host string fails the schema HERE
+ *  (crashing the boot with the path) rather than throwing raw later at pool
+ *  construction. */
 const PersistedHostsSchema = z.object({
   version: z.literal(1),
   hosts: z.array(
-    z.string().refine(
-      (s) => {
-        try {
-          decodeHostKey(s);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      { message: "not a canonical encoded host key" },
-    ),
+    z
+      .string()
+      .refine(isEncodedHostKey, {
+        message: "not a canonical encoded host key",
+      }),
   ),
 });
 

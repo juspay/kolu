@@ -84,6 +84,20 @@ export function decodeHostKey(s: string): HostKey {
   );
 }
 
+/** Whether a string is a CANONICAL encoded host key — exactly what {@link decodeHostKey}
+ *  accepts (`"local"` or `"remote:<target>"`). The total, throw-free predicate for a
+ *  parse-boundary guard: validate a candidate key HERE (drop/reject a malformed one)
+ *  rather than let it throw inside `decodeHostKey` downstream. Used by the attention
+ *  click-envelope guard (client) and the persisted-hosts schema (server). */
+export function isEncodedHostKey(s: string): boolean {
+  try {
+    decodeHostKey(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Bare-loopback spellings of "this machine, as the current user" — the SAME host
  *  `{ kind: "local" }` already names, just three other words for it. Without this,
  *  `parseHostInput("localhost")` took the word LITERALLY as a remote target and
