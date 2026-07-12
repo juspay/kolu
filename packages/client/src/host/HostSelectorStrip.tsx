@@ -96,6 +96,7 @@ import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
+import { useHostAwaiting } from "./useHostAwaiting";
 import {
   activeHost,
   client,
@@ -140,18 +141,6 @@ const OVERFLOW_TRIGGER_RESERVE: number = 44;
  *  from the fit budget now that the "+" is always present. */
 const ADD_BUTTON_RESERVE: number = 38;
 
-// The explicit type annotation on `labelForKey` (rather than inferring off the
-// arrow function) is load-bearing, not decorative: this file's per-chip
-// `.cells.urgency.use(...)` call (inside `HostChip`, properly owned by that
-// component's own reactive instance — no `createRoot` needed) sits textually
-// close to whichever top-level `const` happens to precede `HostChip`.
-// `standingSubscriptionOwnership.test.ts`'s heuristic flags any UNTYPED
-// top-level `const NAME = ` (its signal for "possibly a bare standing
-// subscription") and scans a fixed window past it — an untyped
-// `const labelForKey = (key) => ...` before `HostChip` would fold that
-// unrelated per-chip `.use()` into its window. Typing the identifier
-// (`const NAME: T = ...`) makes it visibly a plain value/helper, not a
-// candidate the heuristic needs to inspect.
 /** Decode-then-label in one step — used wherever a component only has the
  *  CANONICAL encoded string (an overflowed/menu
  *  key), never a `HostKey` object. */
@@ -174,13 +163,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
-  const urgency = padiMap.entry(props.host).cells.urgency.use({
-    onError: (err: Error) =>
-      toast.error(
-        `Host ${hostLabel(props.host)} urgency error: ${err.message}`,
-      ),
-  });
-  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
+  const awaiting = useHostAwaiting(props.host);
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -307,11 +290,7 @@ const HostSwitcherRow: Component<{
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
-  const urgency = padiMap.entry(host).cells.urgency.use({
-    onError: (err: Error) =>
-      toast.error(`Host ${hostLabel(host)} urgency error: ${err.message}`),
-  });
-  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
+  const awaiting = useHostAwaiting(host);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
     props.onPicked();

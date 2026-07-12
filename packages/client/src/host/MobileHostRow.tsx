@@ -28,7 +28,6 @@ import {
   For,
   Show,
 } from "solid-js";
-import { toast } from "solid-sonner";
 import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { HomeIcon } from "../ui/Icons";
 import {
@@ -46,6 +45,7 @@ import {
   statusTitle,
 } from "./hostChipTone";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
+import { useHostAwaiting } from "./useHostAwaiting";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
 const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
@@ -60,13 +60,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = () => sameHost(activeHost(), props.host);
-  const urgency = padiMap.entry(props.host).cells.urgency.use({
-    onError: (err: Error) =>
-      toast.error(
-        `Host ${hostLabel(props.host)} urgency error: ${err.message}`,
-      ),
-  });
-  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
+  const awaiting = useHostAwaiting(props.host);
 
   return (
     <button
