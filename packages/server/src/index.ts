@@ -325,7 +325,7 @@ const pool = buildRemotePool<PadiSession, undefined>({
   // queue, and rolls back the just-built session if it throws. The callback only shapes
   // WHAT is written — the unremovable local default drops out (seeded in code, never
   // persisted, so the file can't mint a second authority for "local always exists").
-  persist: async (hosts) => savePoolMembership(hostsFile, hosts),
+  persist: (hosts) => savePoolMembership(hostsFile, hosts),
   buildEntry: (h) => {
     const key = decodeHostKey(h);
     return {

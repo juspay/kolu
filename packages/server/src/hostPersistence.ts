@@ -22,7 +22,8 @@
  * a corrupt file here CRASHES the boot — a silently-emptied fleet is data loss.
  */
 
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   encodeHostKey,
@@ -53,17 +54,17 @@ export function hostsFilePath(stateDir: string): string {
 const PersistedHostsSchema = z.object({
   version: z.literal(1),
   hosts: z.array(
-    z
-      .string()
-      .refine(isEncodedHostKey, {
-        message: "not a canonical encoded host key",
-      }),
+    z.string().refine(isEncodedHostKey, {
+      message: "not a canonical encoded host key",
+    }),
   ),
 });
 
 export type PersistedHosts = z.infer<typeof PersistedHostsSchema>;
 
-/** Load the remembered guest hosts (encoded keys the pool speaks).
+/** Load the remembered guest hosts (encoded keys the pool speaks). SYNC on purpose:
+ *  it runs ONCE at boot (module load, before the server listens), so a sync read
+ *  can't block the serving loop — unlike the SAVE below, which fires on a live RPC.
  *
  *  - Absent file (`ENOENT`) → `[]` (a fresh install has no fleet yet).
  *  - A file that EXISTS but is unreadable / not JSON / fails the schema THROWS
@@ -103,24 +104,28 @@ export function loadPersistedHosts(path: string): string[] {
 
 /** Atomically replace the host file with `hosts` (encoded keys). tmp-write +
  *  rename so a crash mid-write never leaves a torn file — a reader sees either the
- *  old file or the whole new one, never a half. The pool serializes its mutations
- *  through one queue, so this is never invoked concurrently with itself (a fixed
- *  `.tmp` sibling can't be clobbered by a racing write). The low-level primitive —
- *  production wiring goes through {@link savePoolMembership} (the pool's `persist`
- *  hook), which drops the local default first. */
-export function savePersistedHosts(
+ *  old file or the whole new one, never a half (`fs.promises.rename` is as atomic as
+ *  the sync form). ASYNC on purpose: this fires from the pool's `persist` hook on a
+ *  live `hosts.add`/`hosts.remove` RPC while the server is serving every other
+ *  terminal, so a sync write on a slow/network-mounted `KOLU_STATE_DIR` would block
+ *  the single event loop (`no-sync-blocking-on-the-serving-loop`). The pool serializes
+ *  its mutations through one queue, so this is never invoked concurrently with itself
+ *  (a fixed `.tmp` sibling can't be clobbered by a racing write). The low-level
+ *  primitive — production wiring goes through {@link savePoolMembership} (the pool's
+ *  `persist` hook), which drops the local default first. */
+export async function savePersistedHosts(
   path: string,
   hosts: readonly string[],
-): void {
+): Promise<void> {
   const payload: PersistedHosts = { version: 1, hosts: [...hosts] };
   const tmp = `${path}.tmp`;
   // mode 0600 — the file holds ssh targets (`user@host`); keep it owner-only rather
   // than inherit the ambient umask's usually-world-readable 0644.
-  writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, {
+  await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
-  renameSync(tmp, path);
+  await rename(tmp, path);
 }
 
 /** Persist the pool's guest membership after an add/remove: every current member
@@ -136,8 +141,8 @@ export function savePersistedHosts(
 export function savePoolMembership(
   path: string,
   members: readonly string[],
-): void {
-  savePersistedHosts(
+): Promise<void> {
+  return savePersistedHosts(
     path,
     members.filter((h) => h !== LOCAL_KEY),
   );

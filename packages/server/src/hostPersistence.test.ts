@@ -26,9 +26,9 @@ describe("loadPersistedHosts", () => {
     expect(loadPersistedHosts(hostsFilePath(freshDir()))).toEqual([]);
   });
 
-  it("round-trips the saved encoded host keys", () => {
+  it("round-trips the saved encoded host keys", async () => {
     const path = hostsFilePath(freshDir());
-    savePersistedHosts(path, ["remote:srid@zest", "remote:pu-kolu-3"]);
+    await savePersistedHosts(path, ["remote:srid@zest", "remote:pu-kolu-3"]);
     expect(loadPersistedHosts(path)).toEqual([
       "remote:srid@zest",
       "remote:pu-kolu-3",
@@ -78,31 +78,31 @@ describe("loadPersistedHosts", () => {
 });
 
 describe("savePersistedHosts", () => {
-  it("writes a { version: 1, hosts } JSON value", () => {
+  it("writes a { version: 1, hosts } JSON value", async () => {
     const path = hostsFilePath(freshDir());
-    savePersistedHosts(path, ["remote:a"]);
+    await savePersistedHosts(path, ["remote:a"]);
     const parsed = JSON.parse(readFileSync(path, "utf8")) as PersistedHosts;
     expect(parsed).toEqual({ version: 1, hosts: ["remote:a"] });
   });
 
-  it("replaces the file whole on each write (last write wins)", () => {
+  it("replaces the file whole on each write (last write wins)", async () => {
     const path = hostsFilePath(freshDir());
-    savePersistedHosts(path, ["remote:a", "remote:b"]);
-    savePersistedHosts(path, ["remote:b"]); // a removal
+    await savePersistedHosts(path, ["remote:a", "remote:b"]);
+    await savePersistedHosts(path, ["remote:b"]); // a removal
     expect(loadPersistedHosts(path)).toEqual(["remote:b"]);
   });
 });
 
 describe("savePoolMembership", () => {
-  it("excludes the unremovable local default — it never enters the file", () => {
+  it("excludes the unremovable local default — it never enters the file", async () => {
     const path = hostsFilePath(freshDir());
-    savePoolMembership(path, [LOCAL, "remote:a", "remote:b"]);
+    await savePoolMembership(path, [LOCAL, "remote:a", "remote:b"]);
     expect(loadPersistedHosts(path)).toEqual(["remote:a", "remote:b"]);
   });
 
-  it("writes an empty list when the pool holds only the local default", () => {
+  it("writes an empty list when the pool holds only the local default", async () => {
     const path = hostsFilePath(freshDir());
-    savePoolMembership(path, [LOCAL]);
+    await savePoolMembership(path, [LOCAL]);
     expect(loadPersistedHosts(path)).toEqual([]);
   });
 });
@@ -116,7 +116,7 @@ describe("round-trip through buildRemotePool's persist hook", () => {
 
   it("persists add/remove and restores the fleet on restart", async () => {
     const path = hostsFilePath(freshDir());
-    const persist = async (hosts: string[]) => savePoolMembership(path, hosts);
+    const persist = (hosts: string[]) => savePoolMembership(path, hosts);
 
     const pool = buildRemotePool<{ destroy(): void }, undefined>({
       initialHosts: [LOCAL], // the seeded local default
