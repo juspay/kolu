@@ -622,6 +622,16 @@ export function makeSession<
     pushLog("remote", line);
   };
 
+  /** The watchdog's force-cycle action — the ONE "give up on this link" step:
+   *  announce `reason` on the local log, then `recheck()` (tear the link down and
+   *  redial). The three `onStale` cycling branches differ only in their reason
+   *  string, so log-then-recheck lives here once. Touches NO episode state — the
+   *  connection-boundary reset in `handleClosed` owns that. */
+  const forceCycle = (reason: string): void => {
+    localProgress(reason);
+    session.recheck();
+  };
+
   const startLiveness = (): void => {
     if (opts.liveness === false || liveness !== null) return;
     const tuning = typeof opts.liveness === "object" ? opts.liveness : {};
@@ -676,10 +686,9 @@ export function makeSession<
         // and the network can die silently — so silence means death: force-cycle.
         // Today's semantics, provably untouched.
         if (oracle === undefined) {
-          localProgress(
+          forceCycle(
             "liveness probe timed out — remote wedged, force-cycling the link",
           );
-          session.recheck();
           return;
         }
         // LOCAL arm: `current` is non-null (its `processAlive` is the `oracle`), so its
@@ -689,11 +698,9 @@ export function makeSession<
         // Consult the same-box process table — the superior oracle (P5).
         if (!oracle()) {
           // The padi process is genuinely gone → force-cycle now; reconnect heals.
-          ep.unresponsiveSince = null;
-          localProgress(
+          forceCycle(
             "liveness probe timed out and the local padi process has exited — force-cycling the link",
           );
-          session.recheck();
           return;
         }
         // Alive but heartbeat-silent ≡ SLOW under load, not dead — do NOT force-cycle;
@@ -714,11 +721,9 @@ export function makeSession<
         ep.unresponsiveSince ??= now;
         const silentForMs = now - ep.unresponsiveSince;
         if (silentForMs >= LOCAL_LIVENESS_DEAD_MAN_CEILING_MS) {
-          ep.unresponsiveSince = null;
-          localProgress(
+          forceCycle(
             `local padi alive but heartbeat-silent for ${silentForMs}ms (≥ dead-man ceiling) — force-cycling the link`,
           );
-          session.recheck();
           return;
         }
         localProgress(
