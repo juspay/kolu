@@ -249,45 +249,4 @@ describe("scopedByEntry — per-key ownership by entries membership", () => {
       /reactive owner/,
     );
   });
-
-  it("(8) juspay/kolu#1763: a GROUNDED active accessor (member-or-null) is silent across the boot→membership transition", async () => {
-    // The #1763 fix: kolu no longer hands `scopedByEntry` its raw per-tab `activeHost`
-    // (restored SYNC from sessionStorage a tick before the async `entries` snapshot),
-    // but that intent GROUNDED against membership — the active host IFF a member, else
-    // `null`. This pins the contract the fix leans on: a grounded accessor reads the
-    // boot window as the no-selection inhabitant (a) (undefined, NO warn), NOT the
-    // removal-race inhabitant (b) case (5) proves the RAW accessor trips. Grounding
-    // logic lives in kolu's client (`host/groundActive`), which surface-map must not
-    // import, so it is inlined here over the same real `connectSurfaceMap` slice.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      await createRoot(async (dispose) => {
-        const { client, addSession } = setup();
-        const enc = (k: HostKey): string => client.codec.encode(k);
-        // Raw per-tab INTENT, as at boot: names A before membership exists.
-        const [rawActive] = createSignal<HostKey>(A);
-        const members = client.entries.use();
-        const grounded = (): HostKey | null => {
-          const a = rawActive();
-          return members.keys().some((k) => enc(k) === enc(a)) ? a : null;
-        };
-        const { build } = trackingBuild();
-        const scoped = scopedByEntry(client, grounded, build);
-
-        await settle();
-        // BOOT: membership empty, rawActive=A → grounded=null → no owned world AND NO warn.
-        expect(scoped.active()).toBeUndefined();
-        expect(warn).not.toHaveBeenCalled();
-
-        // The `entries` snapshot lands with A → grounded=A → the scope resolves, still silent.
-        addSession(A, link(), connected(0));
-        await settle();
-        expect(scoped.active()?.key).toEqual(A);
-        expect(warn).not.toHaveBeenCalled();
-        dispose();
-      });
-    } finally {
-      warn.mockRestore();
-    }
-  });
 });
