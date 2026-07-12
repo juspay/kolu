@@ -49,10 +49,12 @@ export {
   daemonBuild,
 } from "./convergenceIdentity.ts";
 export {
+  DAEMON_BIND_PID_ENV,
   type DaemonExit,
   type DaemonLifetime,
   type DaemonSpec,
   daemonExitCode,
+  daemonLifetimeFromEnv,
   daemonMain,
 } from "./daemonMain.ts";
 export {

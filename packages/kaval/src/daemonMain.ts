@@ -14,7 +14,12 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
-import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
+import {
+  type DaemonExit,
+  daemonLifetimeFromEnv,
+  daemonMain,
+  type Logger,
+} from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
   getPtyHostSocketPath,
@@ -103,7 +108,10 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     gatePath,
     socketPath,
     router: servedRouter,
-    lifetime: { kind: "forever" },
+    // `forever` in production; `boundToPid` when a harness/smoke run set
+    // `KOLU_DAEMON_BIND_PID` (padi forwards it into kaval's env) so a test-spawned
+    // kaval dies with its run instead of outliving it. Absence = forever.
+    lifetime: daemonLifetimeFromEnv({ kind: "forever" }),
     log,
     signal: controller.signal,
     onReady: opts.onReady,

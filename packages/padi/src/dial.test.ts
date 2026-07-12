@@ -82,6 +82,10 @@ function spawnPadi(stateRoot: string): Padi {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
     KOLU_KAVAL_SPAWN: "detached",
+    // Bind the real spawned padi (and the kaval it spawns) to THIS test process, so
+    // a signal-killed run that skips `afterEach` still can't leak them — they poll
+    // this pid and die when vitest is gone. `afterEach` remains the fast path.
+    KOLU_DAEMON_BIND_PID: String(process.pid),
   };
   delete env.INVOCATION_ID;
   delete env.KOLU_KAVAL_BIN;
@@ -200,6 +204,9 @@ function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
     KOLU_KAVAL_SPAWN: "detached",
+    // Bind the durable padi this front spawns (and its kaval) to THIS test process,
+    // so a signal-killed run that skips `afterEach` still can't leak them.
+    KOLU_DAEMON_BIND_PID: String(process.pid),
   };
   delete env.INVOCATION_ID;
   delete env.KOLU_KAVAL_BIN;

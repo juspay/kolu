@@ -12,7 +12,12 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type DaemonSpec, daemonMain } from "./daemonMain.ts";
+import {
+  DAEMON_BIND_PID_ENV,
+  type DaemonSpec,
+  daemonLifetimeFromEnv,
+  daemonMain,
+} from "./daemonMain.ts";
 import type { Logger } from "./logger.ts";
 import { gatePid, isHolderLive } from "./pidGate.ts";
 
@@ -39,12 +44,22 @@ afterEach(() => {
   for (const c of children.splice(0)) c.kill("SIGKILL");
 });
 
-function liveChild(): number {
+function liveChild(): ChildProcess & { pid: number } {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
     stdio: "ignore",
   });
   children.push(child);
   if (child.pid === undefined) throw new Error("child failed to start");
+  return child as ChildProcess & { pid: number };
+}
+
+/** A pid that is DEFINITELY gone: spawn a process, kill it, and await its exit so
+ *  the reap is complete before the pid is handed back. */
+async function deadPid(): Promise<number> {
+  const child = liveChild();
+  const exited = new Promise<void>((r) => child.once("exit", () => r()));
+  child.kill("SIGKILL");
+  await exited;
   return child.pid;
 }
 
@@ -61,7 +76,7 @@ function paths(): { dir: string; gatePath: string; socketPath: string } {
 describe("daemonMain", () => {
   it("yields to a live instance without serving (already-running)", async () => {
     const { gatePath, socketPath } = paths();
-    const otherPid = liveChild();
+    const otherPid = liveChild().pid;
     writeFileSync(gatePath, `${otherPid}\n`);
 
     const exit = await daemonMain({
@@ -144,6 +159,49 @@ describe("daemonMain", () => {
     expect(await exitP).toEqual({ kind: "shutdown", reason: "idle" });
   });
 
+  it("shuts down within one poll tick of the watched pid dying (boundToPid)", async () => {
+    const { gatePath, socketPath } = paths();
+    const watched = liveChild();
+    let ready!: () => void;
+    const readyP = new Promise<void>((r) => {
+      ready = r;
+    });
+
+    const exitP = daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      lifetime: { kind: "boundToPid", pid: watched.pid },
+      log: silentLog,
+      pidWatchPollMs: 20,
+      onReady: () => ready(),
+    });
+
+    await readyP;
+    expect(liveHolder(gatePath)).toBe(process.pid); // serving while the run lives
+    watched.kill("SIGKILL"); // the run dies
+
+    expect(await exitP).toEqual({ kind: "shutdown", reason: "pid-gone" });
+    expect(liveHolder(gatePath)).toBeUndefined(); // gate released
+    expect(existsSync(socketPath)).toBe(false); // socket removed
+  });
+
+  it("exits immediately when bound to an already-dead pid (boundToPid)", async () => {
+    const { gatePath, socketPath } = paths();
+    const exit = await daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      lifetime: { kind: "boundToPid", pid: await deadPid() },
+      log: silentLog,
+      // A large poll would prove nothing here: the immediate check must fire
+      // BEFORE the first tick, so a slow poll must not be able to mask it.
+      pidWatchPollMs: 60_000,
+    });
+    expect(exit).toEqual({ kind: "shutdown", reason: "pid-gone" });
+    expect(liveHolder(gatePath)).toBeUndefined();
+  });
+
   it("fires onReady with the socket path and pid once listening", async () => {
     const { gatePath, socketPath } = paths();
     const ac = new AbortController();
@@ -165,5 +223,40 @@ describe("daemonMain", () => {
     await exitP;
 
     expect(seen).toEqual([{ socketPath, pid: process.pid }]);
+  });
+});
+
+describe("daemonLifetimeFromEnv", () => {
+  const prev = process.env[DAEMON_BIND_PID_ENV];
+  afterEach(() => {
+    if (prev === undefined) delete process.env[DAEMON_BIND_PID_ENV];
+    else process.env[DAEMON_BIND_PID_ENV] = prev;
+  });
+
+  const forever = { kind: "forever" } as const;
+
+  it("selects the fallback when the bind var is absent (production untouched)", () => {
+    delete process.env[DAEMON_BIND_PID_ENV];
+    expect(daemonLifetimeFromEnv(forever)).toBe(forever);
+  });
+
+  it("selects the fallback for an empty bind var", () => {
+    process.env[DAEMON_BIND_PID_ENV] = "";
+    expect(daemonLifetimeFromEnv(forever)).toBe(forever);
+  });
+
+  it("selects boundToPid for a live-pid value", () => {
+    process.env[DAEMON_BIND_PID_ENV] = "4321";
+    expect(daemonLifetimeFromEnv(forever)).toEqual({
+      kind: "boundToPid",
+      pid: 4321,
+    });
+  });
+
+  it("crashes loudly on a malformed bind var (no silent degrade to fallback)", () => {
+    for (const bad of ["nope", "0", "-5", "12.5"]) {
+      process.env[DAEMON_BIND_PID_ENV] = bad;
+      expect(() => daemonLifetimeFromEnv(forever)).toThrow(DAEMON_BIND_PID_ENV);
+    }
   });
 });

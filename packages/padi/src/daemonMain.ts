@@ -17,6 +17,7 @@ import { dirname } from "node:path";
 import {
   acquirePidGate,
   type DaemonExit,
+  daemonLifetimeFromEnv,
   daemonMain,
   type GateAcquisition,
   type Logger,
@@ -423,7 +424,10 @@ export async function runPadiDaemon(
     // The router is the serve phase's output — read it straight off `served` rather
     // than re-threading it through the endpoint token that neither owns nor touches it.
     router: served.router,
-    lifetime: { kind: "forever" },
+    // `forever` in production; `boundToPid` when a harness/smoke run set
+    // `KOLU_DAEMON_BIND_PID` so a test-spawned padi dies with its run instead of
+    // outliving it (and padi forwards the same var into its kaval). Absence = forever.
+    lifetime: daemonLifetimeFromEnv({ kind: "forever" }),
     log,
     signal: drainController.signal,
     onReady: opts.onReady,

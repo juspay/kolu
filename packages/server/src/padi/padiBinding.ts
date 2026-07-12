@@ -137,6 +137,12 @@ function daemonEnv(
   env.KOLU_PADI_STATE_DIR = resolvedStateRoot;
   if (process.env.KOLU_KAVAL_SPAWN)
     env.KOLU_KAVAL_SPAWN = process.env.KOLU_KAVAL_SPAWN;
+  // Forward the run-bind pid so a harness/smoke-spawned padi binds its lifetime to
+  // the run (dies with it, never outlives it) — and padi's OWN kaval driver forwards
+  // it one hop further. Absent in production → padi stays `forever`. The exact twin
+  // of the KOLU_KAVAL_SPAWN forward above, not a new knob class.
+  if (process.env.KOLU_DAEMON_BIND_PID)
+    env.KOLU_DAEMON_BIND_PID = process.env.KOLU_DAEMON_BIND_PID;
   // Carry the effective log level to padi's pino domain logger across the unit's env
   // reset — `--verbose` forces `debug` (the split-process twin of the pre-cutover
   // `padiLog.level = "debug"`), else forward an explicit operator `LOG_LEVEL`.

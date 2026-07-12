@@ -82,7 +82,14 @@ json_field() {
 # Sanitize env so we mirror production: clear IN_NIX_SHELL and devshell
 # pollution. HOME→tmp so the wrapper's default KOLU_STATE_DIR lands there
 # instead of the runner's real ~/.config.
-env -i HOME="$tmp" "$KOLU" --host 127.0.0.1 --port 0 >"$log" 2>&1 &
+# KOLU_DAEMON_BIND_PID="$$" binds the padi + kaval this boot spawns to the smoke
+# script's own pid, so they self-reap the moment smoke.sh exits — closing the
+# deterministic daemon leak this smoke otherwise had (it kills only the two
+# kolu-servers below, never their detached daemons) with zero smoke-specific logic:
+# absence would leave the production `forever`. Passed through `env -i` explicitly
+# since it clears the environment.
+env -i HOME="$tmp" KOLU_DAEMON_BIND_PID="$$" \
+    "$KOLU" --host 127.0.0.1 --port 0 >"$log" 2>&1 &
 pid=$!
 
 # The address is logged from the listen callback (packages/server/src/index.ts).
@@ -136,6 +143,7 @@ state_tmp=$(mktemp -d)
 custom_state="$(realpath "$state_tmp")/relocated"
 state_log="$state_tmp/kolu.log"
 env -i HOME="$state_tmp/home" KOLU_STATE_DIR="$custom_state" \
+    KOLU_DAEMON_BIND_PID="$$" \
     "$KOLU" --host 127.0.0.1 --port 0 >"$state_log" 2>&1 &
 state_pid=$!
 

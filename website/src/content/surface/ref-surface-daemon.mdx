@@ -29,9 +29,23 @@ in-process from a test.
 | `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }` or `{ kind: "held", pid }` |
 | `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
 | `daemonExitCode(exit)` · `stderrLogger()` · `Logger` · `DaemonExit` | exit-code classification and the structural logging contract |
+| `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a live pid → `boundToPid`, absence → `fallback` |
 
-`lifetime` is the policy that distinguishes the two tenants: [kaval](/kaval) (a PTY daemon)
-uses `{ kind: "forever" }`; `odu serve` uses `{ kind: "idleTimeout", ms, isIdle }`.
+`lifetime` is the policy that distinguishes tenants — three honest constructors,
+not `forever` plus flags:
+
+| `lifetime` | Shuts down when | Tenant |
+| --- | --- | --- |
+| `{ kind: "forever" }` | a signal or external abort only | [kaval](/kaval) / padi in production |
+| `{ kind: "idleTimeout", ms, isIdle }` | `ms` of continuous idleness | `odu serve` |
+| `{ kind: "boundToPid", pid }` | the watched `pid` is gone (poll `kill(pid, 0)`); an already-dead pid exits at once | a test/smoke-spawned kaval/padi — dies with its run |
+
+`daemonLifetimeFromEnv(fallback)` reads `DAEMON_BIND_PID_ENV`
+(`KOLU_DAEMON_BIND_PID`): a live-pid value selects `boundToPid`, **absence** selects
+`fallback` (there is deliberately no way to *weaken* a production daemon — only a
+harness/smoke run opts a spawned daemon into dying with it). A `boundToPid`
+shutdown resolves `{ kind: "shutdown", reason: "pid-gone" }`, exit code 0. Pid reuse
+inside the poll window is a documented residual, not engineered around.
 
 ## Serving the surface
 
