@@ -603,17 +603,12 @@ export function buildRemotePool<S extends DestroyableSession, H>(
     },
 
     retire(host) {
-      // Queued alongside `add`/`remove`. The INTERNAL twin of `remove`: identical
-      // teardown, but it leaves `persistedMembership` UNTOUCHED and does NOT persist —
-      // the host drops from the live pool while its intended-persisted claim stays, so
-      // it survives every later add/remove (they persist `persistedMembership`, which
-      // still lists it) until a reboot re-seeds it. A pool shedding a dead session on
-      // its own initiative must never be mistaken for the user's explicit remove (the
-      // only thing that forgets a host). Because there's no persist step, the teardown
-      // swallows its destroy fault, AND the membership fan-out (`notifyMembership`)
-      // isolates every listener throw, `retire` has no step left that can reject — so a
-      // fire-and-forget `void pool.retire(h)` needs no `.catch` to stay off the fatal
-      // `unhandledRejection` handler.
+      // The internal twin of `remove` — see the `retire` interface doc for the full
+      // contract. Here, the two load-bearing impl facts: it leaves `persistedMembership`
+      // UNTOUCHED and never persists (so the shed host stays remembered); and it has no
+      // step that can reject (no persist; the teardown swallows its destroy fault and
+      // `notifyMembership` isolates listener throws), so a fire-and-forget
+      // `void pool.retire(h)` needs no `.catch` to stay off the fatal handler.
       return enqueueMutation(async () => {
         const entry = entries.get(host);
         if (entry === undefined) return;
