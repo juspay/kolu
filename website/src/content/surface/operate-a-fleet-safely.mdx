@@ -35,8 +35,18 @@ each session's connection state — there is no second writer. Do not maintain a
 parallel record of "which hosts exist" beside it.
 
 - A key absent from `entries` **is** "not a member" — there is no `absent` status arm to keep in sync.
-- Add or remove a host through the pool's `add`/`remove`; `entries` follows.
-- When a host leaves mid-stream, its subscriptions end with a typed `{ reason: "removed" }` **before** the session is destroyed — so a consumer sees a clean typed end, never a socket-error frame after it.
+- Add, remove, or retire a host through the pool's `add`/`remove`/`retire`; `entries` follows every one.
+- When a host leaves mid-stream — a user `remove` **or** an internal `retire` — its subscriptions complete cleanly (a typed stream end, not an error) **before** the session is destroyed, and the browser socket closes with a normal `1000` close whose reason names the verb (`host removed` / `host retired`). A consumer sees a clean typed end, never a socket-error frame after it.
+
+<Aside type="note" title="Live membership vs remembered membership">
+  `remove` and `retire` run the **same** live teardown, but they answer different
+  questions. `remove` is the **user's** departure — it forgets the host (the `persist`
+  hook writes the shrunk set). `retire` is an **internal** shed of a dead session — it
+  drops the host from live `entries` yet leaves the *remembered* set untouched, so a
+  membership store re-seeds it next boot. Live membership (what `entries`/`has` report)
+  is the map's single-writer truth; the remembered set is a separate fact the pool keeps,
+  and a retired host is deliberately in one but not the other.
+</Aside>
 
 <Aside type="caution" title="Do not hand-roll a membership probe">
   The registry's `subscribe` fires only after `members()` and `has()` reflect the

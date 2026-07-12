@@ -29,8 +29,9 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Payloads must survive the shell unmangled; large briefs ride in a file with a short pointer.
 - Every brief carries a unique report-back token.
 - A dispatch has landed only when you observe it at the recipient — through whatever record its runtime exposes — never because the send succeeded or a snapshot suggested it.
-- Briefs point the implementing agent at the kolu skill for its own reports back — never hand-transcribe the messaging protocol into a brief. A hand-taught protocol loses steps: a finished report once sat unsent because the agent skipped the submission keystroke.
+- Briefs make LOADING the kolu skill for reports part of the brief itself — never a hand-transcribed protocol, never a parenthetical "two-step send" reminder: neither survives an implementer's long-context run, and a finished report once sat unsent on the input line until the human noticed. The skill's submit loop is the contract: each report submits with its own Enter keystroke and is snapshot-verified as landed.
 - Every brief routes every question — interview questions included — to the coordinator's terminal via the kolu skill, blocking on the reply. An interactive question dialog opened in the agent's own PTY is a brief defect: it sits unanswered unless someone happens to look — two /be interviews once sat blocked in their own terminals until the human noticed.
+- A brief that authorizes dev-server or evidence work quotes the recorded-PIDs-only teardown rule verbatim: teardown kills only the exact PIDs recorded at spawn; pattern kills are banned; strays are reported, never hunted. The skill's own ban did not survive contact — an agent hand-rolled an equivalent `ps|grep` and killed production.
 
 ## Answering agents
 
@@ -45,7 +46,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Verify the diff against the ratified plan, not just the agent's own review verdicts — a review-gauntlet pass on the wrong shape is confidence in the wrong artifact. A divergence is raised mid-gauntlet, before more stages invest in it.
 - Reproduce bugs first. Never skip tests. Never defer a fixable defect.
 - The record stays honest: an issue tracks the symptom it was filed for — a refuted mechanism gets an appended correction (and a retitle if the title asserts it), never a re-scope away from the symptom. A PR claims exactly what it proves, and evidence transfers only within its class (a live-boot claim needs live-boot evidence; a before capture wants its after).
-- Watchdog long-running agents; tear down by captured id. Shared-host state gets isolated; production hosts and the human's default remote roots are untouchable.
+- Watchdog long-running agents; tear down ONLY by PIDs captured at spawn. Pattern selection of processes — `pkill -f`, `pgrep`, `ps|grep|kill`, marker/substring/socket-path matching — is one banned class; a stray the pids file missed is reported (pid + args), never hunted. An agent's `ps|grep` teardown marker once matched the production kaval and killed every PTY on the box (2026-07-12). Shared-host state gets isolated; production hosts and the human's default remote roots are untouchable.
 
 ## Communicating with the human
 

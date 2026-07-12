@@ -14,7 +14,13 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
-import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
+import {
+  type DaemonExit,
+  daemonLifetimeFromEnv,
+  daemonMain,
+  lifetimeInfo,
+  type Logger,
+} from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
   getPtyHostSocketPath,
@@ -63,9 +69,17 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   const gatePath = join(dir, KAVAL_GATE_FILE);
   const rcDir = join(dir, "rc");
 
+  // Resolve the lifetime ONCE, before the router is built: `forever` in
+  // production; `boundToPid` when a harness/smoke run set `KOLU_DAEMON_BIND_PID`
+  // (padi forwards it into kaval's env) so a test-spawned kaval dies with its run.
+  // The same value is served on `system.version` (via `lifetimeInfo`) and handed
+  // to `daemonMain` below, so the readout and the actual policy can't drift.
+  const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
+
   const { servedRouter, terminalCount } = createInProcessPtyHost({
     log,
     rcDir,
+    lifetime: lifetimeInfo(lifetime),
   });
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
@@ -103,7 +117,9 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     gatePath,
     socketPath,
     router: servedRouter,
-    lifetime: { kind: "forever" },
+    // The same lifetime resolved above (reused, never re-derived) — so the value
+    // served on `system.version` is provably the one governing the daemon.
+    lifetime,
     log,
     signal: controller.signal,
     onReady: opts.onReady,

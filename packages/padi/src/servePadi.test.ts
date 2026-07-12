@@ -175,6 +175,7 @@ function terminalsBacking(): {
     log: stubLog,
     startedAt: 0,
     commit: "",
+    lifetime: { kind: "forever" },
   });
   const t = deps.collections?.terminals;
   if (!t?.readOne || !t?.readAll) {
@@ -209,6 +210,7 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       log: stubLog,
       startedAt: opts.startedAt,
       commit: opts.commit,
+      lifetime: { kind: "forever" },
     });
     const store = deps.cells?.identity?.store;
     if (!store) throw new Error("padi deps must back the identity cell");
@@ -222,6 +224,7 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       commit: "abc1234",
       surfaceVersion: PADI_SURFACE_VERSION,
       startedAt: 1_700_000_000_000,
+      lifetime: { kind: "forever" },
     });
   });
 
@@ -230,6 +233,7 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       commit: null,
       surfaceVersion: PADI_SURFACE_VERSION,
       startedAt: 42,
+      lifetime: { kind: "forever" },
     });
   });
 });
@@ -292,6 +296,7 @@ function scratchWrite(): (args: {
     log: stubLog,
     startedAt: 0,
     commit: "",
+    lifetime: { kind: "forever" },
   });
   const w = deps.procedures?.scratch?.write;
   if (!w) throw new Error("padi deps must serve scratch.write");
@@ -407,6 +412,7 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
       log: stubLog,
       startedAt: 0,
       commit: "",
+      lifetime: { kind: "forever" },
     });
     const s = deps.cells?.session?.store;
     if (!s) throw new Error("padi deps must back the session cell");
@@ -520,6 +526,7 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
       log: stubLog,
       startedAt: 0,
       commit: "",
+      lifetime: { kind: "forever" },
     });
     const create = deps.procedures?.lifecycle?.create as
       | ((a: { input: Record<string, never> }) => unknown)

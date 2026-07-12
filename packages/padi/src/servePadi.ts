@@ -20,6 +20,7 @@
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { currentPtyHostIdentity } from "kaval";
 import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
@@ -116,8 +117,13 @@ export function buildPadiSurfaceDeps(deps: {
    *  `daemonMain.ts` hands `hello`. `""` off-nix; mapped to a DECLARED `null` below
    *  (never re-derived). */
   commit: string;
+  /** padi's serialized lifetime (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — the SAME projection `daemonMain.ts` hands `daemonMain`,
+   *  seeded into the `identity` cell so the readout and the actual policy can't
+   *  drift. */
+  lifetime: DaemonLifetimeInfo;
 }): Omit<PadiDeps, "channel"> {
-  const { endpoint, log, startedAt, commit } = deps;
+  const { endpoint, log, startedAt, commit, lifetime } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
@@ -140,6 +146,7 @@ export function buildPadiSurfaceDeps(deps: {
     commit: commit || null,
     surfaceVersion: PADI_SURFACE_VERSION,
     startedAt,
+    lifetime,
   };
 
   return {

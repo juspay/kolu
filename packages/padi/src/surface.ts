@@ -92,6 +92,7 @@ import {
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
   InitialTerminalMetadataSchema,
+  DaemonLifetimeInfoSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -153,7 +154,14 @@ export * from "./vocab.ts";
  *  (a) — is a major. A remote dial gates an incompatible padi via
  *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION}, which is
  *  frozen forever so a contract-revving deploy can still reach the daemon's control
- *  core. */
+ *  core.
+ *
+ *  The read-only, server-seeded `identity` cell also gained an OPTIONAL `lifetime`
+ *  field (padi's own `DaemonLifetimeInfo`, for the Padi dialog's lifetime row),
+ *  added WITHOUT a contract bump: optional means a binder reading a survivor padi
+ *  that predates it parses fine (falls back to "—"), so it needs no forced drain —
+ *  the field simply arrives with padi's next respawn (which a code-change deploy
+ *  triggers anyway). Kept symmetric with kaval's `system.version` lifetime field. */
 export const PADI_SURFACE_VERSION = "2.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -195,6 +203,12 @@ export const PadiIdentitySchema = z.object({
   commit: z.string().nullable(),
   surfaceVersion: z.string(),
   startedAt: z.number(),
+  /** padi's lifetime policy (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
+   *  seeds it synchronously at boot, so a subscriber sees the real value from the
+   *  first frame; OPTIONAL only so a binder reading a survivor padi that predates
+   *  the field parses without a forced drain (the reader falls back to "—"). */
+  lifetime: DaemonLifetimeInfoSchema.optional(),
 });
 export type PadiIdentity = z.infer<typeof PadiIdentitySchema>;
 
@@ -207,6 +221,7 @@ export const DEFAULT_PADI_IDENTITY: PadiIdentity = {
   commit: null,
   surfaceVersion: PADI_SURFACE_VERSION,
   startedAt: 0,
+  lifetime: { kind: "forever" },
 };
 
 // ── Status (the per-host build-currency axis) ─────────────────────────────
