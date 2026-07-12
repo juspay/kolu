@@ -78,7 +78,7 @@ export const VOID_BUDGET_FACTOR = 3;
  *  the wall/mono gap to ~0, which only DISABLES suspension-voiding (degrading to
  *  the pre-fix behaviour where a frozen-then-resumed probe forces a reconnect) —
  *  it never blinds the watchdog, the fail-safe direction. */
-const monotonicNow = (): number =>
+export const monotonicNow = (): number =>
   typeof performance !== "undefined" && typeof performance.now === "function"
     ? performance.now()
     : Date.now();

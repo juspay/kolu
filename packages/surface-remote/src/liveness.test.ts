@@ -382,4 +382,62 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
 
     session.destroy();
   });
+
+  it("a REPLACED connection is probed with its OWN isAlive — a never-settling probe from the dead link never leaks onto the successor (#1776 F1)", async () => {
+    // The heartbeat is session-scoped (one instance across every reconnect), so a
+    // probe that never settled on the DEAD link must not stay cached and be handed
+    // to the fresh link. Dial A's probe never answers and its oracle reports the
+    // process gone (force-cycle immediately); dial B is healthy. Without the
+    // close-time reset, B would reuse A's forever-pending promise, B's own
+    // `isAlive()` would never be called, and B would be force-cycled despite health.
+    let dial = 0;
+    const bIsAliveCalls = { n: 0 };
+    let resolveClosed: ((info: ClosedInfo) => void) | null = null;
+    const connectOnce: Connector<LocalClient> = async (ctx) => {
+      dial += 1;
+      const thisDial = dial;
+      ctx.connecting();
+      return {
+        client: {} as LocalClient,
+        closed: new Promise<ClosedInfo>((res) => {
+          resolveClosed = res;
+        }),
+        isAlive: () => {
+          if (thisDial === 1) return new Promise<void>(() => {}); // A: never answers
+          bIsAliveCalls.n += 1;
+          return Promise.resolve(); // B: healthy round-trip
+        },
+        processAlive: () => thisDial !== 1, // A: process gone; B: alive
+        teardown: () => resolveClosed?.({ kind: "endpoint-down" }),
+      };
+    };
+    const session = makeSession<LocalClient>({
+      initialConnection: "connecting",
+      connectOnce,
+      reconnectDelayMs: 50,
+      liveness: { intervalMs: 15_000, timeoutMs: 10_000 },
+      label: "padi-local-f1",
+    });
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    session.markConnected();
+    expect(localPhase(session)).toBe("connected");
+
+    // A's probe times out; oracle says the process is gone → force-cycle, then reconnect.
+    await vi.advanceTimersByTimeAsync(25_000); // interval + timeout → onStale → recheck
+    await vi.advanceTimersByTimeAsync(200); // backoff → fresh dial B
+    expect(dial).toBe(2);
+    session.markConnected();
+    expect(localPhase(session)).toBe("connected");
+
+    // Drive one full watchdog cycle on B. With the leak fixed, the heartbeat calls
+    // B's OWN `isAlive()` (which answers) → B stays connected. With the leak, it would
+    // reuse A's never-settling promise → B's `isAlive()` is never called → B is cycled.
+    bIsAliveCalls.n = 0;
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(bIsAliveCalls.n).toBeGreaterThan(0);
+    expect(localPhase(session)).toBe("connected");
+
+    session.destroy();
+  });
 });

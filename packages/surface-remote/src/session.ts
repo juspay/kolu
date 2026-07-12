@@ -41,6 +41,7 @@ import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
+  monotonicNow,
 } from "@kolu/surface/heartbeat";
 import {
   probeSurfaceIdentity,
@@ -674,7 +675,18 @@ export function makeSession<
         // Alive but heartbeat-silent ≡ SLOW under load, not dead — do NOT force-cycle;
         // keep probing. The dead-man ceiling bounds it so an alive-but-never-answering
         // (deadlocked) padi still heals.
-        const now = Date.now();
+        //
+        // Measured on the MONOTONIC clock (`monotonicNow`, the same clock
+        // `createHeartbeat` reads), never wall time: `onStale` only ever fires over a
+        // continuously-RUNNING probe window (the heartbeat VOIDS a suspension-straddling
+        // window and re-probes without calling us — heartbeat.ts § SUSPENSION_SLACK_MS),
+        // so the ceiling must accrue only running time too. Wall time (`Date.now`) would
+        // fold a laptop sleep / clock step INTO the silent span and force-cycle a merely-
+        // resumed-but-alive padi on the first post-wake stale — re-introducing the exact
+        // suspension-induced false recovery this arm exists to prevent. On the monotonic
+        // clock, suspended time never counts, so a resumed padi gets its full running-time
+        // grace before the ceiling bites.
+        const now = monotonicNow();
         livenessUnresponsiveSince ??= now;
         const silentForMs = now - livenessUnresponsiveSince;
         if (silentForMs >= LOCAL_LIVENESS_DEAD_MAN_CEILING_MS) {
@@ -737,6 +749,20 @@ export function makeSession<
     // Stale close from a connection we already replaced/tore down — ignore.
     if (conn !== current) return;
     current = null;
+    // Retire this connection's liveness EPISODE with the connection itself. The
+    // heartbeat is session-scoped (born once at the first connect, disposed only at
+    // `destroy`), so its probe-episode state — the concurrency-capped `inFlightProbe`
+    // and the dead-man `livenessUnresponsiveSince` clock — MUST be reset here, or it
+    // leaks onto the REPLACEMENT connection: a probe that never settled on the dead
+    // link would still be cached, so the heartbeat would hand the fresh connection the
+    // old link's forever-pending promise (line ~633 reuse) instead of ever calling the
+    // new `isAlive()` — force-cycling a healthy successor (immediately for the ssh arm,
+    // after the ceiling for the local arm). The `.finally` epoch-guard only stops a LATE
+    // settle from WRITING stale state; it can't stop the replacement dial from READING a
+    // never-settling one. A late settle from this now-retired probe is inert: its
+    // `inFlightProbe === probe` and `current === connAtLaunch` checks both fail.
+    inFlightProbe = null;
+    livenessUnresponsiveSince = null;
     const wasConnected = stateCell.current().phase === "connected";
     let reason: string;
     let cause: "network" | "remote";
