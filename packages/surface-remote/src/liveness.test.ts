@@ -26,7 +26,12 @@ import { implement } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
-import { makeSession, type SessionState } from "./session";
+import {
+  type ClosedInfo,
+  type Connector,
+  makeSession,
+  type SessionState,
+} from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
@@ -237,6 +242,127 @@ describe("HostSession liveness watchdog", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(kills[0]).not.toHaveBeenCalled();
     expect(spawn).toHaveBeenCalledTimes(1);
+
+    session.destroy();
+  });
+});
+
+// ── The LOCAL arm — same-box process oracle (#1776) ──────────────────────────
+//
+// The local (stdio/endpoint) arm supplies a `processAlive` oracle the ssh arm above
+// cannot: on a heartbeat timeout the watchdog consults the same-box process table
+// instead of assuming death. A minimal stub connector whose liveness probe NEVER
+// answers (the heartbeat-silent link) + a controllable `processAlive` drives the three
+// arcs the #1776 ruling demands. (The ssh `describe` above already pins the fourth arc:
+// NO oracle → force-cycle on the first timeout — the remote arm is provably untouched.)
+
+type LocalClient = Record<string, never>;
+
+/** A LOCAL-arm connector stub: the transport comes up, but its liveness probe never
+ *  answers (the wedge). `processAlive` is the same-box oracle under test; `connects` and
+ *  `teardowns` observe (re)dials and force-cycles. */
+function localArm(processAlive: () => boolean) {
+  let connects = 0;
+  let teardowns = 0;
+  let resolveClosed: ((info: ClosedInfo) => void) | null = null;
+  const connectOnce: Connector<LocalClient> = async (ctx) => {
+    connects += 1;
+    ctx.connecting();
+    return {
+      client: {} as LocalClient,
+      closed: new Promise<ClosedInfo>((res) => {
+        resolveClosed = res;
+      }),
+      // Never answers → every probe times out — the heartbeat-silent link #1776 is about.
+      isAlive: () => new Promise<void>(() => {}),
+      processAlive,
+      teardown: () => {
+        teardowns += 1;
+        resolveClosed?.({ kind: "endpoint-down" });
+      },
+    };
+  };
+  return { connectOnce, stats: () => ({ connects, teardowns }) };
+}
+
+function localSession(processAlive: () => boolean) {
+  const arm = localArm(processAlive);
+  const session = makeSession<LocalClient>({
+    initialConnection: "connecting",
+    connectOnce: arm.connectOnce,
+    reconnectDelayMs: 50,
+    liveness: { intervalMs: 15_000, timeoutMs: 10_000 },
+    label: "padi-local",
+  });
+  return { session, arm };
+}
+
+/** The current phase read synchronously off `onState` — the `Prov = never` twin of the
+ *  ssh `snap` above. */
+function localPhase(session: {
+  onState(cb: (s: SessionState) => void): () => void;
+}): string {
+  let phase = "";
+  session.onState((s) => {
+    phase = s.phase;
+  })();
+  return phase;
+}
+
+describe("local arm liveness — same-box process oracle (#1776)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("timeout + oracle ALIVE → does NOT force-cycle (slow under load, not dead)", async () => {
+    const { session, arm } = localSession(() => true);
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    session.markConnected();
+    expect(localPhase(session)).toBe("connected");
+    expect(arm.stats().connects).toBe(1);
+
+    // One full probe cycle (interval 15s + timeout 10s): the probe never answers, but the
+    // oracle says the padi process is alive → the watchdog keeps probing, no force-cycle.
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(arm.stats().teardowns).toBe(0);
+    expect(arm.stats().connects).toBe(1);
+    expect(localPhase(session)).toBe("connected");
+
+    session.destroy();
+  });
+
+  it("timeout + oracle DEAD → force-cycles immediately", async () => {
+    const alive = { v: true };
+    const { session, arm } = localSession(() => alive.v);
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    session.markConnected();
+    alive.v = false; // the padi process is gone
+
+    await vi.advanceTimersByTimeAsync(25_000); // probe times out → oracle says dead
+    expect(arm.stats().teardowns).toBe(1);
+    await vi.advanceTimersByTimeAsync(200); // routes through reconnect → a fresh dial
+    expect(arm.stats().connects).toBe(2);
+
+    session.destroy();
+  });
+
+  it("dead-man ceiling → force-cycles despite an ALIVE process after prolonged silence", async () => {
+    const { session, arm } = localSession(() => true); // process always alive
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    session.markConnected();
+
+    // Below the ceiling, sustained heartbeat-silence with an alive process never cycles.
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(arm.stats().teardowns).toBe(0);
+
+    // Past the 60s dead-man ceiling (a deadlocked-but-alive padi), it force-cycles anyway.
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(arm.stats().teardowns).toBe(1);
 
     session.destroy();
   });
