@@ -48,7 +48,7 @@ export const SbStyles = () => (
 ## User-facing description
 
 Switching to a host — or reloading the page — paints the terminal
-**instantly**. Only the recent screenful (roughly 500–1,000 lines) travels;
+**instantly**. Only the recent screenful (roughly 500–1,000 lines) is sent from kaval to the browser;
 you're typing into a live prompt while the 10,000 lines behind it stay on the
 host. The full-replay stall you pay today on every cross-host switch
 ([the W9 cost](padi.html#w9)) disappears.
@@ -81,7 +81,7 @@ filling, up to the full 10,000 lines kaval already holds.
         </div>
         <div class="sb-track"><div class="sb-thumb" style="bottom:3px;height:78%" /></div>
       </div>
-      <div class="sb-cap"><b>Attach — instant.</b> Only the recent screenful travels; the prompt is live immediately.</div>
+      <div class="sb-cap"><b>Attach — instant.</b> Only the recent screenful is sent from kaval; the prompt is live immediately.</div>
     </div>
     <div class="sb-cell">
       <div class="sb-term">
@@ -122,12 +122,24 @@ The moving parts, in the order a chunk travels:
    nothing else.</Footnote>
 2. **One new wire surface**: a kaval **history read verb** that returns the
    next older raw chunk from the mirror, cursor-paged. That is the only
-   addition to the wire.
+   addition to the wire.<Footnote>A free side benefit: `kaval-tui` already
+   speaks kaval's surface, so the same verb gives it a `history <terminal>`
+   subcommand — reading a terminal's older output without attaching.
+   Agent-orchestration workflows currently work around `snapshot`'s
+   current-screen-only limit by passing report files; this closes that gap
+   and doubles as incident forensics.</Footnote>
 3. **A scratch headless terminal** in the client replays the chunk at the
    live terminal's column width. This is the trick that makes backfilled
    history *real*: the actual xterm parser computes wrapping, `isWrapped`
    continuations, SGR attributes, and wide-character cells — no hand-rolled
-   VT interpretation anywhere.
+   VT interpretation anywhere. A resize (or maximize — the same event)
+   *after* a backfill is the proven case: the spike's reflow oracle shows
+   prepended history re-wraps row-for-row identically to natively-written
+   history. A resize landing *mid-backfill* gets an explicit guard: the raw
+   bytes are width-agnostic, so at splice time the module compares the live
+   terminal's columns against fetch-time — changed means discard the scratch
+   result and re-replay at the new width (~38 ms, imperceptible), never
+   splice stale-width lines.
 4. **`scrollbackBackfill.ts` steals the result**: the scratch terminal's
    `BufferLine` objects are plain data, so the module splices them into the
    top of the live buffer's `CircularList`, shifts `ydisp`/`ybase`/`savedY`

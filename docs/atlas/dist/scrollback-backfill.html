@@ -27,7 +27,7 @@ every claim here (6/6 tests, branch <code>xterm-prepend-spike</code>, commit
   </style>
 <h2 id="user-facing-description">User-facing description</h2>
 <p>Switching to a host — or reloading the page — paints the terminal
-<strong>instantly</strong>. Only the recent screenful (roughly 500–1,000 lines) travels;
+<strong>instantly</strong>. Only the recent screenful (roughly 500–1,000 lines) is sent from kaval to the browser;
 you’re typing into a live prompt while the 10,000 lines behind it stay on the
 host. The full-replay stall you pay today on every cross-host switch
 (<a href="padi.html#w9">the W9 cost</a>) disappears.</p>
@@ -43,7 +43,7 @@ position.</span></span></span> The view never jumps while it happens: the lines 
 looking at stay exactly where they are, and the only tell is the scrollbar
 thumb shrinking as more history appears above you. Keep scrolling and it keeps
 filling, up to the full 10,000 lines kaval already holds.</p>
-<div class="sb-board"><div class="sb-lead">Attach, then scroll — the same terminal throughout</div><div class="sb-row"><div class="sb-cell"><div class="sb-term"><div class="sb-body"><div class="sb-line sb-dim">…lint · 0 warnings</div><div class="sb-line">$ just test</div><div class="sb-line sb-dim">PASS · 42 passed (6.1s)</div><div class="sb-line">$ git push</div><div class="sb-line sb-dim">→ origin master</div><div class="sb-line">$ <span class="sb-cur">▏</span></div></div><div class="sb-track"><div class="sb-thumb" style="bottom:3px;height:78%"></div></div></div><div class="sb-cap"><b>Attach — instant.</b> Only the recent screenful travels; the prompt is live immediately.</div></div><div class="sb-cell"><div class="sb-term"><div class="sb-body"><div class="sb-line sb-new">$ nix build .#kolu</div><div class="sb-line sb-new">building 214 derivations…</div><div class="sb-line sb-new">copying 38 paths…</div><div class="sb-line sb-dim">…lint · 0 warnings</div><div class="sb-line">$ just test</div><div class="sb-line sb-dim">PASS · 42 passed (6.1s)</div></div><div class="sb-track"><div class="sb-thumb" style="top:14px;height:34%"></div></div></div><div class="sb-cap"><b>Scroll up — history streams in.</b> Older lines (blue) splice in above; the lines you were reading don’t move — only the thumb shrinks.</div></div></div></div>
+<div class="sb-board"><div class="sb-lead">Attach, then scroll — the same terminal throughout</div><div class="sb-row"><div class="sb-cell"><div class="sb-term"><div class="sb-body"><div class="sb-line sb-dim">…lint · 0 warnings</div><div class="sb-line">$ just test</div><div class="sb-line sb-dim">PASS · 42 passed (6.1s)</div><div class="sb-line">$ git push</div><div class="sb-line sb-dim">→ origin master</div><div class="sb-line">$ <span class="sb-cur">▏</span></div></div><div class="sb-track"><div class="sb-thumb" style="bottom:3px;height:78%"></div></div></div><div class="sb-cap"><b>Attach — instant.</b> Only the recent screenful is sent from kaval; the prompt is live immediately.</div></div><div class="sb-cell"><div class="sb-term"><div class="sb-body"><div class="sb-line sb-new">$ nix build .#kolu</div><div class="sb-line sb-new">building 214 derivations…</div><div class="sb-line sb-new">copying 38 paths…</div><div class="sb-line sb-dim">…lint · 0 warnings</div><div class="sb-line">$ just test</div><div class="sb-line sb-dim">PASS · 42 passed (6.1s)</div></div><div class="sb-track"><div class="sb-thumb" style="top:14px;height:34%"></div></div></div><div class="sb-cap"><b>Scroll up — history streams in.</b> Older lines (blue) splice in above; the lines you were reading don’t move — only the thumb shrinks.</div></div></div></div>
 <p>The backfilled history is real terminal content, not a facsimile: colors
 survive, wrapped lines re-wrap correctly when you resize, wide characters
 land on the right cells — because the bytes are replayed through xterm’s own
@@ -153,12 +153,24 @@ This note’s business is the attach cost and in-place scrollback,
 nothing else.</span></span></span></li>
 <li><strong>One new wire surface</strong>: a kaval <strong>history read verb</strong> that returns the
 next older raw chunk from the mirror, cursor-paged. That is the only
-addition to the wire.</li>
+addition to the wire.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A free side benefit: <code>kaval-tui</code> already
+speaks kaval’s surface, so the same verb gives it a <code>history &lt;terminal&gt;</code>
+subcommand — reading a terminal’s older output without attaching.
+Agent-orchestration workflows currently work around <code>snapshot</code>’s
+current-screen-only limit by passing report files; this closes that gap
+and doubles as incident forensics.</span></span></span></li>
 <li><strong>A scratch headless terminal</strong> in the client replays the chunk at the
 live terminal’s column width. This is the trick that makes backfilled
 history <em>real</em>: the actual xterm parser computes wrapping, <code>isWrapped</code>
 continuations, SGR attributes, and wide-character cells — no hand-rolled
-VT interpretation anywhere.</li>
+VT interpretation anywhere. A resize (or maximize — the same event)
+<em>after</em> a backfill is the proven case: the spike’s reflow oracle shows
+prepended history re-wraps row-for-row identically to natively-written
+history. A resize landing <em>mid-backfill</em> gets an explicit guard: the raw
+bytes are width-agnostic, so at splice time the module compares the live
+terminal’s columns against fetch-time — changed means discard the scratch
+result and re-replay at the new width (~38 ms, imperceptible), never
+splice stale-width lines.</li>
 <li><strong><code>scrollbackBackfill.ts</code> steals the result</strong>: the scratch terminal’s
 <code>BufferLine</code> objects are plain data, so the module splices them into the
 top of the live buffer’s <code>CircularList</code>, shifts <code>ydisp</code>/<code>ybase</code>/<code>savedY</code>
