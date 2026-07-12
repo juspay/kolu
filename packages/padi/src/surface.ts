@@ -175,8 +175,18 @@ export * from "./vocab.ts";
  *  other side" recycle rather than a mis-parsed, dataless, or frozen pane). The
  *  additive `screen.history` procedure
  *  (the client's older-scrollback read) rides the same release; it alone would be a
- *  minor, but the `terminalAttach` reshape forces the major. */
-export const PADI_SURFACE_VERSION = "3.0";
+ *  minor, but the `terminalAttach` reshape forces the major.
+ *
+ *  3.1 (additive · minor): the scrollback-backfill reflow guard (F3). Three
+ *  OPTIONAL adds — a `reflowEpoch` on the `terminalAttach` snapshot frame, an
+ *  `epoch` on `screen.history` input, a `stale` on its output — that let a
+ *  client whose SHARED mirror a foreign attach reflowed (its own `term.cols`
+ *  unchanged) HALT backfill instead of splicing a duplicated/skipped band. All
+ *  optional, so both skew directions are graceful: an older 3.0 client ignores
+ *  the extra fields, and a 3.1 client meeting a 3.0 padi reads them absent and
+ *  runs fail-open (no epoch → no gate, the historical single-width behavior).
+ *  A minor, not a major — no reshape, no required field, no emitted variant. */
+export const PADI_SURFACE_VERSION = "3.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -505,6 +515,13 @@ export const PadiScreenHistoryInputSchema = z.object({
   id: TerminalIdSchema,
   before: z.number().int().nonnegative().optional(),
   max: z.number().int().positive(),
+  // `epoch` (3.1 · additive · optional) — the reflow generation the caller's
+  // `before` cursor was seeded under (the attach snapshot's `reflowEpoch`). The
+  // host returns an empty `stale` reply when a width reflow has since renumbered
+  // absolute rows, so a client whose shared mirror a foreign resize reflowed
+  // HALTS backfill rather than splices a duplicated/skipped band (F3). Omitted
+  // by an older client — fail-open.
+  epoch: z.number().int().nonnegative().optional(),
 });
 
 /** One older-scrollback chunk `screen.history` returns — mirrors kaval's
@@ -514,6 +531,11 @@ export const PadiScreenHistoryOutputSchema = z.object({
   chunk: z.string(),
   topLine: z.number().int().nonnegative(),
   exhausted: z.boolean(),
+  // `stale` (3.1 · additive · optional) — the caller's stamped `epoch` no longer
+  // matches the mirror's reflow generation; the reply serves nothing and the
+  // caller halts backfill until a fresh snapshot re-seeds (F3). Absent from an
+  // older host — client reads false (fail-open).
+  stale: z.boolean().optional(),
 });
 
 /** `scratch.write` — write base64 bytes into a terminal's on-disk scratch dir
@@ -729,6 +751,11 @@ export const padiSurface = defineSurface({
           kind: z.literal("snapshot"),
           data: z.string(),
           topLine: z.number().int().nonnegative(),
+          // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
+          // generation this snapshot was serialized under; the client re-seeds
+          // its backfill epoch from it so a foreign-resize reflow halts backfill
+          // rather than corrupts it (F3). Absent from a kaval predating 5.2.
+          reflowEpoch: z.number().int().nonnegative().optional(),
         }),
       ]),
     },

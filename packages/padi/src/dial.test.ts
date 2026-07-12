@@ -304,7 +304,7 @@ describe("padi the process — dial acceptance", () => {
     const hello = await conn.client.surface.control.core.hello();
     // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("3.0");
+    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(hello.controlCoreVersion).toBe("1.0");
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
@@ -401,12 +401,12 @@ describe("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi (it requires padiSurface 4.0; padi serves 3.0)
+    // A binder NEWER than this padi (it requires padiSurface 4.0; padi serves 3.x)
     // reads the running version from the FROZEN control-core `hello` — the call
     // that must work at a mismatch — and finds it INCOMPATIBLE, so it REFUSES to
     // bind the versioned surface.
     const hello = await conn.client.surface.control.core.hello();
-    expect(hello.surfaceVersion).toBe("3.0");
+    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(isContractVersionCompatible(hello.surfaceVersion, "4.0")).toBe(
       false,
     );
@@ -495,7 +495,7 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
 
     const hello = await client.surface.control.core.hello();
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("3.0");
+    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(hello.controlCoreVersion).toBe("1.0");
     expect(hello.startedAt).toBeGreaterThan(0);
 

@@ -288,13 +288,16 @@ export function buildPadiSurfaceDeps(deps: {
       terminalAttach: {
         source: async function* ({ id }, signal) {
           const entry = requireActiveTerminal(id);
-          const { snapshot, topLine, deltas } = await resolveTerminalEndpoint(
-            entry.meta.location,
-          ).attach(id, signal);
+          const { snapshot, topLine, reflowEpoch, deltas } =
+            await resolveTerminalEndpoint(entry.meta.location).attach(
+              id,
+              signal,
+            );
           // First frame is a `snapshot` carrying the backfill seed (`topLine`)
-          // alongside the snapshot bytes; delta frames carry `data` only, except
-          // a re-attach frame which is itself a `snapshot` (see `reattachingDeltas`).
-          yield { kind: "snapshot", data: snapshot, topLine };
+          // and the reflow generation (`reflowEpoch`) alongside the snapshot
+          // bytes; delta frames carry `data` only, except a re-attach frame which
+          // is itself a `snapshot` (see `reattachingDeltas`).
+          yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
           for await (const frame of deltas) yield frame;
         },
       },
@@ -462,6 +465,7 @@ export function buildPadiSurfaceDeps(deps: {
           requireActiveTerminal(input.id).handle.getHistory(
             input.before,
             input.max,
+            input.epoch,
           ),
       },
 

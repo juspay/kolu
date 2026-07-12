@@ -144,6 +144,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
             kind: "snapshot" as const,
             data: att.snapshot,
             topLine: att.topLine,
+            reflowEpoch: att.reflowEpoch,
           };
           for await (const data of att.deltas) {
             yield { kind: "delta" as const, data };
@@ -330,7 +331,12 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         },
         getHistory: async ({ input }) => {
           requirePty(input.id as PtyId);
-          return host.getHistory(input.id, input.before, input.max);
+          return host.getHistory(
+            input.id,
+            input.before,
+            input.max,
+            input.epoch,
+          );
         },
       },
       system: {

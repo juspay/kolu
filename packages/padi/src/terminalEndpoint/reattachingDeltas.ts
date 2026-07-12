@@ -41,6 +41,10 @@ export interface OpenedAttach {
   /** Absolute mirror-line seed for the fresh snapshot — carried onto the
    *  re-attach frame so the client re-seeds its backfill cursor. */
   topLine: number;
+  /** Reflow generation the fresh snapshot was serialized under — carried onto
+   *  the re-attach frame so the client re-seeds its backfill epoch (F3).
+   *  Undefined from a kaval predating the field (fail-open). */
+  reflowEpoch?: number;
   iter: AsyncIterator<PtyHostDataMsg>;
 }
 
@@ -78,11 +82,12 @@ export async function* reattachingDeltas(
       throw err;
     }
     // A fresh snapshot: reset the screen (RIS) AND re-seed the backfill cursor
-    // with this re-attach's own `topLine`.
+    // with this re-attach's own `topLine` + reflow generation.
     yield {
       kind: "snapshot",
       data: TERMINAL_RESET + next.snapshot,
       topLine: next.topLine,
+      reflowEpoch: next.reflowEpoch,
     };
     cur = next.iter;
   }

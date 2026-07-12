@@ -219,12 +219,14 @@ class PtyHostTerminalProxy implements TerminalHandle {
   async getHistory(
     before: number | undefined,
     max: number,
+    epoch?: number,
   ): Promise<TerminalHistoryChunk> {
     await this.ready;
     return this.client.surface.terminal.getHistory({
       id: this.id,
       before,
       max,
+      epoch,
     });
   }
 }
@@ -1144,7 +1146,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // always yields a snapshot first, even an empty one), so FAIL LOUD rather
         // than fabricate a valid `{ snapshot: "", topLine: 0 }` that paints a
         // blank, frozen pane indistinguishable from a real empty terminal.
-        if (signal?.aborted) return { snapshot: "", topLine: 0, iter };
+        if (signal?.aborted)
+          return { snapshot: "", topLine: 0, reflowEpoch: undefined, iter };
         throw new Error(
           `attach(${id}): stream ended before its mandatory snapshot frame`,
         );
@@ -1154,7 +1157,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,
         );
       }
-      return { snapshot: first.value.data, topLine: first.value.topLine, iter };
+      return {
+        snapshot: first.value.data,
+        topLine: first.value.topLine,
+        reflowEpoch: first.value.reflowEpoch,
+        iter,
+      };
     };
 
     const initial = await open();
@@ -1164,6 +1172,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
+      reflowEpoch: initial.reflowEpoch,
       deltas: reattachingDeltas(open, initial.iter),
     };
   }

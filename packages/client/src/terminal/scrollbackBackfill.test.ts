@@ -416,7 +416,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.seed(100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
-    expect(fetch).toHaveBeenCalledWith(100, expect.any(Number));
+    expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), undefined);
     expect(prepend).toHaveBeenCalledTimes(1);
     // The prepend's shouldCommit guard was valid at splice time.
     const shouldCommit = prepend.mock.calls[0]?.[2];
@@ -476,6 +476,38 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1); // no second fetch — paused
+    c.dispose();
+  });
+
+  it("echoes the seeded reflow epoch, and HALTS on a stale reply from a foreign reflow (F3)", async () => {
+    const f = fakeTerm();
+    // The host reports `stale` (its reflow generation moved since our seed), so
+    // the controller must discard the reply and PAUSE rather than splice a
+    // renumbered cursor's duplicated/skipped band.
+    const fetch = vi.fn(async () => ({
+      chunk: "",
+      topLine: 100,
+      exhausted: false,
+      stale: true as const,
+    }));
+    const prepend = vi.fn(async () => 1);
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    c.seed(100, 7); // seeded under reflow generation 7
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    // The stamped epoch rode the fetch...
+    expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), 7);
+    // ...and a stale reply never splices.
+    expect(prepend).not.toHaveBeenCalled();
+    // Backfill is now PAUSED: a re-scroll fires no further fetch until re-seed.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
     c.dispose();
   });
 
@@ -559,8 +591,13 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     // One scroll paged THROUGH the blank chunk to the content chunk.
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch).toHaveBeenNthCalledWith(1, 100, HISTORY_CHUNK_ROWS);
-    expect(fetch).toHaveBeenNthCalledWith(2, 50, HISTORY_CHUNK_ROWS);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      100,
+      HISTORY_CHUNK_ROWS,
+      undefined,
+    );
+    expect(fetch).toHaveBeenNthCalledWith(2, 50, HISTORY_CHUNK_ROWS, undefined);
     c.dispose();
   });
 });

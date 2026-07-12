@@ -155,7 +155,31 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
       chunk: "",
       topLine: 10,
       exhausted: true,
+      stale: false,
     });
+  });
+
+  it("a stamped epoch stale against a foreign reflow serves nothing (F3)", async () => {
+    const id = printLines(400);
+    await waitFor(() => host.getScreenText(id).includes(label(399)));
+    // Seed a cursor at generation 0, then a FOREIGN resize reflows the shared
+    // mirror (bumps the reflow generation) without our cursor knowing.
+    const seeded = host.getHistory(id, undefined, 50, 0);
+    expect(seeded.stale).toBe(false);
+    expect(seeded.chunk).not.toBe("");
+    host.resize(id, 100, 24);
+    // A getHistory still stamped with the old generation now serves NOTHING and
+    // flags `stale`, so the client halts rather than pages a renumbered cursor.
+    const stale = host.getHistory(id, seeded.topLine, 50, 0);
+    expect(stale.stale).toBe(true);
+    expect(stale.chunk).toBe("");
+    expect(stale.topLine).toBe(seeded.topLine);
+    // Re-seeding with the CURRENT generation pages normally again.
+    const fresh = host.getHistory(id, seeded.topLine, 50, 1);
+    expect(fresh.stale).toBe(false);
+    // An UNSTAMPED read (older client / pager) is fail-open — never stale.
+    const open = host.getHistory(id, seeded.topLine, 50);
+    expect(open.stale).toBe(false);
   });
 
   it("a non-positive max is a caller error (throws), even before the PTY lookup", () => {

@@ -289,6 +289,13 @@ export interface HistoryChunk {
   chunk: string;
   topLine: number;
   exhausted: boolean;
+  /** True when the reflow epoch the controller stamped on the fetch no longer
+   *  matches the mirror's current generation — a width reflow (this OR a foreign
+   *  attach's resize) renumbered absolute rows since the cursor was seeded, so
+   *  the chunk is empty and the controller HALTS backfill until a fresh snapshot
+   *  re-seeds (F3). Absent/false from a host that predates the epoch field
+   *  (fail-open — the historical single-width behavior). */
+  stale?: boolean;
 }
 
 /** Drives scrollback backfill for one terminal: when the user scrolls near the
@@ -302,35 +309,38 @@ export interface HistoryChunk {
  *     DISCARDED, never spliced — this is the resize guard (a chunk serialized at
  *     the old width must not land in a reflowed buffer) and the re-attach guard
  *     (a chunk must not paint onto a terminal that was `reset()`) in one check.
- *   - A width change PAUSES backfill (`cursor = null`): an absolute cursor names
- *     a row index that reflow shifts, so rather than fetch against a stale
+ *   - A LOCAL width change PAUSES backfill (`cursor = null`): an absolute cursor
+ *     names a row index that reflow shifts, so rather than fetch against a stale
  *     anchor, the controller waits for the next snapshot frame to re-`seed` it.
  *     (Continuous backfill across a resize would need a reflow-invariant cursor —
  *     a deliberate follow-up; the common stable-width path is fully covered.)
  *
- *     KNOWN GAP (same follow-up): this local `onResize` pause only sees OUR OWN
- *     width changes. Another client attached to the SAME PTY (a `kaval-tui attach`,
- *     which resizes the shared mirror last-resize-wins) can reflow the mirror
- *     underneath us WITHOUT our `term.cols` changing, leaving our absolute cursor
- *     stale against a renumbered buffer — a subsequent `getHistory` can then
- *     splice a duplicated or skipped band. That band PERSISTS: our own later
- *     resize only `pause()`s the cursor (it does NOT re-seed), so a fresh anchor
- *     arrives only with the next snapshot frame (a re-attach). This is one facet
- *     of an ALREADY-DOCUMENTED degraded state, not a new defect this cursor
- *     introduces: at differing widths the mirror can be painted for only ONE
- *     width, so a concurrently-attached tile shows live wrap artifacts REGARDLESS
- *     of backfill (`kaval-tui/src/attach.ts` last-resize-wins policy — "may show
- *     wrap artifacts until its own next resize"). The complete fix is a coherent
- *     multi-width story — a reflow-invariant (logical-line) cursor plus the
- *     size-negotiation that `attach.ts` earmarks as future work ("a size-change
- *     tap would be contract 2.2") — delivered together, not a partial width-gate
- *     that halts backfill while the live view stays garbled from the same root
- *     cause. Until then the absolute cursor is correct for the SUPPORTED
- *     single-width-per-PTY case; the concurrent-differing-width case is the
- *     note-5 follow-up. */
+ *   - A FOREIGN width change — another client attached to the SAME PTY (a
+ *     `kaval-tui attach`, which resizes the shared mirror last-resize-wins) —
+ *     reflows the mirror underneath us WITHOUT our `term.cols` changing, so the
+ *     local `onResize` pause above never fires and our absolute cursor goes stale
+ *     against a renumbered buffer. Left unguarded, the next `getHistory` would
+ *     splice a duplicated or skipped band that PERSISTS (our own later resize only
+ *     `pause()`s, never re-seeds, so a fresh anchor arrives only with the next
+ *     snapshot). Unlike the transient LIVE-view wrap garble at differing widths
+ *     (which self-heals on the next repaint), that spliced history stays wrong.
+ *     So the cursor carries a REFLOW EPOCH: the attach snapshot stamps the
+ *     mirror's reflow generation, `seed` captures it, and every fetch echoes it;
+ *     the host serves an empty `stale` reply once the generation has moved, and
+ *     the controller HALTS (same `pause()`) instead of splicing. Halt-not-corrupt
+ *     by construction: worst case backfill stops early until the next snapshot
+ *     re-seeds, never a corrupted splice. A reflow-invariant (logical-line) cursor
+ *     that keeps backfilling ACROSS a foreign resize — plus the size-negotiation
+ *     `attach.ts` earmarks ("a size-change tap would be contract 2.2") — remains
+ *     the note-5 follow-up; this epoch gate is the fail-safe until then. A host
+ *     predating the epoch field omits `stale`, so the gate is fail-open (no epoch
+ *     → the historical single-width behavior). */
 export interface BackfillController {
-  /** Seed/re-seed the cursor from an attach (or re-attach) snapshot's topLine. */
-  seed(topLine: number): void;
+  /** Seed/re-seed the cursor from an attach (or re-attach) snapshot's topLine,
+   *  plus the mirror's reflow generation at snapshot time (`reflowEpoch`, echoed
+   *  on every fetch so a foreign-resize reflow halts backfill — F3). Undefined
+   *  from a host predating the field (fail-open). */
+  seed(topLine: number, reflowEpoch?: number): void;
   /** Forget the cursor (paused) — call when xterm is reset for a fresh snapshot,
    *  before the new snapshot's `seed`. */
   reset(): void;
@@ -340,8 +350,15 @@ export interface BackfillController {
 export function createBackfillController(
   term: XTerm,
   opts: {
-    /** Fetch the chunk of up to `max` rows above absolute line `before`. */
-    fetch: (before: number, max: number) => Promise<HistoryChunk>;
+    /** Fetch the chunk of up to `max` rows above absolute line `before`,
+     *  stamping the reflow generation the cursor was seeded under (`epoch`) so
+     *  the host can return an empty `stale` reply after a reflow (F3). `epoch` is
+     *  undefined when the snapshot carried none (older host — fail-open). */
+    fetch: (
+      before: number,
+      max: number,
+      epoch: number | undefined,
+    ) => Promise<HistoryChunk>;
     /** Surface a fetch failure that is NOT an expected teardown (a killed PTY's
      *  typed `NOT_FOUND`). Called for transport / auth / schema / server faults
      *  so backfill can't silently leave a hole — the caller toasts it; a later
@@ -370,6 +387,10 @@ export function createBackfillController(
     ((t, c, shouldCommit, servedRows) =>
       prependScrollback(t, c, servedRows, { shouldCommit }));
   let cursor: number | null = null;
+  // The mirror's reflow generation the current cursor was seeded under, echoed
+  // on each fetch so the host halts us after a foreign-resize reflow (F3).
+  // Undefined when the snapshot carried none (older host) — fail-open.
+  let seedEpoch: number | undefined;
   let exhausted = false;
   let inFlight = false;
   let epoch = 0;
@@ -427,7 +448,7 @@ export function createBackfillController(
           return;
         let res: HistoryChunk;
         try {
-          res = await opts.fetch(before, HISTORY_CHUNK_ROWS);
+          res = await opts.fetch(before, HISTORY_CHUNK_ROWS, seedEpoch);
         } catch (err) {
           // A killed terminal / exited PTY makes the padi handler reject with a
           // typed NOT_FOUND — expected teardown, swallowed; a later scroll
@@ -440,6 +461,16 @@ export function createBackfillController(
           return;
         }
         if (!stillValid()) return;
+        // A foreign-resize reflow renumbered the mirror since our cursor was
+        // seeded: our absolute `before` no longer names the same row, so the host
+        // served nothing and told us to halt. Pause (forget the cursor, bump the
+        // local epoch) rather than splice a duplicated/skipped band — a fresh
+        // snapshot re-seeds a valid cursor + epoch (F3). Fail-open on an older
+        // host, which omits `stale`.
+        if (res.stale) {
+          pause();
+          return;
+        }
         // The server advanced the cursor from `before` to `res.topLine`, so it
         // consumed `before - res.topLine` mirror rows for this chunk. Hand that
         // span to the prepend so a range whose trailing blanks `serialize`
@@ -471,8 +502,9 @@ export function createBackfillController(
   });
 
   return {
-    seed(topLine) {
+    seed(topLine, reflowEpoch) {
       cursor = topLine;
+      seedEpoch = reflowEpoch;
       exhausted = false;
       epoch++;
     },

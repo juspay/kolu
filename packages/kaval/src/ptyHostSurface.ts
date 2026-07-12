@@ -140,7 +140,18 @@ import { z } from "zod";
  *  is already refused by `PADI_SURFACE_VERSION`'s 3.0 major (the `terminalAttach`
  *  reshape). So this leg stays minor: graceful, PTY-preserving, and belt-and-
  *  suspendered by the padi major. */
-export const PTY_HOST_CONTRACT_VERSION = "5.1";
+/*  Bumped to 5.2 (additive · minor): the scrollback-backfill reflow guard (F3).
+ *  Three OPTIONAL adds, no required-field or emitted-variant change, so BOTH
+ *  skew directions are graceful (no recycle): (1) the `terminalAttach` snapshot
+ *  frame carries an OPTIONAL `reflowEpoch` — the mirror's reflow generation the
+ *  snapshot was serialized under; (2) `getHistory` input gains an OPTIONAL
+ *  `epoch` the client echoes; (3) `getHistory` output gains an OPTIONAL `stale`.
+ *  Together they let a client whose shared mirror a FOREIGN attach reflowed
+ *  (its own `term.cols` unchanged) HALT backfill instead of splicing a
+ *  duplicated/skipped band. All optional, so a 5.1 survivor omitting them leaves
+ *  a 5.2 client fail-open (no epoch → no gate → the historical single-width
+ *  behavior), and a 5.1 client ignores the extra fields — no skew either way. */
+export const PTY_HOST_CONTRACT_VERSION = "5.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -227,6 +238,14 @@ const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
     kind: z.literal("snapshot"),
     data: z.string(),
     topLine: z.number().int().nonnegative(),
+    // `reflowEpoch` (contract 5.2 · additive · optional) — the mirror's reflow
+    // generation this snapshot was serialized under. The client stamps it on
+    // every `getHistory` so a later width reflow (this or a FOREIGN attach's
+    // resize, which renumbers absolute rows) yields a no-splice `stale` reply
+    // instead of a duplicated/skipped backfill band (F3). Optional so an older
+    // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
+    // the historical single-width behavior), no skew refusal.
+    reflowEpoch: z.number().int().nonnegative().optional(),
   }),
   z.object({ kind: z.literal("delta"), data: z.string() }),
   // The host dropped THIS attach subscriber for exceeding its buffered-chunk
@@ -471,11 +490,23 @@ export const ptyHostSurface = defineSurface({
           // region (the self-seeding pager entry point).
           before: z.number().int().nonnegative().optional(),
           max: z.number().int().positive(),
+          // `epoch` (contract 5.2 · additive · optional) — the reflow generation
+          // the caller's `before` cursor was seeded under (the attach snapshot's
+          // `reflowEpoch`). The host serves an empty `stale` reply when it no
+          // longer matches, so a client whose mirror a foreign resize reflowed
+          // HALTS rather than pages a renumbered cursor (F3). Omitted by an older
+          // client / the self-seeding pager — fail-open.
+          epoch: z.number().int().nonnegative().optional(),
         }),
         output: z.object({
           chunk: z.string(),
           topLine: z.number().int().nonnegative(),
           exhausted: z.boolean(),
+          // `stale` (contract 5.2 · additive · optional) — the stamped `epoch`
+          // no longer matches the mirror's reflow generation; the reply serves
+          // nothing and the caller halts backfill until re-seed. Optional so a
+          // 5.1 daemon (no epoch handling) omits it → client reads false.
+          stale: z.boolean().optional(),
         }),
       },
     },

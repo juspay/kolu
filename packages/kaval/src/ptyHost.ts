@@ -229,6 +229,11 @@ export interface PtyAttachment {
    *  the client received (an anchor fetched separately would race live output).
    *  0 for a brand-new/empty PTY. */
   topLine: number;
+  /** Reflow generation the snapshot (and its `topLine`) was serialized under —
+   *  the client stamps it on every `getHistory` so a subsequent width reflow
+   *  (this or another attach's resize) makes the stale absolute cursor a
+   *  no-splice `stale` reply rather than a duplicated/skipped band (F3). */
+  reflowEpoch: number;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, PTY exit, or a slow-subscriber drop (which also fires
    *  `attach`'s `onOverflow`, so the serving layer can tell that end apart). */
@@ -263,6 +268,13 @@ export interface PtyHistoryChunk {
   /** True once the chunk reaches the oldest line the mirror still holds — the
    *  caller stops backfilling. */
   exhausted: boolean;
+  /** True when the caller's stamped `epoch` no longer matches the mirror's
+   *  current reflow generation — a width reflow renumbered absolute rows since
+   *  the caller's cursor was seeded, so this reply serves NOTHING (`chunk: ""`,
+   *  `topLine` unchanged) and the caller HALTS backfill until a fresh snapshot
+   *  re-seeds (F3). Absent/false when the caller sent no epoch (an older client,
+   *  or the self-seeding pager) — the historical fail-open behavior. */
+  stale: boolean;
 }
 
 /** One foreground sample: the node-pty `process` name and the pty's
@@ -402,6 +414,7 @@ export interface PtyHost {
     id: PtyId,
     before: number | undefined,
     max: number,
+    epoch?: number,
   ): PtyHistoryChunk;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
@@ -431,6 +444,16 @@ interface Entry {
    *  same logical line even as eviction renumbers the local buffer — the stable
    *  coordinate `getHistory` pages by. Only grows. */
   mirrorBaseLine: number;
+  /** Monotonic reflow generation — bumped every `resize()`. A width change
+   *  REWRAPS the mirror (`reflowCursorLine`), which renumbers absolute rows: the
+   *  same logical content now occupies a different span, so an absolute cursor a
+   *  client computed under an OLDER generation no longer names the same row. The
+   *  attach snapshot stamps the generation it was serialized under; a
+   *  `getHistory` echoes it, and the host serves an empty `stale` reply when it
+   *  no longer matches — so a client whose mirror a FOREIGN attach reflowed
+   *  underneath it (its own `term.cols` unchanged) HALTS backfill rather than
+   *  splicing a duplicated/skipped band (F3). Only grows. */
+  reflowEpoch: number;
   cwd: string;
   title: string;
   lastActivity: number;
@@ -639,6 +662,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
       mirrorBaseLine: 0,
+      reflowEpoch: 0,
       cwd: spawnOpts.cwd,
       title: "",
       lastActivity: Date.now(),
@@ -890,7 +914,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // subscribe above already returned an empty stream, so an empty snapshot
     // (a no-op `term.write("")` on the client) completes a no-op attach.
     if (signal?.aborted)
-      return { snapshot: "", topLine: snapshotTopLineOf(entry), deltas };
+      return {
+        snapshot: "",
+        topLine: snapshotTopLineOf(entry),
+        reflowEpoch: entry.reflowEpoch,
+        deltas,
+      };
     // Coalesce within the publish-epoch: the first attach serializes and
     // memoizes via boundedSnapshotOf(); the rest of a burst reuse the identical
     // immutable string. Race-free — the memo is set through boundedSnapshotOf()
@@ -902,7 +931,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // rides with the snapshot from the same serialize, so the backfill seed can
     // never drift from the bytes the client received.
     const { snapshot, topLine } = boundedSnapshotOf(entry);
-    return { snapshot, topLine, deltas };
+    return { snapshot, topLine, reflowEpoch: entry.reflowEpoch, deltas };
   }
 
   function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
@@ -978,6 +1007,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     id: PtyId,
     before: number | undefined,
     max: number,
+    epoch?: number,
   ): PtyHistoryChunk {
     // `max` is a positive row count — a non-positive request is a caller bug
     // (the wire schema rejects it too), so the primitive fails LOUD rather than
@@ -988,7 +1018,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         `getHistory: max must be a positive integer, got ${max}`,
       );
     const entry = entries.get(id);
-    if (!entry) return { chunk: "", topLine: before ?? 0, exhausted: true };
+    if (!entry)
+      return { chunk: "", topLine: before ?? 0, exhausted: true, stale: false };
+    // Reflow guard (F3): a caller that stamped the generation its `before` cursor
+    // was seeded under is served NOTHING once a width reflow has since renumbered
+    // absolute rows — its cursor names a row the rewrap moved, so paging from it
+    // would splice a duplicated/skipped band. `stale` tells it to HALT until a
+    // fresh snapshot re-seeds. A caller with no epoch (older client / pager) is
+    // fail-open: it pages as before, accepting the historical single-width scope.
+    if (epoch !== undefined && epoch !== entry.reflowEpoch)
+      return { chunk: "", topLine: before ?? 0, exhausted: false, stale: true };
     const buffer = entry.headless.buffer.normal;
     // `before` is the caller's absolute cursor; the row just above it is
     // `before - mirrorBaseLine - 1` in the current local buffer. Omitted means
@@ -1005,7 +1044,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cursor - entry.mirrorBaseLine - 1,
       buffer.length - 1,
     );
-    if (localEnd < 0) return { chunk: "", topLine: cursor, exhausted: true };
+    if (localEnd < 0)
+      return { chunk: "", topLine: cursor, exhausted: true, stale: false };
     let start = Math.max(0, localEnd - max + 1);
     // Snap the top edge back over any wrapped-line continuation rows to the
     // line's head, so a chunk boundary never bisects a logical line (which would
@@ -1025,6 +1065,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       chunk,
       topLine: entry.mirrorBaseLine + start,
       exhausted: start === 0,
+      stale: false,
     };
   }
 
@@ -1042,6 +1083,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // the memo — invalidate here too, or a same-epoch attach after a resize
     // hands back the stale pre-resize snapshot.
     invalidateSnapshot(entry);
+    // Reflow renumbers absolute rows: bump the generation so any client holding
+    // a pre-resize `topLine` cursor is served a `stale` getHistory (F3). Bumped
+    // AFTER the rewrap so a getHistory racing this resize reads the new value.
+    entry.reflowEpoch++;
   }
 
   function handle(id: PtyId): PtyHandle {

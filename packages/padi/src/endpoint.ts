@@ -62,6 +62,11 @@ export interface TerminalAttachment {
   /** Absolute mirror-line index of the snapshot's top row — the seed for the
    *  client's scrollback-backfill cursor (see `TerminalHistoryChunk`). */
   topLine: number;
+  /** Reflow generation the snapshot was serialized under — the client stamps it
+   *  on every `getHistory` so a later width reflow makes its stale absolute
+   *  cursor a no-splice `stale` reply (F3). Undefined only from an older kaval
+   *  that predates the field (fail-open — no gate). */
+  reflowEpoch?: number;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
    *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
@@ -80,7 +85,16 @@ export interface TerminalAttachment {
  *  discriminates on `kind`, never on field presence. */
 export type TerminalAttachFrame =
   | { kind: "delta"; data: string }
-  | { kind: "snapshot"; data: string; topLine: number };
+  | {
+      kind: "snapshot";
+      data: string;
+      topLine: number;
+      /** Reflow generation of the mirror this snapshot was taken under — the
+       *  client re-seeds its backfill epoch from it so a foreign-resize reflow
+       *  halts backfill rather than corrupting it (F3). Undefined from a kaval
+       *  predating contract 5.2 (fail-open). */
+      reflowEpoch?: number;
+    };
 
 /** One older-scrollback chunk for the client's in-place backfill — the padi
  *  mirror of kaval's `PtyHistoryChunk`. `before`/`topLine` are absolute
@@ -94,6 +108,11 @@ export interface TerminalHistoryChunk {
   topLine: number;
   /** True once the chunk reaches the oldest line the mirror still holds. */
   exhausted: boolean;
+  /** True when the caller's stamped `epoch` no longer matches the mirror's
+   *  reflow generation (a width reflow renumbered absolute rows since the cursor
+   *  was seeded): the chunk is empty and the caller HALTS backfill until re-seed
+   *  (F3). Absent/false when the caller sent no epoch (fail-open). */
+  stale?: boolean;
 }
 
 /** Options the lifecycle layer hands to `spawnPty`. `cwd` resolves to
@@ -150,6 +169,7 @@ export interface TerminalHandle {
   getHistory(
     before: number | undefined,
     max: number,
+    epoch?: number,
   ): Promise<TerminalHistoryChunk>;
 }
 

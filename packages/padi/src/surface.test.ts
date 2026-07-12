@@ -41,8 +41,11 @@ describe("padiSurface 1.0 contract", () => {
     // breaking in BOTH skew directions (each side's schema rejects the other's
     // frame), so only a major
     // refuses the skew both ways. (The additive `screen.history` procedure rides the
-    // same release but alone would be only a minor.)
-    expect(PADI_SURFACE_VERSION).toBe("3.0");
+    // same release but alone would be only a minor.) 3.1 (additive minor) adds the
+    // scrollback-backfill reflow guard (F3): OPTIONAL `reflowEpoch` on the attach
+    // snapshot frame + `epoch`/`stale` on `screen.history` — no reshape, no
+    // required field, so both skew directions stay graceful (fail-open).
+    expect(PADI_SURFACE_VERSION).toBe("3.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,

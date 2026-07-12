@@ -530,11 +530,12 @@ const Terminal: Component<{
           // `topLine` (below); self-manages the near-top trigger and the
           // reset/resize races.
           backfill = createBackfillController(term, {
-            fetch: (before, max) =>
+            fetch: (before, max, epoch) =>
               activePadiRpc.surface.screen.history({
                 id: props.terminalId,
                 before,
                 max,
+                epoch,
               }),
             // A killed terminal's NOT_FOUND is swallowed inside the controller; any
             // OTHER backfill fetch fault (transport, schema, server) surfaces here
@@ -856,6 +857,12 @@ const Terminal: Component<{
               // sits at the BOTTOM, so no fetch fires until a real user scroll-up.
               const seedTopLine =
                 frame.kind === "snapshot" ? frame.topLine : undefined;
+              // The reflow generation this snapshot was taken under — echoed on
+              // every backfill fetch so a foreign-resize reflow halts backfill
+              // rather than corrupting it (F3). Undefined from a host predating
+              // the field (fail-open).
+              const seedReflowEpoch =
+                frame.kind === "snapshot" ? frame.reflowEpoch : undefined;
               const data = frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
@@ -884,7 +891,8 @@ const Terminal: Component<{
                   // Seed the backfill cursor now that this snapshot has landed in
                   // the buffer (see the note above the write) — a no-op for a
                   // plain delta frame, which carries no `topLine`.
-                  if (seedTopLine !== undefined) backfill?.seed(seedTopLine);
+                  if (seedTopLine !== undefined)
+                    backfill?.seed(seedTopLine, seedReflowEpoch);
                 });
               }
             },
