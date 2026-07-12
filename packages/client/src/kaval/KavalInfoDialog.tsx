@@ -246,7 +246,7 @@ const KavalInfoDialog: Component<{
           {/* The daemon's lifetime policy — `forever` for a durable production
               kaval; `bound to run pid N` under a test/smoke run (dies with its
               run). Routed through `connected()` (P4): a non-connected or
-              pre-5.1-survivor kaval reads an honest "—". */}
+              pre-lifetime-field survivor kaval reads an honest "—". */}
           <span data-testid="kaval-dialog-lifetime">
             {formatLifetime(connected()?.lifetime)}
           </span>

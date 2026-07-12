@@ -2,13 +2,16 @@
  *  tables and projections the rail, the dialog, and the canvas all read.
  *
  *  Deliberately imports NOTHING with a module-load side effect (no `../wire`, which
- *  opens the PartySocket; no `createRoot`): only types and the pure `compactDelta`
- *  ladder. `useDaemonStatus.ts` (the wire-coupled subscription + accessors)
- *  re-exports every symbol here, so existing importers are unchanged — but the
- *  presentation is now testable on its own, which is what lets `kavalDot`'s
- *  transport-liveness floor be pinned by a unit test without standing up a socket. */
+ *  opens the PartySocket; no `createRoot`): only types, the pure `compactDelta`
+ *  ladder, and ts-pattern's side-effect-free `match`. `useDaemonStatus.ts` (the
+ *  wire-coupled subscription + accessors) re-exports the slice of this presentation
+ *  API that existing call sites reach through it (the rail, the dialog, App.tsx's
+ *  canvas), so those importers are unchanged — but the presentation is now testable
+ *  on its own, which is what lets `kavalDot`'s transport-liveness floor be pinned by
+ *  a unit test without standing up a socket. */
 
 import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import { match } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -306,12 +309,12 @@ export function formatLifetime(
   lifetime: DaemonLifetimeView | undefined,
 ): string {
   if (lifetime === undefined) return "—";
-  switch (lifetime.kind) {
-    case "forever":
-      return "forever";
-    case "idleTimeout":
-      return `idle timeout (${formatUptime(lifetime.ms)})`;
-    case "boundToPid":
-      return `bound to run pid ${lifetime.pid}`;
-  }
+  return match(lifetime)
+    .with({ kind: "forever" }, () => "forever")
+    .with(
+      { kind: "idleTimeout" },
+      (l) => `idle timeout (${formatUptime(l.ms)})`,
+    )
+    .with({ kind: "boundToPid" }, (l) => `bound to run pid ${l.pid}`)
+    .exhaustive();
 }

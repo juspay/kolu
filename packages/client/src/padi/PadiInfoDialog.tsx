@@ -180,7 +180,8 @@ const PadiInfoDialog: Component<{
     ),
   );
   const connected = ():
-    Extract<PadiPresence, { kind: "connected" }> | undefined => {
+    | Extract<PadiPresence, { kind: "connected" }>
+    | undefined => {
     const p = presence();
     return p.kind === "connected" ? p : undefined;
   };

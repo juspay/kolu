@@ -158,11 +158,13 @@ The two consumers, side by side — same mechanism, opposite policies, all arriv
 
 ```ts
 // packages/kaval/src/bin.ts — kaval's entire entry (R2.2)
+const lifetime = { kind: "forever" } as const; // resolved ONCE (boundToPid under a test run)
 const exit = await daemonMain({
   gatePath:   join(kavalRuntimeDir(), "kaval.pid"),
   socketPath: cli.socket ?? getPtyHostSocketPath(undefined, "kaval"),
-  router:     servePtyHost({ log, rcDir: kavalRcDir() }).router, // R2.1's policy-free serving
-  lifetime:   { kind: "forever" },
+  // the serving side gets the projection to publish on system.version…
+  router:     servePtyHost({ log, rcDir: kavalRcDir(), lifetime: lifetimeInfo(lifetime) }).router,
+  lifetime,   // …and daemonMain gets the SAME value that governs the daemon — no drift
   log,
 }); // "held by a live daemon" and "shutdown" are both clean exits
 

@@ -168,6 +168,26 @@ describe("padiSurface 1.0 contract", () => {
     expect(DEFAULT_PADI_IDENTITY.commit).toBeNull();
   });
 
+  it("the `lifetime` field is OPTIONAL — a survivor padi predating it still parses (→ undefined, the row reads '—'), and a live one round-trips its policy", () => {
+    // A padi predating the lifetime field carries no `lifetime` key. It must parse
+    // (optional + additive — no PADI_SURFACE_VERSION bump that would force a drain),
+    // leaving `lifetime` undefined so the dialog row falls back to "—".
+    const survivor = PadiIdentitySchema.parse({
+      commit: "abc1234",
+      surfaceVersion: PADI_SURFACE_VERSION,
+      startedAt: 1_700_000_000_000,
+    });
+    expect(survivor.lifetime).toBeUndefined();
+    // A live padi's projected policy survives the parse verbatim.
+    const live = PadiIdentitySchema.parse({
+      commit: "abc1234",
+      surfaceVersion: PADI_SURFACE_VERSION,
+      startedAt: 1_700_000_000_000,
+      lifetime: { kind: "boundToPid", pid: 4321 },
+    });
+    expect(live.lifetime).toEqual({ kind: "boundToPid", pid: 4321 });
+  });
+
   it("annotates EVERY member with a forwarding policy — no gap, no orphan", () => {
     const members = new Set(padiMemberKeys());
     const annotated = new Set(Object.keys(PADI_FORWARDING_POLICY));

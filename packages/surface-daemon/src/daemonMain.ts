@@ -70,6 +70,12 @@ export function lifetimeInfo(lifetime: DaemonLifetime): DaemonLifetimeInfo {
     case "boundToPid":
       return { kind: "boundToPid", pid: lifetime.pid };
   }
+  // Exhaustiveness fence, the file's own idiom (mirrors `daemonExitCode` and
+  // `waitForShutdown`): a new `DaemonLifetime` kind compile-fails here (`lifetime
+  // satisfies never`) until it joins a case above — so the projection can't
+  // silently omit a future lifetime, without pulling a dispatch library into this
+  // deliberately minimal-dependency spine.
+  lifetime satisfies never;
 }
 
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
