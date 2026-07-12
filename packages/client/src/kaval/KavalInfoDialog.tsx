@@ -27,7 +27,11 @@ import {
   boundHostKavals,
 } from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
-import { type KavalPresence, toKavalPresence } from "./daemonPresentation";
+import {
+  formatLifetime,
+  type KavalPresence,
+  toKavalPresence,
+} from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
 import { kavalStale } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
@@ -236,6 +240,15 @@ const KavalInfoDialog: Component<{
               .with({ kind: "error" }, () => "poll failed")
               .with(P.nullish, () => "unavailable")
               .exhaustive()}
+          </span>
+        </DetailRow>
+        <DetailRow label="lifetime">
+          {/* The daemon's lifetime policy — `forever` for a durable production
+              kaval; `bound to run pid N` under a test/smoke run (dies with its
+              run). Routed through `connected()` (P4): a non-connected or
+              pre-lifetime-field survivor kaval reads an honest "—". */}
+          <span data-testid="kaval-dialog-lifetime">
+            {formatLifetime(connected()?.lifetime)}
           </span>
         </DetailRow>
       </div>

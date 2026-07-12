@@ -148,10 +148,40 @@ export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
  *  `statepip.css`; both surfaces import it, so it can't drift. */
 export const LIVE_RING_CLASS = "statepip-live-ring";
 
-/** The alert overlay class — a small amber CORNER BADGE (top-right), not a ring:
- *  a surrounding alert ring (especially nested with the live ring) read as
+/** The shared "amber attention pill" — the SINGLE source of styling truth for
+ *  every surface that paints the amber "needs you / unread" cue, so the mark
+ *  can't drift in colour or shape between them. Extracted verbatim from the host
+ *  selector strip's awaiting-count badge (`HostSelectorStrip.tsx`), which is the
+ *  pixel reference; consuming it there is a pure regroup (identical class set),
+ *  so that chip stays pixel-identical.
+ *
+ *  Two surfaces consume it:
+ *    - the host-tab chip's COUNT pill — this class + its own `min-w-4 px-1 h-4`
+ *      sizing + the numeric awaiting count inside;
+ *    - the Dock's per-terminal unread BADGE — this class composed with
+ *      `ALERT_BADGE_CLASS` (its absolute corner placement + pill dims + pulse
+ *      from `statepip.css`), boolean, no count.
+ *  pulam-web's fleet rows render the same `StatePip` alert axis, so they adopt it
+ *  too on their next dep bump — the dock-fleet-mirror contract, by construction.
+ *
+ *  A Tailwind class STRING (not a raw-CSS colour) so it is pixel-identical to the
+ *  chip's current utilities; it single-sources across repos the same way
+ *  `PIP_BODY`'s `bg-alert/55` does — every consumer's Tailwind `@source`s this
+ *  package's `src`, so the utilities are generated wherever `StatePip` renders.
+ *  The literal `bg-amber-500/90` (rather than the `--color-attention` theme
+ *  token, which is a DIFFERENT amber) is deliberate: the chip is the designated
+ *  pixel reference and must not shift, so its colour becomes the shared truth. */
+export const ATTENTION_PILL_CLASS =
+  "inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums";
+
+/** The alert overlay class — the amber CORNER BADGE (top-right), not a ring: a
+ *  surrounding alert ring (especially nested with the live ring) read as
  *  overwhelming, so the alert uses a different shape that never competes with the
  *  live ring. What the badge MEANS is the surface's to name (`StatePip`'s
- *  `alertLabel`): the Dock's unopened-unread, pulam-web's live notify-class. The
- *  visual lives in `statepip.css`. */
+ *  `alertLabel`): the Dock's unopened-unread, pulam-web's live notify-class.
+ *
+ *  Composed WITH `ATTENTION_PILL_CLASS` at the render site: this class carries
+ *  only the overlay's absolute corner placement, pill dimensions, separator ring
+ *  and pulse (in `statepip.css`); the amber fill + rounded-pill shape come from
+ *  the shared pill, so the badge and the host-tab count pill can't drift. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";

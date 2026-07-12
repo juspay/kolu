@@ -26,6 +26,7 @@ const full: KavalPresence = {
   contractVersion: "5.0",
   startedAt: 0,
   socketPath: undefined,
+  lifetime: { kind: "forever" },
 };
 void full;
 
@@ -37,6 +38,7 @@ const missingIdentity: KavalPresence = {
   contractVersion: "5.0",
   startedAt: 0,
   socketPath: undefined,
+  lifetime: { kind: "forever" },
 };
 void missingIdentity;
 

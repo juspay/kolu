@@ -29,9 +29,41 @@ in-process from a test.
 | `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }` or `{ kind: "held", pid }` |
 | `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
 | `daemonExitCode(exit)` · `stderrLogger()` · `Logger` · `DaemonExit` | exit-code classification and the structural logging contract |
+| `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a valid pid → `boundToPid`, unset → `fallback`, any present-but-invalid value (incl. `""`) throws |
+| `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo` | the serializable projection of a `DaemonLifetime` — the three kinds with the non-wire members dropped (`idleTimeout`'s `isIdle`, `boundToPid`'s `pollMs`); what a daemon publishes about itself for a UI to read |
 
-`lifetime` is the policy that distinguishes the two tenants: [kaval](/kaval) (a PTY daemon)
-uses `{ kind: "forever" }`; `odu serve` uses `{ kind: "idleTimeout", ms, isIdle }`.
+`lifetime` is the policy that distinguishes tenants — three honest constructors,
+not `forever` plus flags:
+
+| `lifetime` | Shuts down when | Tenant |
+| --- | --- | --- |
+| `{ kind: "forever" }` | a signal or external abort only | [kaval](/kaval) / padi in production |
+| `{ kind: "idleTimeout", ms, isIdle }` | `ms` of continuous idleness | `odu serve` |
+| `{ kind: "boundToPid", pid, pollMs? }` | the watched `pid` is gone (poll `kill(pid, 0)`); an already-dead pid exits at once | a test/smoke-spawned kaval/padi — dies with its run |
+
+`pollMs?` is a **test-only** seam (the liveness-poll interval); production omits it
+and uses the fixed two-second `PID_WATCH_POLL_MS`. The `pid` must be a single-process
+pid (a positive integer in `pid_t` range) — an invalid value throws at consumption
+rather than being reclassified into a clean shutdown.
+
+`lifetimeInfo(lifetime)` projects a live `DaemonLifetime` to a serializable
+`DaemonLifetimeInfo` (`{ kind: "forever" } | { kind: "idleTimeout"; ms } | { kind:
+"boundToPid"; pid }`) — dropping the `isIdle` closure and the test-only `pollMs` — so
+a daemon can publish which lifetime it is running under. kaval carries it on its
+`system.version` handshake and padi on its `identity` cell; kolu's Kaval and Padi
+info dialogs each render it as a **lifetime** row (`forever` in production; `bound to
+run pid N` under a test/smoke run).
+
+`daemonLifetimeFromEnv(fallback)` reads `DAEMON_BIND_PID_ENV`
+(`KOLU_DAEMON_BIND_PID`): a valid positive-integer pid value selects `boundToPid`
+(no liveness check — an already-dead pid still selects it, then exits at once),
+**true absence** (the var is UNSET) selects `fallback` (there is deliberately no way
+to *weaken* a production daemon — only a harness/smoke run opts a spawned daemon into
+dying with it). A set-but-malformed value — the empty string (a present-but-invalid
+broken expansion, distinct from unset), non-canonical decimal, fractional, or out of
+`pid_t` range — throws (fail-fast), never silently degrades to `fallback`. A
+`boundToPid` shutdown resolves `{ kind: "shutdown", reason: "pid-gone" }`, exit code
+0. Pid reuse inside the poll window is a documented residual, not engineered around.
 
 ## Serving the surface
 

@@ -37,7 +37,9 @@ from a test.
 
 We choose `{ kind: "forever" }`: an idle `top` still watches your machine, so an
 idle timeout would wrongly kill it. Note the router is the *same* `createTop()`
-from part 1, served verbatim.
+from part 1, served verbatim. (`forever` is one of three lifetimes — the
+[Reference](/surface/ref-surface-daemon) lists `idleTimeout` for a quiet
+coordinator and `boundToPid` for a daemon a test/smoke run wants to die with it.)
 
 <Steps>
 
