@@ -53,6 +53,7 @@ interface BufferInternal {
   ydisp: number;
   ybase: number;
   y: number;
+  x: number;
   savedY: number;
 }
 
@@ -84,11 +85,19 @@ function coreOf(term: { cols: number }): CoreInternal {
   return core;
 }
 
-/** Rows 0..(ybase + y - 1) of a terminal hold committed content — the cursor
- *  sits on the first uncommitted row when the last write ended in `\r\n`. */
+/** The scratch's content rows, stolen. Rows 0..(ybase + y - 1) are committed;
+ *  the cursor row (ybase + y) is committed too WHEN it carries content — i.e.
+ *  the replayed write ended mid-line, which `SerializeAddon.serialize({range})`
+ *  (the production chunk source) ALWAYS produces: its output has no trailing
+ *  newline and trims trailing blanks, so the last row is non-blank and the
+ *  cursor lands on it (`x > 0`, including the deferred-wrap `x === cols` case).
+ *  Missing that row silently drops the seam line — the row at absolute index
+ *  `before - 1`, which the snapshot does not already hold — from every backfill
+ *  boundary. A raw chunk that DID end in `\r\n` leaves `x === 0`, so nothing
+ *  extra is taken. */
 function stealContentLines(scratch: ScratchTerminal): BufferLineInternal[] {
   const buf = coreOf(scratch).buffer;
-  const n = buf.ybase + buf.y;
+  const n = buf.ybase + buf.y + (buf.x > 0 ? 1 : 0);
   const out: BufferLineInternal[] = [];
   for (let i = 0; i < n; i++) {
     const line = buf.lines.get(i);
@@ -152,11 +161,22 @@ export function isAltBufferActive(term: {
  *  the prepend would overflow the live buffer's `maxLength` — see the file
  *  header. Clears the selection first: xterm's `SelectionService` listens only
  *  to `onTrim`, not `onInsert`, so an active selection would otherwise point at
- *  the wrong rows after the shift (MVP: cleared, not preserved). */
+ *  the wrong rows after the shift (MVP: cleared, not preserved).
+ *
+ *  `shouldCommit` is re-checked AFTER the scratch replay (an async task boundary)
+ *  and BEFORE the buffer splice: replaying the chunk suspends on xterm's write
+ *  callback, during which a `reset()` (fresh-snapshot re-attach) or a width
+ *  `resize` (reflow) can land — splicing old-width lines into a reflowed buffer,
+ *  or scrollback onto a just-reset one, is corruption. Returning `false` makes
+ *  the prepend a clean no-op (returns 0), the same discard the caller's epoch
+ *  guard performs for a stale fetch. */
 export async function prependScrollback(
   term: XTerm,
   rawChunk: string,
-  opts?: { makeScratch?: (cols: number, rows: number) => ScratchTerminal },
+  opts?: {
+    makeScratch?: (cols: number, rows: number) => ScratchTerminal;
+    shouldCommit?: () => boolean;
+  },
 ): Promise<number> {
   if (rawChunk.length === 0) return 0;
   // No scrollback to extend under a full-screen app; caller shouldn't ask, but
@@ -176,6 +196,9 @@ export async function prependScrollback(
   );
   const m = lines.length;
   if (m === 0) return 0;
+  // The terminal may have been reset or resized while the scratch replay was
+  // suspended on its write callback — abandon the splice if so (see the doc).
+  if (opts?.shouldCommit && !opts.shouldCommit()) return 0;
 
   const core = coreOf(term);
   const buf = core.buffers.normal;
@@ -214,6 +237,11 @@ export async function prependScrollback(
   return m;
 }
 
+/** Rows requested per backfill fetch. Bounds a chunk's serialized payload and
+ *  the scratch-replay cost; prepending M rows moves the viewport M rows off the
+ *  top, so the user scrolls again to trigger the next fetch. */
+const HISTORY_CHUNK_ROWS = 500;
+
 /** One older-history chunk from the server, as the controller consumes it. */
 export interface HistoryChunk {
   chunk: string;
@@ -251,24 +279,31 @@ export function createBackfillController(
   opts: {
     /** Fetch the chunk of up to `max` rows above absolute line `before`. */
     fetch: (before: number, max: number) => Promise<HistoryChunk>;
-    /** Rows per fetch (default 500) and the scroll-from-top trigger distance
-     *  (default 2× the visible rows). */
-    chunkMax?: number;
+    /** Test seam: inject a small trigger so a controller test fires the near-top
+     *  fetch without a giant buffer (defaults to 2× the visible rows). */
     triggerRows?: number;
-    /** Test seam: prepend implementation (defaults to `prependScrollback`). */
-    prepend?: (term: XTerm, chunk: string) => Promise<number>;
+    /** Test seam: substitute the prepend so a controller test can assert the
+     *  epoch/dispose races without a real xterm splice. Receives `shouldCommit`,
+     *  the guard the production prepend re-checks after its async replay. */
+    prepend?: (
+      term: XTerm,
+      chunk: string,
+      shouldCommit: () => boolean,
+    ) => Promise<number>;
   },
 ): BackfillController {
-  const chunkMax = opts.chunkMax ?? 500;
-  const prepend = opts.prepend ?? ((t, c) => prependScrollback(t, c));
+  const prepend =
+    opts.prepend ??
+    ((t, c, shouldCommit) => prependScrollback(t, c, { shouldCommit }));
   let cursor: number | null = null;
   let exhausted = false;
   let inFlight = false;
   let epoch = 0;
+  let disposed = false;
   let lastCols = term.cols;
 
   async function maybeBackfill(): Promise<void> {
-    if (cursor === null || exhausted || inFlight) return;
+    if (cursor === null || exhausted || inFlight || disposed) return;
     if (
       isAltBufferActive(
         term as unknown as { buffer: { active: { type: string } } },
@@ -284,12 +319,30 @@ export function createBackfillController(
     const before = cursor;
     const myEpoch = epoch;
     const fetchCols = term.cols;
+    // The fetch, the prepend's inner replay, AND the window between them are all
+    // async task boundaries a reset/resize/dispose can land in. `stillValid`
+    // captures the one invariant — same epoch, same width, not disposed — that
+    // every commit downstream is gated on; `dispose()` and the resize handler
+    // bump `epoch`/set `disposed`, so a chunk fetched for the old shape is
+    // discarded rather than spliced onto a torn-down / reflowed / reset buffer.
+    const stillValid = () =>
+      !disposed && epoch === myEpoch && term.cols === fetchCols;
     try {
-      const res = await opts.fetch(before, chunkMax);
-      // Discard a result that raced a reset/resize (see the epoch doc above):
-      // the terminal it was fetched for no longer exists in the same shape.
-      if (epoch !== myEpoch || term.cols !== fetchCols) return;
-      await prepend(term, res.chunk);
+      let res: HistoryChunk;
+      try {
+        res = await opts.fetch(before, HISTORY_CHUNK_ROWS);
+      } catch {
+        // Expected: the terminal was killed or its PTY exited mid-fetch, so the
+        // padi handler rejects (NOT_FOUND). A later scroll retries; `finally`
+        // clears `inFlight`. This catch is scoped to the FETCH only — a
+        // `prepend` fault (overflow / broken internals) stays FAIL-LOUD below.
+        return;
+      }
+      if (!stillValid()) return;
+      // prepend re-checks `stillValid` after its own async replay, before the
+      // splice; re-check here too before committing the cursor.
+      await prepend(term, res.chunk, stillValid);
+      if (!stillValid()) return;
       cursor = res.topLine;
       exhausted = res.exhausted;
     } finally {
@@ -321,6 +374,10 @@ export function createBackfillController(
       epoch++;
     },
     dispose() {
+      // Invalidate any in-flight fetch so its continuation can't splice onto the
+      // xterm Terminal.tsx is about to dispose — `stillValid` reads `disposed`.
+      disposed = true;
+      epoch++;
       onScroll.dispose();
       onResize.dispose();
     },

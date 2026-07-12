@@ -7,10 +7,13 @@
  *  terminal fed the whole history natively: prepended history must be
  *  row-for-row indistinguishable, before and after resizes. */
 
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { Terminal as XTerm } from "@xterm/xterm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createBackfillController,
+  type HistoryChunk,
   isAltBufferActive,
   prependScrollback,
   type ScratchTerminal,
@@ -246,6 +249,191 @@ describe("prependScrollback", () => {
     expect(await prependScrollback(live, olderChunk(), { makeScratch })).toBe(
       0,
     );
+  });
+
+  it("keeps the SEAM row of a real serialize({range}) chunk (no trailing newline)", async () => {
+    // Production chunks come from SerializeAddon.serialize({range}), whose output
+    // has NO trailing newline and trims trailing blanks — so the scratch cursor
+    // lands ON the last content row, not a fresh one. The steal must include that
+    // row (the seam line at absolute index before-1), or every backfill boundary
+    // silently drops a line. (The raw `olderChunk()` above ends in \r\n and so
+    // masks this — hence a chunk built the production way.)
+    const mirror = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    const ser = new SerializeAddon();
+    // loadAddon takes a Terminal; the headless stand-in satisfies the addon.
+    (mirror as unknown as { loadAddon(a: SerializeAddon): void }).loadAddon(
+      ser,
+    );
+    const olderLines = Array.from({ length: 15 }, (_, i) => `h-${i}`);
+    await write(mirror, `${olderLines.join("\r\n")}\r\n`);
+    const chunk = ser.serialize({
+      range: { start: 0, end: 14 },
+      excludeModes: true,
+      excludeAltBuffer: true,
+    });
+    expect(chunk.endsWith("\n")).toBe(false); // the production shape
+    expect(chunk).toContain("h-14"); // the seam row is IN the chunk
+
+    const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
+    await write(live, "new-000\r\n");
+    const m = await prependScrollback(live, chunk, { makeScratch });
+    // All 15 older rows land — including the seam "h-14" that a `ybase+y` steal
+    // would drop. Before the fix this returned 14 and dropped "h-14".
+    expect(m).toBe(15);
+    const b = normalBuf(live);
+    expect(b.lines.get(14)?.translateToString(true)).toBe("h-14"); // seam kept
+    expect(b.lines.get(15)?.translateToString(true)).toBe("new-000"); // no gap
+  });
+});
+
+/** A fake xterm surface for the controller: lets a test fire onScroll/onResize
+ *  and control cols/viewportY without a real buffer — the controller only reads
+ *  these off the term and delegates the actual splice to the injected `prepend`. */
+function fakeTerm(): {
+  term: XTerm;
+  fireScroll(): void;
+  fireResize(): void;
+  setCols(n: number): void;
+} {
+  let scrollCb: (() => void) | undefined;
+  let resizeCb: (() => void) | undefined;
+  const term = {
+    cols: 80,
+    rows: 24,
+    buffer: { active: { type: "normal", viewportY: 0 } },
+    onScroll: (cb: () => void) => {
+      scrollCb = cb;
+      return { dispose() {} };
+    },
+    onResize: (cb: () => void) => {
+      resizeCb = cb;
+      return { dispose() {} };
+    },
+  };
+  return {
+    term: term as unknown as XTerm,
+    fireScroll: () => scrollCb?.(),
+    fireResize: () => resizeCb?.(),
+    setCols: (n: number) => {
+      term.cols = n;
+    },
+  };
+}
+
+/** A promise plus its resolver, for driving an in-flight fetch/prepend. */
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+describe("createBackfillController — near-top trigger + lifecycle races", () => {
+  const chunk: HistoryChunk = { chunk: "x", topLine: 50, exhausted: false };
+
+  it("fetches then prepends when scrolled near the top, and advances the cursor", async () => {
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn<
+      (t: XTerm, c: string, sc: () => boolean) => Promise<number>
+    >(async () => 1);
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledWith(100, expect.any(Number));
+    expect(prepend).toHaveBeenCalledTimes(1);
+    // The prepend's shouldCommit guard was valid at splice time.
+    const shouldCommit = prepend.mock.calls[0]?.[2];
+    expect(shouldCommit?.()).toBe(true);
+    c.dispose();
+  });
+
+  it("dispose() during an in-flight fetch discards the result — no prepend onto a torn-down term", async () => {
+    const f = fakeTerm();
+    const gate = deferred<HistoryChunk>();
+    const fetch = vi.fn(() => gate.promise);
+    const prepend = vi.fn(async () => 1);
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    c.dispose(); // teardown while the fetch is in flight
+    gate.resolve(chunk); // the RPC resolves AFTER dispose
+    await new Promise((r) => setTimeout(r, 0));
+    expect(prepend).not.toHaveBeenCalled(); // never splices onto the disposed term
+  });
+
+  it("a width resize DURING prepend abandons the splice and does not clobber the paused cursor", async () => {
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prependGate = deferred<number>();
+    let seenShouldCommit: (() => boolean) | undefined;
+    const prepend = vi.fn((_t: XTerm, _c: string, sc: () => boolean) => {
+      seenShouldCommit = sc;
+      return prependGate.promise;
+    });
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(prepend).toHaveBeenCalledTimes(1);
+    // A width change lands while prepend is suspended on its scratch replay.
+    f.setCols(40);
+    f.fireResize();
+    // The splice guard the controller handed prepend now reads false.
+    expect(seenShouldCommit?.()).toBe(false);
+    prependGate.resolve(0); // prepend no-ops (would-be splice skipped)
+    await new Promise((r) => setTimeout(r, 0));
+    // The cursor stays PAUSED (null) — not clobbered back to the chunk's topLine.
+    const fetch2 = vi.fn(async () => chunk);
+    const c2Prepend = vi.fn(async () => 1);
+    // Re-scroll: cursor is null (paused), so no further fetch fires.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1); // no second fetch — paused
+    void fetch2;
+    void c2Prepend;
+    c.dispose();
+  });
+
+  it("swallows a gone-terminal fetch rejection (no unhandled rejection), retryable after", async () => {
+    const f = fakeTerm();
+    const fetch = vi
+      .fn<(before: number, max: number) => Promise<HistoryChunk>>()
+      .mockRejectedValueOnce(new Error("NOT_FOUND"))
+      .mockResolvedValueOnce(chunk);
+    const prepend = vi.fn(async () => 1);
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(prepend).not.toHaveBeenCalled(); // fetch rejected, no splice
+    // inFlight was cleared by the finally, so a later scroll retries.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(prepend).toHaveBeenCalledTimes(1);
+    c.dispose();
   });
 });
 
