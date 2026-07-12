@@ -64,8 +64,15 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={isActive()}
+      // A host chip is a SELECTION button, not a `role="tab"`: tapping switches
+      // the canvas and dismisses the sheet, it does NOT reveal an associated
+      // `tabpanel`, and there's no roving-tabindex/arrow-key tab widget here. So
+      // it carries `aria-current` — the SAME semantics the desktop's transient
+      // host picker (`HostSwitcherRow` in `HostSelectorStrip.tsx`) already uses
+      // for its list of host options, which is this row's real interaction twin
+      // (a pick-and-dismiss list in a popover/sheet, not the persistent top-bar
+      // tab strip). The shared VISUAL vocabulary (dot / hue / pill) is unchanged.
+      aria-current={isActive() ? "true" : undefined}
       data-testid="mobile-host-chip"
       data-host={encodeHostKey(props.host)}
       data-active={isActive() ? "" : undefined}
@@ -204,8 +211,12 @@ const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
        *  there are (the desktop strip reserves the "+" the same way). */}
       <div class="flex items-center gap-2">
         <div
-          role="tablist"
-          aria-label="Hosts"
+          // Plain container — NOT a `tablist` (the chips are `aria-current`
+          // selection buttons, not tabs owning tabpanels) and NOT `role="group"`
+          // (biome's `useSemanticElements` would push that to `<fieldset>`, which
+          // is for form controls). Same shape as desktop's `HostSwitcherRow`
+          // list container: a plain div whose children each carry their own
+          // accessible name; the visible "Hosts" heading above labels it.
           data-testid="mobile-host-row"
           // Stop propagation so the Corvu drawer's drag handler can't claim a
           // horizontal swipe across the chips as a drag-to-dismiss.

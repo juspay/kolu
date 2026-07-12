@@ -25,9 +25,8 @@ export function addHost(raw: string, onAdded?: () => void): void {
   const trimmed = raw.trim();
   if (trimmed === "") return;
   const host = parseHostInput(trimmed);
-  client.hosts
-    .add({ host })
-    .then(() => {
+  client.hosts.add({ host }).then(
+    () => {
       // Register the activate-on-join intent FIRST — it's the shared mechanism
       // completing the add. `onAdded` is the caller's OWN presentation cleanup
       // (clear the field, collapse the popover / section); running it after
@@ -35,8 +34,13 @@ export function addHost(raw: string, onAdded?: () => void): void {
       // canvas jumping to the new host.
       requestActivateOnJoin(host);
       onAdded?.();
-    })
-    .catch((err: Error) =>
-      toast.error(`Couldn't add ${trimmed}: ${err.message}`),
-    );
+    },
+    // Two-arg `.then(onFulfilled, onRejected)` — NOT a trailing `.catch` — so the
+    // toast reports ONLY a `client.hosts.add` rejection (the operation it names).
+    // A `.catch` chained after would ALSO swallow an exception thrown by
+    // `requestActivateOnJoin` / `onAdded` and mislabel it "Couldn't add …" even
+    // though the add succeeded. The rejection handler here can't see those; a
+    // cleanup throw stays an unhandled rejection and fails LOUD (no fallback).
+    (err: Error) => toast.error(`Couldn't add ${trimmed}: ${err.message}`),
+  );
 }
