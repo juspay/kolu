@@ -70,11 +70,16 @@ end-to-end. Holding open a byte stream is a compile error.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`reconnect`/`recheckAll` + per-host socket eviction |
+| `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`retire`/`reconnect`/`recheckAll` + per-host socket eviction |
 | `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (folding `clockOffset()`) into an entry status |
 
 `buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
-returns the host's `{ session, handler }`. `serveHostMap` takes `{ linkFor, causeFor? }`;
+returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` run the
+**same** teardown (evict sockets, drop membership, destroy the session), differing
+only in persistence: `remove` is the **user's** departure — it calls the `persist`
+hook first — while `retire` is an **internal** shed (a dead session the pool sheds on
+its own) that does **not** persist, so a membership store re-seeds the host next boot.
+A pool with no `persist` hook makes the two identical. `serveHostMap` takes `{ linkFor, causeFor? }`;
 `linkFor(host, session)` is built once per host and evicted on removal. Together
 they are the server half of a host map — see
 [How to serve a map](/surface/serve-a-map).

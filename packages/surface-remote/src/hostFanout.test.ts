@@ -118,6 +118,42 @@ describe("buildRemotePool", () => {
     expect(ws.close).toHaveBeenCalledWith(1000, "host removed");
   });
 
+  it("retire() tears the host down EXACTLY like remove() — but does NOT persist", async () => {
+    const { registry, built, persist } = harness(["alpha", "beta"]);
+    const ws = socket();
+    registry.registerConnection("alpha", ws);
+    await registry.retire("alpha");
+    // Same LIVE teardown as remove: gone from membership, session destroyed, socket closed.
+    expect(registry.has("alpha")).toBe(false);
+    expect(registry.hosts()).toEqual(["beta"]);
+    expect(built.get("alpha")?.session.destroy).toHaveBeenCalledOnce();
+    expect(ws.close).toHaveBeenCalledWith(1000, "host removed");
+    // …but the departure is NOT written — an internal shed leaves the host remembered,
+    // so a membership store re-seeds it next boot. This is the whole point of the verb split.
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("retire() on an unknown host is a no-op (no persist, no throw)", async () => {
+    const { registry, persist } = harness(["alpha"]);
+    await expect(registry.retire("ghost")).resolves.toBeUndefined();
+    expect(registry.hosts()).toEqual(["alpha"]);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("retire() swallows a destroy() fault and RESOLVES — a fire-and-forget void retire can't go fatal", async () => {
+    const { registry, built } = harness(["alpha", "beta"]);
+    built.get("alpha")?.session.destroy.mockImplementation(() => {
+      throw new Error("ssh child kill faulted");
+    });
+    // No persist step + a swallowed teardown fault ⇒ retire() never rejects, so
+    // `void pool.retire(h)` needs no `.catch` to stay off the fatal handler (unlike
+    // remove(), whose persist step CAN reject).
+    await expect(registry.retire("alpha")).resolves.toBeUndefined();
+    expect(registry.has("alpha")).toBe(false);
+    expect(registry.has("beta")).toBe(true);
+    expect(built.get("beta")?.session.destroy).not.toHaveBeenCalled();
+  });
+
   it("ISOLATION: a session.destroy() that THROWS on one guest's remove doesn't crash the pool — the OTHER entries survive", async () => {
     const { registry, built } = harness(["alpha", "beta"]);
     // Make alpha's teardown FAULT: `session.destroy()` can throw (it kills the ssh child +
