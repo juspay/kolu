@@ -58,10 +58,8 @@ export interface HostScope {
 const scopes: () => ScopedByEntry<HostKey, HostScope> = createSharedRoot(() =>
   scopedByEntry(
     padiMap,
-    // GROUNDED against membership (juspay/kolu#1763): the scope is never handed an
-    // active host membership does not ground — a not-yet-grounded boot host (active
-    // restored sync from sessionStorage before the entries snapshot) reads as `null`
-    // (no-selection, no removal-race warn), NOT a non-member. See `wire.groundedActiveHost`.
+    // GROUNDED against membership (juspay/kolu#1763) — never raw `activeHost`; a
+    // not-yet-grounded boot host reads as `null`, not a non-member. See `wire.groundedActiveHost`.
     groundedActiveHost,
     (host: HostKey, ctx): HostScope => ({
       view: createViewState(host),
