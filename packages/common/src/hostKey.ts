@@ -102,6 +102,43 @@ export function decodeHostKey(s: string): HostKey {
   );
 }
 
+/** Whether a string is a CANONICAL encoded host key — exactly what {@link decodeHostKey}
+ *  accepts (`"local"` or `"remote:<target>"`). The total, throw-free predicate for a
+ *  parse-boundary guard: validate a candidate key HERE (drop/reject a malformed one)
+ *  rather than let it throw inside `decodeHostKey` downstream. Used by the attention
+ *  click-envelope guard (client) and the persisted-hosts schema (server). */
+export function isEncodedHostKey(s: string): boolean {
+  try {
+    decodeHostKey(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The persisted host-membership list — the encoded keys the pool remembers across a
+ *  kolu restart, stored as the `hosts` field of the server's conf state store (see
+ *  `packages/server/src/state.ts`'s `PersistedStateSchema`), NOT a standalone file: it
+ *  rides the same schema + migration ladder as every other durable server fact. A
+ *  well-formed value is exactly what the pool's `persist` hook writes: canonical encoded
+ *  keys, no `local` (the code-seeded default is never persisted — persisting it would mint
+ *  a second authority for "local always exists"), no duplicates. Each is a schema-level
+ *  invariant, so a hand-edited store that violates one is REJECTED loud where it's read
+ *  (`getPersistedHosts` throws) rather than silently normalized — the fail-fast stance a
+ *  silently-shrunk fleet would violate. */
+export const PersistedHostsSchema = z
+  .array(
+    z.string().refine(isEncodedHostKey, {
+      message: "not a canonical encoded host key",
+    }),
+  )
+  .refine((hosts) => !hosts.includes(encodeHostKey(LOCAL_HOST)), {
+    message: `the local default (${JSON.stringify(encodeHostKey(LOCAL_HOST))}) must never be persisted`,
+  })
+  .refine((hosts) => new Set(hosts).size === hosts.length, {
+    message: "duplicate host entries",
+  });
+
 /** Bare-loopback spellings of "this machine, as the current user" — the SAME host
  *  `{ kind: "local" }` already names, just three other words for it. Without this,
  *  `parseHostInput("localhost")` took the word LITERALLY as a remote target and

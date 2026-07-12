@@ -68,6 +68,12 @@ always the first, unremovable chip. Two formats work:
 - an `~/.ssh/config` alias — `zest`
 - a `user@host` destination — `srid@zest`
 
+A host you add is **remembered**: it comes back in the strip after a kolu restart
+and reconnects on its own, so you build your fleet once rather than re-adding it
+every launch. The only way a host leaves the strip is your explicit remove — a
+host that has since gone away comes back as a **failed** chip with the reason,
+never silently dropped.
+
 Typing a **bare loopback** spelling — `localhost`, `127.0.0.1`, or `::1` — maps to
 your existing local host instead of minting a duplicate chip. (`user@localhost` is
 *not* deduped: ssh-ing to the loopback as a different user is a genuinely different
@@ -75,9 +81,10 @@ session, so it's treated as a real remote.)
 
 ### Pre-seed hosts at launch (optional)
 
-If you'd rather have some hosts already present when kolu starts — instead of
-adding them from the strip each time — seed `KOLU_PADI_HOST` with a
-comma-separated list of ssh targets:
+Hosts you add from the strip already persist across restarts (above), so you
+rarely need this. Reach for it when you want a host present **declaratively** —
+a scripted launch, a shared dev box, a fresh profile with no saved fleet yet:
+seed `KOLU_PADI_HOST` with a comma-separated list of ssh targets:
 
 ```sh
 KOLU_PADI_HOST=localhost,you@box kolu
