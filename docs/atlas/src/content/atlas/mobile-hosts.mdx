@@ -1,0 +1,402 @@
+---
+title: Hosts on Mobile — a Host Row in the Pull-Down Sheet
+description: On the touch layout kolu renders no host chrome at all — the chip row and add-host affordance are desktop-only — so on a phone you can't see, switch, or add hosts even though the host engine underneath is already layout-agnostic. This note proposes a host row inside the mobile pull-down sheet, mocked at phone width, reusing the desktop chip's exact pixel vocabulary.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-12
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import wiring from "../../diagrams/mobile-hosts-wiring.svg?raw";
+
+The multi-host engine is done and it does **not** care what layout it's in: the
+keyed padi host map, W9 retained switching (a switch repaints instantly from a
+kept surface), W10 persisted fleet (hosts survive a restart), and W5 per-host
+attention all live below the UI. But the *only* face that engine has is
+desktop. `ChromeBar` and its `HostSelectorStrip` are gated behind
+`isDesktop()`, and the touch layout — the pull-down sheet in
+<Cite file="packages/client/src/MobileChromeSheet.tsx" /> — renders **no host
+chrome whatsoever**. So on a phone you cannot see which host you're on, switch
+hosts, or add one. The capability exists; the surface doesn't.
+
+This note proposes that surface: a **host row inside the mobile pull-down
+sheet**. Everything below is mocked at phone width (≈390 px) so the design is
+something to *look at*, not read. The one hard constraint threads every mockup —
+the mobile chips are not a restyle.
+
+<Callout kind="accent" title="Constraint — pixel-language identical to desktop">
+A mobile host chip is the **same visual grammar** as the desktop tab, not a
+lookalike. The connection **dot tone** comes from `hostChipTone.dotClass`
+(green only for `connected`, amber warming, red failed), the **identity hue**
+from `hostHue`, and the amber **attention pill** from `ATTENTION_PILL_CLASS`
+(the `@kolu/solid-statepip` token shipped in <PrLink pr={1774} />, the Dock's
+unread badge's own source). A green dot, an amber `2`, a violet chip must mean
+the *same thing* on a phone as on a laptop. Divergence isn't a style choice —
+it's a bug, because both surfaces read one token.
+</Callout>
+
+export const MH = () => (
+  <style>{`
+  .mh-wrap{display:flex;flex-wrap:wrap;gap:1.1rem;align-items:flex-start;margin:1.3rem 0}
+  .mh-cap{padding:.7rem .1rem 0;font:500 .74rem/1.55 ui-sans-serif,system-ui;color:#5b6470;max-width:34rem}
+  .mh-cap b{color:#262a2e}.mh-cap .ok{color:#16a34a}.mh-cap .am{color:#b8860b}.mh-cap .bad{color:#dc2626}
+  .mh-cap code{font-size:.9em;background:#f2eef6;padding:.05rem .3rem;border-radius:4px}
+  /* ── phone shell ── */
+  .ph{width:270px;flex:none;border-radius:30px;background:#05060a;padding:8px;box-shadow:0 10px 30px rgba(20,10,40,.28)}
+  .ph-screen{position:relative;border-radius:23px;overflow:hidden;background:#0d0f14;height:390px}
+  .ph-notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:74px;height:16px;border-radius:9px;background:#05060a;z-index:5}
+  /* ── the sheet ── */
+  .sheet{position:absolute;top:0;left:0;right:0;background:#171a21;border-bottom:1px solid #2a2f38;border-radius:0 0 16px 16px;box-shadow:0 12px 26px rgba(0,0,0,.4);z-index:3}
+  .grip{display:flex;justify-content:center;padding:7px 0 5px}
+  .grip i{width:38px;height:4px;border-radius:3px;background:#3a404b}
+  .sh-head{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;border-bottom:1px solid #232833}
+  .sh-head img{width:17px;height:17px}
+  .sh-head .ttl{font:600 .8rem/1 ui-sans-serif,system-ui;color:#e7e9ee;flex:1}
+  .srv{width:8px;height:8px;border-radius:50%;background:#34d399}
+  /* host row */
+  .hrow{padding:.5rem .7rem;border-bottom:1px solid #232833}
+  .hrow .lbl{font:700 .58rem/1 ui-sans-serif,system-ui;letter-spacing:.09em;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem}
+  .chips{display:flex;align-items:center;gap:.5rem;overflow:hidden}
+  .chips.scroll{position:relative}
+  /* a chip = 44px touch target, desktop vocabulary */
+  .chip{position:relative;display:inline-flex;align-items:center;gap:.45rem;height:44px;padding:0 .7rem;border-radius:12px;border:1px solid #333a45;background:#23272f;color:#aeb4be;font:600 .82rem/1 ui-sans-serif,system-ui;white-space:nowrap;flex:none}
+  .chip.on{border-color:var(--hue);background:color-mix(in srgb,var(--hue) 18%,#171a21);color:#f2f4f8}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .ok{background:#34d399}.warm{background:#fbbf24}.bad{background:#f87171}.idle{background:#565c66}
+  .home{width:13px;height:13px;opacity:.7;flex:none}
+  /* the shared attention pill — bg-amber-500/90, text-black/80 */
+  .pill{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(245,158,11,.9);color:rgba(0,0,0,.8);font:600 10px/20px ui-monospace,monospace;text-align:center;flex:none}
+  .add{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;color:#8b93a0;font-size:20px;flex:none;border:1px dashed #333a45}
+  .fade{position:absolute;top:0;right:0;bottom:0;width:34px;background:linear-gradient(90deg,transparent,#171a21);pointer-events:none}
+  /* control cluster (existing sheet contents, shown for context) */
+  .ctl{display:flex;gap:.45rem;padding:.6rem .7rem}
+  .ctl .b{height:34px;border-radius:9px;background:#23272f;border:1px solid #2f353f;display:inline-flex;align-items:center;justify-content:center;color:#aeb4be;font:600 .74rem/1 ui-sans-serif,system-ui;gap:.35rem}
+  .ctl .grow{flex:1}
+  .kbd{display:inline-flex;align-items:center;height:16px;padding:0 4px;border:1px solid #3a414d;border-radius:4px;background:#1a1e26;color:#8b93a0;font:600 9px/1 ui-monospace,monospace}
+  /* the canvas floor under the sheet — a grid, faintly hue-washed by the active host */
+  .cvfloor{position:absolute;inset:0;background:#0d0f14;background-image:linear-gradient(#171b22 1px,transparent 1px),linear-gradient(90deg,#171b22 1px,transparent 1px);background-size:24px 24px}
+  .cvfloor:after{content:"";position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 0,color-mix(in srgb,var(--hue) 20%,transparent),transparent 62%)}
+  .cvtag{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);font:600 .72rem/1 ui-monospace,monospace;color:#7b8494;background:rgba(23,26,33,.7);padding:.3rem .6rem;border-radius:7px;white-space:nowrap}
+  /* switch arrow */
+  .swarr{align-self:center;flex:none;display:flex;flex-direction:column;align-items:center;gap:.3rem;color:#8b7bb5;font:600 .72rem/1.2 ui-sans-serif,system-ui;text-align:center;width:88px}
+  .swarr .a{font-size:1.5rem;line-height:1}
+  /* proposed add-host sheet variant */
+  .addsheet{padding:.6rem .7rem;border-bottom:1px solid #232833}
+  .addsheet .cr{display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem}
+  .alpha{font:700 .56rem/1 ui-sans-serif,system-ui;letter-spacing:.05em;text-transform:uppercase;color:#f59e0b;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.12);border-radius:5px;padding:.2rem .4rem}
+  .addsheet .h{font:600 .78rem/1 ui-sans-serif,system-ui;color:#e7e9ee}
+  .addsheet .note{font:500 .68rem/1.4 ui-sans-serif,system-ui;color:#8b93a0;margin-bottom:.5rem}
+  .addsheet .link{color:#8b5cf6}
+  .field{display:flex;align-items:center;height:44px;border-radius:11px;border:1px solid #333a45;background:#0f1218;padding:0 .7rem;font:500 .8rem/1 ui-monospace,monospace;color:#5f6875}
+  .field .cur{color:#e7e9ee}
+  .go{margin-left:auto;font:700 .7rem/1 ui-sans-serif,system-ui;color:#0d0f14;background:#8b5cf6;border-radius:7px;padding:.35rem .6rem}
+  /* cramped current popover, clipped by the phone edge */
+  .pop{position:absolute;top:96px;left:120px;width:260px;background:#1b1f27;border:1px solid #333a45;border-radius:12px;box-shadow:0 14px 30px rgba(0,0,0,.5);padding:.7rem;z-index:6}
+  .clipwarn{position:absolute;top:96px;right:2px;bottom:auto;width:3px;background:repeating-linear-gradient(#f87171 0 6px,transparent 6px 12px);z-index:7}
+  `}</style>
+);
+
+<MH />
+
+export const Chip = ({hue, tone, label, home, pill, on}) => (
+  <span class={on ? "chip on" : "chip"} style={hue ? `--hue:${hue}` : undefined}>
+    <span class={`dot ${tone}`} />
+    {home && <svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>}
+    {label}
+    {pill != null && <span class="pill">{pill}</span>}
+  </span>
+);
+
+export const Logo = () => (
+  <span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none">
+    <i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6" />
+    <i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6" />
+    <i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399" />
+  </span>
+);
+
+export const SheetTop = ({title}) => (
+  <>
+    <div class="grip"><i /></div>
+    <div class="sh-head"><Logo /><span class="ttl">{title}</span><span class="srv" /></div>
+  </>
+);
+
+export const Cluster = () => (
+  <div class="ctl">
+    <span class="b grow"><span class="kbd">⌘K</span>Palette</span>
+    <span class="b" style="width:34px">⚙</span>
+    <span class="b" style="width:34px">▤</span>
+  </div>
+);
+
+## What a phone user gets
+
+Pull the sheet down and a **Hosts** row sits at the top, above the existing
+palette / settings / inspector cluster. Each host is a chip carrying the
+desktop vocabulary verbatim: the connection dot, the local house glyph, the
+identity-hue border when active, and the amber attention pill when that host
+has agents awaiting you. A tap switches; the `+` adds.
+
+<div class="mh-wrap">
+  <div class="ph"><div class="ph-screen">
+    <div class="cvfloor" style="--hue:#64748b" />
+    <div class="sheet">
+      <SheetTop title="Kolu [local]" />
+      <div class="hrow">
+        <div class="lbl">Hosts</div>
+        <div class="chips">
+          <Chip hue="#64748b" tone="ok" label="local" home on />
+          <Chip hue="#8b5cf6" tone="bad" label="srid@zest" />
+          <Chip hue="#14b8a6" tone="ok" label="prod" pill="2" />
+          <span class="add">+</span>
+        </div>
+      </div>
+      <Cluster />
+    </div>
+  </div></div>
+  <div class="mh-cap">
+    Three hosts in the pull-down sheet. <b>local</b> is active — it wears its
+    identity hue (<span style="color:#64748b">slate</span>) as a border + tinted
+    belly, with a <span class="ok">green</span> dot and the house glyph.
+    <b>srid@zest</b> shows a <span class="bad">red</span> dot: it's failed, and
+    you see that <i>before</i> switching, exactly as on desktop. <b>prod</b>
+    carries an amber <span class="am">2</span> — two agents awaiting you — in the
+    <i>same</i> <code>ATTENTION_PILL_CLASS</code> pill the Dock uses. Every chip
+    is a ≥44 px touch target.
+  </div>
+</div>
+
+### Tap a chip — the canvas re-hues, instantly
+
+A tap is one call: `setActiveHost(host)`, the identical write the desktop strip
+makes. Because of W9, the target host's surface is already retained, so the
+canvas repaints from it with **no reload and no reconnect** — the per-host hue
+wash on the canvas floor cross-fades to the new host, so switching *feels* like
+moving rooms, not reloading a page.<Footnote>The switch is a synchronous signal
+write — `setActiveHost(props.host)`, and `useEntry(activeHost)` re-keys the
+per-host canvas. W9 (retained switching) means the surface for the target host
+is kept warm, so the repaint is immediate rather than a fresh attach. The
+mobile row calls the exact same function the desktop `HostSelectorStrip` does;
+there is no mobile-specific switch path.</Footnote>
+
+<div class="mh-wrap">
+  <div class="ph"><div class="ph-screen">
+    <div class="cvfloor" style="--hue:#64748b" />
+    <div class="cvtag">canvas · local</div>
+    <div class="sheet">
+      <SheetTop title="Kolu [local]" />
+      <div class="hrow">
+        <div class="lbl">Hosts</div>
+        <div class="chips">
+          <Chip hue="#64748b" tone="ok" label="local" home on />
+          <Chip hue="#8b5cf6" tone="ok" label="srid@zest" />
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <div class="swarr"><span class="a">→</span><span>tap srid@zest<br/>instant · W9</span></div>
+  <div class="ph"><div class="ph-screen">
+    <div class="cvfloor" style="--hue:#8b5cf6" />
+    <div class="cvtag">canvas · srid@zest</div>
+    <div class="sheet">
+      <SheetTop title="Kolu [srid@zest]" />
+      <div class="hrow">
+        <div class="lbl">Hosts</div>
+        <div class="chips">
+          <Chip hue="#64748b" tone="ok" label="local" home />
+          <Chip hue="#8b5cf6" tone="ok" label="srid@zest" on />
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <div class="mh-cap">
+    Before → after. Tapping <b>srid@zest</b> moves the active border + belly to
+    it and re-hues the canvas floor from <span style="color:#64748b">slate</span>
+    to <span style="color:#8b5cf6">violet</span>. The title updates to
+    <code>Kolu [srid@zest]</code>. No spinner, no reconnect — the retained
+    surface is already there.
+  </div>
+</div>
+
+### Many hosts — the row scrolls sideways
+
+When hosts outgrow the phone's width the row becomes **horizontally
+scrollable** rather than wrapping or collapsing to a menu. A right-edge fade
+signals more chips off-screen; the active chip is what you scroll back to. This
+is the deliberately-simple mobile answer — desktop's `⋯ +N` overflow fold and
+`sm..md` dropdown collapse are width-measurement machinery a thumb-scroll makes
+unnecessary.<Footnote>Open design question, called out below: whether mobile
+should instead borrow the desktop overflow model (`computeVisibleHosts` +
+`HostOverflowMenu`). The prototype and these mockups assume the scroll-row; it's
+the lighter build and reads naturally as a touch gesture, but it trades away the
+"active chip always visible without scrolling" guarantee the desktop fold
+keeps.</Footnote>
+
+<div class="mh-wrap">
+  <div class="ph"><div class="ph-screen">
+    <div class="cvfloor" style="--hue:#64748b" />
+    <div class="sheet">
+      <SheetTop title="Kolu [local]" />
+      <div class="hrow">
+        <div class="lbl">Hosts</div>
+        <div class="chips scroll">
+          <Chip hue="#64748b" tone="ok" label="local" home on />
+          <Chip hue="#8b5cf6" tone="ok" label="srid@zest" />
+          <Chip hue="#14b8a6" tone="ok" label="prod" pill="2" />
+          <Chip hue="#3b82f6" tone="warm" label="root@edge" />
+          <span class="fade" />
+        </div>
+      </div>
+      <Cluster />
+    </div>
+  </div></div>
+  <div class="mh-cap">
+    Four hosts overflow 390 px, so the row scrolls; the fade on the right says
+    "more this way." <b>root@edge</b> shows an amber <span class="am">warming</span>
+    dot (connecting). Each chip stays a full 44 px tall — a comfortable thumb
+    target — and horizontal scroll is native, no measurement pass.
+  </div>
+</div>
+
+## Adding a host on a phone
+
+The desktop `+` opens `AddHostAffordance` — an anchored popover with an ALPHA
+notice, a docs link, and an ssh-target input. The prototype reused it verbatim,
+which surfaced the real design fork: **that popover is anchored and fixed-width,
+so at phone width it overflows the viewport and clips.** So this is presented as
+two mockups — the honest current behaviour, and a proposed mobile-native
+variant — for a design call.
+
+<div class="mh-wrap">
+  <div class="ph"><div class="ph-screen">
+    <div class="cvfloor" style="--hue:#64748b" />
+    <div class="sheet">
+      <SheetTop title="Kolu [local]" />
+      <div class="hrow">
+        <div class="lbl">Hosts</div>
+        <div class="chips">
+          <Chip hue="#64748b" tone="ok" label="local" home on />
+          <span class="add">+</span>
+        </div>
+      </div>
+    </div>
+    <div class="pop">
+      <div class="cr"><span class="alpha">Alpha</span><span class="h">Remote hosts</span></div>
+      <div class="note">Connecting other machines over ssh is an early feature. <span class="link">Learn more →</span></div>
+      <div class="field"><span>ssh host, e.g. srid@zest</span></div>
+    </div>
+    <div class="clipwarn" />
+  </div></div>
+  <div class="mh-cap">
+    <b>Current, reused as-is.</b> The popover anchors to the tiny <code>+</code>
+    with a 288 px min-width, so on a 390 px screen the copy and the input run
+    <span class="bad">off the right edge</span> (the dashed red rule). Usable
+    enough to demo, cramped enough that it shouldn't ship as the mobile add
+    surface. This is design input, not prototype scope — it was <i>observed</i>,
+    not fixed.
+  </div>
+</div>
+
+<div class="mh-wrap">
+  <div class="ph"><div class="ph-screen">
+    <div class="cvfloor" style="--hue:#64748b" />
+    <div class="sheet">
+      <SheetTop title="Kolu [local]" />
+      <div class="addsheet">
+        <div class="cr"><span class="alpha">Alpha</span><span class="h">Add a host</span></div>
+        <div class="note">Connect another machine over ssh — an early feature. <span class="link">Learn more →</span></div>
+        <div class="field"><span class="cur">srid@zest▏</span><span class="go">Add</span></div>
+      </div>
+      <div class="hrow">
+        <div class="lbl">Hosts</div>
+        <div class="chips">
+          <Chip hue="#64748b" tone="ok" label="local" home on />
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <div class="mh-cap">
+    <b>Proposed — recommended.</b> Instead of an anchored popover, the <code>+</code>
+    expands an <b>in-sheet section</b> spanning the full sheet width: the same
+    ALPHA notice and ssh field, but nothing to clip, a full-width 44 px input,
+    and a thumb-sized <b>Add</b> button. It reuses the same
+    <code>client.hosts.add</code> path — only the container changes from a
+    portalled popover to a sheet section.
+  </div>
+</div>
+
+## How it wires in
+
+The whole point is that this is a **thin leaf**, not new machinery. `App.tsx`
+already forks on `isDesktop()`; the desktop branch mounts `ChromeBar →
+HostSelectorStrip`, and the touch branch mounts the pull-down sheet. This
+proposal adds one component — `MobileHostRow` — to that sheet, and it reads the
+**exact same seams** the desktop strip reads: `padiMap.entries` for the host
+list, each entry's `cells.urgency` for the awaiting count, `hostChipTone`
+(`dotClass` / `hostHue`) for tone and identity, `ATTENTION_PILL_CLASS` for the
+pill, and `setActiveHost` for the switch.
+
+<Svg svg={wiring} wide caption="isDesktop() forks App.tsx into two host surfaces. HostSelectorStrip (desktop) and the proposed MobileHostRow (mobile) are both thin leaves onto one layout-agnostic engine — the same reads (padiMap.entries, entry.cells.urgency), the same tokens (hostChipTone, ATTENTION_PILL_CLASS), the same write (setActiveHost). No new store, stream, or keybinding: the engine already streams host membership and urgency, and W9/W10 already own retained-switch and persistence." />
+
+<Callout kind="note" title="No new electricity — this is not a receptacle">
+By the electricity test, `MobileHostRow` hides no *hard* volatility of its own:
+transport, reconnect, persistence, and retained-switch all live below it in the
+host map and the `@kolu/surface-map` layer. It is a **presentation leaf** that
+projects already-streamed state, the mobile twin of `HostSelectorStrip`. So it
+belongs in the client's `host/` module beside its desktop sibling — **not** a new
+`@kolu/*` package. The one shared thing worth watching is the vocabulary:
+`hostChipTone` and `ATTENTION_PILL_CLASS` are the single source both leaves must
+keep consuming, so the pixel-language constraint holds by construction rather
+than by discipline.
+</Callout>
+
+## Implementation — one client-only PR
+
+This is a single, client-only change threading existing seams — no server, no
+protocol, no package. It reuses one already-exported affordance
+(`AddHostAffordance`) and adds one component plus one mount line.
+
+| Piece | What it is | Grounding |
+| --- | --- | --- |
+| `MobileHostRow.tsx` | New leaf: the chip row + add affordance, ~130 lines | reads `padiMap.entries`, `entry.cells.urgency`, calls `setActiveHost` |
+| `MobileChromeSheet.tsx` | One import + one mount line, host row above the control cluster | <Cite file="packages/client/src/MobileChromeSheet.tsx" /> |
+| `hostChipTone` reuse | `dotClass` / `hostHue` / `hostLabel` / `sameHost` / `statusTitle` | <Cite file="packages/client/src/host/hostChipTone.ts" /> |
+| `ATTENTION_PILL_CLASS` reuse | the amber pill token from <PrLink pr={1774} /> | `@kolu/solid-statepip/pipVariant` |
+| add-host | export existing `AddHostAffordance`, or build the in-sheet variant | <Cite file="packages/client/src/host/HostSelectorStrip.tsx" /> |
+
+<Callout kind="accent" title="Head start — a working prototype is already parked">
+A runnable prototype was built during the spike that produced this note and is
+**parked on branch `mobilereite`** (not merged, not PR'd): `MobileHostRow.tsx`,
+the `MobileChromeSheet` mount, and an `export` on `AddHostAffordance`. It was
+driven in a phone-emulated browser and confirmed the load-bearing behaviours —
+chips at exactly 44 px, `overflow-x: auto` scroll, a tap re-keying the canvas to
+the tapped host, and the add-popover overflow finding that drove the design fork
+above. The implementing agent can start from that commit rather than a blank
+file; the one real decision left is the add-host surface (reuse the cramped
+popover vs. build the in-sheet variant).
+</Callout>
+
+### Decisions to settle before building
+
+Two forks change the build and are srid's call — they're deliberately left open
+here because the whole note is a mockup to react to:
+
+- **Add-host surface** — reuse the current anchored `AddHostAffordance` popover
+  (cheapest; visibly cramped at phone width), or build the proposed in-sheet
+  full-width variant (a little more work; the honest mobile answer). *Recommend
+  the in-sheet variant.*
+- **Overflow model** — the horizontally-scrolling row shown here (lighter,
+  reads as a touch gesture), or port desktop's `⋯ +N` fold / dropdown collapse
+  (keeps the active chip always visible without scrolling). *Recommend the
+  scroll-row.*
+
+One smaller choice is baked in as a default, not a question: the row lives at
+the **top of the sheet**, above the palette/settings cluster, because host
+identity is the most global thing in the sheet. Once srid reacts to these
+mockups, a `/be` run implements the chosen variants from the parked head-start.

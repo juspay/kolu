@@ -1,0 +1,362 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hosts on Mobile — a Host Row in the Pull-Down Sheet · the kolu Atlas</title><meta name="description" content="On the touch layout kolu renders no host chrome at all — the chip row and add-host affordance are desktop-only — so on a phone you can't see, switch, or add hosts even though the host engine underneath is already layout-agnostic. This note proposes a host row inside the mobile pull-down sheet, mocked at phone width, reusing the desktop chip's exact pixel vocabulary."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/mobile-hosts.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Hosts on Mobile — a Host Row in the Pull-Down Sheet · the kolu Atlas"><meta property="og:description" content="On the touch layout kolu renders no host chrome at all — the chip row and add-host affordance are desktop-only — so on a phone you can't see, switch, or add hosts even though the host engine underneath is already layout-agnostic. This note proposes a host row inside the mobile pull-down sheet, mocked at phone width, reusing the desktop chip's exact pixel vocabulary."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/mobile-hosts.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-12T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Hosts on Mobile — a Host Row in the Pull-Down Sheet · the kolu Atlas"><meta name="twitter:description" content="On the touch layout kolu renders no host chrome at all — the chip row and add-host affordance are desktop-only — so on a phone you can't see, switch, or add hosts even though the host engine underneath is already layout-agnostic. This note proposes a host row inside the mobile pull-down sheet, mocked at phone width, reusing the desktop chip's exact pixel vocabulary."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.cite[data-astro-cid-5pdjtcv2]{font-family:var(--mono);color:var(--ink);background:var(--code-bg);border:1px solid var(--rule);white-space:nowrap;border-radius:5px;padding:.04em .35em;font-size:.85em;text-decoration:none}.cite[data-astro-cid-5pdjtcv2]:hover{color:var(--amber);border-color:var(--amber)}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Hosts on Mobile — a Host Row in the Pull-Down Sheet</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-12T00:00:00.000Z">JUL 12, 2026</time></div><p class="note-sub">On the touch layout kolu renders no host chrome at all — the chip row and add-host affordance are desktop-only — so on a phone you can&#39;t see, switch, or add hosts even though the host engine underneath is already layout-agnostic. This note proposes a host row inside the mobile pull-down sheet, mocked at phone width, reusing the desktop chip&#39;s exact pixel vocabulary.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-a-phone-user-gets" data-astro-cid-rda6bqd5>What a phone user gets</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#tap-a-chip--the-canvas-re-hues-instantly" data-astro-cid-rda6bqd5>Tap a chip — the canvas re-hues, instantly</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#many-hosts--the-row-scrolls-sideways" data-astro-cid-rda6bqd5>Many hosts — the row scrolls sideways</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#adding-a-host-on-a-phone" data-astro-cid-rda6bqd5>Adding a host on a phone</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#how-it-wires-in" data-astro-cid-rda6bqd5>How it wires in</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#implementation--one-client-only-pr" data-astro-cid-rda6bqd5>Implementation — one client-only PR</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#decisions-to-settle-before-building" data-astro-cid-rda6bqd5>Decisions to settle before building</a></li></ul></li></ul></nav></header><div class="prose"><p>The multi-host engine is done and it does <strong>not</strong> care what layout it’s in: the
+keyed padi host map, W9 retained switching (a switch repaints instantly from a
+kept surface), W10 persisted fleet (hosts survive a restart), and W5 per-host
+attention all live below the UI. But the <em>only</em> face that engine has is
+desktop. <code>ChromeBar</code> and its <code>HostSelectorStrip</code> are gated behind
+<code>isDesktop()</code>, and the touch layout — the pull-down sheet in
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/MobileChromeSheet.tsx" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/MobileChromeSheet.tsx</a> — renders <strong>no host
+chrome whatsoever</strong>. So on a phone you cannot see which host you’re on, switch
+hosts, or add one. The capability exists; the surface doesn’t.</p>
+<p>This note proposes that surface: a <strong>host row inside the mobile pull-down
+sheet</strong>. Everything below is mocked at phone width (≈390 px) so the design is
+something to <em>look at</em>, not read. The one hard constraint threads every mockup —
+the mobile chips are not a restyle.</p>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Constraint — pixel-language identical to desktop</p><div class="callout-body" data-astro-cid-q2ml7llr><p>A mobile host chip is the <strong>same visual grammar</strong> as the desktop tab, not a
+lookalike. The connection <strong>dot tone</strong> comes from <code>hostChipTone.dotClass</code>
+(green only for <code>connected</code>, amber warming, red failed), the <strong>identity hue</strong>
+from <code>hostHue</code>, and the amber <strong>attention pill</strong> from <code>ATTENTION_PILL_CLASS</code>
+(the <code>@kolu/solid-statepip</code> token shipped in <a href="https://github.com/juspay/kolu/pull/1774" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1774</a>, the Dock’s
+unread badge’s own source). A green dot, an amber <code>2</code>, a violet chip must mean
+the <em>same thing</em> on a phone as on a laptop. Divergence isn’t a style choice —
+it’s a bug, because both surfaces read one token.</p></div></aside>
+
+<style>
+  .mh-wrap{display:flex;flex-wrap:wrap;gap:1.1rem;align-items:flex-start;margin:1.3rem 0}
+  .mh-cap{padding:.7rem .1rem 0;font:500 .74rem/1.55 ui-sans-serif,system-ui;color:#5b6470;max-width:34rem}
+  .mh-cap b{color:#262a2e}.mh-cap .ok{color:#16a34a}.mh-cap .am{color:#b8860b}.mh-cap .bad{color:#dc2626}
+  .mh-cap code{font-size:.9em;background:#f2eef6;padding:.05rem .3rem;border-radius:4px}
+  /* ── phone shell ── */
+  .ph{width:270px;flex:none;border-radius:30px;background:#05060a;padding:8px;box-shadow:0 10px 30px rgba(20,10,40,.28)}
+  .ph-screen{position:relative;border-radius:23px;overflow:hidden;background:#0d0f14;height:390px}
+  .ph-notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:74px;height:16px;border-radius:9px;background:#05060a;z-index:5}
+  /* ── the sheet ── */
+  .sheet{position:absolute;top:0;left:0;right:0;background:#171a21;border-bottom:1px solid #2a2f38;border-radius:0 0 16px 16px;box-shadow:0 12px 26px rgba(0,0,0,.4);z-index:3}
+  .grip{display:flex;justify-content:center;padding:7px 0 5px}
+  .grip i{width:38px;height:4px;border-radius:3px;background:#3a404b}
+  .sh-head{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;border-bottom:1px solid #232833}
+  .sh-head img{width:17px;height:17px}
+  .sh-head .ttl{font:600 .8rem/1 ui-sans-serif,system-ui;color:#e7e9ee;flex:1}
+  .srv{width:8px;height:8px;border-radius:50%;background:#34d399}
+  /* host row */
+  .hrow{padding:.5rem .7rem;border-bottom:1px solid #232833}
+  .hrow .lbl{font:700 .58rem/1 ui-sans-serif,system-ui;letter-spacing:.09em;text-transform:uppercase;color:#6b7280;margin-bottom:.5rem}
+  .chips{display:flex;align-items:center;gap:.5rem;overflow:hidden}
+  .chips.scroll{position:relative}
+  /* a chip = 44px touch target, desktop vocabulary */
+  .chip{position:relative;display:inline-flex;align-items:center;gap:.45rem;height:44px;padding:0 .7rem;border-radius:12px;border:1px solid #333a45;background:#23272f;color:#aeb4be;font:600 .82rem/1 ui-sans-serif,system-ui;white-space:nowrap;flex:none}
+  .chip.on{border-color:var(--hue);background:color-mix(in srgb,var(--hue) 18%,#171a21);color:#f2f4f8}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .ok{background:#34d399}.warm{background:#fbbf24}.bad{background:#f87171}.idle{background:#565c66}
+  .home{width:13px;height:13px;opacity:.7;flex:none}
+  /* the shared attention pill — bg-amber-500/90, text-black/80 */
+  .pill{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(245,158,11,.9);color:rgba(0,0,0,.8);font:600 10px/20px ui-monospace,monospace;text-align:center;flex:none}
+  .add{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;color:#8b93a0;font-size:20px;flex:none;border:1px dashed #333a45}
+  .fade{position:absolute;top:0;right:0;bottom:0;width:34px;background:linear-gradient(90deg,transparent,#171a21);pointer-events:none}
+  /* control cluster (existing sheet contents, shown for context) */
+  .ctl{display:flex;gap:.45rem;padding:.6rem .7rem}
+  .ctl .b{height:34px;border-radius:9px;background:#23272f;border:1px solid #2f353f;display:inline-flex;align-items:center;justify-content:center;color:#aeb4be;font:600 .74rem/1 ui-sans-serif,system-ui;gap:.35rem}
+  .ctl .grow{flex:1}
+  .kbd{display:inline-flex;align-items:center;height:16px;padding:0 4px;border:1px solid #3a414d;border-radius:4px;background:#1a1e26;color:#8b93a0;font:600 9px/1 ui-monospace,monospace}
+  /* the canvas floor under the sheet — a grid, faintly hue-washed by the active host */
+  .cvfloor{position:absolute;inset:0;background:#0d0f14;background-image:linear-gradient(#171b22 1px,transparent 1px),linear-gradient(90deg,#171b22 1px,transparent 1px);background-size:24px 24px}
+  .cvfloor:after{content:"";position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 0,color-mix(in srgb,var(--hue) 20%,transparent),transparent 62%)}
+  .cvtag{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);font:600 .72rem/1 ui-monospace,monospace;color:#7b8494;background:rgba(23,26,33,.7);padding:.3rem .6rem;border-radius:7px;white-space:nowrap}
+  /* switch arrow */
+  .swarr{align-self:center;flex:none;display:flex;flex-direction:column;align-items:center;gap:.3rem;color:#8b7bb5;font:600 .72rem/1.2 ui-sans-serif,system-ui;text-align:center;width:88px}
+  .swarr .a{font-size:1.5rem;line-height:1}
+  /* proposed add-host sheet variant */
+  .addsheet{padding:.6rem .7rem;border-bottom:1px solid #232833}
+  .addsheet .cr{display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem}
+  .alpha{font:700 .56rem/1 ui-sans-serif,system-ui;letter-spacing:.05em;text-transform:uppercase;color:#f59e0b;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.12);border-radius:5px;padding:.2rem .4rem}
+  .addsheet .h{font:600 .78rem/1 ui-sans-serif,system-ui;color:#e7e9ee}
+  .addsheet .note{font:500 .68rem/1.4 ui-sans-serif,system-ui;color:#8b93a0;margin-bottom:.5rem}
+  .addsheet .link{color:#8b5cf6}
+  .field{display:flex;align-items:center;height:44px;border-radius:11px;border:1px solid #333a45;background:#0f1218;padding:0 .7rem;font:500 .8rem/1 ui-monospace,monospace;color:#5f6875}
+  .field .cur{color:#e7e9ee}
+  .go{margin-left:auto;font:700 .7rem/1 ui-sans-serif,system-ui;color:#0d0f14;background:#8b5cf6;border-radius:7px;padding:.35rem .6rem}
+  /* cramped current popover, clipped by the phone edge */
+  .pop{position:absolute;top:96px;left:120px;width:260px;background:#1b1f27;border:1px solid #333a45;border-radius:12px;box-shadow:0 14px 30px rgba(0,0,0,.5);padding:.7rem;z-index:6}
+  .clipwarn{position:absolute;top:96px;right:2px;bottom:auto;width:3px;background:repeating-linear-gradient(#f87171 0 6px,transparent 6px 12px);z-index:7}
+  </style>
+
+
+
+
+<h2 id="what-a-phone-user-gets">What a phone user gets</h2>
+<p>Pull the sheet down and a <strong>Hosts</strong> row sits at the top, above the existing
+palette / settings / inspector cluster. Each host is a chip carrying the
+desktop vocabulary verbatim: the connection dot, the local house glyph, the
+identity-hue border when active, and the amber attention pill when that host
+has agents awaiting you. A tap switches; the <code>+</code> adds.</p>
+<div class="mh-wrap"><div class="ph"><div class="ph-screen"><div class="cvfloor" style="--hue:#64748b"></div><div class="sheet"><div class="grip"><i></i></div><div class="sh-head"><span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none"><i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6"></i><i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6"></i><i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399"></i></span><span class="ttl">Kolu [local]</span><span class="srv"></span></div><div class="hrow"><div class="lbl">Hosts</div><div class="chips"><span class="chip on" style="--hue:#64748b"><span class="dot ok"></span><svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>local</span><span class="chip" style="--hue:#8b5cf6"><span class="dot bad"></span>srid@zest</span><span class="chip" style="--hue:#14b8a6"><span class="dot ok"></span>prod<span class="pill">2</span></span><span class="add">+</span></div></div><div class="ctl"><span class="b grow"><span class="kbd">⌘K</span>Palette</span><span class="b" style="width:34px">⚙</span><span class="b" style="width:34px">▤</span></div></div></div></div><div class="mh-cap"><p>Three hosts in the pull-down sheet. <b>local</b> is active — it wears its
+identity hue (<span style="color:#64748b">slate</span>) as a border + tinted
+belly, with a <span class="ok">green</span> dot and the house glyph.
+<b>srid@zest</b> shows a <span class="bad">red</span> dot: it’s failed, and
+you see that <i>before</i> switching, exactly as on desktop. <b>prod</b>
+carries an amber <span class="am">2</span> — two agents awaiting you — in the
+<i>same</i> <code>ATTENTION_PILL_CLASS</code> pill the Dock uses. Every chip
+is a ≥44 px touch target.</p></div></div>
+<h3 id="tap-a-chip--the-canvas-re-hues-instantly">Tap a chip — the canvas re-hues, instantly</h3>
+<p>A tap is one call: <code>setActiveHost(host)</code>, the identical write the desktop strip
+makes. Because of W9, the target host’s surface is already retained, so the
+canvas repaints from it with <strong>no reload and no reconnect</strong> — the per-host hue
+wash on the canvas floor cross-fades to the new host, so switching <em>feels</em> like
+moving rooms, not reloading a page.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The switch is a synchronous signal
+write — <code>setActiveHost(props.host)</code>, and <code>useEntry(activeHost)</code> re-keys the
+per-host canvas. W9 (retained switching) means the surface for the target host
+is kept warm, so the repaint is immediate rather than a fresh attach. The
+mobile row calls the exact same function the desktop <code>HostSelectorStrip</code> does;
+there is no mobile-specific switch path.</span></span></span></p>
+<div class="mh-wrap"><div class="ph"><div class="ph-screen"><div class="cvfloor" style="--hue:#64748b"></div><div class="cvtag">canvas · local</div><div class="sheet"><div class="grip"><i></i></div><div class="sh-head"><span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none"><i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6"></i><i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6"></i><i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399"></i></span><span class="ttl">Kolu [local]</span><span class="srv"></span></div><div class="hrow"><div class="lbl">Hosts</div><div class="chips"><span class="chip on" style="--hue:#64748b"><span class="dot ok"></span><svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>local</span><span class="chip" style="--hue:#8b5cf6"><span class="dot ok"></span>srid@zest</span></div></div></div></div></div><div class="swarr"><span class="a">→</span><span>tap srid@zest<br/>instant · W9</span></div><div class="ph"><div class="ph-screen"><div class="cvfloor" style="--hue:#8b5cf6"></div><div class="cvtag">canvas · srid@zest</div><div class="sheet"><div class="grip"><i></i></div><div class="sh-head"><span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none"><i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6"></i><i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6"></i><i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399"></i></span><span class="ttl">Kolu [srid@zest]</span><span class="srv"></span></div><div class="hrow"><div class="lbl">Hosts</div><div class="chips"><span class="chip" style="--hue:#64748b"><span class="dot ok"></span><svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>local</span><span class="chip on" style="--hue:#8b5cf6"><span class="dot ok"></span>srid@zest</span></div></div></div></div></div><div class="mh-cap"><p>Before → after. Tapping <b>srid@zest</b> moves the active border + belly to
+it and re-hues the canvas floor from <span style="color:#64748b">slate</span>
+to <span style="color:#8b5cf6">violet</span>. The title updates to
+<code>Kolu [srid@zest]</code>. No spinner, no reconnect — the retained
+surface is already there.</p></div></div>
+<h3 id="many-hosts--the-row-scrolls-sideways">Many hosts — the row scrolls sideways</h3>
+<p>When hosts outgrow the phone’s width the row becomes <strong>horizontally
+scrollable</strong> rather than wrapping or collapsing to a menu. A right-edge fade
+signals more chips off-screen; the active chip is what you scroll back to. This
+is the deliberately-simple mobile answer — desktop’s <code>⋯ +N</code> overflow fold and
+<code>sm..md</code> dropdown collapse are width-measurement machinery a thumb-scroll makes
+unnecessary.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Open design question, called out below: whether mobile
+should instead borrow the desktop overflow model (<code>computeVisibleHosts</code> +
+<code>HostOverflowMenu</code>). The prototype and these mockups assume the scroll-row; it’s
+the lighter build and reads naturally as a touch gesture, but it trades away the
+“active chip always visible without scrolling” guarantee the desktop fold
+keeps.</span></span></span></p>
+<div class="mh-wrap"><div class="ph"><div class="ph-screen"><div class="cvfloor" style="--hue:#64748b"></div><div class="sheet"><div class="grip"><i></i></div><div class="sh-head"><span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none"><i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6"></i><i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6"></i><i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399"></i></span><span class="ttl">Kolu [local]</span><span class="srv"></span></div><div class="hrow"><div class="lbl">Hosts</div><div class="chips scroll"><span class="chip on" style="--hue:#64748b"><span class="dot ok"></span><svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>local</span><span class="chip" style="--hue:#8b5cf6"><span class="dot ok"></span>srid@zest</span><span class="chip" style="--hue:#14b8a6"><span class="dot ok"></span>prod<span class="pill">2</span></span><span class="chip" style="--hue:#3b82f6"><span class="dot warm"></span>root@edge</span><span class="fade"></span></div></div><div class="ctl"><span class="b grow"><span class="kbd">⌘K</span>Palette</span><span class="b" style="width:34px">⚙</span><span class="b" style="width:34px">▤</span></div></div></div></div><div class="mh-cap"><p>Four hosts overflow 390 px, so the row scrolls; the fade on the right says
+“more this way.” <b>root@edge</b> shows an amber <span class="am">warming</span>
+dot (connecting). Each chip stays a full 44 px tall — a comfortable thumb
+target — and horizontal scroll is native, no measurement pass.</p></div></div>
+<h2 id="adding-a-host-on-a-phone">Adding a host on a phone</h2>
+<p>The desktop <code>+</code> opens <code>AddHostAffordance</code> — an anchored popover with an ALPHA
+notice, a docs link, and an ssh-target input. The prototype reused it verbatim,
+which surfaced the real design fork: <strong>that popover is anchored and fixed-width,
+so at phone width it overflows the viewport and clips.</strong> So this is presented as
+two mockups — the honest current behaviour, and a proposed mobile-native
+variant — for a design call.</p>
+<div class="mh-wrap"><div class="ph"><div class="ph-screen"><div class="cvfloor" style="--hue:#64748b"></div><div class="sheet"><div class="grip"><i></i></div><div class="sh-head"><span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none"><i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6"></i><i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6"></i><i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399"></i></span><span class="ttl">Kolu [local]</span><span class="srv"></span></div><div class="hrow"><div class="lbl">Hosts</div><div class="chips"><span class="chip on" style="--hue:#64748b"><span class="dot ok"></span><svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>local</span><span class="add">+</span></div></div></div><div class="pop"><div class="cr"><span class="alpha">Alpha</span><span class="h">Remote hosts</span></div><div class="note">Connecting other machines over ssh is an early feature. <span class="link">Learn more →</span></div><div class="field"><span>ssh host, e.g. srid@zest</span></div></div><div class="clipwarn"></div></div></div><div class="mh-cap"><p><b>Current, reused as-is.</b> The popover anchors to the tiny <code>+</code>
+with a 288 px min-width, so on a 390 px screen the copy and the input run
+<span class="bad">off the right edge</span> (the dashed red rule). Usable
+enough to demo, cramped enough that it shouldn’t ship as the mobile add
+surface. This is design input, not prototype scope — it was <i>observed</i>,
+not fixed.</p></div></div>
+<div class="mh-wrap"><div class="ph"><div class="ph-screen"><div class="cvfloor" style="--hue:#64748b"></div><div class="sheet"><div class="grip"><i></i></div><div class="sh-head"><span aria-hidden="true" style="display:flex;flex-direction:column;gap:2px;flex:none"><i style="display:block;height:3px;width:9px;border-radius:2px;background:#f472b6"></i><i style="display:block;height:3px;width:13px;border-radius:2px;background:#8b5cf6"></i><i style="display:block;height:3px;width:17px;border-radius:2px;background:#34d399"></i></span><span class="ttl">Kolu [local]</span><span class="srv"></span></div><div class="addsheet"><div class="cr"><span class="alpha">Alpha</span><span class="h">Add a host</span></div><div class="note">Connect another machine over ssh — an early feature. <span class="link">Learn more →</span></div><div class="field"><span class="cur">srid@zest▏</span><span class="go">Add</span></div></div><div class="hrow"><div class="lbl">Hosts</div><div class="chips"><span class="chip on" style="--hue:#64748b"><span class="dot ok"></span><svg class="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>local</span></div></div></div></div></div><div class="mh-cap"><p><b>Proposed — recommended.</b> Instead of an anchored popover, the <code>+</code>
+expands an <b>in-sheet section</b> spanning the full sheet width: the same
+ALPHA notice and ssh field, but nothing to clip, a full-width 44 px input,
+and a thumb-sized <b>Add</b> button. It reuses the same
+<code>client.hosts.add</code> path — only the container changes from a
+portalled popover to a sheet section.</p></div></div>
+<h2 id="how-it-wires-in">How it wires in</h2>
+<p>The whole point is that this is a <strong>thin leaf</strong>, not new machinery. <code>App.tsx</code>
+already forks on <code>isDesktop()</code>; the desktop branch mounts <code>ChromeBar → HostSelectorStrip</code>, and the touch branch mounts the pull-down sheet. This
+proposal adds one component — <code>MobileHostRow</code> — to that sheet, and it reads the
+<strong>exact same seams</strong> the desktop strip reads: <code>padiMap.entries</code> for the host
+list, each entry’s <code>cells.urgency</code> for the awaiting count, <code>hostChipTone</code>
+(<code>dotClass</code> / <code>hostHue</code>) for tone and identity, <code>ATTENTION_PILL_CLASS</code> for the
+pill, and <code>setActiveHost</code> for the switch.</p>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg viewBox="0 0 900 430" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui" role="img" aria-label="App.tsx's isDesktop() gate forks into a desktop chrome bar and a mobile pull-down sheet; both host surfaces are thin leaves reading one shared, layout-agnostic engine seam.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#8a8296"/>
+    </marker>
+    <marker id="ahc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0d9488"/>
+    </marker>
+  </defs>
+
+  <!-- App.tsx gate -->
+  <rect x="360" y="16" width="180" height="52" rx="10" fill="#fbf9fe" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="450" y="38" text-anchor="middle" font-size="13" font-weight="700" fill="#2c2735">App.tsx</text>
+  <text x="450" y="56" text-anchor="middle" font-size="11" font-family="ui-monospace,monospace" fill="#7c3aed">isDesktop() ? … : …</text>
+
+  <!-- desktop branch -->
+  <path d="M400 68 L250 104" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="300" y="90" text-anchor="middle" font-size="10" fill="#8a8296">desktop</text>
+  <rect x="120" y="106" width="260" height="46" rx="9" fill="#f6f4ef" stroke="#d9d3c6" stroke-width="1.2"/>
+  <text x="250" y="127" text-anchor="middle" font-size="12" font-weight="600" fill="#3a3442">ChromeBar</text>
+  <text x="250" y="143" text-anchor="middle" font-size="10" fill="#8a8296">persistent top bar · desktop only</text>
+
+  <path d="M250 152 L250 186" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <rect x="120" y="188" width="260" height="50" rx="9" fill="#f6f4ef" stroke="#d9d3c6" stroke-width="1.2"/>
+  <text x="250" y="209" text-anchor="middle" font-size="12" font-weight="600" fill="#3a3442">HostSelectorStrip</text>
+  <text x="250" y="226" text-anchor="middle" font-size="10" fill="#8a8296">the chip row that exists today</text>
+
+  <!-- mobile branch -->
+  <path d="M500 68 L650 104" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="600" y="90" text-anchor="middle" font-size="10" fill="#8a8296">touch</text>
+  <rect x="520" y="106" width="260" height="46" rx="9" fill="#f6f4ef" stroke="#d9d3c6" stroke-width="1.2"/>
+  <text x="650" y="127" text-anchor="middle" font-size="12" font-weight="600" fill="#3a3442">MobileChromeSheet</text>
+  <text x="650" y="143" text-anchor="middle" font-size="10" fill="#8a8296">pull-down sheet · mount point</text>
+
+  <path d="M650 152 L650 186" fill="none" stroke="#0d9488" stroke-width="1.6" marker-end="url(#ahc)"/>
+  <rect x="520" y="188" width="260" height="50" rx="9" fill="#e3f4f1" stroke="#0d9488" stroke-width="1.8"/>
+  <text x="650" y="208" text-anchor="middle" font-size="12" font-weight="700" fill="#0b5f57">MobileHostRow  ·  NEW</text>
+  <text x="650" y="225" text-anchor="middle" font-size="10" fill="#0b7d72">~130 lines, this proposal</text>
+
+  <!-- shared engine seam -->
+  <rect x="150" y="292" width="600" height="118" rx="12" fill="#faf8fd" stroke="#7c3aed" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="450" y="314" text-anchor="middle" font-size="12" font-weight="700" fill="#2c2735">One layout-agnostic engine — the exact seams the desktop strip already reads</text>
+  <g font-size="10.5" font-family="ui-monospace,monospace" fill="#4a4453">
+    <rect x="170" y="330" width="180" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="260" y="349" text-anchor="middle">padiMap.entries</text>
+    <rect x="360" y="330" width="180" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="450" y="349" text-anchor="middle">entry.cells.urgency</text>
+    <rect x="550" y="330" width="180" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="640" y="349" text-anchor="middle">setActiveHost(host)</text>
+    <rect x="200" y="368" width="220" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="310" y="387" text-anchor="middle">hostChipTone · dotClass · hostHue</text>
+    <rect x="480" y="368" width="220" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="590" y="387" text-anchor="middle">ATTENTION_PILL_CLASS</text>
+  </g>
+
+  <!-- both leaves read the seam -->
+  <path d="M250 238 L300 292" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <path d="M650 238 L600 292" fill="none" stroke="#0d9488" stroke-width="1.6" marker-end="url(#ahc)"/>
+  <text x="450" y="270" text-anchor="middle" font-size="10.5" fill="#8a8296" font-style="italic">both surfaces are thin leaves — same reads, same write, no new store / stream / chord</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>isDesktop() forks App.tsx into two host surfaces. HostSelectorStrip (desktop) and the proposed MobileHostRow (mobile) are both thin leaves onto one layout-agnostic engine — the same reads (padiMap.entries, entry.cells.urgency), the same tokens (hostChipTone, ATTENTION_PILL_CLASS), the same write (setActiveHost). No new store, stream, or keybinding: the engine already streams host membership and urgency, and W9/W10 already own retained-switch and persistence.</figcaption></figure>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>No new electricity — this is not a receptacle</p><div class="callout-body" data-astro-cid-q2ml7llr><p>By the electricity test, <code>MobileHostRow</code> hides no <em>hard</em> volatility of its own:
+transport, reconnect, persistence, and retained-switch all live below it in the
+host map and the <code>@kolu/surface-map</code> layer. It is a <strong>presentation leaf</strong> that
+projects already-streamed state, the mobile twin of <code>HostSelectorStrip</code>. So it
+belongs in the client’s <code>host/</code> module beside its desktop sibling — <strong>not</strong> a new
+<code>@kolu/*</code> package. The one shared thing worth watching is the vocabulary:
+<code>hostChipTone</code> and <code>ATTENTION_PILL_CLASS</code> are the single source both leaves must
+keep consuming, so the pixel-language constraint holds by construction rather
+than by discipline.</p></div></aside>
+<h2 id="implementation--one-client-only-pr">Implementation — one client-only PR</h2>
+<p>This is a single, client-only change threading existing seams — no server, no
+protocol, no package. It reuses one already-exported affordance
+(<code>AddHostAffordance</code>) and adds one component plus one mount line.</p>
+<table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>What it is</th>
+<th>Grounding</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MobileHostRow.tsx</code></td>
+<td>New leaf: the chip row + add affordance, ~130 lines</td>
+<td>reads <code>padiMap.entries</code>, <code>entry.cells.urgency</code>, calls <code>setActiveHost</code></td>
+</tr>
+<tr>
+<td><code>MobileChromeSheet.tsx</code></td>
+<td>One import + one mount line, host row above the control cluster</td>
+<td><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/MobileChromeSheet.tsx" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/MobileChromeSheet.tsx</a></td>
+</tr>
+<tr>
+<td><code>hostChipTone</code> reuse</td>
+<td><code>dotClass</code> / <code>hostHue</code> / <code>hostLabel</code> / <code>sameHost</code> / <code>statusTitle</code></td>
+<td><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/host/hostChipTone.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/host/hostChipTone.ts</a></td>
+</tr>
+<tr>
+<td><code>ATTENTION_PILL_CLASS</code> reuse</td>
+<td>the amber pill token from <a href="https://github.com/juspay/kolu/pull/1774" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1774</a></td>
+<td><code>@kolu/solid-statepip/pipVariant</code></td>
+</tr>
+<tr>
+<td>add-host</td>
+<td>export existing <code>AddHostAffordance</code>, or build the in-sheet variant</td>
+<td><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/host/HostSelectorStrip.tsx" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/host/HostSelectorStrip.tsx</a></td>
+</tr>
+</tbody>
+</table>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Head start — a working prototype is already parked</p><div class="callout-body" data-astro-cid-q2ml7llr><p>A runnable prototype was built during the spike that produced this note and is
+<strong>parked on branch <code>mobilereite</code></strong> (not merged, not PR’d): <code>MobileHostRow.tsx</code>,
+the <code>MobileChromeSheet</code> mount, and an <code>export</code> on <code>AddHostAffordance</code>. It was
+driven in a phone-emulated browser and confirmed the load-bearing behaviours —
+chips at exactly 44 px, <code>overflow-x: auto</code> scroll, a tap re-keying the canvas to
+the tapped host, and the add-popover overflow finding that drove the design fork
+above. The implementing agent can start from that commit rather than a blank
+file; the one real decision left is the add-host surface (reuse the cramped
+popover vs. build the in-sheet variant).</p></div></aside>
+<h3 id="decisions-to-settle-before-building">Decisions to settle before building</h3>
+<p>Two forks change the build and are srid’s call — they’re deliberately left open
+here because the whole note is a mockup to react to:</p>
+<ul>
+<li><strong>Add-host surface</strong> — reuse the current anchored <code>AddHostAffordance</code> popover
+(cheapest; visibly cramped at phone width), or build the proposed in-sheet
+full-width variant (a little more work; the honest mobile answer). <em>Recommend
+the in-sheet variant.</em></li>
+<li><strong>Overflow model</strong> — the horizontally-scrolling row shown here (lighter,
+reads as a touch gesture), or port desktop’s <code>⋯ +N</code> fold / dropdown collapse
+(keeps the active chip always visible without scrolling). <em>Recommend the
+scroll-row.</em></li>
+</ul>
+<p>One smaller choice is baked in as a default, not a question: the row lives at
+the <strong>top of the sheet</strong>, above the palette/settings cluster, because host
+identity is the most global thing in the sheet. Once srid reacts to these
+mockups, a <code>/be</code> run implements the chosen variants from the parked head-start.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+<script>
+  (function () {
+    var fns = Array.prototype.slice.call(
+      document.querySelectorAll(".fn[data-fn]"),
+    );
+    if (!fns.length) return;
+
+    // Position an open popover: reset, measure, then pull it back inside the
+    // viewport horizontally and flip it above the marker if it overflows below.
+    function place(fn) {
+      var pop = fn.querySelector(".fn-pop");
+      if (!pop) return;
+      pop.style.setProperty("--fn-x", "0px");
+      pop.classList.remove("fn-pop-above");
+      var r = pop.getBoundingClientRect();
+      var pad = 8;
+      var dx = 0;
+      if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+      else if (r.left < pad) dx = pad - r.left;
+      if (dx) pop.style.setProperty("--fn-x", dx + "px");
+      if (r.bottom > window.innerHeight - pad) pop.classList.add("fn-pop-above");
+    }
+
+    function setPinned(fn, on) {
+      fn.classList.toggle("is-pinned", on);
+      var btn = fn.querySelector(".fn-ref");
+      if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+
+    function unpinAll(except) {
+      fns.forEach(function (fn) {
+        if (fn !== except) setPinned(fn, false);
+      });
+    }
+
+    fns.forEach(function (fn) {
+      var btn = fn.querySelector(".fn-ref");
+      if (!btn) return;
+      // Place on reveal so the CSS-shown popover lands in the right spot.
+      btn.addEventListener("pointerenter", function () {
+        place(fn);
+      });
+      btn.addEventListener("focus", function () {
+        place(fn);
+      });
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pin = !fn.classList.contains("is-pinned");
+        unpinAll(fn);
+        setPinned(fn, pin);
+        if (pin) place(fn);
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.closest || !t.closest(".fn[data-fn]")) unpinAll(null);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") unpinAll(null);
+    });
+    window.addEventListener("resize", function () {
+      fns.forEach(function (fn) {
+        if (fn.classList.contains("is-pinned")) place(fn);
+      });
+    });
+  })();
+</script></body></html>

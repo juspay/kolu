@@ -1,0 +1,60 @@
+<svg viewBox="0 0 900 430" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui" role="img" aria-label="App.tsx's isDesktop() gate forks into a desktop chrome bar and a mobile pull-down sheet; both host surfaces are thin leaves reading one shared, layout-agnostic engine seam.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#8a8296"/>
+    </marker>
+    <marker id="ahc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0d9488"/>
+    </marker>
+  </defs>
+
+  <!-- App.tsx gate -->
+  <rect x="360" y="16" width="180" height="52" rx="10" fill="#fbf9fe" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="450" y="38" text-anchor="middle" font-size="13" font-weight="700" fill="#2c2735">App.tsx</text>
+  <text x="450" y="56" text-anchor="middle" font-size="11" font-family="ui-monospace,monospace" fill="#7c3aed">isDesktop() ? … : …</text>
+
+  <!-- desktop branch -->
+  <path d="M400 68 L250 104" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="300" y="90" text-anchor="middle" font-size="10" fill="#8a8296">desktop</text>
+  <rect x="120" y="106" width="260" height="46" rx="9" fill="#f6f4ef" stroke="#d9d3c6" stroke-width="1.2"/>
+  <text x="250" y="127" text-anchor="middle" font-size="12" font-weight="600" fill="#3a3442">ChromeBar</text>
+  <text x="250" y="143" text-anchor="middle" font-size="10" fill="#8a8296">persistent top bar · desktop only</text>
+
+  <path d="M250 152 L250 186" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <rect x="120" y="188" width="260" height="50" rx="9" fill="#f6f4ef" stroke="#d9d3c6" stroke-width="1.2"/>
+  <text x="250" y="209" text-anchor="middle" font-size="12" font-weight="600" fill="#3a3442">HostSelectorStrip</text>
+  <text x="250" y="226" text-anchor="middle" font-size="10" fill="#8a8296">the chip row that exists today</text>
+
+  <!-- mobile branch -->
+  <path d="M500 68 L650 104" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="600" y="90" text-anchor="middle" font-size="10" fill="#8a8296">touch</text>
+  <rect x="520" y="106" width="260" height="46" rx="9" fill="#f6f4ef" stroke="#d9d3c6" stroke-width="1.2"/>
+  <text x="650" y="127" text-anchor="middle" font-size="12" font-weight="600" fill="#3a3442">MobileChromeSheet</text>
+  <text x="650" y="143" text-anchor="middle" font-size="10" fill="#8a8296">pull-down sheet · mount point</text>
+
+  <path d="M650 152 L650 186" fill="none" stroke="#0d9488" stroke-width="1.6" marker-end="url(#ahc)"/>
+  <rect x="520" y="188" width="260" height="50" rx="9" fill="#e3f4f1" stroke="#0d9488" stroke-width="1.8"/>
+  <text x="650" y="208" text-anchor="middle" font-size="12" font-weight="700" fill="#0b5f57">MobileHostRow  ·  NEW</text>
+  <text x="650" y="225" text-anchor="middle" font-size="10" fill="#0b7d72">~130 lines, this proposal</text>
+
+  <!-- shared engine seam -->
+  <rect x="150" y="292" width="600" height="118" rx="12" fill="#faf8fd" stroke="#7c3aed" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="450" y="314" text-anchor="middle" font-size="12" font-weight="700" fill="#2c2735">One layout-agnostic engine — the exact seams the desktop strip already reads</text>
+  <g font-size="10.5" font-family="ui-monospace,monospace" fill="#4a4453">
+    <rect x="170" y="330" width="180" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="260" y="349" text-anchor="middle">padiMap.entries</text>
+    <rect x="360" y="330" width="180" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="450" y="349" text-anchor="middle">entry.cells.urgency</text>
+    <rect x="550" y="330" width="180" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="640" y="349" text-anchor="middle">setActiveHost(host)</text>
+    <rect x="200" y="368" width="220" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="310" y="387" text-anchor="middle">hostChipTone · dotClass · hostHue</text>
+    <rect x="480" y="368" width="220" height="30" rx="6" fill="#fff" stroke="#e0d8ec"/>
+    <text x="590" y="387" text-anchor="middle">ATTENTION_PILL_CLASS</text>
+  </g>
+
+  <!-- both leaves read the seam -->
+  <path d="M250 238 L300 292" fill="none" stroke="#8a8296" stroke-width="1.4" marker-end="url(#ah)"/>
+  <path d="M650 238 L600 292" fill="none" stroke="#0d9488" stroke-width="1.6" marker-end="url(#ahc)"/>
+  <text x="450" y="270" text-anchor="middle" font-size="10.5" fill="#8a8296" font-style="italic">both surfaces are thin leaves — same reads, same write, no new store / stream / chord</text>
+</svg>
