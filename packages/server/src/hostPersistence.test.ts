@@ -75,6 +75,14 @@ describe("loadPersistedHosts", () => {
     // The fail-fast contract: never collapse a caught error to `[]`.
     expect(() => loadPersistedHosts(path)).toThrow();
   });
+
+  it("a non-ENOENT read error (a directory in the file's place) THROWS, not []", () => {
+    // Only a genuinely-absent file (ENOENT) reads as a fresh install. Point the
+    // loader at a directory: readFileSync raises EISDIR, which must surface — never
+    // collapse to an empty fleet (the `existsSync` trap this guards against).
+    const dir = freshDir();
+    expect(() => loadPersistedHosts(dir)).toThrow();
+  });
 });
 
 describe("savePersistedHosts", () => {

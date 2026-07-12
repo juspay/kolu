@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/server/src/{state,preferences,activity,session}.ts"
+  - "packages/server/src/{state,preferences,activity,session,hostPersistence}.ts"
 ---
 
 ## Persistent State (conf)

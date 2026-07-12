@@ -22,7 +22,7 @@
  * a corrupt file here CRASHES the boot — a silently-emptied fleet is data loss.
  */
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import { z } from "zod";
@@ -66,14 +66,22 @@ export type PersistedHosts = z.infer<typeof PersistedHostsSchema>;
 
 /** Load the remembered guest hosts (encoded keys the pool speaks).
  *
- *  - Absent file → `[]` (a fresh install has no fleet yet).
+ *  - Absent file (`ENOENT`) → `[]` (a fresh install has no fleet yet).
  *  - A file that EXISTS but is unreadable / not JSON / fails the schema THROWS
  *    loudly, naming the path — never silently starts with an empty fleet, which
  *    would eat the user's fleet (fail-fast; `caught-error-must-not-collapse-to-empty`).
- *    Delete the file to recover. */
+ *    Delete the file to recover. Only `ENOENT` reads as "fresh install" — a
+ *    permission error (`EACCES`) or an unreadable parent must NOT collapse to `[]`,
+ *    so we branch on the READ's error code rather than a prior `existsSync` (which
+ *    itself returns `false` on `EACCES`, silently eating the fleet). */
 export function loadPersistedHosts(path: string): string[] {
-  if (!existsSync(path)) return [];
-  const raw = readFileSync(path, "utf8");
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err; // EACCES / EISDIR / … — fail loud, never collapse to an empty fleet
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -107,7 +115,12 @@ export function savePersistedHosts(
 ): void {
   const payload: PersistedHosts = { version: 1, hosts: [...hosts] };
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  // mode 0600 — the file holds ssh targets (`user@host`); keep it owner-only rather
+  // than inherit the ambient umask's usually-world-readable 0644.
+  writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   renameSync(tmp, path);
 }
 
