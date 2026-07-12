@@ -44,14 +44,8 @@ import { PdfRenderer } from "@kolu/solid-fileview/renderers/pdf";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import { resolveWikilink } from "@kolu/solid-markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
-import { ORPCError } from "@orpc/client";
 import { encodeHostKey } from "kolu-common/hostKey";
-import {
-  binaryPreviewFamily,
-  buildTerminalFileUrl,
-  isBinaryPreviewable,
-  isMarkdown,
-} from "kolu-common/preview";
+import { binaryPreviewFamily, isMarkdown } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -67,10 +61,10 @@ import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { activeHost, activePadiRpc, padiMap } from "../wire";
+import { activeHost } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import { createPolledQuery } from "./createPolledQuery";
+import { codeFileContent } from "./hostCodeTab";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
@@ -120,66 +114,16 @@ export type BrowseFileDispatcherProps = {
   onOpenExternal?: (url: string) => void;
 };
 
-/** The client-side text|binary partition, moved off the wire. `padiSurface`'s
- *  `fs.readFile` is TEXT-ONLY (`{ content, truncated }`) — deliberately not the
- *  union `koluSurface.fsReadFile` returned — so the dispatcher decides binary vs
- *  text itself, exactly as the old server backing did. A binary-previewable file
- *  reads a CONTENT hash (`fs.filePreviewTag`) and builds the
- *  `/api/terminals/:host/:id/file` URL with a `?v=<tag>` cache-key (the
- *  same route + shape the server built, still served until W1.R5) so a real
- *  content change bumps the URL and the img/iframe reloads — while an
- *  identical-content rewrite (mtime bumped, bytes unchanged) leaves the URL
- *  stable and the preview un-reloaded; a text file reads its content. Either way
- *  the `subscribeFileChange` pulse requeries on change, so the preview stays
- *  live. */
-type BrowseFileContent =
-  | { kind: "text"; content: string; truncated: boolean }
-  | { kind: "binary"; url: string };
-
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
-  const fileContent = createPolledQuery({
-    input: () => ({
-      terminalId: props.terminalId,
-      repoPath: props.repoPath,
-      filePath: props.filePath,
-    }),
-    live: () => padiMap.live(),
-    pulseProc: () => activePadiRpc.surface.subscribeFileChange.get,
-    pulseHost: activeHost,
-    pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
-    query: async (i, signal): Promise<BrowseFileContent> => {
-      if (isBinaryPreviewable(i.filePath)) {
-        const previewTag = await activePadiRpc.surface.fs.filePreviewTag(
-          { repoPath: i.repoPath, filePath: i.filePath },
-          { signal },
-        );
-        return {
-          kind: "binary",
-          // Cache-bust by a CONTENT hash, not mtime: the iframe reloads (and a
-          // mid-scrolled preview jumps to the top) only when the file's BYTES
-          // change — never on an identical-content rewrite that merely bumps
-          // mtime (a `git checkout` across branches, a formatter's atomic
-          // write-and-rename). Key the file URL by the ACTIVE host's CANONICAL
-          // string so the route reads the bytes from the same padi the tag above
-          // came from — a remote host's preview must not resolve against the
-          // local default.
-          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
-        };
-      }
-      const { content, truncated } = await activePadiRpc.surface.fs.readFile(
-        { repoPath: i.repoPath, filePath: i.filePath },
-        { signal },
-      );
-      return { kind: "text", content, truncated };
-    },
-    onError: (err) => toast.error(`File content stream: ${err.message}`),
-    // Delete-while-viewing parity: a file removed under the open Code tab makes
-    // `fs.readFile`/`filePreviewTag` return a typed `NOT_FOUND` (servePadi maps
-    // the ENOENT). Swallow it — keep the last content until the selection changes
-    // — exactly as the old koluSurface value stream did (it just stopped
-    // yielding); a raw ~150ms ENOENT error panel was a W1 regression.
-    swallowError: (err) => err instanceof ORPCError && err.code === "NOT_FOUND",
-  });
+  // The file-content read is RETAINED per host in `hostCodeTab` (padi W9): a stable
+  // window over the active host's own instance, so a switch-BACK — and this
+  // dispatcher's own unmount/remount (it lives under `CodeTab`'s keyed `<Show>` on the
+  // selected path, so every selection or host switch tears it down) — reads the held
+  // content with no blank and no `pending` window. The query's binary/text decision,
+  // input (browse-mode + selected file), and pulse all live at its real home; this
+  // component only READS `fileContent()` to render. `props` still feed the RENDER
+  // (theme, comment surface, wikilink vault) — only the query moved out.
+  const fileContent = codeFileContent;
 
   // ── Wikilink navigation ────────────────────────────────────────────
   // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),

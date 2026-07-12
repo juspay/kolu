@@ -35,7 +35,7 @@ import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
-import { recentAgents, recentRepos } from "./wire";
+import { recentAgents, recentRepos } from "./hostScope/activeWire";
 
 /** Body component factory for the "Search workspaces" group. Captures
  *  the entries accessor + recency lookup in a closure so the palette

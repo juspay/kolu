@@ -22,7 +22,6 @@ import {
 } from "@kolu/padi/surface";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
-import { ORPCError } from "@orpc/client";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -64,10 +63,15 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { isDesktop, isTouch } from "../useMobile";
-import { activePadiRpc } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import { createRepoPolledQuery } from "./createRepoPolledQuery";
+import {
+  codeActiveStatus,
+  codeAllPaths,
+  codeBranchStatus,
+  codeDiff,
+  codeLocalStatus,
+} from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import {
@@ -302,95 +306,27 @@ const CodeTab: Component<{
   // value is already correct without writing through. slotKey effect now
   // only clears `searchQuery`, which is genuinely shared across slots.)
 
-  // The repo's `origin` default branch isn't fetched ⇒ branch-mode status
-  // errors with BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`, surfaced as
-  // an ORPCError PRECONDITION_FAILED). This is the only *expected* git-status
-  // failure, and only for the always-on passive `branchStatus` below — every
-  // other error code, and the active-view subscription, surface their errors.
-  const isUnfetchedBase = (err: Error): boolean =>
-    err instanceof ORPCError && err.code === "PRECONDITION_FAILED";
-
-  // `localStatus` and (passive) `branchStatus` stay subscribed whenever there's
-  // a repo, independent of the active view, so the scope switcher's Local /
-  // Branch change-count badges, the branch base/ref, and the browse-mode tree
-  // decoration (`treeGitStatus`) are always warm. The *active* diff view does
-  // NOT reuse these: it has its own view-keyed subscription (`activeStatus`
-  // below) so entering a mode performs a fresh read. That separation is
-  // load-bearing for Branch: a passive branch read can fail (an un-fetched
-  // base) *before* the user ever opens Branch view; were the active view to
-  // reuse that subscription it would be stuck on the stale error —
-  // `createReactiveSubscription` only re-reads when its input changes, and a
-  // later `git fetch` would never revive it because the failed initial server
-  // read tore the stream down before its repo-change watcher was installed
-  // (server.ts `pollOnEvent`).
-  const localStatus = createRepoPolledQuery({
-    input: () => {
-      const p = repoPath();
-      return p ? { repoPath: p, mode: "local" as const } : null;
-    },
-    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
-    onError: (err) => toast.error(`Git status stream: ${err.message}`),
-  });
-  // Passive branch status — feeds the Branch badge/count, branch base/ref, and
-  // the browse overlay, never the active Branch file list. The un-fetched-base
-  // case is *expected* here (the badge just reads no count / the overlay falls
-  // back to the local layer), so it's swallowed; any *other* failure
-  // (GIT_FAILED, permission, transport) is a real fault and still toasts.
-  const branchStatus = createRepoPolledQuery({
-    input: () => {
-      const p = repoPath();
-      return p ? { repoPath: p, mode: "branch" as const } : null;
-    },
-    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
-    onError: (err) => {
-      if (isUnfetchedBase(err)) return;
-      toast.error(`Git status stream: ${err.message}`);
-    },
-  });
-
-  // Active-view status: a fresh, view-keyed read for whichever diff mode is
-  // showing (browse reads neither — it's a file tree, not a diff). Keying the
-  // input on the active mode means selecting Branch always performs a fresh
-  // read — it can't inherit a stale error from the passive `branchStatus`, and
-  // it revives after a `git fetch`. Every error surfaces here (the user is
-  // actively in this mode, so even the un-fetched-base case is actionable —
-  // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
-  // the rest of the component consumed off the old single subscription.
-  const activeStatus = createRepoPolledQuery({
-    input: () => {
-      const p = repoPath();
-      const m = diffMode();
-      return p && m ? { repoPath: p, mode: m } : null;
-    },
-    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
-    onError: (err) => toast.error(`Git status stream: ${err.message}`),
-  });
+  // The three git status streams, the browse file list, and the diff are RETAINED
+  // per host in `hostCodeTab` (padi W9): each name below is a STABLE window over the
+  // active host's own retained instance, so a switch-BACK — and a `canvasMode`
+  // round-trip that unmounts this tab — reads the held value with no blank and no
+  // `pending` window. Only the OWNER moved out of this component; the local names are
+  // kept verbatim so every reader below (`treeGitStatus`, `scopeSegments`, the diff
+  // Match, the selection-stability effects, `status`/`statusPending`/`statusError`) is
+  // unchanged. `localStatus`/`branchStatus` stay warm whenever there's a repo (Local /
+  // Branch badges, base/ref, browse overlay); the un-fetched-base PRECONDITION_FAILED
+  // case is swallowed for the passive `branchStatus` inside `hostCodeTab`. `activeStatus`
+  // is the view-keyed active read — entering Branch performs a fresh read, never a stale
+  // error. The queries' INPUTS live in `hostCodeTab` (read off the active projection);
+  // this component now only READS their values and WRITES selection.
+  const localStatus = codeLocalStatus;
+  const branchStatus = codeBranchStatus;
+  const activeStatus = codeActiveStatus;
+  const allPaths = codeAllPaths;
+  const diff = codeDiff;
   const status = () => activeStatus();
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
-
-  const allPaths = createRepoPolledQuery({
-    input: () => {
-      const p = repoPath();
-      return p && view() === "browse" ? { repoPath: p } : null;
-    },
-    query: (i, signal) => activePadiRpc.surface.fs.listAll(i, { signal }),
-    onError: (err) => toast.error(`File list stream: ${err.message}`),
-  });
-
-  const diff = createRepoPolledQuery({
-    input: () => {
-      const p = repoPath();
-      const s = selectedPath();
-      const m = diffMode();
-      if (!p || !s || !m) return null;
-      const file = status()?.files.find((f) => f.path === s);
-      if (!file) return null;
-      return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
-    },
-    query: (i, signal) => activePadiRpc.surface.git.getDiff(i, { signal }),
-    onError: (err) => toast.error(`Git diff stream: ${err.message}`),
-  });
 
   // Clear the filename filter when the slot changes — the search needle
   // was scoped to the previous file set and rarely makes sense post-

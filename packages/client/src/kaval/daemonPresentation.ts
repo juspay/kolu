@@ -192,7 +192,8 @@ export function liveDownState(
 
 // ── The active-entry leg: the SECOND floor on the (host-scoped) kaval daemonStatus ──
 //
-// W4 scopes `daemonStatus` to `useEntry(activeHost)`. For a REMOTE active host the
+// `daemonStatus` is scoped per active host — RETAINED per host since W9
+// (`activeScope().wire.daemonStatus`). For a REMOTE active host the
 // browser↔kolu-server ws (`transportLive`) can be up while the leg that actually delivers
 // that host's status — the server→remote link (the entry's own `EntryStatus`, projected
 // from its session's connection state, {@link @kolu/surface-remote's serveHostMap}) — is
