@@ -24,11 +24,17 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodeHostKey } from "kolu-common/hostKey";
+import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import { z } from "zod";
 
 /** The file basename, beside `conf`'s `config.json` under the state root. */
 const HOSTS_FILE_NAME = "hosts.json";
+
+/** The one never-persisted member: the local machine, seeded in code (`LOCAL_HOST`)
+ *  before the server listens. Persisting it would mint a second authority for
+ *  "local always exists". Computed once at module load — `LOCAL_HOST` is a constant,
+ *  so the filter never recomputes it per element. */
+const LOCAL_KEY = encodeHostKey(LOCAL_HOST);
 
 /** The remembered-hosts file path under a given state root (`KOLU_STATE_DIR`). */
 export function hostsFilePath(stateDir: string): string {
@@ -106,7 +112,9 @@ export function savePersistedHosts(
 }
 
 /** Persist the pool's guest membership after an add/remove: every current member
- *  EXCEPT the unremovable local default (`defaultKey` — its `encodeHostKey`).
+ *  EXCEPT the unremovable local default ({@link LOCAL_KEY} — the code-seeded
+ *  `LOCAL_HOST`, the actual invariant, not whichever host the canvas happens to
+ *  boot on).
  *
  *  Wired as `buildRemotePool`'s `persist` hook, so the pool's OWN contract carries
  *  the durability guarantees — the write is ordered BEFORE the in-memory commit,
@@ -116,10 +124,9 @@ export function savePersistedHosts(
 export function savePoolMembership(
   path: string,
   members: readonly string[],
-  defaultKey: string,
 ): void {
   savePersistedHosts(
     path,
-    members.filter((h) => h !== defaultKey),
+    members.filter((h) => h !== LOCAL_KEY),
   );
 }

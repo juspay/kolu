@@ -96,13 +96,13 @@ describe("savePersistedHosts", () => {
 describe("savePoolMembership", () => {
   it("excludes the unremovable local default — it never enters the file", () => {
     const path = hostsFilePath(freshDir());
-    savePoolMembership(path, [LOCAL, "remote:a", "remote:b"], LOCAL);
+    savePoolMembership(path, [LOCAL, "remote:a", "remote:b"]);
     expect(loadPersistedHosts(path)).toEqual(["remote:a", "remote:b"]);
   });
 
   it("writes an empty list when the pool holds only the local default", () => {
     const path = hostsFilePath(freshDir());
-    savePoolMembership(path, [LOCAL], LOCAL);
+    savePoolMembership(path, [LOCAL]);
     expect(loadPersistedHosts(path)).toEqual([]);
   });
 });
@@ -116,8 +116,7 @@ describe("round-trip through buildRemotePool's persist hook", () => {
 
   it("persists add/remove and restores the fleet on restart", async () => {
     const path = hostsFilePath(freshDir());
-    const persist = async (hosts: string[]) =>
-      savePoolMembership(path, hosts, LOCAL);
+    const persist = async (hosts: string[]) => savePoolMembership(path, hosts);
 
     const pool = buildRemotePool<{ destroy(): void }, undefined>({
       initialHosts: [LOCAL], // the seeded local default
