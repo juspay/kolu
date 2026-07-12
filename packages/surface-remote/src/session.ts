@@ -436,6 +436,13 @@ export function makeSession<
    *  completed probe, and on each fresh liveness start). Unused by the ssh arm (no
    *  oracle → it force-cycles on the first silence). */
   let livenessUnresponsiveSince: number | null = null;
+  /** The single in-flight liveness `isAlive` round-trip, or `null` when none is pending.
+   *  Caps concurrency to ONE probe per connection: during the local arm's hold-off (a slow
+   *  padi kept alive across repeated stale cycles) the heartbeat's timer re-fires every
+   *  cycle, but a fresh `hello()` would pile onto the already-struggling process — so we
+   *  REUSE this pending probe instead of launching another. Reset on the probe's own settle
+   *  and on each fresh liveness start. */
+  let inFlightProbe: Promise<void> | null = null;
   /** The bound server's served identity off its `system.identity`, or `null` before
    *  the first successful poll / after a link death (re-polled on the next connect,
    *  so a respawned server's fresh identity lands). `null` here is the INTERNAL
@@ -602,6 +609,7 @@ export function makeSession<
     if (opts.liveness === false || liveness !== null) return;
     const tuning = typeof opts.liveness === "object" ? opts.liveness : {};
     livenessUnresponsiveSince = null;
+    inFlightProbe = null;
     liveness = createHeartbeat({
       intervalMs: tuning.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
       timeoutMs: tuning.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
@@ -612,12 +620,33 @@ export function makeSession<
       probe: () => {
         const conn = current;
         if (conn === null) return Promise.reject(new Error("no connection"));
-        // A COMPLETED round-trip (even a rejection) proves the link answered, so the
-        // local arm's "alive-but-silent" ceiling clock resets — the slow spell passed.
-        // Harmless for the ssh arm, which never reads the clock.
-        return conn.isAlive().finally(() => {
-          livenessUnresponsiveSince = null;
+        // Cap concurrency to ONE outstanding round-trip: while a probe is still in
+        // flight (a genuinely slow padi, mid hold-off), the heartbeat re-fires its timer
+        // each cycle — reuse the pending probe rather than piling a fresh `hello()` onto
+        // the already-struggling process every ~25s. The reused promise still times out
+        // against the heartbeat each cycle (so `onStale` keeps re-checking the ceiling).
+        if (inFlightProbe !== null) return inFlightProbe;
+        // Guard the ceiling-clock reset against a STRAGGLING settle from a superseded
+        // dial: `conn.isAlive()` is never cancelled, so it can resolve/reject arbitrarily
+        // late — after `current` has moved to a fresh connection mid-way through its OWN
+        // dead-man countdown. Capture the connection + dial generation and reset only if
+        // both still match (mirrors `pollIdentity`'s epoch guard below); a late settle
+        // from a torn-down probe must not wipe a newer connection's clock.
+        const connAtLaunch = conn;
+        const epoch = dialEpoch;
+        const probe: Promise<void> = conn.isAlive().finally(() => {
+          // Clear only if still OURS — a stale settle must not null out a newer probe's
+          // in-flight tracking.
+          if (inFlightProbe === probe) inFlightProbe = null;
+          // A COMPLETED round-trip (even a rejection) proves the link answered, so the
+          // local arm's "alive-but-silent" ceiling clock resets — the slow spell passed.
+          // Harmless for the ssh arm, which never reads the clock.
+          if (current === connAtLaunch && dialEpoch === epoch) {
+            livenessUnresponsiveSince = null;
+          }
         });
+        inFlightProbe = probe;
+        return probe;
       },
       onStale: () => {
         if (destroyed) return;

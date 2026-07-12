@@ -270,6 +270,7 @@ type LocalClient = Record<string, never>;
 function localArm(processAlive: () => boolean) {
   let connects = 0;
   let teardowns = 0;
+  let isAliveCalls = 0;
   let resolveClosed: ((info: ClosedInfo) => void) | null = null;
   const connectOnce: Connector<LocalClient> = async (ctx) => {
     connects += 1;
@@ -280,7 +281,11 @@ function localArm(processAlive: () => boolean) {
         resolveClosed = res;
       }),
       // Never answers → every probe times out — the heartbeat-silent link #1776 is about.
-      isAlive: () => new Promise<void>(() => {}),
+      // Counted so a test can pin the concurrency cap (one reused probe, not one per cycle).
+      isAlive: () => {
+        isAliveCalls += 1;
+        return new Promise<void>(() => {});
+      },
       processAlive,
       teardown: () => {
         teardowns += 1;
@@ -288,7 +293,7 @@ function localArm(processAlive: () => boolean) {
       },
     };
   };
-  return { connectOnce, stats: () => ({ connects, teardowns }) };
+  return { connectOnce, stats: () => ({ connects, teardowns, isAliveCalls }) };
 }
 
 function localSession(processAlive: () => boolean) {
@@ -369,6 +374,11 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
     // Past the 60s dead-man ceiling (a deadlocked-but-alive padi), it force-cycles anyway.
     await vi.advanceTimersByTimeAsync(75_000);
     expect(arm.stats().teardowns).toBe(1);
+
+    // Concurrency cap: across the whole ~100s hold-off the watchdog re-fired every cycle,
+    // but only ONE `isAlive()` round-trip was ever outstanding — the pending probe was
+    // reused, never piled a fresh `hello()` onto the already-slow padi each cycle.
+    expect(arm.stats().isAliveCalls).toBe(1);
 
     session.destroy();
   });
