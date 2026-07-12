@@ -253,10 +253,11 @@ export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
  *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
  *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
  *  a `connected` wire status whose `identity` has not (yet) arrived. */
-/** kaval's serialized lifetime as it rides the wire — derived from the schema (not
- *  re-declared) so it can never drift. Optional on `DaemonStatus` (a survivor
- *  predating the 5.1 field reports none), so this is the non-null shape. */
-export type KavalLifetime = NonNullable<DaemonStatus["lifetime"]>;
+/** A daemon's serialized lifetime as it rides the wire — the daemon-neutral shape
+ *  shared by both kaval (`status.lifetime`) and padi (`identity.lifetime`), derived
+ *  from the schema (not re-declared) so it can never drift. Optional on the wire (a
+ *  survivor predating the field reports none), so this is the non-null shape. */
+export type DaemonLifetimeView = NonNullable<DaemonStatus["lifetime"]>;
 
 export type KavalPresence =
   | {
@@ -267,7 +268,7 @@ export type KavalPresence =
       socketPath: string | undefined;
       /** The daemon's lifetime (`forever` in production; `boundToPid` under a
        *  test/smoke run). `undefined` for a survivor predating the wire field. */
-      lifetime: KavalLifetime | undefined;
+      lifetime: DaemonLifetimeView | undefined;
     }
   | { kind: "warming" }
   | { kind: "down"; state: "dead" | "degraded" };
@@ -301,7 +302,9 @@ export function toKavalPresence(
  *  shared by both (padi's `identity.lifetime`, kaval's `status.lifetime`). A
  *  survivor predating the wire field (`undefined`) reads "—". `forever` is the
  *  production value; `boundToPid` appears under a test/smoke run. */
-export function formatLifetime(lifetime: KavalLifetime | undefined): string {
+export function formatLifetime(
+  lifetime: DaemonLifetimeView | undefined,
+): string {
   if (lifetime === undefined) return "—";
   switch (lifetime.kind) {
     case "forever":

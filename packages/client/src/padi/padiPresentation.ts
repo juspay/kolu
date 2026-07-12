@@ -9,10 +9,10 @@
  *  `daemonPresentation` so the padi and kaval dots can't drift on what
  *  "ok/warming/down/unknown" looks like. */
 
-import type { PadiIdentity } from "@kolu/padi/surface";
 import type { PadiConvergence, PadiLink } from "kolu-common/surface";
 import {
   DAEMON_UNKNOWN_DOT,
+  type DaemonLifetimeView,
   type DaemonTone,
   toneDot,
 } from "../kaval/daemonPresentation";
@@ -62,7 +62,7 @@ export type PadiIdentityView = {
    *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
    *  seeds it; `undefined` for a survivor padi predating the wire field, which the
    *  row renders as "—". */
-  lifetime: PadiIdentity["lifetime"];
+  lifetime: DaemonLifetimeView | undefined;
 };
 
 /** The Padi dialog/rail's own honest presence sum — narrower than the raw wire facts
@@ -100,7 +100,7 @@ export function toPadiPresence(
     | {
         commit: string | null;
         surfaceVersion: string;
-        lifetime?: PadiIdentity["lifetime"];
+        lifetime?: DaemonLifetimeView;
       }
     | undefined,
   convergence: PadiConvergence | null,
