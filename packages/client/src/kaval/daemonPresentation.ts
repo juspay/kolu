@@ -2,13 +2,16 @@
  *  tables and projections the rail, the dialog, and the canvas all read.
  *
  *  Deliberately imports NOTHING with a module-load side effect (no `../wire`, which
- *  opens the PartySocket; no `createRoot`): only types and the pure `compactDelta`
- *  ladder. `useDaemonStatus.ts` (the wire-coupled subscription + accessors)
- *  re-exports every symbol here, so existing importers are unchanged — but the
- *  presentation is now testable on its own, which is what lets `kavalDot`'s
- *  transport-liveness floor be pinned by a unit test without standing up a socket. */
+ *  opens the PartySocket; no `createRoot`): only types, the pure `compactDelta`
+ *  ladder, and ts-pattern's side-effect-free `match`. `useDaemonStatus.ts` (the
+ *  wire-coupled subscription + accessors) re-exports the slice of this presentation
+ *  API that existing call sites reach through it (the rail, the dialog, App.tsx's
+ *  canvas), so those importers are unchanged — but the presentation is now testable
+ *  on its own, which is what lets `kavalDot`'s transport-liveness floor be pinned by
+ *  a unit test without standing up a socket. */
 
 import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import { match } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -248,6 +251,12 @@ export function channelLive(
  *  (not re-declared) so it can never drift from the wire schema. */
 export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
 
+/** A daemon's serialized lifetime as it rides the wire — the daemon-neutral shape
+ *  shared by both kaval (`status.lifetime`) and padi (`identity.lifetime`), derived
+ *  from the schema (not re-declared) so it can never drift. Optional on the wire (a
+ *  survivor predating the field reports none), so this is the non-null shape. */
+export type DaemonLifetimeView = NonNullable<DaemonStatus["lifetime"]>;
+
 /** The kaval dialog/rail's own honest presence sum — see the module section header.
  *  `down`'s `state` mirrors {@link DAEMON_STATE_PRESENTATION}'s down bucket
  *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
@@ -260,6 +269,9 @@ export type KavalPresence =
       contractVersion: string;
       startedAt: number;
       socketPath: string | undefined;
+      /** The daemon's lifetime (`forever` in production; `boundToPid` under a
+       *  test/smoke run). `undefined` for a survivor predating the wire field. */
+      lifetime: DaemonLifetimeView | undefined;
     }
   | { kind: "warming" }
   | { kind: "down"; state: "dead" | "degraded" };
@@ -285,5 +297,24 @@ export function toKavalPresence(
     contractVersion: status.contractVersion,
     startedAt: status.startedAt,
     socketPath: status.socketPath,
+    lifetime: status.lifetime,
   };
+}
+
+/** Humanize a daemon's serialized lifetime for the Kaval/Padi dialog rows —
+ *  shared by both (padi's `identity.lifetime`, kaval's `status.lifetime`). A
+ *  survivor predating the wire field (`undefined`) reads "—". `forever` is the
+ *  production value; `boundToPid` appears under a test/smoke run. */
+export function formatLifetime(
+  lifetime: DaemonLifetimeView | undefined,
+): string {
+  if (lifetime === undefined) return "—";
+  return match(lifetime)
+    .with({ kind: "forever" }, () => "forever")
+    .with(
+      { kind: "idleTimeout" },
+      (l) => `idle timeout (${formatUptime(l.ms)})`,
+    )
+    .with({ kind: "boundToPid" }, (l) => `bound to run pid ${l.pid}`)
+    .exhaustive();
 }
