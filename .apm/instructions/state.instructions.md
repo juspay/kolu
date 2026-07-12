@@ -1,6 +1,6 @@
 ---
 description: Persistent state schema migration requirements
-applyTo: "packages/server/src/{state,preferences,activity,session,hostPersistence}.ts"
+applyTo: "{packages/server/src/state.ts,packages/server/src/preferences.ts,packages/server/src/activity.ts,packages/server/src/session.ts,packages/server/src/hostPersistence.ts,packages/common/src/surface.ts,packages/common/src/hostKey.ts}"
 ---
 
 ## Persistent State (conf)

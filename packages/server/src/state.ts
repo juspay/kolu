@@ -8,7 +8,7 @@
  *
  * `session` and `activityFeed` USED to live here too; W2.2 moved them onto the
  * padi PROCESS's own state-root store (`@kolu/padi`'s `stateStore.ts`), so this
- * store holds only `preferences` now. The 1.31.0 migration below strips the
+ * store holds `preferences` and — since W10 — `hosts` (see below). The 1.31.0 migration below strips the
  * legacy `session` / `activityFeed` residue (and the older orphan
  * `sleepingTerminals` / `lastPairedDaemon` keys) off any pre-W2.2 file — backing
  * it up first so a fresh padi's one-shot legacy import stays recoverable.
