@@ -121,7 +121,25 @@ import { z } from "zod";
  *  than seeding the client's backfill from a missing anchor. The attach snapshot
  *  is also now BOUNDED (the recent screenful, not the whole 10k mirror) — a
  *  payload-size change, invisible to the wire shape, so it needs no bump on its
- *  own. */
+ *  own.
+ *
+ *  Why the bounded snapshot stays a MINOR (the old-client/new-daemon direction).
+ *  A 5.0 client accepting a 5.1 daemon (minor >= its own, the direction the
+ *  predicate waves through) strips the unknown `topLine`, lacks `getHistory`, and
+ *  now paints only the ~1000-line bounded snapshot where it once got the full
+ *  mirror — it shows LESS scrollback. Unlike the 4.0 `getScreenText` reshape
+ *  (which returned the WRONG bytes — a full buffer where a tail was asked — and
+ *  mis-parsed a legacy field), this is a GRACEFUL degradation: no mis-parse, no
+ *  corruption, the PTY fully usable, just a shorter cold-attach history. That is
+ *  exactly the class the lifetime field above kept OPTIONAL rather than bump — "a
+ *  cosmetic readout must never cost a terminal." A major here would make an old
+ *  padi meeting a new surviving kaval a SKEW and RECYCLE it — killing the user's
+ *  live PTYs — to buy back scrollback depth on a downgrade-only path (a newer
+ *  kaval under an older padi arises only when padi is rolled BACK while its kaval
+ *  survives). And the end-to-end client↔padi skew that actually reaches a browser
+ *  is already refused by `PADI_SURFACE_VERSION`'s 3.0 major (the `terminalAttach`
+ *  reshape). So this leg stays minor: graceful, PTY-preserving, and belt-and-
+ *  suspendered by the padi major. */
 export const PTY_HOST_CONTRACT_VERSION = "5.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor

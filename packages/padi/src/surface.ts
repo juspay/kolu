@@ -161,8 +161,20 @@ export * from "./vocab.ts";
  *  added WITHOUT a contract bump: optional means a binder reading a survivor padi
  *  that predates it parses fine (falls back to "—"), so it needs no forced drain —
  *  the field simply arrives with padi's next respawn (which a code-change deploy
- *  triggers anyway). Kept symmetric with kaval's `system.version` lifetime field. */
-export const PADI_SURFACE_VERSION = "2.0";
+ *  triggers anyway). Kept symmetric with kaval's `system.version` lifetime field.
+ *
+ *  3.0 is the second MAJOR bump (scrollback-backfill). The `terminalAttach` stream's
+ *  output was RESHAPED — from a bare `z.string()` (the bytes to write) to a
+ *  structured `{ data, topLine? }` frame (bytes + the absolute mirror-line seed for
+ *  the client's backfill cursor, present on a snapshot/re-attach frame). This is
+ *  breaking in BOTH skew directions — an old client's `z.string()` schema rejects a
+ *  new padi's object frame, and a new client's object schema rejects an old padi's
+ *  string frame — so ONLY a major flips `isContractVersionCompatible` to refuse the
+ *  skew both ways (an honest "upgrade the other side" recycle rather than a
+ *  mis-parsed, dataless, or frozen pane). The additive `screen.history` procedure
+ *  (the client's older-scrollback read) rides the same release; it alone would be a
+ *  minor, but the `terminalAttach` reshape forces the major. */
+export const PADI_SURFACE_VERSION = "3.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

@@ -454,8 +454,10 @@ async function cmdHistory(
       before,
       max: HISTORY_PAGE_ROWS,
     });
-    if (res.chunk === "") break;
-    pages.push(res.chunk);
+    // An all-blank page serializes to "" but is NOT exhaustion — advance past it
+    // (the cursor still moves up) so older content ABOVE a blank run isn't cut
+    // off. Only `exhausted` (the top of the mirror) ends the dump.
+    if (res.chunk !== "") pages.push(res.chunk);
     before = res.topLine;
     if (res.exhausted) break;
   }

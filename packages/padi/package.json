@@ -41,7 +41,6 @@
     "conf": "^15.1.0",
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
-    "kolu-common": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-grok": "workspace:*",
     "kolu-git": "workspace:*",

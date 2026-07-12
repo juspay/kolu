@@ -26,7 +26,7 @@ import {
   DEFAULT_MIRROR_SCROLLBACK,
   SNAPSHOT_SCROLLBACK,
 } from "kaval";
-import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { cancelPendingAutosave } from "./autosaveGate.ts";
@@ -98,9 +98,9 @@ import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
 // never splices past its `CircularList`'s `maxLength` and silently evicts the
 // rows it just inserted (the one demonstrated corruption mode). Headroom is a
 // build-time fact across three packages that can't share a constant (kaval owns
-// the mirror depth, kolu-common the client depth); padi is the one daemon that
-// sees both, so it is where the three numbers meet and a violation crashes the
-// boot rather than corrupting a terminal in the field.
+// the mirror depth, `@kolu/terminal-vocab` the client depth); padi is the one
+// daemon that sees both, so it is where the three numbers meet and a violation
+// crashes the boot rather than corrupting a terminal in the field.
 if (DEFAULT_SCROLLBACK < DEFAULT_MIRROR_SCROLLBACK + SNAPSHOT_SCROLLBACK) {
   throw new Error(
     `scrollback-backfill headroom violated: client DEFAULT_SCROLLBACK (${DEFAULT_SCROLLBACK}) < mirror (${DEFAULT_MIRROR_SCROLLBACK}) + snapshot (${SNAPSHOT_SCROLLBACK}); the client buffer cannot hold the full reachable history`,

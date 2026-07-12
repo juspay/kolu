@@ -536,6 +536,13 @@ const Terminal: Component<{
                 before,
                 max,
               }),
+            // A killed terminal's NOT_FOUND is swallowed inside the controller; any
+            // OTHER backfill fetch fault (transport, schema, server) surfaces here
+            // rather than silently leaving a scrollback hole. A later scroll retries.
+            onError: (err) =>
+              toast.error(
+                `Failed to load older scrollback: ${err instanceof Error ? err.message : String(err)}`,
+              ),
           });
 
           term.open(containerRef);
@@ -839,9 +846,15 @@ const Terminal: Component<{
               ),
             (frame) => {
               // A frame carrying `topLine` begins a fresh snapshot (initial attach
-              // or an overflow re-attach) — seed/re-seed the backfill cursor to
-              // the absolute mirror line the snapshot starts at.
-              if (frame.topLine !== undefined) backfill?.seed(frame.topLine);
+              // or an overflow re-attach). Its bytes describe the mirror line the
+              // backfill cursor seeds from — but seed only AFTER the snapshot has
+              // PARSED into the buffer (in the write callback below), not now:
+              // parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
+              // climbs from 0 through the near-top trigger band, and a cursor
+              // seeded up front would let one of those fire an unsolicited fetch
+              // that splices onto a still-parsing buffer. Once parsed, the viewport
+              // sits at the BOTTOM, so no fetch fires until a real user scroll-up.
+              const seedTopLine = frame.topLine;
               const data = frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
@@ -865,7 +878,13 @@ const Terminal: Component<{
                 // callback isn't invoked; the buffered flush rejoins the bottom
                 // via a user scroll / tab-visible / window-focus path, each of
                 // which already forces a repaint via recover().
-                scrollLock.writeData(terminal, data, () => recovery.noteData());
+                scrollLock.writeData(terminal, data, () => {
+                  recovery.noteData();
+                  // Seed the backfill cursor now that this snapshot has landed in
+                  // the buffer (see the note above the write) — a no-op for a
+                  // plain delta frame, which carries no `topLine`.
+                  if (seedTopLine !== undefined) backfill?.seed(seedTopLine);
+                });
               }
             },
             resetForFreshSnapshot,

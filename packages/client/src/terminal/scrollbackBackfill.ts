@@ -23,6 +23,7 @@
  *  and the contract-pin tests turn a shape change into red CI, never
  *  user-visible corruption. */
 
+import { ORPCError } from "@orpc/client";
 import { Terminal as XTerm } from "@xterm/xterm";
 
 /* ------------------------------------------------------------------ */
@@ -240,7 +241,7 @@ export async function prependScrollback(
 /** Rows requested per backfill fetch. Bounds a chunk's serialized payload and
  *  the scratch-replay cost; prepending M rows moves the viewport M rows off the
  *  top, so the user scrolls again to trigger the next fetch. */
-const HISTORY_CHUNK_ROWS = 500;
+export const HISTORY_CHUNK_ROWS = 500;
 
 /** One older-history chunk from the server, as the controller consumes it. */
 export interface HistoryChunk {
@@ -279,6 +280,11 @@ export function createBackfillController(
   opts: {
     /** Fetch the chunk of up to `max` rows above absolute line `before`. */
     fetch: (before: number, max: number) => Promise<HistoryChunk>;
+    /** Surface a fetch failure that is NOT an expected teardown (a killed PTY's
+     *  typed `NOT_FOUND`). Called for transport / auth / schema / server faults
+     *  so backfill can't silently leave a hole — the caller toasts it; a later
+     *  scroll retries. Omitted only in tests that assert the swallow/retry paths. */
+    onError?: (err: unknown) => void;
     /** Test seam: inject a small trigger so a controller test fires the near-top
      *  fetch without a giant buffer (defaults to 2× the visible rows). */
     triggerRows?: number;
@@ -326,7 +332,7 @@ export function createBackfillController(
     if (term.buffer.active.viewportY > triggerRows) return;
 
     inFlight = true;
-    const before = cursor;
+    let before = cursor;
     const myEpoch = epoch;
     const fetchCols = term.cols;
     // The fetch, the prepend's inner replay, AND the window between them are all
@@ -338,23 +344,43 @@ export function createBackfillController(
     const stillValid = () =>
       !disposed && epoch === myEpoch && term.cols === fetchCols;
     try {
-      let res: HistoryChunk;
-      try {
-        res = await opts.fetch(before, HISTORY_CHUNK_ROWS);
-      } catch {
-        // Expected: the terminal was killed or its PTY exited mid-fetch, so the
-        // padi handler rejects (NOT_FOUND). A later scroll retries; `finally`
-        // clears `inFlight`. This catch is scoped to the FETCH only — a
-        // `prepend` fault (overflow / broken internals) stays FAIL-LOUD below.
-        return;
+      // Loop rather than fetch once: a page that serializes to nothing (an
+      // all-blank run of scrollback) inserts zero rows, so the viewport does NOT
+      // move and no `onScroll` would ever re-arm the fetch — backfill would
+      // STALL with older content still above. So keep paging here until a page
+      // actually inserts rows (viewport moved — let the user scroll again) or the
+      // mirror is exhausted.
+      for (;;) {
+        if (
+          isAltBufferActive(
+            term as unknown as { buffer: { active: { type: string } } },
+          )
+        )
+          return;
+        let res: HistoryChunk;
+        try {
+          res = await opts.fetch(before, HISTORY_CHUNK_ROWS);
+        } catch (err) {
+          // A killed terminal / exited PTY makes the padi handler reject with a
+          // typed NOT_FOUND — expected teardown, swallowed; a later scroll
+          // retries. Every OTHER fault (transport, auth, schema, server) is
+          // surfaced via `onError` rather than vanishing, so backfill can't
+          // silently leave a hole. This catch is scoped to the FETCH only — a
+          // `prepend` fault (overflow / broken internals) stays FAIL-LOUD below.
+          if (!(err instanceof ORPCError && err.code === "NOT_FOUND"))
+            opts.onError?.(err);
+          return;
+        }
+        if (!stillValid()) return;
+        // prepend re-checks `stillValid` after its own async replay, before the
+        // splice; re-check here too before committing the cursor.
+        const inserted = await prepend(term, res.chunk, stillValid);
+        if (!stillValid()) return;
+        cursor = res.topLine;
+        exhausted = res.exhausted;
+        before = res.topLine;
+        if (exhausted || inserted > 0) return;
       }
-      if (!stillValid()) return;
-      // prepend re-checks `stillValid` after its own async replay, before the
-      // splice; re-check here too before committing the cursor.
-      await prepend(term, res.chunk, stillValid);
-      if (!stillValid()) return;
-      cursor = res.topLine;
-      exhausted = res.exhausted;
     } finally {
       inFlight = false;
     }

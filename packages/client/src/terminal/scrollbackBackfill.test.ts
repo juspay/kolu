@@ -7,12 +7,14 @@
  *  terminal fed the whole history natively: prepended history must be
  *  row-for-row indistinguishable, before and after resizes. */
 
+import { ORPCError } from "@orpc/client";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it, vi } from "vitest";
 import {
   createBackfillController,
+  HISTORY_CHUNK_ROWS,
   type HistoryChunk,
   isAltBufferActive,
   prependScrollback,
@@ -400,24 +402,82 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     prependGate.resolve(0); // prepend no-ops (would-be splice skipped)
     await new Promise((r) => setTimeout(r, 0));
     // The cursor stays PAUSED (null) — not clobbered back to the chunk's topLine.
-    const fetch2 = vi.fn(async () => chunk);
-    const c2Prepend = vi.fn(async () => 1);
     // Re-scroll: cursor is null (paused), so no further fetch fires.
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1); // no second fetch — paused
-    void fetch2;
-    void c2Prepend;
     c.dispose();
   });
 
-  it("swallows a gone-terminal fetch rejection (no unhandled rejection), retryable after", async () => {
+  it("swallows a gone-terminal NOT_FOUND fetch rejection (no toast), retryable after", async () => {
     const f = fakeTerm();
     const fetch = vi
       .fn<(before: number, max: number) => Promise<HistoryChunk>>()
-      .mockRejectedValueOnce(new Error("NOT_FOUND"))
+      .mockRejectedValueOnce(new ORPCError("NOT_FOUND"))
       .mockResolvedValueOnce(chunk);
     const prepend = vi.fn(async () => 1);
+    const onError = vi.fn();
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError,
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(prepend).not.toHaveBeenCalled(); // fetch rejected, no splice
+    expect(onError).not.toHaveBeenCalled(); // NOT_FOUND is expected teardown
+    // inFlight was cleared by the finally, so a later scroll retries.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(prepend).toHaveBeenCalledTimes(1);
+    c.dispose();
+  });
+
+  it("surfaces a non-NOT_FOUND fetch fault via onError (never a silent hole), retryable after", async () => {
+    const f = fakeTerm();
+    const boom = new Error("connection reset");
+    const fetch = vi
+      .fn<(before: number, max: number) => Promise<HistoryChunk>>()
+      .mockRejectedValueOnce(boom)
+      .mockResolvedValueOnce(chunk);
+    const prepend = vi.fn(async () => 1);
+    const onError = vi.fn();
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError,
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onError).toHaveBeenCalledWith(boom); // surfaced, not swallowed
+    expect(prepend).not.toHaveBeenCalled();
+    // Still retryable — the fault didn't wedge the in-flight guard.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(prepend).toHaveBeenCalledTimes(1);
+    c.dispose();
+  });
+
+  it("pages past an all-blank serialized chunk instead of stalling", async () => {
+    const f = fakeTerm();
+    // First fetch: a non-exhausted page that serializes to "" (an all-blank run)
+    // — prepend inserts 0 rows, so the viewport never moves. Second fetch has
+    // content. Without the internal paging loop the first page would STALL
+    // backfill (no scroll event re-arms it) with older content still above.
+    const fetch = vi
+      .fn<(before: number, max: number) => Promise<HistoryChunk>>()
+      .mockResolvedValueOnce({ chunk: "", topLine: 50, exhausted: false })
+      .mockResolvedValueOnce({ chunk: "older", topLine: 10, exhausted: true });
+    const prepend = vi.fn(async (_t: XTerm, chunkStr: string) =>
+      chunkStr === "" ? 0 : 3,
+    );
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
@@ -426,13 +486,10 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.seed(100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(prepend).not.toHaveBeenCalled(); // fetch rejected, no splice
-    // inFlight was cleared by the finally, so a later scroll retries.
-    f.fireScroll();
-    await new Promise((r) => setTimeout(r, 0));
+    // One scroll paged THROUGH the blank chunk to the content chunk.
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(prepend).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenNthCalledWith(1, 100, HISTORY_CHUNK_ROWS);
+    expect(fetch).toHaveBeenNthCalledWith(2, 50, HISTORY_CHUNK_ROWS);
     c.dispose();
   });
 });

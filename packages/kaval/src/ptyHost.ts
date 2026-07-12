@@ -817,18 +817,30 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.snapshotCache ??= entry.serialize.serialize();
     return entry.snapshotCache;
   }
-  /** Absolute mirror-line index of the row the bounded attach snapshot starts
-   *  at — the client's backfill seed cursor. `serialize({scrollback: S})`
-   *  serializes normal rows `[len - (S + rows), len - 1]` (clamped), so the top
-   *  local row is `max(0, len - S - rows)`; shift by the eviction origin to make
-   *  it absolute. Cheap (no serialize), so the aborted-attach fast path can seed
-   *  a cursor without paying for a snapshot it won't send. */
-  function snapshotTopLineOf(entry: Entry): number {
+  /** Local (buffer-relative) row the bounded attach snapshot starts at: the
+   *  recent-screenful window `max(0, len - SNAPSHOT_SCROLLBACK - rows)`, snapped
+   *  BACK over any wrapped-line continuation to the logical line's HEAD. A cut
+   *  that lands mid-wrapped-line would make `serialize` replay the continuation
+   *  as a fresh line (the wrap flag is lost with no preceding row present), so
+   *  the snapshot↔history seam would show a soft-wrapped line as a hard break —
+   *  the same corruption `getHistory` already snaps its own top edge away from.
+   *  A head is `isWrapped === false` (a blank line qualifies). */
+  function snapshotStartLocal(entry: Entry): number {
     const normal = entry.headless.buffer.normal;
-    return (
-      entry.mirrorBaseLine +
-      Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows)
+    let start = Math.max(
+      0,
+      normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows,
     );
+    while (start > 0 && normal.getLine(start)?.isWrapped) start--;
+    return start;
+  }
+  /** Absolute mirror-line index of the row the bounded attach snapshot starts
+   *  at — the client's backfill seed cursor. The wrap-safe local start shifted
+   *  by the eviction origin to make it absolute. Cheap (a handful of `getLine`
+   *  reads, no serialize), so the aborted-attach fast path can seed a cursor
+   *  without paying for a snapshot it won't send. */
+  function snapshotTopLineOf(entry: Entry): number {
+    return entry.mirrorBaseLine + snapshotStartLocal(entry);
   }
   /** Bounded attach snapshot (recent screenful) + its seed cursor, memoized per
    *  publish-epoch just like {@link snapshotOf}. The `{scrollback}` form keeps
@@ -839,12 +851,23 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     snapshot: string;
     topLine: number;
   } {
-    entry.boundedSnapshotCache ??= {
-      // Serialize and read `topLine` in the same synchronous breath (no await
-      // between), so the seed names the exact top row of the bytes returned.
-      topLine: snapshotTopLineOf(entry),
-      snapshot: entry.serialize.serialize({ scrollback: SNAPSHOT_SCROLLBACK }),
-    };
+    entry.boundedSnapshotCache ??= (() => {
+      const start = snapshotStartLocal(entry);
+      const normal = entry.headless.buffer.normal;
+      // `serialize({scrollback: S})` emits the S scrollback rows above the screen
+      // plus the screen; pick S so the top emitted row is EXACTLY `start` (the
+      // wrap-safe head), so `topLine` names the true first row of the bytes and
+      // the seam is never bisected. Computed and serialized in one synchronous
+      // breath (no await between), so the seed can't drift from the bytes.
+      const scrollback = Math.max(
+        0,
+        normal.length - entry.headless.rows - start,
+      );
+      return {
+        topLine: entry.mirrorBaseLine + start,
+        snapshot: entry.serialize.serialize({ scrollback }),
+      };
+    })();
     return entry.boundedSnapshotCache;
   }
   function invalidateSnapshot(entry: Entry): void {
@@ -956,16 +979,28 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     before: number | undefined,
     max: number,
   ): PtyHistoryChunk {
+    // `max` is a positive row count — a non-positive request is a caller bug
+    // (the wire schema rejects it too), so the primitive fails LOUD rather than
+    // silently returning an empty, exhausted page that a caller reads as "no
+    // more history".
+    if (!Number.isInteger(max) || max <= 0)
+      throw new RangeError(
+        `getHistory: max must be a positive integer, got ${max}`,
+      );
     const entry = entries.get(id);
-    if (!entry || max <= 0)
-      return { chunk: "", topLine: before ?? 0, exhausted: true };
+    if (!entry) return { chunk: "", topLine: before ?? 0, exhausted: true };
+    const buffer = entry.headless.buffer.normal;
     // `before` is the caller's absolute cursor; the row just above it is
     // `before - mirrorBaseLine - 1` in the current local buffer. Omitted means
-    // "start from the top of the current screen region" — the self-seeding entry
-    // point a plain pager (`kaval-tui history`) uses instead of first reading an
-    // attach snapshot's `topLine`.
-    const cursor = before ?? snapshotTopLineOf(entry);
-    const buffer = entry.headless.buffer.normal;
+    // "start from the top of the VISIBLE screen" (local `length - rows`) — the
+    // self-seeding entry point a plain pager (`kaval-tui history`) uses instead
+    // of first reading an attach snapshot's `topLine`. It must NOT be the
+    // bounded-snapshot top (`snapshotTopLineOf`), which sits ~SNAPSHOT_SCROLLBACK
+    // rows ABOVE the screen: self-seeding there would skip the newest older lines
+    // (the ones between the snapshot top and the screen) the CLI is asked to dump.
+    const cursor =
+      before ??
+      entry.mirrorBaseLine + Math.max(0, buffer.length - entry.headless.rows);
     const localEnd = Math.min(
       cursor - entry.mirrorBaseLine - 1,
       buffer.length - 1,

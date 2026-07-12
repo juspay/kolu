@@ -106,10 +106,6 @@ const ALLOWED_EXTERNAL = [
   "simple-git",
   "string-argv",
   "@kolu/surface",
-  // Config CONSTANTS only (DEFAULT_SCROLLBACK), read at startup for the
-  // scrollback-backfill sizing assertion — a stable leaf carrying no daemon wire
-  // or behaviour, so it needs no hashed root.
-  "kolu-common/config",
 ];
 
 const isAllowed = (spec: string): boolean =>

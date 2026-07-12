@@ -18,12 +18,10 @@ export const DEFAULT_PORT = 7681;
 export const DEFAULT_FONT_SIZE = 14;
 
 /** The CLIENT's visible scrollback, in lines — what the browser xterm retains
- *  and what `exportScrollbackAsPdf.ts` serializes. Sized for multi-hour Claude
- *  sessions so scroll-back and PDF export capture a useful window. This is the
- *  user's own tab (one terminal on screen at a time), so the memory lives in the
- *  browser, not the server.
- *
- *  A distinct axis from the SERVER-side per-terminal headless-mirror depth,
- *  which is deliberately smaller and lives where the mirror lives — kaval's
- *  `DEFAULT_MIRROR_SCROLLBACK` (see `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
-export const DEFAULT_SCROLLBACK = 50_000;
+ *  and what `exportScrollbackAsPdf.ts` serializes. Re-exported from its home in
+ *  `@kolu/terminal-vocab` (the shared browser-safe terminal vocabulary) so the
+ *  per-host daemon `@kolu/padi` can read the SAME fact for its scrollback-backfill
+ *  headroom assertion WITHOUT the forbidden `@kolu/padi → kolu-common` back-edge,
+ *  and so the value rides padi's hashed build closure. App-side consumers keep
+ *  importing it from here unchanged. */
+export { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";

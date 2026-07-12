@@ -1137,7 +1137,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       );
       const iter = stream[Symbol.asyncIterator]();
       const first = await iter.next();
-      if (first.done) return { snapshot: "", topLine: 0, iter };
+      if (first.done) {
+        // The stream ended before its MANDATORY snapshot frame. If the caller
+        // aborted, that is a normal teardown — hand back an empty attachment the
+        // consumer discards. Otherwise the kaval contract was violated (kaval
+        // always yields a snapshot first, even an empty one), so FAIL LOUD rather
+        // than fabricate a valid `{ snapshot: "", topLine: 0 }` that paints a
+        // blank, frozen pane indistinguishable from a real empty terminal.
+        if (signal?.aborted) return { snapshot: "", topLine: 0, iter };
+        throw new Error(
+          `attach(${id}): stream ended before its mandatory snapshot frame`,
+        );
+      }
       if (first.value.kind !== "snapshot") {
         throw new Error(
           `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,

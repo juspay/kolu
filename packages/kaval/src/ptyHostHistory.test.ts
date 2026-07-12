@@ -149,13 +149,38 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     expect(res.chunk).toBe("");
   });
 
-  it("gone / non-positive requests are empty, exhausted no-ops", () => {
+  it("a gone PTY is an empty, exhausted no-op", () => {
     host = createPtyHost({ log: silentLog });
     expect(host.getHistory("nope", 10, 10)).toEqual({
       chunk: "",
       topLine: 10,
       exhausted: true,
     });
+  });
+
+  it("a non-positive max is a caller error (throws), even before the PTY lookup", () => {
+    host = createPtyHost({ log: silentLog });
+    // The wire schema rejects a non-positive `max`; the primitive fails loud too
+    // rather than silently returning an empty, exhausted page.
+    expect(() => host.getHistory("nope", undefined, 0)).toThrow(RangeError);
+    expect(() => host.getHistory("nope", 10, -5)).toThrow(RangeError);
+  });
+
+  it("self-seeded history (before omitted) abuts the visible screen, not the snapshot top", async () => {
+    const id = printLines(1200);
+    await waitFor(() => host.getScreenText(id).includes(label(1199)));
+    // The topmost label currently ON the visible screen.
+    const viewport = host.getScreenText(id, { kind: "viewport" });
+    const firstVisible = viewport.match(/L\d{4}/)?.[0];
+    expect(firstVisible).toBeDefined();
+    const n = Number((firstVisible as string).slice(1));
+    // Self-seeding pages the lines IMMEDIATELY above the screen — it must serve
+    // `label(n-1)` (the row just above the screen), NOT skip ~1000 lines down to
+    // the bounded-snapshot top (which the browser already holds and the CLI is
+    // asked to reveal).
+    const page = host.getHistory(id, undefined, 50);
+    expect(page.chunk).toContain(label(n - 1));
+    expect(page.chunk).not.toContain(label(n)); // never re-serves an on-screen row
   });
 });
 
@@ -210,5 +235,57 @@ describe("serialize({range}) fidelity — production chunks replay faithfully", 
     await write(scratch, chunk);
     // Row-for-row identical to the mirror's own rows 0..14 (wrap flags included).
     expect(rows(scratch, 0, 14)).toEqual(rows(mirror, 0, 14));
+  });
+
+  it("a bounded-snapshot cut mid-wrapped-line snaps back to the logical head (no bisected top row)", async () => {
+    // The exact bug the bounded-snapshot start guards against: `serialize` with a
+    // `{scrollback}` window does NOT snap the top of the window to a logical head,
+    // so a window whose top row is a wrapped CONTINUATION is emitted with the
+    // continuation as a fresh line (its wrap flag lost, no preceding row present).
+    // The production `snapshotStartLocal` walks the start BACK over `isWrapped`
+    // rows before choosing the window depth, mirroring `getHistory`'s own snap.
+    const cols = 20;
+    const rowsHigh = 4;
+    const mirror = makeTerm(cols, rowsHigh);
+    const ser = new SerializeAddon();
+    mirror.loadAddon(ser);
+    const lines: string[] = [];
+    for (let i = 0; i < 30; i++)
+      lines.push(
+        i % 2 === 0
+          ? `L${String(i).padStart(2, "0")}-${"W".repeat(30)}` // wraps to 2 rows
+          : `L${String(i).padStart(2, "0")}`,
+      );
+    await write(mirror, `${lines.join("\r\n")}\r\n`);
+
+    const len = mirror.buffer.normal.length;
+    // Find a wrapped CONTINUATION row in the scrollback region to cut at.
+    let cutRow = -1;
+    for (let i = 3; i < len - rowsHigh; i++)
+      if (mirror.buffer.normal.getLine(i)?.isWrapped) {
+        cutRow = i;
+        break;
+      }
+    expect(cutRow).toBeGreaterThan(0);
+
+    const topOf = async (start: number): Promise<string> => {
+      // serialize({scrollback: S}) emits its top row at local `len - rows - S`.
+      const out = ser.serialize({ scrollback: len - rowsHigh - start });
+      const scratch = makeTerm(cols, rowsHigh);
+      await write(scratch, out);
+      const top =
+        scratch.buffer.normal.getLine(0)?.translateToString(true) ?? "";
+      scratch.dispose();
+      return top;
+    };
+
+    // NAIVE cut on the continuation bisects — the top row is the label-less wrap tail.
+    expect(await topOf(cutRow)).toMatch(/^W+$/);
+    // SNAPPED start (walk back over `isWrapped` to the head) — the top row is the
+    // logical head, carrying its `L##` label, so the seam is never a hard break.
+    let snapped = cutRow;
+    while (snapped > 0 && mirror.buffer.normal.getLine(snapped)?.isWrapped)
+      snapped--;
+    expect(await topOf(snapped)).toMatch(/^L\d{2}/);
   });
 });
