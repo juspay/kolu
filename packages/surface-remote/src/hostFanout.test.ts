@@ -133,6 +133,31 @@ describe("buildRemotePool", () => {
     expect(persist).not.toHaveBeenCalled();
   });
 
+  it("a retired host STAYS in the persisted set across a later add — it isn't dropped until reboot", async () => {
+    // The contract's teeth: persist is derived from the intended-persisted set, NOT live
+    // `entries`, so a host retired from the live pool survives the NEXT add/remove. If
+    // persist derived from `entries.keys()`, this add would silently drop alpha.
+    const { registry, persist } = harness(["alpha", "beta"]);
+    await registry.retire("alpha"); // alpha leaves the live pool, stays remembered
+    expect(persist).not.toHaveBeenCalled(); // retire itself writes nothing
+    await registry.add("gamma");
+    // The persisted set the add wrote still lists alpha — the retired host was NOT
+    // dropped — alongside the surviving beta and the new gamma.
+    expect(persist).toHaveBeenLastCalledWith(["alpha", "beta", "gamma"]);
+    // …while the LIVE pool has moved on (alpha gone, gamma in).
+    expect(registry.hosts()).toEqual(["beta", "gamma"]);
+  });
+
+  it("re-adding a RETIRED host doesn't write a duplicate to the persisted set", async () => {
+    const { registry, persist } = harness(["alpha"]);
+    await registry.retire("alpha"); // alpha: gone from live, still in persistedMembership
+    await registry.add("alpha"); // the user re-adds the auto-retired host
+    // The persisted set lists alpha ONCE, not [alpha, alpha] — no dupe to trip a
+    // membership store's no-dupes invariant.
+    expect(persist).toHaveBeenLastCalledWith(["alpha"]);
+    expect(registry.hosts()).toEqual(["alpha"]); // and it's live again
+  });
+
   it("retire() on an unknown host is a no-op (no persist, no throw)", async () => {
     const { registry, persist } = harness(["alpha"]);
     await expect(registry.retire("ghost")).resolves.toBeUndefined();

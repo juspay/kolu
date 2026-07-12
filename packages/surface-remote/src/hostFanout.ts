@@ -352,13 +352,14 @@ export interface RemotePool<S extends DestroyableSession, H> {
    *  with a `persist` flag. */
   remove(host: string): Promise<void>;
   /** INTERNAL retirement: the SAME teardown as {@link RemotePool.remove} but it does
-   *  NOT persist — the host leaves the LIVE pool yet stays in the persisted set, so a
-   *  membership store re-seeds it on the next boot. For a host the pool sheds on its
-   *  OWN initiative (a dead session / re-serve pump fault), not because the user asked
-   *  — retiring it must not be mistaken for the user's explicit remove, which is the
-   *  only thing that should forget a host. No-op for an unknown host. A registry with
-   *  no `persist` hook makes `retire` and `remove` behave identically (neither writes
-   *  anything). */
+   *  NOT persist and leaves the intended-persisted membership intact — the host leaves
+   *  the LIVE pool yet stays in the persisted set, and (crucially) STAYS there across
+   *  every later `add`/`remove`, so a membership store re-seeds it on the next boot. For
+   *  a host the pool sheds on its OWN initiative (a dead session / re-serve pump fault),
+   *  not because the user asked — retiring it must not be mistaken for the user's
+   *  explicit remove, which is the only thing that should forget a host. No-op for an
+   *  unknown host. A registry with no `persist` hook makes `retire` and `remove` behave
+   *  identically (neither writes anything). */
   retire(host: string): Promise<void>;
   /** Track an open browser socket for `host`, so `remove(host)` can close it. */
   registerConnection(host: string, ws: ClosableSocket): void;
@@ -451,10 +452,20 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   for (const host of opts.initialHosts)
     entries.set(host, opts.buildEntry(host));
 
-  // Persist the GIVEN next-host list (not `entries.keys()`) so the on-disk store
-  // can be written BEFORE the in-memory + session/socket lifecycle is committed —
-  // the ordering that makes `add`/`remove` transactional. A no-`persist` registry
-  // (a static host set) skips straight to the commit.
+  // The INTENDED-PERSISTED membership — the set the `persist` hook writes, tracked as
+  // its OWN ordered value rather than derived from live `entries.keys()`. They usually
+  // move together (add inserts into both, remove deletes from both), but `retire`
+  // deliberately DIVERGES them: it drops a host from live `entries` while LEAVING it in
+  // `persistedMembership`, so a shed-but-remembered host survives every LATER add/remove
+  // (which persist THIS set, not the live keys) until a reboot re-seeds it. Deriving
+  // persist from `entries.keys()` instead would silently drop a retired host on the very
+  // next mutation — the contract `retire` promises would hold only until the next click.
+  const persistedMembership = new Set(opts.initialHosts);
+
+  // Persist the GIVEN next-host list (the intended-persisted set, NOT `entries.keys()`)
+  // so the on-disk store can be written BEFORE the in-memory + session/socket lifecycle
+  // is committed — the ordering that makes `add`/`remove` transactional. A no-`persist`
+  // registry (a static host set) skips straight to the commit.
   const persistHosts = async (nextHosts: string[]): Promise<void> => {
     if (opts.persist) await opts.persist(nextHosts);
   };
@@ -517,7 +528,10 @@ export function buildRemotePool<S extends DestroyableSession, H>(
         // rejects, tear the just-built session down and DON'T insert.
         const entry = opts.buildEntry(host);
         try {
-          await persistHosts([...entries.keys(), host]);
+          // Dedup: re-adding a host that was RETIRED (gone from live `entries` but still
+          // in `persistedMembership`) must not write it twice — a duplicate would trip a
+          // membership store's own no-dupes invariant.
+          await persistHosts([...new Set([...persistedMembership, host])]);
         } catch (err) {
           // Best-effort rollback teardown — `session.destroy()` CAN throw (it kills the ssh child
           // + clears timers; see dialAgentOnce.ts), and that must NOT pre-empt `throw err`: the
@@ -529,6 +543,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
           }
           throw err;
         }
+        persistedMembership.add(host);
         entries.set(host, entry);
         log(`added host: ${host} (total ${entries.size})`);
         notifyMembership();
@@ -543,23 +558,27 @@ export function buildRemotePool<S extends DestroyableSession, H>(
         const entry = entries.get(host);
         if (entry === undefined) return;
         // USER intent — persist the post-removal set FIRST. If it rejects, the host
-        // stays fully live (session intact, sockets open, still in `entries`) and
-        // matches the disk that still lists it — no destroy-but-still-on-disk split.
-        await persistHosts([...entries.keys()].filter((h) => h !== host));
-        // Persisted: now commit the destructive teardown.
+        // stays fully live (session intact, sockets open, still in `entries`, still in
+        // `persistedMembership`) and matches the disk that still lists it — no
+        // destroy-but-still-on-disk split.
+        await persistHosts([...persistedMembership].filter((h) => h !== host));
+        // Persisted: drop it from the intended set, then commit the destructive teardown.
+        persistedMembership.delete(host);
         tearDownEntry(host, entry, "removed");
       });
     },
 
     retire(host) {
       // Queued alongside `add`/`remove`. The INTERNAL twin of `remove`: identical
-      // teardown, but NO `persistHosts` — the host leaves the live pool yet stays in
-      // the persisted set, so a membership store re-seeds it next boot. A pool
-      // shedding a dead session on its own initiative must never be mistaken for the
-      // user's explicit remove (the only thing that forgets a host). Because there is
-      // no persist step, `retire` can't reject from a write failure — its teardown
-      // swallows the destroy fault — so a fire-and-forget `void pool.retire(h)` needs
-      // no `.catch` to stay off the fatal `unhandledRejection` handler.
+      // teardown, but it leaves `persistedMembership` UNTOUCHED and does NOT persist —
+      // the host drops from the live pool while its intended-persisted claim stays, so
+      // it survives every later add/remove (they persist `persistedMembership`, which
+      // still lists it) until a reboot re-seeds it. A pool shedding a dead session on
+      // its own initiative must never be mistaken for the user's explicit remove (the
+      // only thing that forgets a host). Because there's no persist step and the
+      // teardown swallows its destroy fault, `retire` can't reject — so a
+      // fire-and-forget `void pool.retire(h)` needs no `.catch` to stay off the fatal
+      // `unhandledRejection` handler.
       return enqueueMutation(async () => {
         const entry = entries.get(host);
         if (entry === undefined) return;
