@@ -41,8 +41,8 @@ import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
-  monotonicNow,
 } from "@kolu/surface/heartbeat";
+import { monotonicNow } from "@kolu/surface/time";
 import {
   probeSurfaceIdentity,
   type ServedIdentity,

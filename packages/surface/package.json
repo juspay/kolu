@@ -21,6 +21,7 @@
     "./project": "./src/project.ts",
     "./reactor": "./src/reactor.ts",
     "./server": "./src/server.ts",
+    "./time": "./src/time.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
     "./solid/SurfaceGate": "./src/solid/SurfaceGate.tsx",
