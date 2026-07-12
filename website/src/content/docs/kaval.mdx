@@ -133,6 +133,7 @@ kolu, from the shell, with **no flags**:
 ```sh
 kaval-tui list                     # the terminals open in your kolu
 kaval-tui snapshot <id> | grep BUILD-
+kaval-tui history <id> --lines 200 # older scrollback above the screen
 ```
 
 kaval-tui discovers the daemon by scanning the per-user runtime dir — both a
@@ -197,10 +198,13 @@ over a socket. The system split is why [padi](/padi) handles workspace meaning
 while kaval handles terminal survival.
 
 <CardGrid>
-  <Card title="race-free attach">
+  <Card title="race-free, bounded attach">
     A late-joining client gets a screen snapshot and then live deltas with no gap
     and no overlap — every byte lands in exactly one of the two, so the screen
-    reconstructs perfectly and then streams.
+    reconstructs perfectly and then streams. The snapshot is **bounded** to the
+    recent screenful, so a cold or cross-host attach paints instantly instead of
+    replaying the whole 10,000-line mirror; older history streams in on demand as
+    the client scrolls up (`getHistory`).
   </Card>
   <Card title="drop-slow-subscriber">
     A wedged client that stops draining its output is dropped rather than pinning
