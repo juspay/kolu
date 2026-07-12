@@ -248,17 +248,17 @@ export function channelLive(
  *  (not re-declared) so it can never drift from the wire schema. */
 export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
 
-/** The kaval dialog/rail's own honest presence sum — see the module section header.
- *  `down`'s `state` mirrors {@link DAEMON_STATE_PRESENTATION}'s down bucket
- *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
- *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
- *  a `connected` wire status whose `identity` has not (yet) arrived. */
 /** A daemon's serialized lifetime as it rides the wire — the daemon-neutral shape
  *  shared by both kaval (`status.lifetime`) and padi (`identity.lifetime`), derived
  *  from the schema (not re-declared) so it can never drift. Optional on the wire (a
  *  survivor predating the field reports none), so this is the non-null shape. */
 export type DaemonLifetimeView = NonNullable<DaemonStatus["lifetime"]>;
 
+/** The kaval dialog/rail's own honest presence sum — see the module section header.
+ *  `down`'s `state` mirrors {@link DAEMON_STATE_PRESENTATION}'s down bucket
+ *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
+ *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
+ *  a `connected` wire status whose `identity` has not (yet) arrived. */
 export type KavalPresence =
   | {
       kind: "connected";
