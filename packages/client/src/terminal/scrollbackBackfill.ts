@@ -265,7 +265,20 @@ export interface HistoryChunk {
  *     a row index that reflow shifts, so rather than fetch against a stale
  *     anchor, the controller waits for the next snapshot frame to re-`seed` it.
  *     (Continuous backfill across a resize would need a reflow-invariant cursor —
- *     a deliberate follow-up; the common stable-width path is fully covered.) */
+ *     a deliberate follow-up; the common stable-width path is fully covered.)
+ *
+ *     KNOWN GAP (same follow-up): this local `onResize` pause only sees OUR OWN
+ *     width changes. Another client attached to the SAME PTY (a `kaval-tui attach`,
+ *     which resizes the shared mirror last-resize-wins) can reflow the mirror
+ *     underneath us WITHOUT our `term.cols` changing, leaving our absolute cursor
+ *     stale against a renumbered buffer — a subsequent `getHistory` can then
+ *     duplicate or skip a band of rows until our next own-resize re-seeds. The
+ *     sound fix is the SAME reflow-invariant (logical-line) cursor above, plus a
+ *     server-side reflow generation the host rejects a stale cursor against; both
+ *     are deferred together rather than threading new fail-loud control semantics
+ *     through kaval→padi→client on the always-on attach path in this change. The
+ *     window is narrow (concurrent multi-client backfill at differing widths) and
+ *     self-heals; it is a fidelity gap, not data loss. */
 export interface BackfillController {
   /** Seed/re-seed the cursor from an attach (or re-attach) snapshot's topLine. */
   seed(topLine: number): void;
@@ -283,8 +296,11 @@ export function createBackfillController(
     /** Surface a fetch failure that is NOT an expected teardown (a killed PTY's
      *  typed `NOT_FOUND`). Called for transport / auth / schema / server faults
      *  so backfill can't silently leave a hole — the caller toasts it; a later
-     *  scroll retries. Omitted only in tests that assert the swallow/retry paths. */
-    onError?: (err: unknown) => void;
+     *  scroll retries. REQUIRED: the controller exposes no other error accessor,
+     *  so an omitted handler would silently recreate the swallow this exists to
+     *  prevent (fail-loud). A caller that genuinely wants to ignore faults passes
+     *  an explicit no-op `() => {}` — a visible decision, not a missing one. */
+    onError: (err: unknown) => void;
     /** Test seam: inject a small trigger so a controller test fires the near-top
      *  fetch without a giant buffer (defaults to 2× the visible rows). */
     triggerRows?: number;
@@ -368,7 +384,7 @@ export function createBackfillController(
           // silently leave a hole. This catch is scoped to the FETCH only — a
           // `prepend` fault (overflow / broken internals) stays FAIL-LOUD below.
           if (!(err instanceof ORPCError && err.code === "NOT_FOUND"))
-            opts.onError?.(err);
+            opts.onError(err);
           return;
         }
         if (!stillValid()) return;

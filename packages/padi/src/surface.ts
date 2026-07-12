@@ -165,13 +165,15 @@ export * from "./vocab.ts";
  *
  *  3.0 is the second MAJOR bump (scrollback-backfill). The `terminalAttach` stream's
  *  output was RESHAPED — from a bare `z.string()` (the bytes to write) to a
- *  structured `{ data, topLine? }` frame (bytes + the absolute mirror-line seed for
- *  the client's backfill cursor, present on a snapshot/re-attach frame). This is
- *  breaking in BOTH skew directions — an old client's `z.string()` schema rejects a
- *  new padi's object frame, and a new client's object schema rejects an old padi's
- *  string frame — so ONLY a major flips `isContractVersionCompatible` to refuse the
- *  skew both ways (an honest "upgrade the other side" recycle rather than a
- *  mis-parsed, dataless, or frozen pane). The additive `screen.history` procedure
+ *  discriminated `{ kind:"delta", data } | { kind:"snapshot", data, topLine }` frame
+ *  (a `snapshot` carries the absolute mirror-line backfill seed; a `delta` is plain
+ *  bytes), mirroring kaval's own `TerminalDataMsg` union rather than flattening it to
+ *  an optional field. This is breaking in BOTH skew directions — an old client's
+ *  `z.string()` schema rejects a new padi's object frame, and a new client's union
+ *  schema rejects an old padi's string frame — so ONLY a major flips
+ *  `isContractVersionCompatible` to refuse the skew both ways (an honest "upgrade the
+ *  other side" recycle rather than a mis-parsed, dataless, or frozen pane). The
+ *  additive `screen.history` procedure
  *  (the client's older-scrollback read) rides the same release; it alone would be a
  *  minor, but the `terminalAttach` reshape forces the major. */
 export const PADI_SURFACE_VERSION = "3.0";
@@ -716,13 +718,19 @@ export const padiSurface = defineSurface({
      *  re-attaches end-to-end); the shipped overflow frame (#1591) rides it. */
     terminalAttach: {
       inputSchema: PadiTerminalIdInputSchema,
-      // A structured frame, not a bare string (contract): `data` is the bytes to
-      // write; `topLine` (present only on a snapshot/re-attach frame) is the
-      // absolute mirror-line seed for the client's scrollback-backfill cursor.
-      outputSchema: z.object({
-        data: z.string(),
-        topLine: z.number().int().nonnegative().optional(),
-      }),
+      // A discriminated frame, not a bare string (contract) and not an optional
+      // field: a `delta` is bytes to write; a `snapshot` frame (the first frame
+      // and every overflow re-attach) also carries the absolute mirror-line
+      // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
+      // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
+      outputSchema: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("delta"), data: z.string() }),
+        z.object({
+          kind: z.literal("snapshot"),
+          data: z.string(),
+          topLine: z.number().int().nonnegative(),
+        }),
+      ]),
     },
   },
   events: {

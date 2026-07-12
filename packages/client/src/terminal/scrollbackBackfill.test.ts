@@ -343,6 +343,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      onError: () => {},
       triggerRows: 1e9,
     });
     c.seed(100);
@@ -364,6 +365,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      onError: () => {},
       triggerRows: 1e9,
     });
     c.seed(100);
@@ -388,6 +390,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      onError: () => {},
       triggerRows: 1e9,
     });
     c.seed(100);
@@ -481,6 +484,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      onError: () => {},
       triggerRows: 1e9,
     });
     c.seed(100);

@@ -845,8 +845,8 @@ const Terminal: Component<{
                 { signal, onRetry: resetForFreshSnapshot },
               ),
             (frame) => {
-              // A frame carrying `topLine` begins a fresh snapshot (initial attach
-              // or an overflow re-attach). Its bytes describe the mirror line the
+              // A `snapshot` frame begins a fresh snapshot (initial attach or an
+              // overflow re-attach). Its bytes describe the mirror line the
               // backfill cursor seeds from — but seed only AFTER the snapshot has
               // PARSED into the buffer (in the write callback below), not now:
               // parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
@@ -854,7 +854,8 @@ const Terminal: Component<{
               // seeded up front would let one of those fire an unsolicited fetch
               // that splices onto a still-parsing buffer. Once parsed, the viewport
               // sits at the BOTTOM, so no fetch fires until a real user scroll-up.
-              const seedTopLine = frame.topLine;
+              const seedTopLine =
+                frame.kind === "snapshot" ? frame.topLine : undefined;
               const data = frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light

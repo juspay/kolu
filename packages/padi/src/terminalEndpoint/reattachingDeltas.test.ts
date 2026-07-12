@@ -35,6 +35,10 @@ async function collect(
 /** The `data` field of each frame — the byte-stream projection the tests assert
  *  on for the string outputs. */
 const data = (out: TerminalAttachFrame[]) => out.map((f) => f.data);
+/** The re-seed anchor per frame: a `snapshot` frame's `topLine`, `undefined` for
+ *  a plain `delta` (the discriminated-union projection of the old optional field). */
+const topLines = (out: TerminalAttachFrame[]) =>
+  out.map((f) => (f.kind === "snapshot" ? f.topLine : undefined));
 
 describe("reattachingDeltas", () => {
   it("yields the delta frames and ends on a graceful stream end", async () => {
@@ -45,7 +49,7 @@ describe("reattachingDeltas", () => {
     const out = await collect(reattachingDeltas(open, initial));
     expect(data(out)).toEqual(["a", "b"]);
     // Plain deltas carry no re-seed.
-    expect(out.every((f) => f.topLine === undefined)).toBe(true);
+    expect(out.every((f) => f.kind === "delta")).toBe(true);
   });
 
   it("re-attaches on an `overflow` frame, prefixing a reset + re-seeding topLine", async () => {
@@ -65,7 +69,7 @@ describe("reattachingDeltas", () => {
     // The dropped subscriber's delta is delivered; then the reset-prefixed fresh
     // snapshot replaces the screen AND re-seeds the backfill cursor; then deltas.
     expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
-    expect(out.map((f) => f.topLine)).toEqual([undefined, 42, undefined]);
+    expect(topLines(out)).toEqual([undefined, 42, undefined]);
     expect(opened).toBe(1);
   });
 
@@ -86,7 +90,7 @@ describe("reattachingDeltas", () => {
       `${TERMINAL_RESET}S1`,
       "two",
     ]);
-    expect(out.map((f) => f.topLine)).toEqual([0, undefined, 10, undefined]);
+    expect(topLines(out)).toEqual([0, undefined, 10, undefined]);
   });
 
   it("ends cleanly when the PTY has vanished by the time we re-attach (NOT_FOUND)", async () => {

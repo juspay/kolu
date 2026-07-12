@@ -291,10 +291,10 @@ export function buildPadiSurfaceDeps(deps: {
           const { snapshot, topLine, deltas } = await resolveTerminalEndpoint(
             entry.meta.location,
           ).attach(id, signal);
-          // First frame carries the backfill seed (`topLine`) alongside the
-          // snapshot bytes; delta frames carry `data` only, except a re-attach
-          // frame which re-seeds (see `reattachingDeltas`).
-          yield { data: snapshot, topLine };
+          // First frame is a `snapshot` carrying the backfill seed (`topLine`)
+          // alongside the snapshot bytes; delta frames carry `data` only, except
+          // a re-attach frame which is itself a `snapshot` (see `reattachingDeltas`).
+          yield { kind: "snapshot", data: snapshot, topLine };
           for await (const frame of deltas) yield frame;
         },
       },

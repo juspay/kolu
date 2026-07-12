@@ -332,9 +332,14 @@ describe("padi the process — dial acceptance", () => {
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    // The frame is `{ data, topLine }` (contract 5.1): the snapshot bytes plus
-    // the absolute backfill seed the first frame carries.
-    const firstFrame = first.value as { data: string; topLine?: number };
+    // The first frame is a `snapshot` (contract 3.0 union): the snapshot bytes
+    // plus the absolute backfill seed `topLine` the snapshot frame carries.
+    const firstFrame = first.value as {
+      kind: string;
+      data: string;
+      topLine?: number;
+    };
+    expect(firstFrame.kind).toBe("snapshot");
     expect(typeof firstFrame.data).toBe("string");
     expect(typeof firstFrame.topLine).toBe("number");
 
@@ -517,8 +522,13 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    // `{ data, topLine }` frame (contract 5.1) relayed straight through the front.
-    const firstFrame = first.value as { data: string; topLine?: number };
+    // `snapshot` union frame (contract 3.0) relayed straight through the front.
+    const firstFrame = first.value as {
+      kind: string;
+      data: string;
+      topLine?: number;
+    };
+    expect(firstFrame.kind).toBe("snapshot");
     expect(typeof firstFrame.data).toBe("string");
     expect(typeof firstFrame.topLine).toBe("number");
 

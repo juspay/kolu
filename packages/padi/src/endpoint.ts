@@ -68,14 +68,19 @@ export interface TerminalAttachment {
   deltas: AsyncIterable<TerminalAttachFrame>;
 }
 
-/** One frame of the terminal byte stream a client consumes. A plain delta is
- *  just `data` (bytes to write). A frame that begins a FRESH snapshot (the
- *  overflow-driven re-attach) also carries `topLine`, re-seeding the client's
- *  backfill cursor for the reset scrollback. */
-export interface TerminalAttachFrame {
-  data: string;
-  topLine?: number;
-}
+/** One frame of the terminal byte stream a client consumes — a discriminated
+ *  union, mirroring kaval's own `TerminalDataMsg` shape one hop up rather than
+ *  flattening it to an optional field (the streaming-convention "explicit
+ *  discriminated union" for snapshot-vs-delta, `.claude/rules/streaming.md` §2).
+ *  A `delta` is just bytes to write. A `snapshot` frame — the stream's first
+ *  frame and every overflow-driven re-attach — carries the fresh `topLine` seed
+ *  for the client's backfill cursor. Modelling it as a union makes the two
+ *  malformed states the old `{ data, topLine? }` shape permitted (a snapshot
+ *  without its anchor, a delta carrying one) unrepresentable, so the consumer
+ *  discriminates on `kind`, never on field presence. */
+export type TerminalAttachFrame =
+  | { kind: "delta"; data: string }
+  | { kind: "snapshot"; data: string; topLine: number };
 
 /** One older-scrollback chunk for the client's in-place backfill — the padi
  *  mirror of kaval's `PtyHistoryChunk`. `before`/`topLine` are absolute

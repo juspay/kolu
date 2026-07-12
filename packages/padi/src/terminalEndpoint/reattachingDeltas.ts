@@ -66,7 +66,7 @@ export async function* reattachingDeltas(
         overflowed = true;
         break;
       }
-      yield { data: msg.data };
+      yield { kind: "delta", data: msg.data };
     }
     if (!overflowed) return; // graceful end: PTY exit / abort / clean close
     await new Promise((r) => setTimeout(r, REATTACH_PAUSE_MS));
@@ -79,7 +79,11 @@ export async function* reattachingDeltas(
     }
     // A fresh snapshot: reset the screen (RIS) AND re-seed the backfill cursor
     // with this re-attach's own `topLine`.
-    yield { data: TERMINAL_RESET + next.snapshot, topLine: next.topLine };
+    yield {
+      kind: "snapshot",
+      data: TERMINAL_RESET + next.snapshot,
+      topLine: next.topLine,
+    };
     cur = next.iter;
   }
 }

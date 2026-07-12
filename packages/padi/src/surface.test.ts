@@ -37,8 +37,9 @@ describe("padiSurface 1.0 contract", () => {
     // otherwise waves through); and (b) it REMOVES `fs.statFileMtimeMs` for
     // `fs.filePreviewTag` — a shape-breaking rename. 3.0 is the second MAJOR
     // (scrollback-backfill): the `terminalAttach` stream output was RESHAPED from a
-    // bare `z.string()` to a `{ data, topLine? }` frame — breaking in BOTH skew
-    // directions (each side's schema rejects the other's frame), so only a major
+    // bare `z.string()` to a discriminated `{ kind, data, topLine? }` union frame —
+    // breaking in BOTH skew directions (each side's schema rejects the other's
+    // frame), so only a major
     // refuses the skew both ways. (The additive `screen.history` procedure rides the
     // same release but alone would be only a minor.)
     expect(PADI_SURFACE_VERSION).toBe("3.0");
