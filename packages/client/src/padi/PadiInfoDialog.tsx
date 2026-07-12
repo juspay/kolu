@@ -46,6 +46,7 @@ import type {
 import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
+import { formatLifetime } from "../kaval/daemonPresentation";
 import { formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
@@ -291,6 +292,14 @@ const PadiInfoDialog: Component<{
               .with({ kind: "error" }, () => "poll failed")
               .with(P.nullish, () => "unavailable")
               .exhaustive()}
+          </span>
+        </DetailRow>
+        <DetailRow label="lifetime">
+          {/* padi's lifetime policy — `forever` for a durable production padi;
+              `bound to run pid N` under a test/smoke run. Routed through
+              `connected()` (P4): a non-connected padi renders nothing here. */}
+          <span data-testid="padi-dialog-lifetime">
+            {formatLifetime(connected()?.identity.lifetime)}
           </span>
         </DetailRow>
       </div>

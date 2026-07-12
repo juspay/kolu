@@ -9,6 +9,7 @@
  *  `daemonPresentation` so the padi and kaval dots can't drift on what
  *  "ok/warming/down/unknown" looks like. */
 
+import type { PadiIdentity } from "@kolu/padi/surface";
 import type { PadiConvergence, PadiLink } from "kolu-common/surface";
 import {
   DAEMON_UNKNOWN_DOT,
@@ -57,6 +58,10 @@ export type PadiIdentityView = {
   buildCommit: string | null;
   surfaceVersion: string;
   convergence: PadiConvergence | null;
+  /** padi's lifetime policy (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. Always present
+   *  on the connected arm (padi seeds it synchronously at boot). */
+  lifetime: PadiIdentity["lifetime"];
 };
 
 /** The Padi dialog/rail's own honest presence sum — narrower than the raw wire facts
@@ -90,7 +95,13 @@ export type PadiPresence =
 export function toPadiPresence(
   link: PadiLink | undefined,
   live: boolean,
-  identity: { commit: string | null; surfaceVersion: string } | undefined,
+  identity:
+    | {
+        commit: string | null;
+        surfaceVersion: string;
+        lifetime: PadiIdentity["lifetime"];
+      }
+    | undefined,
   convergence: PadiConvergence | null,
 ): PadiPresence {
   if (!live || link === undefined || link === "connecting")
@@ -105,6 +116,7 @@ export function toPadiPresence(
       buildCommit: identity.commit,
       surfaceVersion: identity.surfaceVersion,
       convergence,
+      lifetime: identity.lifetime,
     },
   };
 }

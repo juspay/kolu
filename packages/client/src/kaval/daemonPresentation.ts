@@ -253,6 +253,11 @@ export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
  *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
  *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
  *  a `connected` wire status whose `identity` has not (yet) arrived. */
+/** kaval's serialized lifetime as it rides the wire — derived from the schema (not
+ *  re-declared) so it can never drift. Optional on `DaemonStatus` (a survivor
+ *  predating the 5.1 field reports none), so this is the non-null shape. */
+export type KavalLifetime = NonNullable<DaemonStatus["lifetime"]>;
+
 export type KavalPresence =
   | {
       kind: "connected";
@@ -260,6 +265,9 @@ export type KavalPresence =
       contractVersion: string;
       startedAt: number;
       socketPath: string | undefined;
+      /** The daemon's lifetime (`forever` in production; `boundToPid` under a
+       *  test/smoke run). `undefined` for a survivor predating the wire field. */
+      lifetime: KavalLifetime | undefined;
     }
   | { kind: "warming" }
   | { kind: "down"; state: "dead" | "degraded" };
@@ -285,5 +293,22 @@ export function toKavalPresence(
     contractVersion: status.contractVersion,
     startedAt: status.startedAt,
     socketPath: status.socketPath,
+    lifetime: status.lifetime,
   };
+}
+
+/** Humanize a daemon's serialized lifetime for the Kaval/Padi dialog rows —
+ *  shared by both (padi's `identity.lifetime`, kaval's `status.lifetime`). A
+ *  survivor predating the wire field (`undefined`) reads "—". `forever` is the
+ *  production value; `boundToPid` appears under a test/smoke run. */
+export function formatLifetime(lifetime: KavalLifetime | undefined): string {
+  if (lifetime === undefined) return "—";
+  switch (lifetime.kind) {
+    case "forever":
+      return "forever";
+    case "idleTimeout":
+      return `idle timeout (${formatUptime(lifetime.ms)})`;
+    case "boundToPid":
+      return `bound to run pid ${lifetime.pid}`;
+  }
 }

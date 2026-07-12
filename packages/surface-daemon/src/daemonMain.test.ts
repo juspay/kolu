@@ -17,6 +17,7 @@ import {
   type DaemonSpec,
   daemonLifetimeFromEnv,
   daemonMain,
+  lifetimeInfo,
 } from "./daemonMain.ts";
 import type { Logger } from "./logger.ts";
 import { gatePid, isHolderLive } from "./pidGate.ts";
@@ -270,6 +271,21 @@ describe("daemonLifetimeFromEnv", () => {
       kind: "boundToPid",
       pid: 4321,
     });
+  });
+
+  it("lifetimeInfo projects each arm to its serializable shape (drops the closure/pollMs)", () => {
+    expect(lifetimeInfo({ kind: "forever" })).toEqual({ kind: "forever" });
+    // idleTimeout keeps `ms`, drops the `isIdle` closure.
+    expect(
+      lifetimeInfo({ kind: "idleTimeout", ms: 5000, isIdle: () => true }),
+    ).toEqual({ kind: "idleTimeout", ms: 5000 });
+    // boundToPid keeps `pid`, drops the test-only `pollMs`.
+    expect(lifetimeInfo({ kind: "boundToPid", pid: 4321, pollMs: 20 })).toEqual(
+      {
+        kind: "boundToPid",
+        pid: 4321,
+      },
+    );
   });
 
   it("crashes loudly on a malformed bind var (no silent degrade to fallback, no coercion)", () => {

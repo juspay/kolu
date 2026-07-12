@@ -23,9 +23,10 @@ import type { KavalPresence } from "./daemonPresentation";
 const full: KavalPresence = {
   kind: "connected",
   identity: { staleKey: "abc123", navigableCommit: "deadbeef" },
-  contractVersion: "5.0",
+  contractVersion: "5.1",
   startedAt: 0,
   socketPath: undefined,
+  lifetime: { kind: "forever" },
 };
 void full;
 
@@ -34,9 +35,10 @@ void full;
 // again synthesize a "connected but identity unknown" value.
 const missingIdentity: KavalPresence = {
   kind: "connected",
-  contractVersion: "5.0",
+  contractVersion: "5.1",
   startedAt: 0,
   socketPath: undefined,
+  lifetime: { kind: "forever" },
 };
 void missingIdentity;
 

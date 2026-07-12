@@ -17,9 +17,11 @@ import { dirname } from "node:path";
 import {
   acquirePidGate,
   type DaemonExit,
+  type DaemonLifetimeInfo,
   daemonLifetimeFromEnv,
   daemonMain,
   type GateAcquisition,
+  lifetimeInfo,
   type Logger,
 } from "@kolu/surface-daemon";
 
@@ -228,9 +230,14 @@ function configureDaemonIdentity(
  *  already-built `onDrain` so a control-core drain persists + exits. */
 function serveDaemonSurfaces(
   identity: IdentityReady,
-  params: { stateRoot: string; onDrain: () => void; log: Logger },
+  params: {
+    stateRoot: string;
+    onDrain: () => void;
+    log: Logger;
+    lifetime: DaemonLifetimeInfo;
+  },
 ): SurfacesServed {
-  const { stateRoot, onDrain, log } = params;
+  const { stateRoot, onDrain, log, lifetime } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
   const { router: surfaceFragment, ctx } = implementSurfaces(
     padiDaemonSurfaces,
@@ -263,6 +270,7 @@ function serveDaemonSurfaces(
         // can't drift.
         startedAt: PADI_STARTED_AT,
         commit: currentPadiCommitHash(),
+        lifetime,
       }),
       control: buildControlCoreDeps({
         stateRoot,
@@ -358,6 +366,13 @@ export async function runPadiDaemon(
   const stores = openStateStores(gate, stateRoot, log);
   const identity = configureDaemonIdentity(stores, opts, socketPath);
 
+  // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
+  // harness/smoke run set `KOLU_DAEMON_BIND_PID`. Seeded into the padiSurface
+  // `identity` cell (via `serveDaemonSurfaces` → `buildPadiSurfaceDeps`) AND handed
+  // to `daemonMain` below — the same value, reused so the readout and the actual
+  // policy can't drift.
+  const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
+
   // ── The drain trigger ── control-core `drain` persists + exits; the caller observes
   // the socket close. Built HERE (not in a phase) so `onDrain` closes over
   // `drainController` — which the spine's `daemonMain` also aborts on — and can be
@@ -392,7 +407,12 @@ export async function runPadiDaemon(
 
   // Serve → boot the endpoint: the reconcile publishes onto the ctx the serve phase
   // wires, so `bootLocalEndpoint` takes the served token.
-  const served = serveDaemonSurfaces(identity, { stateRoot, onDrain, log });
+  const served = serveDaemonSurfaces(identity, {
+    stateRoot,
+    onDrain,
+    log,
+    lifetime: lifetimeInfo(lifetime),
+  });
   const endpoint = await bootLocalEndpoint(served, {
     kavalSocket,
     legacyKavalSocket: opts.legacyKavalSocket,
@@ -424,10 +444,11 @@ export async function runPadiDaemon(
     // The router is the serve phase's output — read it straight off `served` rather
     // than re-threading it through the endpoint token that neither owns nor touches it.
     router: served.router,
-    // `forever` in production; `boundToPid` when a harness/smoke run set
-    // `KOLU_DAEMON_BIND_PID` so a test-spawned padi dies with its run instead of
-    // outliving it (and padi forwards the same var into its kaval). Absence = forever.
-    lifetime: daemonLifetimeFromEnv({ kind: "forever" }),
+    // The same lifetime resolved above (reused, never re-derived) — so the value
+    // seeded into the padiSurface `identity` cell is provably the one governing the
+    // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
+    // forwards the same var into its kaval).
+    lifetime,
     log,
     signal: drainController.signal,
     onReady: opts.onReady,

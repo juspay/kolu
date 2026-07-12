@@ -36,7 +36,7 @@ describe("padiSurface 1.0 contract", () => {
     // client's persisted `collapsed:true` — the direction `isContractVersionCompatible`
     // otherwise waves through); and (b) it REMOVES `fs.statFileMtimeMs` for
     // `fs.filePreviewTag` — a shape-breaking rename. Both must refuse a 1.x↔2.0 skew.
-    expect(PADI_SURFACE_VERSION).toBe("2.0");
+    expect(PADI_SURFACE_VERSION).toBe("2.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -145,6 +145,7 @@ describe("padiSurface 1.0 contract", () => {
       commit: null,
       surfaceVersion: PADI_SURFACE_VERSION,
       startedAt: 1_700_000_000_000,
+      lifetime: { kind: "forever" as const },
     };
     expect(PadiIdentitySchema.parse(declaredNoCommit)).toEqual(
       declaredNoCommit,
@@ -161,6 +162,7 @@ describe("padiSurface 1.0 contract", () => {
       PadiIdentitySchema.parse({
         surfaceVersion: PADI_SURFACE_VERSION,
         startedAt: 0,
+        lifetime: { kind: "forever" },
       }),
     ).toThrow();
     expect(DEFAULT_PADI_IDENTITY.commit).toBeNull();

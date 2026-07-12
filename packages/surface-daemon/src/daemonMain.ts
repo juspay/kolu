@@ -44,6 +44,34 @@ export type DaemonLifetime =
   | { kind: "idleTimeout"; ms: number; isIdle: () => boolean }
   | { kind: "boundToPid"; pid: number; pollMs?: number };
 
+/** The serializable projection of a {@link DaemonLifetime} — the same three
+ *  kinds with the non-wire members dropped (`idleTimeout`'s `isIdle` closure,
+ *  `boundToPid`'s test-only `pollMs`). This is what a daemon publishes about
+ *  itself so a UI can show which lifetime it is running under (`forever` in
+ *  production; `boundToPid` under a test/smoke run). Kept here, beside the union
+ *  it projects, so the two can't drift; the wire (zod) schema is declared
+ *  downstream in each surface's browser-safe vocab, `satisfies`-pinned to this. */
+export type DaemonLifetimeInfo =
+  | { kind: "forever" }
+  | { kind: "idleTimeout"; ms: number }
+  | { kind: "boundToPid"; pid: number };
+
+/** Project a live {@link DaemonLifetime} to its serializable {@link
+ *  DaemonLifetimeInfo} — drops the `isIdle` closure and the test-only `pollMs`,
+ *  keeping only what a consumer can read off the wire. Exhaustive over the union
+ *  (a new arm is a compile error here), so the projection can't silently omit a
+ *  future lifetime. */
+export function lifetimeInfo(lifetime: DaemonLifetime): DaemonLifetimeInfo {
+  switch (lifetime.kind) {
+    case "forever":
+      return { kind: "forever" };
+    case "idleTimeout":
+      return { kind: "idleTimeout", ms: lifetime.ms };
+    case "boundToPid":
+      return { kind: "boundToPid", pid: lifetime.pid };
+  }
+}
+
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
  *  `already-running` is a *success* (another live daemon serves this scope —
  *  exit 0); `serve-failed` is the one real error. */

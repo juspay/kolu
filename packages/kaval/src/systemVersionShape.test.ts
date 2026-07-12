@@ -19,10 +19,11 @@ import {
 } from "./ptyHostSurface.ts";
 
 describe("system.version shape — the convergence identity read (Pin 3)", () => {
-  it("SystemVersionOutputSchema is exactly { contractVersion, identity?, pid, startedAt }", () => {
+  it("SystemVersionOutputSchema is exactly { contractVersion, identity?, lifetime?, pid, startedAt }", () => {
     expect(Object.keys(SystemVersionOutputSchema.shape).sort()).toEqual([
       "contractVersion",
       "identity",
+      "lifetime",
       "pid",
       "startedAt",
     ]);
@@ -37,5 +38,9 @@ describe("system.version shape — the convergence identity read (Pin 3)", () =>
 
   it("identity stays OPTIONAL — a daemon predating the field still handshakes, and the probe reads its staleKey as an honest '' (Pin 3)", () => {
     expect(SystemVersionOutputSchema.shape.identity.isOptional()).toBe(true);
+  });
+
+  it("lifetime is OPTIONAL — a daemon predating the 5.1 field still handshakes; the reader falls back to '—'", () => {
+    expect(SystemVersionOutputSchema.shape.lifetime.isOptional()).toBe(true);
   });
 });

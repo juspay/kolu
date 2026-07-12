@@ -13,6 +13,7 @@
  * `@kolu/padi/surface`.
  */
 
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import {
   ENDPOINT_STATES,
   type EndpointState,
@@ -518,6 +519,18 @@ export const PtyHostIdentitySchema = z.object({
   navigableCommit: z.string(),
 });
 
+/** padi's browser-safe copy of `@kolu/surface-daemon`'s `DaemonLifetimeInfo` (the
+ *  wire projection of a daemon's `DaemonLifetime`) — declared here rather than
+ *  imported from kaval, for the same reason `PtyHostIdentitySchema` is duplicated:
+ *  padi's browser-safe vocab does not depend on kaval's package. `satisfies`-pinned
+ *  to the spine type so the two can't drift. Reused by `DaemonStatusSchema` (kaval's
+ *  lifetime) and, via surface.ts, by `PadiIdentitySchema` (padi's own). */
+export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("forever") }),
+  z.object({ kind: z.literal("idleTimeout"), ms: z.number() }),
+  z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
+]) satisfies z.ZodType<DaemonLifetimeInfo>;
+
 const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
   (state): state is Exclude<EndpointState, "connected"> =>
     state !== "connected",
@@ -563,6 +576,12 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
      *  can't construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set
      *  once at boot, constant for the daemon's life. Optional + additive. */
     socketPath: z.string().optional(),
+    /** kaval's lifetime policy (`forever` in production; `boundToPid` under a
+     *  test/smoke run), mirrored from `system.version` via the connection
+     *  metadata — surfaced for the Kaval dialog's lifetime row. Optional: a
+     *  survivor predating the 5.1 field reports none, and the reader falls back
+     *  to "—". Set once at boot, constant for the daemon's life. */
+    lifetime: DaemonLifetimeInfoSchema.optional(),
   }),
   z.object({
     // The state set is the spine's volatility — derive the enum from the
@@ -575,6 +594,7 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
     startedAt: z.never().optional(),
     adopted: z.never().optional(),
     adoptedAt: z.never().optional(),
+    lifetime: z.never().optional(),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). */

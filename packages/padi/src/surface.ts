@@ -92,6 +92,7 @@ import {
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
   InitialTerminalMetadataSchema,
+  DaemonLifetimeInfoSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -153,8 +154,13 @@ export * from "./vocab.ts";
  *  (a) — is a major. A remote dial gates an incompatible padi via
  *  `isContractVersionCompatible`. Distinct from {@link CONTROL_CORE_VERSION}, which is
  *  frozen forever so a contract-revving deploy can still reach the daemon's control
- *  core. */
-export const PADI_SURFACE_VERSION = "2.0";
+ *  core.
+ *
+ *  2.1 (additive · minor): the read-only, server-seeded `identity` cell gained a
+ *  `lifetime` field (padi's own `DaemonLifetimeInfo`, for the Padi dialog's
+ *  lifetime row). A new field on a server-seeded cell — not a shared whole-record
+ *  client write — so per the rule above it is a minor, not a major. */
+export const PADI_SURFACE_VERSION = "2.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -195,6 +201,11 @@ export const PadiIdentitySchema = z.object({
   commit: z.string().nullable(),
   surfaceVersion: z.string(),
   startedAt: z.number(),
+  /** padi's lifetime policy (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — surfaced for the Padi dialog's lifetime row. Seeded
+   *  synchronously at boot alongside the rest of the identity, so a fresh
+   *  subscriber sees the real value from the first frame. */
+  lifetime: DaemonLifetimeInfoSchema,
 });
 export type PadiIdentity = z.infer<typeof PadiIdentitySchema>;
 
@@ -207,6 +218,7 @@ export const DEFAULT_PADI_IDENTITY: PadiIdentity = {
   commit: null,
   surfaceVersion: PADI_SURFACE_VERSION,
   startedAt: 0,
+  lifetime: { kind: "forever" },
 };
 
 // ── Status (the per-host build-currency axis) ─────────────────────────────
