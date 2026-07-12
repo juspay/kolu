@@ -394,9 +394,15 @@ export interface PtyHost {
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
   /** Serialize the older-history chunk of up to `max` rows sitting immediately
    *  ABOVE absolute mirror line `before` — the backfill read the client pages as
-   *  it scrolls up. See {@link PtyHistoryChunk}. Returns an empty, exhausted
-   *  chunk for a gone PTY or when nothing older remains. */
-  getHistory(id: PtyId, before: number, max: number): PtyHistoryChunk;
+   *  it scrolls up. An omitted `before` starts from the top of the current screen
+   *  region (the self-seeding entry point a plain pager uses). See
+   *  {@link PtyHistoryChunk}. Returns an empty, exhausted chunk for a gone PTY or
+   *  when nothing older remains. */
+  getHistory(
+    id: PtyId,
+    before: number | undefined,
+    max: number,
+  ): PtyHistoryChunk;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** Kill every PTY this host owns. */
@@ -945,19 +951,26 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     }
   }
 
-  function getHistory(id: PtyId, before: number, max: number): PtyHistoryChunk {
+  function getHistory(
+    id: PtyId,
+    before: number | undefined,
+    max: number,
+  ): PtyHistoryChunk {
     const entry = entries.get(id);
-    // A gone PTY, or the client already holds the oldest line the mirror has:
-    // nothing older to serve. `before` is the client's absolute cursor; the row
-    // just above it is `before - mirrorBaseLine - 1` in the current local buffer.
     if (!entry || max <= 0)
-      return { chunk: "", topLine: before, exhausted: true };
+      return { chunk: "", topLine: before ?? 0, exhausted: true };
+    // `before` is the caller's absolute cursor; the row just above it is
+    // `before - mirrorBaseLine - 1` in the current local buffer. Omitted means
+    // "start from the top of the current screen region" — the self-seeding entry
+    // point a plain pager (`kaval-tui history`) uses instead of first reading an
+    // attach snapshot's `topLine`.
+    const cursor = before ?? snapshotTopLineOf(entry);
     const buffer = entry.headless.buffer.normal;
     const localEnd = Math.min(
-      before - entry.mirrorBaseLine - 1,
+      cursor - entry.mirrorBaseLine - 1,
       buffer.length - 1,
     );
-    if (localEnd < 0) return { chunk: "", topLine: before, exhausted: true };
+    if (localEnd < 0) return { chunk: "", topLine: cursor, exhausted: true };
     let start = Math.max(0, localEnd - max + 1);
     // Snap the top edge back over any wrapped-line continuation rows to the
     // line's head, so a chunk boundary never bisects a logical line (which would

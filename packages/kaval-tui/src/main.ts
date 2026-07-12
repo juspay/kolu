@@ -191,6 +191,22 @@ const argv = cli({
       },
     }),
     command({
+      name: "history",
+      parameters: ["<id>"],
+      help: {
+        description:
+          "Dump a terminal's OLDER scrollback — the mirror content ABOVE the current screen that `snapshot --viewport` can't show — as VT bytes (colors preserved), cursor-paged from the newest older lines back. `--lines N` prints just the N lines immediately above the screen; omit it to dump the whole mirror history. Read-only, takes no TTY. <id> is the short id from `list` or any unique prefix.",
+      },
+      flags: {
+        ...endpointFlags,
+        lines: {
+          type: Number,
+          description:
+            "print only the N older lines immediately above the current screen (one page); omit for the full older history",
+        },
+      },
+    }),
+    command({
       name: "send",
       parameters: ["<id>", "[text...]"],
       help: {
@@ -398,6 +414,57 @@ async function cmdSnapshot(
   const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
   process.stderr.write(
     `— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`,
+  );
+}
+
+/** Rows per page when dumping the whole older history — bounds each round-trip's
+ *  serialized payload; the pager loops until the mirror is exhausted. */
+const HISTORY_PAGE_ROWS = 1000;
+
+async function cmdHistory(
+  conn: Connection,
+  id: string,
+  opts: { lines: number | undefined },
+): Promise<void> {
+  // The `getHistory` verb self-seeds when `before` is omitted (starts from the
+  // top of the current screen region) and pages older with each reply's
+  // `topLine`. It returns VT-serialized chunks — the same bytes the browser
+  // replays — so colors survive; a consumer that wants plain text pipes through
+  // its own VT stripper, exactly as it would `snapshot`'s serialized frame.
+  if (opts.lines !== undefined) {
+    // One page: the N older lines immediately above the screen.
+    const { chunk } = await conn.client.surface.terminal.getHistory({
+      id,
+      max: opts.lines,
+    });
+    if (chunk) await writeOut(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
+    process.stderr.write(
+      `— ${shortId(id)} · older history (≤${opts.lines} lines)\n`,
+    );
+    return;
+  }
+  // Whole older history: page from the screen top back to the oldest retained
+  // line. We fetch newest-older first; collect, then emit OLDEST-first so the
+  // dump reads top-to-bottom like the terminal produced it.
+  const pages: string[] = [];
+  let before: number | undefined;
+  for (;;) {
+    const res = await conn.client.surface.terminal.getHistory({
+      id,
+      before,
+      max: HISTORY_PAGE_ROWS,
+    });
+    if (res.chunk === "") break;
+    pages.push(res.chunk);
+    before = res.topLine;
+    if (res.exhausted) break;
+  }
+  for (let i = pages.length - 1; i >= 0; i--) {
+    const chunk = pages[i] as string;
+    await writeOut(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
+  }
+  process.stderr.write(
+    `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`,
   );
 }
 
@@ -1003,6 +1070,13 @@ async function main(): Promise<void> {
         viewport,
         tailLines,
       });
+    } else if (argv.command === "history") {
+      const { lines } = argv.flags;
+      if (lines !== undefined && (!Number.isInteger(lines) || lines <= 0))
+        fail(
+          `--lines takes a positive whole number of lines, got ${JSON.stringify(lines)}.`,
+        );
+      await cmdHistory(conn, await resolveOne(conn, argv._.id), { lines });
     } else if (sendCall !== null) {
       // `sendCall` is non-null exactly when the command is `send` (parsed +
       // validated pre-dial above), so keying the branch off it carries the

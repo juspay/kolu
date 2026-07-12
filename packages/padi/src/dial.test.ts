@@ -334,8 +334,9 @@ describe("padi the process — dial acceptance", () => {
     const first = await attach.next();
     // The frame is `{ data, topLine }` (contract 5.1): the snapshot bytes plus
     // the absolute backfill seed the first frame carries.
-    expect(typeof first.value.data).toBe("string");
-    expect(typeof first.value.topLine).toBe("number");
+    const firstFrame = first.value as { data: string; topLine?: number };
+    expect(typeof firstFrame.data).toBe("string");
+    expect(typeof firstFrame.topLine).toBe("number");
 
     // Drive the PTY through the lifecycle procedure and read it back off the
     // screen procedure — a full round-trip through padi's OWN kaval.
@@ -517,8 +518,9 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
     ]();
     const first = await attach.next();
     // `{ data, topLine }` frame (contract 5.1) relayed straight through the front.
-    expect(typeof first.value.data).toBe("string");
-    expect(typeof first.value.topLine).toBe("number");
+    const firstFrame = first.value as { data: string; topLine?: number };
+    expect(typeof firstFrame.data).toBe("string");
+    expect(typeof firstFrame.topLine).toBe("number");
 
     await client.surface.padi.lifecycle.sendInput({
       id,

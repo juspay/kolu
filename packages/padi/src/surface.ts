@@ -489,7 +489,7 @@ export const PadiScreenTextInputSchema = z.object({
  *  each reply's `topLine`); the host serves up to `max` older rows above it. */
 export const PadiScreenHistoryInputSchema = z.object({
   id: TerminalIdSchema,
-  before: z.number().int().nonnegative(),
+  before: z.number().int().nonnegative().optional(),
   max: z.number().int().positive(),
 });
 

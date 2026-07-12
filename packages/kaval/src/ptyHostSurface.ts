@@ -449,7 +449,9 @@ export const ptyHostSurface = defineSurface({
       getHistory: {
         input: z.object({
           id: PtyIdSchema,
-          before: z.number().int().nonnegative(),
+          // Absolute cursor; omitted starts from the top of the current screen
+          // region (the self-seeding pager entry point).
+          before: z.number().int().nonnegative().optional(),
           max: z.number().int().positive(),
         }),
         output: z.object({

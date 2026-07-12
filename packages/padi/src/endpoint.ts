@@ -142,7 +142,10 @@ export interface TerminalHandle {
    *  `max` mirror rows immediately ABOVE absolute line `before` (the client's
    *  cursor — the attach `topLine`, then each reply's `topLine`). Absolute
    *  addressing keeps the backfill seam race-free against live output. */
-  getHistory(before: number, max: number): Promise<TerminalHistoryChunk>;
+  getHistory(
+    before: number | undefined,
+    max: number,
+  ): Promise<TerminalHistoryChunk>;
 }
 
 // `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint
