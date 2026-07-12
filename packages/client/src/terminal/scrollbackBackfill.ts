@@ -302,6 +302,16 @@ export function createBackfillController(
   let disposed = false;
   let lastCols = term.cols;
 
+  // Pause backfill and invalidate any in-flight fetch: forget the cursor and
+  // bump the epoch so a chunk fetched for the old generation is discarded, not
+  // spliced. Shared by an explicit `reset()` and a width-change resize — a
+  // resize is a pause too — so the invalidation step has one home.
+  function pause(): void {
+    cursor = null;
+    exhausted = false;
+    epoch++;
+  }
+
   async function maybeBackfill(): Promise<void> {
     if (cursor === null || exhausted || inFlight || disposed) return;
     if (
@@ -356,9 +366,7 @@ export function createBackfillController(
     // until the next snapshot re-seeds. A height-only change is harmless.
     if (term.cols !== lastCols) {
       lastCols = term.cols;
-      cursor = null;
-      exhausted = false;
-      epoch++;
+      pause();
     }
   });
 
@@ -369,9 +377,7 @@ export function createBackfillController(
       epoch++;
     },
     reset() {
-      cursor = null;
-      exhausted = false;
-      epoch++;
+      pause();
     },
     dispose() {
       // Invalidate any in-flight fetch so its continuation can't splice onto the
