@@ -404,28 +404,30 @@ function snapshotSignals(
 
 /** What a resolved-null agent observation MEANS — two different facts hide behind
  *  the one `null` `resolveSession` returns, and W12 requires they persist
- *  differently:
+ *  differently. The discriminant is whether the terminal's pty-host taps are still
+ *  OBSERVABLE (the endpoint's own state), NOT the observed `foregroundPid`:
  *
- *   - **`"ended"`** — a DEFINED `foregroundPid` that resolved to no agent: kolu
- *     observed the foreground (the shell after a genuine quit, another program) and
- *     it is authoritatively NOT this agent. The agent really ended → the sensor
- *     emits `{ value: null }`, the fold clears `restoreTarget`, and a later restore
- *     wakes to a bare shell (never resurrecting a dead agent).
- *   - **`"unobservable"`** — `foregroundPid === undefined`: kolu cannot SEE the
- *     foreground process group at all (the pty-host tap reported none). This is
- *     IGNORANCE, not an observed end. An unclean kaval death drops the foreground to
- *     `undefined` and fires this reconcile ~3 ms BEFORE the endpoint is even marked
- *     `degraded` (the 2026-07-12 prod incident), so the discriminant MUST be the
- *     observation's own `foregroundPid` — a structural fact carried IN the frame —
- *     never the endpoint's `degraded` flag, which loses that race. The sensor emits
- *     `unknown`, the fold KEEPS the last agent and its `restoreTarget`, and the
- *     resume id survives the death on disk by construction.
+ *   - **`"ended"`** (observable) — the taps are live and `resolveSession` still
+ *     found no agent: kolu genuinely observed the foreground move off this agent
+ *     (the shell after a quit, another program). The agent really ended → the
+ *     sensor emits `{ value: null }`, the fold clears `restoreTarget`, and a later
+ *     restore wakes to a bare shell (never resurrecting a dead agent).
+ *   - **`"unobservable"`** (taps failed) — the pty-host connection dropped, so kolu
+ *     CANNOT see the foreground at all; a resolved-null is IGNORANCE, not an
+ *     observed end. An unclean kaval death fails the taps ~10 ms BEFORE it fires the
+ *     reconcile whose `resolveSession` returns null against a STALE-but-defined
+ *     foreground — and ~13 ms before the endpoint is even marked `degraded` (the
+ *     2026-07-12 prod incident; the live kill-9 witness confirmed `foregroundPid`
+ *     was DEFINED, so it can NOT be the discriminant). The tap failure is the
+ *     race-safe structural signal. The sensor emits `unknown`, the fold KEEPS the
+ *     last agent and its `restoreTarget`, and the resume id survives on disk by
+ *     construction.
  *
  *  A pure decision so it is pinned in isolation, both directions, without standing
  *  the whole sensor set up. */
 export type AgentAbsence = "ended" | "unobservable";
-export function agentAbsence(foregroundPid: number | undefined): AgentAbsence {
-  return foregroundPid === undefined ? "unobservable" : "ended";
+export function agentAbsence(observable: boolean): AgentAbsence {
+  return observable ? "ended" : "unobservable";
 }
 
 interface ExternalChangesActivation {
@@ -511,6 +513,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   terminalId: TerminalId,
   signals: SensorSignals,
   readScreenText: ReadScreenText | undefined,
+  isObservable: () => boolean,
   emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
@@ -597,13 +600,14 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     destroyCurrent();
     if (!next || !nextKey) {
       // `resolveSession` found no agent — but "the shell is at the prompt" and "we
-      // can't see the foreground" are DIFFERENT facts sharing one `null`. Split them
-      // on the observation's own `foregroundPid` (see {@link agentAbsence}): an
-      // authoritative END clears the resume target; an UNOBSERVABLE foreground (an
-      // unclean kaval death drops it to `undefined` before the endpoint is even
-      // marked degraded) must NOT — emit `unknown` so the fold keeps the agent and
-      // its `restoreTarget` rather than journaling `none` over a still-running agent.
-      const absence = agentAbsence(state.foregroundPid);
+      // can't see the terminal at all" are DIFFERENT facts sharing one `null`. Split
+      // them on the endpoint's OWN observability (see {@link agentAbsence}): an
+      // authoritative END (taps live) clears the resume target; an UNOBSERVABLE
+      // terminal (an unclean kaval death failed the taps, so this resolved-null ran
+      // against a stale foreground before the endpoint was even marked degraded) must
+      // NOT — emit `unknown` so the fold keeps the agent and its `restoreTarget`
+      // rather than journaling `none` over a still-running agent.
+      const absence = agentAbsence(isObservable());
       if (hadCurrent)
         plog.debug(
           absence === "unobservable"
@@ -830,6 +834,12 @@ export interface SensorInputs {
   cwd: string;
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
+  /** Whether this terminal's pty-host taps are still live (the endpoint's own
+   *  state). The agent sensor reads it to tell a genuine agent-end (taps live →
+   *  clear `restoreTarget`) from an unclean kaval death (taps failed → keep it,
+   *  emit `unknown`). See {@link agentAbsence}. A host with no failable transport
+   *  (the in-process backend) passes `() => true`. */
+  isObservable: () => boolean;
   log: Logger;
 }
 
@@ -845,7 +855,7 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, signals, readScreenText, log } = inputs;
+  const { pid, cwd, signals, readScreenText, isObservable, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
@@ -903,6 +913,7 @@ export function startSensors(
       terminalId,
       signals,
       readScreenText,
+      isObservable,
       emit,
       log,
     );
