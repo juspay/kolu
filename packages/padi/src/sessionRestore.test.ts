@@ -246,39 +246,46 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     await done;
   });
 
+  // Shared fixtures for the two W12 restore-respawn tests: one saved ACTIVE record
+  // carrying an EXACT resume target, seeded as BOTH the saved session and a parked
+  // entry (restore's idempotency token). The tests differ only in the resume opt-in.
+  const W12_EXACT = {
+    kind: "exact",
+    command: "claude --model sonnet",
+    agent: { kind: "claude-code", sessionId: "S1" },
+  } as const;
+  const w12AgentRecord: SavedActiveTerminal = {
+    ...base,
+    id: PARENT_ID,
+    state: "active",
+    cwd: "/agent",
+    lastActivityAt: 500,
+    lastAgentCommand: "claude --model sonnet",
+    restoreTarget: W12_EXACT,
+  };
+  const seedW12Agent = (): void => {
+    setSavedSession({
+      terminals: [w12AgentRecord],
+      activeTerminalId: PARENT_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(w12AgentRecord);
+  };
+  const restoredW12Agent = () =>
+    getSavedSession()?.terminals.find((t) => t.cwd === "/agent");
+
   it("W12 — a resuming agent's restoreTarget survives the restore re-persist (not clobbered to none)", async () => {
     // Restore closes with `saveSession(snapshotSession())`. The fresh terminal must
     // carry the saved EXACT resume target on disk — BEFORE the fix, `createTerminal`
     // seeded no `restoreTarget`/`lastAgentCommand`, so that re-persist wrote `none`
     // and a second unclean death (or a resume that never landed) left a bare shell.
-    const EXACT = {
-      kind: "exact",
-      command: "claude --model sonnet",
-      agent: { kind: "claude-code", sessionId: "S1" },
-    } as const;
-    const agentRecord: SavedActiveTerminal = {
-      ...base,
-      id: PARENT_ID,
-      state: "active",
-      cwd: "/agent",
-      lastActivityAt: 500,
-      lastAgentCommand: "claude --model sonnet",
-      restoreTarget: EXACT,
-    };
-    setSavedSession({
-      terminals: [agentRecord],
-      activeTerminalId: PARENT_ID,
-      savedAt: 1,
-    });
-    seedParkedTerminal(agentRecord);
+    seedW12Agent();
 
     const done = restoreSession({});
 
-    const restored = getSavedSession()?.terminals.find(
-      (t) => t.cwd === "/agent",
-    );
+    const restored = restoredW12Agent();
     expect(restored).toBeDefined();
-    expect(restored?.restoreTarget).toEqual(EXACT);
+    expect(restored?.restoreTarget).toEqual(W12_EXACT);
     expect(restored?.lastAgentCommand).toBe("claude --model sonnet");
 
     await done;
@@ -292,33 +299,12 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     // declined. So the seed is gated on `resume`: the opted-out terminal restores with
     // NO resume target on disk. `resumeFormFor(undefined/none)` → bare shell, so wake
     // can't replay the agent by construction.
-    const EXACT = {
-      kind: "exact",
-      command: "claude --model sonnet",
-      agent: { kind: "claude-code", sessionId: "S1" },
-    } as const;
-    const agentRecord: SavedActiveTerminal = {
-      ...base,
-      id: PARENT_ID,
-      state: "active",
-      cwd: "/agent",
-      lastActivityAt: 500,
-      lastAgentCommand: "claude --model sonnet",
-      restoreTarget: EXACT,
-    };
-    setSavedSession({
-      terminals: [agentRecord],
-      activeTerminalId: PARENT_ID,
-      savedAt: 1,
-    });
-    seedParkedTerminal(agentRecord);
+    seedW12Agent();
 
     // Opt OUT of resuming this terminal (empty resume set).
     const done = restoreSession({ resumeIds: [] });
 
-    const restored = getSavedSession()?.terminals.find(
-      (t) => t.cwd === "/agent",
-    );
+    const restored = restoredW12Agent();
     expect(restored).toBeDefined();
     expect(restored?.restoreTarget).toBeUndefined();
     expect(restored?.lastAgentCommand).toBeUndefined();
