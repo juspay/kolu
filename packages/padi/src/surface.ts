@@ -426,7 +426,13 @@ export const PadiCreateInputSchema = z
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
   })
-  .merge(InitialTerminalMetadataSchema.omit({ lastActivityAt: true }));
+  .merge(
+    InitialTerminalMetadataSchema.omit({
+      lastActivityAt: true,
+      restoreTarget: true,
+      lastAgentCommand: true,
+    }),
+  );
 
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
