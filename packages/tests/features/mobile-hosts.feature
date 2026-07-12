@@ -27,7 +27,10 @@ Feature: Mobile host row
     When I tap the mobile pull handle
     Then the mobile host row should be visible
     When I tap the local host chip
-    Then the local host chip should be visible and active
+    # A tap on the ALREADY-active chip is not a switch, so it must leave the
+    # sheet open (the chip stays visible and active) rather than dismissing it.
+    Then the mobile chrome sheet should be visible
+    And the local host chip should be visible and active
     And there should be no page errors
 
   @mobile

@@ -28,8 +28,13 @@ export function addHost(raw: string, onAdded?: () => void): void {
   client.hosts
     .add({ host })
     .then(() => {
-      onAdded?.();
+      // Register the activate-on-join intent FIRST — it's the shared mechanism
+      // completing the add. `onAdded` is the caller's OWN presentation cleanup
+      // (clear the field, collapse the popover / section); running it after
+      // means presentation can't interpose between a successful add and the
+      // canvas jumping to the new host.
       requestActivateOnJoin(host);
+      onAdded?.();
     })
     .catch((err: Error) =>
       toast.error(`Couldn't add ${trimmed}: ${err.message}`),

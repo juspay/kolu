@@ -71,8 +71,11 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       data-active={isActive() ? "" : undefined}
       // 44px min hit target. The identity hue (`--host-hue`) rides the active
       // chip's border + tinted belly, quiet at rest — the same "host is a
-      // place, not a label" treatment the desktop tab wears.
-      class="host-hue-ring flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
+      // place, not a label" treatment the desktop tab wears. The hue RING
+      // (`host-hue-ring`) is the DOT's identity mark only (below), never the
+      // whole shell — an inactive chip must stay quiet (`border-edge`), so the
+      // shell itself carries no hue at rest, exactly like the desktop chip.
+      class="flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
       classList={{
         "border-[var(--host-hue)] bg-[color-mix(in_srgb,var(--host-hue)_18%,var(--color-surface-1))] text-fg":
           isActive(),
@@ -83,9 +86,13 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       // A no-op tap on the already-active chip must not re-write `activeHost`
       // with a new-reference-but-equal key (it would re-notify every
       // `useEntry(activeHost)` consumer for nothing) — guard on `isActive()`,
-      // the same canonical-string comparison the desktop strip uses.
+      // the same canonical-string comparison the desktop strip uses. The guard
+      // also covers `onSwitch`: closing the sheet is the "after a switch"
+      // gesture, so a no-op tap on the current host leaves the sheet OPEN (it
+      // isn't a switch) rather than dismissing it out from under the user.
       onClick={() => {
-        if (!isActive()) setActiveHost(props.host);
+        if (isActive()) return;
+        setActiveHost(props.host);
         props.onSwitch();
       }}
     >
@@ -137,6 +144,11 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
     <div
       data-testid="mobile-host-add-section"
       class="mt-2 rounded-xl border border-edge bg-surface-1 p-3"
+      // Stop the pointerdown reaching the Corvu drawer's drag recognizer on
+      // `Drawer.Content` — otherwise finger jitter on the input / Add button is
+      // read as the start of a drag and can suppress the tap or move/dismiss the
+      // sheet. Same guard the sheet's other controls (palette, settings) wear.
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <RemoteHostsAlphaNotice />
       <div class="flex items-center gap-2">
@@ -150,7 +162,15 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
           onInput={(e) => setDraft(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
-            if (e.key === "Escape") props.onClose();
+            if (e.key === "Escape") {
+              // Escape collapses ONLY this section. `preventDefault` is
+              // load-bearing: Corvu's document-level Escape listener dismisses
+              // the drawer only when `!event.defaultPrevented` (its
+              // `createDismissible`), so without this the same keystroke would
+              // also close the whole pull-down sheet.
+              e.preventDefault();
+              props.onClose();
+            }
           }}
         />
         <button
@@ -202,6 +222,10 @@ const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-dashed border-edge text-lg text-fg-3 active:bg-surface-2"
           aria-label="Add a host"
           aria-expanded={addOpen()}
+          // Sits OUTSIDE the chip scroller (so it stays reachable on overflow),
+          // so it needs its OWN drag opt-out: stop the pointerdown before the
+          // Corvu drawer reads a jittered tap as a drag-to-dismiss.
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => setAddOpen((v) => !v)}
         >
           +

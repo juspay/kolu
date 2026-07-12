@@ -9,8 +9,9 @@
 
 import type { Component } from "solid-js";
 
-/** kolu.dev doc the alpha "+ add a host" affordance links to. */
-export const REMOTE_HOSTS_DOC = "https://kolu.dev/remote-hosts/";
+/** kolu.dev doc the alpha "+ add a host" affordance links to. Module-private:
+ *  the only consumer is this notice itself. */
+const REMOTE_HOSTS_DOC = "https://kolu.dev/remote-hosts/";
 
 export const RemoteHostsAlphaNotice: Component = () => (
   <>
