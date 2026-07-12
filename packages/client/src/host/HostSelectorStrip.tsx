@@ -80,7 +80,7 @@ import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
-import { HomeIcon, SearchIcon } from "../ui/Icons";
+import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -97,6 +97,7 @@ import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
+import { HostIdentityLabel } from "./HostIdentityLabel";
 import {
   activeHost,
   client,
@@ -104,24 +105,6 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
-
-/** A host's on-screen identity: a house glyph (LOCAL only) immediately before
- *  its role word, glyph first — so the local chip reads as a role ("the machine
- *  kolu runs on"), not a hostname you might mistake for a machine literally
- *  named "local" (a remote's `user@host` is unambiguous already, so it gets no
- *  glyph). The single owner of the glyph+label pairing, so every visual site
- *  renders it identically and a new render site can't silently split or drop it.
- *  `labelClass` styles the label `<span>` (truncation/max-width vary per site). */
-const HostIdentityLabel: Component<{ host: HostKey; labelClass?: string }> = (
-  props,
-) => (
-  <>
-    <Show when={props.host.kind === "local"}>
-      <HomeIcon class="h-3 w-3 shrink-0 opacity-70" />
-    </Show>
-    <span class={props.labelClass}>{hostLabel(props.host)}</span>
-  </>
-);
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the

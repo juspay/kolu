@@ -29,7 +29,6 @@ import {
   Show,
 } from "solid-js";
 import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
-import { HomeIcon } from "../ui/Icons";
 import {
   activeHost,
   onHostMembershipError,
@@ -44,6 +43,7 @@ import {
   sameHost,
   statusTitle,
 } from "./hostChipTone";
+import { HostIdentityLabel } from "./HostIdentityLabel";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
 
@@ -55,7 +55,6 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // own reactive owner, disposed when the host leaves the pool), so these are
   // plain per-chip lenses.
   const state = () => padiMap.entry(props.host).state();
-  const isLocal = () => props.host.kind === "local";
   // Compare active-host vs. this chip's host by CANONICAL string (`sameHost`),
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
@@ -96,12 +95,11 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
         class={`host-hue-ring inline-block h-2.5 w-2.5 shrink-0 rounded-full ${dotClass(state())}`}
         aria-hidden="true"
       />
-      <Show when={isLocal()}>
-        <HomeIcon class="h-3.5 w-3.5 shrink-0 opacity-70" />
-      </Show>
-      <span class="max-w-[10rem] truncate font-medium">
-        {hostLabel(props.host)}
-      </span>
+      <HostIdentityLabel
+        host={props.host}
+        glyphClass="h-3.5 w-3.5"
+        labelClass="max-w-[10rem] truncate font-medium"
+      />
       {/* Unread pill — the host's awaiting count in the SHARED
        *  `ATTENTION_PILL_CLASS` (the Dock's badge and the desktop strip's count
        *  pill draw from the same token), hidden at zero. */}
