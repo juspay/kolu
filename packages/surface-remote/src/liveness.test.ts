@@ -440,4 +440,70 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
 
     session.destroy();
   });
+
+  it("dead-man ceiling accrues MONOTONIC running time, not wall time — a mid-silence SUSPENSION never spends the ceiling (#1776 F2)", async () => {
+    // The ceiling must measure how long the padi has been heartbeat-silent while the
+    // runtime was actually RUNNING — on the SAME monotonic clock `createHeartbeat`'s
+    // suspension guard reads, never wall time. If it read `Date.now()`, a laptop sleep
+    // / forward clock-step mid-silence would fold the suspended wall span into
+    // `silentForMs` and force-cycle a merely-resumed-but-alive padi — the exact false
+    // recovery this arm exists to prevent. This test drives a REAL suspension (wall
+    // races ahead while the monotonic clock is frozen) between stale verdicts and pins
+    // that the resumed link keeps its FULL running-time grace.
+    //
+    // The monotonic clock is a spy INDEPENDENT of the fake wall clock (the repo's
+    // `vi.spyOn(performance, "now")` pattern). During RUNNING phases both advance in
+    // lockstep so the heartbeat's own per-window suspension check never voids and its
+    // stale verdicts fire normally; the suspension advances WALL alone with the
+    // monotonic clock held fixed (the heartbeat voids every straddling probe, as it
+    // would across a real sleep). Reverting the ceiling to `Date.now()` makes this fail:
+    // the first post-resume stale verdict would see the whole 20-minute wall jump.
+    let monoMs = 0;
+    const nowSpy = vi
+      .spyOn(performance, "now")
+      .mockImplementation(() => monoMs);
+
+    // Running time: advance wall AND the monotonic clock together in sub-`SLACK` steps
+    // so that at every probe timeout the wall/mono gap is ~0 — the heartbeat fires a
+    // normal stale verdict rather than voiding as a suspension.
+    const run = async (ms: number): Promise<void> => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 1000) {
+        monoMs += 1000;
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+    };
+    // A runtime SUSPENSION: wall advances while the monotonic clock is FROZEN. Every
+    // straddling probe reads the wall/mono divergence and VOIDs (never firing onStale),
+    // exactly as the heartbeat does across a real laptop sleep — so no stale verdict,
+    // and the monotonic silence clock does not tick.
+    const suspend = async (ms: number): Promise<void> => {
+      await vi.advanceTimersByTimeAsync(ms);
+    };
+
+    const { session, arm } = localSession(() => true); // process always alive
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    session.markConnected();
+
+    // Run past the first stale verdict — establishes `livenessUnresponsiveSince` on the
+    // monotonic clock (~25s in), well below the 60s ceiling.
+    await run(30_000);
+    expect(arm.stats().teardowns).toBe(0);
+
+    // Suspend: 20 MINUTES of WALL time pass with the monotonic clock frozen. On
+    // `Date.now()` this alone is >> the 60s ceiling; on the monotonic clock it is zero.
+    await suspend(1_200_000);
+    expect(arm.stats().teardowns).toBe(0);
+
+    // Resume running. The straddling probe voids once, then a fresh fully-running probe
+    // fires the next stale verdict — read on the monotonic clock, total silence is still
+    // ~25-30s (< 60s), so the link keeps its full grace and is NOT cycled. A `Date.now()`
+    // ceiling would have force-cycled the instant this post-resume verdict fired.
+    await run(25_000);
+    expect(arm.stats().teardowns).toBe(0);
+    expect(localPhase(session)).toBe("connected");
+
+    nowSpy.mockRestore();
+    session.destroy();
+  });
 });
