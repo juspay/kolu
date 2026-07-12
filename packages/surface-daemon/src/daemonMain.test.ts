@@ -11,7 +11,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DAEMON_BIND_PID_ENV,
   type DaemonSpec,
@@ -246,16 +246,12 @@ describe("daemonMain", () => {
 });
 
 describe("daemonLifetimeFromEnv", () => {
-  const prev = process.env[DAEMON_BIND_PID_ENV];
-  afterEach(() => {
-    if (prev === undefined) delete process.env[DAEMON_BIND_PID_ENV];
-    else process.env[DAEMON_BIND_PID_ENV] = prev;
-  });
+  afterEach(() => vi.unstubAllEnvs());
 
   const forever = { kind: "forever" } as const;
 
   it("selects the fallback ONLY when the bind var is truly absent/unset (production untouched)", () => {
-    delete process.env[DAEMON_BIND_PID_ENV];
+    vi.stubEnv(DAEMON_BIND_PID_ENV, undefined);
     expect(daemonLifetimeFromEnv(forever)).toBe(forever);
   });
 
@@ -264,12 +260,12 @@ describe("daemonLifetimeFromEnv", () => {
     // invalid, not unset. Treating it as absence is exactly how the daemon leak
     // creeps back, so it must throw like any other malformed value — only a truly
     // unset var is absence.
-    process.env[DAEMON_BIND_PID_ENV] = "";
+    vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(() => daemonLifetimeFromEnv(forever)).toThrow(DAEMON_BIND_PID_ENV);
   });
 
   it("selects boundToPid for a valid positive-integer pid value", () => {
-    process.env[DAEMON_BIND_PID_ENV] = "4321";
+    vi.stubEnv(DAEMON_BIND_PID_ENV, "4321");
     expect(daemonLifetimeFromEnv(forever)).toEqual({
       kind: "boundToPid",
       pid: 4321,
@@ -291,7 +287,7 @@ describe("daemonLifetimeFromEnv", () => {
       "010",
       "3000000000", // > 2**31 - 1
     ]) {
-      process.env[DAEMON_BIND_PID_ENV] = bad;
+      vi.stubEnv(DAEMON_BIND_PID_ENV, bad);
       expect(() => daemonLifetimeFromEnv(forever)).toThrow(DAEMON_BIND_PID_ENV);
     }
   });

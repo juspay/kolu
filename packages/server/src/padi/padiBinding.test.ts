@@ -53,7 +53,6 @@ import {
   afterAll,
   afterEach,
   beforeAll,
-  beforeEach,
   describe,
   expect,
   it,
@@ -733,33 +732,25 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
   // by spawning padi directly, so it never exercises THIS function; without this
   // assertion, deleting the `DAEMON_BIND_PID_ENV` forward in `daemonEnv` would leave
   // both suites green while silently stranding harness/smoke-spawned padis.
-  // Snapshot at RUNTIME (beforeEach), not collection time: the file-level `beforeAll`
-  // sets this var to the vitest pid for the whole file, so restoring must return it to
-  // THAT value — not the collection-time `undefined` — or later real-padi tests would
-  // spawn unbound.
-  let prev: string | undefined;
-  beforeEach(() => {
-    prev = process.env[DAEMON_BIND_PID_ENV];
-  });
-  afterEach(() => {
-    if (prev === undefined) delete process.env[DAEMON_BIND_PID_ENV];
-    else process.env[DAEMON_BIND_PID_ENV] = prev;
-  });
+  // `vi.stubEnv` snapshots the var at stub time and `unstubAllEnvs` restores THAT
+  // value — here the vitest pid the file-level `beforeAll` set — so later real-padi
+  // tests still spawn bound, without a hand-rolled runtime snapshot.
+  afterEach(() => vi.unstubAllEnvs());
 
   it("forwards the run-bind pid VERBATIM into padi's env when the server carries one", () => {
-    process.env[DAEMON_BIND_PID_ENV] = "4321";
+    vi.stubEnv(DAEMON_BIND_PID_ENV, "4321");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("4321");
   });
 
   it("OMITS the var when the server's is truly unset (production padi stays `forever`)", () => {
-    delete process.env[DAEMON_BIND_PID_ENV];
+    vi.stubEnv(DAEMON_BIND_PID_ENV, undefined);
     expect(daemonEnv("/state/root", false)).not.toHaveProperty(
       DAEMON_BIND_PID_ENV,
     );
   });
 
   it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
-    process.env[DAEMON_BIND_PID_ENV] = "";
+    vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
   });
 });

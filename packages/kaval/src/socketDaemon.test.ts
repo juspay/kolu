@@ -23,7 +23,15 @@ import {
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
 import { DAEMON_BIND_PID_ENV, gatePid } from "@kolu/surface-daemon";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import { KAVAL_GATE_FILE } from "./socketPath.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
@@ -111,13 +119,11 @@ const allRendezvous: string[] = [];
 // gate-pid reaps below stay the fast path; this is the crash-only backstop, the
 // same bind the padi/e2e harnesses set. (The vitest pid outlives every test, so the
 // watcher never fires mid-suite — SIGTERM/gate-race/restart assertions are untouched.)
-const priorBindPid = process.env[DAEMON_BIND_PID_ENV];
 beforeAll(() => {
-  process.env[DAEMON_BIND_PID_ENV] = String(process.pid);
+  vi.stubEnv(DAEMON_BIND_PID_ENV, String(process.pid));
 });
 afterAll(() => {
-  if (priorBindPid === undefined) delete process.env[DAEMON_BIND_PID_ENV];
-  else process.env[DAEMON_BIND_PID_ENV] = priorBindPid;
+  vi.unstubAllEnvs();
 });
 
 /** The rendezvous dir a socket lives in, and its gate file within it. */
