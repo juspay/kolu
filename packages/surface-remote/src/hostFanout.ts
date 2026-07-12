@@ -292,8 +292,13 @@ export interface RemotePoolOptions<S extends DestroyableSession, H> {
   buildEntry: (host: string) => RemoteEntry<S, H>;
   /** Persist the next host set, awaited BEFORE `add`/`remove` commit their
    *  in-memory + session/socket changes — so a SINGLE mutation's write is
-   *  ordered before its own commit. Receives the intended post-mutation host
-   *  list, not the current one. `add`/`remove` themselves are additionally
+   *  ordered before its own commit. Receives the intended PERSISTED membership
+   *  (`persistedMembership`), not necessarily the live pool: after a `retire`
+   *  this set can legitimately include a shed-but-remembered host that is NOT
+   *  in `hosts()`/`has()`. A persist implementation must therefore treat its
+   *  argument as the authoritative remembered set — never cross-check it
+   *  against live membership or prune per-host state for hosts it omits.
+   *  `add`/`remove` themselves are additionally
    *  serialized through one internal queue (`enqueueMutation`), so this is
    *  never invoked concurrently with itself — two `add`s (or an add+remove)
    *  fired without awaiting between them persist and commit ONE AT A TIME, each
