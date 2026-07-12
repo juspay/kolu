@@ -2,7 +2,7 @@
 title: Scrollback Backfill — Bounded Attach, Real Scrollback
 description: Attach paints instantly from a small snapshot; scrolling up backfills older history into the terminal's own scrollback via a pinned xterm-internals prepend — no pager, no view jump, up to the full 10k lines kaval holds.
 parents: [feature]
-status: proposed
+status: implemented
 maturity: budding
 updated: 2026-07-12
 ---
@@ -22,7 +22,21 @@ note is the ratified direction that kills that cost without giving up history:
 **attach with a bounded snapshot, then backfill older lines into the live
 terminal's own scrollback as the user scrolls up.** A green prototype grounds
 every claim here (6/6 tests, branch `xterm-prepend-spike`, commit
-`b3cfa37d1`).
+`b3cfa37d1`). Shipped in <PrLink pr={1783} />.
+
+One decision from the prototype changed under implementation, recorded here for
+honesty: the plan sketched a `have`-from-bottom (recent-relative) history cursor,
+but that cannot keep the seam where backfill meets existing content correct —
+it compares the host's produced-line count against the client's received count,
+which differ by the in-flight delta lag, so live output appending mid-fetch would
+duplicate or skip rows at the seam. The shipped cursor is instead an **absolute
+mirror-line index**, seeded from the attach snapshot's `topLine` and anchored on
+an eviction origin the host tracks off the mirror's `onTrim`; a fetch then serves
+strictly *above* the client's content regardless of in-flight output. A width
+change (reflow renumbers absolute rows) pauses backfill until the next snapshot
+re-seeds — the loaded history reflows correctly, only further loading waits; a
+reflow-invariant cursor for continuous-across-resize backfill is a named
+follow-up.
 
 export const SbStyles = () => (
   <style>{`
