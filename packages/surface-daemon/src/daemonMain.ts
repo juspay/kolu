@@ -21,7 +21,11 @@ import {
 } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
 import type { Logger } from "./logger.ts";
-import { acquirePidGate, type GateAcquisition } from "./pidGate.ts";
+import {
+  acquirePidGate,
+  type GateAcquisition,
+  isHolderLive,
+} from "./pidGate.ts";
 
 /** How long the daemon stays up once serving. `forever` waits for a signal or
  *  an external abort only; `idleTimeout` additionally shuts down after `ms` of
@@ -193,20 +197,6 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
  *  Fixed, not a knob (tests inject a small value via {@link DaemonSpec.pidWatchPollMs}). */
 const PID_WATCH_POLL_MS = 2_000;
 
-/** True iff `pid` names a live process — a portable, allocation-free `kill(pid, 0)`
- *  existence probe. `ESRCH` (no such process) is the only "gone" verdict; `EPERM`
- *  (exists but owned by another user — the daemon and its harness are always the
- *  same user, so this shouldn't arise, but treat it as ALIVE rather than reap a
- *  daemon over a process that is demonstrably still there). */
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
 /** Resolve when the daemon should stop: an OS signal (SIGTERM/SIGINT), the
  *  external abort, under `idleTimeout` `ms` of continuous idleness, or under
  *  `boundToPid` the moment the watched pid is gone. All handlers are removed
@@ -270,12 +260,15 @@ function waitForShutdown(
       // immediately — the run this daemon would serve is already over, so there is
       // nothing to serve (and no poll tick to wait for).
       const { pid } = lifetime;
-      if (!isPidAlive(pid)) {
+      // Reuse the package's canonical liveness probe (`isHolderLive`, pidGate.ts) —
+      // the same `kill(pid,0)` verdict the gate's stale-reap and the supervisor use,
+      // single-sourced so the two can't drift on the ESRCH-gone / EPERM-alive rule.
+      if (!isHolderLive(pid)) {
         finish("pid-gone");
         return;
       }
       const timer = setInterval(() => {
-        if (!isPidAlive(pid)) finish("pid-gone");
+        if (!isHolderLive(pid)) finish("pid-gone");
       }, pidWatchPollMs);
       // Don't let the poll timer keep the event loop alive on its own.
       timer.unref?.();
