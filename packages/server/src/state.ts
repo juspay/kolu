@@ -23,7 +23,7 @@
  * a PRESENT-but-corrupt one crashes the boot.
  */
 
-import { copyFileSync, existsSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
 import {
@@ -206,6 +206,13 @@ export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
 export const store = new Conf<PersistedState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
+  // Owner-only (0600). `hosts` holds ssh targets (`user@host` keys), so the store must
+  // not inherit the ambient umask's usually-world-readable 0644 — the same protection the
+  // pre-W10 standalone `hosts.json` carried before the fleet folded in here. This covers
+  // every atomic write conf makes (it writes a fresh temp file each time, so the mode
+  // applies on every rewrite, not just first creation); a store left at a looser mode by a
+  // pre-1.33 boot is tightened by the `chmodSync` below.
+  configFileMode: 0o600,
   defaults: {
     preferences: DEFAULT_PREFERENCES,
     // W10 — the strip-added fleet. Fresh install: no `hosts` key yet, so conf merges this
@@ -575,6 +582,13 @@ export const store = new Conf<PersistedState>({
     },
   },
 });
+
+// Tighten a store that already exists at a looser mode. `configFileMode` only stamps a
+// file conf itself writes, so a `config.json` created by a pre-1.33 boot (before this
+// module set 0600) can still be sitting at a world-readable 0644 with ssh targets in it.
+// Force it owner-only now, at module load, so the `hosts` protection is real immediately
+// rather than only after the next incidental write.
+if (existsSync(store.path)) chmodSync(store.path, 0o600);
 
 // Early validation so a schema-invalid store shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the on-disk shape of
