@@ -55,6 +55,15 @@ import type { LogEntry } from "./connection";
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
+/** The dead-man ceiling for a LOCAL arm's liveness watchdog (see
+ *  {@link Connection.processAlive}). When the same-box process oracle reports the padi
+ *  ALIVE but its heartbeat has stayed silent this long, the process is
+ *  deadlocked-but-alive (not merely slow under CPU load), so the watchdog force-cycles
+ *  anyway — slow-under-load and hung-forever are different facts and get different
+ *  treatment. Minute-scale and BAKED (no knob): far past any CPU-contention heartbeat
+ *  delay, far short of leaving a genuinely wedged local padi unhealed. */
+const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
+
 /** The observable link state a session publishes (snapshot-then-delta on
  *  `onState`) — ONE framework type. A `log` tail every arm carries, intersected
  *  with a discriminated union over `phase`'s UP/DOWN split, so "down with no
@@ -215,6 +224,20 @@ export interface Connection<Client> {
    *  rejection still counts as alive (the round-trip completed); only a true
    *  non-answer (timeout) is stale. Defaults to `system.live` for a plain client. */
   isAlive(): Promise<void>;
+  /** OPTIONAL same-box life-oracle — the arm-structural distinction a LOCAL
+   *  (stdio/endpoint) arm has that a REMOTE (ssh) arm cannot (P5: the guarantee
+   *  belongs at the knowing endpoint). When the watchdog's {@link isAlive} round-trip
+   *  goes SILENT, a remote arm has no recourse but to read silence as death — the
+   *  network can die silently. A local arm can do better: it reads the same-box
+   *  process table directly. So the LOCAL endpoint connector supplies this synchronous
+   *  predicate (the padi process is alive) BY CONSTRUCTION; the ssh connector OMITS it
+   *  (absent ≡ "no oracle better than the heartbeat" — today's semantics, exactly). On
+   *  a heartbeat timeout the watchdog consults it: alive → the link is merely SLOW
+   *  under load, not dead, so it keeps probing instead of force-cycling (bounded by
+   *  {@link LOCAL_LIVENESS_DEAD_MAN_CEILING_MS}); dead → force-cycle at once. This is
+   *  arm STRUCTURE, never a tuning knob — the distinction rides which connector built
+   *  the connection, not a mode flag. */
+  processAlive?: () => boolean;
   /** Force-tear-down THIS connection (recheck / connect-timeout / destroy). Routes
    *  through `closed` — so the loop's reconnect/give-up machinery runs once. */
   teardown(): void;
@@ -407,6 +430,12 @@ export function makeSession<
   /** The periodic liveness watchdog handle (ONE `@kolu/surface/heartbeat`), or
    *  `null` until first connect / after teardown. */
   let liveness: { dispose: () => void } | null = null;
+  /** LOCAL arm only: when its heartbeat first went SILENT while its
+   *  {@link Connection.processAlive} oracle still reported the padi alive — the start of
+   *  the dead-man ceiling window. `null` whenever the link is answering (reset by any
+   *  completed probe, and on each fresh liveness start). Unused by the ssh arm (no
+   *  oracle → it force-cycles on the first silence). */
+  let livenessUnresponsiveSince: number | null = null;
   /** The bound server's served identity off its `system.identity`, or `null` before
    *  the first successful poll / after a link death (re-polled on the next connect,
    *  so a respawned server's fresh identity lands). `null` here is the INTERNAL
@@ -572,6 +601,7 @@ export function makeSession<
   const startLiveness = (): void => {
     if (opts.liveness === false || liveness !== null) return;
     const tuning = typeof opts.liveness === "object" ? opts.liveness : {};
+    livenessUnresponsiveSince = null;
     liveness = createHeartbeat({
       intervalMs: tuning.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
       timeoutMs: tuning.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
@@ -582,14 +612,53 @@ export function makeSession<
       probe: () => {
         const conn = current;
         if (conn === null) return Promise.reject(new Error("no connection"));
-        return conn.isAlive();
+        // A COMPLETED round-trip (even a rejection) proves the link answered, so the
+        // local arm's "alive-but-silent" ceiling clock resets — the slow spell passed.
+        // Harmless for the ssh arm, which never reads the clock.
+        return conn.isAlive().finally(() => {
+          livenessUnresponsiveSince = null;
+        });
       },
       onStale: () => {
         if (destroyed) return;
+        const oracle = current?.processAlive;
+        // REMOTE arm (no same-box oracle): a silent heartbeat is its ONLY life-signal,
+        // and the network can die silently — so silence means death: force-cycle.
+        // Today's semantics, provably untouched.
+        if (oracle === undefined) {
+          localProgress(
+            "liveness probe timed out — remote wedged, force-cycling the link",
+          );
+          session.recheck();
+          return;
+        }
+        // LOCAL arm: consult the same-box process table — the superior oracle (P5).
+        if (!oracle()) {
+          // The padi process is genuinely gone → force-cycle now; reconnect heals.
+          livenessUnresponsiveSince = null;
+          localProgress(
+            "liveness probe timed out and the local padi process has exited — force-cycling the link",
+          );
+          session.recheck();
+          return;
+        }
+        // Alive but heartbeat-silent ≡ SLOW under load, not dead — do NOT force-cycle;
+        // keep probing. The dead-man ceiling bounds it so an alive-but-never-answering
+        // (deadlocked) padi still heals.
+        const now = Date.now();
+        livenessUnresponsiveSince ??= now;
+        const silentForMs = now - livenessUnresponsiveSince;
+        if (silentForMs >= LOCAL_LIVENESS_DEAD_MAN_CEILING_MS) {
+          livenessUnresponsiveSince = null;
+          localProgress(
+            `local padi alive but heartbeat-silent for ${silentForMs}ms (≥ dead-man ceiling) — force-cycling the link`,
+          );
+          session.recheck();
+          return;
+        }
         localProgress(
-          "liveness probe timed out — remote wedged, force-cycling the link",
+          "liveness probe slow but the local padi process is alive — not cycling (load, not death)",
         );
-        session.recheck();
       },
     });
   };
