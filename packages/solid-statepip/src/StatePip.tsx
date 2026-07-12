@@ -43,6 +43,7 @@
 import { type Component, createMemo, Show } from "solid-js";
 import {
   ALERT_BADGE_CLASS,
+  ATTENTION_PILL_CLASS,
   INDICATOR_BASE,
   LIVE_RING_CLASS,
   PIP_BODY,
@@ -124,14 +125,20 @@ export const StatePip: Component<{
         {(b) => <span class={b().class}>{b().glyph}</span>}
       </Show>
       {/* The two outer-axis overlays — a green arc that sweeps around the core
-          while the terminal is live, and a small amber corner badge while an
-          alert is unread (a badge, not a ring, so the two never compound into
-          nested circles). Visuals in statepip.css. */}
+          while the terminal is live, and the amber corner badge while an alert
+          is unread (a badge, not a ring, so the two never compound into nested
+          circles). The badge shares the host-tab count pill's amber fill + shape
+          via `ATTENTION_PILL_CLASS` (the single styling source); `ALERT_BADGE_CLASS`
+          adds only its corner placement + pill dims + pulse. Boolean here, so no
+          count — the pill FORM, per-terminal semantics. Visuals in statepip.css. */}
       <Show when={props.live}>
         <span class={LIVE_RING_CLASS} aria-hidden="true" />
       </Show>
       <Show when={props.alert}>
-        <span class={ALERT_BADGE_CLASS} aria-hidden="true" />
+        <span
+          class={`${ATTENTION_PILL_CLASS} ${ALERT_BADGE_CLASS}`}
+          aria-hidden="true"
+        />
       </Show>
     </span>
   );
