@@ -1,0 +1,90 @@
+<svg viewBox="0 0 940 500" width="100%" role="img" aria-label="Two paths between kaval's 10,000-line RAM mirror and the browser's live xterm. The hot attach path: a bounded snapshot of roughly 500 to 1000 lines paints the terminal instantly, replacing the W9-era full 10k replay. The backfill loop: when the user scrolls near the top, the client fetches the next older raw chunk from a new kaval history read verb, replays it through a scratch headless terminal whose real parser handles wrapping, SGR, and wide characters, then the fail-loud scrollbackBackfill.ts leaf steals the scratch terminal's BufferLine objects, splices them into the top of the live buffer, shifts ydisp, ybase, and savedY by the inserted count, and fires two renderer pokes — the visible content never moves, the scrollbar thumb just shrinks. The whole reach into xterm privates is a pinned contract of roughly six symbols guarded by a tripwire test." style="max-width:940px;font:13px ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="sbArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
+    </marker>
+    <marker id="sbHot" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--good-stroke,#15803D)" />
+    </marker>
+    <marker id="sbCold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--struct-stroke,#0D32B2)" />
+    </marker>
+  </defs>
+
+  <!-- kaval boundary -->
+  <rect x="16" y="40" width="300" height="430" rx="12" fill="none" stroke="var(--ink-muted,#b6bcc6)" stroke-width="1.3" stroke-dasharray="5 5" />
+  <text x="28" y="60" font-size="10.5" font-weight="700" fill="var(--ink-muted,#8a8f98)" font-family="ui-monospace,'SF Mono',Menlo,monospace">kaval daemon (per PTY)</text>
+
+  <!-- browser boundary -->
+  <rect x="340" y="40" width="584" height="430" rx="12" fill="none" stroke="var(--ink-muted,#b6bcc6)" stroke-width="1.3" stroke-dasharray="5 5" />
+  <text x="352" y="60" font-size="10.5" font-weight="700" fill="var(--ink-muted,#8a8f98)" font-family="ui-monospace,'SF Mono',Menlo,monospace">browser client</text>
+
+  <!-- kaval: 10k RAM mirror -->
+  <rect x="44" y="84" width="244" height="96" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="166" y="110" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">headless xterm mirror</text>
+  <text x="166" y="128" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">10,000 lines · RAM</text>
+  <text x="166" y="144" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">DEFAULT_MIRROR_SCROLLBACK · ptyHost.ts:52</text>
+  <text x="166" y="164" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">unchanged by this plan</text>
+
+  <!-- browser: live xterm -->
+  <rect x="600" y="84" width="300" height="96" rx="8" fill="var(--good-fill,#eff6f0)" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
+  <text x="750" y="110" text-anchor="middle" font-weight="700" fill="var(--ink,#1a1d21)">live xterm</text>
+  <text x="750" y="128" text-anchor="middle" font-size="10.5" fill="var(--good-text,#166534)" font-family="ui-monospace,'SF Mono',Menlo,monospace">@xterm/xterm 6.1.0-beta.225 · WebGL</text>
+  <text x="750" y="144" text-anchor="middle" font-size="10" fill="var(--good-text,#166534)">client scrollback ≥ mirror + snapshot</text>
+  <text x="750" y="164" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--good-text,#166534)">baked invariant — asserted at startup</text>
+
+  <!-- HOT PATH: bounded attach snapshot -->
+  <path d="M288 120 L600 120" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#sbHot)" />
+  <text x="444" y="104" text-anchor="middle" font-size="11" font-weight="700" fill="var(--good-text,#166534)">attach: bounded snapshot · ~500–1000 lines</text>
+  <text x="444" y="138" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--good-text,#166534)">kills the W9 full-10k replay per switch</text>
+
+  <!-- TRIGGER: scroll near top -->
+  <path d="M690 180 L690 214 L150 214 L150 262" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#sbCold)" />
+  <text x="430" y="206" text-anchor="middle" font-size="10.5" font-style="italic" fill="var(--struct-sub,#4A5072)">user scrolls near top — ydisp &lt; ~2× rows → fetch next older chunk</text>
+
+  <!-- kaval: history read verb -->
+  <rect x="48" y="268" width="204" height="92" rx="8" fill="var(--surface,#EDF0FD)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" />
+  <text x="150" y="294" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)">history read verb</text>
+  <text x="150" y="312" text-anchor="middle" font-size="10" font-weight="600" fill="var(--struct-stroke,#0D32B2)">NEW — the one new wire surface</text>
+  <text x="150" y="330" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">older raw chunk from the mirror</text>
+
+  <!-- raw chunk arrow -->
+  <path d="M252 314 L312 314" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#sbCold)" />
+  <text x="282" y="302" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">raw chunk</text>
+
+  <!-- browser: scratch headless terminal -->
+  <rect x="312" y="268" width="236" height="92" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="430" y="294" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)">scratch headless terminal</text>
+  <text x="430" y="312" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">the real parser: wrap · SGR · wide chars</text>
+  <text x="430" y="328" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">replayed at the live terminal's cols</text>
+  <text x="430" y="346" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">9,000 lines → 38 ms</text>
+
+  <!-- stolen BufferLines arrow -->
+  <path d="M548 314 L620 314" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#sbCold)" />
+  <text x="584" y="294" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)">stolen</text>
+  <text x="584" y="306" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)">BufferLines</text>
+
+  <!-- browser: scrollbackBackfill.ts leaf -->
+  <rect x="620" y="240" width="284" height="160" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" />
+  <text x="762" y="264" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#1a1d21)" font-family="ui-monospace,'SF Mono',Menlo,monospace">scrollbackBackfill.ts</text>
+  <text x="762" y="282" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink,#1a1d21)">leaf beside xtermInternals.ts — but FAIL-LOUD</text>
+  <text x="762" y="302" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">lines.splice(0, 0, …stolen rows)</text>
+  <text x="762" y="318" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">ydisp · ybase · savedY += M</text>
+  <text x="762" y="334" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">_onScroll.fire(ydisp) · refresh(0, rows−1)</text>
+  <text x="762" y="354" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink,#1a1d21)">throws on missing headroom</text>
+  <text x="762" y="372" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">clearSelection() first · skipped on alt buffer</text>
+  <text x="762" y="388" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">11,394 rows spliced → 1.7 ms</text>
+
+  <!-- prepend-in-place arrow -->
+  <path d="M840 240 L840 186" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" marker-end="url(#sbCold)" />
+  <text x="830" y="210" text-anchor="end" font-size="10" font-weight="600" fill="var(--struct-stroke,#0D32B2)">prepend in place —</text>
+  <text x="830" y="226" text-anchor="end" font-size="9.5" font-style="italic" fill="var(--struct-sub,#4A5072)">view never moves, thumb shrinks</text>
+
+  <!-- contract footer (browser side) -->
+  <text x="632" y="432" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink,#1a1d21)">pinned internals contract — ~6 symbols, tripwire-tested</text>
+  <text x="632" y="448" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">an xterm bump that moves one symbol is red CI, not a corrupted terminal</text>
+
+  <!-- kaval footer -->
+  <text x="166" y="424" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">the 10 k RAM mirror is the horizon —</text>
+  <text x="166" y="440" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">#1577's memory goal stays open</text>
+</svg>
