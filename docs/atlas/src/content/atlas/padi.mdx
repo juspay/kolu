@@ -43,7 +43,7 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "#1764 · 2026-07-11", h: "#w9" },
   { d: 0, g: "✓", c: "ship", l: "W11 · one verb per fact — user-remove vs system-retire in the pool", m: "#1775 · 2026-07-12", h: "#w11" },
   { d: 0, g: "▶", c: "prog", l: "W10 · hosts survive a restart — membership as a settings field in the conf store", m: "#1772 · reworked, in flight", h: "#w10" },
-  { d: 0, g: "○", c: "prog", l: "W12 · restore survives an unclean kaval death — agent-resume facts journaled on change", m: "ratified 2026-07-12 · independent", h: "#w12" },
+  { d: 0, g: "✓", c: "ship", l: "W12 · restore survives an unclean kaval death — can't-observe emits unknown, not agent-ended", m: "#1784 · 2026-07-12", h: "#w12" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -173,13 +173,13 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="shipped" needs={["W7"]} links={[{ label: "#1764", href: "https://github.com/juspay/kolu/pull/1764" }]} />
 <Phase id="W11" name="one verb per fact — user-remove vs system-retire in surface-remote's pool" status="shipped" needs={["W6"]} links={[{ label: "#1775", href: "https://github.com/juspay/kolu/pull/1775" }]} />
 <Phase id="W10" name="hosts survive a restart — membership as a settings field in the conf store" status="next" needs={["W6"]} links={[{ label: "#1772 (being reworked)", href: "https://github.com/juspay/kolu/pull/1772" }]} />
-<Phase id="W12" name="restore survives an unclean kaval death — agent-resume facts journaled on change, not flushed at exit" status="todo" />
+<Phase id="W12" name="restore survives an unclean kaval death — a can't-observe terminal emits `unknown`, not an authoritative agent-end" status="shipped" links={[{ label: "#1784", href: "https://github.com/juspay/kolu/pull/1784" }]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **As of 2026-07-12, in order:**
 
 1. **W10 — hosts survive a restart** is the finishing phase: W9 (<PrLink pr={1764} />) and W11 (<PrLink pr={1775} />) both shipped, so W10 is unblocked — <PrLink pr={1772} /> is being reworked to the ratified conf-store shape (below), and needs codex + code-police on the delta, full two-platform CI, and restart-persistence evidence before merge.
-2. **W12 — restore survives an unclean kaval death** comes next after W10 — independent of it in code (it lives in kaval, not the host pool), but sequenced after so one phase finishes at a time.
+2. **W12 — restore survives an unclean kaval death** shipped (<PrLink pr={1784} />) — independent of W10 in code (it lives in padi's agent sensor, not the host pool). The seedling's exit-flush guess was falsified by the incident forensics + a live kill-9; the real defect and cure are recorded in [its section](#w12).
 3. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
 4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
 
@@ -199,13 +199,13 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 <a id="w12"></a>
 
-### W12 — restore survives an unclean kaval death *(ratified 2026-07-12 — independent of W10)*
+### W12 — restore survives an unclean kaval death *(shipped <PrLink pr={1784} /> — independent of W10)*
 
 **In simple words:** today, if kaval dies cleanly your agents come back after restore — but if it is killed or crashes, you get your terminals back *empty*: the agents are gone, and you restart each one by hand.<Footnote>The 2026-07-12 production incident: prod's kaval was killed un-gracefully; session restore brought back the terminal list, but every agent came back as a bare shell and srid restored them by hand. On zest, a *graceful* kaval restart restores agents fine — the two outcomes differ only in how kaval died.</Footnote> After W12 the two cases look the same: restore brings the agents back either way. The only thing an unclean death may still lose is the last few moments of screen output.
 
-**The defect is the class W10 fixes for host membership:** the per-terminal agent-resume facts — whatever a graceful shutdown persists today that lets restore respawn the agent — are written at *exit* time, and a crash is precisely the case where the end never runs (SIGKILL, crash, OOM all skip it). The cure is the same: move the facts from exit-time flush to change-time journaling — the persisted record is a value replaced whole on every change (P1), owned by kaval beside its existing state — so the file is always current no matter how the process dies. The graceful-shutdown path stops being load-bearing; it can remain as a final no-op write.
+**The defect, precisely (corrected 2026-07-12 after the incident forensics + a live kill-9 — the seedling's exit-flush guess was falsified):** the facts are **not** written at exit — padi already journals `restoreTarget` on every change (the always-on autosave). The real defect: an unclean kaval death makes each terminal's agent sensor emit an authoritative *agent-ended* — because it can no longer **observe** the terminal through the dead pty-host — and the fold turns that into `restoreTarget: none`, which the always-on autosave journals **over** the good `exact` targets ~0.5s later, before any restore. On 2026-07-12 the false *ended* fired at 09:38:39.923, **~3ms before** the endpoint was even marked `degraded`, so no freeze/park-on-degraded guard could win that race — the emit itself is the defect. **The cure:** give *cannot observe* its own spelling. A resolved-null while the terminal's pty-host taps have **failed** (an unclean death severs the socket) is ignorance — the sensor emits `unknown` and the fold **keeps** the last agent and its resume id; a resolved-null while the taps are **live** is a genuine end and still **clears** the target, so restore never resurrects a dead agent. The resume id survives an unclean death by construction.
 
-**Seedling — this phase needs its own interview and grounding before build.** The first implementation step is to ground what "agent-resume facts" concretely *are* in kaval's current code — what the graceful path persists today — rather than guessing the field list here. Independent of W10: that lives in kolu-server's host pool, this lives in kaval.
+**Shipped** <PrLink pr={1784} />. The grounding overturned the seedling's two guesses: the resume facts live in **padi, not kaval** (kaval persists no session file at all), and they were **already** journaled on change — so the "move exit-flush to change-journaling" framing was moot. The fix lives entirely in `@kolu/padi`: the agent sensor's **observability gate** (an unobservable terminal's resolved-null emits `unknown`, not an authoritative end) plus a restore-respawn **seed** so restore re-persists the surviving `exact`, never `none`. Witnessed on a real kill-9 — `restoreTarget` stayed `exact` across the kill (100/100 polls) and restore brought the agent back on its exact prior session (same `sessionId` + transcript). Independent of W10: that lives in kolu-server's host pool; this lives in the per-host padi.
 
 <a id="cleanup"></a>
 
