@@ -41,7 +41,11 @@ interface CircularListInternal {
   length: number;
   maxLength: number;
   get(i: number): BufferLineInternal | undefined;
-  splice(start: number, deleteCount: number, ...items: BufferLineInternal[]): void;
+  splice(
+    start: number,
+    deleteCount: number,
+    ...items: BufferLineInternal[]
+  ): void;
 }
 
 interface BufferInternal {
@@ -90,7 +94,8 @@ function stealContentLines(scratch: ScratchTerminal): BufferLineInternal[] {
     const line = buf.lines.get(i);
     // A hole here would mean the scratch buffer disagrees with its own cursor —
     // a broken invariant, not a recoverable gap. Fail loud.
-    if (!line) throw new Error(`scrollback-backfill: scratch line ${i} missing`);
+    if (!line)
+      throw new Error(`scrollback-backfill: scratch line ${i} missing`);
     out.push(line);
   }
   return out;
@@ -132,7 +137,9 @@ async function replayToLines(
 /** True when the terminal is showing its ALTERNATE buffer (a full-screen TUI).
  *  There is no scrollback to extend there, so backfill is skipped — a deliberate
  *  no-op, not a failure. Public API, no internals reach. */
-export function isAltBufferActive(term: { buffer: { active: { type: string } } }): boolean {
+export function isAltBufferActive(term: {
+  buffer: { active: { type: string } };
+}): boolean {
   return term.buffer.active.type === "alternate";
 }
 
@@ -154,7 +161,11 @@ export async function prependScrollback(
   if (rawChunk.length === 0) return 0;
   // No scrollback to extend under a full-screen app; caller shouldn't ask, but
   // guard anyway (a deliberate skip, not a corruption).
-  if (isAltBufferActive(term as unknown as { buffer: { active: { type: string } } }))
+  if (
+    isAltBufferActive(
+      term as unknown as { buffer: { active: { type: string } } },
+    )
+  )
     return 0;
 
   const lines = await replayToLines(
@@ -258,7 +269,11 @@ export function createBackfillController(
 
   async function maybeBackfill(): Promise<void> {
     if (cursor === null || exhausted || inFlight) return;
-    if (isAltBufferActive(term as unknown as { buffer: { active: { type: string } } }))
+    if (
+      isAltBufferActive(
+        term as unknown as { buffer: { active: { type: string } } },
+      )
+    )
       return;
     const triggerRows = opts.triggerRows ?? term.rows * 2;
     // `viewportY` is the top visible row (ydisp); near 0 means scrolled to the

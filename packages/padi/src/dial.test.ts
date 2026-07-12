@@ -332,7 +332,10 @@ describe("padi the process — dial acceptance", () => {
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    // The frame is `{ data, topLine }` (contract 5.1): the snapshot bytes plus
+    // the absolute backfill seed the first frame carries.
+    expect(typeof first.value.data).toBe("string");
+    expect(typeof first.value.topLine).toBe("number");
 
     // Drive the PTY through the lifecycle procedure and read it back off the
     // screen procedure — a full round-trip through padi's OWN kaval.
@@ -513,7 +516,9 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    // `{ data, topLine }` frame (contract 5.1) relayed straight through the front.
+    expect(typeof first.value.data).toBe("string");
+    expect(typeof first.value.topLine).toBe("number");
 
     await client.surface.padi.lifecycle.sendInput({
       id,

@@ -218,7 +218,11 @@ class PtyHostTerminalProxy implements TerminalHandle {
 
   async getHistory(before: number, max: number): Promise<TerminalHistoryChunk> {
     await this.ready;
-    return this.client.surface.terminal.getHistory({ id: this.id, before, max });
+    return this.client.surface.terminal.getHistory({
+      id: this.id,
+      before,
+      max,
+    });
   }
 }
 

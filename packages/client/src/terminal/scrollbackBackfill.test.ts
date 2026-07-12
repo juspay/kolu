@@ -29,29 +29,47 @@ const makeScratch = headlessScratch;
 
 /* A headless "live" terminal, cast to the XTerm type the module accepts — the
  *  module only touches the `_core` shape the contract-pin block proves identical.
+ *  `@xterm/headless` has no renderer or selection, so it lacks the two
+ *  browser-only methods the module calls (`clearSelection`, `refresh`); stub them
+ *  as no-ops (there is no selection to clear and no atlas to repaint headlessly)
+ *  so the stand-in presents the same surface the production `@xterm/xterm` does.
  */
-function makeLive(opts: { cols: number; rows: number; scrollback: number }): XTerm {
-  return new HeadlessTerminal({
+function makeLive(opts: {
+  cols: number;
+  rows: number;
+  scrollback: number;
+}): XTerm {
+  const t = new HeadlessTerminal({
     ...opts,
     allowProposedApi: true,
-  }) as unknown as XTerm;
+  }) as unknown as XTerm & { clearSelection(): void; refresh(): void };
+  t.clearSelection = () => {};
+  t.refresh = () => {};
+  return t;
 }
 
-function write(term: { write(d: string, cb?: () => void): void }, data: string) {
+function write(
+  term: { write(d: string, cb?: () => void): void },
+  data: string,
+) {
   return new Promise<void>((r) => term.write(data, r));
 }
 
 interface BufInternal {
   lines: {
     length: number;
-    get(i: number): { isWrapped: boolean; translateToString(t?: boolean): string } | undefined;
+    get(
+      i: number,
+    ):
+      | { isWrapped: boolean; translateToString(t?: boolean): string }
+      | undefined;
   };
   ydisp: number;
   ybase: number;
 }
 function normalBuf(term: XTerm): BufInternal {
-  return (term as unknown as { _core: { buffers: { normal: BufInternal } } })._core
-    .buffers.normal;
+  return (term as unknown as { _core: { buffers: { normal: BufInternal } } })
+    ._core.buffers.normal;
 }
 function dumpRows(term: XTerm): Array<[string, boolean]> {
   const b = normalBuf(term);
@@ -79,8 +97,10 @@ const ROWS = 5;
 function olderChunk(): string {
   const lines: string[] = [];
   for (let i = 0; i < 30; i++) {
-    if (i === 7) lines.push(`old-${String(i).padStart(3, "0")}-${"W".repeat(45)}`);
-    else if (i === 13) lines.push(`\x1b[31mold-${String(i).padStart(3, "0")}-red\x1b[0m`);
+    if (i === 7)
+      lines.push(`old-${String(i).padStart(3, "0")}-${"W".repeat(45)}`);
+    else if (i === 13)
+      lines.push(`\x1b[31mold-${String(i).padStart(3, "0")}-red\x1b[0m`);
     else lines.push(`old-${String(i).padStart(3, "0")}`);
   }
   return `${lines.join("\r\n")}\r\n`;
@@ -101,7 +121,9 @@ describe("prependScrollback", () => {
       len: normalBuf(live).lines.length,
       viewport: viewportRows(live),
     };
-    expect(normalBuf(live).lines.get(0)?.translateToString(true)).toBe("new-000");
+    expect(normalBuf(live).lines.get(0)?.translateToString(true)).toBe(
+      "new-000",
+    );
 
     const m = await prependScrollback(live, olderChunk(), { makeScratch });
     // 30 logical lines, one wraps to 3 rows at 20 cols => 32 buffer rows.
@@ -124,7 +146,14 @@ describe("prependScrollback", () => {
     await write(live, "after-prepend\r\n");
     const b2 = normalBuf(live);
     expect(
-      b2.lines.get(b2.ybase + (live as unknown as { _core: { buffer: { y: number } } })._core.buffer.y - 1)?.translateToString(true),
+      b2.lines
+        .get(
+          b2.ybase +
+            (live as unknown as { _core: { buffer: { y: number } } })._core
+              .buffer.y -
+            1,
+        )
+        ?.translateToString(true),
     ).toBe("after-prepend");
   });
 
@@ -186,7 +215,12 @@ describe("prependScrollback", () => {
   });
 
   it("THROWS when xterm's internal shape is missing (no silent no-op)", async () => {
-    const broken = { cols: COLS, rows: ROWS, clearSelection() {}, buffer: { active: { type: "normal" } } } as unknown as XTerm;
+    const broken = {
+      cols: COLS,
+      rows: ROWS,
+      clearSelection() {},
+      buffer: { active: { type: "normal" } },
+    } as unknown as XTerm;
     await expect(
       prependScrollback(broken, olderChunk(), { makeScratch }),
     ).rejects.toThrow(/internals contract broken/);
@@ -204,8 +238,14 @@ describe("prependScrollback", () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, newerChunk());
     await write(live, "\x1b[?1049h"); // enter alt buffer
-    expect(isAltBufferActive(live as unknown as { buffer: { active: { type: string } } })).toBe(true);
-    expect(await prependScrollback(live, olderChunk(), { makeScratch })).toBe(0);
+    expect(
+      isAltBufferActive(
+        live as unknown as { buffer: { active: { type: string } } },
+      ),
+    ).toBe(true);
+    expect(await prependScrollback(live, olderChunk(), { makeScratch })).toBe(
+      0,
+    );
   });
 });
 
@@ -214,7 +254,12 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
   // a user's scrollback. Constructs (does NOT open) a real browser Terminal and
   // asserts every symbol scrollbackBackfill.ts pins.
   it("every internal symbol the technique touches exists with the expected shape", () => {
-    const t = new XTerm({ cols: COLS, rows: ROWS, scrollback: 10, allowProposedApi: true });
+    const t = new XTerm({
+      cols: COLS,
+      rows: ROWS,
+      scrollback: 10,
+      allowProposedApi: true,
+    });
     const core = (t as unknown as { _core?: Record<string, unknown> })._core;
     expect(core, "_core").toBeTruthy();
 
@@ -224,7 +269,8 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
       "_bufferService._onScroll.fire",
     ).toBeTypeOf("function");
 
-    const normal = (core!.buffers as { normal?: Record<string, unknown> }).normal;
+    const normal = (core!.buffers as { normal?: Record<string, unknown> })
+      .normal;
     expect(normal, "_core.buffers.normal").toBeTruthy();
     expect(normal!.ydisp, "buffer.ydisp").toBeTypeOf("number");
     expect(normal!.ybase, "buffer.ybase").toBeTypeOf("number");
@@ -250,7 +296,11 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
     let insertEvent: { index: number; amount: number } | undefined;
     lines.onInsert((e) => (insertEvent = e));
     const before = lines.length;
-    (lines as unknown as { splice(a: number, b: number, ...i: unknown[]): void }).splice(0, 0, line);
+    (
+      lines as unknown as {
+        splice(a: number, b: number, ...i: unknown[]): void;
+      }
+    ).splice(0, 0, line);
     expect(lines.length).toBe(before + 1);
     expect(insertEvent).toEqual({ index: 0, amount: 1 });
   });

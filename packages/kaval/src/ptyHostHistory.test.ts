@@ -45,10 +45,15 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
    *  at a sleep so the mirror is stable while we read it. An optional `pauseAt`
    *  inserts a `sleep` mid-run so a test can attach after the first burst and
    *  observe the rest append. */
-  function printLines(count: number, opts: { scrollback?: number; pauseAt?: number } = {}) {
+  function printLines(
+    count: number,
+    opts: { scrollback?: number; pauseAt?: number } = {},
+  ) {
     host = createPtyHost({ log: silentLog });
     const pause =
-      opts.pauseAt !== undefined ? ` [ $i -eq ${opts.pauseAt} ] && sleep 1;` : "";
+      opts.pauseAt !== undefined
+        ? ` [ $i -eq ${opts.pauseAt} ] && sleep 1;`
+        : "";
     const { id } = host.spawn({
       shell: "/bin/sh",
       args: [
@@ -130,7 +135,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
 
   it("tracks eviction so the cursor stays anchored (mirrorBaseLine)", async () => {
     // A shallow mirror forces eviction: 100 lines into a 50-line scrollback.
-    const id = printLines(100, 50);
+    const id = printLines(100, { scrollback: 50 });
     await waitFor(() => host.getScreenText(id).includes(label(99)));
     const { topLine } = host.attach(id);
     // The oldest retained line is not L0000 — earlier lines fell off the top, so
@@ -161,7 +166,12 @@ describe("serialize({range}) fidelity — production chunks replay faithfully", 
   // flags) — including a wrapped line spanning the chunk — so backfilled history
   // is indistinguishable from natively-parsed history.
   function makeTerm(cols: number, rows: number) {
-    return new Terminal({ cols, rows, scrollback: 1000, allowProposedApi: true });
+    return new Terminal({
+      cols,
+      rows,
+      scrollback: 1000,
+      allowProposedApi: true,
+    });
   }
   function write(t: InstanceType<typeof Terminal>, d: string) {
     return new Promise<void>((r) => t.write(d, r));
@@ -183,7 +193,8 @@ describe("serialize({range}) fidelity — production chunks replay faithfully", 
     mirror.loadAddon(ser);
     const lines: string[] = [];
     for (let i = 0; i < 30; i++) {
-      if (i === 7) lines.push(`h-${String(i).padStart(2, "0")}-${"W".repeat(45)}`);
+      if (i === 7)
+        lines.push(`h-${String(i).padStart(2, "0")}-${"W".repeat(45)}`);
       else lines.push(`h-${String(i).padStart(2, "0")}`);
     }
     await write(mirror, `${lines.join("\r\n")}\r\n`);

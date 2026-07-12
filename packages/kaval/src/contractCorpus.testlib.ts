@@ -41,6 +41,7 @@ export const CONTRACT_COVERAGE = {
     "terminal.list",
     "terminal.getScreenState",
     "terminal.getScreenText",
+    "terminal.getHistory",
     "system.version",
     "system.heartbeat",
     "system.processMemory",
@@ -327,6 +328,17 @@ export function runContractCorpus(opts: {
       // getScreenState returns the serialized screen (a non-empty string here).
       const { data } = await client().surface.terminal.getScreenState({ id });
       expect(typeof data).toBe("string");
+
+      // getHistory: this shallow terminal's whole history fits the bounded
+      // attach snapshot, so a fetch above its top is an empty, exhausted no-op —
+      // enough to exercise the verb end to end over the wire.
+      const history = await client().surface.terminal.getHistory({
+        id,
+        before: 0,
+        max: 100,
+      });
+      expect(history.exhausted).toBe(true);
+      expect(history.chunk).toBe("");
 
       // resize is accepted.
       const resized = await client().surface.terminal.resize({

@@ -25,7 +25,12 @@ function write(t: InstanceType<typeof Terminal>, d: string) {
 
 describe("xterm-headless mirror contract", () => {
   it("_core.buffers.normal.lines.onTrim exists and fires the evicted count", async () => {
-    const term = new Terminal({ cols: 20, rows: 3, scrollback: 5, allowProposedApi: true });
+    const term = new Terminal({
+      cols: 20,
+      rows: 3,
+      scrollback: 5,
+      allowProposedApi: true,
+    });
     const lines = (
       term as unknown as {
         _core?: { buffers?: { normal?: { lines?: { onTrim?: unknown } } } };
@@ -46,7 +51,12 @@ describe("xterm-headless mirror contract", () => {
   });
 
   it("public buffer + serialize({range}) shape getHistory relies on", async () => {
-    const term = new Terminal({ cols: 20, rows: 3, scrollback: 100, allowProposedApi: true });
+    const term = new Terminal({
+      cols: 20,
+      rows: 3,
+      scrollback: 100,
+      allowProposedApi: true,
+    });
     const ser = new SerializeAddon();
     term.loadAddon(ser);
     await write(term, "aaa\r\nbbb\r\nccc\r\n");

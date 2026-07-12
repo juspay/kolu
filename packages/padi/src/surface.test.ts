@@ -113,7 +113,11 @@ describe("padiSurface 1.0 contract", () => {
       "setSubPanel",
       "setRightPanel",
     ]);
-    expect(Object.keys(procs.screen ?? {})).toEqual(["state", "text"]);
+    expect(Object.keys(procs.screen ?? {})).toEqual([
+      "state",
+      "text",
+      "history",
+    ]);
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
       "readFile",

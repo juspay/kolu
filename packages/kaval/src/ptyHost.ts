@@ -950,9 +950,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // A gone PTY, or the client already holds the oldest line the mirror has:
     // nothing older to serve. `before` is the client's absolute cursor; the row
     // just above it is `before - mirrorBaseLine - 1` in the current local buffer.
-    if (!entry || max <= 0) return { chunk: "", topLine: before, exhausted: true };
+    if (!entry || max <= 0)
+      return { chunk: "", topLine: before, exhausted: true };
     const buffer = entry.headless.buffer.normal;
-    const localEnd = Math.min(before - entry.mirrorBaseLine - 1, buffer.length - 1);
+    const localEnd = Math.min(
+      before - entry.mirrorBaseLine - 1,
+      buffer.length - 1,
+    );
     if (localEnd < 0) return { chunk: "", topLine: before, exhausted: true };
     let start = Math.max(0, localEnd - max + 1);
     // Snap the top edge back over any wrapped-line continuation rows to the
@@ -969,7 +973,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       excludeModes: true,
       excludeAltBuffer: true,
     });
-    return { chunk, topLine: entry.mirrorBaseLine + start, exhausted: start === 0 };
+    return {
+      chunk,
+      topLine: entry.mirrorBaseLine + start,
+      exhausted: start === 0,
+    };
   }
 
   function write(id: PtyId, data: string): void {
