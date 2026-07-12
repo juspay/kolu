@@ -31,18 +31,15 @@ const bag = vi.hoisted(() => ({
 }));
 
 vi.mock("./wire", async () => {
-  const { mockPadiMap, mockPadiRpcOf } = await import(
+  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
     "./hostScope/mockHostMap.testlib"
   );
-  const { groundActiveHost } = await import("./host/groundActive");
   return {
     padiMap: mockPadiMap,
     padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
     activeHost: () => bag.activeHost(),
-    // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763) — mirrors
-    // `wire.groundedActiveHost` over the mock membership (`switchTo` adds the host).
-    groundedActiveHost: () =>
-      groundActiveHost(bag.activeHost(), mockPadiMap.entries.use().keys()),
+    // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
+    groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
   };
 });
 

@@ -44,17 +44,15 @@ vi.mock("../wire", async () => {
   // reads `padiMap`. Stand up the shared mock map (single static local member —
   // these tests never switch hosts); `beforeEach` resets it so each test's latch
   // starts fresh.
-  const { mockPadiMap, mockPadiRpcOf } = await import(
+  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
     "../hostScope/mockHostMap.testlib"
   );
-  const { groundActiveHost } = await import("../host/groundActive");
   return {
     padiMap: mockPadiMap,
     padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
-    // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763) — the static
-    // local host grounded against the mock membership (`beforeEach` adds LOCAL_HOST).
-    groundedActiveHost: () =>
-      groundActiveHost({ kind: "local" }, mockPadiMap.entries.use().keys()),
+    // The GROUNDED accessor the per-host scope reads — the shared testlib composition,
+    // pinned to the static local host (`beforeEach` adds LOCAL_HOST to membership).
+    groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
     activePadiRpc: {
       surface: {
         session: {
