@@ -122,12 +122,13 @@ The moving parts, in the order a chunk travels:
    nothing else.</Footnote>
 2. **One new wire surface**: a kaval **history read verb** that returns the
    next older raw chunk from the mirror, cursor-paged. That is the only
-   addition to the wire.<Footnote>A free side benefit: `kaval-tui` already
-   speaks kaval's surface, so the same verb gives it a `history <terminal>`
-   subcommand — reading a terminal's older output without attaching.
-   Agent-orchestration workflows currently work around `snapshot`'s
-   current-screen-only limit by passing report files; this closes that gap
-   and doubles as incident forensics.</Footnote>
+   addition to the wire — and it gets a second consumer in the same PR: a
+   `kaval-tui history <terminal>` subcommand (ratified in-scope 2026-07-12),
+   reading a terminal's older output without attaching. Agent-orchestration
+   workflows currently work around `snapshot`'s current-screen-only limit by
+   passing report files; this closes that gap and doubles as incident
+   forensics. Two consumers from day one also keeps the verb honest — it
+   must serve a plain pager, not just the browser's backfill loop.
 3. **A scratch headless terminal** in the client replays the chunk at the
    live terminal's column width. This is the trick that makes backfilled
    history *real*: the actual xterm parser computes wrapping, `isWrapped`
@@ -226,6 +227,10 @@ terminal module, kaval's verbs) and nothing here can ship usefully alone:
 5. **The contract-pin tests, lifted from the spike** into both packages —
    kaval (against `@xterm/headless`) and client (against `@xterm/xterm`) —
    so a pin bump that moves a pinned symbol fails CI loudly on both sides.
+6. **`kaval-tui history <terminal>`** — the read verb's second consumer, in
+   this same PR: cursor-paged dump of a terminal's older mirror contents to
+   stdout (newest-first paging, a `--lines N` bound), no attach, no TTY
+   taken. Ships with a smoke-level test against a real kaval.
 
 **Risks, ranked** — each with the mitigation that ships in the same PR:
 

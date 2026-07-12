@@ -153,12 +153,13 @@ This note’s business is the attach cost and in-place scrollback,
 nothing else.</span></span></span></li>
 <li><strong>One new wire surface</strong>: a kaval <strong>history read verb</strong> that returns the
 next older raw chunk from the mirror, cursor-paged. That is the only
-addition to the wire.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A free side benefit: <code>kaval-tui</code> already
-speaks kaval’s surface, so the same verb gives it a <code>history &lt;terminal&gt;</code>
-subcommand — reading a terminal’s older output without attaching.
-Agent-orchestration workflows currently work around <code>snapshot</code>’s
-current-screen-only limit by passing report files; this closes that gap
-and doubles as incident forensics.</span></span></span></li>
+addition to the wire — and it gets a second consumer in the same PR: a
+<code>kaval-tui history &lt;terminal&gt;</code> subcommand (ratified in-scope 2026-07-12),
+reading a terminal’s older output without attaching. Agent-orchestration
+workflows currently work around <code>snapshot</code>’s current-screen-only limit by
+passing report files; this closes that gap and doubles as incident
+forensics. Two consumers from day one also keeps the verb honest — it
+must serve a plain pager, not just the browser’s backfill loop.</li>
 <li><strong>A scratch headless terminal</strong> in the client replays the chunk at the
 live terminal’s column width. This is the trick that makes backfilled
 history <em>real</em>: the actual xterm parser computes wrapping, <code>isWrapped</code>
@@ -286,6 +287,10 @@ fact, so a violation is a crash, not a degrade.</li>
 <li><strong>The contract-pin tests, lifted from the spike</strong> into both packages —
 kaval (against <code>@xterm/headless</code>) and client (against <code>@xterm/xterm</code>) —
 so a pin bump that moves a pinned symbol fails CI loudly on both sides.</li>
+<li><strong><code>kaval-tui history &lt;terminal&gt;</code></strong> — the read verb’s second consumer, in
+this same PR: cursor-paged dump of a terminal’s older mirror contents to
+stdout (newest-first paging, a <code>--lines N</code> bound), no attach, no TTY
+taken. Ships with a smoke-level test against a real kaval.</li>
 </ol>
 <p><strong>Risks, ranked</strong> — each with the mitigation that ships in the same PR:</p>
 <table>
