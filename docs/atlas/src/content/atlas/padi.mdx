@@ -1,10 +1,10 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W8 all shipped; next up W9 (instant host switch-back), then W10 (host membership survives a restart), with the cleanup ledger in parallel.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W8 all shipped; next up W9 (instant host switch-back); W10 (host membership survives a restart) is built but blocked on W11 — splitting user-remove from system-retire — with the cleanup ledger in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-07-11
+updated: 2026-07-12
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -41,7 +41,8 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W6 · the honest connect — the connection type made perfect + the connect overlay", m: "#1730 · drishti#92 · 2026-07-09", h: "#w6" },
   { d: 0, g: "✓", c: "ship", l: "W5 · cross-host attention — urgency fan-in · OS badge · notification deep-link", m: "#1759 · drishti#93 in review · 2026-07-11", h: "#w5" },
   { d: 0, g: "○", c: "prog", l: "W9 · instant host switch-back — retained per-host wire subscriptions (W7's K1)", m: "next — W5 ✓", h: "#w9" },
-  { d: 0, g: "○", c: "prog", l: "W10 · hosts survive a restart — pool membership persisted beside its one writer", m: "ratified 2026-07-11 · after W9", h: "#w10" },
+  { d: 0, g: "○", c: "prog", l: "W11 · one verb per fact — user-remove vs system-retire in the pool", m: "ratified 2026-07-12 · blocks W10", h: "#w11" },
+  { d: 0, g: "▶", c: "prog", l: "W10 · hosts survive a restart — pool membership persisted beside its one writer", m: "#1772 in gauntlet · BLOCKED on W11", h: "#w10" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
@@ -169,15 +170,17 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="shipped" needs={["W4"]} links={[{ label: "#1759", href: "https://github.com/juspay/kolu/pull/1759" }]} />
 <Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
 <Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="todo" needs={["W7"]} />
-<Phase id="W10" name="hosts survive a restart — pool membership persisted beside its one writer" status="todo" needs={["W6"]} />
+<Phase id="W11" name="one verb per fact — user-remove vs system-retire in surface-remote's pool" status="next" needs={["W6"]} blocks={["W10"]} />
+<Phase id="W10" name="hosts survive a restart — pool membership persisted beside its one writer" status="todo" needs={["W6", "W11"]} links={[{ label: "#1772 (draft, in gauntlet)", href: "https://github.com/juspay/kolu/pull/1772" }]} />
 <Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
-**As of 2026-07-11, in order:**
+**As of 2026-07-12, in order:**
 
 1. **W9 — instant host switch-back** is the next feature phase: W5 shipped (<PrLink pr={1759} />, 2026-07-11), and a 2026-07-11 root-cause pinned why every host switch still rebuilds the whole canvas — the cure is completing W7's K1 (below).
-2. **W10 — hosts survive a restart** follows (ratified 2026-07-11): server-side, no code dependency on W9 — it takes the next number because W9 is already in flight.
-3. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
-4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
+2. **W11 — one verb per fact** lands first as its own small PR (ratified 2026-07-12): W10's gauntlet found that persisting removals would let an internal fault path silently forget a user-added host — the verbs split before W10 may merge.
+3. **W10 — hosts survive a restart**: the implementation (<PrLink pr={1772} />) is complete and in the gauntlet, but **BLOCKED on W11** — it stays draft, rebases on W11, then ships.
+4. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
+5. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
 
 **The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
 
@@ -197,7 +200,9 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 <a id="w10"></a>
 
-### W10 — hosts survive a restart *(ratified 2026-07-11 — after W9)*
+### W10 — hosts survive a restart *(implementation <PrLink pr={1772} /> in gauntlet — BLOCKED on [W11](#w11))*
+
+**Status (2026-07-12):** the implementation (<PrLink pr={1772} />) is complete and in the review gauntlet, but **BLOCKED on [W11](#w11)** — the gauntlet found that persisting removals would make <Issue n={1708} />'s pump-death auto-retire durably forget a user-added host; #1772 stays draft and rebases on W11 before shipping.
 
 **In simple words:** the hosts you added through the selector strip come back after a kolu restart. Today a restart forgets everything but the local default, and you re-add your fleet by hand. After W10, every remembered host reappears in the strip and reconnects through the normal connect pipeline; a host that's gone shows its honest failed chip with the cause rather than silently vanishing. The only way a host leaves the strip is your explicit remove.<Footnote>Sequenced after W9 by number only — there is no code dependency between them: W10 is server-side, W9 is client-side. W9 is already numbered and in flight, so W10 takes the next slot.</Footnote>
 
@@ -208,6 +213,16 @@ The contract's one novelty, forced by review: **every member declares how it may
 **Deliberately not:** no framework change — persistence policy is app-level; if drishti ever wants the same shape, graduate it then (prove-then-extract). No Nix/declarative host-config second path, no TTL or staleness pruning, and the client persists nothing.
 
 **One PR:** a new load/validate/atomic-save module in `packages/server` (schema `{version: 1, hosts: string[]}`), two call-site touches where the handlers live (grep `addHost:` in `packages/server/src/index.ts`, ~line 486 on master), and a boot loop after pool construction. Tests: round-trip add/remove/restart; a corrupt file crashes with the path in the message; the local default never enters the file; remove updates the file. Synergy with W9, not dependency: restart + re-add mints fresh per-host client worlds, composing with W9's retained subscriptions.
+
+<a id="w11"></a>
+
+### W11 — one verb per fact: user-remove vs system-retire *(blocks W10 — ratified 2026-07-12)*
+
+**In simple words:** removing a host should mean the *user* removed it — never the system giving up on a bad connection. Today one internal fault path — <Issue n={1708} />'s pump-death auto-retire — calls the same `pool.remove` the user's ✕ button does; once W10 persists removals, a rare internal guest fault would silently shrink the remembered fleet across restarts.<Footnote>Silent fleet shrink is exactly the data-loss class W10's crash-on-corrupt doctrine exists to prevent — persistence must never make a system fault look like a user decision.</Footnote> W11 splits the verbs so the system can retire a faulted session without touching what the user asked kolu to remember.
+
+**The root defect: surface-remote's pool speaks ONE verb for TWO facts** — "the user removed this host" vs "the system retired a faulted session". Per the two-constructors-not-a-mode-flag doctrine, the pool gains two verbs (P4: two facts, two spellings): the persisting user-remove and a non-persisting internal retire, with the persist hook firing only on user-intent mutations — the one authority for "the remembered fleet" is the user. kolu wires #1708's pump-death path to the internal retire. Framework change → the drishti gate check applies (pair only if drishti consumes the touched API).
+
+**Sequencing:** W11 lands first as its own small PR; W10's implementation PR (<PrLink pr={1772} />, in gauntlet, otherwise complete) stays draft, rebases on W11, then ships. Honestly noted: the wart is pre-existing on master — #1708 already un-hosts the live pool on a pump death today; W10 only extends it across restarts. W11 fixes the class for both.
 
 <a id="cleanup"></a>
 
