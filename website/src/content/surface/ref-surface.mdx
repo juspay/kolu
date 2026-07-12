@@ -194,6 +194,12 @@ from a silently half-open one — no app nominates its own probe. `probeSurfaceL
 is the one-liner that calls it; the socket and ssh seams default their watchdog
 to it.
 
+`monotonicNow()` (`@kolu/surface/time`) is the shared monotonic-clock primitive
+both the heartbeat's suspension check and a consumer's own dead-man ceiling clock
+read — `performance.now()` where present, else `Date.now()`. It lives in its own
+neutral module (not `@kolu/surface/heartbeat`) so neither the heartbeat nor a
+downstream watchdog reaches into the other for the clock; both import it from here.
+
 `client.health()` returns a **fact**, not a verdict:
 `{ live: boolean, subs: [{ name, pending, error }] }`. `live` is the full
 conjunction of transport-live and every readiness predicate; a subscription
