@@ -80,18 +80,13 @@ import {
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
 import type { PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { stateDir } from "./state.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
   parseKoluPadiHostSeed,
 } from "./padi/remotePadiBinding.ts";
 import { pruneToMembers } from "./padi/reServeEviction.ts";
-import {
-  hostsFilePath,
-  loadPersistedHosts,
-  savePoolMembership,
-} from "./hostPersistence.ts";
+import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
 import {
@@ -269,23 +264,23 @@ const seed = parseKoluPadiHostSeed();
 const defaultHost = seed[0] ?? LOCAL_HOST;
 
 // W10 — restore the remembered fleet. Guest hosts added via the selector strip in a
-// prior run are persisted beside the pool (their one writer); merge them into the
-// initial host set so they re-enter through the SAME seed → `buildEntry` → W6 connect
-// pipeline the env seed uses (a gone host surfaces as a `failed` entry, never silently
-// dropped). Deduped against the env seed so a host listed in BOTH `KOLU_PADI_HOST` and
-// the file seeds exactly once. Seeding at construction (rather than a post-build
-// `pool.add` loop) keeps the boot replay from re-firing `persist` — the file is only
-// ever rewritten by a genuine runtime add/remove, so an interrupted boot can't truncate
-// it. A file that EXISTS but fails the schema CRASHES here with the path in the message
-// (`loadPersistedHosts` — fail-fast), never starting with an empty fleet.
-const hostsFile = hostsFilePath(stateDir);
-const persistedAtBoot = loadPersistedHosts(hostsFile);
+// prior run are persisted in the conf state store (server-side, beside its one writer —
+// the pool); merge them into the initial host set so they re-enter through the SAME seed
+// → `buildEntry` → W6 connect pipeline the env seed uses (a gone host surfaces as a
+// `failed` entry, never silently dropped). Deduped against the env seed so a host listed
+// in BOTH `KOLU_PADI_HOST` and the store counts once. Seeding at construction (rather
+// than a post-build `pool.add` loop) keeps the boot replay from re-firing `persist` — the
+// store is only ever rewritten by a genuine runtime add/remove, so an interrupted boot
+// can't truncate it. A store that PARSES but fails the hosts schema CRASHES here naming
+// the store (`getPersistedHosts` — fail-loud), never starting with an empty fleet; an
+// UNPARSEABLE store already threw in conf's own read (fail-fast, `clearInvalidConfig` false).
+const persistedAtBoot = getPersistedHosts();
 const envSeedKeys = seed.map(encodeHostKey);
 const initialHostKeys = [...new Set([...envSeedKeys, ...persistedAtBoot])];
 // Env-seed provenance (the `persist` hook's exclusion set): a `KOLU_PADI_HOST` seed is
 // a DECLARATIVE knob, not a strip-added membership fact — persisting it would complect
 // the two and make an env host permanent on disk after any unrelated add/remove (and
-// survive its own removal from the env). Exclude env seeds from the file UNLESS they
+// survive its own removal from the env). Exclude env seeds from the store UNLESS they
 // were already persisted at boot — persisted-at-boot wins, so a host a user
 // strip-added and then LATER also named in `KOLU_PADI_HOST` keeps its persisted claim.
 const persistedAtBootSet = new Set(persistedAtBoot);
@@ -328,13 +323,13 @@ releaseLocalSupervisor = supervisorClaim.release;
 // map forwards by key-in-input, not a per-host socket), so `H = undefined`.
 const pool = buildRemotePool<PadiSession, undefined>({
   initialHosts: initialHostKeys,
-  // W10 — persist membership beside its one writer (the pool). Fires on every runtime
-  // add/remove with the intended post-mutation host list; the pool's own contract
-  // orders this write BEFORE the in-memory commit, serializes it through one mutation
-  // queue, and rolls back the just-built session if it throws. The callback only shapes
-  // WHAT is written — the unremovable local default drops out (seeded in code, never
-  // persisted, so the file can't mint a second authority for "local always exists").
-  persist: (hosts) => savePoolMembership(hostsFile, hosts, declarativeSeedKeys),
+  // W10 — persist membership in the conf store beside its one writer (the pool). Fires on
+  // every runtime add/remove with the intended post-mutation host list; the pool's own
+  // contract orders this write BEFORE the in-memory commit, serializes it through one
+  // mutation queue, and rolls back the just-built session if it throws. The callback only
+  // shapes WHAT is written — the unremovable local default drops out (seeded in code, never
+  // persisted, so the store can't mint a second authority for "local always exists").
+  persist: (hosts) => savePoolMembership(hosts, declarativeSeedKeys),
   buildEntry: (h) => {
     const key = decodeHostKey(h);
     return {

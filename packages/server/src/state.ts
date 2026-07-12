@@ -13,12 +13,19 @@
  * `sleepingTerminals` / `lastPairedDaemon` keys) off any pre-W2.2 file — backing
  * it up first so a fresh padi's one-shot legacy import stays recoverable.
  *
- * All data here is reconstructible (not user data), so corrupt/missing files
- * can safely reset to defaults.
+ * `hosts` (W10 — the fleet you add through the selector strip) also lives here now,
+ * as a field on `PersistedStateSchema`. That is deliberate: `conf` is FAIL-FAST — a
+ * corrupt/unparseable store THROWS on read (`clearInvalidConfig` is false; conf 15's
+ * default), it does NOT silently reset to defaults. So `hosts` (unlike `preferences`,
+ * it is real user data a silent reset would eat) rides the same store, schema, and
+ * migration ladder as everything else, and a corrupt store fails loud rather than
+ * emptying the fleet. A MISSING file is a fresh install (empty → defaults merge in);
+ * a PRESENT-but-corrupt one crashes the boot.
  */
 
 import { copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
+import { PersistedHostsSchema } from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -98,13 +105,16 @@ export function migratePreferences_1_32_0(
   };
 }
 
-/** What conf stores to disk — survives server restart. Internal: `preferences.ts`
- *  reads the per-domain `Preferences` shape, not this aggregate. `session` /
- *  `activityFeed` left this store at W2.2 (they are padi's now); the 1.31.0
- *  migration strips their legacy residue. Adding a new domain key requires a
- *  migration entry below. */
+/** What conf stores to disk — survives server restart. Internal: each domain module
+ *  (`preferences.ts`, `hostPersistence.ts`) reads its own per-domain shape, not this
+ *  aggregate. `session` / `activityFeed` left this store at W2.2 (they are padi's now);
+ *  the 1.31.0 migration strips their legacy residue. `hosts` (W10) is the strip-added
+ *  fleet, validated by `PersistedHostsSchema` (rejects `local` + duplicates) so a
+ *  hand-corrupted list fails loud, never silently normalized. Adding a new domain key
+ *  requires a migration entry below. */
 const PersistedStateSchema = z.object({
   preferences: PreferencesSchema,
+  hosts: PersistedHostsSchema,
 });
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
@@ -114,7 +124,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.32.0";
+const SCHEMA_VERSION = "1.33.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -131,12 +141,11 @@ if (!rawStateDir) {
   );
 }
 
-/** The validated state root (`KOLU_STATE_DIR`) — the single source of truth for
- *  where recoverable state lives. Exported (narrowed to `string`) so siblings that
- *  keep their OWN file beside `conf`'s `config.json` — e.g. `hostPersistence.ts`'s
- *  `hosts.json` — resolve the root through this one validated place rather than
- *  re-reading (and re-guarding) the env. */
-export const stateDir: string = rawStateDir;
+/** The validated state root (`KOLU_STATE_DIR`) — the single place that decides where the
+ *  conf store lives (its `cwd`, below). Internal: with W10's `hosts` folded INTO the conf
+ *  store (no longer a standalone `hosts.json` beside `config.json`), nothing outside this
+ *  module keeps its own file under the root, so none needs the raw path. */
+const stateDir: string = rawStateDir;
 
 log.info({ path: stateDir }, "state directory");
 
@@ -199,6 +208,11 @@ export const store = new Conf<PersistedState>({
   projectVersion: SCHEMA_VERSION,
   defaults: {
     preferences: DEFAULT_PREFERENCES,
+    // W10 — the strip-added fleet. Fresh install: no `hosts` key yet, so conf merges this
+    // empty default (a one-member local-only pool); a genuine fleet is written by the
+    // pool's `persist` hook on the first strip add. The 1.33.0 migration seeds it onto an
+    // existing pre-W10 file so the on-disk shape matches the schema exactly.
+    hosts: [],
   },
   migrations: {
     // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
@@ -551,14 +565,28 @@ export const store = new Conf<PersistedState>({
         ) as unknown as Preferences,
       );
     },
+    // W10 — `hosts` (the strip-added fleet) is now a field on the schema. Seed the empty
+    // list onto an existing pre-W10 file so its on-disk shape matches PersistedStateSchema
+    // exactly. conf's `defaults` already merges `[]` on read, so this is belt-and-suspenders
+    // that also honors the "persisted-shape change ⇒ ladder step" rule (.claude/rules/state.md).
+    // A genuine fleet is only ever written by the pool's `persist` hook, never here.
+    "1.33.0": (store: Conf<PersistedState>) => {
+      if (!store.has("hosts")) store.set("hosts", []);
+    },
   },
 });
 
-// Early validation so corrupt state shows up in journalctl immediately at
-// startup, not only when the first client connects. Validates the on-disk
-// shape — `preferences.ts` trusts the validated store thereafter.
+// Early validation so a schema-invalid store shows up in journalctl immediately at
+// startup, not only when the first client connects. Validates the on-disk shape of
+// both domains — `preferences.ts` and `hostPersistence.ts` trust the validated store
+// thereafter. This is a LOG, not the fail-loud gate: an unparseable store already
+// threw in conf's own read above (fail-fast; `clearInvalidConfig` is false), and an
+// invalid `hosts` value additionally crashes the boot loud where it's read
+// (`getPersistedHosts`). No "delete to reset" advice: `hosts` is user data, so blindly
+// deleting the store would empty the fleet — the offending domain must be fixed.
 const result = PersistedStateSchema.safeParse({
   preferences: store.get("preferences"),
+  hosts: store.get("hosts"),
 });
 if (!result.success) {
   const summary = result.error.issues
@@ -566,6 +594,6 @@ if (!result.success) {
     .join("; ");
   log.error(
     { issues: result.error.issues, path: store.path },
-    `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`,
+    `Persisted state does not match schema (${summary}) at ${store.path}.`,
   );
 }
