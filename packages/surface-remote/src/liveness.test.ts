@@ -255,6 +255,12 @@ describe("HostSession liveness watchdog", () => {
 // answers (the heartbeat-silent link) + a controllable `processAlive` drives the three
 // arcs the #1776 ruling demands. (The ssh `describe` above already pins the fourth arc:
 // NO oracle → force-cycle on the first timeout — the remote arm is provably untouched.)
+//
+// Each test below (like the ssh ones above) `pin()`s and swallows the rejection with
+// `.catch(() => {})`: `pin()` resolves with the first client or rejects if the stub's
+// first dial path throws — irrelevant here, since every assertion drives the watchdog
+// through `vi.advanceTimersByTimeAsync` and reads state via `onState`, never through the
+// `pin()` promise. Swallowing keeps an unhandled-rejection warning off the fake-timer run.
 
 type LocalClient = Record<string, never>;
 

@@ -59,7 +59,11 @@ import {
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
-import { DAEMON_BIND_PID_ENV, gatePid, isHolderLive } from "@kolu/surface-daemon";
+import {
+  DAEMON_BIND_PID_ENV,
+  gatePid,
+  isHolderLive,
+} from "@kolu/surface-daemon";
 import {
   buildLabel,
   type ConvergenceOutcome,
@@ -574,6 +578,15 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // watchdog asks "is the padi process actually gone, or just slow?" — alive → don't
       // force-cycle a merely-slow link (the wedge #1776 fixes); gone → force-cycle now.
       // The ssh connector supplies no such oracle (its heartbeat stays its only signal).
+      //
+      // SYNC read on the serving loop is deliberate and safe here
+      // (`no-sync-blocking-on-the-serving-loop` carve-out): `gatePid` reads a bytes-long
+      // pid file on the local runtime tmpfs (`XDG_RUNTIME_DIR`) — a microsecond read — and
+      // this oracle fires ONLY from the watchdog's `onStale`, i.e. on a heartbeat TIMEOUT
+      // (a rare event: a healthy probe answers and `onStale` never runs; even a wedged
+      // link only re-fires it ~once per 25s cycle), never per request. It stays
+      // SYNCHRONOUS by design — the ruling's synchronous predicate — rather than promoting
+      // the whole oracle path to `Promise<boolean>` for a fast local tmpfs read.
       processAlive: () => {
         const pid = gatePid(gatePath);
         return pid !== undefined && isHolderLive(pid);
