@@ -60,7 +60,11 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
       toPadiPresence(
         "connected",
         true,
-        { commit: "deadbeef", surfaceVersion: "1.1" },
+        {
+          commit: "deadbeef",
+          surfaceVersion: "1.1",
+          lifetime: { kind: "forever" },
+        },
         null,
       ),
     ).toEqual({
@@ -69,6 +73,7 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
         buildCommit: "deadbeef",
         surfaceVersion: "1.1",
         convergence: null,
+        lifetime: { kind: "forever" },
       },
     });
   });
@@ -93,12 +98,17 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     const presence = toPadiPresence(
       "connected",
       true,
-      { commit: null, surfaceVersion: "1.1" },
+      { commit: null, surfaceVersion: "1.1", lifetime: { kind: "forever" } },
       null,
     );
     expect(presence).toEqual({
       kind: "connected",
-      identity: { buildCommit: null, surfaceVersion: "1.1", convergence: null },
+      identity: {
+        buildCommit: null,
+        surfaceVersion: "1.1",
+        convergence: null,
+        lifetime: { kind: "forever" },
+      },
     });
   });
 
@@ -109,7 +119,11 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
       toPadiPresence(
         "connected",
         false,
-        { commit: "deadbeef", surfaceVersion: "1.1" },
+        {
+          commit: "deadbeef",
+          surfaceVersion: "1.1",
+          lifetime: { kind: "forever" },
+        },
         null,
       ),
     ).toEqual({ kind: "warming" });
@@ -118,7 +132,11 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
       toPadiPresence(
         "connected",
         true,
-        { commit: "deadbeef", surfaceVersion: "1.1" },
+        {
+          commit: "deadbeef",
+          surfaceVersion: "1.1",
+          lifetime: { kind: "forever" },
+        },
         null,
       ),
     ).toMatchObject({ kind: "connected" });
@@ -135,7 +153,11 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
       toPadiPresence(
         "degraded",
         true,
-        { commit: "deadbeef", surfaceVersion: "1.1" },
+        {
+          commit: "deadbeef",
+          surfaceVersion: "1.1",
+          lifetime: { kind: "forever" },
+        },
         null,
       ),
     ).toEqual({

@@ -797,6 +797,17 @@ async function startServerChild(koluServer: string): Promise<void> {
           // run on a box with no systemd user session (where the production
           // `systemd-run --user` path would fail).
           KOLU_KAVAL_SPAWN: "detached",
+          // Bind every daemon this run spawns (padi, and the kaval padi spawns) to
+          // THIS cucumber worker's pid — the harness/run pid, NOT the server's. The
+          // server forwards it to padi, padi to kaval, so BOTH daemons die the moment
+          // this worker is gone (a signal-killed or crashed run whose After hooks
+          // never ran, and whose digest-scoped reapers can't reach a foreign-digest
+          // daemon). This binds padi + kaval only; the kolu-server is a child of the
+          // worker reaped by the harness itself, not via this mechanism. padi/kaval
+          // surviving the SERVER's death stays intact — the bind is to the worker,
+          // which outlives the server across kaval-restart/session-restore scenarios.
+          // Absence would leave the production `forever`.
+          KOLU_DAEMON_BIND_PID: String(process.pid),
           // The everyday-e2e vs recording env divergence, decided once above:
           // mock agent dirs + a throwaway HOME normally; agent dirs absent and
           // HOME inherited (real) under X11CAP so the real claude/codex resolve

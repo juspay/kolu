@@ -80,6 +80,7 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
+import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { HomeIcon, SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useCommandPalette } from "../useCommandPalette";
@@ -257,7 +258,11 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           {/* Urgency badge — the host's awaiting count, hidden at zero. */}
           <Show when={awaiting() > 0}>
             <span
-              class="shrink-0 min-w-4 px-1 h-4 inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums"
+              // The awaiting-count pill — the pixel REFERENCE for the amber
+              // "needs you" cue. Its fill + shape + numerals are the shared
+              // `ATTENTION_PILL_CLASS` (the single styling source the Dock's
+              // unread badge also consumes); only the count-pill sizing is local.
+              class={`${ATTENTION_PILL_CLASS} shrink-0 min-w-4 px-1 h-4`}
               title={`${awaiting()} awaiting your input`}
             >
               {awaiting()}

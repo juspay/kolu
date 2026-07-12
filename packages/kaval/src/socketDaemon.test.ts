@@ -22,8 +22,16 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
-import { gatePid } from "@kolu/surface-daemon";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { DAEMON_BIND_PID_ENV, gatePid } from "@kolu/surface-daemon";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import { KAVAL_GATE_FILE } from "./socketPath.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
@@ -104,6 +112,19 @@ const trackedRendezvous: string[] = [];
 // so the file-level `afterAll` can assert the whole suite left NO live kaval
 // behind and sweep every dir regardless of pass/fail.
 const allRendezvous: string[] = [];
+
+// Bind EVERY real kaval this suite spawns to the vitest process (its spawns inherit
+// `process.env`), so a signal-killed run that skips the reap hooks still can't
+// strand a detached kaval — it polls this pid and dies once vitest is gone. The
+// gate-pid reaps below stay the fast path; this is the crash-only backstop, the
+// same bind the padi/e2e harnesses set. (The vitest pid outlives every test, so the
+// watcher never fires mid-suite — SIGTERM/gate-race/restart assertions are untouched.)
+beforeAll(() => {
+  vi.stubEnv(DAEMON_BIND_PID_ENV, String(process.pid));
+});
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 /** The rendezvous dir a socket lives in, and its gate file within it. */
 function rendezvousDir(socketPath: string): string {

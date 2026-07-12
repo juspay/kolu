@@ -35,6 +35,13 @@
  * The returned handle is a `Subscription<Result>` — a callable accessor with
  * `.pending` / `.error` — identical to what `app.streams.X.use(...)` returned,
  * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
+ *
+ * The blank-on-host-switch above is the STANDALONE behavior (`active` defaults to
+ * always-on). For the Code tab, `hostCodeTab` instead builds ONE instance per host
+ * inside its `scopedByEntry` owner and wires the `active` gate, so a host switch
+ * PAUSES the leaving host's query (value held) and RESUMES the arriving host's from its
+ * retained value with no blank — padi W9's instant switch-back, by ownership. See the
+ * `active` config field.
  */
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -89,6 +96,15 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  a file-gone predicate here so a delete-while-viewing keeps the last content
    *  until the selection changes, instead of flashing an ENOENT panel. */
   swallowError?: (err: Error) => boolean;
+  /** Whether this query is the SHOWN one — its polling gate. Defaults to always-on
+   *  (`() => true`), the standalone behavior. While `false` the query PAUSES: the pulse
+   *  is torn down (no background polling) and the last value + `pending` are FROZEN. On
+   *  re-activation it RESUMES: an unchanged input keeps the held value (no blank) and
+   *  the pulse refreshes it; a changed input blanks + re-queries like any new input.
+   *  A key change WHILE active is unaffected (the `#1714` value-keyed blank is unchanged).
+   *  `hostCodeTab` wires this to `ctx.isActive` for per-host switch-back by ownership —
+   *  see its header for the why. */
+  active?: Accessor<boolean>;
 }
 
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
@@ -103,6 +119,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     query,
     onError,
     swallowError,
+    active = () => true,
   } = config;
 
   const [store, setStore] = createStore<{ v: Result | undefined }>({
@@ -140,8 +157,23 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     if (pending()) setPending(false);
   }
 
+  // The input key the value currently in `store.v` corresponds to — `null` while
+  // blank. The resume decision reads it: on re-activation, an unchanged key means the
+  // held value is still the answer (keep it, refresh), a changed key means a new query
+  // (blank). One value per instance (NOT a cache/LRU) — the instance IS a single host's
+  // query, so it only ever holds that host's one current value.
+  let shownKey: string | null = null;
+
+  /** Reset to the empty/loading state: no value, `pending`, no shown key. The idle
+   *  input and the changed-query paths below share it. */
+  function blank(): void {
+    setStore("v", undefined);
+    setPending(true);
+    shownKey = null;
+  }
+
   let controller: AbortController | null = null;
-  function runQuery(i: Input): void {
+  function runQuery(i: Input, key: string): void {
     controller?.abort();
     const ctl = new AbortController();
     controller = ctl;
@@ -150,6 +182,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
         const result = await query(i, ctl.signal);
         if (ctl.signal.aborted) return;
         writeWrappedValue<Result>(setStore, result);
+        shownKey = key;
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       } catch (err) {
@@ -184,18 +217,48 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   );
 
   createEffect(
-    on(inputState, ({ i }) => {
-      // Reset for the new input: blank + pending until the fresh read lands, and
-      // abort any in-flight read from the prior input. `rawStream`'s own
-      // onCleanup (registered on this effect's run) tears down the previous
-      // pulse subscription before this re-run.
+    on([active, inputState], ([isActive, { i, key }]) => {
+      // The previous run's `onCleanup` (pulse abort) has already run. While PAUSED
+      // (this host is not the shown one), the pulse is torn down — no background
+      // polling — and the held value + `pending` + `shownKey` are FROZEN for a later
+      // resume. Do NOT blank; a switch-BACK must find the value here.
+      // (The effect still re-runs when the ACTIVE host's `input` ticks while we are
+      // paused, since `input` reads shared state; each such run is this same no-op.)
+      if (!isActive) {
+        // ALSO tear down any in-flight REQUERY, not just the pulse: `onCleanup` aborts
+        // the pulse stream, but a `runQuery` already dispatched (its `controller` is
+        // separate) would otherwise land AFTER the switch and write THIS now-background
+        // host's retained store off the NOW-active host's reactive reads — e.g.
+        // `BrowseFileDispatcher`'s binary branch builds its URL from `activeHost()` AFTER
+        // its `filePreviewTag` await, so a late resolve would stamp the new host's URL
+        // with this host's tag into this host's store (a cross-host mix). Aborting makes
+        // the resolve early-return on `ctl.signal.aborted`; the held value + `pending` +
+        // `shownKey` stay frozen for the switch-BACK, so no blank and no late write.
+        controller?.abort();
+        controller = null;
+        return;
+      }
+
+      // ACTIVE. The resume/blank decision is "does `store.v` already hold THIS key?".
       controller?.abort();
       controller = null;
-      setStore("v", undefined);
       setError(undefined);
-      setPending(true);
       setComplete(false);
-      if (i === null) return;
+      if (i === null) {
+        // Idle input: no pulse, no query. (`key` is null exactly when `i` is.)
+        blank();
+        return;
+      }
+      // `key` is non-null exactly when `i` is (both derive from `input()` in
+      // `inputState`), so past the guard above it is the canonical string to compare
+      // against `shownKey` and stamp this run's value under.
+      const activeKey = key as string;
+      // A changed query BLANKS — a real input change while active, the first activation,
+      // or the query changed while paused — going `pending` until the fresh read lands
+      // (the `#1714` active-path behavior, unchanged). An UNCHANGED key is the switch-BACK
+      // case: fall through with the held value kept (no blank, not `pending`), refreshed by
+      // the pulse below on its first frame (the immediate refresh on activation).
+      if (activeKey !== shownKey) blank();
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
       // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
@@ -215,7 +278,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
             pulseInput(i),
             { signal: pulseCtl.signal },
           )) {
-            runQuery(i);
+            runQuery(i, activeKey);
           }
           // Normal completion — the pulse iterable ended on its own (a typed end,
           // e.g. the host/entry left membership), not an abort: an aborted loop

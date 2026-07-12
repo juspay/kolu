@@ -44,12 +44,15 @@ vi.mock("../wire", async () => {
   // reads `padiMap`. Stand up the shared mock map (single static local member —
   // these tests never switch hosts); `beforeEach` resets it so each test's latch
   // starts fresh.
-  const { mockPadiMap, mockPadiRpcOf } = await import(
+  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
     "../hostScope/mockHostMap.testlib"
   );
   return {
     padiMap: mockPadiMap,
     padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
+    // The GROUNDED accessor the per-host scope reads — the shared testlib composition,
+    // pinned to the static local host (`beforeEach` adds LOCAL_HOST to membership).
+    groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
     activePadiRpc: {
       surface: {
         session: {
@@ -64,13 +67,18 @@ vi.mock("../wire", async () => {
         },
       },
     },
-    savedSessionSub: { pending: () => h.sessionPending },
-    savedSession: () => h.savedSession,
     // Per-host latch keying (shape B). These tests are single-host — a stable local
     // key keeps the latch behavior identical to the pre-per-host app-lifetime latch.
     activeHost: () => ({ kind: "local" }),
   };
 });
+// The saved-session facades moved OUT of `wire.ts` into `hostScope/activeWire` at W9
+// (to break the `wire ↔ hostScopes` cycle); `useSessionRestore` imports them from there
+// now. Drive them through the same hoisted bag.
+vi.mock("../hostScope/activeWire", () => ({
+  savedSessionSub: { pending: () => h.sessionPending },
+  savedSession: () => h.savedSession,
+}));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),

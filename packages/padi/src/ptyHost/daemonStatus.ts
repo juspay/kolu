@@ -91,6 +91,7 @@ export function publishDaemonStatus(
           identity: status.identity,
           startedAt: status.startedAt,
           contractVersion: status.metadata.contractVersion,
+          lifetime: status.metadata.lifetime,
           ...socket,
         }
       : {
