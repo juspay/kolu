@@ -71,8 +71,11 @@ export function encodeHostKey(k: HostKey): string {
  *  independent decodes, so it is never `===`. The single edit site for "how a
  *  HostKey's pool-membership is decided", so the READ-side scope grounding
  *  (`groundActiveHost`) and the WRITE-side active-host reconcile
- *  (`hostReconcileTarget`) agree on membership BY CONSTRUCTION rather than by
- *  hand-maintained byte-identical predicates. */
+ *  (`hostReconcileTarget`) share ONE encode-equality SCAN — the membership check
+ *  can't drift between them. (They are NOT identical DECISIONS: `hostReconcileTarget`
+ *  short-circuits `local` on the server invariant that `LOCAL_HOST` is the unremovable
+ *  seed and never scans for it, while `groundActiveHost` scans uniformly — so the two
+ *  agree for local only while that invariant holds, which `wire.ts` asserts fail-fast.) */
 export function hostKeysInclude(
   keys: readonly HostKey[],
   key: HostKey,

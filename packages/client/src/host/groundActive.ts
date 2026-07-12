@@ -22,8 +22,13 @@ import { type HostKey, hostKeysInclude } from "kolu-common/hostKey";
  *  ({@link hostReconcileTarget}) a tick later; until then the scope is honestly `null`.
  *
  *  Membership is decided by the shared `hostKeysInclude` authority (`encodeHostKey`
- *  equality), the SAME predicate `hostReconcileTarget` uses — so grounding and
- *  reconcile agree by construction. */
+ *  equality), the SAME scan `hostReconcileTarget` uses — so the membership check can't
+ *  drift between the read and write side. Note this scans UNIFORMLY, including for
+ *  `local`: `hostReconcileTarget` instead short-circuits `local` on the server invariant
+ *  that `LOCAL_HOST` is the unremovable seed, so a `local` active that is somehow NOT a
+ *  member grounds to `null` here (honest — no owned world) while reconcile would not
+ *  bounce it. That invariant-violation state is asserted fail-fast in `wire.ts` rather
+ *  than left to degrade silently. */
 export function groundActiveHost(
   active: HostKey,
   members: readonly HostKey[],

@@ -29,7 +29,11 @@ import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
-import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import {
+  decodeHostKey,
+  encodeHostKey,
+  hostKeysInclude,
+} from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -246,6 +250,28 @@ const hostScoped = createRoot(() => {
   // The membership authority — shared by the connection re-arm (below), the host-membership
   // reconcile (further down), and HostSelectorStrip (deduped via the base-client ref-count).
   const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // FAIL-FAST invariant guard (juspay/kolu#1766): `LOCAL_HOST` is the server's unremovable
+  // seed[0] (`server/index.ts`), so once membership has LOADED (a non-empty snapshot) it MUST
+  // contain local. Both `groundedActiveHost` (scans uniformly → `null` if local is absent) and
+  // `hostReconcileTarget` (short-circuits local → never bounces it) trust that invariant, so a
+  // violation would silently strand `activeScope()` at `undefined` (a blank canvas) with no
+  // toast, warn, or error — the exact silent-degradation the repo's fail-fast rule forbids.
+  // Surface it LOUDLY instead. Empty membership is the honest pre-snapshot warming window, NOT
+  // a violation, so it is excluded. Dev-gated (the diagnostic is compiled out of production, as
+  // with `scopedByEntry`'s non-member warn) — the real fix for a real violation is server-side.
+  if (process.env.NODE_ENV !== "production") {
+    createEffect(() => {
+      const keys = members.keys();
+      if (keys.length > 0 && !hostKeysInclude([...keys], LOCAL_HOST)) {
+        console.error(
+          "[wire] INVARIANT VIOLATION: membership loaded but LOCAL_HOST is absent — the " +
+            "local host is the unremovable seed and must always be a member. groundedActiveHost " +
+            "will read null and the reconcile will not bounce local, so the per-host scope stays " +
+            "undefined (blank canvas) with no other signal. This is a server-side pool bug.",
+        );
+      }
+    });
+  }
   // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
   // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
   // cold remote provision narrates its real phase instead of a mute "Connecting…".
@@ -361,7 +387,7 @@ export const hostKeys = hostScoped.hostKeys;
  *  `groundActiveHost` returns either `activeHost()`'s stable reference or `null` — so a
  *  membership change that doesn't alter the grounded host recomputes only this cheap memo and
  *  stops, instead of fanning every consumer out on unrelated pool churn. In its own app-lifetime
- *  `createRoot`, like `daemonStatusPendingWindow`. */
+ *  `createRoot`, like `localDaemonStatus`. */
 export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
   createMemo(() => groundActiveHost(activeHost(), hostKeys())),
 );
