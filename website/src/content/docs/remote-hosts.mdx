@@ -136,8 +136,10 @@ your switching to it first. An [installed PWA](/install-pwa) surfaces the same
 counts as an app-badge and notifications across all your hosts.
 
 Switching back to a host you've already visited is instant: kolu keeps each visited
-host's state — its terminal list, saved sessions, activity, and open file views —
-**warm in memory**, so a switch-back has nothing to reload. The terminals themselves
+host's state — its terminal list, saved sessions, activity, and the Code tab's reads
+(the open file's content, git status, and diff) — **warm in memory**, so a switch-back
+has nothing to reload. A host you're not looking at isn't polled; its state is simply
+held and refreshed the moment you return to it. The terminals themselves
 keep running on their own host no matter which one you're looking at. Only the host
 you're viewing gets a live on-screen renderer (its terminals' WebGL/DOM canvases),
 which re-attaches in a blink when you switch back — kolu does not hold a live canvas

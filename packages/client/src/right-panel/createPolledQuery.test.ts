@@ -18,44 +18,21 @@ const pulseCtl = vi.hoisted(() => ({
     emit: (e: { frame: true } | { err: Error }) => void;
   },
 }));
-vi.mock("@kolu/surface/client", () => ({
-  unenrolledStreamCall: async (
-    _proc: unknown,
-    _input: unknown,
-    opts?: { signal?: AbortSignal },
-  ) => {
-    const queue: Array<{ frame: true } | { err: Error }> = [];
-    let wake: (() => void) | null = null;
-    let ended = false;
-    const stop = () => {
-      ended = true;
-      wake?.();
-    };
-    opts?.signal?.addEventListener("abort", stop);
-    pulseCtl.latest = {
-      emit: (e) => {
-        queue.push(e);
-        wake?.();
-        wake = null;
-      },
-    };
-    return {
-      async *[Symbol.asyncIterator]() {
-        while (!ended) {
-          while (queue.length) {
-            const e = queue.shift();
-            if (e && "err" in e) throw e.err;
-            yield undefined;
-          }
-          if (ended) break;
-          await new Promise<void>((r) => {
-            wake = r;
-          });
-        }
-      },
-    };
-  },
-}));
+vi.mock("@kolu/surface/client", async () => {
+  // The SHARED abort-aware stream mock; this fixture tracks a single `latest` emitter.
+  const { makeAbortAwareStream } = await import("./streamMock.testlib");
+  return {
+    unenrolledStreamCall: async (
+      _proc: unknown,
+      _input: unknown,
+      opts?: { signal?: AbortSignal },
+    ) => {
+      const { iterable, push } = makeAbortAwareStream(opts?.signal);
+      pulseCtl.latest = { emit: push };
+      return iterable;
+    },
+  };
+});
 
 async function flush(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {

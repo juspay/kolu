@@ -96,6 +96,14 @@ export function createHostWire(
   // backgrounded host logs (a toast for a host you are not looking at is noise, but
   // `wireSubscriptionError`'s edge fires once — silently suppressing it would discard
   // the failure permanently). See the header for the full rationale.
+  //
+  // KNOWN LIMIT (recorded): the underlying `.use()` subs re-subscribe on transport
+  // reconnect (STREAM_RETRY), but a sub that errors TERMINALLY on a BACKGROUND host is not
+  // re-opened until this scope is rebuilt — i.e. the host leaves and rejoins `padiMap.entries`
+  // (membership exit disposes the owner). There is no per-sub retry on switch-BACK: a
+  // switched-to host reads its errored sub's floored-empty value until a reconnect or re-add
+  // revives it. Acceptable today (a terminal sub error on a live link is rare and the empty
+  // read is honest, not a false-success); revisit if it proves user-visible. */
   const encoded = encodeHostKey(host);
   const surfaceSubError = (label: string) => (err: Error) => {
     if (ctx.isActive()) {

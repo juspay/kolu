@@ -20,7 +20,15 @@ import type { Subscription } from "@kolu/surface/solid";
  *  `complete` is FORWARDED, not dropped: subs minted by subscription factories always
  *  populate `complete` — omitting it would silently strand a consumer that checks it
  *  (there is none today, but the field-audit rule is "populate what the source has,"
- *  not "only what today's readers use"). */
+ *  not "only what today's readers use").
+ *
+ *  GRADUATION OPPORTUNITY (recorded, not acted on): this is a domain-agnostic
+ *  `Subscription`-shape utility — it hides the removal-race floor over ANY keyed owner,
+ *  nothing kolu-specific. It reads like a candidate to graduate INTO `@kolu/surface-map`
+ *  beside `scopedByEntry` (the receptacle whose `.active()` gap it floors). Left in the
+ *  app for now, deliberately: prove-then-extract gates the MOVE, not the naming, and at
+ *  population two (`activeWire`, `hostCodeTab`) the floor rule is still a bounded leaf, not
+ *  yet a proven cross-package volatility. Extract when a third, out-of-app consumer appears. */
 export function windowedSub<S, T>(
   select: () => Subscription<S> | undefined,
   map: (v: NonNullable<S>) => T,

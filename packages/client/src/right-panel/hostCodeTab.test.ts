@@ -27,46 +27,27 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// A multi-subscriber hand-driven pulse: every ACTIVE query subscribes one emitter;
-// `pulse()` fires them all (→ one requery each). A paused/torn-down instance aborts its
-// subscription, dropping its emitter from the set — so a pulse reaches only live ones.
+// A multi-subscriber hand-driven pulse over the SHARED abort-aware stream mock: every
+// ACTIVE query subscribes one emitter; `pulse()` fires them all (→ one requery each). A
+// paused/torn-down instance aborts its subscription, dropping its emitter from the set —
+// so a pulse reaches only live ones.
 const pulseCtl = vi.hoisted(() => ({ subs: new Set<() => void>() }));
-vi.mock("@kolu/surface/client", () => ({
-  unenrolledStreamCall: async (
-    _proc: unknown,
-    _input: unknown,
-    opts?: { signal?: AbortSignal },
-  ) => {
-    const queue: true[] = [];
-    let wake: (() => void) | null = null;
-    let ended = false;
-    const emit = () => {
-      queue.push(true);
-      wake?.();
-      wake = null;
-    };
-    pulseCtl.subs.add(emit);
-    opts?.signal?.addEventListener("abort", () => {
-      ended = true;
-      pulseCtl.subs.delete(emit);
-      wake?.();
-    });
-    return {
-      async *[Symbol.asyncIterator]() {
-        while (!ended) {
-          while (queue.length) {
-            queue.shift();
-            yield undefined;
-          }
-          if (ended) break;
-          await new Promise<void>((r) => {
-            wake = r;
-          });
-        }
-      },
-    };
-  },
-}));
+vi.mock("@kolu/surface/client", async () => {
+  const { makeAbortAwareStream } = await import("./streamMock.testlib");
+  return {
+    unenrolledStreamCall: async (
+      _proc: unknown,
+      _input: unknown,
+      opts?: { signal?: AbortSignal },
+    ) => {
+      const { iterable, push } = makeAbortAwareStream(opts?.signal);
+      const emit = () => push({ frame: true });
+      pulseCtl.subs.add(emit);
+      opts?.signal?.addEventListener("abort", () => pulseCtl.subs.delete(emit));
+      return iterable;
+    },
+  };
+});
 
 // The active projection the query inputs read — all controllable per test.
 const bag = vi.hoisted(() => ({

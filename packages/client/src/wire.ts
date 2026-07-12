@@ -216,20 +216,24 @@ export const client = link;
 // the `terminals` metadata collection, and daemon status — moved OUT of here at W9: they
 // now live in the RETAINED per-host `scopedByEntry` owner (`hostScope/createHostWire`),
 // read through `activeScope().wire.*` by the facades in `./hostScope/activeWire`, so a
-// switch-BACK has no
-// resubscribe and no pending window (the ~1s canvas rebuild W7's K1 left behind). What
-// STAYS in this app-lifetime `createRoot` is the state that is NOT per-host-retained:
+// switch-BACK has no resubscribe and no pending window (the ~1s canvas rebuild W7's K1 left
+// behind). The Code tab's per-host reads got the SAME retention, in a PARALLEL owner
+// (`right-panel/hostCodeTab`) — not a `createHostWire` sibling, because its inputs read
+// view-selection state downstream of this module; see its header. What STAYS in this
+// app-lifetime `createRoot` is the state that is NOT per-host-retained:
 //   - `preferences` — HOST-INDEPENDENT (no host to capture);
 //   - `members` — the ONE `entries` membership authority (shared by the connection re-arm,
 //     the reconcile below, and HostSelectorStrip via the base-client ref-count);
-//   - `connection` — the ACTIVE host's link-health cell (W6), deliberately kept ACTIVE-HOST
-//     ONLY (`createRejoinKeyedSub`), not retained: a background host's connect narration is
-//     not something to hold warm;
-//   - the host-membership reconcile + `rpc` (a point client that re-keys freely).
+//   - `connection` — the ACTIVE host's link-health cell (W6), via `createRejoinKeyedSub`,
+//     deliberately kept ACTIVE-HOST ONLY, not retained: a background host's connect
+//     narration is not something to hold warm;
+//   - the host-membership reconcile + `rpc` (`active.rpc` off `useEntry(activeHost)`, a
+//     point client that re-keys freely).
 //
-// `useEntry(activeHost)` is still the right lens for `connection`/`rpc` (cheap to re-open,
-// and `connection` must re-key on switch to narrate the newly-active host). A single
-// `createRoot` at module init is its app-lifetime owner — never disposed.
+// `connection` (via `createRejoinKeyedSub`) and `rpc` (via `useEntry(activeHost)`) are
+// deliberately ACTIVE-HOST-ONLY — cheap to re-open, and `connection` must re-key on switch to
+// narrate the newly-active host. A single `createRoot` at module init is their app-lifetime
+// owner — never disposed.
 const hostScoped = createRoot(() => {
   const active = padiMap.useEntry(activeHost);
   // The membership authority — shared by the connection re-arm (below), the host-membership
