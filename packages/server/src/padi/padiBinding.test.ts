@@ -39,6 +39,7 @@ import {
   PADI_SURFACE_VERSION,
   padiSurface,
 } from "@kolu/padi/surface";
+import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import {
   type ConvergenceOutcome,
   converge,
@@ -108,10 +109,20 @@ const CLEARED = [
 ] as const;
 
 beforeAll(() => {
-  for (const k of ["XDG_RUNTIME_DIR", "KOLU_KAVAL_SPAWN", ...CLEARED] as const)
+  for (const k of [
+    "XDG_RUNTIME_DIR",
+    "KOLU_KAVAL_SPAWN",
+    DAEMON_BIND_PID_ENV,
+    ...CLEARED,
+  ] as const)
     prior[k] = process.env[k];
   process.env.XDG_RUNTIME_DIR = RUNTIME_ROOT;
   process.env.KOLU_KAVAL_SPAWN = "detached"; // padi's kaval detaches (survives padi restarts)
+  // Bind every real padi this binder spawns (and the kaval padi spawns — the binder's
+  // env builder forwards this var) to THIS vitest process, so a signal-killed run that
+  // skips the reap hooks still can't strand them: they poll this pid and die once
+  // vitest is gone. `afterEach`'s gate-pid SIGKILL stays the fast path.
+  process.env[DAEMON_BIND_PID_ENV] = String(process.pid);
   for (const k of CLEARED) delete process.env[k];
 });
 afterAll(() => {

@@ -133,7 +133,7 @@ export function isHolderLive(pid: number): boolean;
 export type DaemonLifetime =
   | { kind: "forever" }                       // kaval: an idle PTY daemon still holds your terminals
   | { kind: "idleTimeout"; ms: number; isIdle: () => boolean } // odu serve: a quiet coordinator may exit
-  | { kind: "boundToPid"; pid: number };      // test/smoke: die with the RUN that spawned you (poll kill(pid,0))
+  | { kind: "boundToPid"; pid: number; pollMs?: number }; // test/smoke: die with the RUN that spawned you (poll kill(pid,0); pollMs is a test-only seam)
 export type DaemonExit =
   | { kind: "already-running"; pid: number }  // single-instance: this is SUCCESS, the caller exits 0
   | { kind: "shutdown"; reason: "signal" | "abort" | "idle" | "pid-gone" };

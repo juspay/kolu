@@ -200,6 +200,27 @@ describe("daemonMain", () => {
     expect(liveHolder(gatePath)).toBeUndefined();
   });
 
+  it("rejects a boundToPid lifetime with an invalid pid — releasing the gate (fail-fast at consumption)", async () => {
+    // A direct caller can construct any `pid`; an out-of-range value must crash
+    // loudly, NOT be swallowed by `isHolderLive` into a clean "pid-gone" exit.
+    for (const pid of [0, -1, 2.5, 2 ** 31]) {
+      const { gatePath, socketPath } = paths();
+      await expect(
+        daemonMain({
+          gatePath,
+          socketPath,
+          router: noRouter,
+          lifetime: { kind: "boundToPid", pid },
+          log: silentLog,
+        }),
+      ).rejects.toThrow(/boundToPid\.pid/);
+      // The gate + socket the daemon bound before the throw are released by the
+      // `finally`, so a retry is never blocked.
+      expect(liveHolder(gatePath)).toBeUndefined();
+      expect(existsSync(socketPath)).toBe(false);
+    }
+  });
+
   it("fires onReady with the socket path and pid once listening", async () => {
     const { gatePath, socketPath } = paths();
     const ac = new AbortController();
@@ -243,7 +264,7 @@ describe("daemonLifetimeFromEnv", () => {
     expect(daemonLifetimeFromEnv(forever)).toBe(forever);
   });
 
-  it("selects boundToPid for a live-pid value", () => {
+  it("selects boundToPid for a valid positive-integer pid value", () => {
     process.env[DAEMON_BIND_PID_ENV] = "4321";
     expect(daemonLifetimeFromEnv(forever)).toEqual({
       kind: "boundToPid",
@@ -251,8 +272,21 @@ describe("daemonLifetimeFromEnv", () => {
     });
   });
 
-  it("crashes loudly on a malformed bind var (no silent degrade to fallback)", () => {
-    for (const bad of ["nope", "0", "-5", "12.5"]) {
+  it("crashes loudly on a malformed bind var (no silent degrade to fallback, no coercion)", () => {
+    // Beyond the obvious garbage: non-canonical numeric spellings `Number()` would
+    // silently coerce to the WRONG pid (`1e3`→1000, `0x10`→16, ` 10 `→10, `010`→10),
+    // a fractional pid, and a value past `pid_t` range must all throw, not bind.
+    for (const bad of [
+      "nope",
+      "0",
+      "-5",
+      "12.5",
+      "1e3",
+      "0x10",
+      " 10 ",
+      "010",
+      "3000000000", // > 2**31 - 1
+    ]) {
       process.env[DAEMON_BIND_PID_ENV] = bad;
       expect(() => daemonLifetimeFromEnv(forever)).toThrow(DAEMON_BIND_PID_ENV);
     }
