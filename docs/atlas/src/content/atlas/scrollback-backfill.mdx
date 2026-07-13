@@ -169,11 +169,15 @@ The moving parts, in the order a chunk travels:
    VT interpretation anywhere. A resize (or maximize — the same event)
    *after* a backfill is the proven case: the spike's reflow oracle shows
    prepended history re-wraps row-for-row identically to natively-written
-   history. A resize landing *mid-backfill* gets an explicit guard: the raw
-   bytes are width-agnostic, so at splice time the module compares the live
-   terminal's columns against fetch-time — changed means discard the scratch
-   result and re-replay at the new width (~38 ms, imperceptible), never
-   splice stale-width lines.
+   history. A resize landing *mid-backfill* gets an explicit guard: at splice
+   time the module compares the live terminal's columns against fetch-time —
+   changed means **discard** the scratch result rather than splice stale-width
+   lines. A *local* width change goes further and **pauses** the controller
+   (the absolute cursor a reflow renumbered is no longer valid) until the next
+   snapshot re-seeds it; the loaded history still reflows correctly, only
+   further loading waits. (The original sketch re-replayed at the new width
+   instead; that path was dropped for the simpler halt-not-corrupt pause —
+   see the follow-up note near the top.)
 4. **`scrollbackBackfill.ts` steals the result**: the scratch terminal's
    `BufferLine` objects are plain data, so the module splices them into the
    top of the live buffer's `CircularList`, shifts `ydisp`/`ybase`/`savedY`
@@ -238,15 +242,22 @@ Three boundary decisions, stated as verdicts:
 terminal module, kaval's verbs) and nothing here can ship usefully alone:
 
 1. **The module** — `packages/client/src/terminal/scrollbackBackfill.ts`
-   exporting `prependScrollback(term, rawChunk): number` (returns *M*, the
-   rows inserted). Steps exactly as the prototype's `prependHistory`, plus
-   `term.clearSelection()` before the splice and a skip when the alt buffer
+   exporting `prependScrollback(term, rawChunk, servedRows): PrependResult` — a
+   discriminated `{ kind: "inserted"; rows } | { kind: "skipped" }`, so the
+   caller can never conflate "consumed, inserted *M* rows" with "not consumed"
+   (an alt-buffer or late-splice skip that must not advance the backfill
+   cursor). Steps exactly as the prototype's `prependHistory`, plus
+   `term.clearSelection()` before the splice and a `skipped` when the alt buffer
    is active. Fail-loud throughout.
-2. **The scratch terminal** — a same-version instance, so `BufferLine`
-   internals match the live buffer's. First verification step: confirm an
-   **unopened** `@xterm/xterm` `Terminal` accepts `write()` (the renderer
-   paths are null-guarded in source, so likely) — if not, pin
-   `@xterm/headless` to the same beta in the client and use that.
+2. **The scratch terminal** — the shipped `defaultScratch` is an **unopened**
+   `@xterm/xterm` `Terminal` (same version, so `BufferLine` internals match the
+   live buffer's; no renderer, no DOM — it just parses bytes into a buffer). Its
+   one load-bearing assumption — an unopened `write()` parses into the buffer
+   *and* fires its callback — is **pinned by a contract test** (the SHIPPED
+   export, exercised directly), so a caret-range `@xterm/xterm` bump that defers
+   pre-open parsing turns red in CI rather than into silent corruption. (No
+   fallback to `@xterm/headless` shipped: promoting it to a client runtime dep
+   would put a second parser in the bundle — weighed and declined.)
 3. **The wiring** — attach sends the bounded snapshot; an `onScroll` handler
    fetches the next older chunk from kaval's new history read verb whenever
    `ydisp` drops under **~2× rows**, prepends it, and stops when the mirror
@@ -272,7 +283,7 @@ terminal module, kaval's verbs) and nothing here can ship usefully alone:
 | 1 | **Silent eviction on missing headroom** — the one true corruption mode: splicing past `maxLength` silently trims the oldest rows while the register shift assumes they exist. Demonstrated live in the spike. | Fully guarded: the fail-fast throw-on-overflow check + the baked sizing invariant (step 4) make the state unreachable. |
 | 2 | Private-symbol churn on an xterm upgrade. | Low (every symbol stable across 6.0.0 → 6.1.0-beta.225; versions exact-pinned); the contract-pin tests convert any move into red CI. |
 | 3 | Scratch-replay fidelity edges — OSC-8 link ids dangle, addon-image placements are lost in backfilled rows. | Cosmetic by construction; accepted (see the deliberately-not list). |
-| 4 | Browser-only behaviors unverified headlessly — the unopened-`Terminal` `write()`, one-frame scrollbar jitter, a prepend racing a pending write. | All look safe in source; the first client PR verifies by eyeball + e2e (step 2 is the explicit check). |
+| 4 | Browser-only behaviors unverified headlessly — the unopened-`Terminal` `write()`, one-frame scrollbar jitter, a prepend racing a pending write. | The unopened `write()` is now **pinned by a contract test against the shipped `defaultScratch`** (turns red on an `@xterm/xterm` bump that defers pre-open parsing); the remaining jitter/race edges are verified by eyeball + e2e. |
 | 5 | Selection UX — an active selection is cleared by a prepend. | Accepted for MVP; preserving it needs `_selectionService._model`, a later extension. |
 
 **Deliberately not in scope:**

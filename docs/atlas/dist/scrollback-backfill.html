@@ -198,11 +198,15 @@ continuations, SGR attributes, and wide-character cells — no hand-rolled
 VT interpretation anywhere. A resize (or maximize — the same event)
 <em>after</em> a backfill is the proven case: the spike’s reflow oracle shows
 prepended history re-wraps row-for-row identically to natively-written
-history. A resize landing <em>mid-backfill</em> gets an explicit guard: the raw
-bytes are width-agnostic, so at splice time the module compares the live
-terminal’s columns against fetch-time — changed means discard the scratch
-result and re-replay at the new width (~38 ms, imperceptible), never
-splice stale-width lines.</li>
+history. A resize landing <em>mid-backfill</em> gets an explicit guard: at splice
+time the module compares the live terminal’s columns against fetch-time —
+changed means <strong>discard</strong> the scratch result rather than splice stale-width
+lines. A <em>local</em> width change goes further and <strong>pauses</strong> the controller
+(the absolute cursor a reflow renumbered is no longer valid) until the next
+snapshot re-seeds it; the loaded history still reflows correctly, only
+further loading waits. (The original sketch re-replayed at the new width
+instead; that path was dropped for the simpler halt-not-corrupt pause —
+see the follow-up note near the top.)</li>
 <li><strong><code>scrollbackBackfill.ts</code> steals the result</strong>: the scratch terminal’s
 <code>BufferLine</code> objects are plain data, so the module splices them into the
 top of the live buffer’s <code>CircularList</code>, shifts <code>ydisp</code>/<code>ybase</code>/<code>savedY</code>
@@ -296,15 +300,22 @@ rather than scattered through the codebase.</p>
 terminal module, kaval’s verbs) and nothing here can ship usefully alone:</p>
 <ol>
 <li><strong>The module</strong> — <code>packages/client/src/terminal/scrollbackBackfill.ts</code>
-exporting <code>prependScrollback(term, rawChunk): number</code> (returns <em>M</em>, the
-rows inserted). Steps exactly as the prototype’s <code>prependHistory</code>, plus
-<code>term.clearSelection()</code> before the splice and a skip when the alt buffer
+exporting <code>prependScrollback(term, rawChunk, servedRows): PrependResult</code> — a
+discriminated <code>{ kind: &quot;inserted&quot;; rows } | { kind: &quot;skipped&quot; }</code>, so the
+caller can never conflate “consumed, inserted <em>M</em> rows” with “not consumed”
+(an alt-buffer or late-splice skip that must not advance the backfill
+cursor). Steps exactly as the prototype’s <code>prependHistory</code>, plus
+<code>term.clearSelection()</code> before the splice and a <code>skipped</code> when the alt buffer
 is active. Fail-loud throughout.</li>
-<li><strong>The scratch terminal</strong> — a same-version instance, so <code>BufferLine</code>
-internals match the live buffer’s. First verification step: confirm an
-<strong>unopened</strong> <code>@xterm/xterm</code> <code>Terminal</code> accepts <code>write()</code> (the renderer
-paths are null-guarded in source, so likely) — if not, pin
-<code>@xterm/headless</code> to the same beta in the client and use that.</li>
+<li><strong>The scratch terminal</strong> — the shipped <code>defaultScratch</code> is an <strong>unopened</strong>
+<code>@xterm/xterm</code> <code>Terminal</code> (same version, so <code>BufferLine</code> internals match the
+live buffer’s; no renderer, no DOM — it just parses bytes into a buffer). Its
+one load-bearing assumption — an unopened <code>write()</code> parses into the buffer
+<em>and</em> fires its callback — is <strong>pinned by a contract test</strong> (the SHIPPED
+export, exercised directly), so a caret-range <code>@xterm/xterm</code> bump that defers
+pre-open parsing turns red in CI rather than into silent corruption. (No
+fallback to <code>@xterm/headless</code> shipped: promoting it to a client runtime dep
+would put a second parser in the bundle — weighed and declined.)</li>
 <li><strong>The wiring</strong> — attach sends the bounded snapshot; an <code>onScroll</code> handler
 fetches the next older chunk from kaval’s new history read verb whenever
 <code>ydisp</code> drops under <strong>~2× rows</strong>, prepends it, and stops when the mirror
@@ -351,7 +362,7 @@ taken. Ships with a smoke-level test against a real kaval.</li>
 <tr>
 <td>4</td>
 <td>Browser-only behaviors unverified headlessly — the unopened-<code>Terminal</code> <code>write()</code>, one-frame scrollbar jitter, a prepend racing a pending write.</td>
-<td>All look safe in source; the first client PR verifies by eyeball + e2e (step 2 is the explicit check).</td>
+<td>The unopened <code>write()</code> is now <strong>pinned by a contract test against the shipped <code>defaultScratch</code></strong> (turns red on an <code>@xterm/xterm</code> bump that defers pre-open parsing); the remaining jitter/race edges are verified by eyeball + e2e.</td>
 </tr>
 <tr>
 <td>5</td>

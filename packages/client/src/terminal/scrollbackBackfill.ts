@@ -221,11 +221,12 @@ export type PrependResult =
  *
  *  `shouldCommit` is re-checked AFTER the scratch replay (an async task boundary)
  *  and BEFORE the buffer splice: replaying the chunk suspends on xterm's write
- *  callback, during which a `reset()` (fresh-snapshot re-attach) or a width
- *  `resize` (reflow) can land — splicing old-width lines into a reflowed buffer,
- *  or scrollback onto a just-reset one, is corruption. Returning `false` makes
- *  the prepend a clean no-op (returns 0), the same discard the caller's epoch
- *  guard performs for a stale fetch. */
+ *  callback, during which a `reset()` (fresh-snapshot re-attach), a width
+ *  `resize` (reflow), or an in-band RIS can land — splicing old-width lines into
+ *  a reflowed buffer, or scrollback onto a just-reset one, is corruption.
+ *  Returning `false` makes the prepend a clean no-op (returns `{kind:"skipped"}`,
+ *  which the caller treats as "not consumed"), the same discard the caller's
+ *  generation guard performs for a stale fetch. */
 export async function prependScrollback(
   term: XTerm,
   rawChunk: string,
@@ -323,11 +324,12 @@ export type HistoryChunk =
  *  seeded from the attach snapshot's `topLine`) and the races around it:
  *
  *   - An in-flight guard serializes fetches (one chunk at a time).
- *   - An EPOCH counter, bumped on every `seed`/`reset` and every width change,
- *     is captured at fetch start; a fetch that returns into a different epoch is
- *     DISCARDED, never spliced — this is the resize guard (a chunk serialized at
- *     the old width must not land in a reflowed buffer) and the re-attach guard
- *     (a chunk must not paint onto a terminal that was `reset()`) in one check.
+ *   - A GENERATION counter, bumped on every reset / snapshot-consume / width
+ *     change / in-band RIS (and dispose), is captured at fetch start; a fetch
+ *     that returns into a different generation is DISCARDED, never spliced —
+ *     this is the resize guard (a chunk serialized at the old width must not land
+ *     in a reflowed buffer) and the re-attach guard (a chunk must not paint onto
+ *     a terminal that was `reset()` or RIS-reset) in one check.
  *   - A LOCAL width change PAUSES backfill (`cursor = null`): an absolute cursor
  *     names a row index that reflow shifts, so rather than fetch against a stale
  *     anchor, the controller waits for the next snapshot frame to re-`seed` it.
@@ -355,13 +357,10 @@ export type HistoryChunk =
  *     predating the epoch field omits `stale`, so the gate is fail-open (no epoch
  *     → the historical single-width behavior). */
 export interface BackfillController {
-  /** Seed/re-seed the cursor from an attach (or re-attach) snapshot's topLine,
-   *  plus the mirror's reflow generation at snapshot time (`reflowEpoch`, echoed
-   *  on every fetch so a foreign-resize reflow halts backfill — F3). Undefined
-   *  from a host predating the field (fail-open). */
-  seed(topLine: number, reflowEpoch?: number): void;
   /** Forget the cursor (paused) — call when xterm is reset for a fresh snapshot,
-   *  before the new snapshot's `seed`. */
+   *  before the new snapshot's `consumeSnapshotFrame`. The ONLY seed path is
+   *  `consumeSnapshotFrame` (reset+seed fused): there is deliberately no bare
+   *  `seed`, so a seed-without-reset transition is unrepresentable (F3). */
   reset(): void;
   /** Consume a fresh `snapshot` frame (initial attach OR a mid-stream overflow
    *  re-attach) as ONE indivisible act, so a call site cannot express
@@ -457,11 +456,12 @@ export function createBackfillController(
     const myGeneration = generation;
     const fetchCols = term.cols;
     // The fetch, the prepend's inner replay, AND the window between them are all
-    // async task boundaries a reset/resize/dispose can land in. `stillValid`
-    // captures the one invariant — same epoch, same width, not disposed — that
-    // every commit downstream is gated on; `dispose()` and the resize handler
-    // bump `epoch`/set `disposed`, so a chunk fetched for the old shape is
-    // discarded rather than spliced onto a torn-down / reflowed / reset buffer.
+    // async task boundaries a reset/resize/RIS/dispose can land in. `stillValid`
+    // captures the one invariant — same generation, same width, not disposed —
+    // that every commit downstream is gated on; `dispose()`, the resize handler,
+    // and the RIS esc handler bump `generation` / set `disposed`, so a chunk
+    // fetched for the old shape is discarded rather than spliced onto a
+    // torn-down / reflowed / reset buffer.
     const stillValid = () =>
       !disposed && generation === myGeneration && term.cols === fetchCols;
     try {
@@ -511,10 +511,15 @@ export function createBackfillController(
           result = await prepend(term, res.chunk, stillValid, servedRows);
         } catch (err) {
           // A prepend fault is FAIL-LOUD (headroom overflow / broken internals —
-          // real corruption averted, per the file header). Surface it via
-          // `onError` (a toast) rather than let it vanish as an unhandled
-          // rejection off `void maybeBackfill()`, and stop backfill. NOT
-          // swallowed — the operator sees it; a reload re-attaches.
+          // real corruption averted, per the file header). PAUSE first: the fault
+          // is permanent (an undersized buffer / a broken internals contract does
+          // not heal), so leaving the cursor live would let every subsequent
+          // onScroll re-fetch, re-replay, and re-toast the same failure on a loop
+          // (F6). Pausing halts backfill until a fresh snapshot re-seeds. Then
+          // surface it via `onError` (a toast) rather than let it vanish as an
+          // unhandled rejection off `void maybeBackfill()`. NOT swallowed — the
+          // operator sees it once; a reload re-attaches.
+          pause();
           opts.onError(err);
           return;
         }
@@ -544,11 +549,28 @@ export function createBackfillController(
       pause();
     }
   });
+  // A PTY-originated RIS (ESC c, terminfo `rs1` — a plain `reset`/`tput reset`,
+  // or a full-screen app clearing on exit) rides the LIVE delta stream and, when
+  // xterm PARSES it, wipes and renumbers the buffer out from under any in-flight
+  // backfill. A width resize doesn't fire (RIS keeps the grid dims) and no
+  // snapshot re-attach need occur, so neither the resize pause nor
+  // `consumeSnapshotFrame` catches it — the host bumped its reflow generation,
+  // but that only stales the NEXT fetch, not a chunk already returned and
+  // mid-replay. So invalidate synchronously the instant xterm parses the RIS
+  // (forget the cursor, bump the generation): an in-flight prepend's post-replay
+  // `stillValid()` then discards its splice, and backfill HALTS until the next
+  // snapshot re-seeds — halt-not-corrupt (F1). Return `false` so xterm still runs
+  // its own full reset. The client twin of the host's RIS re-anchor (ptyHost.ts).
+  const onRisReset = term.parser.registerEscHandler({ final: "c" }, () => {
+    pause();
+    return false;
+  });
 
   // Commit a (re-)seed: point the cursor at the snapshot's topLine, stamp the
   // reflow generation it echoes on fetches, and bump the local generation so any
-  // fetch from before the seed is discarded. Shared by `seed` and the deferred
-  // committer `consumeSnapshotFrame` returns.
+  // fetch from before the seed is discarded. The one seed path — run only by the
+  // deferred committer `consumeSnapshotFrame` returns (guarded by its captured
+  // generation), never as a bare public transition.
   function applySeed(topLine: number, reflowEpoch: number | undefined): void {
     cursor = topLine;
     seedEpoch = reflowEpoch;
@@ -557,9 +579,6 @@ export function createBackfillController(
   }
 
   return {
-    seed(topLine, reflowEpoch) {
-      applySeed(topLine, reflowEpoch);
-    },
     reset() {
       pause();
     },
@@ -569,9 +588,19 @@ export function createBackfillController(
       // frame carries — even while scroll-locked (this runs at frame receipt,
       // before the bytes are written/buffered).
       pause();
-      // Seed only once the snapshot has parsed (the caller runs this from xterm's
-      // write callback, which the scroll-lock preserves across a buffered flush).
-      return () => applySeed(topLine, reflowEpoch);
+      // The generation this frame is the current owner of. The committer runs
+      // LATER (from xterm's write callback, once the snapshot has parsed — which
+      // the scroll-lock preserves across a buffered flush). If ANY later
+      // invalidation — a width resize, an in-band RIS, an explicit reset, a NEWER
+      // snapshot frame, or dispose — bumped the generation in between, this
+      // committer is stale: seeding now would resurrect a cursor against a buffer
+      // that has since been reflowed/reset. Guard on the captured generation so
+      // the newer invalidation's own snapshot re-seeds instead (F2).
+      const committedGeneration = generation;
+      return () => {
+        if (disposed || generation !== committedGeneration) return;
+        applySeed(topLine, reflowEpoch);
+      };
     },
     dispose() {
       // Invalidate any in-flight fetch so its continuation can't splice onto the
@@ -580,6 +609,7 @@ export function createBackfillController(
       generation++;
       onScroll.dispose();
       onResize.dispose();
+      onRisReset.dispose();
     },
   };
 }

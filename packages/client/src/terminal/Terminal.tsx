@@ -888,9 +888,12 @@ const Terminal: Component<{
                 // state, not in-flight data. A parked-rAF freeze on a real
                 // write then gets a forced sync paint even if the user never
                 // returns focus. scroll-lock buffers a chunk -> no paint -> the
-                // callback isn't invoked; the buffered flush rejoins the bottom
-                // via a user scroll / tab-visible / window-focus path, each of
-                // which already forces a repaint via recover().
+                // callback isn't invoked NOW; it is stashed WITH the chunk, and
+                // flush() fires every buffered chunk's callback once the buffered
+                // write parses on unlock (a user scroll / tab-visible / window-
+                // focus flush, each of which also forces a repaint via recover())
+                // — so the snapshot re-seed committer that rides this callback
+                // survives the lock instead of being dropped.
                 scrollLock.writeData(terminal, data, () => {
                   recovery.noteData();
                   // Seed the backfill cursor now that this snapshot has landed in

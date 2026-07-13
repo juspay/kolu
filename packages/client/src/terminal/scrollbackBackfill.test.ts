@@ -13,6 +13,7 @@ import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type BackfillController,
   createBackfillController,
   defaultScratch,
   HISTORY_CHUNK_ROWS,
@@ -384,11 +385,13 @@ function fakeTerm(): {
   term: XTerm;
   fireScroll(): void;
   fireResize(): void;
+  fireRis(): void;
   setCols(n: number): void;
   setAltActive(b: boolean): void;
 } {
   let scrollCb: (() => void) | undefined;
   let resizeCb: (() => void) | undefined;
+  let escCb: (() => boolean | undefined) | undefined;
   const term = {
     cols: 80,
     rows: 24,
@@ -401,11 +404,20 @@ function fakeTerm(): {
       resizeCb = cb;
       return { dispose() {} };
     },
+    // The controller registers a RIS (ESC c) esc handler to invalidate on an
+    // in-band reset; capture it so a test can fire it (F1).
+    parser: {
+      registerEscHandler: (_id: unknown, cb: () => boolean | undefined) => {
+        escCb = cb;
+        return { dispose() {} };
+      },
+    },
   };
   return {
     term: term as unknown as XTerm,
     fireScroll: () => scrollCb?.(),
     fireResize: () => resizeCb?.(),
+    fireRis: () => escCb?.(),
     setCols: (n: number) => {
       term.cols = n;
     },
@@ -413,6 +425,17 @@ function fakeTerm(): {
       term.buffer.active.type = b ? "alternate" : "normal";
     },
   };
+}
+
+/** Seed the controller through its ONLY legitimate path — the reset+seed fused
+ *  `consumeSnapshotFrame`, whose committer stands in for "the snapshot parsed"
+ *  when run immediately (the bare `seed()` transition was removed, F3). */
+function seedController(
+  c: BackfillController,
+  topLine: number,
+  epoch?: number,
+): void {
+  c.consumeSnapshotFrame(topLine, epoch)();
 }
 
 /** A promise plus its resolver, for driving an in-flight fetch/prepend. */
@@ -444,7 +467,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), undefined);
@@ -466,7 +489,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -491,7 +514,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(prepend).toHaveBeenCalledTimes(1);
@@ -523,7 +546,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100, 7); // seeded under reflow generation 7
+    seedController(c, 100, 7); // seeded under reflow generation 7
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     // The stamped epoch rode the fetch...
@@ -551,7 +574,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError,
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -580,7 +603,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError,
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(onError).toHaveBeenCalledWith(boom); // surfaced, not swallowed
@@ -613,7 +636,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), undefined);
@@ -643,7 +666,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -668,6 +691,62 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenLastCalledWith(30, expect.any(Number), 2);
+    c.dispose();
+  });
+
+  it("an in-band RIS (ESC c) during an in-flight fetch invalidates it — no splice across the reset (F1)", async () => {
+    const f = fakeTerm();
+    const gate = deferred<HistoryChunk>();
+    const fetch = vi.fn(() => gate.promise);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    seedController(c, 100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // A PTY-originated RIS rides the live delta stream; xterm parses it and the
+    // controller's esc handler fires — invalidating the in-flight fetch's
+    // continuation before it can splice pre-reset bytes onto the reset buffer.
+    f.fireRis();
+    gate.resolve(chunk); // the old fetch resolves AFTER the reset
+    await new Promise((r) => setTimeout(r, 0));
+    expect(prepend).not.toHaveBeenCalled(); // discarded — never spliced
+
+    // Backfill is now PAUSED: a re-scroll fires no further fetch until re-seed.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    c.dispose();
+  });
+
+  it("a snapshot committer a LATER invalidation superseded is a no-op — no stale re-seed (F2)", async () => {
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    // A snapshot frame arrives; its parse (the committer) is deferred.
+    const commit = c.consumeSnapshotFrame(30, 2);
+    // Before the snapshot parses, a WIDTH resize reflows the buffer — the
+    // controller must stay PAUSED, not resurrect the pre-resize cursor when the
+    // now-stale committer finally runs.
+    f.setCols(40);
+    f.fireResize();
+    commit(); // the old snapshot's write callback finally fires — but it's stale
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    // The stale committer did NOT seed: paused, so no fetch.
+    expect(fetch).not.toHaveBeenCalled();
     c.dispose();
   });
 
@@ -704,7 +783,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    c.seed(100);
+    seedController(c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     // One scroll paged THROUGH the blank chunk to the content chunk.

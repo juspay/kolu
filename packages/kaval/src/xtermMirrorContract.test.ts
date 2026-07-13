@@ -33,16 +33,33 @@ describe("xterm-headless mirror contract", () => {
     });
     const lines = (
       term as unknown as {
-        _core?: { buffers?: { normal?: { lines?: { onTrim?: unknown } } } };
+        _core?: {
+          buffers?: {
+            normal?: { lines?: { onTrim?: unknown; length?: unknown } };
+          };
+        };
       }
     )._core?.buffers?.normal?.lines as
-      | { onTrim(l: (n: number) => void): unknown }
+      | {
+          onTrim(l: (n: number) => void): { dispose(): void };
+          length: number;
+        }
       | undefined;
     expect(lines, "_core.buffers.normal.lines").toBeTruthy();
     expect(lines!.onTrim, "lines.onTrim").toBeTypeOf("function");
+    // `length` is pinned too: the RIS re-anchor does `mirrorBaseLine +=
+    // lines.length`, so a shape change that dropped it would poison the absolute
+    // cursor with NaN rather than fail loud (`normalLinesOf` throws on it).
+    expect(lines!.length, "lines.length").toBeTypeOf("number");
+    expect(Number.isInteger(lines!.length), "lines.length is an integer").toBe(
+      true,
+    );
 
     let evicted = 0;
-    lines!.onTrim((n) => (evicted += n));
+    // onTrim returns a disposable (the trim pin is disposed + re-subscribed on a
+    // RIS buffer swap — a non-disposable return would leak the subscription).
+    const trimSub = lines!.onTrim((n) => (evicted += n));
+    expect(trimSub.dispose, "onTrim(...).dispose").toBeTypeOf("function");
     // maxLength = scrollback + rows = 8; write well past it so the ring trims.
     const many: string[] = [];
     for (let i = 0; i < 30; i++) many.push(`row-${i}`);

@@ -74,19 +74,19 @@ const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
 /** The one reach into `@xterm/headless` privates the mirror needs: the normal
- *  buffer's line list, whose `onTrim` (fired with the count evicted off the top
- *  when scrollback overflows) is the ONLY faithful source of "lines evicted" —
- *  the number {@link Entry.mirrorBaseLine} accumulates so `getHistory`'s absolute
- *  cursor survives eviction. FAIL LOUD, deliberately: no public API exposes this
- *  count, and a silently-missing `onTrim` would let `mirrorBaseLine` freeze while
- *  the buffer renumbers underneath it, handing the client older-history chunks
- *  off by the eviction total — a silent scrollback corruption. So a shape change
- *  under an `@xterm/headless` bump throws here, caught by the contract-pin test
+ *  buffer's line `CircularList` — the reach the eviction pin and the RIS-reset
+ *  detector share. `length` is the current row count (read to advance
+ *  {@link Entry.mirrorBaseLine} past a reset's discarded rows); `onTrim` fires
+ *  with the count evicted off the top when scrollback overflows, the ONLY
+ *  faithful source of "lines evicted" — the number `mirrorBaseLine` accumulates
+ *  so `getHistory`'s absolute cursor survives eviction. A full reset replaces
+ *  this object wholesale, which is why identity (not just `length`) is tracked.
+ *  FAIL LOUD, deliberately: no public API exposes these, and a silently-missing
+ *  `onTrim`/`length` would let `mirrorBaseLine` freeze (or go `NaN`) while the
+ *  buffer renumbers underneath it, handing the client older-history chunks off by
+ *  the eviction total — a silent scrollback corruption. So a shape change under
+ *  an `@xterm/headless` bump throws here, caught by the contract-pin test
  *  (`xtermMirrorContract.test.ts`) as red CI, never as user-visible corruption. */
-/** The headless normal buffer's line `CircularList` — the reach the eviction
- *  pin and the RIS-reset detector share. `length` is the row count; `onTrim`
- *  fires with the count evicted off the top. A full reset replaces this object
- *  wholesale, which is why identity (not just `length`) is tracked. */
 interface NormalLinesRef {
   length: number;
   onTrim(l: (n: number) => void): { dispose(): void };
@@ -94,7 +94,10 @@ interface NormalLinesRef {
 
 /** Reach the normal buffer's line list, or THROW — a missing shape is a broken
  *  internals contract, never a silent degrade (the pin/base arithmetic is unsafe
- *  without it). */
+ *  without it). Both pinned members are validated: `onTrim` must be callable, and
+ *  `length` a nonnegative integer — the RIS re-anchor does `mirrorBaseLine +=
+ *  lines.length`, so a missing/garbage `length` must fail loud here, not silently
+ *  poison the absolute cursor with `NaN`. */
 function normalLinesOf(
   headless: InstanceType<typeof Terminal>,
 ): NormalLinesRef {
@@ -103,19 +106,16 @@ function normalLinesOf(
       _core?: { buffers?: { normal?: { lines?: unknown } } };
     }
   )._core?.buffers?.normal?.lines as Partial<NormalLinesRef> | undefined;
-  if (typeof lines?.onTrim !== "function") {
+  if (
+    typeof lines?.onTrim !== "function" ||
+    !Number.isInteger(lines?.length) ||
+    (lines.length as number) < 0
+  ) {
     throw new Error(
-      "xterm-headless internals contract broken: _core.buffers.normal.lines.onTrim missing",
+      "xterm-headless internals contract broken: _core.buffers.normal.lines.{length: int≥0, onTrim: fn} missing",
     );
   }
   return lines as NormalLinesRef;
-}
-
-function onNormalBufferTrim(
-  headless: InstanceType<typeof Terminal>,
-  handler: (evicted: number) => void,
-): { dispose(): void } {
-  return normalLinesOf(headless).onTrim(handler);
 }
 
 /** Snap a start row back over any wrapped-line continuation rows to the logical
@@ -477,12 +477,15 @@ interface Entry {
    *  read/invalidated only through `boundedSnapshotOf` / `invalidateSnapshot`. */
   boundedSnapshotCache: { snapshot: string; topLine: number } | undefined;
   /** Absolute-line origin: the running count of lines the headless mirror has
-   *  EVICTED off the top of its scrollback (the `onTrim` total). An absolute
-   *  mirror-line index is `mirrorBaseLine + localBufferIndex`, so it names the
-   *  same logical line even as eviction renumbers the local buffer — the stable
-   *  coordinate `getHistory` pages by. Only grows. */
+   *  retired off the top — the `onTrim` eviction total PLUS the length of any
+   *  buffer a full RIS reset discarded wholesale (see the write callback). An
+   *  absolute mirror-line index is `mirrorBaseLine + localBufferIndex`, so it
+   *  names the same logical line even as eviction/reset renumbers the local
+   *  buffer — the stable coordinate `getHistory` pages by. Only grows. */
   mirrorBaseLine: number;
-  /** Monotonic reflow generation — bumped every `resize()`. A width change
+  /** Monotonic reflow generation — bumped on a WIDTH resize and a full RIS reset,
+   *  the two events that renumber absolute rows (a height-only or same-dims
+   *  resize bumps nothing). A width change
    *  REWRAPS the mirror (`reflowCursorLine`), which renumbers absolute rows: the
    *  same logical content now occupies a different span, so an absolute cursor a
    *  client computed under an OLDER generation no longer names the same row. The
@@ -490,9 +493,8 @@ interface Entry {
    *  `getHistory` echoes it, and the host serves an empty `stale` reply when it
    *  no longer matches — so a client whose mirror a FOREIGN attach reflowed
    *  underneath it (its own `term.cols` unchanged) HALTS backfill rather than
-   *  splicing a duplicated/skipped band (F3). Bumped on a WIDTH resize and on a
-   *  full RIS reset (which also renumbers absolutes — see `normalLines`). Only
-   *  grows. */
+   *  splicing a duplicated/skipped band (F3). The RIS reset renumbers absolutes
+   *  too (see `normalLines`), hence the same bump. Only grows. */
   reflowEpoch: number;
   /** The headless normal buffer's line `CircularList`, captured for identity. A
    *  full reset (RIS / `ESC c`, terminfo `rs1`) constructs a BRAND-NEW list
@@ -745,7 +747,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       entry.mirrorBaseLine += evicted;
     };
     entry.trimDisposable = entry.normalLines.onTrim(trimHandler);
-    entry.disposables.push(entry.trimDisposable);
+    // Register ONE stable teardown that disposes WHICHEVER handle
+    // `entry.trimDisposable` currently holds. A RIS reset swaps the handle
+    // (below) and disposes the old one inline, so pushing each replacement would
+    // accumulate one dead disposable per reset over a long-lived PTY — this
+    // single indirection keeps `disposables` bounded (F5).
+    entry.disposables.push({
+      dispose: () => entry.trimDisposable.dispose(),
+    });
 
     // OSC 7 (CWD reporting) — the rc wrapper kolu injects makes the shell
     // emit these on every prompt.
@@ -877,8 +886,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
             entry.mirrorBaseLine += entry.normalLines.length;
             entry.trimDisposable.dispose();
             entry.normalLines = currentLines;
+            // Replace the handle in place — the stable teardown pushed at spawn
+            // disposes whatever this points at, so we must NOT push the
+            // replacement (that would leak one dead disposable per reset, F5).
             entry.trimDisposable = currentLines.onTrim(trimHandler);
-            entry.disposables.push(entry.trimDisposable);
             entry.reflowEpoch++;
           }
           entry.data.publish(data);
