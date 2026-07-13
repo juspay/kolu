@@ -48,8 +48,8 @@ function transitiveValueImports(entry: string): Set<string> {
       // `export … from "x"` — but NOT `import type` / `export type`.
       if (/^(import|export)\s+type\b/.test(line)) continue;
       const m = line.match(/(?:from|import)\s*["']([^"']+)["']/);
-      if (!m) continue;
-      const spec = m[1];
+      const spec = m?.[1];
+      if (!spec) continue;
       if (spec.startsWith(".")) {
         visit(
           resolve(dirname(file), spec.endsWith(".ts") ? spec : `${spec}.ts`),
