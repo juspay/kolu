@@ -69,7 +69,6 @@ import { createSnapshotBoundary } from "./snapshotBoundary";
 import {
   type BackfillController,
   createBackfillController,
-  SNAPSHOT_SEED_SEAM,
 } from "./scrollbackBackfill";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { applyStickyModifiers } from "./stickyModifiers";
@@ -870,22 +869,26 @@ const Terminal: Component<{
                       frame.reflowEpoch,
                       // An overflow re-attach snapshot's data LEADS with a RIS
                       // (`TERMINAL_RESET + snapshot`); the initial attach does
-                      // not. The controller must know which so the reset THIS
-                      // frame carries is absorbed by its esc handler instead of
-                      // re-invalidating (and revoking) this frame's own re-seed —
-                      // otherwise backfill pauses forever after a re-attach (F11).
+                      // not. The controller's esc handler pauses on THIS frame's
+                      // own leading RIS too, so the controller must know it's
+                      // coming: the seam captures the committer's baseline one
+                      // generation-bump BEFORE that RIS and PREDICTS it, so the
+                      // frame's own reset doesn't read as an invalidation that
+                      // revokes this frame's re-seed — otherwise backfill pauses
+                      // forever after a re-attach (F11).
                       frame.data.startsWith(TERMINAL_RESET),
                     )
                   : undefined;
-              // A consumed snapshot frame carries the seed seam so the controller
-              // captures its committer baseline at the snapshot's byte position,
-              // not at receipt — the F11 fix under scroll lock, where a foreign RIS
-              // buffered ahead of this snapshot would otherwise steal its seed.
-              // Prepended ONLY when a controller actually consumed the frame
-              // (`commitSeed` set), so the seam and the controller's pending-seed
-              // FIFO stay 1:1.
+              // A consumed snapshot frame carries its OWN seed seam (with a
+              // per-frame token) so the controller captures its committer baseline
+              // at the snapshot's byte position, not at receipt — the F11 fix
+              // under scroll lock, where a foreign RIS buffered ahead of this
+              // snapshot would otherwise steal its seed. The controller mints the
+              // seam bytes (`commitSeed.seam`); prepended ONLY when a controller
+              // actually consumed the frame, so the seam and the controller's
+              // pending-seed FIFO stay 1:1.
               const data = commitSeed
-                ? `${SNAPSHOT_SEED_SEAM}${frame.data}`
+                ? `${commitSeed.seam}${frame.data}`
                 : frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
@@ -917,7 +920,7 @@ const Terminal: Component<{
                   // Seed the backfill cursor now that this snapshot has landed in
                   // the buffer (see the note above the write) — undefined, hence a
                   // no-op, for a plain delta frame, which carries no `topLine`.
-                  commitSeed?.();
+                  commitSeed?.commit();
                 });
               }
             },

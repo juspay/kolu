@@ -306,26 +306,33 @@ export async function prependScrollback(
  *  top, so the user scrolls again to trigger the next fetch. */
 export const HISTORY_CHUNK_ROWS = 500;
 
-/** Private OSC ident for the snapshot-seed seam. Chosen high and unused by
- *  xterm / iTerm2 / common shell integrations so it can never collide with real
- *  program output; the controller registers a handler that consumes it (returns
- *  handled, emits nothing). */
-const SNAPSHOT_SEED_SEAM_OSC = 60697;
+/** Private OSC ident for the snapshot-seed seam. An OSC ident is NOT an
+ *  out-of-band channel — it is ordinary PTY-controlled output, and any terminal
+ *  program can emit `ESC ] 60697 …`, so a high "currently unused" number cannot
+ *  make a collision impossible (F12). Provenance is carried instead by the
+ *  unguessable per-frame TOKEN in the payload (`seamFor`): the handler trusts a
+ *  payload only when it matches the next pending seed's token, and ignores any
+ *  other output on this ident. Exported for the contract-pin test. */
+export const SNAPSHOT_SEED_SEAM_OSC = 60697;
 
-/** The snapshot-seed seam — a zero-width, no-op OSC control Terminal.tsx prepends
- *  to EVERY snapshot frame's bytes. Under scroll lock the lock JOINS all buffered
- *  chunks into one write, so a foreign RIS buffered AHEAD of an overflow snapshot
- *  parses (and pauses backfill) before the snapshot's own leading RIS — a
- *  receipt-time credit counter can't tell which RIS is the snapshot's own and an
- *  older reset steals the credit, leaving backfill wrongly halted after a valid
- *  re-attach (F11). The seam fixes that by carrying a BYTE-POSITION marker: it
- *  parses in the live xterm immediately before the frame's own content (and its
- *  leading RIS, for an overflow re-attach), so the controller's OSC handler can
- *  capture the matching committer's baseline generation THERE — after every
- *  byte-earlier foreign RIS has already paused, hence excluded. No wire change:
- *  the seam is injected client-side, on the live write path only (never the
- *  scratch replay), and is a pure parser no-op. */
-export const SNAPSHOT_SEED_SEAM = `\x1b]${SNAPSHOT_SEED_SEAM_OSC}\x07`;
+/** Build the snapshot-seed seam for ONE frame — a zero-width, no-op OSC control
+ *  Terminal.tsx prepends to that frame's bytes, carrying an unguessable per-frame
+ *  `token`. Under scroll lock the lock JOINS all buffered chunks into one write,
+ *  so a foreign RIS buffered AHEAD of an overflow snapshot parses (and pauses
+ *  backfill) before the snapshot's own leading RIS — a receipt-time credit
+ *  counter can't tell which RIS is the snapshot's own and an older reset steals
+ *  the credit, leaving backfill wrongly halted after a valid re-attach (F11). The
+ *  seam fixes that by carrying a BYTE-POSITION marker: it parses in the live
+ *  xterm immediately before the frame's own content (and its leading RIS, for an
+ *  overflow re-attach), so the controller's OSC handler can capture the matching
+ *  committer's baseline generation THERE — after every byte-earlier foreign RIS
+ *  has already paused, hence excluded. The `token` (a client-side per-frame value
+ *  never sent to the PTY) makes the seam unforgeable by program output on the
+ *  same ident (F12). No wire change: the seam is injected client-side, on the
+ *  live write path only (never the scratch replay), and is a pure parser no-op. */
+function seamFor(token: string): string {
+  return `\x1b]${SNAPSHOT_SEED_SEAM_OSC};${token}\x07`;
+}
 
 /** One older-history reply from the server, as the controller consumes it — a
  *  discriminated union mirroring the wire's `chunk | stale` shape, so a served
@@ -403,12 +410,21 @@ export interface BackfillController {
    *  baseline is captured at the frame's snapshot-seed seam (byte position), and
    *  `carriesReset` tells that capture to PREDICT the one extra generation bump
    *  the frame's own leading RIS makes — so the frame's own RIS doesn't read as an
-   *  invalidation that revokes the committer this call arms (F11). */
+   *  invalidation that revokes the committer this call arms (F11).
+   *
+   *  Returns BOTH the deferred `commit` (run from the frame's write callback,
+   *  once parsed) AND the `seam` bytes Terminal.tsx must prepend to this frame's
+   *  data — the seam carries this frame's own unguessable token so program output
+   *  on the same OSC ident can't drive the controller (F12). `commit` also no-ops
+   *  when an out-of-band lifecycle invalidation (resize / newer snapshot /
+   *  explicit reset / dispose) landed AFTER receipt but BEFORE the seam parsed:
+   *  the seam-only baseline would otherwise fold that bump in and forgive it,
+   *  reopening the receipt-to-parse race (F2). */
   consumeSnapshotFrame(
     topLine: number,
     reflowEpoch: number | undefined,
     carriesReset: boolean,
-  ): () => void;
+  ): { commit: () => void; seam: string };
   dispose(): void;
 }
 
@@ -466,19 +482,35 @@ export function createBackfillController(
   // Named `generation` — not a third "epoch" — so it and `seedEpoch` never blur
   // into one bare number.
   let generation = 0;
+  // A SECOND invalidation counter, bumped ONLY by OUT-OF-BAND lifecycle events —
+  // a width resize, an explicit `reset()`, a newer `consumeSnapshotFrame`, dispose
+  // — never by a byte-stream RIS. A snapshot's committer captures it at RECEIPT
+  // and re-checks it at commit, alongside the seam's byte-position `generation`
+  // baseline. `generation` alone can't do this job: the seam captures it LATE (to
+  // exclude a byte-earlier foreign RIS, F11), so an out-of-band bump between
+  // receipt and the seam gets folded into the baseline and wrongly forgiven —
+  // the receipt-to-parse race (F2). The RIS handler must NOT bump this (its
+  // provenance is byte order, resolved by the seam), so it lives apart from
+  // `pause()` and rides `pauseLifecycle()` instead.
+  let lifecycleToken = 0;
   let disposed = false;
   let lastCols = term.cols;
   // FIFO of pending snapshot seeds awaiting their byte-position baseline. Each
   // `consumeSnapshotFrame` pushes one; the snapshot-seed seam that frame's write
-  // carries (SNAPSHOT_SEED_SEAM, prepended in Terminal.tsx) parses immediately
-  // before the frame's own bytes and pops the front, capturing the committer's
-  // baseline generation THERE — after every byte-earlier foreign RIS has already
+  // carries (`seamFor(token)`, prepended in Terminal.tsx) parses immediately
+  // before the frame's own bytes and — when its payload matches the front entry's
+  // token (F12) — pops the front, capturing the committer's baseline generation
+  // THERE — after every byte-earlier foreign RIS has already
   // paused (so an older reset buffered ahead of this snapshot under scroll lock
   // can't steal its seed, F11). Drained in receipt order, which the seam makes
   // equal to byte order; back-to-back re-attaches coalesced under one flush each
   // get their own entry and their own baseline.
   const pendingSeeds: {
     carriesReset: boolean;
+    // This frame's unguessable token (from `seamFor`): the OSC handler captures a
+    // baseline ONLY for a payload that matches the front entry's token, so program
+    // output emitting the same OSC ident can't pop a seed or forge a capture (F12).
+    token: string;
     capture: (g: number) => void;
   }[] = [];
 
@@ -491,6 +523,18 @@ export function createBackfillController(
     cursor = null;
     exhausted = false;
     generation++;
+  }
+
+  // An OUT-OF-BAND invalidation: a resize, an explicit `reset()`, a newer
+  // snapshot, or dispose — an event that must supersede any pending snapshot
+  // commit REGARDLESS of byte position (unlike a byte-stream RIS, whose
+  // provenance the seam resolves). Bumps the lifecycle token a pending
+  // committer captured at receipt, on top of `pause()`'s generation bump, so an
+  // invalidation in the receipt-to-seam window can't be folded into the
+  // seam-captured baseline and forgiven (F2).
+  function pauseLifecycle(): void {
+    pause();
+    lifecycleToken++;
   }
 
   async function maybeBackfill(): Promise<void> {
@@ -596,7 +640,9 @@ export function createBackfillController(
     // until the next snapshot re-seeds. A height-only change is harmless.
     if (term.cols !== lastCols) {
       lastCols = term.cols;
-      pause();
+      // An out-of-band lifecycle event: it must invalidate a pending snapshot
+      // whose seam has not parsed yet, not just an in-flight fetch (F2).
+      pauseLifecycle();
     }
   });
   // A PTY-originated RIS (ESC c, terminfo `rs1` — a plain `reset`/`tput reset`,
@@ -626,9 +672,11 @@ export function createBackfillController(
     return false;
   });
 
-  // The snapshot-seed seam (SNAPSHOT_SEED_SEAM): a no-op OSC Terminal.tsx prepends
+  // The snapshot-seed seam (`seamFor(token)`): a no-op OSC Terminal.tsx prepends
   // to a snapshot frame's bytes so it parses immediately before the frame's own
-  // content. Pop the matching pending seed and capture its committer baseline
+  // content. When the payload matches the front pending seed's token (foreign
+  // program output on this ident does not — F12), pop it and capture its
+  // committer baseline
   // HERE — after every byte-earlier foreign RIS has paused (excluding them) and
   // one bump BEFORE the frame's own leading RIS parses (predicted with +1 for a
   // `carriesReset` frame). The committer then seeds iff the generation still
@@ -637,13 +685,20 @@ export function createBackfillController(
   // a reset buffered after it still does (F2).
   const onSeedSeam = term.parser.registerOscHandler(
     SNAPSHOT_SEED_SEAM_OSC,
-    () => {
-      const seed = pendingSeeds.shift();
-      if (!seed)
-        throw new Error(
-          "scrollback-backfill: snapshot-seed seam parsed with no pending seed — Terminal/controller desync",
-        );
-      seed.capture(generation + (seed.carriesReset ? 1 : 0));
+    (payload) => {
+      const front = pendingSeeds[0];
+      // OSC idents are ordinary PTY-controlled output — any program can emit
+      // `ESC ] 60697 …`. Only OUR seam carries the unguessable per-frame token of
+      // the NEXT pending seed (drained in receipt == byte order), so a payload
+      // that doesn't match the front token is foreign program output: consume it
+      // (emit nothing — this is our private ident) but leave the FIFO untouched,
+      // and NEVER throw. That way arbitrary output on this ident can't shift a
+      // seed to steal a later snapshot's capture, and an unmatched payload with an
+      // empty FIFO can't throw out of xterm's parser and interrupt the terminal
+      // (F12).
+      if (!front || payload !== front.token) return true;
+      pendingSeeds.shift();
+      front.capture(generation + (front.carriesReset ? 1 : 0));
       return true;
     },
   );
@@ -662,42 +717,61 @@ export function createBackfillController(
 
   return {
     reset() {
-      pause();
+      pauseLifecycle();
     },
     consumeSnapshotFrame(topLine, reflowEpoch, carriesReset) {
       // Invalidate NOW: forget the cursor + bump the generation so an in-flight
       // fetch's continuation is discarded and can't splice across the RIS this
       // frame carries — even while scroll-locked (this runs at frame receipt,
-      // before the bytes are written/buffered).
-      pause();
-      // The committer's baseline is captured LATER, when this frame's leading
-      // snapshot-seed seam parses (the OSC handler above) — NOT here at receipt.
-      // Deferring to the seam's byte position is the F11 fix: a foreign RIS
-      // buffered AHEAD of this snapshot under scroll lock parses (and pauses)
-      // before the seam, so a receipt-time baseline would already be stale and the
-      // committer would wrongly no-op; capturing at the seam excludes those
-      // byte-earlier resets. `carriesReset` tells the seam to predict the one
-      // extra bump the frame's own leading RIS makes. One entry per frame, drained
+      // before the bytes are written/buffered). This is an OUT-OF-BAND event
+      // (`pauseLifecycle`): a newer snapshot supersedes any older pending seed.
+      pauseLifecycle();
+      // Capture the lifecycle token AFTER this frame's own bump, so this frame
+      // does not invalidate itself; any LATER out-of-band event (resize / newer
+      // snapshot / reset / dispose) moves it past this snapshot and the committer
+      // no-ops (F2), even when that event lands in the receipt-to-seam window the
+      // byte-position baseline alone would forgive.
+      const myLifecycle = lifecycleToken;
+      // The committer's byte-position baseline is captured LATER, when this
+      // frame's leading snapshot-seed seam parses (the OSC handler above) — NOT
+      // here at receipt. Deferring to the seam's byte position is the F11 fix: a
+      // foreign RIS buffered AHEAD of this snapshot under scroll lock parses (and
+      // pauses) before the seam, so a receipt-time baseline would already be stale
+      // and the committer would wrongly no-op; capturing at the seam excludes
+      // those byte-earlier resets. `carriesReset` tells the seam to predict the
+      // one extra bump the frame's own leading RIS makes. An unguessable per-frame
+      // token (in the seam and this entry) makes the capture unforgeable by
+      // program output on the same OSC ident (F12). One entry per frame, drained
       // in receipt (== byte) order.
+      const token = crypto.randomUUID();
       let baseline: number | null = null;
       pendingSeeds.push({
         carriesReset,
+        token,
         capture: (g) => {
           baseline = g;
         },
       });
       // The committer runs LATER, from xterm's write callback once the snapshot
       // has parsed (scroll-lock preserves it across a buffered flush). It seeds
-      // only if the generation still equals the seam-captured baseline: unchanged
-      // when no reset landed AFTER the snapshot's own bytes (F11 resumes backfill),
-      // but bumped — and the seed suppressed — by any width resize, foreign RIS,
-      // newer snapshot, explicit reset, or dispose that came after (F2). A null
+      // only if BOTH invariants still hold: the byte-position `generation` equals
+      // the seam-captured baseline (no reset landed AFTER the snapshot's own
+      // bytes — F11 resumes backfill; a later foreign RIS suppresses it) AND the
+      // receipt-captured `lifecycleToken` is unmoved (no out-of-band resize /
+      // newer snapshot / reset landed in the receipt-to-seam window — F2). A null
       // baseline means the seam never parsed (the write was dropped before flush,
       // e.g. dispose) — no seed.
-      return () => {
-        if (disposed || baseline === null || generation !== baseline) return;
+      const commit = () => {
+        if (
+          disposed ||
+          baseline === null ||
+          generation !== baseline ||
+          lifecycleToken !== myLifecycle
+        )
+          return;
         applySeed(topLine, reflowEpoch);
       };
+      return { commit, seam: seamFor(token) };
     },
     dispose() {
       // Invalidate any in-flight fetch so its continuation can't splice onto the

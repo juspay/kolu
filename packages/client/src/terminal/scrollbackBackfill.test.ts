@@ -22,11 +22,18 @@ import {
   type PrependResult,
   prependScrollback,
   type ScratchTerminal,
-  SNAPSHOT_SEED_SEAM,
+  SNAPSHOT_SEED_SEAM_OSC,
 } from "./scrollbackBackfill";
 
 /** The prepend seam the controller tests inject: a fixed `inserted` result. */
 const inserted = (rows: number): PrependResult => ({ kind: "inserted", rows });
+
+/** Extract the OSC payload (the per-frame token) from a controller-minted seam
+ *  (`ESC ] <ident> ; <token> BEL`) — what xterm hands the OSC handler, so a test
+ *  can fire the seam through the fake term exactly as production parsing would. */
+function seamPayload(seam: string): string {
+  return seam.slice(seam.indexOf(";") + 1, -1);
+}
 
 /* Headless scratch factory — the DOM-free replay env the tests run in. */
 function headlessScratch(cols: number, rows: number): ScratchTerminal {
@@ -387,7 +394,7 @@ function fakeTerm(): {
   fireScroll(): void;
   fireResize(): void;
   fireRis(): void;
-  fireSeedSeam(): void;
+  fireOsc(payload: string): boolean | undefined;
   setCols(n: number): void;
   setAltActive(b: boolean): void;
 } {
@@ -415,7 +422,9 @@ function fakeTerm(): {
         return { dispose() {} };
       },
       // The controller registers the snapshot-seed seam OSC handler; capture it so
-      // a test can fire it at the snapshot's byte position (F11 baseline capture).
+      // a test can fire it at the snapshot's byte position with a chosen payload
+      // (the per-frame token for a real seam, F11; an arbitrary string for a
+      // foreign-program forgery, F12).
       registerOscHandler: (
         _id: unknown,
         cb: (data: string) => boolean | undefined,
@@ -430,7 +439,7 @@ function fakeTerm(): {
     fireScroll: () => scrollCb?.(),
     fireResize: () => resizeCb?.(),
     fireRis: () => escCb?.(),
-    fireSeedSeam: () => oscCb?.(""),
+    fireOsc: (payload: string) => oscCb?.(payload),
     setCols: (n: number) => {
       term.cols = n;
     },
@@ -452,8 +461,8 @@ function seedController(
   topLine: number,
   epoch?: number,
 ): void {
-  const commit = c.consumeSnapshotFrame(topLine, epoch, false);
-  f.fireSeedSeam();
+  const { commit, seam } = c.consumeSnapshotFrame(topLine, epoch, false);
+  f.fireOsc(seamPayload(seam));
   commit();
 }
 
@@ -694,7 +703,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // must SYNCHRONOUSLY invalidate the in-flight fetch (so its continuation
     // can't splice across the RIS reset) and return a committer that seeds later.
     // It carries a leading RIS (`carriesReset` true, an overflow re-attach).
-    const commit = c.consumeSnapshotFrame(30, 2, true);
+    const { commit, seam } = c.consumeSnapshotFrame(30, 2, true);
     gate.resolve(chunk); // the old fetch resolves AFTER the frame
     await new Promise((r) => setTimeout(r, 0));
     // Discarded — never spliced onto the reset buffer.
@@ -709,7 +718,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // committer's baseline at that byte position), then its own leading RIS (which
     // pauses — but the baseline predicted that single bump, so the committer is
     // not revoked, F11).
-    f.fireSeedSeam();
+    f.fireOsc(seamPayload(seam));
     f.fireRis();
     // Running the committer (as the write callback would, once the snapshot
     // parsed) seeds the NEW cursor + reflow epoch; the next scroll fetches from 30.
@@ -763,8 +772,8 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     });
     // A snapshot frame arrives; its seam parses (baseline captured), then its
     // parse (the committer) is deferred.
-    const commit = c.consumeSnapshotFrame(30, 2, false);
-    f.fireSeedSeam();
+    const { commit, seam } = c.consumeSnapshotFrame(30, 2, false);
+    f.fireOsc(seamPayload(seam));
     // AFTER the seam captured the baseline, a WIDTH resize reflows the buffer —
     // bumping the generation past that baseline. The controller must stay PAUSED,
     // not resurrect the pre-resize cursor when the now-stale committer finally
@@ -776,6 +785,35 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     // The stale committer did NOT seed: paused, so no fetch.
     expect(fetch).not.toHaveBeenCalled();
+    c.dispose();
+  });
+
+  it("a resize BETWEEN a snapshot's receipt and its seam still suppresses the seed (F2 receipt-to-parse)", async () => {
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    // The frame is RECEIVED (pauses, arms the committer) but its seam has NOT
+    // parsed yet — e.g. its write is buffered under scroll lock. A WIDTH resize
+    // reflows the buffer in THIS window, then the seam parses only afterward. A
+    // seam-only baseline would capture the generation AFTER the resize's bump and
+    // fold it in — forgiving the invalidation and letting the stale committer seed
+    // against the reflowed buffer (the reopened F2 race). The receipt-captured
+    // lifecycle token catches the out-of-band resize regardless of byte position,
+    // so the committer must stay a no-op.
+    const { commit, seam } = c.consumeSnapshotFrame(30, 2, false);
+    f.setCols(40);
+    f.fireResize(); // reflow lands BEFORE the seam parses
+    f.fireOsc(seamPayload(seam)); // seam parses only now, past the resize
+    commit();
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).not.toHaveBeenCalled(); // stale committer did not seed
     c.dispose();
   });
 
@@ -798,9 +836,9 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       triggerRows: 1e9,
     });
     // An overflow re-attach snapshot frame — its data leads with a RIS.
-    const commit = c.consumeSnapshotFrame(30, 2, true);
+    const { commit, seam } = c.consumeSnapshotFrame(30, 2, true);
     // Its bytes parse in order: seam (baseline capture) then the leading RIS.
-    f.fireSeedSeam();
+    f.fireOsc(seamPayload(seam));
     f.fireRis();
     // The write callback then seeds — the committer survived the frame's own RIS.
     commit();
@@ -836,12 +874,12 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    const commit = c.consumeSnapshotFrame(30, 2, true);
+    const { commit, seam } = c.consumeSnapshotFrame(30, 2, true);
     // Byte order under the joined flush: the foreign RIS FIRST (pauses)...
     f.fireRis();
     // ...then the snapshot's seam (captures baseline past that pause) and its own
     // leading RIS (the predicted bump).
-    f.fireSeedSeam();
+    f.fireOsc(seamPayload(seam));
     f.fireRis();
     commit();
     f.fireScroll();
@@ -866,13 +904,22 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       triggerRows: 1e9,
     });
     // Both frames received (each pauses + pushes a pending seed), in receipt order.
-    const commit1 = c.consumeSnapshotFrame(30, 2, true);
-    const commit2 = c.consumeSnapshotFrame(20, 3, true);
+    const { commit: commit1, seam: seam1 } = c.consumeSnapshotFrame(
+      30,
+      2,
+      true,
+    );
+    const { commit: commit2, seam: seam2 } = c.consumeSnapshotFrame(
+      20,
+      3,
+      true,
+    );
     // Parse in byte order: snap1's seam+RIS, the foreign RIS, snap2's seam+RIS.
-    f.fireSeedSeam(); // pops snap1's pending seed, baseline1
+    // Each seam carries its own token, so it pops ITS pending seed (FIFO order).
+    f.fireOsc(seamPayload(seam1)); // pops snap1's pending seed, baseline1
     f.fireRis(); // snap1's own RIS
     f.fireRis(); // FOREIGN RIS — lands after snap1, before snap2
-    f.fireSeedSeam(); // pops snap2's pending seed, baseline2 (past the foreign RIS)
+    f.fireOsc(seamPayload(seam2)); // pops snap2's pending seed, baseline2 (past the foreign RIS)
     f.fireRis(); // snap2's own RIS
     // Committers fire in buffer order once the joined write parses.
     commit1(); // superseded by the foreign RIS after it — a no-op
@@ -880,6 +927,50 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenLastCalledWith(20, expect.any(Number), 3);
+    c.dispose();
+  });
+
+  it("a foreign OSC on the seam ident (unmatched token) neither steals a pending seed nor throws (F12)", async () => {
+    // The seam's OSC ident is ordinary PTY-controlled output — any program can
+    // emit `ESC ] 60697 …` with an arbitrary payload while a real seed is pending.
+    // It must be IGNORED: not throw, not pop the pending seed. Only the real
+    // seam's per-frame token matches, so the snapshot that follows still captures
+    // its baseline and seeds.
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    const { commit, seam } = c.consumeSnapshotFrame(30, 2, false);
+    // Program output on the ident, with a payload that is NOT this frame's token.
+    expect(f.fireOsc("60697-forged-by-a-program")).toBe(true); // consumed, no throw
+    // The real seam still matches the front token and captures the baseline.
+    f.fireOsc(seamPayload(seam));
+    commit();
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    // The pending seed was not stolen — the snapshot seeded normally.
+    expect(fetch).toHaveBeenLastCalledWith(30, expect.any(Number), 2);
+    c.dispose();
+  });
+
+  it("a foreign OSC on the seam ident with an EMPTY FIFO is ignored, not thrown (F12)", () => {
+    // No snapshot has been consumed, so no seed is pending. A program emitting the
+    // ident must not throw out of xterm's OSC parser (which would interrupt
+    // terminal parsing) — the handler consumes it and leaves the FIFO empty.
+    const f = fakeTerm();
+    const c = createBackfillController(f.term, {
+      fetch: vi.fn(async () => chunk),
+      prepend: vi.fn(async () => inserted(1)),
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    expect(() => f.fireOsc("anything")).not.toThrow();
+    expect(f.fireOsc("anything")).toBe(true);
     c.dispose();
   });
 
@@ -1015,31 +1106,31 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
     }
   });
 
-  it("the SNAPSHOT_SEED_SEAM is a no-op OSC that fires its handler and emits nothing", async () => {
-    // The F11 fix rides one contract: writing SNAPSHOT_SEED_SEAM into a real
-    // @xterm/xterm fires a registered OSC handler for its ident AND leaves the
-    // buffer untouched (zero-width, no visible cell). An xterm bump that changes
-    // OSC parsing — a printed artifact, or the handler not firing — must fail
-    // HERE, loudly, not corrupt a snapshot's first row or silently break the
-    // byte-position baseline capture the controller depends on.
+  it("a token-carrying seam is a no-op OSC that delivers the token payload and emits nothing", async () => {
+    // The F11/F12 fix rides one contract: writing `ESC ] 60697 ; <token> BEL`
+    // into a real @xterm/xterm fires the registered OSC handler for that ident,
+    // hands it the exact TOKEN payload (so the controller can match provenance,
+    // F12), AND leaves the buffer untouched (zero-width, no visible cell). An
+    // xterm bump that changes OSC parsing — a printed artifact, the handler not
+    // firing, or a mangled payload — must fail HERE, loudly, not corrupt a
+    // snapshot's first row or silently break the byte-position baseline capture.
     const t = new XTerm({
       cols: COLS,
       rows: ROWS,
       scrollback: 10,
       allowProposedApi: true,
     });
-    // The seam's ident is the number between `ESC ]` and the ST/BEL terminator.
-    const ident = Number(SNAPSHOT_SEED_SEAM.replace(/^\x1b\]|[\x07;].*$/g, ""));
-    expect(Number.isInteger(ident), "seam ident is an integer").toBe(true);
+    const seam = `\x1b]${SNAPSHOT_SEED_SEAM_OSC};tok-abc123\x07`;
     let fired = 0;
-    t.parser.registerOscHandler(ident, () => {
+    let seen: string | undefined;
+    t.parser.registerOscHandler(SNAPSHOT_SEED_SEAM_OSC, (payload) => {
       fired++;
+      seen = payload;
       return true;
     });
-    await new Promise<void>((resolve) =>
-      t.write(`${SNAPSHOT_SEED_SEAM}hello`, resolve),
-    );
+    await new Promise<void>((resolve) => t.write(`${seam}hello`, resolve));
     expect(fired, "seam OSC handler fired exactly once").toBe(1);
+    expect(seen, "handler received the token payload").toBe("tok-abc123");
     // The seam emitted nothing: the following content starts at column 0, row 0.
     const norm = normalBuf(t);
     expect(norm.lines.get(0)?.translateToString(true)).toBe("hello");
