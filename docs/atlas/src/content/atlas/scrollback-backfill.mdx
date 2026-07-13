@@ -2,7 +2,7 @@
 title: Scrollback Backfill — Bounded Attach, Real Scrollback
 description: Attach paints instantly from a small snapshot; scrolling up backfills older history into the terminal's own scrollback via a pinned xterm-internals prepend — no pager, no view jump, up to the full 10k lines kaval holds.
 parents: [feature]
-status: proposed
+status: implemented
 maturity: budding
 updated: 2026-07-12
 ---
@@ -22,7 +22,40 @@ note is the ratified direction that kills that cost without giving up history:
 **attach with a bounded snapshot, then backfill older lines into the live
 terminal's own scrollback as the user scrolls up.** A green prototype grounds
 every claim here (6/6 tests, branch `xterm-prepend-spike`, commit
-`b3cfa37d1`).
+`b3cfa37d1`). Shipped in <PrLink pr={1783} />.
+
+One decision from the prototype changed under implementation, recorded here for
+honesty: the plan sketched a `have`-from-bottom (recent-relative) history cursor,
+but that cannot keep the seam where backfill meets existing content correct —
+it compares the host's produced-line count against the client's received count,
+which differ by the in-flight delta lag, so live output appending mid-fetch would
+duplicate or skip rows at the seam. The shipped cursor is instead an **absolute
+mirror-line index**, seeded from the attach snapshot's `topLine` and anchored on
+an eviction origin the host tracks off the mirror's `onTrim`; a fetch then serves
+strictly *above* the client's content regardless of in-flight output. A width
+change (reflow renumbers absolute rows) makes backfill **deliberately halt**
+until the next snapshot re-seeds — the loaded history reflows correctly, only
+further loading waits.
+
+**Follow-up — the foreign-reflow residual (deliberate, honest, rare).** The halt
+comes in two shapes. A *local* width resize pauses the controller directly. A
+*foreign* width reflow — a second client resizing the **shared** mirror at a
+different width, this client's own columns unchanged — is caught by a per-mirror
+**reflow generation** the host stamps on the snapshot and every fetch echoes:
+once it moves, the host serves a typed `stale` reply and the client halts rather
+than splice a renumbered band. That generation bumps **only** on a real width
+change and on a full RIS reset (which likewise renumbers the mirror); a
+height-only or same-dims resize renumbers nothing and must never halt backfill.
+The residual left in place is narrow and by design: after a genuine foreign-width
+reflow, *deeper* backfill stops until the next natural snapshot re-seeds. It is
+**halt-not-corrupt and honest** — the reply is typed, nothing is corrupted, and
+the user keeps their buffer *and every already-backfilled row*; only further
+loading waits. Its structural cure is a **reflow-invariant (logical-line)
+cursor** that keeps backfilling across a reflow — the named follow-up. A
+re-attach-on-`stale` bandaid was considered and **rejected**: it would repaint
+the screen and discard the backfilled history the user may be reading — trading a
+rare quiet halt for a rare visible loss — and the reflow-invariant cursor would
+delete it anyway.
 
 export const SbStyles = () => (
   <style>{`
@@ -136,11 +169,15 @@ The moving parts, in the order a chunk travels:
    VT interpretation anywhere. A resize (or maximize — the same event)
    *after* a backfill is the proven case: the spike's reflow oracle shows
    prepended history re-wraps row-for-row identically to natively-written
-   history. A resize landing *mid-backfill* gets an explicit guard: the raw
-   bytes are width-agnostic, so at splice time the module compares the live
-   terminal's columns against fetch-time — changed means discard the scratch
-   result and re-replay at the new width (~38 ms, imperceptible), never
-   splice stale-width lines.
+   history. A resize landing *mid-backfill* gets an explicit guard: at splice
+   time the module compares the live terminal's columns against fetch-time —
+   changed means **discard** the scratch result rather than splice stale-width
+   lines. A *local* width change goes further and **pauses** the controller
+   (the absolute cursor a reflow renumbered is no longer valid) until the next
+   snapshot re-seeds it; the loaded history still reflows correctly, only
+   further loading waits. (The original sketch re-replayed at the new width
+   instead; that path was dropped for the simpler halt-not-corrupt pause —
+   see the follow-up note near the top.)
 4. **`scrollbackBackfill.ts` steals the result**: the scratch terminal's
    `BufferLine` objects are plain data, so the module splices them into the
    top of the live buffer's `CircularList`, shifts `ydisp`/`ybase`/`savedY`
@@ -205,15 +242,22 @@ Three boundary decisions, stated as verdicts:
 terminal module, kaval's verbs) and nothing here can ship usefully alone:
 
 1. **The module** — `packages/client/src/terminal/scrollbackBackfill.ts`
-   exporting `prependScrollback(term, rawChunk): number` (returns *M*, the
-   rows inserted). Steps exactly as the prototype's `prependHistory`, plus
-   `term.clearSelection()` before the splice and a skip when the alt buffer
+   exporting `prependScrollback(term, rawChunk, servedRows): PrependResult` — a
+   discriminated `{ kind: "inserted"; rows } | { kind: "skipped" }`, so the
+   caller can never conflate "consumed, inserted *M* rows" with "not consumed"
+   (an alt-buffer or late-splice skip that must not advance the backfill
+   cursor). Steps exactly as the prototype's `prependHistory`, plus
+   `term.clearSelection()` before the splice and a `skipped` when the alt buffer
    is active. Fail-loud throughout.
-2. **The scratch terminal** — a same-version instance, so `BufferLine`
-   internals match the live buffer's. First verification step: confirm an
-   **unopened** `@xterm/xterm` `Terminal` accepts `write()` (the renderer
-   paths are null-guarded in source, so likely) — if not, pin
-   `@xterm/headless` to the same beta in the client and use that.
+2. **The scratch terminal** — the shipped `defaultScratch` is an **unopened**
+   `@xterm/xterm` `Terminal` (same version, so `BufferLine` internals match the
+   live buffer's; no renderer, no DOM — it just parses bytes into a buffer). Its
+   one load-bearing assumption — an unopened `write()` parses into the buffer
+   *and* fires its callback — is **pinned by a contract test** (the SHIPPED
+   export, exercised directly), so a caret-range `@xterm/xterm` bump that defers
+   pre-open parsing turns red in CI rather than into silent corruption. (No
+   fallback to `@xterm/headless` shipped: promoting it to a client runtime dep
+   would put a second parser in the bundle — weighed and declined.)
 3. **The wiring** — attach sends the bounded snapshot; an `onScroll` handler
    fetches the next older chunk from kaval's new history read verb whenever
    `ydisp` drops under **~2× rows**, prepends it, and stops when the mirror
@@ -239,7 +283,7 @@ terminal module, kaval's verbs) and nothing here can ship usefully alone:
 | 1 | **Silent eviction on missing headroom** — the one true corruption mode: splicing past `maxLength` silently trims the oldest rows while the register shift assumes they exist. Demonstrated live in the spike. | Fully guarded: the fail-fast throw-on-overflow check + the baked sizing invariant (step 4) make the state unreachable. |
 | 2 | Private-symbol churn on an xterm upgrade. | Low (every symbol stable across 6.0.0 → 6.1.0-beta.225; versions exact-pinned); the contract-pin tests convert any move into red CI. |
 | 3 | Scratch-replay fidelity edges — OSC-8 link ids dangle, addon-image placements are lost in backfilled rows. | Cosmetic by construction; accepted (see the deliberately-not list). |
-| 4 | Browser-only behaviors unverified headlessly — the unopened-`Terminal` `write()`, one-frame scrollbar jitter, a prepend racing a pending write. | All look safe in source; the first client PR verifies by eyeball + e2e (step 2 is the explicit check). |
+| 4 | Browser-only behaviors unverified headlessly — the unopened-`Terminal` `write()`, one-frame scrollbar jitter, a prepend racing a pending write. | The unopened `write()` is now **pinned by a contract test against the shipped `defaultScratch`** (turns red on an `@xterm/xterm` bump that defers pre-open parsing); the remaining jitter/race edges are verified by eyeball + e2e. |
 | 5 | Selection UX — an active selection is cleared by a prepend. | Accepted for MVP; preserving it needs `_selectionService._model`, a later extension. |
 
 **Deliberately not in scope:**

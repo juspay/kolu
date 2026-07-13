@@ -40,6 +40,7 @@ import type {
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
+  TerminalHistoryChunk,
 } from "../endpoint.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
@@ -229,6 +230,20 @@ class PtyHostTerminalProxy implements TerminalHandle {
       extent,
     });
     return text;
+  }
+
+  async getHistory(
+    before: number | undefined,
+    max: number,
+    epoch?: number,
+  ): Promise<TerminalHistoryChunk> {
+    await this.ready;
+    return this.client.surface.terminal.getHistory({
+      id: this.id,
+      before,
+      max,
+      epoch,
+    });
   }
 }
 
@@ -1177,13 +1192,30 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       );
       const iter = stream[Symbol.asyncIterator]();
       const first = await iter.next();
-      if (first.done) return { snapshot: "", iter };
+      if (first.done) {
+        // The stream ended before its MANDATORY snapshot frame. If the caller
+        // aborted, that is a normal teardown — hand back an empty attachment the
+        // consumer discards. Otherwise the kaval contract was violated (kaval
+        // always yields a snapshot first, even an empty one), so FAIL LOUD rather
+        // than fabricate a valid `{ snapshot: "", topLine: 0 }` that paints a
+        // blank, frozen pane indistinguishable from a real empty terminal.
+        if (signal?.aborted)
+          return { snapshot: "", topLine: 0, reflowEpoch: undefined, iter };
+        throw new Error(
+          `attach(${id}): stream ended before its mandatory snapshot frame`,
+        );
+      }
       if (first.value.kind !== "snapshot") {
         throw new Error(
           `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,
         );
       }
-      return { snapshot: first.value.data, iter };
+      return {
+        snapshot: first.value.data,
+        topLine: first.value.topLine,
+        reflowEpoch: first.value.reflowEpoch,
+        iter,
+      };
     };
 
     const initial = await open();
@@ -1192,6 +1224,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
     return {
       snapshot: initial.snapshot,
+      topLine: initial.topLine,
+      reflowEpoch: initial.reflowEpoch,
       deltas: reattachingDeltas(open, initial.iter),
     };
   }

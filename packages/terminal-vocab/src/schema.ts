@@ -49,6 +49,22 @@ import { z } from "zod";
 export const TerminalIdSchema = z.string().uuid();
 export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
+// ── Client scrollback depth ───────────────────────────────────────────
+
+/** The CLIENT's visible scrollback, in lines — what the browser xterm retains,
+ *  what `exportScrollbackAsPdf.ts` serializes, and the ceiling the
+ *  scrollback-backfill prepend must never exceed. A terminal-DOMAIN fact both
+ *  the app (client + kolu-common) AND the per-host daemon (`@kolu/padi`, for its
+ *  startup headroom assertion) must agree on, so it lives HERE — the shared
+ *  browser-safe terminal vocabulary — not in `kolu-common/config`: padi asserting
+ *  `client scrollback ≥ mirror + snapshot` must not force the forbidden
+ *  `@kolu/padi → kolu-common` back-edge, and this value must ride padi's HASHED
+ *  build closure so a change to it flips `PADI_BUILD_ID` and recycles a stale
+ *  survivor. Sized for multi-hour Claude sessions. A DISTINCT axis from kaval's
+ *  smaller per-terminal `DEFAULT_MIRROR_SCROLLBACK` (see
+ *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
+export const DEFAULT_SCROLLBACK = 50_000;
+
 // ── Agent status ──────────────────────────────────────────────────────
 
 // `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,

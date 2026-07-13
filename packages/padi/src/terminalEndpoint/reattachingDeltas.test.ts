@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import type { PtyHostDataMsg } from "kaval";
 import { describe, expect, it } from "vitest";
+import type { TerminalAttachFrame } from "../endpoint.ts";
 import {
   type OpenedAttach,
   reattachingDeltas,
@@ -24,37 +25,51 @@ function framesIter(frames: PtyHostDataMsg[]): AsyncIterator<PtyHostDataMsg> {
 const delta = (data: string): PtyHostDataMsg => ({ kind: "delta", data });
 const overflow: PtyHostDataMsg = { kind: "overflow" };
 
-async function collect(gen: AsyncGenerator<string>): Promise<string[]> {
-  const out: string[] = [];
-  for await (const s of gen) out.push(s);
+async function collect(
+  gen: AsyncGenerator<TerminalAttachFrame>,
+): Promise<TerminalAttachFrame[]> {
+  const out: TerminalAttachFrame[] = [];
+  for await (const f of gen) out.push(f);
   return out;
 }
+/** The `data` field of each frame — the byte-stream projection the tests assert
+ *  on for the string outputs. */
+const data = (out: TerminalAttachFrame[]) => out.map((f) => f.data);
+/** The re-seed anchor per frame: a `snapshot` frame's `topLine`, `undefined` for
+ *  a plain `delta` (the discriminated-union projection of the old optional field). */
+const topLines = (out: TerminalAttachFrame[]) =>
+  out.map((f) => (f.kind === "snapshot" ? f.topLine : undefined));
 
 describe("reattachingDeltas", () => {
-  it("yields the delta strings and ends on a graceful stream end", async () => {
+  it("yields the delta frames and ends on a graceful stream end", async () => {
     const initial = framesIter([delta("a"), delta("b")]);
     const open = (): Promise<OpenedAttach> => {
       throw new Error("must not re-attach on a graceful end");
     };
-    expect(await collect(reattachingDeltas(open, initial))).toEqual(["a", "b"]);
+    const out = await collect(reattachingDeltas(open, initial));
+    expect(data(out)).toEqual(["a", "b"]);
+    // Plain deltas carry no re-seed.
+    expect(out.every((f) => f.kind === "delta")).toBe(true);
   });
 
-  it("re-attaches on an `overflow` frame, prefixing the fresh snapshot with a reset", async () => {
+  it("re-attaches on an `overflow` frame, prefixing a reset + re-seeding topLine", async () => {
     // First leg drops after one delta; the re-attach delivers a fresh snapshot
-    // and one more delta, then ends gracefully.
+    // (with its own seed) and one more delta, then ends gracefully.
     const initial = framesIter([delta("before"), overflow]);
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
       opened++;
       return Promise.resolve({
         snapshot: "FRESH",
+        topLine: 42,
         iter: framesIter([delta("after")]),
       });
     };
     const out = await collect(reattachingDeltas(open, initial));
     // The dropped subscriber's delta is delivered; then the reset-prefixed fresh
-    // snapshot replaces the screen; then the re-attached deltas flow.
-    expect(out).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
+    // snapshot replaces the screen AND re-seeds the backfill cursor; then deltas.
+    expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
+    expect(topLines(out)).toEqual([undefined, 42, undefined]);
     expect(opened).toBe(1);
   });
 
@@ -65,15 +80,17 @@ describe("reattachingDeltas", () => {
     const open = (): Promise<OpenedAttach> =>
       Promise.resolve({
         snapshot: `S${leg}`,
+        topLine: leg * 10,
         iter: framesIter(legs[leg++] as PtyHostDataMsg[]),
       });
     const out = await collect(reattachingDeltas(open, initial));
-    expect(out).toEqual([
+    expect(data(out)).toEqual([
       `${TERMINAL_RESET}S0`,
       "one",
       `${TERMINAL_RESET}S1`,
       "two",
     ]);
+    expect(topLines(out)).toEqual([0, undefined, 10, undefined]);
   });
 
   it("ends cleanly when the PTY has vanished by the time we re-attach (NOT_FOUND)", async () => {
@@ -82,7 +99,9 @@ describe("reattachingDeltas", () => {
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject(new ORPCError("NOT_FOUND", { message: "no PTY" }));
-    expect(await collect(reattachingDeltas(open, initial))).toEqual(["x"]);
+    expect(data(await collect(reattachingDeltas(open, initial)))).toEqual([
+      "x",
+    ]);
   });
 
   it("propagates a non-NOT_FOUND re-attach failure", async () => {

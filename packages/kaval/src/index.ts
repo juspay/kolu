@@ -59,12 +59,16 @@ export {
   type ForegroundSample,
   type PtyAttachment,
   type PtyHandle,
+  type PtyHistoryChunk,
   type PtyHost,
   type PtyHostOptions,
   type PtyId,
   type PtyListEntry,
   type PtySpawnOpts,
   type PtySpawnResult,
+  // The bounded attach-snapshot depth — paired with DEFAULT_MIRROR_SCROLLBACK in
+  // the scrollback-backfill sizing invariant a consumer asserts at startup.
+  SNAPSHOT_SCROLLBACK,
   // The public bound type named in `PtyHost`/`PtyHandle`'s `getScreenText`
   // signatures — re-exported so a downstream consumer can name the parameter.
   type ScreenExtent,

@@ -115,12 +115,17 @@ export function createScrollLock(
   } | null>(null);
   const isLocked = () => lockState() !== null;
 
-  /** Data buffered while scroll-locked — flushed on unlock. The reactive
-   *  source for the buffer; `pendingChunks` is derived from its length, so
-   *  there is exactly one write surface (`setPending`) and no parallel count
-   *  to keep in sync. `hasNewOutput` is in turn a boolean projection of that
-   *  same count — derived, not a separate signal to clear at every flush. */
-  const [pending, setPending] = createSignal<string[]>([]);
+  /** Data buffered while scroll-locked — flushed on unlock. Each entry keeps its
+   *  own `onParsed` write callback: a chunk's callback fires only when its bytes
+   *  reach xterm's buffer, and a snapshot frame's backfill re-seed rides one
+   *  (Terminal.tsx). The reactive source for the buffer; `pendingChunks` is
+   *  derived from its length, so there is exactly one write surface
+   *  (`setPending`) and no parallel count to keep in sync. `hasNewOutput` is in
+   *  turn a boolean projection of that same count — derived, not a separate
+   *  signal to clear at every flush. */
+  const [pending, setPending] = createSignal<
+    { data: string; onParsed?: () => void }[]
+  >([]);
   const pendingChunks = () => pending().length;
   const hasNewOutput = () => pendingChunks() > 0;
 
@@ -205,13 +210,28 @@ export function createScrollLock(
     }
   }
 
-  /** Flush all buffered data to the terminal. */
+  /** Flush all buffered data to the terminal. Writes the joined chunks in one
+   *  shot, then fires every buffered chunk's `onParsed` callback once that write
+   *  has PARSED — so a backfill re-seed (or render-stall `noteData`) that rode a
+   *  chunk's callback still runs after the flush lands, instead of being dropped.
+   *  A callback-less flush is what silently lost a snapshot frame's seed under
+   *  scroll lock, leaving a stale backfill cursor against the reset buffer. */
   function flush(): void {
     const buffered = pending();
     if (buffered.length === 0 || !termRef) return;
-    const data = buffered.join("");
+    const data = buffered.map((c) => c.data).join("");
+    const callbacks = buffered
+      .map((c) => c.onParsed)
+      .filter((cb): cb is () => void => cb !== undefined);
     setPending([]);
-    termRef.write(data);
+    termRef.write(
+      data,
+      callbacks.length === 0
+        ? undefined
+        : () => {
+            for (const cb of callbacks) cb();
+          },
+    );
   }
 
   /** Clear all scroll-lock state, flushing any buffered data first. */
@@ -334,12 +354,13 @@ export function createScrollLock(
    * parses asynchronously off a `setTimeout` — `term.write` returns long before
    * the data is paintable). Render-stall recovery passes its `noteData` here so
    * the watchdog is keyed to "data is in the buffer, paint should follow", not
-   * to stream receipt. When the lock buffers a chunk it produces no paint, so
-   * `onParsed` is deliberately NOT invoked — arming the watchdog for buffered
-   * data would force pointless sync repaints of the scrollback the user is
-   * reading. (On lock release the buffered flush rejoins the bottom via a user
-   * scroll / tab-visible / window-focus path, each of which already forces a
-   * repaint via recover().)
+   * to stream receipt; a snapshot frame passes its backfill re-seed committer.
+   * When the lock BUFFERS a chunk it produces no paint yet, so `onParsed` is not
+   * invoked now — it is stashed WITH the chunk and fired by `flush()` once the
+   * buffered write parses on unlock. (Firing it while buffered would arm the
+   * watchdog against unpainted data, forcing pointless sync repaints of the
+   * scrollback the user is reading; deferring it to flush both avoids that AND
+   * keeps a re-seed that rides the callback from being lost across the lock.)
    */
   function writeData(
     term: Terminal,
@@ -350,7 +371,10 @@ export function createScrollLock(
       term.write(data, onParsed);
       return;
     }
-    setPending((buffered) => [...buffered, data]);
+    // Stash the callback WITH the chunk (not invoked now — no paint yet); flush()
+    // fires it once the buffered write parses on unlock, so a re-seed that rides
+    // the callback survives the lock instead of being silently dropped.
+    setPending((buffered) => [...buffered, { data, onParsed }]);
   }
 
   /**
