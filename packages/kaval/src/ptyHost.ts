@@ -921,7 +921,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // rides with the snapshot from the same serialize, so the backfill seed can
     // never drift from the bytes the client received.
     const { snapshot, topLine } = boundedSnapshotOf(entry);
-    return { snapshot, topLine, reflowEpoch: entry.anchor.reflowEpoch(), deltas };
+    return {
+      snapshot,
+      topLine,
+      reflowEpoch: entry.anchor.reflowEpoch(),
+      deltas,
+    };
   }
 
   function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
@@ -1034,7 +1039,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // (the ones between the snapshot top and the screen) the CLI is asked to dump.
     const cursor =
       before ??
-      entry.anchor.baseLine() + Math.max(0, buffer.length - entry.headless.rows);
+      entry.anchor.baseLine() +
+        Math.max(0, buffer.length - entry.headless.rows);
     const localEnd = Math.min(
       cursor - entry.anchor.baseLine() - 1,
       buffer.length - 1,

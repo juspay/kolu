@@ -51,7 +51,9 @@ function transitiveValueImports(entry: string): Set<string> {
       if (!m) continue;
       const spec = m[1];
       if (spec.startsWith(".")) {
-        visit(resolve(dirname(file), spec.endsWith(".ts") ? spec : `${spec}.ts`));
+        visit(
+          resolve(dirname(file), spec.endsWith(".ts") ? spec : `${spec}.ts`),
+        );
       } else {
         bare.add(spec);
       }

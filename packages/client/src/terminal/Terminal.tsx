@@ -51,8 +51,12 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
-import { createScrollLock } from "../scrollLock";
-import { wireScrollIntent } from "../scrollLockWiring";
+import {
+  createRenderRecovery,
+  createScrollLock,
+  enableSoftKeyboardInput,
+  wireScrollIntent,
+} from "@kolu/xterm-kit/solid";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import { activePadiRpc, preferences } from "../wire";
@@ -62,15 +66,13 @@ import {
 } from "./fileRefLinkProvider";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
-import { createRenderRecovery } from "./renderRecovery";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
-import { createSnapshotBoundary } from "./snapshotBoundary";
+import { createSnapshotBoundary } from "@kolu/xterm-kit";
 import {
   type BackfillController,
   createBackfillController,
-} from "./scrollbackBackfill";
-import { enableSoftKeyboardInput } from "./softKeyboardInput";
+} from "@kolu/xterm-kit/backfill";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { useTerminalActivity } from "./useTerminalActivity";
@@ -84,7 +86,7 @@ import {
 import {
   patchTransformAwareMouseCoords,
   readBufferBytes,
-} from "./xtermInternals";
+} from "@kolu/xterm-kit/internals";
 
 /** Module-level counters for the #606 disposal audit. Exposed to window
  *  via `debug/consoleHooks.ts`. `mounts` increments once per component
