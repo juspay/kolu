@@ -193,6 +193,36 @@ returns, **`snapshot --viewport` and read** what's on screen before responding.
 > }
 > ```
 
+## Provisioning a worktree'd agent — `padi-tui create`
+
+When the terminal should be a **kolu-owned** workspace — visible on the canvas,
+tracked by padi's agent sensors so `padi-tui wait` works against it — provision
+it with `padi-tui create` instead of raw `kaval-tui create`:
+
+```sh
+git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
+padi-tui create --repo /abs/path/to/repo --worktree my-branch -- claude
+# prints the new terminal's id; padi owns it and it appears on the canvas
+```
+
+- **Fast-forward the base repo first.** `--worktree` branches from the repo's
+  checkout as it stands — a stale default branch silently seeds the agent an old
+  tree, and nothing errors.
+- **`create` returning ≠ the agent is ready.** Snapshot before dispatching: a
+  fresh worktree's first dev-env build can take minutes, and a first-run agent
+  may sit on a one-time dialog (MCP server selection, a trust prompt) that needs
+  its own `send --key Enter`. Drive every boot step by `snapshot`, never by
+  sleeping and hoping.
+- **Set the permission mode deliberately, then verify it.** An agent that will
+  run unattended goes in **auto mode**: cycle with `kaval-tui send <id> --key
+  Shift-Tab` and re-`snapshot` the footer until it reads `auto mode on` (the
+  cycle is manual → accept edits → plan → auto — verify after each press; never
+  count presses blind, the starting point varies).
+- **Restarting the agent CLI in place:** text typed at a *running* agent becomes
+  a prompt (your `claude …` command line gets answered, not executed), and `C-c`
+  doesn't reliably quit the TUI — send `/exit` (its own three-step submit), wait
+  for the shell prompt to show in the snapshot, then launch again.
+
 ## `padi-tui wait` vs `kaval-tui wait` — two done-signals
 
 They are not rivals; they read different things:
