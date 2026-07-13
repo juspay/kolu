@@ -8,6 +8,8 @@ updated: 2026-07-13
 ---
 
 import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
 import Svg from "../../components/Svg.astro";
 import stack from "../../diagrams/chat-native-agents-stack.svg?raw";
 import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
@@ -129,8 +131,8 @@ itself uses on workers.
 
 | Surface | Half | Reuses |
 | --- | --- | --- |
-| the board | out · read-only | padi's agent sensors — which agent is working / asking you / just finished (`padi-tui wait`'s buckets), rendered straight into the thread with no coordinator hop |
-| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop |
+| the board | out · read-only | padi's agent sensors — which agent is working / asking you / just finished (`padi-tui wait`'s buckets), rendered into the thread on demand with no coordinator hop |
+| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<Footnote>Gated on XS growing an inbound push path: today an XS bot speaks only in response to a message (DM or mention) — there is no bot-initiated post for an external bot. Until XS's incoming-webhook/sender path ships, attention reaches you through kolu's own OS notifications, or rides the next interaction in the thread.</Footnote> |
 | deep links | out | a kolu URL to the exact terminal — depth on demand: step in, answer the interactive prompt, debug, in kolu itself |
 | the coordinator bridge | in + out | one terminal's screen and input — send a message, wait for the turn to end, read the reply: the identical agent-drives-agent loop kolu already ships |
 
@@ -161,18 +163,71 @@ running record of what was decided and why. AI-assisted discussion among humans 
 out of the coordinator pattern for free — no second bot, no separate "assistant" mode,
 one attributed inbox.
 
-## The first proof: an XS bot
+## The first proof: pesu, in the kolu tree
 
-`pesu` is a small XS bot that binds one XS thread to the coordinator's terminal: it
-renders the board and the coordinator's reports into the thread, and relays the thread's
-messages — attributed — as the coordinator's input. It rides XS's own identity, presence,
-and login, and needs no auth in kolu: just the connection.
+XS's bot framework is backend-native, and it decides pesu's shape: a bot is either a
+TypeScript class *inside* the XS backend, or an **external bot** — a catalog entry that
+forwards each message to an HTTP/SSE service you run. `pesu` is the external kind, and
+that is the trust model working as designed: the service is a small daemon in the
+**kolu source tree** (`packages/pesu` — an app-tier sibling of kolu-server: it imports
+`@kolu/surface` and the terminal-drive client, nothing imports it), running **beside
+kolu on the machine you own**. XS reaches it over one authenticated HTTP call per
+message; nothing of kolu's runs inside the chat vendor's backend.
 
-**The milestone is concrete: run kolu's own development from a thread.** kolu is already
-built this way — a coordinator driving a fleet of worker agents through the exact loop
-the bot would mirror — so the bot is a renderer of a proven pattern, not new coordination
-machinery. What pesu proves is the *chat half*: XS identity mapped to attribution, a
-thread bound durably to one terminal, and the stream rendered where the team already is.
+The two directions of the mirror ride two different mechanisms, and only one of them
+ships on XS's SDK today:
+
+- **In — thread → coordinator — is request/response, and ships now.** XS POSTs each
+  message with `{{message}}`, the attribution fields (`{{userId}}` / `{{userEmail}}` /
+  `{{userName}}`), and `{{conversationId}}` — the stable thread key pesu binds to the
+  coordinator terminal (no session token needed). pesu prefixes the attribution and
+  relays into the coordinator's PTY with the same send → wait → read loop the
+  coordinator uses on workers, streaming the reply back as SSE
+  `data: {"content": …}` chunks — one growing bot message per turn, exactly one
+  terminal event.<Footnote>Two SDK facts pesu must respect: the external fetch has no
+  timeout, so pesu — not XS — owns turn-level timeouts and must forward output
+  incrementally rather than buffering the turn; and only streamed `content` is
+  authoritative for the persisted message, so the reply goes out as chunks, never as a
+  final blob on `done`. Mentions need the catalog ID in XS's chat-enabled list; XS then
+  routes every later human reply in a bot-started thread back to pesu automatically —
+  the thread *is* the conversation with the coordinator.</Footnote>
+- **Out — coordinator → thread, unprompted — is a transcript mirror, and is gated.**
+  The honest mirror relays what the coordinator says *between* thread messages too:
+  worker reports arriving, rulings issued, background tasks settling. pesu reads this
+  from the coordinator's **transcript** (structured turns with clean message
+  boundaries — the assistant's text messages are already written for a human reader),
+  never by scraping the screen; the PTY is its write path, the transcript its read
+  path. But today an XS bot speaks only when spoken to — there is no bot-initiated
+  post for an external bot — so the unprompted half (transcript relay *and* attention
+  pings) waits on XS growing an inbound push path. Until then, out-traffic rides
+  within-turn streaming only.
+
+**Does the coordinator get chat verbs of its own?** By default, no — the coordinator
+stays chat-unaware, which is what keeps the mirror agent-CLI-agnostic and the bridge
+passive. But pesu declares its verbs (post to the thread, read the binding, render the
+board) as an ordinary `@kolu/surface` — so `@kolu/surface-mcp` re-exposes them as MCP
+tools *for free*, and a coordinator that wants a deliberate voice (post a table to the
+channel, put a question to a named human) can opt in by consuming that MCP server. One
+implementation, two faces; the passive mirror never depends on the opt-in.
+
+<PhaseTree title="ROADMAP — pesu (the XS bridge)" phases={PESU} />
+
+export const PESU = [
+  { d: 0, g: "▶", c: "next", l: "B0 · the bridge daemon + XS catalog entry — thread↔coordinator binding, attributed write-in, within-turn SSE out", m: "ships on today's SDK", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B1 · the board on demand — @pesu status renders padi's who-needs-me table as a tool output", m: "needs B0", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B2 · the unprompted half — transcript mirror + attention pings into the thread", m: "needs B0 · gated on XS's inbound push path", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B3 · the surface + MCP face — pesu's verbs as @kolu/surface, re-exposed via surface-mcp for a chat-aware coordinator (opt-in)", m: "needs B0", h: "#b0" },
+  { d: 0, g: "○", c: "last", l: "B4 · team hardening — multi-human attribution conventions, deep links, the discussion-assist patterns", m: "needs B2", h: "#b0" },
+];
+
+<a id="b0"></a>
+
+**The milestone is concrete: run kolu's own development from a thread (B0 + B1).** kolu
+is already built this way — a coordinator driving a fleet of worker agents through the
+exact loop pesu mirrors — so the bridge is a renderer of a proven pattern, not new
+coordination machinery. What it proves is the *chat half*: XS identity mapped to
+attribution, a thread bound durably to one coordinator terminal, and the stream rendered
+where the team already is.
 
 <PesuStyles />
 <PesuThread />
