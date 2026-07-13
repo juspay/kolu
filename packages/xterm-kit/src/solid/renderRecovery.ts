@@ -43,7 +43,7 @@
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { onCleanup } from "solid-js";
-import { readDecPrivateMode, renderService } from "./xtermInternals";
+import { readDecPrivateMode, renderService } from "../internals";
 
 /** How long after output arrives we allow a paint to be missing before the
  *  watchdog forces one. Comfortably longer than a serviced rAF (~16 ms) and

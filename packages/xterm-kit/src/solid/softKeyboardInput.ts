@@ -21,10 +21,10 @@
  *  DOM exists. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
-import { isTouch } from "../useMobile";
+import { isCoarsePointer } from "./pointer";
 
 export function enableSoftKeyboardInput(term: XTerm): HTMLElement | null {
-  if (!isTouch()) return null;
+  if (!isCoarsePointer()) return null;
   const screen = term.element?.querySelector(
     ".xterm-screen",
   ) as HTMLElement | null;
