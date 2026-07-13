@@ -132,7 +132,7 @@ itself uses on workers.
 | Surface | Half | Reuses |
 | --- | --- | --- |
 | the board | out · read-only | padi's agent sensors — which agent is working / asking you / just finished (`padi-tui wait`'s buckets), rendered into the thread on demand with no coordinator hop |
-| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<Footnote>Gated on XS growing an inbound push path: today an XS bot speaks only in response to a message (DM or mention) — there is no bot-initiated post for an external bot. Until XS's incoming-webhook/sender path ships, attention reaches you through kolu's own OS notifications, or rides the next interaction in the thread.</Footnote> |
+| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<Footnote>Unprompted posts ride XS's incoming webhooks — shipped, Slack-compatible: a per-channel secret-bound URL (POST /api/apps/webhooks/:workspaceId/:appId/:secret) accepts text and Block Kit payloads and posts as the installed app, with thread replies via conversationId.</Footnote> |
 | deep links | out | a kolu URL to the exact terminal — depth on demand: step in, answer the interactive prompt, debug, in kolu itself |
 | the coordinator bridge | in + out | one terminal's screen and input — send a message, wait for the turn to end, read the reply: the identical agent-drives-agent loop kolu already ships |
 
@@ -191,33 +191,38 @@ ships on XS's SDK today:
   final blob on `done`. Mentions need the catalog ID in XS's chat-enabled list; XS then
   routes every later human reply in a bot-started thread back to pesu automatically —
   the thread *is* the conversation with the coordinator.</Footnote>
-- **Out — coordinator → thread, unprompted — is a transcript mirror, and is gated.**
-  The honest mirror relays what the coordinator says *between* thread messages too:
-  worker reports arriving, rulings issued, background tasks settling. pesu reads this
-  from the coordinator's **transcript** (structured turns with clean message
-  boundaries — the assistant's text messages are already written for a human reader),
-  never by scraping the screen; the PTY is its write path, the transcript its read
-  path. But today an XS bot speaks only when spoken to — there is no bot-initiated
-  post for an external bot — so the unprompted half (transcript relay *and* attention
-  pings) waits on XS growing an inbound push path. Until then, out-traffic rides
-  within-turn streaming only.
+- **Out — coordinator → thread, unprompted — is a transcript mirror over XS's
+  incoming webhooks.** The mirror relays what the coordinator says *between* thread
+  messages too: worker reports arriving, rulings issued, background tasks settling.
+  pesu reads this from the coordinator's **transcript** (structured turns with clean
+  message boundaries — the assistant's text messages are already written for a human
+  reader), never by scraping the screen; the PTY is its write path, the transcript its
+  read path. The posts ride XS's shipped, Slack-compatible incoming webhooks — a
+  per-channel secret-bound URL that accepts text and Block Kit and posts as the
+  installed app, with thread replies via `conversationId`.<Footnote>One identity nuance
+  B2 verifies at build time: webhook posts are tied to an installed *app* and a
+  channel, while the conversational bot is a catalog *bot* user — pesu must either
+  unify the two identities or accept the mirror posting as its app identity. Thread
+  targeting via conversationId is documented as partial; fidelity of threaded replies
+  is B2's first acceptance check.</Footnote>
 
-**Does the coordinator get chat verbs of its own?** By default, no — the coordinator
-stays chat-unaware, which is what keeps the mirror agent-CLI-agnostic and the bridge
-passive. But pesu declares its verbs (post to the thread, read the binding, render the
-board) as an ordinary `@kolu/surface` — so `@kolu/surface-mcp` re-exposes them as MCP
-tools *for free*, and a coordinator that wants a deliberate voice (post a table to the
-channel, put a question to a named human) can opt in by consuming that MCP server. One
-implementation, two faces; the passive mirror never depends on the opt-in.
+**Does the coordinator get chat verbs of its own?** No — the coordinator stays
+chat-unaware, which is what keeps the mirror agent-CLI-agnostic and the bridge passive.
+Structured, deliberate-looking output doesn't need coordinator agency either: the
+webhook path accepts Block Kit, so tables and formatted posts are pesu's rendering
+concern. An MCP face (pesu's verbs as a `@kolu/surface`, re-exposed via
+`@kolu/surface-mcp`) is recorded as an option, not a phase — its sole revival
+condition is a coordinator demonstrably needing to *initiate* a chat action the
+transcript mirror cannot express (posting to a different channel, addressing a named
+human out-of-thread). Until that consumer exists, it is not built.
 
 <PhaseTree title="ROADMAP — pesu (the XS bridge)" phases={PESU} />
 
 export const PESU = [
   { d: 0, g: "▶", c: "next", l: "B0 · the bridge daemon + XS catalog entry — thread↔coordinator binding, attributed write-in, within-turn SSE out", m: "ships on today's SDK", h: "#b0" },
   { d: 0, g: "○", c: "todo", l: "B1 · the board on demand — @pesu status renders padi's who-needs-me table as a tool output", m: "needs B0", h: "#b0" },
-  { d: 0, g: "○", c: "todo", l: "B2 · the unprompted half — transcript mirror + attention pings into the thread", m: "needs B0 · gated on XS's inbound push path", h: "#b0" },
-  { d: 0, g: "○", c: "todo", l: "B3 · the surface + MCP face — pesu's verbs as @kolu/surface, re-exposed via surface-mcp for a chat-aware coordinator (opt-in)", m: "needs B0", h: "#b0" },
-  { d: 0, g: "○", c: "last", l: "B4 · team hardening — multi-human attribution conventions, deep links, the discussion-assist patterns", m: "needs B2", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B2 · the unprompted half — transcript mirror + attention pings, posted via XS's shipped incoming webhooks", m: "needs B0 · verify thread-reply fidelity first", h: "#b0" },
+  { d: 0, g: "○", c: "last", l: "B3 · team hardening — multi-human attribution conventions, deep links, the discussion-assist patterns", m: "needs B2", h: "#b0" },
 ];
 
 <a id="b0"></a>
