@@ -43,7 +43,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Every steer, interview answer, and design ruling sent to an agent is judged by /perfection-review (does the choice make the defect class inexpressible, or merely patch the instance?) and /architecture-first-principles — and the message names the principle that grounds it, so the agent can audit the reasoning, not just obey the verdict. No convenience answers; coordination cost never moves architecture (a fix's correct location wins over avoiding a merge conflict — the coordinator sequences the merges instead).
 - Give agents facts, never hypotheses or suspicions — fed bias voids an independent review. A refuted coordinator claim gets corrected at the source (the issue, the brief), not just conceded in chat.
 - When two in-flight agents share a seam, the coordinator owns merge order: the later PR states the dependency in its body and rebases after the earlier one lands; an agent never redesigns around a foreseeable conflict, and reports instead of improvising when a rebase turns non-trivial.
-- "Judged by /perfection-review" means the skill is loaded and run against the ruling before it is sent — never applied from memory. Dispositions (defer / accept / re-scope) especially: their rules live in that skill, and recalling a standard is not running it — a banned someday-deferral once shipped while this file already said "judged by". Do not mirror the skill's individual rules into this file.
+- "Judged by /perfection-review" means the skill is loaded and run against the ruling before it is sent — never applied from memory. Every ruling/steer ENDS with a content-bearing check block — the run's actual output, never a motto: a `grounded:` line citing the claims verified at file:line, an `unspellable:` line naming the defect class the ruling closes (or why n/a), a `disposition:` line (fix-now, or recorded-where-with-gate — never bare defer). A block that could have been written without doing the work (no citations, generic text) is the tell; receiving agents bounce a hollow block. A static compliance signature is banned — it asserts exactly when false. Dispositions (defer / accept / re-scope) especially: their rules live in that skill, and recalling a standard is not running it — a banned someday-deferral once shipped while this file already said "judged by". Do not mirror the skill's individual rules into this file.
 - Routed questions are answered under this section's standing rules, unchanged. Escalate to the human — via AskUserQuestion in the coordinator's own session, where the human actually is — only the forks that are genuinely the human's to rule.
 
 ## Verification
@@ -56,12 +56,14 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 
 ## The coordinator's own changes
 
-- Atlas edits authored by the coordinator go through ONE workflow: a dedicated
-  atlas branch checked out in the coordinator's own working directory — reuse
-  the currently-open atlas branch/PR if one exists, else cut a new branch off
-  latest master, in place. Batch atlas work there; the PR is opened when the
-  human says they are ready to merge, and the human merges. Atlas edits never
-  ride a feature branch, a scratch worktree, or another PR's branch.
+- Atlas edits authored by the coordinator go through ONE workflow: the branch
+  is NAMED `atlas`, checked out in the coordinator's own working directory, and
+  there is EXACTLY ONE atlas branch/PR at any moment. Reuse it if it exists
+  (after pulling latest master); else cut `atlas` fresh off latest master, in
+  place. After its PR merges, the branch is deleted and the next atlas task
+  cuts it anew. Batch atlas work there; the PR is opened when the human says
+  they are ready to merge, and the human merges. Atlas edits never ride a
+  feature branch, a scratch worktree, or another PR's branch.
 - Skill edits are the exception with their own shape: a fresh branch off latest
   master per change, PR opened immediately as draft.
 
