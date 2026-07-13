@@ -40,3 +40,19 @@ Feature: Mobile host row
     When I tap the mobile add-host affordance
     Then the mobile add-host section should be visible
     And there should be no page errors
+
+  @mobile
+  Scenario: The host row stays reachable when the canvas isn't a workspace
+    # Regression: the pull-down chrome (and with it the host row) used to live
+    # INSIDE the workspace tile view, so any non-workspace canvas — a
+    # connecting/warming host, a down host, or zero terminals — dropped the
+    # pull-handle and stranded the user with no way to switch hosts. The chrome
+    # now lives above the canvas Switch (`MobilePullChrome`), present in every
+    # mode. Reaching the empty (zero-terminal) canvas is the e2e-reachable proxy
+    # for that whole class; the host-down/connecting cases share the code path.
+    When I close the active terminal via command palette
+    Then the empty state tip should be visible
+    When I tap the mobile pull handle
+    Then the mobile chrome sheet should be visible
+    And the mobile host row should be visible
+    And there should be no page errors
