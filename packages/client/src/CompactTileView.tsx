@@ -22,16 +22,12 @@ import type { TerminalId } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
 import { DockList } from "./canvas/dock/DockList";
 import MobileTileView from "./MobileTileView";
-import type { WsStatus } from "./rpc/rpc";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 const CompactTileView: Component<{
   /** Workspace-switcher-ordered ids — passed through to the terminal pane for
    *  swipe-to-cycle (the rail reads the same `useDockOrder` order itself). */
   orderedIds: TerminalId[];
-  status: WsStatus;
-  appTitle: string;
-  onOpenPalette: () => void;
   renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
   bottomBar?: JSX.Element;
 }> = (props) => {
@@ -53,9 +49,6 @@ const CompactTileView: Component<{
       </aside>
       <MobileTileView
         orderedIds={props.orderedIds}
-        status={props.status}
-        appTitle={props.appTitle}
-        onOpenPalette={props.onOpenPalette}
         renderBody={props.renderBody}
         bottomBar={props.bottomBar}
         hideDockDrawer
