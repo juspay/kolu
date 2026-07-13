@@ -7,21 +7,31 @@ and `Terminal` objects, and knows nothing about a PTY, a host, a wire frame, or 
 keybinding. The plan of record and API design is the Atlas note
 [xterm-kit](../../docs/atlas/src/content/atlas/xterm-kit.mdx).
 
-Two entrypoints, matching two consumers:
+**Four entrypoints**, each owning its own dependency so a consumer pulls only
+what it can run. kaval (a Node daemon) imports the runtime-neutral root; the
+client imports all four.
 
-## `@kolu/xterm-kit` — the runtime-neutral core
+## `@kolu/xterm-kit` — the runtime-neutral core (the root)
 
-Works on a browser `@xterm/xterm` `Terminal` **or** an `@xterm/headless` one. No
-`solid-js`, so a Node daemon (kaval) imports it without vendoring a UI framework
-— a guarantee pinned by `noSolidInDaemon.test.ts`.
+Works on a browser `@xterm/xterm` `Terminal` **or** an `@xterm/headless` one.
+Imports no `solid-js` and constructs no concrete terminal, so a Node daemon
+imports it without vendoring a UI framework and without the static `@xterm/xterm`
+named import that crashes Node's cjs-module-lexer under tsx — both pinned by
+`noSolidInDaemon.test.ts`.
 
 - `createMirrorAnchor` / `snapToWrapHead` — absolute mirror-line coordinates that
   survive scrollback eviction and a RIS buffer swap (the bookkeeping lifted from
-  kaval's `ptyHost`).
-- `createBackfillController` / `prependScrollback` — scroll-triggered in-place
-  scrollback backfill; the fail-loud buffer surgery under it.
+  kaval's `ptyHost`). The only core piece the headless daemon consumes.
 - `createSnapshotBoundary` — first-frame-is-snapshot vs. live-delta
   discrimination for a reattaching stream.
+
+## `@kolu/xterm-kit/backfill` — in-place scrollback backfill (browser-only)
+
+Split out of the root because it **constructs `@xterm/xterm` scratch terminals**
+— daemon-hostile, so kaval never loads it.
+
+- `createBackfillController` / `prependScrollback` — scroll-triggered older-history
+  backfill and the fail-loud buffer surgery under it.
 - `defaultScratch` / `isAltBufferActive` — the scratch-terminal factory and the
   alt-buffer read the controller leans on.
 
@@ -29,16 +39,18 @@ Works on a browser `@xterm/xterm` `Terminal` **or** an `@xterm/headless` one. No
 
 Cosmetic reads that **degrade to `null`** when a pinned private symbol moves (a
 render-service probe, a DEC-mode read, per-buffer byte counts, the
-transform-aware pointer→cell mapping). The opposite philosophy from the core's
-buffer mutations, which **throw** — both pinned by contract tests.
+transform-aware pointer→cell mapping) — the opposite philosophy from the core's
+buffer mutations, which **throw**. Both pinned by contract tests.
 
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
-- `Xterm` / `createXtermLifecycle` — the component and its owner-correct
-  async-dispose primitive.
-- `attachWebGL` / `createRenderRecovery` — WebGL context-loss recovery and forced
-  repaint when the rAF loop parks.
-- `createScrollLock` / `wireScrollIntent` — freeze-while-reading latch and its DOM
-  wiring.
-- `enableSoftKeyboardInput` / `wireTouchTaps` / `wireTouchScroll` — the mobile
-  touch surface xterm 6.0 ships none of.
+- `createScrollLock` / `wireScrollIntent` — the freeze-while-reading latch and its
+  DOM wiring.
+- `createRenderRecovery` — forced synchronous repaint when the rAF paint loop
+  parks under occlusion.
+- `enableSoftKeyboardInput` / `isCoarsePointer` — the touch soft-keyboard surface
+  and its coarse-pointer gate.
+
+> The `<Xterm>` component and its primitives (`createXtermLifecycle`,
+> `attachWebGL`, `wireTouchTaps`/`wireTouchScroll`) arrive in the e2e-gated PR 2
+> fast-follow — see the note's migration section.
