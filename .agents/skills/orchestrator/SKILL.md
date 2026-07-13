@@ -49,6 +49,17 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - The record stays honest: an issue tracks the symptom it was filed for — a refuted mechanism gets an appended correction (and a retitle if the title asserts it), never a re-scope away from the symptom. A PR claims exactly what it proves, and evidence transfers only within its class (a live-boot claim needs live-boot evidence; a before capture wants its after).
 - Watchdog long-running agents; tear down ONLY by PIDs captured at spawn. Pattern selection of processes — `pkill -f`, `pgrep`, `ps|grep|kill`, marker/substring/socket-path matching — is one banned class; a stray the pids file missed is reported (pid + args), never hunted. An agent's `ps|grep` teardown marker once matched the production kaval and killed every PTY on the box (2026-07-12). Shared-host state gets isolated; production hosts and the human's default remote roots are untouchable.
 
+## The coordinator's own changes
+
+- Atlas edits authored by the coordinator go through ONE workflow: a dedicated
+  atlas branch checked out in the coordinator's own working directory — reuse
+  the currently-open atlas branch/PR if one exists, else cut a new branch off
+  latest master, in place. Batch atlas work there; the PR is opened when the
+  human says they are ready to merge, and the human merges. Atlas edits never
+  ride a feature branch, a scratch worktree, or another PR's branch.
+- Skill edits are the exception with their own shape: a fresh branch off latest
+  master per change, PR opened immediately as draft.
+
 ## Communicating with the human
 
 - Plain words, outcome first. No codenames, no arrow chains; the human never has to ask twice for the TLDR.
