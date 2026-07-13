@@ -15,6 +15,11 @@
 
 import { resumeFormFor } from "anyagent/cli";
 import {
+  cancelPendingAutosave,
+  freezeAutosave,
+  unfreezeAutosave,
+} from "./autosaveGate.ts";
+import {
   clearSavedSession,
   getSavedSession,
   saveSession,
@@ -24,6 +29,7 @@ import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
 import {
   discardAllLocalParked,
   discardLocalParked,
+  seedParkedTerminal,
   seedSleepingTerminal,
 } from "./terminalEndpoint/local.ts";
 import {
@@ -31,7 +37,11 @@ import {
   restoreActiveTerminalId,
   snapshotSession,
 } from "./terminals.ts";
-import type { SavedSession, SavedTerminal } from "./vocab.ts";
+import type {
+  SavedActiveTerminal,
+  SavedSession,
+  SavedTerminal,
+} from "./vocab.ts";
 import { backfillSavedSession, SavedSessionSchema } from "./vocab.ts";
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
@@ -129,6 +139,14 @@ export async function restoreSession(input: {
   // Old id → new id: a restored active terminal gets a NEW id, so a sub-terminal
   // re-parents onto the fresh id; a sleeping one keeps its stable id.
   const oldToNew = new Map<string, string>();
+  // The fresh actives this restore spawned, paired with the saved record each stands
+  // for. `respawnActive` consumes the parked idempotency token BEFORE the async spawn
+  // confirms, so a spawn that FAILS mid-restore (a kaval death 100 ms after the user
+  // clicks Restore) unwinds to `finalizeRemoval` — and the next autosave would then
+  // DELETE that terminal from the saved session outright (CONF-6). We pair each respawn
+  // with its saved record so a failure can be RE-PARKED instead, and freeze the autosave
+  // across the whole spawn window so no removal is ever journaled mid-restore.
+  const activeRespawns: { newId: string; record: SavedActiveTerminal }[] = [];
   const topLevel = saved.terminals.filter((t) => !t.parentId);
   const subTerminals = saved.terminals.filter(
     (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
@@ -151,28 +169,55 @@ export async function restoreSession(input: {
       return;
     }
     const newId = respawnActive(t, parentId, optedIn(t.id));
-    if (newId) oldToNew.set(t.id, newId);
+    if (newId) {
+      oldToNew.set(t.id, newId);
+      // `t` is the active arm here (the sleeping branch returned above).
+      activeRespawns.push({ newId, record: t });
+    }
   };
 
-  for (const t of topLevel) restoreRecord(t);
+  // Freeze the autosave for the ENTIRE spawn window (through the tail await below): a
+  // respawn that fails mid-restore fires `terminals:dirty` via `finalizeRemoval`, and an
+  // unfrozen autosave would journal that removal — deleting the terminal from the saved
+  // session (CONF-6). Lifted in the `finally`.
+  freezeAutosave("session restore (spawn window)");
+  try {
+    for (const t of topLevel) restoreRecord(t);
+    for (const t of subTerminals) {
+      // A sub whose parent didn't restore (skipped as a repeat) is dropped —
+      // there is no live parent to hang it off (F3).
+      const parentId = oldToNew.get(t.parentId);
+      if (parentId === undefined) continue;
+      restoreRecord(t, parentId);
+    }
 
-  for (const t of subTerminals) {
-    // A sub whose parent didn't restore (skipped as a repeat) is dropped —
-    // there is no live parent to hang it off (F3).
-    const parentId = oldToNew.get(t.parentId);
-    if (parentId === undefined) continue;
-    restoreRecord(t, parentId);
+    // Preserve the active marker across the restart (RISK Q1 host-side): map the
+    // saved active id through `oldToNew` so it names the RESTORED terminal (a fresh
+    // id for an active, the stable id for a sleeper).
+    const savedActive = saved.activeTerminalId ?? null;
+    restoreActiveTerminalId(
+      savedActive === null ? null : (oldToNew.get(savedActive) ?? savedActive),
+    );
+    // Persist the now-live snapshot IMMEDIATELY — the optimistic restored actives, the
+    // synchronous write the common-case (kaval alive) restore and the tests both rely
+    // on. This snapshot NAMES every restored terminal, so even if a spawn later fails
+    // and unwinds, the saved session still holds it (CONF-6: nothing is deleted).
+    saveSession(snapshotSession());
+
+    // Then wait for every fresh spawn to SETTLE (the proxy `ready` resolves on success,
+    // rejects on failure). Any respawn no longer in the live registry FAILED — RE-PARK
+    // its saved record so the restore card re-offers it. The autosave stayed FROZEN
+    // across this window, so the failure's `finalizeRemoval → notifyDirty` could not
+    // journal a shrunken session; the snapshot written above is the durable record.
+    await Promise.allSettled(
+      activeRespawns.map((a) => getActiveTerminal(a.newId)?.handle.ready),
+    );
+    for (const a of activeRespawns)
+      if (!getActiveTerminal(a.newId)) seedParkedTerminal(a.record);
+  } finally {
+    unfreezeAutosave();
+    cancelPendingAutosave();
   }
-
-  // Preserve the active marker across the restart (RISK Q1 host-side): map the
-  // saved active id through `oldToNew` so it names the RESTORED terminal (a fresh
-  // id for an active, the stable id for a sleeper), then persist the now-live
-  // session so a later reload hydrates onto the right tile.
-  const savedActive = saved.activeTerminalId ?? null;
-  restoreActiveTerminalId(
-    savedActive === null ? null : (oldToNew.get(savedActive) ?? savedActive),
-  );
-  saveSession(snapshotSession());
 }
 
 /** FORFEIT the pending restore — the EXPLICIT "start fresh / discard my previous

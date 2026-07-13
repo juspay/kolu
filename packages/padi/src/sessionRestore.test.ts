@@ -311,4 +311,21 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
 
     await done;
   });
+
+  it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked, NOT deleted from the saved session", async () => {
+    // The env has no kaval, so every fresh spawn's async tail rejects — exactly the
+    // mid-restore kaval-death shape. `restoreSession` freezes the autosave across the
+    // spawn window and re-parks each failed respawn, so the failure NEVER journals a
+    // removal that would delete the terminal from the saved session (CONF-6).
+    seedW12Agent();
+
+    await restoreSession({}); // await the full spawn-settle + re-park
+
+    // The saved session was NOT shrunk away — it still names a terminal (the optimistic
+    // snapshot written before the tails rejected).
+    expect(getSavedSession()?.terminals.length ?? 0).toBeGreaterThanOrEqual(1);
+    // The failed respawn's saved record is re-parked under its original id, so the
+    // restore card re-offers it rather than the terminal vanishing.
+    expect(getTerminal(PARENT_ID)?.meta.state).toBe("parked");
+  });
 });
