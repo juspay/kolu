@@ -10,6 +10,7 @@ updated: 2026-07-13
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
+import Phase from "../../components/Phase.astro";
 import Svg from "../../components/Svg.astro";
 import stack from "../../diagrams/chat-native-agents-stack.svg?raw";
 import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
@@ -224,16 +225,50 @@ own; none ships a half waiting for a later consumer.
 
 export const PESU = [
   { d: 0, g: "▶", c: "next", l: "B0 · the round trip — @pesu in a thread reaches the coordinator, attributed; the reply streams back into the thread. Usable alone: a chat-driven coordinator", m: "ships on today's SDK", h: "#b0" },
-  { d: 0, g: "○", c: "todo", l: "B1 · the board — @pesu status answers with padi's who-needs-me table, straight off the daemon. Usable alone: fleet status from chat", m: "needs B0", h: "#b0" },
-  { d: 0, g: "○", c: "last", l: "B2 · the live mirror — unprompted coordinator posts via incoming webhooks: worker reports, rulings, attention pings, each with its terminal deep link. Usable alone: the thread becomes the campaign feed", m: "needs B0 · thread-reply fidelity is the first acceptance check", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B1 · the board — @pesu status answers with padi's who-needs-me table, straight off the daemon. Usable alone: fleet status from chat", m: "needs B0", h: "#b1" },
+  { d: 0, g: "○", c: "last", l: "B2 · the live mirror — unprompted coordinator posts via incoming webhooks: worker reports, rulings, attention pings, each with its terminal deep link. Usable alone: the thread becomes the campaign feed", m: "needs B0 · thread-reply fidelity is the first acceptance check", h: "#b2" },
 ];
 
 <a id="b0"></a>
 
-Multi-human attribution ships inside B0 (it is the write-in's substance, not a
-hardening pass), deep links ship inside B2 (they are the mirror posts' rendering), and
-the discussion-assist patterns are coordinator behavior — the `/orchestrator` skill's
-territory, not a pesu PR.
+### B0 — the round trip
+
+<Phase id="B0" name="the bridge daemon + XS catalog entry — a chat-driven coordinator" status="next" />
+
+What you see: in any XS channel, **"@pesu ‹your ask›"** opens a thread with the
+coordinator. Your message lands in the coordinator's terminal prefixed with your name;
+its answer appears in the thread as one message that grows while it works. You keep
+replying in the thread — no re-mention needed — and several people can take part, each
+message attributed, handled in the order it arrived. It feels like DMing a very capable
+teammate who happens to be running your fleet.
+
+<a id="b1"></a>
+
+### B1 — the board
+
+<Phase id="B1" name="@pesu status — fleet status from chat" status="todo" needs={["B0"]} />
+
+What you see: **"@pesu status"** answers with a table — every terminal, which agent is
+in it, and whether it is working, asking for someone, or just finished. The glance you
+currently need the kolu canvas for, from your phone, in the thread where the work is
+being discussed.
+
+<a id="b2"></a>
+
+### B2 — the live mirror
+
+<Phase id="B2" name="unprompted posts via incoming webhooks — the thread becomes the campaign feed" status="todo" needs={["B0"]} />
+
+What you see: the thread updates **on its own**. A worker finishes and the
+coordinator's report appears; a ruling goes out and you read it as it happens; an agent
+needs a human and the thread gets pinged — each post carrying a link that opens the
+exact terminal in kolu when you want the depth. Between your messages, the thread reads
+as the campaign's live feed instead of a silent gap. (Thread-reply fidelity is the
+first acceptance check; the app-vs-bot identity nuance is recorded above.)
+
+The discussion-assist patterns — the coordinator contributing grounded answers to a
+debate between humans — are coordinator behavior, the `/orchestrator` skill's
+territory, and deliberately not a pesu PR.
 
 **The milestone is concrete: run kolu's own development from a thread (B0 + B1).** kolu
 is already built this way — a coordinator driving a fleet of worker agents through the
