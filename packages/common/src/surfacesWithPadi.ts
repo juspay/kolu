@@ -101,8 +101,18 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *   - `drv-unbaked`           — `PADI_AGENT_DRVS_JSON` isn't baked (a non-Nix-wrapper run).
  *   - `drv-missing-for-system`— the baked map has no `.drv` for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
- *   - `link-failed`           — the transport gave up (host unreachable / provisioning
- *     failed / a terminal give-up). */
+ *   - `link-failed`           — a REMOTE transport gave up (host unreachable /
+ *     provisioning failed / a remote terminal give-up). Set by the remote arm's
+ *     convergence machine (`remotePadiBinding`, on the `failed` phase).
+ *   - `local-start-failed`    — the LOCAL padi couldn't start on THIS machine (a
+ *     terminal give-up with no convergence channel — the local arm's
+ *     `entryFailedDetail()` is always null). A DISTINCT producer from `link-failed`
+ *     (a spawn/connect failure here, not a network reach), with a distinct remedy
+ *     (check the local install/logs), so it earns its own arm rather than
+ *     collapsing into `link-failed` — which would be `"other"` wearing a better
+ *     name. `padiFailureOf` mints it for the `detail === null && phase === "failed"`
+ *     case, which is uniquely the local arm (the remote arm always carries a
+ *     `link-failed` detail on a terminal give-up). */
 export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
   z.object({
     cause: z.literal("contract-skew-refused"),
@@ -117,6 +127,7 @@ export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
   z.object({ cause: z.literal("drv-missing-for-system"), reason: z.string() }),
   z.object({ cause: z.literal("unconverged"), reason: z.string() }),
   z.object({ cause: z.literal("link-failed"), reason: z.string() }),
+  z.object({ cause: z.literal("local-start-failed"), reason: z.string() }),
 ]);
 
 /** The validated padi failure value on a `failed` entry's `EntryStatus` — a

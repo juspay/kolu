@@ -4,8 +4,8 @@
  * `index.ts`). It is the seam where a padi arm's arm-local
  * {@link PadiEntryFailedDetail} plus the transport DOWN state become the map's
  * schema-valid {@link PadiEntryFailure} — and, crucially, where a LOCAL arm's
- * terminal give-up (whose `entryFailedDetail()` is ALWAYS null) is floored to
- * `link-failed` instead of yielding `null` into `serveHostMap`'s fail-loud
+ * terminal give-up (whose `entryFailedDetail()` is ALWAYS null) is classified as
+ * `local-start-failed` instead of yielding `null` into `serveHostMap`'s fail-loud
  * `UnclassifiedHostFailureError` (the F1 regression).
  */
 
@@ -63,13 +63,15 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
   // F1: the LOCAL arm's `entryFailedDetail()` is ALWAYS null, but it can still reach a
   // terminal `failed` (repeated bounded give-ups: a spawn-error / wedged handshake that
   // never respawns). A null detail on a terminal give-up must NOT ride into the map's
-  // `UnclassifiedHostFailureError` seam — it IS a link failure by the schema's own
-  // definition, so it publishes `link-failed` off the transport reason.
-  it("floors a terminal give-up with no detail to link-failed (the LOCAL arm)", () => {
+  // `UnclassifiedHostFailureError` seam. This branch is UNIQUELY the local arm — a
+  // remote terminal give-up always carries a `link-failed` detail — so it classifies as
+  // `local-start-failed` (a distinct producer: the padi couldn't start on this machine),
+  // never collapsed into the remote `link-failed`.
+  it("classifies a terminal give-up with no detail as local-start-failed (the LOCAL arm)", () => {
     expect(
       padiFailureOf(null, failed("gave up after 8 consecutive failures")),
     ).toEqual({
-      cause: "link-failed",
+      cause: "local-start-failed",
       reason: "gave up after 8 consecutive failures",
     });
   });

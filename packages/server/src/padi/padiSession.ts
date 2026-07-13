@@ -40,8 +40,8 @@ import type { PadiConvergence } from "kolu-common/surface";
  *  REMOTE arm sets a `link-failed` detail on a terminal give-up (its convergence
  *  tracks the link); the LOCAL arm has no convergence channel and returns `null`
  *  even when terminally `failed` — so `null`-on-`failed` is NOT the "no failure"
- *  signal: {@link padiFailureOf} floors a terminal give-up to `link-failed` off the
- *  transport state, so a genuinely failed entry always classifies. */
+ *  signal: {@link padiFailureOf} classifies a null-detail terminal give-up as the
+ *  LOCAL arm's `local-start-failed`, so a genuinely failed entry always classifies. */
 export type PadiEntryFailedDetail =
   | { readonly cause: Exclude<EntryFailedCause, "contract-skew-refused"> }
   | ({ readonly cause: "contract-skew-refused" } & SkewVersionPair);
@@ -54,10 +54,15 @@ export type PadiEntryFailedDetail =
  *    / the remote arm's own `link-failed`) is paired with the transport `reason` and
  *    published verbatim.
  *  - No finer `detail` (`null`) but the session has TERMINALLY given up
- *    (`state.phase === "failed"`) IS a `link-failed` by the schema's own definition
- *    ("the transport gave up") — so the LOCAL arm, whose `entryFailedDetail()` is
- *    always `null`, still classifies its terminal give-up rather than yielding `null`
- *    into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError` seam.
+ *    (`state.phase === "failed"`) is the LOCAL arm's `local-start-failed`: this branch
+ *    is reached ONLY by the local arm, because the REMOTE arm always carries a
+ *    `link-failed` detail on a terminal give-up (its convergence machine sets it), so
+ *    a null detail on a `failed` phase is uniquely "the padi couldn't start on this
+ *    machine". It is a DISTINCT producer from a remote `link-failed` (a local spawn/
+ *    connect failure, not a network reach) with a distinct remedy, so it gets its own
+ *    named arm rather than collapsing into `link-failed` (which would be `"other"`
+ *    wearing a better name). Either way the local arm classifies rather than yielding
+ *    `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError` seam.
  *  - No finer `detail` and merely `disconnected` (retrying) → `null`: keep-warming,
  *    the single-meaning absent (PR4). */
 export function padiFailureOf(
@@ -66,7 +71,7 @@ export function padiFailureOf(
 ): PadiEntryFailure | null {
   if (detail !== null) return { ...detail, reason: state.error };
   return state.phase === "failed"
-    ? { cause: "link-failed", reason: state.error }
+    ? { cause: "local-start-failed", reason: state.error }
     : null;
 }
 
