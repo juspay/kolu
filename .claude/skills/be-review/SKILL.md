@@ -14,11 +14,19 @@ step has already committed, so every reviewer reads a clean, settled tree and
 applies its own fixes directly:
 
 1. **architecture-first-principles** — FIRST, for a diff touching framework packages
-   (`@kolu/surface*`) or adding/reshaping module structure: run the named checks per their SKILL (Workflow fan-out, adversarial verify, scope = diff +
+   (`@kolu/surface*`), adding/reshaping module structure, **or whose correctness
+   rests on a concurrency / ordering claim** (a race declared closed, one event
+   asserted to land "before" another, timing across independent async cascades, a
+   flag flipped by one callback that another path reads back as truth): run the
+   named checks per their SKILL (Workflow fan-out, adversarial verify, scope = diff +
    one hop down its imports). It runs before the lenses so architecture-level
    findings (wrong library, wrong layer, dead API surface) are fixed BEFORE the
    structural/code debates polish details that were about to change shape. Skip
-   ONLY for pure-docs or trivially-local diffs, and say so. Its confirmed
+   ONLY for pure-docs or trivially-local diffs — and a diff is **not**
+   trivially-local when its correctness leans on a happens-before: P3
+   (state-and-time) is the only lens that interrogates an ordering claim, so a
+   leaf-module race-fix that skips it is exactly how an untrue "race-safe /
+   structural" comment ships past a green gauntlet. Say so either way. Its confirmed
    findings are dispositioned like any stage's — fix now or record where, never
    "acceptable for scope".
 2. **`/lens-debate`** — lowy + hickey debate boundaries/simplicity to consensus,
