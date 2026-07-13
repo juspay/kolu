@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1360 820" role="img" aria-labelledby="title desc">
-  <title id="title">The merged campaign plan: kernel moves land where the volatility already lives</title>
-  <desc id="desc">Six kernel moves land in the packages that already own their volatility: the supervised SurfaceRuntime, bound procedures, and one-shot adoptions in @kolu/surface beside the shipped reactor bridge; membership ids, total failure, and the typed connection key in @kolu/surface-map; the delta-aware mirror and clock-at-admit in @kolu/surface-remote. Kolu, Drishti, and Odu each delete hand-rolled machinery. A faint bottom strip records what the merge translated or dropped: the Feed member kind, the surface-suite package, the Odu lease stack, and createLiveQuery.</desc>
+  <title id="title">The campaign plan: kernel moves land where the volatility already lives</title>
+  <desc id="desc">Six kernel moves land in the packages that already own their volatility: the supervised SurfaceRuntime, bound procedures, and one-shot adoptions in @kolu/surface beside the shipped reactor bridge; membership ids, total failure, and the typed connection key in @kolu/surface-map; the delta-aware mirror and clock-at-admit in @kolu/surface-remote. Kolu, Drishti, and Odu each delete hand-rolled machinery. A faint bottom strip records what stays out of the plan by design: the Feed member kind, the surface-suite package, the Odu lease stack, and createLiveQuery.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)" />
@@ -27,7 +27,7 @@
   </defs>
 
   <text x="40" y="38" class="title">The kernel lands where the volatility already lives — no new package</text>
-  <text x="40" y="64" class="small">Six kernel moves, then the bridge spine. Each consumer deletes the machinery it hand-rolled. The bottom strip is what the merge translated or dropped.</text>
+  <text x="40" y="64" class="small">Six kernel moves, then the bridge spine. Each consumer deletes the machinery it hand-rolled. The bottom strip is what stays out of the plan, and why.</text>
 
   <rect x="40" y="100" width="400" height="420" rx="18" class="core" />
   <text x="65" y="135" class="tag">@kolu/surface</text>
@@ -99,7 +99,7 @@
   <text x="965" y="495" class="small">logs collection — lease shapes stay odu-local</text>
 
   <rect x="40" y="560" width="1280" height="220" rx="18" class="ghost" />
-  <text x="65" y="595" class="tiny">TRANSLATED OR DROPPED — the merge's dispositions (reasoning in the note)</text>
+  <text x="65" y="595" class="tiny">DELIBERATELY NOT IN THIS PLAN (reasoning in the note)</text>
   <text x="65" y="628" class="small">Feed member kind → already the bridge: feedState ≡ scan · delta projection ≡ derived.collection diff — append-heavy wire (terminal bytes, logs) is a named bridge design question, not a fourth member kind</text>
   <text x="65" y="660" class="small">@kolu/surface-suite → deferred: a thin composition leaf earns no receptacle; its two real moves (final router, typed connection key) landed in the kernel; sole revival condition: the surface-app dependency direction</text>
   <text x="65" y="692" class="small">SurfaceLease / LeaseOpen / surfaceClientFromLeases / projectSurface / SurfacePort → odu-local shapes: five concepts, one caller — graduate at a second consumer; SurfacePort dies with the stack</text>
