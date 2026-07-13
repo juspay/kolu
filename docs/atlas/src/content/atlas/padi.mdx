@@ -1,6 +1,6 @@
 ---
 title: padi — the per-host terminal-workspace daemon
-description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W12 all shipped (W10 — hosts persist as a settings field in the conf store; W12 — restore survives an unclean kaval death), with the cleanup ledger in parallel.
+description: The architecture that replaced the R9/R10 finale plan for remote terminals (#951). One workspace daemon per host — padi, atop kaval — knows everything about that host's terminals and serves it as one surface (padiSurface); kolu-server thins to a web shell that connects each browser view to one padi. The canvas shows one host at a time (instant switch; other hosts reach you via badges and OS notifications). The host owns its state — layout, memory, clock. Phases W0–W12 all shipped (W10 — hosts persist as a settings field in the conf store; W12 — restore survives an unclean kaval death), with the surface consolidation in parallel.
 parents: [remote-terminals]
 status: proposed
 maturity: seedling
@@ -44,7 +44,7 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W11 · one verb per fact — user-remove vs system-retire in the pool", m: "#1775 · 2026-07-12", h: "#w11" },
   { d: 0, g: "✓", c: "ship", l: "W10 · hosts survive a restart — membership as a settings field in the conf store", m: "#1772 · 2026-07-12", h: "#w10" },
   { d: 0, g: "✓", c: "ship", l: "W12 · restore survives an unclean kaval death — can't-observe emits unknown, not agent-ended", m: "#1784 · 2026-07-12", h: "#w12" },
-  { d: 0, g: "▶", c: "prog", l: "Consolidation — the cleanup ledger (unnumbered · parallel · ongoing)", m: "→ the ledger note", h: "padi-cleanup.html" },
+  { d: 0, g: "▶", c: "prog", l: "Consolidation — the surface-runtime plan (unnumbered · parallel · ongoing)", m: "→ the plan of record", h: "surface-runtime-boundary.html" },
   { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
 
@@ -169,7 +169,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W8" name="remote terminals, documented honestly (docs phase)" status="shipped" needs={["W4"]} links={[{ label: "#1722", href: "https://github.com/juspay/kolu/pull/1722" }, { label: "#1727", href: "https://github.com/juspay/kolu/pull/1727" }]} />
 <Phase id="W6" name="the honest connect — the connection type made perfect + the connect overlay" status="shipped" needs={["W4"]} links={[{ label: "#1730", href: "https://github.com/juspay/kolu/pull/1730" }]} />
 <Phase id="W5" name="cross-host attention — urgency fan-in · OS badge · notification deep-link" status="shipped" needs={["W4"]} links={[{ label: "#1759", href: "https://github.com/juspay/kolu/pull/1759" }]} />
-<Phase id="cleanup" name="consolidation — the cleanup ledger (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
+<Phase id="cleanup" name="consolidation — the surface-runtime plan (unnumbered, parallel, ongoing)" status="todo" needs={["W2"]} />
 <Phase id="W9" name="instant host switch-back — retained per-host wire subscriptions (completing W7's K1)" status="shipped" needs={["W7"]} links={[{ label: "#1764", href: "https://github.com/juspay/kolu/pull/1764" }]} />
 <Phase id="W11" name="one verb per fact — user-remove vs system-retire in surface-remote's pool" status="shipped" needs={["W6"]} links={[{ label: "#1775", href: "https://github.com/juspay/kolu/pull/1775" }]} />
 <Phase id="W10" name="hosts survive a restart — membership as a settings field in the conf store" status="shipped" needs={["W6"]} links={[{ label: "#1772", href: "https://github.com/juspay/kolu/pull/1772" }]} />
@@ -180,7 +180,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 
 1. **W10 — hosts survive a restart** shipped (<PrLink pr={1772} />) 2026-07-12 in the ratified conf-store shape, clearing the numbered ladder.
 2. **W12 — restore survives an unclean kaval death** shipped (<PrLink pr={1784} />) — independent of W10 in code (it lives in padi's agent sensor, not the host pool). The seedling's exit-flush guess was falsified by the incident forensics + a live kill-9; the real defect and cure are recorded in [its section](#w12).
-3. **The cleanup ledger runs in parallel** — as a few substantial refactor campaigns, not one-PR-per-entry; the campaign plan lives in [the ledger note](padi-cleanup.html).
+3. **The consolidation runs in parallel** — its plan of record is [A Complete Surface Runtime](surface-runtime-boundary.html) (the kernel + bridge PR sequence); the remaining parked padi-area cleanups are listed [below](#parked).
 4. **Parked, not forgotten:** W3.4 (remote e2e parity in CI) waits on the mock-agent burn-down (<PrLink pr={1689} />); W4's honest-clocks piece 5 is a named fast-follow; W7's field-acceptance leg (srid confirms the camera symptom gone on a real deploy) stays open until observed; W5's drishti pair ([srid/drishti#93](https://github.com/srid/drishti/pull/93) — the `alerts` cell) is still in review.
 
 **The law of every PR in this plan (srid, promoted note-wide 2026-07-04): a PR is self-sufficient and end-to-end — it ships NOTHING that isn't consumed within it.** No framework halves awaiting their consumer, no pools nobody switches, no contracts nobody serves: a capability with zero consumers is a *commit stage inside* the PR that consumes it, never a PR of its own (W2.2's "a daemon with zero consumers is a commit stage" ruling; the #1651 complete-but-unconsumed adapter is the canonical tell). The one sanctioned exception is a framework PR whose consumer-proof is a paired second consumer landing with it (the W2.1/drishti precedent).
@@ -196,14 +196,20 @@ The contract's one novelty, forced by review: **every member declares how it may
 **Shipped** <PrLink pr={1784} />. The grounding overturned the seedling's two guesses: the resume facts live in **padi, not kaval** (kaval persists no session file at all), and they were **already** journaled on change — so the "move exit-flush to change-journaling" framing was moot. The fix lives entirely in `@kolu/padi`: the agent sensor's **sample-content discriminant** (a resolved-null with a defined non-shell foreground emits `unknown`, not an authoritative end) plus a restore-respawn **seed** so restore re-persists the surviving `exact`, never `none`, and a **freeze + re-park** so a kaval death mid-restore never deletes terminals. Witnessed on a real kill-9 — `restoreTarget` stayed `exact` across the kill (100/100 polls) and restore brought the agent back on its exact prior session (same `sessionId` + transcript). Independent of W10: that lives in kolu-server's host pool; this lives in the per-host padi.
 
 <a id="cleanup"></a>
+<a id="parked"></a>
 
-### Consolidation — the cleanup ledger *(unnumbered — a parallel, ongoing track; scope lives in [its own note](padi-cleanup.html))*
+### Consolidation and parked cleanups *(unnumbered — a parallel, ongoing track)*
 
-W2 and W3 ship at pace (a deliberate call); the ledger pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The full ledger — each entry a self-sufficient, lens-framed brief an implementing agent can execute under coordinator guidance — lives in [padi — the consolidation ledger](padi-cleanup.html)**, appraised and appended as each W phase lands (a shipped phase's "deferred / acceptable-for-scope" review items land there explicitly; an entry that never ripens is deleted with a reason). The index, for orientation:
+W2 and W3 shipped at pace (a deliberate call); the consolidation pays the pace's debts — refactors, decomplecting, framework-level electricity upstreaming, deletions. Nothing user-visible ships here; that is the point. **The active plan of record is [A Complete Surface Runtime](surface-runtime-boundary.html)** — the kernel + bridge PR sequence, byte-identical on screen, each PR proven by what it deletes. A shipped phase's deferred review items land in the note that owns the area — or below, as a parked cleanup with a named gate; an item that never ripens is deleted with a reason, never silently kept.
 
-- **Shipped:** campaigns 2 + 3 in one PR (<PrLink pr={1747} /> — L27 server re-cut · L17 vocab homes · L13 seal flank · L11 wire sweep · L18 HydrationPhase) · L3 the convergence kit (<PrLink pr={1674} />) · L5 both halves (ProcessRss in W2.2; video-ext via L17 in #1747) · L6 `padiBinding` split (<PrLink pr={1698} />) · L7 `terminal-workspace` re-cut (<PrLink pr={1734} />) · L14 memory via the mirror (<PrLink pr={1699} />) · L15+L16 write-seam/boot invariants (<PrLink pr={1703} />) · L23 remote arm on the kit (<PrLink pr={1700} />) · L26 the `no-overloaded-null` guardrail (<PrLink pr={1744} />)
-- **The one remaining campaign** (the plan lives in the ledger note): complete the primitives — its deep move, bridge phase 0, shipped inside W5 (<PrLink pr={1759} />); the residue is L28 rung 2 · L1 · L20·21, with L8's hygiene sweep as its tail commit. L24 (`padi-tui --host`) ships as its own feature PR — a feature never rides a refactor campaign.
-- **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 (srid mints) · L10 (tracker-driven)
+**Parked, each with its gate** *(none is schedulable until its gate opens)*:
+
+- **Upstream padi-tui's wait-until-predicate helper into `@kolu/surface`** — gated on kolu-tui existing (the second consumer that proves the boundary; the helper carries a ledger tag comment in `packages/padi-tui/src/`). If kolu-tui never ships, delete this item with that reason — never upstream on one consumer.
+- **Delete the legacy-kaval migration arm** — at a version srid names. The W2.2 adopter (binder legacy-socket hint, padi's legacy-adopt branch, port-keyed discovery in `socketPath.ts`, the `adoption-upgrade` VM tests) exists solely for pre-W2.2 upgrades; done when no code path can dial a port-keyed kaval and the release note names the required upgrade path.
+- **Split the sensors out of padi's restart hash** — only on recorded deploy-pain evidence (a stretch where sensor-only changes forced padi restarts users noticed). The restart is cheap by design; until the evidence exists this is deliberately a no-op, and never serve stale detection (#1031) governs any eventual split.
+- **Retire the near-unreachable `PADI_MEMORY_READ_ERROR` contract arm** — <PrLink pr={1699} /> moved the memory read onto the in-process mirror, which cannot fail like the remote dial the arm was built for; retiring it is a contract change and ships as its own deliberate wire-version decision, not a rider.
+- **The fine-grained CI token** — srid mints a public-repo read-only PAT (its only job: authenticated rate limits for flake-input fetches); an agent wires it via the pool provisioning path (stdin, never in the store or logs); done when the personal token is rotated and absent from every box.
+- **Flaky-test debt** — a standing root-cause pass dispatched off [the flaky tracker](flaky-test-tracker.html) (fix or quarantine-with-reason, never re-tuned retries); done when a full both-platform e2e run passes without retries twice consecutively, or every tracked flake carries a root-cause note and a quarantine decision.
 
 <a id="w34"></a>
 

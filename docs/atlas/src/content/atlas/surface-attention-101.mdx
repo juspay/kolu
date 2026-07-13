@@ -1,7 +1,7 @@
 ---
 title: The surface framework's attention pieces, taught
 description: "A plain-words primer on the two-phase design behind W5's cross-host attention. Phase 1 is a surface refactor: the cell reader gains updated() — the missing half of an FRP Dynamic, change pairs under the change-iff-fired law — mirrors stop fabricating first frames, and derived members become declarations over the backend signal graph (the reactive bridge's phase 0). Phase 2 builds attention on top: level-state cells with one writer per host (kolu consumes padi's existing urgency cell; drishti's alerts is the one new wire member), the eager watchByEntry watcher in @kolu/surface-map whose raise detection is a set-diff over updated pairs, and tag-keyed service-worker delivery in @kolu/surface-app. kolu and drishti are the two consumers."
-parents: [pedagogy, padi]
+parents: [pedagogy, padi, surface]
 status: proposed
 maturity: seedling
 updated: 2026-07-11

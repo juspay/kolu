@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1360 820" role="img" aria-labelledby="title desc">
+  <title id="title">The campaign plan: kernel moves land where the volatility already lives</title>
+  <desc id="desc">Six kernel moves land in the packages that already own their volatility: the supervised SurfaceRuntime, bound procedures, and one-shot adoptions in @kolu/surface beside the shipped reactor bridge; membership ids, total failure, and the typed connection key in @kolu/surface-map; the delta-aware mirror and clock-at-admit in @kolu/surface-remote. Kolu, Drishti, and Odu each delete hand-rolled machinery. A faint bottom strip records what stays out of the plan by design: the Feed member kind, the surface-suite package, the Odu lease stack, and createLiveQuery.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)" />
+    </marker>
+    <style>
+      .box { fill: var(--surface); stroke: var(--rule); stroke-width: 2; }
+      .core { fill: var(--code-bg); stroke: var(--amber); stroke-width: 2.5; }
+      .map { fill: var(--surface); stroke: var(--gold); stroke-width: 2.5; }
+      .remote { fill: var(--surface); stroke: var(--teal); stroke-width: 2.5; }
+      .bridge { fill: var(--surface); stroke: var(--green); stroke-width: 2; stroke-dasharray: none; }
+      .consumer { fill: var(--paper); stroke: var(--rule); stroke-width: 2; }
+      .ghost { fill: none; stroke: var(--rule-soft); stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .title { fill: var(--ink); font: 650 22px ui-sans-serif, system-ui, sans-serif; }
+      .label { fill: var(--ink); font: 650 17px ui-sans-serif, system-ui, sans-serif; }
+      .small { fill: var(--ink-dim); font: 14px ui-sans-serif, system-ui, sans-serif; }
+      .tiny { fill: var(--ink-muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .arrow { fill: none; stroke: var(--ink-faint); stroke-width: 2.2; marker-end: url(#arrow); }
+      .rule { stroke: var(--rule-soft); stroke-width: 1.5; }
+      .tag { fill: var(--amber); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+      .tagmap { fill: var(--gold); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+      .tagremote { fill: var(--teal); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+      .pr { fill: var(--ink-muted); font: 650 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+  </defs>
+
+  <text x="40" y="38" class="title">The kernel lands where the volatility already lives — no new package</text>
+  <text x="40" y="64" class="small">Six kernel moves, then the bridge spine. Each consumer deletes the machinery it hand-rolled. The bottom strip is what stays out of the plan, and why.</text>
+
+  <rect x="40" y="100" width="400" height="420" rx="18" class="core" />
+  <text x="65" y="135" class="tag">@kolu/surface</text>
+
+  <rect x="65" y="155" width="350" height="88" rx="10" class="box" />
+  <text x="85" y="184" class="label">SurfaceRuntime</text>
+  <text x="360" y="184" class="pr">PR 1</text>
+  <text x="85" y="208" class="small">final router · done · idempotent close()</text>
+  <text x="85" y="230" class="tiny">no caller re-learns oRPC finalization</text>
+
+  <rect x="65" y="255" width="350" height="66" rx="10" class="box" />
+  <text x="85" y="284" class="label">Bound procedures</text>
+  <text x="360" y="284" class="pr">PR 2</text>
+  <text x="85" y="308" class="small">client.procedures.&lt;ns&gt;.&lt;verb&gt; — no casts</text>
+
+  <rect x="65" y="333" width="350" height="66" rx="10" class="box" />
+  <text x="85" y="362" class="label">One-shot adoptions</text>
+  <text x="360" y="362" class="pr">PR 6</text>
+  <text x="85" y="386" class="small">firstFrameOrThrow + existing app primitives</text>
+
+  <rect x="65" y="411" width="350" height="92" rx="10" class="bridge" />
+  <text x="85" y="440" class="label">reactor.ts — the bridge</text>
+  <text x="340" y="440" class="pr">PR 7–10</text>
+  <text x="85" y="464" class="small">source · scan · computed · derived.cell/.collection · $ · batch</text>
+  <text x="85" y="486" class="tiny">phase 0 shipped in W5 (#1759); spine sequenced here</text>
+
+  <rect x="480" y="100" width="400" height="200" rx="18" class="map" />
+  <text x="505" y="135" class="tagmap">@kolu/surface-map</text>
+  <rect x="505" y="155" width="350" height="60" rx="10" class="box" />
+  <text x="525" y="182" class="label">Membership time</text>
+  <text x="800" y="182" class="pr">PR 3</text>
+  <text x="525" y="204" class="small">opaque membershipId per add · typed connection key</text>
+  <rect x="505" y="227" width="350" height="60" rx="10" class="box" />
+  <text x="525" y="254" class="label">Total failure</text>
+  <text x="800" y="254" class="pr">PR 4</text>
+  <text x="525" y="276" class="small">failureOf required + schema-valid — no fabricated arm</text>
+
+  <rect x="480" y="320" width="400" height="200" rx="18" class="remote" />
+  <text x="505" y="355" class="tagremote">@kolu/surface-remote</text>
+  <rect x="505" y="375" width="350" height="60" rx="10" class="box" />
+  <text x="525" y="402" class="label">Delta-aware mirror</text>
+  <text x="800" y="402" class="pr">PR 5</text>
+  <text x="525" y="424" class="small">mirror + reServe consume collection deltas</text>
+  <rect x="505" y="447" width="350" height="60" rx="10" class="box" />
+  <text x="525" y="474" class="label">Clock at admit</text>
+  <text x="800" y="474" class="pr">PR 3</text>
+  <text x="525" y="496" class="small">clockNow reserved member — rides the membership PR</text>
+
+  <path d="M440 300 C455 300 465 300 480 300 M880 200 C905 200 915 175 940 175" class="arrow" />
+  <path d="M440 200 C700 60 700 60 940 155" class="arrow" />
+  <path d="M880 420 C905 420 915 420 940 420" class="arrow" />
+  <path d="M880 255 C910 255 915 290 940 290" class="arrow" />
+
+  <rect x="940" y="100" width="380" height="150" rx="16" class="consumer" />
+  <text x="965" y="135" class="label">kolu (each PR migrates it)</text>
+  <text x="965" y="163" class="small">deletes: the PadiRpc cast · connectionRearm ·</text>
+  <text x="965" y="185" class="small">the "padi" string key · manual finalization</text>
+  <text x="965" y="212" class="tiny">bridge PRs delete urgency riders, samplers,</text>
+  <text x="965" y="230" class="tiny">serveHostMap plumbing (worked examples 1–4)</text>
+
+  <rect x="940" y="270" width="380" height="120" rx="16" class="consumer" />
+  <text x="965" y="305" class="label">drishti (paired PR per rule)</text>
+  <text x="965" y="333" class="small">deletes: processesSnapshot parallel stream ·</text>
+  <text x="965" y="355" class="small">wire procedure casts · offsetOf stub · reconciles</text>
+
+  <rect x="940" y="410" width="380" height="110" rx="16" class="consumer" />
+  <text x="965" y="445" class="label">odu (adopts at its next pin)</text>
+  <text x="965" y="473" class="small">deletes: 3× manual router finalization · synthetic</text>
+  <text x="965" y="495" class="small">logs collection — lease shapes stay odu-local</text>
+
+  <rect x="40" y="560" width="1280" height="220" rx="18" class="ghost" />
+  <text x="65" y="595" class="tiny">DELIBERATELY NOT IN THIS PLAN (reasoning in the note)</text>
+  <text x="65" y="628" class="small">Feed member kind → already the bridge: feedState ≡ scan · delta projection ≡ derived.collection diff — append-heavy wire (terminal bytes, logs) is a named bridge design question, not a fourth member kind</text>
+  <text x="65" y="660" class="small">@kolu/surface-suite → deferred: a thin composition leaf earns no receptacle; its two real moves (final router, typed connection key) landed in the kernel; sole revival condition: the surface-app dependency direction</text>
+  <text x="65" y="692" class="small">SurfaceLease / LeaseOpen / surfaceClientFromLeases / projectSurface / SurfacePort → odu-local shapes: five concepts, one caller — graduate at a second consumer; SurfacePort dies with the stack</text>
+  <text x="65" y="724" class="small">createLiveQuery → obsolete: W9's per-host ownership (hostCodeTab.ts) superseded the string-keyed singleton; the createResource instinct may refine inside that ownership shape</text>
+  <text x="65" y="756" class="small">notificationSurfaceApp / bootSurfaceApp → needs grounding against W5's shipped notify seam before any PR is cut; the server-authored capability discriminant survives as the candidate</text>
+</svg>
