@@ -69,6 +69,7 @@ import { createSnapshotBoundary } from "./snapshotBoundary";
 import {
   type BackfillController,
   createBackfillController,
+  SNAPSHOT_SEED_SEAM,
 } from "./scrollbackBackfill";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { applyStickyModifiers } from "./stickyModifiers";
@@ -876,7 +877,16 @@ const Terminal: Component<{
                       frame.data.startsWith(TERMINAL_RESET),
                     )
                   : undefined;
-              const data = frame.data;
+              // A consumed snapshot frame carries the seed seam so the controller
+              // captures its committer baseline at the snapshot's byte position,
+              // not at receipt — the F11 fix under scroll lock, where a foreign RIS
+              // buffered ahead of this snapshot would otherwise steal its seed.
+              // Prepended ONLY when a controller actually consumed the frame
+              // (`commitSeed` set), so the seam and the controller's pending-seed
+              // FIFO stay 1:1.
+              const data = commitSeed
+                ? `${SNAPSHOT_SEED_SEAM}${frame.data}`
+                : frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
                 // the terminal's live-activity dot (dock + title), even when

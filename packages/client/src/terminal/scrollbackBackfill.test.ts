@@ -22,6 +22,7 @@ import {
   type PrependResult,
   prependScrollback,
   type ScratchTerminal,
+  SNAPSHOT_SEED_SEAM,
 } from "./scrollbackBackfill";
 
 /** The prepend seam the controller tests inject: a fixed `inserted` result. */
@@ -386,12 +387,14 @@ function fakeTerm(): {
   fireScroll(): void;
   fireResize(): void;
   fireRis(): void;
+  fireSeedSeam(): void;
   setCols(n: number): void;
   setAltActive(b: boolean): void;
 } {
   let scrollCb: (() => void) | undefined;
   let resizeCb: (() => void) | undefined;
   let escCb: (() => boolean | undefined) | undefined;
+  let oscCb: ((data: string) => boolean | undefined) | undefined;
   const term = {
     cols: 80,
     rows: 24,
@@ -404,11 +407,20 @@ function fakeTerm(): {
       resizeCb = cb;
       return { dispose() {} };
     },
-    // The controller registers a RIS (ESC c) esc handler to invalidate on an
-    // in-band reset; capture it so a test can fire it (F1).
     parser: {
+      // The controller registers a RIS (ESC c) esc handler to pause on an in-band
+      // reset; capture it so a test can fire it (F1).
       registerEscHandler: (_id: unknown, cb: () => boolean | undefined) => {
         escCb = cb;
+        return { dispose() {} };
+      },
+      // The controller registers the snapshot-seed seam OSC handler; capture it so
+      // a test can fire it at the snapshot's byte position (F11 baseline capture).
+      registerOscHandler: (
+        _id: unknown,
+        cb: (data: string) => boolean | undefined,
+      ) => {
+        oscCb = cb;
         return { dispose() {} };
       },
     },
@@ -418,6 +430,7 @@ function fakeTerm(): {
     fireScroll: () => scrollCb?.(),
     fireResize: () => resizeCb?.(),
     fireRis: () => escCb?.(),
+    fireSeedSeam: () => oscCb?.(""),
     setCols: (n: number) => {
       term.cols = n;
     },
@@ -430,13 +443,18 @@ function fakeTerm(): {
 /** Seed the controller through its ONLY legitimate path — the reset+seed fused
  *  `consumeSnapshotFrame`, whose committer stands in for "the snapshot parsed"
  *  when run immediately (the bare `seed()` transition was removed, F3). Models
- *  the INITIAL attach snapshot (no leading RIS — `carriesReset` false). */
+ *  the INITIAL attach snapshot (no leading RIS — `carriesReset` false). Fires the
+ *  snapshot-seed seam first, mirroring production: the seam parses before the
+ *  frame's own bytes and captures the committer's baseline (F11). */
 function seedController(
+  f: ReturnType<typeof fakeTerm>,
   c: BackfillController,
   topLine: number,
   epoch?: number,
 ): void {
-  c.consumeSnapshotFrame(topLine, epoch, false)();
+  const commit = c.consumeSnapshotFrame(topLine, epoch, false);
+  f.fireSeedSeam();
+  commit();
 }
 
 /** A promise plus its resolver, for driving an in-flight fetch/prepend. */
@@ -468,7 +486,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), undefined);
@@ -490,7 +508,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -515,7 +533,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(prepend).toHaveBeenCalledTimes(1);
@@ -547,7 +565,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100, 7); // seeded under reflow generation 7
+    seedController(f, c, 100, 7); // seeded under reflow generation 7
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     // The stamped epoch rode the fetch...
@@ -575,7 +593,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError,
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -604,7 +622,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError,
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(onError).toHaveBeenCalledWith(boom); // surfaced, not swallowed
@@ -637,7 +655,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), undefined);
@@ -667,7 +685,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -687,9 +705,11 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
 
-    // Parsing this frame's own leading RIS fires the esc handler — but because
-    // the frame `carriesReset`, it is ABSORBED, not treated as a foreign reset
-    // that would revoke the committer (F11).
+    // The frame's bytes parse in order: its snapshot-seed seam FIRST (captures the
+    // committer's baseline at that byte position), then its own leading RIS (which
+    // pauses — but the baseline predicted that single bump, so the committer is
+    // not revoked, F11).
+    f.fireSeedSeam();
     f.fireRis();
     // Running the committer (as the write callback would, once the snapshot
     // parsed) seeds the NEW cursor + reflow epoch; the next scroll fetches from 30.
@@ -711,7 +731,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -741,11 +761,14 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    // A snapshot frame arrives; its parse (the committer) is deferred.
+    // A snapshot frame arrives; its seam parses (baseline captured), then its
+    // parse (the committer) is deferred.
     const commit = c.consumeSnapshotFrame(30, 2, false);
-    // Before the snapshot parses, a WIDTH resize reflows the buffer — the
-    // controller must stay PAUSED, not resurrect the pre-resize cursor when the
-    // now-stale committer finally runs.
+    f.fireSeedSeam();
+    // AFTER the seam captured the baseline, a WIDTH resize reflows the buffer —
+    // bumping the generation past that baseline. The controller must stay PAUSED,
+    // not resurrect the pre-resize cursor when the now-stale committer finally
+    // runs. (Distinct from F11: this reset landed AFTER the snapshot's bytes.)
     f.setCols(40);
     f.fireResize();
     commit(); // the old snapshot's write callback finally fires — but it's stale
@@ -758,12 +781,13 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
 
   it("an overflow re-attach snapshot's OWN leading RIS does NOT revoke its committer — backfill resumes (F11)", async () => {
     // Production ordering an overflow re-attach follows: consumeSnapshotFrame
-    // (invalidates + arms committer) → xterm parses the frame's leading RIS
-    // (`TERMINAL_RESET + snapshot`, so the esc handler fires) → the write
-    // callback runs the committer → scroll → fetch. Because the frame carries
-    // its own reset, that RIS must be ABSORBED, not treated as a foreign live
-    // RIS that pauses and revokes the committer (which left backfill dead after
-    // every re-attach). The composition the two independent F1/F2 tests missed.
+    // (invalidates + arms committer) → xterm parses the frame's seam then its
+    // leading RIS (`SEAM + TERMINAL_RESET + snapshot`) → the write callback runs
+    // the committer → scroll → fetch. The seam captures the committer's baseline
+    // at the snapshot's byte position, predicting the one bump the frame's own RIS
+    // makes — so that RIS does not read as an invalidation and revoke the
+    // committer (which left backfill dead after every re-attach). The composition
+    // the two independent F1/F2 tests missed.
     const f = fakeTerm();
     const fetch = vi.fn(async () => chunk);
     const prepend = vi.fn(async () => inserted(1));
@@ -775,7 +799,8 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     });
     // An overflow re-attach snapshot frame — its data leads with a RIS.
     const commit = c.consumeSnapshotFrame(30, 2, true);
-    // xterm parses that leading RIS: the esc handler fires but ABSORBS it.
+    // Its bytes parse in order: seam (baseline capture) then the leading RIS.
+    f.fireSeedSeam();
     f.fireRis();
     // The write callback then seeds — the committer survived the frame's own RIS.
     commit();
@@ -783,13 +808,78 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenLastCalledWith(30, expect.any(Number), 2);
 
-    // A subsequent FOREIGN live-delta RIS (not owed) still invalidates — the
-    // absorb was one-shot, so F1 remains intact after the re-attach.
+    // A subsequent FOREIGN live-delta RIS (no seam ahead of it) still invalidates,
+    // so F1 remains intact after the re-attach.
     f.fireRis();
     fetch.mockClear();
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).not.toHaveBeenCalled();
+    c.dispose();
+  });
+
+  it("a foreign RIS buffered AHEAD of a re-attach snapshot does NOT steal its seed — backfill resumes (F11 byte order)", async () => {
+    // The scroll-lock coalescing case codex flagged: while scroll-locked, a
+    // foreign live-delta RIS is buffered, THEN an overflow re-attach snapshot.
+    // flush() joins them, so the bytes parse as [foreign RIS][seam][own RIS][snap]
+    // — the foreign RIS parses BEFORE the snapshot's own. A receipt-time credit
+    // counter would let that older foreign RIS consume the snapshot's absorb, so
+    // the snapshot's own RIS then revoked its committer and backfill stayed dead.
+    // The seam captures the baseline AFTER the foreign RIS has paused, so the
+    // snapshot — later in byte order, the valid replacement cursor — still seeds.
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    const commit = c.consumeSnapshotFrame(30, 2, true);
+    // Byte order under the joined flush: the foreign RIS FIRST (pauses)...
+    f.fireRis();
+    // ...then the snapshot's seam (captures baseline past that pause) and its own
+    // leading RIS (the predicted bump).
+    f.fireSeedSeam();
+    f.fireRis();
+    commit();
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    // Seeded from the snapshot despite the earlier foreign RIS — not left halted.
+    expect(fetch).toHaveBeenLastCalledWith(30, expect.any(Number), 2);
+    c.dispose();
+  });
+
+  it("an interleaved foreign RIS between two buffered snapshots — the NEWEST snapshot seeds (F11 byte order)", async () => {
+    // Two overflow re-attaches buffered under one scroll lock, with a foreign RIS
+    // between them: bytes parse [seam1][RIS1][snap1][foreign RIS][seam2][RIS2][snap2].
+    // The foreign RIS lands AFTER snap1 (so snap1's committer is correctly revoked)
+    // but BEFORE snap2 (so snap2 — the newest valid snapshot — must still seed).
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    // Both frames received (each pauses + pushes a pending seed), in receipt order.
+    const commit1 = c.consumeSnapshotFrame(30, 2, true);
+    const commit2 = c.consumeSnapshotFrame(20, 3, true);
+    // Parse in byte order: snap1's seam+RIS, the foreign RIS, snap2's seam+RIS.
+    f.fireSeedSeam(); // pops snap1's pending seed, baseline1
+    f.fireRis(); // snap1's own RIS
+    f.fireRis(); // FOREIGN RIS — lands after snap1, before snap2
+    f.fireSeedSeam(); // pops snap2's pending seed, baseline2 (past the foreign RIS)
+    f.fireRis(); // snap2's own RIS
+    // Committers fire in buffer order once the joined write parses.
+    commit1(); // superseded by the foreign RIS after it — a no-op
+    commit2(); // the newest valid snapshot — seeds
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenLastCalledWith(20, expect.any(Number), 3);
     c.dispose();
   });
 
@@ -826,7 +916,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       onError: () => {},
       triggerRows: 1e9,
     });
-    seedController(c, 100);
+    seedController(f, c, 100);
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     // One scroll paged THROUGH the blank chunk to the content chunk.
@@ -923,5 +1013,36 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
     } finally {
       scratch.dispose();
     }
+  });
+
+  it("the SNAPSHOT_SEED_SEAM is a no-op OSC that fires its handler and emits nothing", async () => {
+    // The F11 fix rides one contract: writing SNAPSHOT_SEED_SEAM into a real
+    // @xterm/xterm fires a registered OSC handler for its ident AND leaves the
+    // buffer untouched (zero-width, no visible cell). An xterm bump that changes
+    // OSC parsing — a printed artifact, or the handler not firing — must fail
+    // HERE, loudly, not corrupt a snapshot's first row or silently break the
+    // byte-position baseline capture the controller depends on.
+    const t = new XTerm({
+      cols: COLS,
+      rows: ROWS,
+      scrollback: 10,
+      allowProposedApi: true,
+    });
+    // The seam's ident is the number between `ESC ]` and the ST/BEL terminator.
+    const ident = Number(SNAPSHOT_SEED_SEAM.replace(/^\x1b\]|[\x07;].*$/g, ""));
+    expect(Number.isInteger(ident), "seam ident is an integer").toBe(true);
+    let fired = 0;
+    t.parser.registerOscHandler(ident, () => {
+      fired++;
+      return true;
+    });
+    await new Promise<void>((resolve) =>
+      t.write(`${SNAPSHOT_SEED_SEAM}hello`, resolve),
+    );
+    expect(fired, "seam OSC handler fired exactly once").toBe(1);
+    // The seam emitted nothing: the following content starts at column 0, row 0.
+    const norm = normalBuf(t);
+    expect(norm.lines.get(0)?.translateToString(true)).toBe("hello");
+    t.dispose();
   });
 });
