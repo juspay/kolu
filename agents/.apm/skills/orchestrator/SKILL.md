@@ -56,12 +56,14 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 
 ## The coordinator's own changes
 
-- Atlas edits authored by the coordinator go through ONE workflow: a dedicated
-  atlas branch checked out in the coordinator's own working directory — reuse
-  the currently-open atlas branch/PR if one exists, else cut a new branch off
-  latest master, in place. Batch atlas work there; the PR is opened when the
-  human says they are ready to merge, and the human merges. Atlas edits never
-  ride a feature branch, a scratch worktree, or another PR's branch.
+- Atlas edits authored by the coordinator go through ONE workflow: the branch
+  is NAMED `atlas`, checked out in the coordinator's own working directory, and
+  there is EXACTLY ONE atlas branch/PR at any moment. Reuse it if it exists
+  (after pulling latest master); else cut `atlas` fresh off latest master, in
+  place. After its PR merges, the branch is deleted and the next atlas task
+  cuts it anew. Batch atlas work there; the PR is opened when the human says
+  they are ready to merge, and the human merges. Atlas edits never ride a
+  feature branch, a scratch worktree, or another PR's branch.
 - Skill edits are the exception with their own shape: a fresh branch off latest
   master per change, PR opened immediately as draft.
 
