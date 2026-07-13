@@ -408,13 +408,14 @@ describe("W12 — the two absences persist the resume target differently (twin p
   };
 
   it("PIN #1 — an UNOBSERVABLE terminal (sensor emits `unknown`) KEEPS the exact target", () => {
-    // The 2026-07-12 incident shape: kaval is SIGKILLed, the pty-host taps fail, so
-    // the resolved-null branch's `observable` discriminant is false and the sensor
-    // emits `unknown` (not `{value:null}`). The fold keeps the last agent, so
-    // `restoreTargetOf` STILL
-    // yields `exact` — the resume id survives the unclean death on disk by
-    // construction. Before the fix the sensor emitted `{value:null}` here and this
-    // flipped to `none` (bare shells on restore).
+    // The 2026-07-12 incident shape: kaval is SIGKILLed, so the agent's foreground pid is
+    // still DEFINED but its session file is gone — the resolved-null branch's SAMPLE-
+    // CONTENT discriminant (defined non-shell foreground) resolves to `unknown`, not
+    // `{value:null}`. This fold-only pin feeds that `unknown` DIRECTLY (the producer's own
+    // decision is pinned separately in `sensors.observability.test.ts`); the fold keeps
+    // the last agent, so `restoreTargetOf` STILL yields `exact` — the resume id survives
+    // the unclean death on disk by construction. Before the fix the sensor emitted
+    // `{value:null}` here and this flipped to `none` (bare shells on restore).
     expect(restoreTargetOf(liveExact)).toEqual(exact);
     const after = fold(
       liveExact,
@@ -425,10 +426,10 @@ describe("W12 — the two absences persist the resume target differently (twin p
   });
 
   it("PIN #2 — a GENUINE end (sensor emits `{value:null}`) CLEARS the target to `none`", () => {
-    // The inverse bug the fix must NOT introduce: an agent that genuinely quits while
-    // the taps are live (`observable` is true → the agent really ended) still emits
-    // authoritative null, so `restoreTargetOf` clears — a later restore wakes a bare
-    // shell instead of resurrecting a dead agent.
+    // The inverse bug the fix must NOT introduce: an agent that genuinely quits back to
+    // the shell (a SHELL-IDLE foreground → the agent really ended) still emits authoritative
+    // null, so `restoreTargetOf` clears — a later restore wakes a bare shell instead of
+    // resurrecting a dead agent. This pin feeds that `{value:null}` directly.
     expect(restoreTargetOf(liveExact)).toEqual(exact);
     const after = fold(
       liveExact,

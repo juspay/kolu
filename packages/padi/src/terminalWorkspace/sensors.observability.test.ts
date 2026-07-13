@@ -198,12 +198,16 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
   });
 
   it("STAYS-DEFINED-UNDER-BLINDNESS: a reconcile with NO fresh foreground sample sees the stale DEFINED pid, emits `unknown`", async () => {
-    // The load-bearing invariant. Blindness (a tap failure) delivers NO new foreground
-    // sample and does NOT reset the sensor's foreground — so a later ignorance-triggered
-    // reconcile (here a title `poke`, standing in for the SESSIONS_DIR unlink watcher)
-    // still sees the last-known DEFINED agent pid, resolves null, and emits `unknown` —
-    // NOT the authoritative null a false `foregroundPid === undefined` would produce. A
-    // regression that reset the foreground on tap failure would flip this to `{value:null}`.
+    // The PRODUCER half of the load-bearing invariant: GIVEN the sensor's last foreground
+    // sample is still the DEFINED agent pid (no fresh sample has overwritten it), an
+    // ignorance-triggered reconcile (here a title `poke`, standing in for the SESSIONS_DIR
+    // unlink watcher) resolves null and emits `unknown` — NOT the authoritative null a
+    // false `foregroundPid === undefined` would produce. The OTHER half — that a foreground
+    // TAP FAILURE never overwrites that sample to `undefined` in the first place — is the
+    // `local.ts` foreground `onError` (log-only, no publish), whose mechanism is pinned in
+    // `bridgeStream.test.ts` (a failed source never fabricates an `onEvent`). This test
+    // deliberately does not re-drive that socket seam; it pins the producer's keep-last
+    // given the stale sample the two guarantees together preserve.
     const h = startHarness();
     try {
       await h.foreground(agentSample); // match — currentForeground := AGENT_PID (defined)

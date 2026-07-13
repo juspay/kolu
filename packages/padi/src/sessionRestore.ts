@@ -15,6 +15,7 @@
 
 import { resumeFormFor } from "anyagent/cli";
 import {
+  type AutosaveFreeze,
   cancelPendingAutosave,
   freezeAutosave,
   unfreezeAutosave,
@@ -140,13 +141,18 @@ export async function restoreSession(input: {
   // re-parents onto the fresh id; a sleeping one keeps its stable id.
   const oldToNew = new Map<string, string>();
   // The fresh actives this restore spawned, paired with the saved record each stands
-  // for. `respawnActive` consumes the parked idempotency token BEFORE the async spawn
-  // confirms, so a spawn that FAILS mid-restore (a kaval death 100 ms after the user
-  // clicks Restore) unwinds to `finalizeRemoval` — and the next autosave would then
-  // DELETE that terminal from the saved session outright (CONF-6). We pair each respawn
-  // with its saved record so a failure can be RE-PARKED instead, and freeze the autosave
-  // across the whole spawn window so no removal is ever journaled mid-restore.
-  const activeRespawns: { newId: string; record: SavedActiveTerminal }[] = [];
+  // for AND that spawn's own `ready` settle. `respawnActive` consumes the parked
+  // idempotency token BEFORE the async spawn confirms, so a spawn that FAILS mid-restore
+  // (a kaval death 100 ms after the user clicks Restore) unwinds to `finalizeRemoval` —
+  // and the next autosave would then DELETE that terminal from the saved session
+  // outright (CONF-6). We pair each respawn with its saved record + its `ready` promise
+  // so a GENUINE spawn failure (ready REJECTED) can be RE-PARKED, and freeze the
+  // autosave across the whole spawn window so no removal is ever journaled mid-restore.
+  const activeRespawns: {
+    newId: string;
+    record: SavedActiveTerminal;
+    ready: Promise<void> | undefined;
+  }[] = [];
   const topLevel = saved.terminals.filter((t) => !t.parentId);
   const subTerminals = saved.terminals.filter(
     (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
@@ -171,16 +177,26 @@ export async function restoreSession(input: {
     const newId = respawnActive(t, parentId, optedIn(t.id));
     if (newId) {
       oldToNew.set(t.id, newId);
-      // `t` is the active arm here (the sleeping branch returned above).
-      activeRespawns.push({ newId, record: t });
+      // `t` is the active arm here (the sleeping branch returned above). Capture the
+      // fresh proxy's `ready` promise NOW, while the entry is still the live shadow —
+      // its SETTLE (fulfilled vs rejected) is the authoritative "did the spawn succeed",
+      // read below without depending on later registry presence.
+      activeRespawns.push({
+        newId,
+        record: t,
+        ready: getActiveTerminal(newId)?.handle.ready,
+      });
     }
   };
 
   // Freeze the autosave for the ENTIRE spawn window (through the tail await below): a
   // respawn that fails mid-restore fires `terminals:dirty` via `finalizeRemoval`, and an
   // unfrozen autosave would journal that removal — deleting the terminal from the saved
-  // session (CONF-6). Lifted in the `finally`.
-  freezeAutosave("session restore (spawn window)");
+  // session (CONF-6). Lifted in the `finally` by releasing THIS restore's own lease, so
+  // a concurrent restart's freeze section is never thawed early.
+  const freeze: AutosaveFreeze = freezeAutosave(
+    "session restore (spawn window)",
+  );
   try {
     for (const t of topLevel) restoreRecord(t);
     for (const t of subTerminals) {
@@ -205,17 +221,35 @@ export async function restoreSession(input: {
     saveSession(snapshotSession());
 
     // Then wait for every fresh spawn to SETTLE (the proxy `ready` resolves on success,
-    // rejects on failure). Any respawn no longer in the live registry FAILED — RE-PARK
-    // its saved record so the restore card re-offers it. The autosave stayed FROZEN
-    // across this window, so the failure's `finalizeRemoval → notifyDirty` could not
-    // journal a shrunken session; the snapshot written above is the durable record.
-    await Promise.allSettled(
-      activeRespawns.map((a) => getActiveTerminal(a.newId)?.handle.ready),
+    // rejects on failure). A REJECTED settle is a genuine spawn failure (a dead / wedged
+    // kaval, or a spawn that raced its own teardown) — RE-PARK its saved record so the
+    // restore card re-offers it. The autosave stayed FROZEN across this window, so the
+    // failure's `finalizeRemoval → notifyDirty` could not journal a shrunken session; the
+    // snapshot written above is the durable record.
+    //
+    // We key re-park on the SETTLE OUTCOME, not on registry absence: a second client that
+    // KILLS or SLEEPS the fresh terminal during this window leaves `ready` FULFILLED (the
+    // spawn did succeed), so we honor that newer intent and do NOT resurrect it as a
+    // parked card — registry absence alone could not tell "spawn failed" from "user just
+    // killed it".
+    const settled = await Promise.allSettled(
+      activeRespawns.map((a) => a.ready),
     );
-    for (const a of activeRespawns)
-      if (!getActiveTerminal(a.newId)) seedParkedTerminal(a.record);
+    activeRespawns.forEach((a, i) => {
+      if (settled[i]?.status !== "rejected") return;
+      // Re-park under the FRESH id (with the mapped parent), NOT the old saved id: the
+      // durable snapshot written above named this terminal by its fresh id, so the parked
+      // idempotency token MUST share that id or a retry's `respawnActive` can't consume it
+      // — it would spawn a duplicate and leave the old-id park an orphan forever, and a
+      // lingering parked entry pins `hasParkedTerminals()` true and suppresses every later
+      // autosave (CONF-6 / F1).
+      const parentId = a.record.parentId
+        ? oldToNew.get(a.record.parentId)
+        : undefined;
+      seedParkedTerminal({ ...a.record, id: a.newId, parentId });
+    });
   } finally {
-    unfreezeAutosave();
+    unfreezeAutosave(freeze);
     cancelPendingAutosave();
   }
 }

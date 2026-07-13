@@ -32,6 +32,7 @@ import { getSavedSession, setSavedSession } from "./session.ts";
 import { restoreSession } from "./sessionRestore.ts";
 import {
   getTerminal,
+  parkedTerminalIds,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
@@ -312,7 +313,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     await done;
   });
 
-  it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked, NOT deleted from the saved session", async () => {
+  it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked under the FRESH id, NOT deleted", async () => {
     // The env has no kaval, so every fresh spawn's async tail rejects — exactly the
     // mid-restore kaval-death shape. `restoreSession` freezes the autosave across the
     // spawn window and re-parks each failed respawn, so the failure NEVER journals a
@@ -323,9 +324,38 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
 
     // The saved session was NOT shrunk away — it still names a terminal (the optimistic
     // snapshot written before the tails rejected).
-    expect(getSavedSession()?.terminals.length ?? 0).toBeGreaterThanOrEqual(1);
-    // The failed respawn's saved record is re-parked under its original id, so the
-    // restore card re-offers it rather than the terminal vanishing.
-    expect(getTerminal(PARENT_ID)?.meta.state).toBe("parked");
+    const restored = restoredW12Agent();
+    expect(restored).toBeDefined();
+    // The failed respawn is re-parked under the SAME (fresh) id the durable snapshot
+    // named — disk id and parked id MATCH, so a retry can consume the token (F1). The
+    // OLD saved id was consumed by the parked→active flip and must NOT linger parked.
+    expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
+    expect(getTerminal(PARENT_ID)).toBeUndefined();
+    expect(parkedTerminalIds()).toHaveLength(1);
+  });
+
+  it("W12/F1 — a failed restore then a RETRY leaves NO orphan parked residue", async () => {
+    // The F1 regression: re-parking under the OLD saved id (while the disk snapshot names
+    // the FRESH id) desyncs the two identity spaces. A retry reads the fresh-id disk
+    // record, can't consume the old-id park, spawns yet another terminal, and leaves the
+    // old-id park orphaned FOREVER — and any lingering park pins `hasParkedTerminals()`
+    // true, suppressing every future autosave. Re-parking under the fresh id keeps the
+    // token consumable: each retry consumes the prior park and re-parks exactly one, so
+    // the parked set never accumulates and the original id never re-appears.
+    seedW12Agent();
+
+    await restoreSession({}); // first attempt fails (no kaval) → one parked entry
+    const firstParked = parkedTerminalIds();
+    expect(firstParked).toHaveLength(1);
+
+    await restoreSession({}); // retry: consume that park, fail again, re-park exactly one
+
+    // Still exactly one parked entry — no accumulation, no orphan under the original id.
+    expect(parkedTerminalIds()).toHaveLength(1);
+    expect(getTerminal(PARENT_ID)).toBeUndefined();
+    // And the surviving parked id matches the id the current saved snapshot names.
+    const restored = restoredW12Agent();
+    expect(restored).toBeDefined();
+    expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
   });
 });
