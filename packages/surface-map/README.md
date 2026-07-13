@@ -12,7 +12,12 @@ view. Depends only on [`@kolu/surface`](../surface).
 import { defineSurfaceMap } from "@kolu/surface-map";
 import { serveSurfaceMap } from "@kolu/surface-map/server";
 
-export const hostMap = defineSurfaceMap(z.string(), surface, identityCodec);
+export const hostMap = defineSurfaceMap({
+  key: z.string(),
+  entry: surface,
+  codec: identityCodec,
+  failure: hostFailureSchema, // a zod schema for the domain failure value
+});
 const { router } = serveSurfaceMap(hostMap, registry); // a finalized, servable router
 ```
 

@@ -17,7 +17,7 @@ easy shortcut.
 
 ## Why the status is a sum, not a flag
 
-The map publishes each entry's status as `EntryStatus<Cause>`, a sum of exactly
+The map publishes each entry's status as `EntryStatus<Failure>`, a sum of exactly
 three arms:
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
@@ -37,21 +37,23 @@ vibes:
 - **connected** — live. `clockOffset` is this entry's clock seam (below).
 - **failed** — it will *not* resolve without someone acting: a bounded give-up, or a standing refuse ("another owner holds this host"). The right UI is an actionable card; the wrong one is an eternal spinner.
 
-The line between `warming` and `failed` is drawn by the session's **domain cause**.
-A *specific* cause — a contract skew, a cross-supervisor refusal — is a standing
-condition, so it projects `failed`. *No* specific cause is a transient drop, so it
+The line between `warming` and `failed` is drawn by the session's **domain failure**.
+A *specific* failure — a contract skew, a cross-supervisor refusal — is a standing
+condition, so it projects `failed`. *No* specific failure is a transient drop, so it
 projects `warming`. Collapsing the two would reproduce two real, opposite bugs:
 render a retriable reconnect as a steady red "failed" and a live system looks
 dead; render a standing refuse as `warming` and a permanently-stuck host spins
 forever. The sum is the fix that makes both unrepresentable.
 
-<Aside type="note" title="The domain owns its causes; the framework owns the discriminant">
-  `Cause` is a type parameter (`extends string`, defaulting to `string`), not a
-  baked-in list. The generic package cannot know a domain's failure taxonomy, so
-  it carries the discriminant and nothing more; a domain instantiates
-  `EntryStatus<PadiEntryFailedCause>` at its own map and rides typed extras through
-  the loose `failed` arm. Domain vocabulary stays in the domain — the dependency
-  arrow points *out*.
+<Aside type="note" title="The domain owns its failures; the framework owns the discriminant">
+  `Failure` is a type parameter (defaulting to `unknown`), inferred from the map's
+  required `failure` schema — not a baked-in list. The generic package cannot know a
+  domain's failure taxonomy, so it carries the discriminant and nothing more; a domain
+  instantiates `EntryStatus<PadiEntryFailure>` at its own map, where `PadiEntryFailure`
+  is a validated `z.discriminatedUnion` over a structural `cause` (each arm carrying its
+  human `reason`, the `contract-skew-refused` arm additionally a typed `running`/`expected`
+  version pair). The `failed` arm carries a schema-valid domain value, not a loose object.
+  Domain vocabulary stays in the domain — the dependency arrow points *out*.
 </Aside>
 
 ## Why the fold envelope omits void
@@ -120,7 +122,7 @@ The through-line is one trade made five times: the map's wire refuses the
 convenient shortcut in exchange for a lie it cannot tell. No `absent` arm, so you
 read status through a total lens instead of a nullable one. A per-entry clock, so
 you thread every host-stamped time through a seam and render a "—" while it warms.
-A typed cause on `failed`, so the app must enumerate what its failures *mean*
+A typed domain failure on `failed`, so the app must enumerate what its failures *mean*
 instead of showing one red dot. Each is more ceremony than a single-host client
 would need. The bet is that in a fleet — where the set changes underfoot and every
 fact belongs to one host — the ceremony is the only thing that stays true. If a
