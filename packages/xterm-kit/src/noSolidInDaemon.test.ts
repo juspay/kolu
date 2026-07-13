@@ -51,8 +51,9 @@ function resolveSourceFile(base: string): string | null {
       return c;
     }
   }
-  // An inert asset (already carries its own extension, not a .ts/.tsx source).
-  if (/\.(json|css|js|cjs|mjs)$/.test(base) && existsSync(base)) return null;
+  // Not a source file. The caller distinguishes an inert asset (skip) from a
+  // genuinely unresolved edge (throw) by re-testing `spec` — this only reports
+  // "no .ts/.tsx here".
   return null;
 }
 
