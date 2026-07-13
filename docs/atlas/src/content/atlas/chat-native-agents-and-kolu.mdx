@@ -216,16 +216,24 @@ condition is a coordinator demonstrably needing to *initiate* a chat action the
 transcript mirror cannot express (posting to a different channel, addressing a named
 human out-of-thread). Until that consumer exists, it is not built.
 
-<PhaseTree title="ROADMAP — pesu (the XS bridge)" phases={PESU} />
+Each phase is **one PR, end to end** — it ships nothing that isn't consumed within it
+(the padi plan's law, held here). Every PR below is a complete, usable product on its
+own; none ships a half waiting for a later consumer.
+
+<PhaseTree title="ROADMAP — pesu (the XS bridge) · one end-to-end PR per phase" phases={PESU} />
 
 export const PESU = [
-  { d: 0, g: "▶", c: "next", l: "B0 · the bridge daemon + XS catalog entry — thread↔coordinator binding, attributed write-in, within-turn SSE out", m: "ships on today's SDK", h: "#b0" },
-  { d: 0, g: "○", c: "todo", l: "B1 · the board on demand — @pesu status renders padi's who-needs-me table as a tool output", m: "needs B0", h: "#b0" },
-  { d: 0, g: "○", c: "todo", l: "B2 · the unprompted half — transcript mirror + attention pings, posted via XS's shipped incoming webhooks", m: "needs B0 · verify thread-reply fidelity first", h: "#b0" },
-  { d: 0, g: "○", c: "last", l: "B3 · team hardening — multi-human attribution conventions, deep links, the discussion-assist patterns", m: "needs B2", h: "#b0" },
+  { d: 0, g: "▶", c: "next", l: "B0 · the round trip — @pesu in a thread reaches the coordinator, attributed; the reply streams back into the thread. Usable alone: a chat-driven coordinator", m: "ships on today's SDK", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B1 · the board — @pesu status answers with padi's who-needs-me table, straight off the daemon. Usable alone: fleet status from chat", m: "needs B0", h: "#b0" },
+  { d: 0, g: "○", c: "last", l: "B2 · the live mirror — unprompted coordinator posts via incoming webhooks: worker reports, rulings, attention pings, each with its terminal deep link. Usable alone: the thread becomes the campaign feed", m: "needs B0 · thread-reply fidelity is the first acceptance check", h: "#b0" },
 ];
 
 <a id="b0"></a>
+
+Multi-human attribution ships inside B0 (it is the write-in's substance, not a
+hardening pass), deep links ship inside B2 (they are the mirror posts' rendering), and
+the discussion-assist patterns are coordinator behavior — the `/orchestrator` skill's
+territory, not a pesu PR.
 
 **The milestone is concrete: run kolu's own development from a thread (B0 + B1).** kolu
 is already built this way — a coordinator driving a fleet of worker agents through the
