@@ -98,6 +98,11 @@ const WEB_SHELL_FILES = [
   "padi/supervisorClaim",
   // ── the serving shell + true leaves (top-level) ──
   "hostname",
+  // W10 host-membership persistence — the pool (the web shell's authority for map
+  // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives
+  // beside the shell, wired into `buildRemotePool`'s `persist` hook from `index.ts`.
+  // Pure shell glue (a file codec keyed by pool membership), not terminal domain.
+  "hostPersistence",
   "iframePreviewRoute",
   "index",
   "log",

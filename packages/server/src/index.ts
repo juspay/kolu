@@ -86,6 +86,7 @@ import {
   parseKoluPadiHostSeed,
 } from "./padi/remotePadiBinding.ts";
 import { pruneToMembers } from "./padi/reServeEviction.ts";
+import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
 import {
@@ -262,6 +263,31 @@ const seed = parseKoluPadiHostSeed();
 // only satisfies the indexed-access optional — the parser always prepends it).
 const defaultHost = seed[0] ?? LOCAL_HOST;
 
+// W10 — restore the remembered fleet. Guest hosts added via the selector strip in a
+// prior run are persisted in the conf state store (server-side, beside its one writer —
+// the pool); merge them into the initial host set so they re-enter through the SAME seed
+// → `buildEntry` → W6 connect pipeline the env seed uses (a gone host surfaces as a
+// `failed` entry, never silently dropped). Deduped against the env seed so a host listed
+// in BOTH `KOLU_PADI_HOST` and the store counts once. Seeding at construction (rather
+// than a post-build `pool.add` loop) keeps the boot replay from re-firing `persist` — the
+// store is only ever rewritten by a genuine runtime add/remove, so an interrupted boot
+// can't truncate it. A store that PARSES but fails the hosts schema CRASHES here naming
+// the store (`getPersistedHosts` — fail-loud), never starting with an empty fleet; an
+// UNPARSEABLE store already threw in conf's own read (fail-fast, `clearInvalidConfig` false).
+const persistedAtBoot = getPersistedHosts();
+const envSeedKeys = seed.map(encodeHostKey);
+const initialHostKeys = [...new Set([...envSeedKeys, ...persistedAtBoot])];
+// Env-seed provenance (the `persist` hook's exclusion set): a `KOLU_PADI_HOST` seed is
+// a DECLARATIVE knob, not a strip-added membership fact — persisting it would complect
+// the two and make an env host permanent on disk after any unrelated add/remove (and
+// survive its own removal from the env). Exclude env seeds from the store UNLESS they
+// were already persisted at boot — persisted-at-boot wins, so a host a user
+// strip-added and then LATER also named in `KOLU_PADI_HOST` keeps its persisted claim.
+const persistedAtBootSet = new Set(persistedAtBoot);
+const declarativeSeedKeys = new Set(
+  envSeedKeys.filter((k) => !persistedAtBootSet.has(k)),
+);
+
 // ── P0: the local-supervisor ownership gate ────────────────────────────────────
 // kolu-server SUPERVISES the local padi (spawns / adopts / drains it). A SECOND
 // kolu-server pointed at the SAME state root would co-supervise the one padi and
@@ -296,7 +322,14 @@ releaseLocalSupervisor = supervisorClaim.release;
 // meanwhile, exactly the same shape for either). The `?host=` handler is unused (the
 // map forwards by key-in-input, not a per-host socket), so `H = undefined`.
 const pool = buildRemotePool<PadiSession, undefined>({
-  initialHosts: seed.map(encodeHostKey),
+  initialHosts: initialHostKeys,
+  // W10 — persist membership in the conf store beside its one writer (the pool). Fires on
+  // every runtime add/remove with the intended post-mutation host list; the pool's own
+  // contract orders this write BEFORE the in-memory commit, serializes it through one
+  // mutation queue, and rolls back the just-built session if it throws. The callback only
+  // shapes WHAT is written — the unremovable local default drops out (seeded in code, never
+  // persisted, so the store can't mint a second authority for "local always exists").
+  persist: (hosts) => savePoolMembership(hosts, declarativeSeedKeys),
   buildEntry: (h) => {
     const key = decodeHostKey(h);
     return {
@@ -377,10 +410,13 @@ const padiSession = ((): PadiSession => {
 // object by reference, so two logically-equal `HostKey`s would never collide). `.done`
 // enacts the #1708 pump-fault pins: the DEFAULT (local) host's pump death is FATAL
 // (fail-fast — the supervisor restarts kolu-server clean); a GUEST host's death RETIRES
-// just that host (`pool.remove` ends its map subs typed; the client's `hostReconcile`
+// just that host (`pool.retire` ends its map subs typed; the client's `hostReconcile`
 // effect then switches `activeHost` off the departed host to the local default, so the
-// canvas falls back with a toast rather than stranding the tab on a dead host). The map
-// forwards each host's calls to `directLink(reServeFor(h, s).router)`.
+// canvas falls back with a toast rather than stranding the tab on a dead host). This uses
+// `retire`, NOT `remove`: the pool sheds the dead host on its OWN initiative, which must
+// not be confused with the user's explicit remove — so it does not persist the departure
+// (a membership store re-seeds the host next boot). The map forwards each host's calls to
+// `directLink(reServeFor(h, s).router)`.
 const reServes = new Map<string, ReServedSurface<typeof padiSurface.spec>>();
 const reServeFor = (
   h: HostKey,
@@ -415,7 +451,12 @@ const reServeFor = (
           { err, host: enc },
           "guest padi re-serve pump died — retiring the host",
         );
-        void pool.remove(enc);
+        // `retire`, not `remove`: an internal shed, not a user removal — it tears the
+        // host out of the live pool WITHOUT persisting, so a remembered host returns on
+        // the next boot. `retire` has no persist step and swallows its own teardown
+        // fault, so it can't reject — a bare `void` needs no `.catch` to stay off the
+        // fatal `unhandledRejection` handler.
+        void pool.retire(enc);
       });
   }
   return r;

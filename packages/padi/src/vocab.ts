@@ -13,6 +13,7 @@
  * `@kolu/padi/surface`.
  */
 
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import {
   ENDPOINT_STATES,
   type EndpointState,
@@ -353,23 +354,48 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
   SleepingTerminalSchema,
 ]);
 
-/** Client-owned metadata supplied at create time. Seeded onto the new
- *  terminal's `meta` before the first `terminal.list` yield, so session
- *  restore can't race the canvas default-cascade effect (#642).
- *
- *  `lastActivityAt` is technically a server-derived field, but session
- *  restore is the one client-driven path with truth about its prior
- *  value (read from the saved session blob). Threading it through here
- *  keeps recency ordering stable across restart — without it,
- *  `createMetadata` would reset every restored terminal to `0`. */
-export const InitialTerminalMetadataSchema = z.object({
+/** The BASE create input — the client-owned chrome every ORDINARY create carries,
+ *  and the exact shape the wire `lifecycle.create` accepts (`PadiCreateInputSchema`
+ *  derives from this directly). Seeded onto the new terminal's `meta` before the first
+ *  `terminal.list` yield, so a create can't race the canvas default-cascade effect
+ *  (#642). It carries NO server-derived authored facts — a fresh terminal earns those
+ *  from padi's own observation. Those three restore-only facts live in a SEPARATE
+ *  shape below that only the restore path can spell (the type is the fence, not a
+ *  convention). */
+export const CreateTerminalInputSchema = z.object({
   themeName: z.string().min(1).optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
   subPanel: SubPanelStateSchema.optional(),
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
-  lastActivityAt: z.number().optional(),
   intent: z.string().min(1).optional(),
 });
+
+/** The three server-derived authored facts a fresh create has NO business setting —
+ *  `lastActivityAt`, `lastAgentCommand`, and the fold-derived `restoreTarget`. Session
+ *  RESTORE is the one path with truth about their prior value (read from the saved
+ *  blob), so ONLY `restoreSpawn` (terminals.ts) threads them, through its distinct
+ *  `restoreOnly` parameter — an ordinary `createTerminal` can't name this shape at all.
+ *
+ *  `lastActivityAt` keeps recency ordering stable across a restart (without it a
+ *  restored terminal resets to `0`). `lastAgentCommand` + `restoreTarget` bridge the
+ *  agent-resume window: threading them onto the respawned terminal keeps restore's
+ *  closing re-persist (`restoreSession`'s `saveSession(snapshotSession())`) from
+ *  writing `none` over a resuming agent's id before the fold re-derives it — so a
+ *  SECOND unclean death right after restore, or a resume that never lands, still finds
+ *  the target on disk. */
+export const RestoreOnlyMetadataSchema = z.object({
+  lastActivityAt: z.number().optional(),
+  lastAgentCommand: z.string().optional(),
+  restoreTarget: RestoreTargetSchema.optional(),
+});
+
+/** The FULL seed shape spawnPty accepts — the base chrome plus the restore-only facts.
+ *  It is only ever CONSTRUCTED by the two constructors in terminals.ts (`createTerminal`
+ *  passes just the base; `restoreSpawn` merges in `restoreOnly`), never spelled by an
+ *  ordinary caller and never accepted at the wire. */
+export const InitialTerminalMetadataSchema = CreateTerminalInputSchema.merge(
+  RestoreOnlyMetadataSchema,
+);
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
@@ -475,6 +501,10 @@ export const SavedSessionSchema = z.object({
 export type TerminalClientMetadata = z.infer<
   typeof TerminalClientMetadataSchema
 >;
+/** The base create input — what every ordinary caller and the wire spell. */
+export type CreateTerminalInput = z.infer<typeof CreateTerminalInputSchema>;
+/** The three restore-only facts — only `restoreSpawn` (from the saved blob) spells them. */
+export type RestoreOnlyMetadata = z.infer<typeof RestoreOnlyMetadataSchema>;
 export type InitialTerminalMetadata = z.infer<
   typeof InitialTerminalMetadataSchema
 >;
@@ -517,6 +547,18 @@ export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
 });
+
+/** padi's browser-safe copy of `@kolu/surface-daemon`'s `DaemonLifetimeInfo` (the
+ *  wire projection of a daemon's `DaemonLifetime`) — declared here rather than
+ *  imported from kaval, for the same reason `PtyHostIdentitySchema` is duplicated:
+ *  padi's browser-safe vocab does not depend on kaval's package. `satisfies`-pinned
+ *  to the spine type so the two can't drift. Reused by `DaemonStatusSchema` (kaval's
+ *  lifetime) and, via surface.ts, by `PadiIdentitySchema` (padi's own). */
+export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("forever") }),
+  z.object({ kind: z.literal("idleTimeout"), ms: z.number() }),
+  z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
+]) satisfies z.ZodType<DaemonLifetimeInfo>;
 
 const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
   (state): state is Exclude<EndpointState, "connected"> =>
@@ -563,6 +605,12 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
      *  can't construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set
      *  once at boot, constant for the daemon's life. Optional + additive. */
     socketPath: z.string().optional(),
+    /** kaval's lifetime policy (`forever` in production; `boundToPid` under a
+     *  test/smoke run), mirrored from `system.version` via the connection
+     *  metadata — surfaced for the Kaval dialog's lifetime row. Optional: a
+     *  survivor predating the field reports none, and the reader falls back
+     *  to "—". Set once at boot, constant for the daemon's life. */
+    lifetime: DaemonLifetimeInfoSchema.optional(),
   }),
   z.object({
     // The state set is the spine's volatility — derive the enum from the
@@ -575,6 +623,7 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
     startedAt: z.never().optional(),
     adopted: z.never().optional(),
     adoptedAt: z.never().optional(),
+    lifetime: z.never().optional(),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). */

@@ -49,18 +49,84 @@ import type {
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
 
+/** RIS (`ESC c`) — a full terminal reset. An overflow-driven re-attach snapshot
+ *  frame's `data` LEADS with this (see `reattachingDeltas`) so the consumer's
+ *  screen + scrollback clear before the fresh snapshot repaints; the INITIAL
+ *  attach snapshot does not. The client discriminates on `data.startsWith(
+ *  TERMINAL_RESET)` so it can tell the reset a snapshot frame carries (expected)
+ *  from a later live-delta RIS (foreign) when re-seeding backfill. Lives here —
+ *  the client-reachable frame-type barrel — rather than in the server-only
+ *  `reattachingDeltas` so both sides read the one source of truth. */
+export const TERMINAL_RESET = "\x1bc";
+
 /** A late-joining client's view of a terminal: the screen state at attach
  *  time plus the live output stream from exactly that point forward. The
  *  endpoint produces both atomically (subscribe-before-serialize) so no
  *  byte is lost or double-painted across the snapshot/delta boundary. */
 export interface TerminalAttachment {
   /** Serialized screen state (VT escape sequences) at the instant of
-   *  attach. Empty string when the PTY hasn't produced output yet. */
+   *  attach — the recent screenful, not the whole mirror (older history
+   *  streams in via `getHistory` as the client scrolls up). Empty string when
+   *  the PTY hasn't produced output yet. */
   snapshot: string;
+  /** Absolute mirror-line index of the snapshot's top row — the seed for the
+   *  client's scrollback-backfill cursor (see `TerminalHistoryChunk`). */
+  topLine: number;
+  /** Reflow generation the snapshot was serialized under — the client stamps it
+   *  on every `getHistory` so a later width reflow makes its stale absolute
+   *  cursor a no-splice `stale` reply (F3). Undefined only from an older kaval
+   *  that predates the field (fail-open — no gate). */
+  reflowEpoch?: number;
   /** Live output deltas after the snapshot. Ends on iterator return,
-   *  signal abort, or PTY exit. */
-  deltas: AsyncIterable<string>;
+   *  signal abort, or PTY exit. Each re-attach frame (after an overflow drop)
+   *  carries its own fresh `topLine`, so a mid-stream re-seed stays anchored. */
+  deltas: AsyncIterable<TerminalAttachFrame>;
 }
+
+/** One frame of the terminal byte stream a client consumes — a discriminated
+ *  union, mirroring kaval's own `TerminalDataMsg` shape one hop up rather than
+ *  flattening it to an optional field (the streaming-convention "explicit
+ *  discriminated union" for snapshot-vs-delta, `.claude/rules/streaming.md` §2).
+ *  A `delta` is just bytes to write. A `snapshot` frame — the stream's first
+ *  frame and every overflow-driven re-attach — carries the fresh `topLine` seed
+ *  for the client's backfill cursor. Modelling it as a union makes the two
+ *  malformed states the old `{ data, topLine? }` shape permitted (a snapshot
+ *  without its anchor, a delta carrying one) unrepresentable, so the consumer
+ *  discriminates on `kind`, never on field presence. */
+export type TerminalAttachFrame =
+  | { kind: "delta"; data: string }
+  | {
+      kind: "snapshot";
+      data: string;
+      topLine: number;
+      /** Reflow generation of the mirror this snapshot was taken under — the
+       *  client re-seeds its backfill epoch from it so a foreign-resize reflow
+       *  halts backfill rather than corrupting it (F3). Undefined from a kaval
+       *  predating contract 5.2 (fail-open). */
+      reflowEpoch?: number;
+    };
+
+/** One older-scrollback reply for the client's in-place backfill — the padi
+ *  mirror of kaval's `PtyHistoryChunk`, a discriminated union so a served chunk
+ *  and a stale-reflow halt can't be conflated (like `TerminalAttachFrame`).
+ *  `topLine` is an absolute mirror-line index (see `TerminalHandle.getHistory`). */
+export type TerminalHistoryChunk =
+  | {
+      kind: "chunk";
+      /** VT-serialized bytes for the chunk's rows, replayed at the live width.
+       *  Empty when nothing older remains. */
+      chunk: string;
+      /** Absolute mirror-line index of the chunk's top row — the caller's next
+       *  cursor. Equal to the input `before` when the chunk is empty. */
+      topLine: number;
+      /** True once the chunk reaches the oldest line the mirror still holds. */
+      exhausted: boolean;
+    }
+  /** The caller's stamped `epoch` no longer matches the mirror's reflow
+   *  generation (a width reflow renumbered absolute rows since the cursor was
+   *  seeded): NOTHING is served and the caller HALTS backfill until re-seed (F3).
+   *  Only reachable when the caller sent an epoch (fail-open otherwise). */
+  | { kind: "stale" };
 
 /** Options the lifecycle layer hands to `spawnPty`. `cwd` resolves to
  *  the user's home when undefined. `parentId` and `initialMetadata` are
@@ -109,6 +175,15 @@ export interface TerminalHandle {
     endLine?: number,
     tailLines?: number,
   ): Promise<string>;
+  /** Older-scrollback read for the client's in-place backfill: serialize up to
+   *  `max` mirror rows immediately ABOVE absolute line `before` (the client's
+   *  cursor — the attach `topLine`, then each reply's `topLine`). Absolute
+   *  addressing keeps the backfill seam race-free against live output. */
+  getHistory(
+    before: number | undefined,
+    max: number,
+    epoch?: number,
+  ): Promise<TerminalHistoryChunk>;
 }
 
 // `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint

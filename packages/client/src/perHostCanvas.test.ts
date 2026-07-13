@@ -67,11 +67,13 @@ const bag = vi.hoisted(() => ({
 // codec, from the shared `mockHostMap` testlib. `loadHost` drives membership via
 // its `addHost`; `beforeEach` empties it via `resetHosts`.
 vi.mock("./wire", async () => {
-  const { mockPadiMap, mockPadiRpcOf } = await import(
+  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
     "./hostScope/mockHostMap.testlib"
   );
   return {
     padiMap: mockPadiMap,
+    // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
+    groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
     // `createViewState`'s `writeActive` reports the active tile here.
     padiRpcOf: mockPadiRpcOf(rpcSpy.setActive),
     activePadiRpc: {
@@ -84,19 +86,22 @@ vi.mock("./wire", async () => {
         },
         lifecycle: {
           create: vi.fn(async () => {}),
-          restoreSleeping: vi.fn(async () => {}),
           sendInput: vi.fn(async () => {}),
         },
       },
     },
-    savedSessionSub: { pending: () => false },
-    savedSession: () => bag.savedSession(),
     // The per-tab active host — flips on a switch; drives the per-host keying in
     // the `scopedByEntry` owner that BOTH `useViewState` (view) and
     // `useSessionRestore` (the latch) read.
     activeHost: () => bag.activeHost(),
   };
 });
+// The saved-session facades moved OUT of `wire.ts` into `hostScope/activeWire` at W9
+// (to break the `wire ↔ hostScopes` cycle); `useSessionRestore` imports them from there.
+vi.mock("./hostScope/activeWire", () => ({
+  savedSessionSub: { pending: () => false },
+  savedSession: () => bag.savedSession(),
+}));
 
 // `createHostPrefs`'s per-host prefs (`showSleeping` via `perHostBoolPref`,
 // `activityWindow` via `perHostPref`) and `createViewState`'s posture

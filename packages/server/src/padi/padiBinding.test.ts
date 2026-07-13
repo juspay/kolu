@@ -34,11 +34,13 @@ import {
   padiKavalSocketPath,
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
+import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import {
   PADI_FORWARDING_POLICY,
   PADI_SURFACE_VERSION,
   padiSurface,
 } from "@kolu/padi/surface";
+import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import {
   type ConvergenceOutcome,
   converge,
@@ -58,6 +60,7 @@ import {
   vi,
 } from "vitest";
 import {
+  daemonEnv,
   ensurePadiBinding,
   handlePadiBootFailure,
   localPadiDriver,
@@ -108,10 +111,20 @@ const CLEARED = [
 ] as const;
 
 beforeAll(() => {
-  for (const k of ["XDG_RUNTIME_DIR", "KOLU_KAVAL_SPAWN", ...CLEARED] as const)
+  for (const k of [
+    "XDG_RUNTIME_DIR",
+    "KOLU_KAVAL_SPAWN",
+    DAEMON_BIND_PID_ENV,
+    ...CLEARED,
+  ] as const)
     prior[k] = process.env[k];
   process.env.XDG_RUNTIME_DIR = RUNTIME_ROOT;
   process.env.KOLU_KAVAL_SPAWN = "detached"; // padi's kaval detaches (survives padi restarts)
+  // Bind every real padi this binder spawns (and the kaval padi spawns — the binder's
+  // env builder forwards this var) to THIS vitest process, so a signal-killed run that
+  // skips the reap hooks still can't strand them: they poll this pid and die once
+  // vitest is gone. `afterEach`'s gate-pid SIGKILL stays the fast path.
+  process.env[DAEMON_BIND_PID_ENV] = String(process.pid);
   for (const k of CLEARED) delete process.env[k];
 });
 afterAll(() => {
@@ -244,12 +257,15 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
   // terminalAttach is a DELTA member — its first frame is the snapshot, forwarded
-  // 1:1 through the re-serve's fail-through relay.
+  // 1:1 through the re-serve's fail-through relay. Frames are a { kind, data, … }
+  // discriminated union (contract 5.2); the first is a `snapshot`.
   const attach = (await padi.terminalAttach.get({ id }))[
     Symbol.asyncIterator
   ]();
   const first = await attach.next();
-  expect(typeof first.value).toBe("string");
+  const firstFrame = first.value as TerminalAttachFrame;
+  expect(firstFrame.kind).toBe("snapshot");
+  expect(typeof firstFrame.data).toBe("string");
   await attach.return?.();
 
   await padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` });
@@ -406,7 +422,9 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    const firstFrame = first.value as TerminalAttachFrame;
+    expect(firstFrame.kind).toBe("snapshot");
+    expect(typeof firstFrame.data).toBe("string");
 
     // Kill the bound padi WHILE the iterator is held.
     const padiPid = gatePid(padiGatePath(padiSocketPath(stateRoot)));
@@ -711,6 +729,35 @@ describe("resolvePadiLaunch — the legacy-kaval-socket adopt-hint (binder hints
       undefined,
     );
     expect(args).not.toContain("--legacy-kaval-socket");
+  });
+});
+
+describe("daemonEnv — the server → padi forwarding hop for the run-bind pid", () => {
+  // Guards the ACTUAL server→padi hop (`daemonEnv` builds the env the padi driver
+  // spawns with). The cross-process sentinel test in `dial.test.ts` proves padi→kaval
+  // by spawning padi directly, so it never exercises THIS function; without this
+  // assertion, deleting the `DAEMON_BIND_PID_ENV` forward in `daemonEnv` would leave
+  // both suites green while silently stranding harness/smoke-spawned padis.
+  // `vi.stubEnv` snapshots the var at stub time and `unstubAllEnvs` restores THAT
+  // value — here the vitest pid the file-level `beforeAll` set — so later real-padi
+  // tests still spawn bound, without a hand-rolled runtime snapshot.
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("forwards the run-bind pid VERBATIM into padi's env when the server carries one", () => {
+    vi.stubEnv(DAEMON_BIND_PID_ENV, "4321");
+    expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("4321");
+  });
+
+  it("OMITS the var when the server's is truly unset (production padi stays `forever`)", () => {
+    vi.stubEnv(DAEMON_BIND_PID_ENV, undefined);
+    expect(daemonEnv("/state/root", false)).not.toHaveProperty(
+      DAEMON_BIND_PID_ENV,
+    );
+  });
+
+  it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
+    vi.stubEnv(DAEMON_BIND_PID_ENV, "");
+    expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
   });
 });
 

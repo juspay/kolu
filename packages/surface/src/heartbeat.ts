@@ -28,6 +28,8 @@
  * (which both legs already depend on) so the dependency arrow points OUT of both.
  */
 
+import { monotonicNow } from "./time";
+
 /** How often the watchdog probes a live link, and how long it waits for an answer
  *  before declaring the link half-open. A healthy peer answers in milliseconds, so
  *  the 10s timeout is a confident dead-signal; the 15s interval keeps the keep-
@@ -72,16 +74,6 @@ export const SUSPENSION_SLACK_MS = 1_000;
  *  monotonic clock, so genuinely-suspended time never spends the budget — this is
  *  the watchdog-of-the-watchdog that keeps "voided forever ⇒ silent" unspellable. */
 export const VOID_BUDGET_FACTOR = 3;
-
-/** The monotonic clock the suspension check reads — `performance.now()` where
- *  present (every browser, Node ≥ 16), else `Date.now()`. The fallback collapses
- *  the wall/mono gap to ~0, which only DISABLES suspension-voiding (degrading to
- *  the pre-fix behaviour where a frozen-then-resumed probe forces a reconnect) —
- *  it never blinds the watchdog, the fail-safe direction. */
-const monotonicNow = (): number =>
-  typeof performance !== "undefined" && typeof performance.now === "function"
-    ? performance.now()
-    : Date.now();
 
 type TimerHandle =
   | ReturnType<typeof setTimeout>

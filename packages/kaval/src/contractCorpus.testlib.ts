@@ -41,6 +41,7 @@ export const CONTRACT_COVERAGE = {
     "terminal.list",
     "terminal.getScreenState",
     "terminal.getScreenText",
+    "terminal.getHistory",
     "system.version",
     "system.heartbeat",
     "system.processMemory",
@@ -219,6 +220,17 @@ export function runContractCorpus(opts: {
       // aren't baked).
       expect(typeof v.identity?.staleKey).toBe("string");
       expect(typeof v.identity?.navigableCommit).toBe("string");
+      // The daemon injects its resolved lifetime once at boot and serves the
+      // projection here — so it APPEARS on `system.version` (never dropped by the
+      // produce site), which is what makes the Kaval dialog's lifetime row the
+      // daemon's own honest self-report rather than a guess. Which policy depends on
+      // how the corpus host was launched (`forever` in-process / over the socket;
+      // `boundToPid` only under KOLU_DAEMON_BIND_PID), so pin its presence + a valid
+      // kind, not one arm.
+      expect(v.lifetime).toBeDefined();
+      expect(["forever", "idleTimeout", "boundToPid"]).toContain(
+        v.lifetime?.kind,
+      );
     });
 
     it("system.heartbeat: returns a timestamp", async () => {
@@ -316,6 +328,18 @@ export function runContractCorpus(opts: {
       // getScreenState returns the serialized screen (a non-empty string here).
       const { data } = await client().surface.terminal.getScreenState({ id });
       expect(typeof data).toBe("string");
+
+      // getHistory: this shallow terminal's whole history fits the bounded
+      // attach snapshot, so a fetch above its top is an empty, exhausted no-op —
+      // enough to exercise the verb end to end over the wire.
+      const history = await client().surface.terminal.getHistory({
+        id,
+        before: 0,
+        max: 100,
+      });
+      if (history.kind !== "chunk") throw new Error("expected a chunk reply");
+      expect(history.exhausted).toBe(true);
+      expect(history.chunk).toBe("");
 
       // resize is accepted.
       const resized = await client().surface.terminal.resize({

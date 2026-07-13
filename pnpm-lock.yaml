@@ -197,6 +197,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      '@xterm/headless':
+        specifier: ^6.0.0
+        version: 6.0.0
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent

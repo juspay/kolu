@@ -35,7 +35,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 import { implement, ORPCError, type Router } from "@orpc/server";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
-import type { Logger } from "@kolu/surface-daemon";
+import type { DaemonLifetimeInfo, Logger } from "@kolu/surface-daemon";
 import { createPtyHost, type PtyId, type PtyListEntry } from "./ptyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -93,6 +93,11 @@ export interface InProcessPtyHostDeps {
    *  `dataMaxQueue`; defaults to the {@link Channel} default. Lowered in tests
    *  to drive the drop deterministically. */
   dataMaxQueue?: number;
+  /** The daemon's serialized lifetime (`forever` in production; `boundToPid`
+   *  under a test/smoke run) — surfaced on `system.version` so padi can mirror it
+   *  into the Kaval dialog's lifetime row. Injected by the daemon entrypoint,
+   *  which owns the lifetime choice. */
+  lifetime: DaemonLifetimeInfo;
 }
 
 /** Serve `ptyHostSurface` over a fresh `createPtyHost` — the **transport-
@@ -135,7 +140,12 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           const att = host.attach(input.id, signal, () => {
             overflow = true;
           });
-          yield { kind: "snapshot" as const, data: att.snapshot };
+          yield {
+            kind: "snapshot" as const,
+            data: att.snapshot,
+            topLine: att.topLine,
+            reflowEpoch: att.reflowEpoch,
+          };
           for await (const data of att.deltas) {
             yield { kind: "delta" as const, data };
           }
@@ -319,6 +329,15 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           requirePty(input.id as PtyId);
           return { text: host.getScreenText(input.id, input.extent) };
         },
+        getHistory: async ({ input }) => {
+          requirePty(input.id as PtyId);
+          return host.getHistory(
+            input.id,
+            input.before,
+            input.max,
+            input.epoch,
+          );
+        },
       },
       system: {
         version: async () => ({
@@ -326,6 +345,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           pid: process.pid,
           startedAt,
           identity: currentPtyHostIdentity(),
+          lifetime: deps.lifetime,
         }),
         heartbeat: async () => ({
           ts: Date.now(),

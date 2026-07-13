@@ -25,7 +25,7 @@ shared pool; key your own map and `destroy()` them yourself.
 | `makeSession<C>(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient<C>>`. Owns no transport — you supply `connectOnce` |
 | `sshConnector<C>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client |
 | `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked `{ system → drv }` env map, pin, probe, return `{ client, dispose }` with the link already proven live |
-| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport |
+| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
 `sshConnector` opts are `{ host, binary, resolveDrvPath }`: `host` is any ssh
@@ -70,13 +70,21 @@ end-to-end. Holding open a byte stream is a compile error.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`reconnect`/`recheckAll` + per-host socket eviction |
+| `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`retire`/`reconnect`/`recheckAll` + per-host socket eviction |
 | `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (folding `clockOffset()`) into an entry status |
 
 `buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
-returns the host's `{ session, handler }`. `serveHostMap` takes `{ linkFor, causeFor? }`;
-`linkFor(host, session)` is built once per host and evicted on removal. Together
-they are the server half of a host map — see
+returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` share the
+**same** teardown mechanics (evict sockets, drop membership, destroy the session), and
+differ in two ways: `remove` is the **user's** departure — it calls the `persist` hook
+first — while `retire` is an **internal** shed (a dead session the pool sheds on its
+own) that does **not** persist, so a membership store re-seeds the host next boot; and
+each verb labels its own WebSocket close reason and log line (`host removed` vs
+`host retired`). A pool with no `persist` hook makes them behave the same on disk —
+neither writes — though the close reason and log still name the verb.
+`serveHostMap` takes `{ linkFor, causeFor? }`; `linkFor(host, session)` is built once
+per host and evicted on **either** removal or retirement (both drop live membership).
+Together they are the server half of a host map — see
 [How to serve a map](/surface/serve-a-map).
 
 ## The connection cell
@@ -118,7 +126,7 @@ no separate `progressLines` / `remoteProgressLines` — provenance is the `sourc
 - **`pin()` is parent-lifetime intent.** It bumps the ref-count unconditionally, so the session keeps reconnecting even if the first spawn fails, and resolves with the first client. `destroy()` drops it regardless of the count.
 - **Network faults retry forever; remote faults are bounded.** A `network` fault (host unreachable) never terminates — it retries at capped backoff (60s). A `remote` fault (host answered but rejected the closure) is bounded by a max consecutive-failure count, then surfaces terminal `failed`.
 - **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale).
-- **Liveness watchdog, default-on.** While `connected`, it probes the reserved `system.live` round-trip on an interval. A timeout means a silently-wedged remote and force-cycles the child; a rejection still counts as alive. Opt out with `liveness: false`.
+- **Liveness watchdog, default-on.** While `connected`, it probes the reserved `system.live` round-trip on an interval; a rejection still counts as alive (the round-trip completed). What a **timeout** does depends on the arm's structure (P5), through the optional `Connection.processAlive` same-box oracle: a **remote** arm (ssh — no oracle) reads silence as death and force-cycles the child, because the network can die silently. A **local** arm (endpoint/stdio) that supplies `processAlive` consults the same-box process table instead — process **gone** → force-cycle now; process **alive** → the link is merely slow under load, so it keeps probing rather than force-cycling, bounded by a baked minute-scale dead-man ceiling (alive-but-silent past it → force-cycle anyway). This is arm structure, not a knob. Opt out with `liveness: false`.
 - **State progression.** `copying → connecting → connected`; on drop, `disconnected → copying → …` at exponential backoff capped at 60s.
 - **A mirror never fabricates a value.** A re-served (mirrored) cell serves NO frame until the authority's first real fold. Its store still seeds the declared default (so `store.get()` is a typed `T`), but the framework's `hasSnapshot` gate withholds that seed until the fold writes the authority's first frame — on a mirror the only writer is the fold, never a wire client. So the reader's `T | undefined` ("no frame yet") holds end to end: the mirror relays truth or stays silent, and the declared default belongs to the ONE writer, never a mirror relaying a guess.
 

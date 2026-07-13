@@ -22,11 +22,14 @@
  */
 
 import { ORPCError } from "@orpc/server";
+import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
 import type { PtyHostDataMsg } from "kaval";
 
-/** RIS (`ESC c`) — a full terminal reset. Prepended to a re-attach snapshot so
- *  the consumer's screen + scrollback clear before it redraws. */
-export const TERMINAL_RESET = "\x1bc";
+/** RIS (`ESC c`) — a full terminal reset. Re-exported from the frame-type barrel
+ *  (`endpoint.ts`, the one source of truth both sides read) so existing importers
+ *  keep resolving it here. Prepended to a re-attach snapshot so the consumer's
+ *  screen + scrollback clear before it redraws. */
+export { TERMINAL_RESET };
 
 /** Pause before an overflow-driven re-attach, so a pathological host that keeps
  *  dropping us immediately can't spin the loop hot (mirrors kaval-tui's
@@ -37,6 +40,13 @@ export const REATTACH_PAUSE_MS = 150;
  *  plus the iterator positioned at the first delta. */
 export interface OpenedAttach {
   snapshot: string;
+  /** Absolute mirror-line seed for the fresh snapshot — carried onto the
+   *  re-attach frame so the client re-seeds its backfill cursor. */
+  topLine: number;
+  /** Reflow generation the fresh snapshot was serialized under — carried onto
+   *  the re-attach frame so the client re-seeds its backfill epoch (F3).
+   *  Undefined from a kaval predating the field (fail-open). */
+  reflowEpoch?: number;
   iter: AsyncIterator<PtyHostDataMsg>;
 }
 
@@ -51,7 +61,7 @@ export interface OpenedAttach {
 export async function* reattachingDeltas(
   open: () => Promise<OpenedAttach>,
   firstIter: AsyncIterator<PtyHostDataMsg>,
-): AsyncGenerator<string> {
+): AsyncGenerator<TerminalAttachFrame> {
   let cur = firstIter;
   for (;;) {
     let overflowed = false;
@@ -62,7 +72,7 @@ export async function* reattachingDeltas(
         overflowed = true;
         break;
       }
-      yield msg.data;
+      yield { kind: "delta", data: msg.data };
     }
     if (!overflowed) return; // graceful end: PTY exit / abort / clean close
     await new Promise((r) => setTimeout(r, REATTACH_PAUSE_MS));
@@ -73,7 +83,14 @@ export async function* reattachingDeltas(
       if (err instanceof ORPCError && err.code === "NOT_FOUND") return;
       throw err;
     }
-    yield TERMINAL_RESET + next.snapshot;
+    // A fresh snapshot: reset the screen (RIS) AND re-seed the backfill cursor
+    // with this re-attach's own `topLine` + reflow generation.
+    yield {
+      kind: "snapshot",
+      data: TERMINAL_RESET + next.snapshot,
+      topLine: next.topLine,
+      reflowEpoch: next.reflowEpoch,
+    };
     cur = next.iter;
   }
 }

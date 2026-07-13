@@ -23,14 +23,14 @@ const h = vi.hoisted(() => ({
 
 // Spies for every RPC `handleRestoreSession` could conceivably fire. The W1.R6
 // contract: restore issues ONLY `session.restore` — the former client respawn
-// loop (`lifecycle.create` / `restoreSleeping` / `sendInput`) is DELETED, so
-// those must stay at zero.
+// loop (`lifecycle.create` / `sendInput`) is DELETED, so those must stay at zero.
+// (`lifecycle.restoreSleeping` was also part of that dead loop and is now retired
+// from the padi surface entirely — see #1784's W12 disposition.)
 const rpc = vi.hoisted(() => ({
   restore: vi.fn(async () => {}),
   import: vi.fn(async () => {}),
   forfeit: vi.fn(async () => {}),
   create: vi.fn(async () => {}),
-  restoreSleeping: vi.fn(async () => {}),
   sendInput: vi.fn(async () => {}),
 }));
 
@@ -44,12 +44,15 @@ vi.mock("../wire", async () => {
   // reads `padiMap`. Stand up the shared mock map (single static local member —
   // these tests never switch hosts); `beforeEach` resets it so each test's latch
   // starts fresh.
-  const { mockPadiMap, mockPadiRpcOf } = await import(
+  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
     "../hostScope/mockHostMap.testlib"
   );
   return {
     padiMap: mockPadiMap,
     padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
+    // The GROUNDED accessor the per-host scope reads — the shared testlib composition,
+    // pinned to the static local host (`beforeEach` adds LOCAL_HOST to membership).
+    groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
     activePadiRpc: {
       surface: {
         session: {
@@ -59,18 +62,22 @@ vi.mock("../wire", async () => {
         },
         lifecycle: {
           create: rpc.create,
-          restoreSleeping: rpc.restoreSleeping,
           sendInput: rpc.sendInput,
         },
       },
     },
-    savedSessionSub: { pending: () => h.sessionPending },
-    savedSession: () => h.savedSession,
     // Per-host latch keying (shape B). These tests are single-host — a stable local
     // key keeps the latch behavior identical to the pre-per-host app-lifetime latch.
     activeHost: () => ({ kind: "local" }),
   };
 });
+// The saved-session facades moved OUT of `wire.ts` into `hostScope/activeWire` at W9
+// (to break the `wire ↔ hostScopes` cycle); `useSessionRestore` imports them from there
+// now. Drive them through the same hoisted bag.
+vi.mock("../hostScope/activeWire", () => ({
+  savedSessionSub: { pending: () => h.sessionPending },
+  savedSession: () => h.savedSession,
+}));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
@@ -245,7 +252,6 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
   it("issues session.restore with the resume set and ZERO lifecycle.* RPCs", async () => {
     rpc.restore.mockClear();
     rpc.create.mockClear();
-    rpc.restoreSleeping.mockClear();
     rpc.sendInput.mockClear();
 
     await new Promise<void>((resolve, reject) => {
@@ -286,7 +292,6 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             expect(rpc.restore).toHaveBeenCalledWith({ resumeIds: ["0"] });
             // The deleted client respawn loop: zero of these fire.
             expect(rpc.create).not.toHaveBeenCalled();
-            expect(rpc.restoreSleeping).not.toHaveBeenCalled();
             expect(rpc.sendInput).not.toHaveBeenCalled();
 
             dispose();

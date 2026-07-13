@@ -21,22 +21,128 @@ import {
 } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
 import type { Logger } from "./logger.ts";
-import { acquirePidGate, type GateAcquisition } from "./pidGate.ts";
+import {
+  acquirePidGate,
+  type GateAcquisition,
+  isHolderLive,
+} from "./pidGate.ts";
 
 /** How long the daemon stays up once serving. `forever` waits for a signal or
  *  an external abort only; `idleTimeout` additionally shuts down after `ms` of
- *  continuous idleness (the daemon defines "idle" via `isIdle`). */
+ *  continuous idleness (the daemon defines "idle" via `isIdle`); `boundToPid`
+ *  additionally shuts down cleanly once the watched `pid` is gone — the daemon's
+ *  reason to exist is the RUN that spawned it, so it dies with that run rather
+ *  than outliving it (the test/smoke leak fix — a daemon detached+unref'd for
+ *  survival must still die when its harness is gone). These are three honest
+ *  constructors, not `forever` plus flags: a caller picks exactly one. The pid is
+ *  watched by a portable `kill(pid, 0)` poll; a pid-reuse in the poll window is a
+ *  documented residual, not engineered around (a fresh process inheriting the
+ *  same pid would keep the daemon alive one extra run — vanishingly rare, and the
+ *  cost is a single leaked run, not a class). */
 export type DaemonLifetime =
   | { kind: "forever" }
-  | { kind: "idleTimeout"; ms: number; isIdle: () => boolean };
+  | { kind: "idleTimeout"; ms: number; isIdle: () => boolean }
+  | { kind: "boundToPid"; pid: number; pollMs?: number };
+
+/** The serializable projection of a {@link DaemonLifetime} — the same three
+ *  kinds with the non-wire members dropped (`idleTimeout`'s `isIdle` closure,
+ *  `boundToPid`'s test-only `pollMs`). This is what a daemon publishes about
+ *  itself so a UI can show which lifetime it is running under (`forever` in
+ *  production; `boundToPid` under a test/smoke run). Kept here, beside the union
+ *  it projects, so the two can't drift; the wire (zod) schema is declared
+ *  downstream in each surface's browser-safe vocab, `satisfies`-pinned to this. */
+export type DaemonLifetimeInfo =
+  | { kind: "forever" }
+  | { kind: "idleTimeout"; ms: number }
+  | { kind: "boundToPid"; pid: number };
+
+/** Project a live {@link DaemonLifetime} to its serializable {@link
+ *  DaemonLifetimeInfo} — drops the `isIdle` closure and the test-only `pollMs`,
+ *  keeping only what a consumer can read off the wire. Exhaustive over the union
+ *  (a new arm is a compile error here), so the projection can't silently omit a
+ *  future lifetime. */
+export function lifetimeInfo(lifetime: DaemonLifetime): DaemonLifetimeInfo {
+  switch (lifetime.kind) {
+    case "forever":
+      return { kind: "forever" };
+    case "idleTimeout":
+      return { kind: "idleTimeout", ms: lifetime.ms };
+    case "boundToPid":
+      return { kind: "boundToPid", pid: lifetime.pid };
+  }
+  // Exhaustiveness fence, the file's own idiom (mirrors `daemonExitCode` and
+  // `waitForShutdown`): a new `DaemonLifetime` kind compile-fails here (`lifetime
+  // satisfies never`) until it joins a case above — so the projection can't
+  // silently omit a future lifetime, without pulling a dispatch library into this
+  // deliberately minimal-dependency spine.
+  lifetime satisfies never;
+}
 
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
  *  `already-running` is a *success* (another live daemon serves this scope —
  *  exit 0); `serve-failed` is the one real error. */
 export type DaemonExit =
   | { kind: "already-running"; pid: number }
-  | { kind: "shutdown"; reason: "signal" | "abort" | "idle" }
+  | { kind: "shutdown"; reason: "signal" | "abort" | "idle" | "pid-gone" }
   | { kind: "serve-failed"; detail: UnixSocketServeOutcome["kind"] };
+
+/** The env var that binds a spawned daemon to the RUN that spawned it: when set
+ *  to a valid pid, {@link daemonLifetimeFromEnv} selects the `boundToPid` lifetime
+ *  so the daemon dies with that pid; ABSENCE selects the caller's production
+ *  `fallback` (there is deliberately no way to *weaken* a production daemon — only
+ *  a test harness / smoke script opts a spawned daemon into dying with it). Threaded
+ *  harness → server → padi → kaval exactly as `KOLU_KAVAL_SPAWN` flows. */
+export const DAEMON_BIND_PID_ENV = "KOLU_DAEMON_BIND_PID";
+
+/** The largest value `kill(2)` accepts as a *single-process* pid: POSIX `pid_t`
+ *  is a signed 32-bit int, so a real pid never exceeds this. Above it Node throws
+ *  `ERR_OUT_OF_RANGE`; a value `<= 0` selects a process GROUP, not one process
+ *  (`kill(0,…)` = my group, `kill(-g,…)` = group g) — never an identity we can
+ *  watch. */
+const MAX_PID = 2 ** 31 - 1;
+
+/** Does `pid` identify a single OS process we can liveness-probe — a positive
+ *  integer within `pid_t` range? A fractional, non-positive, or out-of-range value
+ *  is not a pid: probing it would throw or, worse, address a process GROUP, so we
+ *  reject it up front rather than let it slip into `kill(pid, 0)`. */
+function isSingleProcessPid(pid: number): boolean {
+  return Number.isInteger(pid) && pid > 0 && pid <= MAX_PID;
+}
+
+/** Resolve the lifetime from {@link DAEMON_BIND_PID_ENV}: a valid pid value selects
+ *  `boundToPid`; true ABSENCE (the var is UNSET, `raw === undefined`) selects the
+ *  caller's production `fallback` (`forever` for kaval/padi). This is the ONE place
+ *  the "absence = production" policy lives, so both daemon twins can't drift on it.
+ *  Any PRESENT-but-invalid value crashes loudly (fail-fast) rather than silently
+ *  degrading to the fallback — a set-but-garbage bind pid is a harness bug, not a
+ *  reason to leak the daemon it meant to bind. That includes the empty string: in
+ *  Node an unset var is `undefined`, but `""` is a value that is *present and
+ *  invalid* (typically a broken harness/systemd expansion of `$SOMEPID`), and
+ *  silently treating it as absence is exactly how the leak this daemon prevents
+ *  would creep back. So only `raw === undefined` is absence; `""` throws with every
+ *  other malformed spelling. "Malformed" is otherwise strict: a real pid stringifies
+ *  to plain canonical decimal, so anything else (`1e3`, `0x10`, ` 10 `, `010`,
+ *  `12.5`, or a value past {@link MAX_PID}) is a corrupted forward we throw on,
+ *  never silently coerce via `Number()`. The forwarders (padiBinding / localDriver)
+ *  match this: they forward every DEFINED value, so a broken empty expansion
+ *  propagates the whole chain and crashes at the daemon rather than being dropped
+ *  mid-hop and silently reverting to `forever`. */
+export function daemonLifetimeFromEnv(
+  fallback: DaemonLifetime,
+): DaemonLifetime {
+  const raw = process.env[DAEMON_BIND_PID_ENV];
+  if (raw === undefined) return fallback;
+  const pid = Number(raw);
+  // Canonical decimal ONLY (`^[1-9][0-9]*$`), then a single-process pid in range:
+  // `Number()` alone would accept `1e3`/`0x10`/padded whitespace and coerce them to
+  // a pid the harness never meant, quietly binding to the wrong process.
+  if (!/^[1-9][0-9]*$/.test(raw) || !isSingleProcessPid(pid)) {
+    throw new Error(
+      `${DAEMON_BIND_PID_ENV} must be a canonical positive-integer pid within pid_t range; got ${JSON.stringify(raw)}`,
+    );
+  }
+  return { kind: "boundToPid", pid };
+}
 
 /** The process exit code for a `DaemonExit` — the success/failure classification
  *  lives with the type, not re-decided in each bin's ternary. `already-running`
@@ -146,22 +252,49 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   }
 }
 
+/** The default `boundToPid` liveness-poll interval — frequent enough that a
+ *  daemon dies within ~a couple seconds of its run, lazy enough not to busy-poll.
+ *  Fixed, not a knob (tests inject a small value via the `boundToPid` arm's `pollMs`). */
+const PID_WATCH_POLL_MS = 2_000;
+
 /** Resolve when the daemon should stop: an OS signal (SIGTERM/SIGINT), the
- *  external abort, or — under `idleTimeout` — `ms` of continuous idleness. All
- *  handlers are removed before resolving, so a returning daemon leaves no
- *  listeners behind (a test runs many daemons in one process). */
+ *  external abort, under `idleTimeout` `ms` of continuous idleness, or under
+ *  `boundToPid` the moment the watched pid is gone. All handlers are removed
+ *  before resolving, so a returning daemon leaves no listeners behind (a test runs
+ *  many daemons in one process). */
 function waitForShutdown(
   lifetime: DaemonLifetime,
   external?: AbortSignal,
-): Promise<"signal" | "abort" | "idle"> {
+): Promise<"signal" | "abort" | "idle" | "pid-gone"> {
+  // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
+  // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
+  // (0, negative, fractional, out of range) would be silently reclassified — a
+  // group selector or an `ERR_OUT_OF_RANGE` that `isHolderLive` swallows as `false`
+  // — into a clean "pid-gone" shutdown. Throw BEFORE the promise so no signal
+  // listeners are registered on the crash path (a returning-then-rejecting daemon
+  // would leak them across a test's many daemons).
+  if (lifetime.kind === "boundToPid" && !isSingleProcessPid(lifetime.pid)) {
+    throw new Error(
+      `boundToPid.pid must be a positive integer within pid_t range; got ${lifetime.pid}`,
+    );
+  }
   return new Promise((resolve) => {
     let settled = false;
     const cleanups: Array<() => void> = [];
-    const finish = (reason: "signal" | "abort" | "idle"): void => {
+    const finish = (reason: "signal" | "abort" | "idle" | "pid-gone"): void => {
       if (settled) return;
       settled = true;
       for (const c of cleanups) c();
       resolve(reason);
+    };
+    // The poll-timer scaffold, single-sourced: create the interval, unref it so it
+    // never keeps the event loop alive on its own, and register a clearInterval
+    // cleanup. Both poll sites (idleTimeout, boundToPid) supply only their period +
+    // predicate; the register/unref/cleanup idiom lives here once.
+    const registerPoll = (period: number, tick: () => void): void => {
+      const t = setInterval(tick, period);
+      t.unref?.();
+      cleanups.push(() => clearInterval(t));
     };
 
     for (const sig of ["SIGTERM", "SIGINT"] as const) {
@@ -182,23 +315,53 @@ function waitForShutdown(
       cleanups.push(() => external.removeEventListener("abort", handler));
     }
 
-    if (lifetime.kind === "idleTimeout") {
-      // Poll idleness; shut down once it has held continuously for `ms`. Any
-      // activity resets the clock. The tick is frequent relative to `ms` but
-      // capped so a long timeout doesn't busy-poll.
-      let idleSince: number | undefined;
-      const period = Math.max(20, Math.min(lifetime.ms, 1000));
-      const timer = setInterval(() => {
-        if (lifetime.isIdle()) {
-          idleSince ??= Date.now();
-          if (Date.now() - idleSince >= lifetime.ms) finish("idle");
-        } else {
-          idleSince = undefined;
+    // Lifetime-specific shutdown trigger, dispatched EXHAUSTIVELY over the union
+    // (mirroring `daemonExitCode`'s fence) — the signal + external-abort triggers
+    // above apply to every kind, so `forever` adds nothing here. A future
+    // `DaemonLifetime` kind compile-fails at the `satisfies never` until it wires
+    // its own trigger, rather than silently inheriting `forever`'s "signal only".
+    switch (lifetime.kind) {
+      case "forever":
+        break;
+      case "idleTimeout": {
+        // Poll idleness; shut down once it has held continuously for `ms`. Any
+        // activity resets the clock. The tick is frequent relative to `ms` but
+        // capped so a long timeout doesn't busy-poll.
+        let idleSince: number | undefined;
+        const period = Math.max(20, Math.min(lifetime.ms, 1000));
+        registerPoll(period, () => {
+          if (lifetime.isIdle()) {
+            idleSince ??= Date.now();
+            if (Date.now() - idleSince >= lifetime.ms) finish("idle");
+          } else {
+            idleSince = undefined;
+          }
+        });
+        break;
+      }
+      case "boundToPid": {
+        // The daemon's reason to exist is the run at `pid`; watch it and shut down
+        // cleanly once it is gone. Registration on an ALREADY-dead pid exits
+        // immediately — the run this daemon would serve is already over, so there is
+        // nothing to serve (and no poll tick to wait for). The pid is already proven
+        // a single-process pid by the guard clause above.
+        const { pid } = lifetime;
+        // Reuse the package's canonical liveness probe (`isHolderLive`, pidGate.ts) —
+        // the same `kill(pid,0)` verdict the gate's stale-reap and the supervisor use,
+        // single-sourced so the two can't drift on the ESRCH-gone / EPERM-alive rule.
+        if (!isHolderLive(pid)) {
+          finish("pid-gone");
+          break;
         }
-      }, period);
-      // Don't let the poll timer keep the event loop alive on its own.
-      timer.unref?.();
-      cleanups.push(() => clearInterval(timer));
+        registerPoll(lifetime.pollMs ?? PID_WATCH_POLL_MS, () => {
+          if (!isHolderLive(pid)) finish("pid-gone");
+        });
+        break;
+      }
+      default:
+        // Exhaustiveness fence: a new `DaemonLifetime` kind compile-fails here until
+        // it joins a case above (`lifetime satisfies never`).
+        lifetime satisfies never;
     }
   });
 }

@@ -8,10 +8,10 @@ import { activeScope } from "../hostScope/hostScopes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
-  activePadiRpc,
   savedSessionSub,
   savedSession as serverSavedSession,
-} from "../wire";
+} from "../hostScope/activeWire";
+import { activePadiRpc } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -222,8 +222,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     try {
       // ONE writer, ONE call: padi re-spawns every terminal server-side (the
       // former client respawn loop is deleted). No `lifecycle.*` create /
-      // restoreSleeping / sendInput fires from the client during restore — only
-      // this `session.restore` — so restore can't half-apply across a mid-flight
+      // sendInput fires from the client during restore — only this
+      // `session.restore` — so restore can't half-apply across a mid-flight
       // reconnect. The client-side view-state (active tile + canvas viewport +
       // sub-panel tabs + MRU) is seeded by the HYDRATION effect below once the
       // restored terminals arrive on the `terminals` collection, exactly as a

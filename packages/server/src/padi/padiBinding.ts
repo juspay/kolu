@@ -60,6 +60,11 @@ import {
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
+  DAEMON_BIND_PID_ENV,
+  gatePid,
+  isHolderLive,
+} from "@kolu/surface-daemon";
+import {
   buildLabel,
   type ConvergenceOutcome,
   converge,
@@ -123,7 +128,7 @@ import { asPadiSession, type PadiSession } from "./padiSession.ts";
  * always the dev/e2e (`fromSource`) path, and the survivable-spawn driver layers
  * the child env OVER the full parent env on that path (systemd/prod runs off-nix).
  */
-function daemonEnv(
+export function daemonEnv(
   resolvedStateRoot: string,
   verbose: boolean,
 ): Record<string, string> {
@@ -137,6 +142,15 @@ function daemonEnv(
   env.KOLU_PADI_STATE_DIR = resolvedStateRoot;
   if (process.env.KOLU_KAVAL_SPAWN)
     env.KOLU_KAVAL_SPAWN = process.env.KOLU_KAVAL_SPAWN;
+  // Forward the run-bind pid so a harness/smoke-spawned padi binds its lifetime to
+  // the run (dies with it, never outlives it) — and padi's OWN kaval driver forwards
+  // it one hop further. UNSET in production → padi stays `forever`. Forward every
+  // DEFINED value (including an empty one from a broken expansion) so it propagates
+  // to padi and crashes there via `daemonLifetimeFromEnv`'s fail-fast, never silently
+  // dropped mid-hop back to `forever`. The exact twin of the KOLU_KAVAL_SPAWN forward
+  // above, not a new knob class.
+  if (process.env[DAEMON_BIND_PID_ENV] !== undefined)
+    env[DAEMON_BIND_PID_ENV] = process.env[DAEMON_BIND_PID_ENV];
   // Carry the effective log level to padi's pino domain logger across the unit's env
   // reset — `--verbose` forces `debug` (the split-process twin of the pre-cutover
   // `padiLog.level = "debug"`), else forward an explicit operator `LOG_LEVEL`.
@@ -557,6 +571,26 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // The FROZEN control-core hello round-trip — the liveness probe the watchdog uses.
       isAlive: () =>
         conn.client.surface.control.core.hello().then(() => undefined),
+      // The LOCAL arm's same-box life-oracle (#1776): read padi's OWN pid gate and
+      // consult the process table directly (`gatePid` + `isHolderLive` = `kill(pid,0)`,
+      // the canonical helpers). This is the superior authority a same-box arm has that
+      // the ssh arm cannot: when the `isAlive` hello goes SILENT under CPU load, the
+      // watchdog asks "is the padi process actually gone, or just slow?" — alive → don't
+      // force-cycle a merely-slow link (the wedge #1776 fixes); gone → force-cycle now.
+      // The ssh connector supplies no such oracle (its heartbeat stays its only signal).
+      //
+      // SYNC read on the serving loop is deliberate and safe here
+      // (`no-sync-blocking-on-the-serving-loop` carve-out): `gatePid` reads a bytes-long
+      // pid file on the local runtime tmpfs (`XDG_RUNTIME_DIR`) — a microsecond read — and
+      // this oracle fires ONLY from the watchdog's `onStale`, i.e. on a heartbeat TIMEOUT
+      // (a rare event: a healthy probe answers and `onStale` never runs; even a wedged
+      // link only re-fires it ~once per 25s cycle), never per request. It stays
+      // SYNCHRONOUS by design — the ruling's synchronous predicate — rather than promoting
+      // the whole oracle path to `Promise<boolean>` for a fast local tmpfs read.
+      processAlive: () => {
+        const pid = gatePid(gatePath);
+        return pid !== undefined && isHolderLive(pid);
+      },
       teardown: () => conn.dispose(),
     };
   };

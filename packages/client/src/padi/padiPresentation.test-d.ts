@@ -29,6 +29,7 @@ const full: PadiPresence = {
     buildCommit: "deadbeef",
     surfaceVersion: "1.1",
     convergence: null,
+    lifetime: { kind: "forever" },
   },
 };
 void full;
@@ -42,6 +43,7 @@ const declaredNoCommit: PadiPresence = {
     buildCommit: null,
     surfaceVersion: "1.1",
     convergence: null,
+    lifetime: { kind: "forever" },
   },
 };
 void declaredNoCommit;

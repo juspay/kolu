@@ -50,6 +50,17 @@ const DEFAULT_ROWS = 24;
  *  export reads the client buffer, so shrinking it regresses neither. See
  *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`. */
 export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
+/** How many scrollback lines the ATTACH snapshot serializes — the recent
+ *  screenful a cold/cross-host attach paints instantly, instead of the whole
+ *  {@link DEFAULT_MIRROR_SCROLLBACK}-deep mirror. Older lines are streamed in
+ *  on demand by {@link PtyHost.getHistory} as the client scrolls up (the
+ *  scrollback-backfill feature), so this bound sets the up-front paint cost, not
+ *  the reachable history: the full mirror is still readable, one older chunk at
+ *  a time. Deliberately far below the mirror depth — the whole point is to stop
+ *  shipping 10k lines on every host switch (the W9 full-replay cost). The client
+ *  seeds its backfill cursor from what it actually received, so the exact value
+ *  is a perf knob, not a correctness one. */
+export const SNAPSHOT_SCROLLBACK = 1_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
  *  `exitPromise(id)` resolves with the real code rather than a fabricated
  *  one. Bounded so the map can't grow without limit. */
@@ -61,6 +72,65 @@ const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
+
+/** The one reach into `@xterm/headless` privates the mirror needs: the normal
+ *  buffer's line `CircularList` — the reach the eviction pin and the RIS-reset
+ *  detector share. `length` is the current row count (read to advance
+ *  {@link Entry.mirrorBaseLine} past a reset's discarded rows); `onTrim` fires
+ *  with the count evicted off the top when scrollback overflows, the ONLY
+ *  faithful source of "lines evicted" — the number `mirrorBaseLine` accumulates
+ *  so `getHistory`'s absolute cursor survives eviction. A full reset replaces
+ *  this object wholesale, which is why identity (not just `length`) is tracked.
+ *  FAIL LOUD, deliberately: no public API exposes these, and a silently-missing
+ *  `onTrim`/`length` would let `mirrorBaseLine` freeze (or go `NaN`) while the
+ *  buffer renumbers underneath it, handing the client older-history chunks off by
+ *  the eviction total — a silent scrollback corruption. So a shape change under
+ *  an `@xterm/headless` bump throws here, caught by the contract-pin test
+ *  (`xtermMirrorContract.test.ts`) as red CI, never as user-visible corruption. */
+interface NormalLinesRef {
+  length: number;
+  onTrim(l: (n: number) => void): { dispose(): void };
+}
+
+/** Reach the normal buffer's line list, or THROW — a missing shape is a broken
+ *  internals contract, never a silent degrade (the pin/base arithmetic is unsafe
+ *  without it). Both pinned members are validated: `onTrim` must be callable, and
+ *  `length` a nonnegative integer — the RIS re-anchor does `mirrorBaseLine +=
+ *  lines.length`, so a missing/garbage `length` must fail loud here, not silently
+ *  poison the absolute cursor with `NaN`. */
+function normalLinesOf(
+  headless: InstanceType<typeof Terminal>,
+): NormalLinesRef {
+  const lines = (
+    headless as unknown as {
+      _core?: { buffers?: { normal?: { lines?: unknown } } };
+    }
+  )._core?.buffers?.normal?.lines as Partial<NormalLinesRef> | undefined;
+  if (
+    typeof lines?.onTrim !== "function" ||
+    !Number.isInteger(lines?.length) ||
+    (lines.length as number) < 0
+  ) {
+    throw new Error(
+      "xterm-headless internals contract broken: _core.buffers.normal.lines.{length: int≥0, onTrim: fn} missing",
+    );
+  }
+  return lines as NormalLinesRef;
+}
+
+/** Snap a start row back over any wrapped-line continuation rows to the logical
+ *  line's HEAD (`isWrapped === false`; a blank line qualifies), so a serialize
+ *  cut never bisects a soft-wrapped line — which would replay the continuation
+ *  as a fresh hard line (the wrap flag is lost with no preceding row). The one
+ *  home for the invariant the bounded-snapshot start and `getHistory`'s chunk
+ *  top both enforce, so the two edges can't drift. */
+function snapToWrapHead(
+  buffer: { getLine(i: number): { isWrapped: boolean } | undefined },
+  start: number,
+): number {
+  while (start > 0 && buffer.getLine(start)?.isWrapped) start--;
+  return start;
+}
 
 /** The terminal-identity string the headless PTY reports in its XTVERSION
  *  (CSI > q) reply. The DCS reply is built from this — see the XTVERSION
@@ -179,13 +249,71 @@ export interface PtySpawnResult {
  *  the live output stream from exactly that point forward. */
 export interface PtyAttachment {
   /** Serialized screen state (VT escapes) at the instant of attach; empty
-   *  for a brand-new PTY. */
+   *  for a brand-new PTY. Bounded to the recent screenful
+   *  ({@link SNAPSHOT_SCROLLBACK}), not the whole mirror — older lines stream in
+   *  via {@link PtyHost.getHistory} as the client scrolls up. */
   snapshot: string;
+  /** Absolute mirror-line index of the snapshot's TOP row — the client's seed
+   *  cursor for backfill (`getHistory`'s first `before`). Rides WITH the
+   *  snapshot, from the same serialize, so the seed can't drift from the bytes
+   *  the client received (an anchor fetched separately would race live output).
+   *  0 for a brand-new/empty PTY. */
+  topLine: number;
+  /** Reflow generation the snapshot (and its `topLine`) was serialized under —
+   *  the client stamps it on every `getHistory` so a subsequent width reflow
+   *  (this or another attach's resize) makes the stale absolute cursor a
+   *  no-splice `stale` reply rather than a duplicated/skipped band (F3). */
+  reflowEpoch: number;
   /** Live output deltas after the snapshot. Ends on iterator return,
    *  signal abort, PTY exit, or a slow-subscriber drop (which also fires
    *  `attach`'s `onOverflow`, so the serving layer can tell that end apart). */
   deltas: AsyncIterable<string>;
 }
+
+/** One older-history chunk from {@link PtyHost.getHistory}: a serialized slice
+ *  of the mirror's scrollback the client replays and prepends into its own
+ *  buffer as the user scrolls up.
+ *
+ *  The cursor is an ABSOLUTE mirror-line index — the count of lines ever evicted
+ *  off the top of the mirror plus a line's current local buffer index, so it
+ *  keeps naming the same line as newer output pushes older lines out:
+ *  a `getHistory(before)` returns the `max` lines immediately ABOVE `before`.
+ *  Absolute addressing is what makes the seam where backfilled history meets the
+ *  client's existing content race-free: new output always appends at the mirror
+ *  BOTTOM, never shifting the index of a line the client already holds, so a
+ *  served chunk can neither duplicate nor skip a row regardless of how many live
+ *  deltas are in flight during the fetch. (A `have`-from-bottom cursor cannot:
+ *  it compares the server's produced-line count against the client's received
+ *  count, which differ by exactly the in-flight lag.) */
+export type PtyHistoryChunk =
+  | {
+      /** A served slice of older scrollback. */
+      kind: "chunk";
+      /** VT-serialized bytes for the chunk's rows, replayable through a terminal
+       *  of the same width to reproduce the lines. Empty when nothing older
+       *  remains (the top of the mirror). */
+      chunk: string;
+      /** Absolute mirror-line index of the chunk's TOP row — the caller's new
+       *  cursor, passed as the next `before`. May sit a wrapped line's
+       *  continuation-rows lower than a naive `before - max` because the top edge
+       *  is snapped back to the wrapped line's head, so a chunk boundary never
+       *  splits a logical line. */
+      topLine: number;
+      /** True once the chunk reaches the oldest line the mirror still holds — the
+       *  caller stops backfilling. */
+      exhausted: boolean;
+    }
+  | {
+      /** The caller's stamped `epoch` no longer matches the mirror's current
+       *  reflow generation — a width reflow renumbered absolute rows since the
+       *  caller's cursor was seeded, so NOTHING is served and the caller HALTS
+       *  backfill until a fresh snapshot re-seeds (F3). Only reachable when the
+       *  caller sends an epoch; an epoch-less caller (older client / self-seeding
+       *  pager) is fail-open and never sees this. A discriminated arm — not a
+       *  `stale: true` flag on a chunk — so an illegal "stale reply that also
+       *  carries real bytes" can't be constructed (matches `TerminalAttachFrame`). */
+      kind: "stale";
+    };
 
 /** One foreground sample: the node-pty `process` name and the pty's
  *  foreground process-group pid (`tcgetpgrp(3)`). Both are read *at the tty*,
@@ -314,6 +442,18 @@ export interface PtyHost {
    *  to one slice (range / tail / viewport); omit it for the full buffer. See
    *  {@link ScreenExtent}. */
   getScreenText(id: PtyId, extent?: ScreenExtent): string;
+  /** Serialize the older-history chunk of up to `max` rows sitting immediately
+   *  ABOVE absolute mirror line `before` — the backfill read the client pages as
+   *  it scrolls up. An omitted `before` starts from the top of the current screen
+   *  region (the self-seeding entry point a plain pager uses). See
+   *  {@link PtyHistoryChunk}. Returns an empty, exhausted chunk for a gone PTY or
+   *  when nothing older remains. */
+  getHistory(
+    id: PtyId,
+    before: number | undefined,
+    max: number,
+    epoch?: number,
+  ): PtyHistoryChunk;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** Kill every PTY this host owns. */
@@ -331,6 +471,42 @@ interface Entry {
    *  Read and invalidated ONLY through `snapshotOf` / `invalidateSnapshot`,
    *  which own the epoch invariant (see their definitions). */
   snapshotCache: string | undefined;
+  /** Memoized BOUNDED attach snapshot (recent screenful + its seed cursor) for
+   *  the current publish-epoch — the cheap paint a cold/cross-host attach gets
+   *  instead of the full-mirror `snapshotCache`. Shares the same epoch invariant:
+   *  read/invalidated only through `boundedSnapshotOf` / `invalidateSnapshot`. */
+  boundedSnapshotCache: { snapshot: string; topLine: number } | undefined;
+  /** Absolute-line origin: the running count of lines the headless mirror has
+   *  retired off the top — the `onTrim` eviction total PLUS the length of any
+   *  buffer a full RIS reset discarded wholesale (see the write callback). An
+   *  absolute mirror-line index is `mirrorBaseLine + localBufferIndex`, so it
+   *  names the same logical line even as eviction/reset renumbers the local
+   *  buffer — the stable coordinate `getHistory` pages by. Only grows. */
+  mirrorBaseLine: number;
+  /** Monotonic reflow generation — bumped on a WIDTH resize and a full RIS reset,
+   *  the two events that renumber absolute rows (a height-only or same-dims
+   *  resize bumps nothing). A width change
+   *  REWRAPS the mirror (`reflowCursorLine`), which renumbers absolute rows: the
+   *  same logical content now occupies a different span, so an absolute cursor a
+   *  client computed under an OLDER generation no longer names the same row. The
+   *  attach snapshot stamps the generation it was serialized under; a
+   *  `getHistory` echoes it, and the host serves an empty `stale` reply when it
+   *  no longer matches — so a client whose mirror a FOREIGN attach reflowed
+   *  underneath it (its own `term.cols` unchanged) HALTS backfill rather than
+   *  splicing a duplicated/skipped band (F3). The RIS reset renumbers absolutes
+   *  too (see `normalLines`), hence the same bump. Only grows. */
+  reflowEpoch: number;
+  /** The headless normal buffer's line `CircularList`, captured for identity. A
+   *  full reset (RIS / `ESC c`, terminfo `rs1`) constructs a BRAND-NEW list
+   *  inside xterm, silently orphaning the spawn-time `onTrim` pin taken on the
+   *  old one (`mirrorBaseLine` would freeze) and renumbering absolutes with no
+   *  resize. The write callback compares identity against this each parse and
+   *  re-anchors on replacement (re-subscribe `onTrim`, advance `mirrorBaseLine`
+   *  past the discarded rows, bump `reflowEpoch`). */
+  normalLines: NormalLinesRef;
+  /** The live `onTrim` subscription on `normalLines`; disposed and replaced when
+   *  a reset swaps the underlying list. */
+  trimDisposable: { dispose(): void };
   cwd: string;
   title: string;
   lastActivity: number;
@@ -537,6 +713,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       headless,
       serialize,
       snapshotCache: undefined,
+      boundedSnapshotCache: undefined,
+      mirrorBaseLine: 0,
+      reflowEpoch: 0,
+      normalLines: normalLinesOf(headless),
+      // Real subscription assigned right after `entry` exists (the handler needs
+      // to close over it); this placeholder keeps the literal total.
+      trimDisposable: { dispose() {} },
       cwd: spawnOpts.cwd,
       title: "",
       lastActivity: Date.now(),
@@ -555,6 +738,23 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       onDispose: spawnOpts.onDispose,
     };
     entries.set(id, entry);
+
+    // Track eviction so `getHistory`'s absolute cursor stays anchored: each time
+    // scrollback overflows and the oldest rows fall off, advance the origin by
+    // the count trimmed. Re-used verbatim when a RIS reset swaps the line list
+    // (see the write callback). Disposed with the rest on teardown.
+    const trimHandler = (evicted: number): void => {
+      entry.mirrorBaseLine += evicted;
+    };
+    entry.trimDisposable = entry.normalLines.onTrim(trimHandler);
+    // Register ONE stable teardown that disposes WHICHEVER handle
+    // `entry.trimDisposable` currently holds. A RIS reset swaps the handle
+    // (below) and disposes the old one inline, so pushing each replacement would
+    // accumulate one dead disposable per reset over a long-lived PTY — this
+    // single indirection keeps `disposables` bounded (F5).
+    entry.disposables.push({
+      dispose: () => entry.trimDisposable.dispose(),
+    });
 
     // OSC 7 (CWD reporting) — the rc wrapper kolu injects makes the shell
     // emit these on every prompt.
@@ -671,6 +871,27 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           // stale: clear it BEFORE publishing, so a cached value always implies
           // "no parse since it was taken" — the invariant `attach()` leans on.
           invalidateSnapshot(entry);
+          // A full reset (RIS / `ESC c`, terminfo `rs1` for xterm-256color — a
+          // plain `reset` emits it) replaces the normal buffer's line list. That
+          // silently orphans the `onTrim` pin (mirrorBaseLine would freeze) and
+          // renumbers absolutes with NO resize, so a pre-reset cursor would pass
+          // the epoch gate and getHistory would serve the live screen as "older
+          // history". Detect the swap by identity and re-anchor: advance the base
+          // past the rows the old buffer held (new content gets fresh absolute
+          // numbers, never reused), re-subscribe the trim pin to the new list,
+          // and bump the generation so every outstanding cursor re-seeds (F3
+          // halt-not-corrupt).
+          const currentLines = normalLinesOf(headless);
+          if (currentLines !== entry.normalLines) {
+            entry.mirrorBaseLine += entry.normalLines.length;
+            entry.trimDisposable.dispose();
+            entry.normalLines = currentLines;
+            // Replace the handle in place — the stable teardown pushed at spawn
+            // disposes whatever this points at, so we must NOT push the
+            // replacement (that would leak one dead disposable per reset, F5).
+            entry.trimDisposable = currentLines.onTrim(trimHandler);
+            entry.reflowEpoch++;
+          }
           entry.data.publish(data);
         });
       }),
@@ -706,8 +927,60 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.snapshotCache ??= entry.serialize.serialize();
     return entry.snapshotCache;
   }
+  /** Local (buffer-relative) row the bounded attach snapshot starts at: the
+   *  recent-screenful window `max(0, len - SNAPSHOT_SCROLLBACK - rows)`, snapped
+   *  BACK over any wrapped-line continuation to the logical line's HEAD. A cut
+   *  that lands mid-wrapped-line would make `serialize` replay the continuation
+   *  as a fresh line (the wrap flag is lost with no preceding row present), so
+   *  the snapshot↔history seam would show a soft-wrapped line as a hard break —
+   *  the same corruption `getHistory` already snaps its own top edge away from.
+   *  A head is `isWrapped === false` (a blank line qualifies). */
+  function snapshotStartLocal(entry: Entry): number {
+    const normal = entry.headless.buffer.normal;
+    return snapToWrapHead(
+      normal,
+      Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows),
+    );
+  }
+  /** Absolute mirror-line index of the row the bounded attach snapshot starts
+   *  at — the client's backfill seed cursor. The wrap-safe local start shifted
+   *  by the eviction origin to make it absolute. Cheap (a handful of `getLine`
+   *  reads, no serialize), so the aborted-attach fast path can seed a cursor
+   *  without paying for a snapshot it won't send. */
+  function snapshotTopLineOf(entry: Entry): number {
+    return entry.mirrorBaseLine + snapshotStartLocal(entry);
+  }
+  /** Bounded attach snapshot (recent screenful) + its seed cursor, memoized per
+   *  publish-epoch just like {@link snapshotOf}. The `{scrollback}` form keeps
+   *  the addon's faithful restore (cursor position, modes, alt buffer) while
+   *  capping the scrollback depth. Read this — not `snapshotOf` — for attach: it
+   *  is what stops shipping the whole 10k-line mirror on every (re)attach. */
+  function boundedSnapshotOf(entry: Entry): {
+    snapshot: string;
+    topLine: number;
+  } {
+    entry.boundedSnapshotCache ??= (() => {
+      const start = snapshotStartLocal(entry);
+      const normal = entry.headless.buffer.normal;
+      // `serialize({scrollback: S})` emits the S scrollback rows above the screen
+      // plus the screen; pick S so the top emitted row is EXACTLY `start` (the
+      // wrap-safe head), so `topLine` names the true first row of the bytes and
+      // the seam is never bisected. Computed and serialized in one synchronous
+      // breath (no await between), so the seed can't drift from the bytes.
+      const scrollback = Math.max(
+        0,
+        normal.length - entry.headless.rows - start,
+      );
+      return {
+        topLine: entry.mirrorBaseLine + start,
+        snapshot: entry.serialize.serialize({ scrollback }),
+      };
+    })();
+    return entry.boundedSnapshotCache;
+  }
   function invalidateSnapshot(entry: Entry): void {
     entry.snapshotCache = undefined;
+    entry.boundedSnapshotCache = undefined;
   }
 
   function attach(
@@ -724,16 +997,25 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // reconnect storm, whose client has gone — does zero serialize work: the
     // subscribe above already returned an empty stream, so an empty snapshot
     // (a no-op `term.write("")` on the client) completes a no-op attach.
-    if (signal?.aborted) return { snapshot: "", deltas };
+    if (signal?.aborted)
+      return {
+        snapshot: "",
+        topLine: snapshotTopLineOf(entry),
+        reflowEpoch: entry.reflowEpoch,
+        deltas,
+      };
     // Coalesce within the publish-epoch: the first attach serializes and
-    // memoizes via snapshotOf(); the rest of a burst reuse the identical
-    // immutable string. Race-free — the memo is set through snapshotOf() and
-    // cleared through invalidateSnapshot() in every mirror mutator, all
+    // memoizes via boundedSnapshotOf(); the rest of a burst reuse the identical
+    // immutable string. Race-free — the memo is set through boundedSnapshotOf()
+    // and cleared through invalidateSnapshot() in every mirror mutator, all
     // synchronous, and publish only fires from a later task; so a present cache
     // means the mirror is unchanged since it was taken, and every reusing
     // attacher's deltas (subscribed just above) begin at the next publish,
-    // exactly where the shared snapshot ends. No gap, no overlap.
-    return { snapshot: snapshotOf(entry), deltas };
+    // exactly where the shared snapshot ends. No gap, no overlap. `topLine`
+    // rides with the snapshot from the same serialize, so the backfill seed can
+    // never drift from the bytes the client received.
+    const { snapshot, topLine } = boundedSnapshotOf(entry);
+    return { snapshot, topLine, reflowEpoch: entry.reflowEpoch, deltas };
   }
 
   function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
@@ -805,6 +1087,74 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     }
   }
 
+  function getHistory(
+    id: PtyId,
+    before: number | undefined,
+    max: number,
+    epoch?: number,
+  ): PtyHistoryChunk {
+    // `max` is a positive row count — a non-positive request is a caller bug
+    // (the wire schema rejects it too), so the primitive fails LOUD rather than
+    // silently returning an empty, exhausted page that a caller reads as "no
+    // more history".
+    if (!Number.isInteger(max) || max <= 0)
+      throw new RangeError(
+        `getHistory: max must be a positive integer, got ${max}`,
+      );
+    const entry = entries.get(id);
+    if (!entry)
+      return {
+        kind: "chunk",
+        chunk: "",
+        topLine: before ?? 0,
+        exhausted: true,
+      };
+    // Reflow guard (F3): a caller that stamped the generation its `before` cursor
+    // was seeded under is served NOTHING once a width reflow has since renumbered
+    // absolute rows — its cursor names a row the rewrap moved, so paging from it
+    // would splice a duplicated/skipped band. `stale` tells it to HALT until a
+    // fresh snapshot re-seeds. A caller with no epoch (older client / pager) is
+    // fail-open: it pages as before, accepting the historical single-width scope.
+    if (epoch !== undefined && epoch !== entry.reflowEpoch)
+      return { kind: "stale" };
+    const buffer = entry.headless.buffer.normal;
+    // `before` is the caller's absolute cursor; the row just above it is
+    // `before - mirrorBaseLine - 1` in the current local buffer. Omitted means
+    // "start from the top of the VISIBLE screen" (local `length - rows`) — the
+    // self-seeding entry point a plain pager (`kaval-tui history`) uses instead
+    // of first reading an attach snapshot's `topLine`. It must NOT be the
+    // bounded-snapshot top (`snapshotTopLineOf`), which sits ~SNAPSHOT_SCROLLBACK
+    // rows ABOVE the screen: self-seeding there would skip the newest older lines
+    // (the ones between the snapshot top and the screen) the CLI is asked to dump.
+    const cursor =
+      before ??
+      entry.mirrorBaseLine + Math.max(0, buffer.length - entry.headless.rows);
+    const localEnd = Math.min(
+      cursor - entry.mirrorBaseLine - 1,
+      buffer.length - 1,
+    );
+    if (localEnd < 0)
+      return { kind: "chunk", chunk: "", topLine: cursor, exhausted: true };
+    // Snap the top edge back to the logical-line head (see `snapToWrapHead`), so
+    // a chunk boundary never bisects a wrapped line; the caller advances its
+    // cursor by the returned `topLine`, so the extra rows are accounted for.
+    const start = snapToWrapHead(buffer, Math.max(0, localEnd - max + 1));
+    // Range serialize on the NORMAL buffer (its scrollback survives an alt-buffer
+    // switch); no modes, no alt-buffer tail — this is raw older content the
+    // client replays through a scratch terminal, not a screen restore.
+    const chunk = entry.serialize.serialize({
+      range: { start, end: localEnd },
+      excludeModes: true,
+      excludeAltBuffer: true,
+    });
+    return {
+      kind: "chunk",
+      chunk,
+      topLine: entry.mirrorBaseLine + start,
+      exhausted: start === 0,
+    };
+  }
+
   function write(id: PtyId, data: string): void {
     entries.get(id)?.proc.write(data);
   }
@@ -812,6 +1162,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function resize(id: PtyId, cols: number, rows: number): void {
     const entry = entries.get(id);
     if (!entry) return;
+    const prevCols = entry.headless.cols;
+    const prevRows = entry.headless.rows;
+    // An EXACT same-dims resize renumbers and reflows nothing — a second viewer
+    // attaching at the same size, or the mount-time re-publish of the current
+    // dims, would otherwise spuriously stale every attached client's cursor
+    // (there is no dedupe upstream). Skip it wholesale.
+    if (cols === prevCols && rows === prevRows) return;
     entry.proc.resize(cols, rows);
     entry.headless.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
@@ -819,6 +1176,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // the memo — invalidate here too, or a same-epoch attach after a resize
     // hands back the stale pre-resize snapshot.
     invalidateSnapshot(entry);
+    // Only a WIDTH change rewraps and RENUMBERS absolute rows; bump the
+    // generation just for that so a pre-resize `topLine` cursor is served a
+    // `stale` getHistory (F3). A HEIGHT-only change moves the viewport but not
+    // top-anchored absolute indices (eviction is already counted via `onTrim`),
+    // so bumping there would falsely stale cursors the client deliberately keeps
+    // (its own onResize pauses on a cols change only). Bumped AFTER the rewrap so
+    // a getHistory racing this resize reads the new value.
+    if (cols !== prevCols) entry.reflowEpoch++;
   }
 
   function handle(id: PtyId): PtyHandle {
@@ -868,6 +1233,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,
     getScreenText: getScreenTextFor,
+    getHistory,
     handle,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();

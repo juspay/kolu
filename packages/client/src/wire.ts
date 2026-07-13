@@ -15,35 +15,30 @@
  * DELETED at W1.R7; terminal/git mutations now go through
  * `activePadiRpc.surface.*` (padiSurface). None of these are on `app.rpc`.
  *
- * The `preferences` / `recentRepos` / `savedSession` accessors below
- * collapse what used to be hand-rolled `usePreferences` / `useActivityFeed`
- * / `useSavedSession` modules into module-level subscriptions — every
- * consumer reads the same singleton without per-component lookups.
+ * The `preferences` accessor below collapses what used to be a hand-rolled
+ * `usePreferences` module into a module-level subscription — every consumer reads
+ * the same singleton without per-component lookups. The per-host `recentRepos` /
+ * `recentAgents` / `savedSession` readouts moved to `./hostScope/activeWire` (W9),
+ * where they WINDOW the active host's RETAINED wire subs (see the note near
+ * `preferences` below); they are no longer defined in this module.
  */
 
-import type {
-  padiSurface,
-  RecentAgent,
-  RecentRepo,
-  SavedSession,
-} from "@kolu/padi/surface";
-import { unenrolledStreamCall } from "@kolu/surface/client";
-import {
-  createReactiveSubscription,
-  type Subscription,
-} from "@kolu/surface/solid";
+import type { padiSurface } from "@kolu/padi/surface";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
-import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
+import {
+  decodeHostKey,
+  encodeHostKey,
+  hostKeysInclude,
+} from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
   type PreferencesPatch,
   surfaces,
-  type TerminalId,
 } from "kolu-common/surface";
 import {
   type ConnectionInfo,
@@ -52,10 +47,17 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import type { WebSocket as PartySocket } from "partysocket";
-import { createEffect, createRoot, createSignal } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
+import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
@@ -120,12 +122,13 @@ const link = conn.link;
 //
 // kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
 // Leak-D multi-surface fact) — it ignores `conn.health`. kolu surfaces subscription
-// failure PER CELL, colocated — each `.use({ onError })` below raises its own
-// `toast.error` next to the state it owns (preferences / activityFeed / session /
-// terminal list) — which is the house style (`.claude/rules/toast-conventions.md`:
-// "colocated, not centralized"). A single global "is the app healthy?" gate is the
-// wrong shape for a terminal workspace, where one degraded cell must not blank the
-// canvas. The fold ships for a consumer whose control plane WANTS one answer:
+// failure PER CELL, colocated — each `.use({ onError })` raises its own `toast.error`
+// next to the state it owns (preferences here; activityFeed / session / terminal-list /
+// daemon-status in the per-host `createHostWire`, gated on the active host) — which is
+// the house style (`.claude/rules/toast-conventions.md`: "colocated, not centralized").
+// A single global "is the app healthy?" gate is the wrong shape for a terminal
+// workspace, where one degraded cell must not blank the canvas. The fold ships for a
+// consumer whose control plane WANTS one answer:
 // drishti folds its admin + surface-app siblings with `surfaceClientsHealth` (its
 // `MultiHostApp` control-plane strip); `surfaceClient.health.test.ts` pins the fold.
 const clients = conn.clients;
@@ -214,48 +217,72 @@ export const padiRpcOf = (host: HostKey): PadiRpc =>
 export const client = link;
 
 // Preferences (host-INDEPENDENT) rides the ONE app-scope reader below, beside the
-// host-scoped readouts — there is NO import-time module-const subscription (the
+// host-membership authority — there is NO import-time module-const subscription (the
 // sharing-by-convention singleton this PR deletes). Its `preferences()` /
 // `updatePreferences()` accessors are defined just after that `createRoot`.
 
-// ── The ONE app-scope reader for standing readouts ──────────────────────
+// ── The app-scope reader for the HOST-INDEPENDENT + membership readouts ──────
 //
-// activityFeed, saved-session, and the terminal-list keys are per-HOST facts — they ride
-// `padiMap.useEntry(activeHost)`, so switching the active host must RE-KEY them (the
-// canvas live-switches, no reload). `useEntry` demands a reactive owner and re-keys on
-// switch (disposing the old host's subs, rebuilding the new host's synchronously); a
-// single `createRoot` at module init IS that owner — app-lifetime, never disposed. This
-// is the "one deliberate app-scope reader": import-time module-const subs are GONE (a
-// const built from `entry(activeHost())` would read the host ONCE at import and never
-// re-key — the boot-host-capture hazard). kolu's own host-INDEPENDENT `preferences`
-// (above) stays a plain kolu sub — it has no host to capture.
+// The per-HOST wire subscriptions — activityFeed, saved session, the terminal-list keys,
+// the `terminals` metadata collection, and daemon status — moved OUT of here at W9: they
+// now live in the RETAINED per-host `scopedByEntry` owner (`hostScope/createHostWire`),
+// read through `activeScope().wire.*` by the facades in `./hostScope/activeWire`, so a
+// switch-BACK has no resubscribe and no pending window (the ~1s canvas rebuild W7's K1 left
+// behind). The Code tab's per-host reads got the SAME retention, in a PARALLEL owner
+// (`right-panel/hostCodeTab`) — not a `createHostWire` sibling, because its inputs read
+// view-selection state downstream of this module; see its header. What STAYS in this
+// app-lifetime `createRoot` is the state that is NOT per-host-retained:
+//   - `preferences` — HOST-INDEPENDENT (no host to capture);
+//   - `members` — the ONE `entries` membership authority (shared by the connection re-arm,
+//     the reconcile below, and HostSelectorStrip via the base-client ref-count);
+//   - `connection` — the ACTIVE host's link-health cell (W6), via `createRejoinKeyedSub`,
+//     deliberately kept ACTIVE-HOST ONLY, not retained: a background host's connect
+//     narration is not something to hold warm;
+//   - the host-membership reconcile + `rpc` (`active.rpc` off `useEntry(activeHost)`, a
+//     point client that re-keys freely).
 //
-// WHY INLINE (do not extract): this owner reads `padiMap`/`activeHost` (defined above)
-// AND its readouts are re-exported below beside them, so lifting it into a separate
-// `useActiveHostSurface.ts` would make that module import wire.ts and wire.ts import it
-// back — a manufactured import cycle. One app-scope owner beside its dependencies IS the
-// intent; a module split buys nothing here and only re-introduces the cycle.
+// `connection` (via `createRejoinKeyedSub`) and `rpc` (via `useEntry(activeHost)`) are
+// deliberately ACTIVE-HOST-ONLY — cheap to re-open, and `connection` must re-key on switch to
+// narrate the newly-active host. A single `createRoot` at module init is their app-lifetime
+// owner — never disposed.
 const hostScoped = createRoot(() => {
   const active = padiMap.useEntry(activeHost);
-  const activityFeed = active.cells.activityFeed.use({
-    onError: (err: Error) =>
-      toast.error(`Activity feed subscription error: ${err.message}`),
-  });
-  const session = active.cells.session.use({
-    onError: (err: Error) =>
-      toast.error(`Saved-session subscription error: ${err.message}`),
-  });
   // The membership authority — shared by the connection re-arm (below), the host-membership
   // reconcile (further down), and HostSelectorStrip (deduped via the base-client ref-count).
   const members = padiMap.entries.use({ onError: onHostMembershipError });
+  // FAIL-FAST invariant guard (juspay/kolu#1766): `LOCAL_HOST` is the server's unremovable
+  // seed[0] (`server/index.ts`), so once membership has LOADED (a non-empty snapshot) it MUST
+  // contain local. Both `groundedActiveHost` (scans uniformly → `null` if local is absent) and
+  // `hostReconcileTarget` (short-circuits local → never bounces it) trust that invariant, so a
+  // violation would silently strand `activeScope()` at `undefined` (a blank canvas) with no
+  // toast, warn, or error — the exact silent-degradation the repo's fail-fast rule forbids.
+  // Surface it LOUDLY instead. Empty membership is the honest pre-snapshot warming window, NOT
+  // a violation, so it is excluded. Dev-gated (the diagnostic is compiled out of production, as
+  // with `scopedByEntry`'s non-member warn) — the real fix for a real violation is server-side.
+  if (process.env.NODE_ENV !== "production") {
+    createEffect(() => {
+      const keys = members.keys();
+      if (keys.length > 0 && !hostKeysInclude([...keys], LOCAL_HOST)) {
+        console.error(
+          "[wire] INVARIANT VIOLATION: membership loaded but LOCAL_HOST is absent — the " +
+            "local host is the unremovable seed and must always be a member. groundedActiveHost " +
+            "will read null and the reconcile will not bounce local, so the per-host scope stays " +
+            "undefined (blank canvas) with no other signal. This is a server-side pool bug.",
+        );
+      }
+    });
+  }
   // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
   // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
   // cold remote provision narrates its real phase instead of a mute "Connecting…".
-  // Re-keys with the entry on host switch AND on a membership RE-JOIN (d1): the server ends
-  // the per-entry connection stream TYPED when the host flaps out of membership (a re-add
-  // mints a fresh session; the captured forward correctly orphans), and `useEntry` does not
-  // re-key on a same-key re-join — so without this the cell would strand at its last phase
-  // over a live transport. `createRejoinKeyedSub` rebuilds a fresh subscription on re-join.
+  // Deliberately ACTIVE-HOST-ONLY (not retained per host in `createHostWire`): a background
+  // host's connect-phase narration is not a fact to hold warm — only the host you are
+  // looking at needs its overlay live. Re-keys with the entry on host switch AND on a
+  // membership RE-JOIN (d1): the server ends the per-entry connection stream TYPED when the
+  // host flaps out of membership (a re-add mints a fresh session; the captured forward
+  // correctly orphans), and `useEntry` does not re-key on a same-key re-join — so without
+  // this the cell would strand at its last phase over a live transport. `createRejoinKeyedSub`
+  // rebuilds a fresh subscription on re-join.
   const connection = createRejoinKeyedSub<ConnectionInfo>(
     activeHost,
     () => members.keys(),
@@ -264,23 +291,6 @@ const hostScoped = createRoot(() => {
         onError: (err: Error) =>
           toast.error(`Connection subscription error: ${err.message}`),
       }).value,
-  );
-  // The terminal-list keys stream carries STREAM_RETRY via `unenrolledStreamCall` (the
-  // #1591 health carve-out — a re-attach must never flicker the health gate). It is a
-  // `createReactiveSubscription` keyed on `activeHost`, so a host switch tears down the old
-  // host's keys stream and opens the NEW host's — re-keying in lockstep with the
-  // activityFeed/session readouts above (which re-key through the reactive entry). A plain
-  // `createSubscription` here would read `activeHost()` ONCE at init and strand the keys
-  // stream on the boot host, so the switched-to host's terminals never render (the
-  // boot-host-capture hazard). Each id is shaped `{ id }` so `.map(t => t.id)` consumers
-  // stay unchanged; between switches the stream resets to pending (not stale boot-host ids).
-  const terminalKeys = createReactiveSubscription(
-    activeHost,
-    (host, signal) =>
-      unenrolledStreamCall(padiRpcOf(host).surface.terminals.keys, undefined, {
-        signal,
-      }),
-    { onError: (err) => toast.error(`Terminal list error: ${err.message}`) },
   );
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
@@ -343,10 +353,7 @@ const hostScoped = createRoot(() => {
   // holds — no second `entries` subscription in the command layer.
   const hostKeys = (): HostKey[] => [...members.keys()];
   return {
-    activityFeed,
-    session,
     connection,
-    terminalKeys,
     preferences,
     requestActivateOnJoin: setPendingJoin,
     hostKeys,
@@ -364,6 +371,26 @@ export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
  *  authority `hostScoped` already holds, so the host-switcher palette group can
  *  list hosts without opening a second `entries` subscription. */
 export const hostKeys = hostScoped.hostKeys;
+
+/** The ACTIVE host GROUNDED against live membership — the accessor the per-host SCOPE
+ *  (`hostScope/hostScopes` → `scopedByEntry`) reads instead of raw `activeHost`: the
+ *  active host IFF a current member (`hostKeys`), else `null`. Fuses the per-tab INTENT
+ *  (`activeHost`) with the membership authority (`hostKeys`) through the pure
+ *  {@link groundActiveHost}, which owns the WHY (the boot-window false positive it closes,
+ *  and why `null` — not a local substitute). Feeding THIS, not raw `activeHost`, to
+ *  `scopedByEntry` makes "kolu hands the per-host world an ungrounded active host"
+ *  unconstructible; `activeHost` itself stays the non-null intent every other readout
+ *  (`useEntry`, `foldState`, `padiRpcOf`) keys on.
+ *
+ *  A `createMemo` (the repo's multi-consumer-derivation rule): `scopedByEntry` reads it from
+ *  several reactive contexts (`activeScope`, each per-key `isActive`, `activated`), and
+ *  `groundActiveHost` returns either `activeHost()`'s stable reference or `null` — so a
+ *  membership change that doesn't alter the grounded host recomputes only this cheap memo and
+ *  stops, instead of fanning every consumer out on unrelated pool churn. In its own app-lifetime
+ *  `createRoot`, like `localDaemonStatus`. */
+export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
+  createMemo(() => groundActiveHost(activeHost(), hostKeys())),
+);
 
 /** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
@@ -383,10 +410,14 @@ export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
 export const connectionInfo = (): ConnectionInfo | undefined =>
   floorConnectionInfo(hostScoped.connection(), padiMap.live());
 
-export const recentRepos = (): RecentRepo[] =>
-  hostScoped.activityFeed.value()?.recentRepos ?? [];
-export const recentAgents = (): RecentAgent[] =>
-  hostScoped.activityFeed.value()?.recentAgents ?? [];
+// The per-host wire-view facades — recentRepos / recentAgents / savedSession /
+// savedSessionSub / terminalListSub — WINDOW the active host's RETAINED wire
+// subscriptions (`activeScope().wire`, W9). They live in `./hostScope/activeWire.ts`,
+// NOT here: they depend on `activeScope` (`./hostScope/hostScopes`), which depends on
+// THIS module (`padiMap`/`activeHost`/`padiRpcOf`), so defining them here would close a
+// `wire → hostScopes → wire` import cycle (`biome`'s `noImportCycles`). That leaf module
+// imports both and is imported by neither, keeping the graph acyclic. Consumers import
+// those facades from `./hostScope/activeWire`, not from here.
 
 /** Local-store accessor for user preferences — authoritative after the first server yield. */
 export const preferences = (): Preferences =>
@@ -405,23 +436,3 @@ export function updatePreferences(
       toast.error(`Failed to save preferences: ${err.message}`),
     );
 }
-
-/** The persisted saved-session for the active host, or null when none exists / no yield
- *  yet. Re-keys when the active host switches. */
-export const savedSession = (): SavedSession | null =>
-  hostScoped.session.value() ?? null;
-export const savedSessionSub = hostScoped.session.sub;
-
-/** Subscription handle for the live terminal list of the active host — `{ id }` rows in
- *  server order, derived from padi's `terminals` collection keys. Consumers read
- *  `.map(t => t.id)` / `.pending()` exactly as they did the retired `terminalList` cell. */
-export const terminalListSub: Subscription<{ id: TerminalId }[]> =
-  Object.assign(() => hostScoped.terminalKeys()?.map((id) => ({ id })), {
-    pending: hostScoped.terminalKeys.pending,
-    error: hostScoped.terminalKeys.error,
-    // Forwarded, not dropped: `terminalKeys` is a `createReactiveSubscription`, which
-    // always populates `complete` — omitting it here would silently strand a consumer
-    // that checks it (there is none today, but the field-audit rule is "populate what
-    // the source has," not "only what today's readers use").
-    complete: hostScoped.terminalKeys.complete,
-  });

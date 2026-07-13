@@ -1,12 +1,14 @@
 ---
 description: Persistent state schema migration requirements
-applyTo: "packages/server/src/{state,preferences,activity,session}.ts"
+applyTo: "{packages/server/src/state.ts,packages/server/src/preferences.ts,packages/server/src/activity.ts,packages/server/src/session.ts,packages/server/src/hostPersistence.ts,packages/common/src/surface.ts,packages/common/src/hostKey.ts}"
 ---
 
 ## Persistent State (conf)
 
-State is stored via `conf` in `packages/server/src/state.ts`, which owns the on-disk shape (`PersistedStateSchema`, internal to that file) and the migration ladder. Domain modules (`preferences.ts`, `activity.ts`, `session.ts`) read and write their own keys against the shared `store`.
+State is stored via `conf` in `packages/server/src/state.ts`, which owns the on-disk shape (`PersistedStateSchema`, internal to that file) and the migration ladder. Domain modules (`preferences.ts`, `hostPersistence.ts`) read and write their own keys against the shared `store`.
 
-When changing what is persisted (any of the per-domain schemas in `packages/common/src/index.ts` — `PreferencesSchema`, `ActivityFeedSchema` field types, `SavedSessionSchema`), **you must add a migration** in `state.ts`'s `migrations` object and bump `SCHEMA_VERSION`. Without a migration, existing users' state files silently lose or misinterpret data on schema changes.
+When changing what is persisted (any of the per-domain schemas — `PreferencesSchema` in `packages/common/src/surface.ts`, `PersistedHostsSchema` in `packages/common/src/hostKey.ts`), **you must add a migration** in `state.ts`'s `migrations` object and bump `SCHEMA_VERSION`. Without a migration, existing users' state files silently lose or misinterpret data on schema changes.
 
-The disk shape is one schema, one migration ladder, one source of truth — even though three domain modules read from it. `PersistedStateSchema` is intentionally not exported; consumers go through the domain accessors (`getPreferences()`, `getActivityFeed()`, `getSavedSession()`).
+The disk shape is one schema, one migration ladder, one source of truth. `PersistedStateSchema` is intentionally not exported; consumers go through the domain accessors (`getPreferences()`, `getPersistedHosts()`).
+
+**Host-map membership rides this store too — it is not a special case.** The fleet you add via the selector strip persists as the `hosts` field of `PersistedStateSchema`, owned by `hostPersistence.ts` (its `getPersistedHosts()` reader + `savePoolMembership()` persist-hook shaper) and carried by the SAME schema + migration ladder as every other domain. It IS real user data (unlike `preferences`, a silent reset would eat the fleet), so it must never be silently emptied — and `conf` already guarantees that: a corrupt/unparseable store **THROWS on read** (`clearInvalidConfig` is false, conf 15's default), it does NOT reset to defaults. That fail-fast is exactly why `hosts` belongs in this store rather than a hand-rolled file. An invalid-but-parseable value (a hand-edited `local`, a duplicate) additionally fails loud where it's read — `getPersistedHosts` re-validates through `PersistedHostsSchema` (in `kolu-common/hostKey`) and throws, never silently normalizing. Changing the `hosts` shape takes a migration + `SCHEMA_VERSION` bump like any other domain.

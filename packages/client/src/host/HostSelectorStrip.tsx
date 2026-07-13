@@ -66,7 +66,6 @@ import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
-  parseHostInput,
 } from "kolu-common/hostKey";
 import {
   type Component,
@@ -80,7 +79,7 @@ import {
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
-import { HomeIcon, SearchIcon } from "../ui/Icons";
+import { SearchIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useCommandPalette } from "../useCommandPalette";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -94,35 +93,14 @@ import {
 } from "./hostChipTone";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
-import {
-  activeHost,
-  client,
-  onHostMembershipError,
-  padiMap,
-  requestActivateOnJoin,
-  setActiveHost,
-} from "../wire";
-
-/** kolu.dev doc the alpha "+ add a host" popover links to. */
-const REMOTE_HOSTS_DOC = "https://kolu.dev/remote-hosts/";
-
-/** A host's on-screen identity: a house glyph (LOCAL only) immediately before
- *  its role word, glyph first — so the local chip reads as a role ("the machine
- *  kolu runs on"), not a hostname you might mistake for a machine literally
- *  named "local" (a remote's `user@host` is unambiguous already, so it gets no
- *  glyph). The single owner of the glyph+label pairing, so every visual site
- *  renders it identically and a new render site can't silently split or drop it.
- *  `labelClass` styles the label `<span>` (truncation/max-width vary per site). */
-const HostIdentityLabel: Component<{ host: HostKey; labelClass?: string }> = (
-  props,
-) => (
-  <>
-    <Show when={props.host.kind === "local"}>
-      <HomeIcon class="h-3 w-3 shrink-0 opacity-70" />
-    </Show>
-    <span class={props.labelClass}>{hostLabel(props.host)}</span>
-  </>
-);
+import { addHost } from "./addHost";
+import { focusOnMount } from "./focusOnMount";
+import { HostAwaitingPill } from "./HostAwaitingPill";
+import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
+import { useHostAwaiting } from "./useHostAwaiting";
+import { useHostMembers } from "./useHostMembers";
+import { HostIdentityLabel } from "./HostIdentityLabel";
+import { activeHost, client, padiMap, setActiveHost } from "../wire";
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Independent of the
@@ -142,18 +120,6 @@ const OVERFLOW_TRIGGER_RESERVE: number = 44;
  *  from the fit budget now that the "+" is always present. */
 const ADD_BUTTON_RESERVE: number = 38;
 
-// The explicit type annotation on `labelForKey` (rather than inferring off the
-// arrow function) is load-bearing, not decorative: this file's per-chip
-// `.cells.urgency.use(...)` call (inside `HostChip`, properly owned by that
-// component's own reactive instance — no `createRoot` needed) sits textually
-// close to whichever top-level `const` happens to precede `HostChip`.
-// `standingSubscriptionOwnership.test.ts`'s heuristic flags any UNTYPED
-// top-level `const NAME = ` (its signal for "possibly a bare standing
-// subscription") and scans a fixed window past it — an untyped
-// `const labelForKey = (key) => ...` before `HostChip` would fold that
-// unrelated per-chip `.use()` into its window. Typing the identifier
-// (`const NAME: T = ...`) makes it visibly a plain value/helper, not a
-// candidate the heuristic needs to inspect.
 /** Decode-then-label in one step — used wherever a component only has the
  *  CANONICAL encoded string (an overflowed/menu
  *  key), never a `HostKey` object. */
@@ -176,13 +142,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
-  const urgency = padiMap.entry(props.host).cells.urgency.use({
-    onError: (err: Error) =>
-      toast.error(
-        `Host ${hostLabel(props.host)} urgency error: ${err.message}`,
-      ),
-  });
-  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
+  const awaiting = useHostAwaiting(props.host);
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -254,15 +214,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             host={props.host}
             labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
           />
-          {/* Urgency badge — the host's awaiting count, hidden at zero. */}
-          <Show when={awaiting() > 0}>
-            <span
-              class="shrink-0 min-w-4 px-1 h-4 inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums"
-              title={`${awaiting()} awaiting your input`}
-            >
-              {awaiting()}
-            </span>
-          </Show>
+          {/* Urgency badge — the host's awaiting count, hidden at zero. The
+           *  shared `HostAwaitingPill` owns the amber token; only the sizing is
+           *  local. */}
+          <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
         </button>
         <div
           class="flex h-8 items-center transition-colors"
@@ -305,11 +260,7 @@ const HostSwitcherRow: Component<{
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
-  const urgency = padiMap.entry(host).cells.urgency.use({
-    onError: (err: Error) =>
-      toast.error(`Host ${hostLabel(host)} urgency error: ${err.message}`),
-  });
-  const awaiting = () => urgency.value()?.awaitingIds.length ?? 0;
+  const awaiting = useHostAwaiting(host);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
     props.onPicked();
@@ -365,14 +316,7 @@ const HostSwitcherRow: Component<{
             {statusLabel(host)}
           </span>
         </span>
-        <Show when={awaiting() > 0}>
-          <span
-            class="shrink-0 min-w-4 px-1 h-4 inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums"
-            title={`${awaiting()} awaiting your input`}
-          >
-            {awaiting()}
-          </span>
-        </Show>
+        <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
       </button>
       <button
         type="button"
@@ -580,30 +524,15 @@ const AddHostAffordance: Component = () => {
   // dismiss that beats the microtask).
   createEffect(() => {
     if (!open()) return;
-    queueMicrotask(() => {
-      if (inputEl?.isConnected) inputEl.focus({ preventScroll: true });
-    });
+    focusOnMount(inputEl);
   });
-  const submit = (): void => {
-    const raw = draft().trim();
-    if (raw === "") return;
-    // `parseHostInput` is TOTAL (typing "local" just parses to the Local
-    // variant, already a pool member); `hosts.add`'s own rejection is the
-    // honest single error surface.
-    const host = parseHostInput(raw);
-    client.hosts
-      .add({ host })
-      .then(() => {
-        setDraft("");
-        setOpen(false);
-        // Jump to the new host once it JOINS membership — a bare setActiveHost
-        // here races the reconcile and bounces back to local.
-        requestActivateOnJoin(host);
-      })
-      .catch((err: Error) =>
-        toast.error(`Couldn't add ${raw}: ${err.message}`),
-      );
-  };
+  // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
+  // the shared `addHost`; this popover supplies only its own cleanup on success.
+  const submit = (): void =>
+    addHost(draft(), () => {
+      setDraft("");
+      setOpen(false);
+    });
   return (
     <>
       <button
@@ -626,23 +555,7 @@ const AddHostAffordance: Component = () => {
             class={`fixed z-50 w-[min(20rem,calc(100vw-1rem))] p-3 ${addHostChrome.class}`}
             style={{ ...panelStyle(), ...addHostChrome.style }}
           >
-            <div class="mb-1.5 flex items-center gap-1.5">
-              <span class="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 text-[9px] font-semibold uppercase leading-4 tracking-wide text-amber-600 dark:text-amber-400">
-                Alpha
-              </span>
-              <span class="text-xs font-semibold text-fg">Remote hosts</span>
-            </div>
-            <p class="mb-2.5 text-[11px] leading-4 text-fg-2">
-              Connecting other machines over ssh is an early feature.{" "}
-              <a
-                href={REMOTE_HOSTS_DOC}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-accent hover:underline"
-              >
-                Learn more →
-              </a>
-            </p>
+            <RemoteHostsAlphaNotice />
             <input
               ref={inputEl}
               type="text"
@@ -683,13 +596,13 @@ const HostSearchButton: Component = () => {
 };
 
 const HostSelectorStrip: Component = () => {
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
-
   // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
   // gets a chip and the "+ add a host" affordance is always present (the alpha
   // warning rides the "+" popover — see AddHostAffordance). With no seed the
   // pool is just the local host, so this renders exactly the local chip + "+".
-  const renderableHosts = (): HostKey[] => [...members.keys()];
+  // `useHostMembers` owns the `padiMap.entries` subscription + `onError` (shared
+  // with the mobile row).
+  const renderableHosts = useHostMembers();
 
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
   // Real DOM measurement: a HIDDEN row (absolutely positioned, `invisible`,

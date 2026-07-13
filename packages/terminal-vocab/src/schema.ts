@@ -49,6 +49,22 @@ import { z } from "zod";
 export const TerminalIdSchema = z.string().uuid();
 export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
+// ── Client scrollback depth ───────────────────────────────────────────
+
+/** The CLIENT's visible scrollback, in lines — what the browser xterm retains,
+ *  what `exportScrollbackAsPdf.ts` serializes, and the ceiling the
+ *  scrollback-backfill prepend must never exceed. A terminal-DOMAIN fact both
+ *  the app (client + kolu-common) AND the per-host daemon (`@kolu/padi`, for its
+ *  startup headroom assertion) must agree on, so it lives HERE — the shared
+ *  browser-safe terminal vocabulary — not in `kolu-common/config`: padi asserting
+ *  `client scrollback ≥ mirror + snapshot` must not force the forbidden
+ *  `@kolu/padi → kolu-common` back-edge, and this value must ride padi's HASHED
+ *  build closure so a change to it flips `PADI_BUILD_ID` and recycles a stale
+ *  survivor. Sized for multi-hour Claude sessions. A DISTINCT axis from kaval's
+ *  smaller per-terminal `DEFAULT_MIRROR_SCROLLBACK` (see
+ *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
+export const DEFAULT_SCROLLBACK = 50_000;
+
 // ── Agent status ──────────────────────────────────────────────────────
 
 // `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,
@@ -205,10 +221,14 @@ export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
 
 /** The async resolution of the agent field made LAWFUL. The session file lands a
  *  beat after the command mark (over the settle window), so a bare `agent: null`
- *  is ambiguous — "no agent" or "not resolved yet?". `"unknown"` means a producer
- *  is mid-resolution (kolu KEEPS its last value, no clobber); `{ value }` is
- *  authoritative (kolu APPLIES it, even when `null` — a shell-idle null is the
- *  session genuinely ended). Never stored — only the resolved value is. */
+ *  is ambiguous — "no agent" or "not resolved yet?". `"unknown"` means the producer
+ *  cannot currently KNOW — either mid-resolution (the session file hasn't landed) OR
+ *  the foreground is a defined non-shell process whose session is unresolvable (W12:
+ *  an unclean kaval death leaves the stale agent pid as foreground with its session
+ *  file gone; we can't tell "ended" from "lost our observer"). Either way kolu KEEPS
+ *  its last value, no clobber. `{ value }` is authoritative (kolu APPLIES it, even
+ *  when `null` — a SHELL-IDLE null is the session genuinely ended). Never stored —
+ *  only the resolved value is. */
 export type Known<T> = "unknown" | { value: T };
 
 /** A per-field sample a memoryless producer emits. The standing five build

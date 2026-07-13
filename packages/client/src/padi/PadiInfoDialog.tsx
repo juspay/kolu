@@ -18,7 +18,7 @@
  *
  *  | field                                          | classification                 |
  *  |-------------------------------------------------|---------------------------------|
- *  | `localDaemonStatus()` (kaval state/identity/…)   | host-scoped — `padiMap.useEntry(activeHost).collections.daemonStatus` |
+ *  | `localDaemonStatus()` (kaval state/identity/…)   | host-scoped, RETAINED per host (W9) — `activeScope().wire.daemonStatus` (windowed onto the active host) |
  *  | `activeEntryConnected()` / `daemonChannelLive()` | host-scoped — reads `padiMap.entry(activeHost())` directly |
  *  | `activeEntryState()` / `isActiveHostLocal()`     | host-scoped — same as above (the typed entry discriminant `canvasModeResolver` keys on: host-down cause + remote-provisioning ceiling) |
  *  | `boundHostKavals/Padis()`, `activePadi()`        | host-scoped — `padiMap.useEntry(activeHost).cells.hostInventory` |
@@ -46,6 +46,7 @@ import type {
 import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
+import { formatLifetime } from "../kaval/daemonPresentation";
 import { formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
@@ -291,6 +292,15 @@ const PadiInfoDialog: Component<{
               .with({ kind: "error" }, () => "poll failed")
               .with(P.nullish, () => "unavailable")
               .exhaustive()}
+          </span>
+        </DetailRow>
+        <DetailRow label="lifetime">
+          {/* padi's lifetime policy — `forever` for a durable production padi;
+              `bound to run pid N` under a test/smoke run. Routed through
+              `connected()` (P4): a non-connected or pre-field survivor padi reads
+              an honest "—". */}
+          <span data-testid="padi-dialog-lifetime">
+            {formatLifetime(connected()?.identity.lifetime)}
           </span>
         </DetailRow>
       </div>

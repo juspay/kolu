@@ -20,7 +20,13 @@
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
-import { currentPtyHostIdentity } from "kaval";
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import {
+  currentPtyHostIdentity,
+  DEFAULT_MIRROR_SCROLLBACK,
+  SNAPSHOT_SCROLLBACK,
+} from "kaval";
+import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { cancelPendingAutosave } from "./autosaveGate.ts";
@@ -63,7 +69,6 @@ import {
 } from "./terminal-registry.ts";
 import {
   discardLocalSleeping,
-  seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
@@ -85,6 +90,21 @@ import {
 import { exportTranscriptHtml } from "./transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
+
+// Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
+// degrade): a client's own scrollback must hold the ENTIRE reachable history —
+// the full mirror plus the bounded attach snapshot — so `prependScrollback`
+// never splices past its `CircularList`'s `maxLength` and silently evicts the
+// rows it just inserted (the one demonstrated corruption mode). Headroom is a
+// build-time fact across three packages that can't share a constant (kaval owns
+// the mirror depth, `@kolu/terminal-vocab` the client depth); padi is the one
+// daemon that sees both, so it is where the three numbers meet and a violation
+// crashes the boot rather than corrupting a terminal in the field.
+if (DEFAULT_SCROLLBACK < DEFAULT_MIRROR_SCROLLBACK + SNAPSHOT_SCROLLBACK) {
+  throw new Error(
+    `scrollback-backfill headroom violated: client DEFAULT_SCROLLBACK (${DEFAULT_SCROLLBACK}) < mirror (${DEFAULT_MIRROR_SCROLLBACK}) + snapshot (${SNAPSHOT_SCROLLBACK}); the client buffer cannot hold the full reachable history`,
+  );
+}
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 
@@ -116,8 +136,13 @@ export function buildPadiSurfaceDeps(deps: {
    *  `daemonMain.ts` hands `hello`. `""` off-nix; mapped to a DECLARED `null` below
    *  (never re-derived). */
   commit: string;
+  /** padi's serialized lifetime (`forever` in production; `boundToPid` under a
+   *  test/smoke run) — the SAME projection `daemonMain.ts` hands `daemonMain`,
+   *  seeded into the `identity` cell so the readout and the actual policy can't
+   *  drift. */
+  lifetime: DaemonLifetimeInfo;
 }): Omit<PadiDeps, "channel"> {
-  const { endpoint, log, startedAt, commit } = deps;
+  const { endpoint, log, startedAt, commit, lifetime } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
@@ -140,6 +165,7 @@ export function buildPadiSurfaceDeps(deps: {
     commit: commit || null,
     surfaceVersion: PADI_SURFACE_VERSION,
     startedAt,
+    lifetime,
   };
 
   return {
@@ -261,11 +287,17 @@ export function buildPadiSurfaceDeps(deps: {
       terminalAttach: {
         source: async function* ({ id }, signal) {
           const entry = requireActiveTerminal(id);
-          const { snapshot, deltas } = await resolveTerminalEndpoint(
-            entry.meta.location,
-          ).attach(id, signal);
-          yield snapshot;
-          for await (const data of deltas) yield data;
+          const { snapshot, topLine, reflowEpoch, deltas } =
+            await resolveTerminalEndpoint(entry.meta.location).attach(
+              id,
+              signal,
+            );
+          // First frame is a `snapshot` carrying the backfill seed (`topLine`)
+          // and the reflow generation (`reflowEpoch`) alongside the snapshot
+          // bytes; delta frames carry `data` only, except a re-attach frame which
+          // is itself a `snapshot` (see `reattachingDeltas`).
+          yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
+          for await (const frame of deltas) yield frame;
         },
       },
     },
@@ -338,9 +370,6 @@ export function buildPadiSurfaceDeps(deps: {
         discardSleeping: ({ input }) => {
           log.info({ terminal: input.id }, "discard sleeping");
           discardLocalSleeping(input.id);
-        },
-        restoreSleeping: ({ input }) => {
-          seedSleepingTerminal(input);
         },
         // Fire-and-forget stream ops: a resize/keystroke landing just after a
         // kill is an EXPECTED race, so quiet-drop via `getActiveTerminal`
@@ -427,6 +456,12 @@ export function buildPadiSurfaceDeps(deps: {
           requireActiveTerminal(input.id).handle.getScreenText(
             input.startLine,
             input.endLine,
+          ),
+        history: ({ input }) =>
+          requireActiveTerminal(input.id).handle.getHistory(
+            input.before,
+            input.max,
+            input.epoch,
           ),
       },
 
