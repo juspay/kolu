@@ -34,6 +34,7 @@ import {
   padiKavalSocketPath,
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
+import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import {
   PADI_FORWARDING_POLICY,
   PADI_SURFACE_VERSION,
@@ -256,12 +257,15 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
   // terminalAttach is a DELTA member — its first frame is the snapshot, forwarded
-  // 1:1 through the re-serve's fail-through relay.
+  // 1:1 through the re-serve's fail-through relay. Frames are a { kind, data, … }
+  // discriminated union (contract 5.2); the first is a `snapshot`.
   const attach = (await padi.terminalAttach.get({ id }))[
     Symbol.asyncIterator
   ]();
   const first = await attach.next();
-  expect(typeof first.value).toBe("string");
+  const firstFrame = first.value as TerminalAttachFrame;
+  expect(firstFrame.kind).toBe("snapshot");
+  expect(typeof firstFrame.data).toBe("string");
   await attach.return?.();
 
   await padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` });
@@ -418,7 +422,9 @@ describe("kolu-server padi binder — cutover acceptance", () => {
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    const firstFrame = first.value as TerminalAttachFrame;
+    expect(firstFrame.kind).toBe("snapshot");
+    expect(typeof firstFrame.data).toBe("string");
 
     // Kill the bound padi WHILE the iterator is held.
     const padiPid = gatePid(padiGatePath(padiSocketPath(stateRoot)));
