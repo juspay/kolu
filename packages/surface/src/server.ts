@@ -1441,26 +1441,17 @@ function superviseSurface(sources: SurfaceSource[]): {
   done: Promise<void>;
   close: () => Promise<void>;
 } {
-  let sealed = false;
   let resolveDone!: () => void;
   let rejectDone!: (err: unknown) => void;
   const done = new Promise<void>((resolve, reject) => {
     resolveDone = resolve;
     rejectDone = reject;
   });
-  const sealReject = (err: unknown): void => {
-    if (sealed) return;
-    sealed = true;
-    rejectDone(err);
-  };
-  const sealResolve = (): void => {
-    if (sealed) return;
-    sealed = true;
-    resolveDone();
-  };
-  // A source that faults BEFORE close reaches `done` as a rejection. (`close`
-  // observes the same settle again via allSettled — the seal guard dedups.)
-  for (const s of sources) s.settled.catch(sealReject);
+  // A source that faults BEFORE close reaches `done` as a rejection. `done` is a
+  // plain promise (settle-once by spec), so `close`'s later resolve/reject of the
+  // same source's settle is a harmless no-op — first settle wins, no explicit
+  // seal guard needed.
+  for (const s of sources) s.settled.catch(rejectDone);
 
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
@@ -1492,8 +1483,8 @@ function superviseSurface(sources: SurfaceSource[]): {
       const fault = outcomes.find(
         (r): r is PromiseRejectedResult => r.status === "rejected",
       );
-      if (fault) sealReject(fault.reason);
-      else sealResolve();
+      if (fault) rejectDone(fault.reason);
+      else resolveDone();
     })();
     return closing;
   };
