@@ -524,19 +524,21 @@ export const PadiScreenHistoryInputSchema = z.object({
   epoch: z.number().int().nonnegative().optional(),
 });
 
-/** One older-scrollback chunk `screen.history` returns — mirrors kaval's
- *  `getHistory` output. `chunk` is VT bytes replayed at the live width; `topLine`
- *  is the caller's next cursor; `exhausted` ends the backfill. */
-export const PadiScreenHistoryOutputSchema = z.object({
-  chunk: z.string(),
-  topLine: z.number().int().nonnegative(),
-  exhausted: z.boolean(),
-  // `stale` (3.1 · additive · optional) — the caller's stamped `epoch` no longer
-  // matches the mirror's reflow generation; the reply serves nothing and the
-  // caller halts backfill until a fresh snapshot re-seeds (F3). Absent from an
-  // older host — client reads false (fail-open).
-  stale: z.boolean().optional(),
-});
+/** What `screen.history` returns — mirrors kaval's `getHistory` output as a
+ *  `chunk | stale` DISCRIMINATED UNION (invalid-states-unrepresentable; like this
+ *  surface's own attach `snapshot|delta` frame). The `chunk` arm is VT bytes
+ *  replayed at the live width with the next `topLine` cursor and an `exhausted`
+ *  flag; the `stale` arm (reachable only when the caller sent `epoch`) says the
+ *  mirror reflowed and the caller must HALT until re-seed (F3). */
+export const PadiScreenHistoryOutputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("chunk"),
+    chunk: z.string(),
+    topLine: z.number().int().nonnegative(),
+    exhausted: z.boolean(),
+  }),
+  z.object({ kind: z.literal("stale") }),
+]);
 
 /** `scratch.write` — write base64 bytes into a terminal's on-disk scratch dir
  *  (the write half the paste/upload procedures build on). Returns the on-disk

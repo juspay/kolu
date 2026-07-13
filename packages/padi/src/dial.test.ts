@@ -19,6 +19,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import type { TerminalAttachFrame } from "./endpoint.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -334,12 +335,12 @@ describe("padi the process — dial acceptance", () => {
     const first = await attach.next();
     // The first frame is a `snapshot` (contract 3.0 union): the snapshot bytes
     // plus the absolute backfill seed `topLine` the snapshot frame carries.
-    const firstFrame = first.value as {
-      kind: string;
-      data: string;
-      topLine?: number;
-    };
-    expect(firstFrame.kind).toBe("snapshot");
+    // The stream iterator's value type erases to `{}`, so name the REAL frame
+    // union (not a hand-rolled shape) and narrow on its discriminant: the
+    // `snapshot` arm carries `data` + the absolute `topLine` seed.
+    const firstFrame = first.value as TerminalAttachFrame;
+    if (firstFrame.kind !== "snapshot")
+      throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
     expect(typeof firstFrame.data).toBe("string");
     expect(typeof firstFrame.topLine).toBe("number");
 
@@ -523,12 +524,12 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
     ]();
     const first = await attach.next();
     // `snapshot` union frame (contract 3.0) relayed straight through the front.
-    const firstFrame = first.value as {
-      kind: string;
-      data: string;
-      topLine?: number;
-    };
-    expect(firstFrame.kind).toBe("snapshot");
+    // The stream iterator's value type erases to `{}`, so name the REAL frame
+    // union (not a hand-rolled shape) and narrow on its discriminant: the
+    // `snapshot` arm carries `data` + the absolute `topLine` seed.
+    const firstFrame = first.value as TerminalAttachFrame;
+    if (firstFrame.kind !== "snapshot")
+      throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
     expect(typeof firstFrame.data).toBe("string");
     expect(typeof firstFrame.topLine).toBe("number");
 

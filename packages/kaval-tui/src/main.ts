@@ -437,13 +437,15 @@ async function cmdHistory(
   // `topLine`. It returns VT-serialized chunks — the same bytes the browser
   // replays — so colors survive; a consumer that wants plain text pipes through
   // its own VT stripper, exactly as it would `snapshot`'s serialized frame.
+  // The pager sends no `epoch`, so the host never serves the `stale` arm — every
+  // reply is a `chunk` (the narrow below is exhaustive-safe, not a live branch).
   if (opts.lines !== undefined) {
     // One page: the N older lines immediately above the screen.
-    const { chunk } = await conn.client.surface.terminal.getHistory({
+    const res = await conn.client.surface.terminal.getHistory({
       id,
       max: opts.lines,
     });
-    if (chunk) await writeOutLine(chunk);
+    if (res.kind === "chunk" && res.chunk) await writeOutLine(res.chunk);
     process.stderr.write(
       `— ${shortId(id)} · older history (≤${opts.lines} lines)\n`,
     );
@@ -460,6 +462,7 @@ async function cmdHistory(
       before,
       max: HISTORY_PAGE_ROWS,
     });
+    if (res.kind === "stale") break;
     // An all-blank page serializes to "" but is NOT exhaustion — advance past it
     // (the cursor still moves up) so older content ABOVE a blank run isn't cut
     // off. Only `exhausted` (the top of the mirror) ends the dump.
@@ -467,10 +470,7 @@ async function cmdHistory(
     before = res.topLine;
     if (res.exhausted) break;
   }
-  for (let i = pages.length - 1; i >= 0; i--) {
-    const chunk = pages[i] as string;
-    await writeOutLine(chunk);
-  }
+  for (const chunk of pages.slice().reverse()) await writeOutLine(chunk);
   process.stderr.write(
     `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`,
   );

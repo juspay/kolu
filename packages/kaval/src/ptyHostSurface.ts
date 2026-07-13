@@ -141,16 +141,20 @@ import { z } from "zod";
  *  reshape). So this leg stays minor: graceful, PTY-preserving, and belt-and-
  *  suspendered by the padi major. */
 /*  Bumped to 5.2 (additive · minor): the scrollback-backfill reflow guard (F3).
- *  Three OPTIONAL adds, no required-field or emitted-variant change, so BOTH
- *  skew directions are graceful (no recycle): (1) the `terminalAttach` snapshot
- *  frame carries an OPTIONAL `reflowEpoch` — the mirror's reflow generation the
- *  snapshot was serialized under; (2) `getHistory` input gains an OPTIONAL
- *  `epoch` the client echoes; (3) `getHistory` output gains an OPTIONAL `stale`.
- *  Together they let a client whose shared mirror a FOREIGN attach reflowed
- *  (its own `term.cols` unchanged) HALT backfill instead of splicing a
- *  duplicated/skipped band. All optional, so a 5.1 survivor omitting them leaves
- *  a 5.2 client fail-open (no epoch → no gate → the historical single-width
- *  behavior), and a 5.1 client ignores the extra fields — no skew either way. */
+ *  (1) the `terminalAttach` snapshot frame carries an OPTIONAL `reflowEpoch` —
+ *  the mirror's reflow generation the snapshot was serialized under; (2)
+ *  `getHistory` input gains an OPTIONAL `epoch` the client echoes; (3)
+ *  `getHistory` output is reshaped to a `chunk | stale` DISCRIMINATED UNION (the
+ *  stale-reflow halt as its own arm, not a `stale` flag — invalid-states-
+ *  unrepresentable). Together they let a client whose shared mirror a FOREIGN
+ *  attach reflowed (its own `term.cols` unchanged) HALT backfill instead of
+ *  splicing a duplicated/skipped band. Skew stays graceful in the accepting
+ *  direction: the `stale` arm is reachable ONLY when the caller sends `epoch`, so
+ *  a 5.1 client (which sends none) receives only `chunk` frames and strips the
+ *  extra `kind` key — fail-open, exactly as before. The other direction
+ *  (new-client/old-daemon: a 5.2 client's union schema meets a 5.1 daemon's flat
+ *  reply) is the usual `reported.minor < expected.minor` recycle every minor bump
+ *  already forces, before any `getHistory` call runs. */
 export const PTY_HOST_CONTRACT_VERSION = "5.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
@@ -492,22 +496,29 @@ export const ptyHostSurface = defineSurface({
           max: z.number().int().positive(),
           // `epoch` (contract 5.2 · additive · optional) — the reflow generation
           // the caller's `before` cursor was seeded under (the attach snapshot's
-          // `reflowEpoch`). The host serves an empty `stale` reply when it no
+          // `reflowEpoch`). The host serves the `stale` output arm when it no
           // longer matches, so a client whose mirror a foreign resize reflowed
           // HALTS rather than pages a renumbered cursor (F3). Omitted by an older
-          // client / the self-seeding pager — fail-open.
+          // client / the self-seeding pager — fail-open (never sees `stale`).
           epoch: z.number().int().nonnegative().optional(),
         }),
-        output: z.object({
-          chunk: z.string(),
-          topLine: z.number().int().nonnegative(),
-          exhausted: z.boolean(),
-          // `stale` (contract 5.2 · additive · optional) — the stamped `epoch`
-          // no longer matches the mirror's reflow generation; the reply serves
-          // nothing and the caller halts backfill until re-seed. Optional so a
-          // 5.1 daemon (no epoch handling) omits it → client reads false.
-          stale: z.boolean().optional(),
-        }),
+        // A discriminated union, not a flat struct with a `stale` flag: the two
+        // outcomes — a served chunk vs a stale-reflow halt — can't be conflated
+        // (invalid-states-unrepresentable; mirrors this contract's own attach
+        // `snapshot|delta` frame). The `stale` arm is only reachable when the
+        // caller sends `epoch`, so an older (5.1) client — which sends none —
+        // never receives it and reads every reply as a plain chunk (the extra
+        // `kind` key is stripped by its flat schema); the breaking direction is
+        // the usual new-client/old-daemon one the predicate already recycles.
+        output: z.discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("chunk"),
+            chunk: z.string(),
+            topLine: z.number().int().nonnegative(),
+            exhausted: z.boolean(),
+          }),
+          z.object({ kind: z.literal("stale") }),
+        ]),
       },
     },
     system: {

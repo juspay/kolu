@@ -8,7 +8,9 @@
  *  (plain data) are spliced into the TOP of the live buffer's `CircularList` and
  *  every scroll register is shifted by the inserted count, so the content the
  *  user is looking at does not move: only the scrollbar thumb shrinks. The
- *  technique and its reflow fidelity are proven by `xtermPrepend.spike.test.ts`.
+ *  technique and its reflow fidelity are proven by this module's behavioral tests
+ *  (`scrollbackBackfill.test.ts`) — ported from an earlier feasibility spike
+ *  (branch `xterm-prepend-spike`, commit `b3cfa37d1`, not in this tree).
  *
  *  ── FAIL LOUD — this leaf deliberately INVERTS its sibling `xtermInternals.ts`.
  *  That module degrades to a no-op when a private `_core.*` symbol is missing,
@@ -28,9 +30,9 @@ import { Terminal as XTerm } from "@xterm/xterm";
 
 /* ------------------------------------------------------------------ */
 /* The pinned internal shape — the whole reach into xterm privates.   */
-/* Mirrors the corpus in `xtermPrepend.spike.test.ts`; the contract-   */
-/* pin tests assert every symbol below exists with this shape in both  */
-/* `@xterm/xterm` and `@xterm/headless`.                               */
+/* The contract-pin tests (scrollbackBackfill.test.ts, and kaval's     */
+/* xtermMirrorContract.test.ts) assert every symbol below exists with  */
+/* this shape in both `@xterm/xterm` and `@xterm/headless`.            */
 /* ------------------------------------------------------------------ */
 
 interface BufferLineInternal {
@@ -279,19 +281,17 @@ export async function prependScrollback(
  *  top, so the user scrolls again to trigger the next fetch. */
 export const HISTORY_CHUNK_ROWS = 500;
 
-/** One older-history chunk from the server, as the controller consumes it. */
-export interface HistoryChunk {
-  chunk: string;
-  topLine: number;
-  exhausted: boolean;
-  /** True when the reflow epoch the controller stamped on the fetch no longer
-   *  matches the mirror's current generation — a width reflow (this OR a foreign
-   *  attach's resize) renumbered absolute rows since the cursor was seeded, so
-   *  the chunk is empty and the controller HALTS backfill until a fresh snapshot
-   *  re-seeds (F3). Absent/false from a host that predates the epoch field
-   *  (fail-open — the historical single-width behavior). */
-  stale?: boolean;
-}
+/** One older-history reply from the server, as the controller consumes it — a
+ *  discriminated union mirroring the wire's `chunk | stale` shape, so a served
+ *  chunk and a stale-reflow halt can't be conflated. */
+export type HistoryChunk =
+  | { kind: "chunk"; chunk: string; topLine: number; exhausted: boolean }
+  /** The reflow epoch the controller stamped on the fetch no longer matches the
+   *  mirror's current generation — a width reflow (this OR a foreign attach's
+   *  resize) renumbered absolute rows since the cursor was seeded, so NOTHING is
+   *  served and the controller HALTS backfill until a fresh snapshot re-seeds
+   *  (F3). Only reachable when the controller sent an epoch (fail-open otherwise). */
+  | { kind: "stale" };
 
 /** Drives scrollback backfill for one terminal: when the user scrolls near the
  *  top of what's loaded, fetch the next older chunk and prepend it, until the
@@ -450,9 +450,9 @@ export function createBackfillController(
         // seeded: our absolute `before` no longer names the same row, so the host
         // served nothing and told us to halt. Pause (forget the cursor, bump the
         // local epoch) rather than splice a duplicated/skipped band — a fresh
-        // snapshot re-seeds a valid cursor + epoch (F3). Fail-open on an older
-        // host, which omits `stale`.
-        if (res.stale) {
+        // snapshot re-seeds a valid cursor + epoch (F3). An older host never
+        // sends this arm (fail-open).
+        if (res.kind === "stale") {
           pause();
           return;
         }

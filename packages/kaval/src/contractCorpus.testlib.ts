@@ -337,6 +337,7 @@ export function runContractCorpus(opts: {
         before: 0,
         max: 100,
       });
+      if (history.kind !== "chunk") throw new Error("expected a chunk reply");
       expect(history.exhausted).toBe(true);
       expect(history.chunk).toBe("");
 

@@ -10,7 +10,21 @@
 
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import { createPtyHost, type PtyHost } from "./ptyHost.ts";
+import {
+  createPtyHost,
+  type PtyHistoryChunk,
+  type PtyHost,
+} from "./ptyHost.ts";
+
+/** Narrow a `getHistory` reply to its `chunk` arm, or fail — the common shape
+ *  these tests assert on (the `stale` arm is asserted directly by the F3 test). */
+function asChunk(
+  r: PtyHistoryChunk,
+): Extract<PtyHistoryChunk, { kind: "chunk" }> {
+  if (r.kind !== "chunk")
+    throw new Error(`expected a chunk reply, got ${r.kind}`);
+  return r;
+}
 
 const require = createRequire(import.meta.url);
 const { Terminal } =
@@ -90,7 +104,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     const { topLine } = host.attach(id);
 
     // Read the older chunk BEFORE the second burst.
-    const first = host.getHistory(id, topLine, 50);
+    const first = asChunk(host.getHistory(id, topLine, 50));
     // The chunk is the 50 rows immediately ABOVE `topLine`, from the known
     // ascending content.
     expect(first.chunk).toContain(label(topLine - 1)); // the row just above the seam
@@ -105,7 +119,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     // The SAME absolute cursor returns the SAME rows — the appends did not shift
     // the window. A `have`-from-bottom cursor would have slid down by 100 here,
     // overlapping the snapshot's content: zero duplicate, zero missing, proven.
-    const second = host.getHistory(id, topLine, 50);
+    const second = asChunk(host.getHistory(id, topLine, 50));
     expect(second.chunk).toBe(first.chunk);
     expect(second.chunk).not.toContain(label(1299)); // never the appended tail
     expect(second.topLine).toBe(topLine - 50);
@@ -120,7 +134,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     let sawOldest = false;
     for (;;) {
       if (guard++ > 100) throw new Error("paging did not terminate");
-      const res = host.getHistory(id, cursor, 100);
+      const res = asChunk(host.getHistory(id, cursor, 100));
       if (res.chunk.includes(label(0))) sawOldest = true;
       cursor = res.topLine;
       if (res.exhausted) break;
@@ -128,7 +142,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     expect(sawOldest).toBe(true);
     expect(cursor).toBe(0);
     // A fetch past the top is an empty, exhausted no-op.
-    const past = host.getHistory(id, 0, 100);
+    const past = asChunk(host.getHistory(id, 0, 100));
     expect(past.chunk).toBe("");
     expect(past.exhausted).toBe(true);
   });
@@ -144,7 +158,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     expect(host.getScreenText(id)).not.toContain(label(0));
     // Everything the mirror still holds is in the bounded snapshot (well under
     // 1000 lines), so there is nothing older to serve.
-    const res = host.getHistory(id, topLine, 100);
+    const res = asChunk(host.getHistory(id, topLine, 100));
     expect(res.exhausted).toBe(true);
     expect(res.chunk).toBe("");
   });
@@ -152,10 +166,10 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
   it("a gone PTY is an empty, exhausted no-op", () => {
     host = createPtyHost({ log: silentLog });
     expect(host.getHistory("nope", 10, 10)).toEqual({
+      kind: "chunk",
       chunk: "",
       topLine: 10,
       exhausted: true,
-      stale: false,
     });
   });
 
@@ -164,22 +178,17 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     await waitFor(() => host.getScreenText(id).includes(label(399)));
     // Seed a cursor at generation 0, then a FOREIGN resize reflows the shared
     // mirror (bumps the reflow generation) without our cursor knowing.
-    const seeded = host.getHistory(id, undefined, 50, 0);
-    expect(seeded.stale).toBe(false);
+    const seeded = asChunk(host.getHistory(id, undefined, 50, 0));
     expect(seeded.chunk).not.toBe("");
     host.resize(id, 100, 24);
-    // A getHistory still stamped with the old generation now serves NOTHING and
-    // flags `stale`, so the client halts rather than pages a renumbered cursor.
-    const stale = host.getHistory(id, seeded.topLine, 50, 0);
-    expect(stale.stale).toBe(true);
-    expect(stale.chunk).toBe("");
-    expect(stale.topLine).toBe(seeded.topLine);
-    // Re-seeding with the CURRENT generation pages normally again.
-    const fresh = host.getHistory(id, seeded.topLine, 50, 1);
-    expect(fresh.stale).toBe(false);
+    // A getHistory still stamped with the old generation now serves NOTHING — the
+    // `stale` arm (no chunk at all) — so the client halts rather than pages a
+    // renumbered cursor.
+    expect(host.getHistory(id, seeded.topLine, 50, 0).kind).toBe("stale");
+    // Re-seeding with the CURRENT generation pages normally again (a chunk arm).
+    expect(host.getHistory(id, seeded.topLine, 50, 1).kind).toBe("chunk");
     // An UNSTAMPED read (older client / pager) is fail-open — never stale.
-    const open = host.getHistory(id, seeded.topLine, 50);
-    expect(open.stale).toBe(false);
+    expect(host.getHistory(id, seeded.topLine, 50).kind).toBe("chunk");
   });
 
   it("a non-positive max is a caller error (throws), even before the PTY lookup", () => {
@@ -202,7 +211,7 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     // `label(n-1)` (the row just above the screen), NOT skip ~1000 lines down to
     // the bounded-snapshot top (which the browser already holds and the CLI is
     // asked to reveal).
-    const page = host.getHistory(id, undefined, 50);
+    const page = asChunk(host.getHistory(id, undefined, 50));
     expect(page.chunk).toContain(label(n - 1));
     expect(page.chunk).not.toContain(label(n)); // never re-serves an on-screen row
   });

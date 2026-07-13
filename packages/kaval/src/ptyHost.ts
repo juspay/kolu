@@ -269,27 +269,35 @@ export interface PtyAttachment {
  *  deltas are in flight during the fetch. (A `have`-from-bottom cursor cannot:
  *  it compares the server's produced-line count against the client's received
  *  count, which differ by exactly the in-flight lag.) */
-export interface PtyHistoryChunk {
-  /** VT-serialized bytes for the chunk's rows, replayable through a terminal of
-   *  the same width to reproduce the lines. Empty when nothing older remains. */
-  chunk: string;
-  /** Absolute mirror-line index of the chunk's TOP row — the caller's new
-   *  cursor, passed as the next `before`. Equal to the input `before` when the
-   *  chunk is empty. May sit a wrapped line's continuation-rows lower than a
-   *  naive `before - max` because the top edge is snapped back to the wrapped
-   *  line's head, so a chunk boundary never splits a logical line. */
-  topLine: number;
-  /** True once the chunk reaches the oldest line the mirror still holds — the
-   *  caller stops backfilling. */
-  exhausted: boolean;
-  /** True when the caller's stamped `epoch` no longer matches the mirror's
-   *  current reflow generation — a width reflow renumbered absolute rows since
-   *  the caller's cursor was seeded, so this reply serves NOTHING (`chunk: ""`,
-   *  `topLine` unchanged) and the caller HALTS backfill until a fresh snapshot
-   *  re-seeds (F3). Absent/false when the caller sent no epoch (an older client,
-   *  or the self-seeding pager) — the historical fail-open behavior. */
-  stale: boolean;
-}
+export type PtyHistoryChunk =
+  | {
+      /** A served slice of older scrollback. */
+      kind: "chunk";
+      /** VT-serialized bytes for the chunk's rows, replayable through a terminal
+       *  of the same width to reproduce the lines. Empty when nothing older
+       *  remains (the top of the mirror). */
+      chunk: string;
+      /** Absolute mirror-line index of the chunk's TOP row — the caller's new
+       *  cursor, passed as the next `before`. May sit a wrapped line's
+       *  continuation-rows lower than a naive `before - max` because the top edge
+       *  is snapped back to the wrapped line's head, so a chunk boundary never
+       *  splits a logical line. */
+      topLine: number;
+      /** True once the chunk reaches the oldest line the mirror still holds — the
+       *  caller stops backfilling. */
+      exhausted: boolean;
+    }
+  | {
+      /** The caller's stamped `epoch` no longer matches the mirror's current
+       *  reflow generation — a width reflow renumbered absolute rows since the
+       *  caller's cursor was seeded, so NOTHING is served and the caller HALTS
+       *  backfill until a fresh snapshot re-seeds (F3). Only reachable when the
+       *  caller sends an epoch; an epoch-less caller (older client / self-seeding
+       *  pager) is fail-open and never sees this. A discriminated arm — not a
+       *  `stale: true` flag on a chunk — so an illegal "stale reply that also
+       *  carries real bytes" can't be constructed (matches `TerminalAttachFrame`). */
+      kind: "stale";
+    };
 
 /** One foreground sample: the node-pty `process` name and the pty's
  *  foreground process-group pid (`tcgetpgrp(3)`). Both are read *at the tty*,
@@ -1031,7 +1039,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       );
     const entry = entries.get(id);
     if (!entry)
-      return { chunk: "", topLine: before ?? 0, exhausted: true, stale: false };
+      return {
+        kind: "chunk",
+        chunk: "",
+        topLine: before ?? 0,
+        exhausted: true,
+      };
     // Reflow guard (F3): a caller that stamped the generation its `before` cursor
     // was seeded under is served NOTHING once a width reflow has since renumbered
     // absolute rows — its cursor names a row the rewrap moved, so paging from it
@@ -1039,7 +1052,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // fresh snapshot re-seeds. A caller with no epoch (older client / pager) is
     // fail-open: it pages as before, accepting the historical single-width scope.
     if (epoch !== undefined && epoch !== entry.reflowEpoch)
-      return { chunk: "", topLine: before ?? 0, exhausted: false, stale: true };
+      return { kind: "stale" };
     const buffer = entry.headless.buffer.normal;
     // `before` is the caller's absolute cursor; the row just above it is
     // `before - mirrorBaseLine - 1` in the current local buffer. Omitted means
@@ -1057,7 +1070,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       buffer.length - 1,
     );
     if (localEnd < 0)
-      return { chunk: "", topLine: cursor, exhausted: true, stale: false };
+      return { kind: "chunk", chunk: "", topLine: cursor, exhausted: true };
     // Snap the top edge back to the logical-line head (see `snapToWrapHead`), so
     // a chunk boundary never bisects a wrapped line; the caller advances its
     // cursor by the returned `topLine`, so the extra rows are accounted for.
@@ -1071,10 +1084,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       excludeAltBuffer: true,
     });
     return {
+      kind: "chunk",
       chunk,
       topLine: entry.mirrorBaseLine + start,
       exhausted: start === 0,
-      stale: false,
     };
   }
 

@@ -101,8 +101,10 @@ describe("history verb over a real socket (the kaval-tui history path)", () => {
     expect(snapshot).not.toContain(label(0));
 
     // `--lines N` path: one self-seeded page (before omitted) of the older lines
-    // just above the screen — non-empty, and older than the newest content.
+    // just above the screen — non-empty, and older than the newest content. The
+    // pager sends no epoch, so every reply is a `chunk` arm.
     const page = await conn.client.surface.terminal.getHistory({ id, max: 50 });
+    if (page.kind !== "chunk") throw new Error("expected a chunk reply");
     expect(page.chunk).not.toBe("");
     expect(page.chunk).not.toContain(label(1199));
 
@@ -118,6 +120,7 @@ describe("history verb over a real socket (the kaval-tui history path)", () => {
         before,
         max: 500,
       });
+      if (res.kind !== "chunk") throw new Error("pager should never be stale");
       if (res.chunk === "") break;
       if (res.chunk.includes(label(0))) reachedOldest = true;
       before = res.topLine;

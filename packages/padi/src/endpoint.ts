@@ -96,24 +96,27 @@ export type TerminalAttachFrame =
       reflowEpoch?: number;
     };
 
-/** One older-scrollback chunk for the client's in-place backfill — the padi
- *  mirror of kaval's `PtyHistoryChunk`. `before`/`topLine` are absolute
- *  mirror-line indices (see `TerminalHandle.getHistory`). */
-export interface TerminalHistoryChunk {
-  /** VT-serialized bytes for the chunk's rows, replayed at the live width.
-   *  Empty when nothing older remains. */
-  chunk: string;
-  /** Absolute mirror-line index of the chunk's top row — the caller's next
-   *  cursor. Equal to the input `before` when the chunk is empty. */
-  topLine: number;
-  /** True once the chunk reaches the oldest line the mirror still holds. */
-  exhausted: boolean;
-  /** True when the caller's stamped `epoch` no longer matches the mirror's
-   *  reflow generation (a width reflow renumbered absolute rows since the cursor
-   *  was seeded): the chunk is empty and the caller HALTS backfill until re-seed
-   *  (F3). Absent/false when the caller sent no epoch (fail-open). */
-  stale?: boolean;
-}
+/** One older-scrollback reply for the client's in-place backfill — the padi
+ *  mirror of kaval's `PtyHistoryChunk`, a discriminated union so a served chunk
+ *  and a stale-reflow halt can't be conflated (like `TerminalAttachFrame`).
+ *  `topLine` is an absolute mirror-line index (see `TerminalHandle.getHistory`). */
+export type TerminalHistoryChunk =
+  | {
+      kind: "chunk";
+      /** VT-serialized bytes for the chunk's rows, replayed at the live width.
+       *  Empty when nothing older remains. */
+      chunk: string;
+      /** Absolute mirror-line index of the chunk's top row — the caller's next
+       *  cursor. Equal to the input `before` when the chunk is empty. */
+      topLine: number;
+      /** True once the chunk reaches the oldest line the mirror still holds. */
+      exhausted: boolean;
+    }
+  /** The caller's stamped `epoch` no longer matches the mirror's reflow
+   *  generation (a width reflow renumbered absolute rows since the cursor was
+   *  seeded): NOTHING is served and the caller HALTS backfill until re-seed (F3).
+   *  Only reachable when the caller sent an epoch (fail-open otherwise). */
+  | { kind: "stale" };
 
 /** Options the lifecycle layer hands to `spawnPty`. `cwd` resolves to
  *  the user's home when undefined. `parentId` and `initialMetadata` are

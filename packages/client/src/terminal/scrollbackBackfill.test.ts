@@ -1,5 +1,5 @@
 /** Behavioral proof of the scrollback-backfill leaf, ported from the feasibility
- *  spike (`packages/kaval/src/xtermPrepend.spike.test.ts`) into the production
+ *  spike (branch `xterm-prepend-spike`, commit `b3cfa37d1`, not in this tree) into the production
  *  module. The technique is exercised against `@xterm/headless` — the same
  *  DOM-free parser the scratch replay uses — with a headless "live" terminal
  *  standing in for the browser's `@xterm/xterm`, whose internal buffer shape the
@@ -399,7 +399,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
 }
 
 describe("createBackfillController — near-top trigger + lifecycle races", () => {
-  const chunk: HistoryChunk = { chunk: "x", topLine: 50, exhausted: false };
+  const chunk: HistoryChunk = {
+    kind: "chunk",
+    chunk: "x",
+    topLine: 50,
+    exhausted: false,
+  };
 
   it("fetches then prepends when scrolled near the top, and advances the cursor", async () => {
     const f = fakeTerm();
@@ -484,12 +489,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // The host reports `stale` (its reflow generation moved since our seed), so
     // the controller must discard the reply and PAUSE rather than splice a
     // renumbered cursor's duplicated/skipped band.
-    const fetch = vi.fn(async () => ({
-      chunk: "",
-      topLine: 100,
-      exhausted: false,
-      stale: true as const,
-    }));
+    const fetch = vi.fn(async () => ({ kind: "stale" as const }));
     const prepend = vi.fn(async () => 1);
     const c = createBackfillController(f.term, {
       fetch,
@@ -575,8 +575,18 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // backfill (no scroll event re-arms it) with older content still above.
     const fetch = vi
       .fn<(before: number, max: number) => Promise<HistoryChunk>>()
-      .mockResolvedValueOnce({ chunk: "", topLine: 50, exhausted: false })
-      .mockResolvedValueOnce({ chunk: "older", topLine: 10, exhausted: true });
+      .mockResolvedValueOnce({
+        kind: "chunk",
+        chunk: "",
+        topLine: 50,
+        exhausted: false,
+      })
+      .mockResolvedValueOnce({
+        kind: "chunk",
+        chunk: "older",
+        topLine: 10,
+        exhausted: true,
+      });
     const prepend = vi.fn(async (_t: XTerm, chunkStr: string) =>
       chunkStr === "" ? 0 : 3,
     );
