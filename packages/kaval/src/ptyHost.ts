@@ -1030,7 +1030,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       return { kind: "stale" };
     const buffer = entry.headless.buffer.normal;
     // `before` is the caller's absolute cursor; the row just above it is
-    // `before - mirrorBaseLine - 1` in the current local buffer. Omitted means
+    // `before - anchor.baseLine() - 1` in the current local buffer. Omitted means
     // "start from the top of the VISIBLE screen" (local `length - rows`) — the
     // self-seeding entry point a plain pager (`kaval-tui history`) uses instead
     // of first reading an attach snapshot's `topLine`. It must NOT be the
