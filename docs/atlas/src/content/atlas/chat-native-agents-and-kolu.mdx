@@ -133,7 +133,7 @@ itself uses on workers.
 | Surface | Half | Reuses |
 | --- | --- | --- |
 | the board | out · read-only | padi's agent sensors — which agent is working / asking you / just finished (`padi-tui wait`'s buckets), rendered into the thread on demand with no coordinator hop |
-| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<Footnote>Unprompted posts ride XS's incoming webhooks — shipped, Slack-compatible: a per-channel secret-bound URL (POST /api/apps/webhooks/:workspaceId/:appId/:secret) accepts text and Block Kit payloads and posts as the installed app, with thread replies via conversationId.</Footnote> |
+| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<Footnote>Unprompted posts ride the installed app's own API: POST /api/apps/chat/postMessage with a conversationId targets a thread, authenticated by the app's bearer token — the same call pesu answers messages with, so pinging needs no extra machinery.</Footnote> |
 | deep links | out | a kolu URL to the exact terminal — depth on demand: step in, answer the interactive prompt, debug, in kolu itself |
 | the coordinator bridge | in + out | one terminal's screen and input — send a message, wait for the turn to end, read the reply: the identical agent-drives-agent loop kolu already ships |
 
@@ -166,118 +166,140 @@ one attributed inbox.
 
 ## The first proof: pesu, in the kolu tree
 
-XS's bot framework is backend-native, and it decides pesu's shape: a bot is either a
-TypeScript class *inside* the XS backend, or an **external bot** — a catalog entry that
-forwards each message to an HTTP/SSE service you run. `pesu` is the external kind, and
-that is the trust model working as designed: the service is a small daemon in the
-**kolu source tree** (`packages/pesu` — an app-tier sibling of kolu-server: it imports
-`@kolu/surface` and the terminal-drive client, nothing imports it), running **beside
-kolu on the machine you own**. XS reaches it over one authenticated HTTP call per
-message; nothing of kolu's runs inside the chat vendor's backend.
+pesu integrates through XS's **apps platform** — the shape the installed "kolu" app
+already has: XS pushes **signed events** to a webhook URL pesu serves, and pesu talks
+back through XS's **app API** with a bearer token. pesu itself is a small daemon in the
+kolu source tree (`packages/pesu` — an app-tier sibling of kolu-server: it imports
+kolu's packages, nothing imports it), running beside kolu on the machine you own. Both
+directions below are grounded in the XS source.
 
-The two directions of the mirror ride two different mechanisms, and only one of them
-ships on XS's SDK today:
+- **In — events, signed.** XS POSTs `{eventType, payload, timestamp}` to pesu's URL on
+  exactly three chat triggers: `APP_MENTIONED` (an explicit @kolu in a channel),
+  `DIRECT_MESSAGE` (every message in a 1:1 DM with the app), and `USER_MENTIONED`
+  (observer). The payload carries the thread id (`conversationId`), the channel, the
+  sender's user id, and the message body as both HTML and plain text. Every delivery is
+  authenticated by `X-Xyne-Signature` — HMAC-SHA256 of the raw body with the app's
+  signing secret — which pesu verifies with a constant-time compare before touching the
+  payload.<Footnote>Three facts to design around, from the XS source: the payload never
+  includes the sender's email (and the DM payload omits even the display name) — pesu
+  resolves people through `GET /api/apps/user/info` and caches them; delivery is
+  fire-and-forget with no retries, so pesu answers 200 immediately and works async, and
+  a delivery missed while pesu is down is lost (the read APIs — `channelHistory`,
+  `conversationReplies` — allow catch-up); and there is no replay protection on the
+  signature, an accepted risk recorded here.</Footnote>
+- **Out — the app API, one bearer token.** `POST /api/apps/chat/postMessage` posts to a
+  channel or — with `conversationId` — into a thread; `updateMessage` edits a message
+  in place; `agentProgress` shows a live typing indicator; `channelHistory` /
+  `conversationReplies` read back. This one API is *both halves of the mirror*: the
+  reply to a message and the unprompted post are the same call — **B2 ships no wire B0
+  doesn't already have**; it is a policy switch (relay the coordinator's
+  between-message turns), not new machinery.
 
-- **In — thread → coordinator — is request/response, and ships now.** XS POSTs each
-  message with `{{message}}`, the attribution fields (`{{userId}}` / `{{userEmail}}` /
-  `{{userName}}`), and `{{conversationId}}` — the stable thread key pesu binds to the
-  coordinator terminal (no session token needed). pesu prefixes the attribution and
-  relays into the coordinator's PTY with the same send → wait → read loop the
-  coordinator uses on workers, streaming the reply back as SSE
-  `data: {"content": …}` chunks — one growing bot message per turn, exactly one
-  terminal event.<Footnote>Two SDK facts pesu must respect: the external fetch has no
-  timeout, so pesu — not XS — owns turn-level timeouts and must forward output
-  incrementally rather than buffering the turn; and only streamed `content` is
-  authoritative for the persisted message, so the reply goes out as chunks, never as a
-  final blob on `done`. Mentions need the catalog ID in XS's chat-enabled list; XS then
-  routes every later human reply in a bot-started thread back to pesu automatically —
-  the thread *is* the conversation with the coordinator.</Footnote>
-- **Out — coordinator → thread, unprompted — is a transcript mirror over XS's
-  incoming webhooks.** The mirror relays what the coordinator says *between* thread
-  messages too: worker reports arriving, rulings issued, background tasks settling.
-  pesu reads this from the coordinator's **transcript** (structured turns with clean
-  message boundaries — the assistant's text messages are already written for a human
-  reader), never by scraping the screen; the PTY is its write path, the transcript its
-  read path. The posts ride XS's shipped, Slack-compatible incoming webhooks — a
-  per-channel secret-bound URL that accepts text and Block Kit and posts as the
-  installed app, with thread replies via `conversationId`.<Footnote>One identity nuance
-  B2 verifies at build time: webhook posts are tied to an installed *app* and a
-  channel, while the conversational bot is a catalog *bot* user — pesu must either
-  unify the two identities or accept the mirror posting as its app identity. Thread
-  targeting via conversationId is documented as partial; fidelity of threaded replies
-  is B2's first acceptance check.</Footnote>
+**The one honest UX gap, stated:** the apps platform delivers a channel message only on
+an explicit @mention — the follow-the-thread behavior (replying in a bot's thread
+without re-mentioning) exists only in XS's separate bot-catalog system, not for
+installed apps. So B0's conversational home is the **DM**, where every message flows
+both ways with no ceremony, and in channels each instruction @mentions kolu. Two
+recorded options if thread-follow comes to matter: an XS-side feature request (the
+right fix), or a pesu-side poller over `conversationReplies` for its bound threads (a
+workaround with a polling cost — not built until wanted).
 
 **Does the coordinator get chat verbs of its own?** No — the coordinator stays
-chat-unaware, which is what keeps the mirror agent-CLI-agnostic and the bridge passive.
-Structured, deliberate-looking output doesn't need coordinator agency either: the
-webhook path accepts Block Kit, so tables and formatted posts are pesu's rendering
-concern. An MCP face (pesu's verbs as a `@kolu/surface`, re-exposed via
-`@kolu/surface-mcp`) is recorded as an option, not a phase — its sole revival
-condition is a coordinator demonstrably needing to *initiate* a chat action the
-transcript mirror cannot express (posting to a different channel, addressing a named
-human out-of-thread). Until that consumer exists, it is not built.
+chat-unaware, which keeps the mirror agent-CLI-agnostic and the bridge passive.
+Structured output doesn't need coordinator agency either: `postMessage` takes plain
+text, markdown, and structured payloads, so rendering is pesu's concern. An MCP face
+(pesu's verbs as a `@kolu/surface`, re-exposed via `@kolu/surface-mcp`) stays a
+recorded option whose sole revival condition is a coordinator demonstrably needing to
+*initiate* a chat action the transcript mirror cannot express.
 
 Each phase is **one PR, end to end** — it ships nothing that isn't consumed within it
 (the padi plan's law, held here). Every PR below is a complete, usable product on its
-own; none ships a half waiting for a later consumer.
+own.
 
 <PhaseTree title="ROADMAP — pesu (the XS bridge) · one end-to-end PR per phase" phases={PESU} />
 
 export const PESU = [
-  { d: 0, g: "▶", c: "next", l: "B0 · the round trip — a chat-driven coordinator", m: "ships on today's SDK", h: "#b0" },
+  { d: 0, g: "▶", c: "next", l: "B0 · the round trip — a chat-driven coordinator", m: "ships on today's XS", h: "#b0" },
   { d: 0, g: "○", c: "todo", l: "B1 · the board — fleet status from chat", m: "needs B0", h: "#b1" },
-  { d: 0, g: "○", c: "last", l: "B2 · the live mirror — the thread as campaign feed", m: "needs B0", h: "#b2" },
+  { d: 0, g: "○", c: "last", l: "B2 · the live mirror — the thread as campaign feed", m: "needs B0 · a policy switch, no new wire", h: "#b2" },
 ];
 
 <a id="b0"></a>
 
 ### B0 — the round trip
 
-<Phase id="B0" name="the bridge daemon + XS catalog entry — a chat-driven coordinator" status="next" />
+<Phase id="B0" name="the bridge daemon — a chat-driven coordinator over the installed app" status="next" />
 
-What you see: in any XS channel, **"@pesu ‹your ask›"** opens a thread with the
-coordinator. Your message lands in the coordinator's terminal prefixed with your name;
-its answer appears in the thread as one message that grows while it works. You keep
-replying in the thread — no re-mention needed — and several people can take part, each
-message attributed, handled in the order it arrived. It feels like DMing a very capable
-teammate who happens to be running your fleet.
+**What you see:** DM the kolu app and you are talking to the coordinator — every
+message you send lands in its terminal prefixed with your name; its answer appears as
+one message that grows while it works, with a typing indicator during the turn. In a
+channel, **"@kolu ‹ask›"** does the same into the message's thread. Several people can
+take part; each message is attributed and handled in arrival order.
+
+**The turn, end to end:** verify `X-Xyne-Signature` (constant-time) → 200 immediately →
+enqueue on the FIFO inbox (the write floor — one turn in flight, ever) → resolve the
+coordinator terminal **by title** via the kaval client (ids re-key across kaval
+restarts; titles survive) → resolve the sender via `user/info` (cached) → attributed
+two-step write-in, snapshot-verified → `agentProgress` on → as the reply grows in the
+coordinator's transcript, read it through the **shipped loaders**
+(`kolu-claude-code` / `kolu-codex` / `kolu-grok` / `kolu-opencode`, dispatched on the
+agent kind padi publishes — the same dispatch `padi/transcript.ts` does, so B0 is
+model-agnostic on day one) → `postMessage` once, then `updateMessage` at a civil cadence
+so the thread shows one growing message → the turn-end bucket flips → final update,
+typing off. A fault posts as a visible reply — never silence. Replies split at XS's
+40,000-character message cap.
+
+**The code tree** (no transcript module — the loaders already exist):
+
+```
+packages/pesu/src/
+  bin.ts            # entry: config → webhook server + turn engine
+  config.ts         # XS base URL · listen port · coordinator title ·
+                    #   env NAMES for the signing secret + bearer token
+  webhook.ts        # the receiver: HMAC verify, event parse, immediate 200
+  xyneApi.ts        # the bearer client: postMessage · updateMessage ·
+                    #   agentProgress · user/info (+ user cache)
+  inbox.ts          # the FIFO turn queue — the write floor
+  coordinator.ts    # terminal-by-title · attributed write-in · turn-end via
+                    #   padi's buckets · reply text via the loaders
+  attribution.ts    # "from Sridhar: " prefix formatting
+```
+
+**Hard requirements, in the PR:** a **stable public URL** for the webhook (a named
+tunnel or funnel — quick-tunnels rotate their hostname per run and silently orphan the
+registration); secrets reach pesu **only as environment variables** — never the repo,
+the PR, logs, or an agent transcript; a forged-signature request is rejected (pinned by
+a test); a coordinator-busy message queues and answers in order.
 
 <a id="b1"></a>
 
 ### B1 — the board
 
-<Phase id="B1" name="@pesu status — fleet status from chat" status="todo" needs={["B0"]} />
+<Phase id="B1" name="@kolu status — fleet status from chat" status="todo" needs={["B0"]} />
 
-What you see: **"@pesu status"** answers with a table — every terminal, which agent is
-in it, and whether it is working, asking for someone, or just finished. The glance you
-currently need the kolu canvas for, from your phone, in the thread where the work is
-being discussed.
+**What you see:** **"@kolu status"** (or the same in the DM) answers with a table —
+every terminal, which agent is in it, and whether it is working, asking for someone, or
+just finished — read straight off padi's sensors, no coordinator hop. The glance you
+currently need the kolu canvas for, from your phone.
 
 <a id="b2"></a>
 
 ### B2 — the live mirror
 
-<Phase id="B2" name="unprompted posts via incoming webhooks — the thread becomes the campaign feed" status="todo" needs={["B0"]} />
+<Phase id="B2" name="unprompted posts over the same app API — the thread becomes the campaign feed" status="todo" needs={["B0"]} />
 
-What you see: the thread updates **on its own**. A worker finishes and the
+**What you see:** the thread updates **on its own**. A worker finishes and the
 coordinator's report appears; a ruling goes out and you read it as it happens; an agent
 needs a human and the thread gets pinged — each post carrying a link that opens the
-exact terminal in kolu when you want the depth. Between your messages, the thread reads
-as the campaign's live feed instead of a silent gap. (Thread-reply fidelity is the
-first acceptance check; the app-vs-bot identity nuance is recorded above.)
+exact terminal in kolu when you want the depth. Mechanically this is B0's `postMessage`
+with a `conversationId` and the transcript relay switched on for between-message turns —
+no new wire, which is why it is the roadmap's smallest PR.
 
 The discussion-assist patterns — the coordinator contributing grounded answers to a
 debate between humans — are coordinator behavior, the `/orchestrator` skill's
 territory, and deliberately not a pesu PR.
 
-**The milestone is concrete: run kolu's own development from a thread (B0 + B1).** kolu
-is already built this way — a coordinator driving a fleet of worker agents through the
-exact loop pesu mirrors — so the bridge is a renderer of a proven pattern, not new
-coordination machinery. What it proves is the *chat half*: XS identity mapped to
-attribution, a thread bound durably to one coordinator terminal, and the stream rendered
-where the team already is.
-
-<PesuStyles />
+**The milestone is concrete: run kolu's own development from a thread (B0 + B1).**<PesuStyles />
 <PesuThread />
 
 *The target user story, end to end — here replaying a real merged change,

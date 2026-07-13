@@ -272,7 +272,7 @@ itself uses on workers.</p>
 <tr>
 <td>attention</td>
 <td>out · read-only</td>
-<td>per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Unprompted posts ride XS’s incoming webhooks — shipped, Slack-compatible: a per-channel secret-bound URL (POST /api/apps/webhooks/:workspaceId/:appId/:secret) accepts text and Block Kit payloads and posts as the installed app, with thread replies via conversationId.</span></span></span></td>
+<td>per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Unprompted posts ride the installed app’s own API: POST /api/apps/chat/postMessage with a conversationId targets a thread, authenticated by the app’s bearer token — the same call pesu answers messages with, so pinging needs no extra machinery.</span></span></span></td>
 </tr>
 <tr>
 <td>deep links</td>
@@ -312,95 +312,112 @@ running record of what was decided and why. AI-assisted discussion among humans 
 out of the coordinator pattern for free — no second bot, no separate “assistant” mode,
 one attributed inbox.</p>
 <h2 id="the-first-proof-pesu-in-the-kolu-tree">The first proof: pesu, in the kolu tree</h2>
-<p>XS’s bot framework is backend-native, and it decides pesu’s shape: a bot is either a
-TypeScript class <em>inside</em> the XS backend, or an <strong>external bot</strong> — a catalog entry that
-forwards each message to an HTTP/SSE service you run. <code>pesu</code> is the external kind, and
-that is the trust model working as designed: the service is a small daemon in the
-<strong>kolu source tree</strong> (<code>packages/pesu</code> — an app-tier sibling of kolu-server: it imports
-<code>@kolu/surface</code> and the terminal-drive client, nothing imports it), running <strong>beside
-kolu on the machine you own</strong>. XS reaches it over one authenticated HTTP call per
-message; nothing of kolu’s runs inside the chat vendor’s backend.</p>
-<p>The two directions of the mirror ride two different mechanisms, and only one of them
-ships on XS’s SDK today:</p>
+<p>pesu integrates through XS’s <strong>apps platform</strong> — the shape the installed “kolu” app
+already has: XS pushes <strong>signed events</strong> to a webhook URL pesu serves, and pesu talks
+back through XS’s <strong>app API</strong> with a bearer token. pesu itself is a small daemon in the
+kolu source tree (<code>packages/pesu</code> — an app-tier sibling of kolu-server: it imports
+kolu’s packages, nothing imports it), running beside kolu on the machine you own. Both
+directions below are grounded in the XS source.</p>
 <ul>
-<li><strong>In — thread → coordinator — is request/response, and ships now.</strong> XS POSTs each
-message with <code>{{message}}</code>, the attribution fields (<code>{{userId}}</code> / <code>{{userEmail}}</code> /
-<code>{{userName}}</code>), and <code>{{conversationId}}</code> — the stable thread key pesu binds to the
-coordinator terminal (no session token needed). pesu prefixes the attribution and
-relays into the coordinator’s PTY with the same send → wait → read loop the
-coordinator uses on workers, streaming the reply back as SSE
-<code>data: {&quot;content&quot;: …}</code> chunks — one growing bot message per turn, exactly one
-terminal event.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Two SDK facts pesu must respect: the external fetch has no
-timeout, so pesu — not XS — owns turn-level timeouts and must forward output
-incrementally rather than buffering the turn; and only streamed <code>content</code> is
-authoritative for the persisted message, so the reply goes out as chunks, never as a
-final blob on <code>done</code>. Mentions need the catalog ID in XS’s chat-enabled list; XS then
-routes every later human reply in a bot-started thread back to pesu automatically —
-the thread <em>is</em> the conversation with the coordinator.</span></span></span></li>
-<li><strong>Out — coordinator → thread, unprompted — is a transcript mirror over XS’s
-incoming webhooks.</strong> The mirror relays what the coordinator says <em>between</em> thread
-messages too: worker reports arriving, rulings issued, background tasks settling.
-pesu reads this from the coordinator’s <strong>transcript</strong> (structured turns with clean
-message boundaries — the assistant’s text messages are already written for a human
-reader), never by scraping the screen; the PTY is its write path, the transcript its
-read path. The posts ride XS’s shipped, Slack-compatible incoming webhooks — a
-per-channel secret-bound URL that accepts text and Block Kit and posts as the
-installed app, with thread replies via <code>conversationId</code>.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>One identity nuance
-B2 verifies at build time: webhook posts are tied to an installed <em>app</em> and a
-channel, while the conversational bot is a catalog <em>bot</em> user — pesu must either
-unify the two identities or accept the mirror posting as its app identity. Thread
-targeting via conversationId is documented as partial; fidelity of threaded replies
-is B2’s first acceptance check.</span></span></span></li>
+<li><strong>In — events, signed.</strong> XS POSTs <code>{eventType, payload, timestamp}</code> to pesu’s URL on
+exactly three chat triggers: <code>APP_MENTIONED</code> (an explicit @kolu in a channel),
+<code>DIRECT_MESSAGE</code> (every message in a 1:1 DM with the app), and <code>USER_MENTIONED</code>
+(observer). The payload carries the thread id (<code>conversationId</code>), the channel, the
+sender’s user id, and the message body as both HTML and plain text. Every delivery is
+authenticated by <code>X-Xyne-Signature</code> — HMAC-SHA256 of the raw body with the app’s
+signing secret — which pesu verifies with a constant-time compare before touching the
+payload.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Three facts to design around, from the XS source: the payload never
+includes the sender’s email (and the DM payload omits even the display name) — pesu
+resolves people through <code>GET /api/apps/user/info</code> and caches them; delivery is
+fire-and-forget with no retries, so pesu answers 200 immediately and works async, and
+a delivery missed while pesu is down is lost (the read APIs — <code>channelHistory</code>,
+<code>conversationReplies</code> — allow catch-up); and there is no replay protection on the
+signature, an accepted risk recorded here.</span></span></span></li>
+<li><strong>Out — the app API, one bearer token.</strong> <code>POST /api/apps/chat/postMessage</code> posts to a
+channel or — with <code>conversationId</code> — into a thread; <code>updateMessage</code> edits a message
+in place; <code>agentProgress</code> shows a live typing indicator; <code>channelHistory</code> /
+<code>conversationReplies</code> read back. This one API is <em>both halves of the mirror</em>: the
+reply to a message and the unprompted post are the same call — <strong>B2 ships no wire B0
+doesn’t already have</strong>; it is a policy switch (relay the coordinator’s
+between-message turns), not new machinery.</li>
 </ul>
+<p><strong>The one honest UX gap, stated:</strong> the apps platform delivers a channel message only on
+an explicit @mention — the follow-the-thread behavior (replying in a bot’s thread
+without re-mentioning) exists only in XS’s separate bot-catalog system, not for
+installed apps. So B0’s conversational home is the <strong>DM</strong>, where every message flows
+both ways with no ceremony, and in channels each instruction @mentions kolu. Two
+recorded options if thread-follow comes to matter: an XS-side feature request (the
+right fix), or a pesu-side poller over <code>conversationReplies</code> for its bound threads (a
+workaround with a polling cost — not built until wanted).</p>
 <p><strong>Does the coordinator get chat verbs of its own?</strong> No — the coordinator stays
-chat-unaware, which is what keeps the mirror agent-CLI-agnostic and the bridge passive.
-Structured, deliberate-looking output doesn’t need coordinator agency either: the
-webhook path accepts Block Kit, so tables and formatted posts are pesu’s rendering
-concern. An MCP face (pesu’s verbs as a <code>@kolu/surface</code>, re-exposed via
-<code>@kolu/surface-mcp</code>) is recorded as an option, not a phase — its sole revival
-condition is a coordinator demonstrably needing to <em>initiate</em> a chat action the
-transcript mirror cannot express (posting to a different channel, addressing a named
-human out-of-thread). Until that consumer exists, it is not built.</p>
+chat-unaware, which keeps the mirror agent-CLI-agnostic and the bridge passive.
+Structured output doesn’t need coordinator agency either: <code>postMessage</code> takes plain
+text, markdown, and structured payloads, so rendering is pesu’s concern. An MCP face
+(pesu’s verbs as a <code>@kolu/surface</code>, re-exposed via <code>@kolu/surface-mcp</code>) stays a
+recorded option whose sole revival condition is a coordinator demonstrably needing to
+<em>initiate</em> a chat action the transcript mirror cannot express.</p>
 <p>Each phase is <strong>one PR, end to end</strong> — it ships nothing that isn’t consumed within it
 (the padi plan’s law, held here). Every PR below is a complete, usable product on its
-own; none ships a half waiting for a later consumer.</p>
-<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — pesu (the XS bridge) · one end-to-end PR per phase</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:undefined;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">B0 · the round trip — a chat-driven coordinator</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#b0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">ships on today&#39;s SDK</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:undefined;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">B1 · the board — fleet status from chat</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#b1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs B0</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">B2 · the live mirror — the thread as campaign feed</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#b2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs B0</a></span></div></div>
+own.</p>
+<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — pesu (the XS bridge) · one end-to-end PR per phase</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:undefined;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">B0 · the round trip — a chat-driven coordinator</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#b0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">ships on today&#39;s XS</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:undefined;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">B1 · the board — fleet status from chat</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#b1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs B0</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">B2 · the live mirror — the thread as campaign feed</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#b2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs B0 · a policy switch, no new wire</a></span></div></div>
 
 <a id="b0"></a>
 <h3 id="b0--the-round-trip">B0 — the round trip</h3>
-<div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B0</span><span style="color:#334155">· the bridge daemon + XS catalog entry — a chat-driven coordinator</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
-<p>What you see: in any XS channel, <strong>“@pesu ‹your ask›”</strong> opens a thread with the
-coordinator. Your message lands in the coordinator’s terminal prefixed with your name;
-its answer appears in the thread as one message that grows while it works. You keep
-replying in the thread — no re-mention needed — and several people can take part, each
-message attributed, handled in the order it arrived. It feels like DMing a very capable
-teammate who happens to be running your fleet.</p>
+<div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B0</span><span style="color:#334155">· the bridge daemon — a chat-driven coordinator over the installed app</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
+<p><strong>What you see:</strong> DM the kolu app and you are talking to the coordinator — every
+message you send lands in its terminal prefixed with your name; its answer appears as
+one message that grows while it works, with a typing indicator during the turn. In a
+channel, <strong>“@kolu ‹ask›”</strong> does the same into the message’s thread. Several people can
+take part; each message is attributed and handled in arrival order.</p>
+<p><strong>The turn, end to end:</strong> verify <code>X-Xyne-Signature</code> (constant-time) → 200 immediately →
+enqueue on the FIFO inbox (the write floor — one turn in flight, ever) → resolve the
+coordinator terminal <strong>by title</strong> via the kaval client (ids re-key across kaval
+restarts; titles survive) → resolve the sender via <code>user/info</code> (cached) → attributed
+two-step write-in, snapshot-verified → <code>agentProgress</code> on → as the reply grows in the
+coordinator’s transcript, read it through the <strong>shipped loaders</strong>
+(<code>kolu-claude-code</code> / <code>kolu-codex</code> / <code>kolu-grok</code> / <code>kolu-opencode</code>, dispatched on the
+agent kind padi publishes — the same dispatch <code>padi/transcript.ts</code> does, so B0 is
+model-agnostic on day one) → <code>postMessage</code> once, then <code>updateMessage</code> at a civil cadence
+so the thread shows one growing message → the turn-end bucket flips → final update,
+typing off. A fault posts as a visible reply — never silence. Replies split at XS’s
+40,000-character message cap.</p>
+<p><strong>The code tree</strong> (no transcript module — the loaders already exist):</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>packages/pesu/src/</span></span>
+<span class="line"><span>  bin.ts            # entry: config → webhook server + turn engine</span></span>
+<span class="line"><span>  config.ts         # XS base URL · listen port · coordinator title ·</span></span>
+<span class="line"><span>                    #   env NAMES for the signing secret + bearer token</span></span>
+<span class="line"><span>  webhook.ts        # the receiver: HMAC verify, event parse, immediate 200</span></span>
+<span class="line"><span>  xyneApi.ts        # the bearer client: postMessage · updateMessage ·</span></span>
+<span class="line"><span>                    #   agentProgress · user/info (+ user cache)</span></span>
+<span class="line"><span>  inbox.ts          # the FIFO turn queue — the write floor</span></span>
+<span class="line"><span>  coordinator.ts    # terminal-by-title · attributed write-in · turn-end via</span></span>
+<span class="line"><span>                    #   padi's buckets · reply text via the loaders</span></span>
+<span class="line"><span>  attribution.ts    # "from Sridhar: " prefix formatting</span></span></code></pre>
+<p><strong>Hard requirements, in the PR:</strong> a <strong>stable public URL</strong> for the webhook (a named
+tunnel or funnel — quick-tunnels rotate their hostname per run and silently orphan the
+registration); secrets reach pesu <strong>only as environment variables</strong> — never the repo,
+the PR, logs, or an agent transcript; a forged-signature request is rejected (pinned by
+a test); a coordinator-busy message queues and answers in order.</p>
 <a id="b1"></a>
 <h3 id="b1--the-board">B1 — the board</h3>
-<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B1</span><span style="color:#334155">· @pesu status — fleet status from chat</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> B0</span></div></div>
-<p>What you see: <strong>“@pesu status”</strong> answers with a table — every terminal, which agent is
-in it, and whether it is working, asking for someone, or just finished. The glance you
-currently need the kolu canvas for, from your phone, in the thread where the work is
-being discussed.</p>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B1</span><span style="color:#334155">· @kolu status — fleet status from chat</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> B0</span></div></div>
+<p><strong>What you see:</strong> <strong>“@kolu status”</strong> (or the same in the DM) answers with a table —
+every terminal, which agent is in it, and whether it is working, asking for someone, or
+just finished — read straight off padi’s sensors, no coordinator hop. The glance you
+currently need the kolu canvas for, from your phone.</p>
 <a id="b2"></a>
 <h3 id="b2--the-live-mirror">B2 — the live mirror</h3>
-<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B2</span><span style="color:#334155">· unprompted posts via incoming webhooks — the thread becomes the campaign feed</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> B0</span></div></div>
-<p>What you see: the thread updates <strong>on its own</strong>. A worker finishes and the
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B2</span><span style="color:#334155">· unprompted posts over the same app API — the thread becomes the campaign feed</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> B0</span></div></div>
+<p><strong>What you see:</strong> the thread updates <strong>on its own</strong>. A worker finishes and the
 coordinator’s report appears; a ruling goes out and you read it as it happens; an agent
 needs a human and the thread gets pinged — each post carrying a link that opens the
-exact terminal in kolu when you want the depth. Between your messages, the thread reads
-as the campaign’s live feed instead of a silent gap. (Thread-reply fidelity is the
-first acceptance check; the app-vs-bot identity nuance is recorded above.)</p>
+exact terminal in kolu when you want the depth. Mechanically this is B0’s <code>postMessage</code>
+with a <code>conversationId</code> and the transcript relay switched on for between-message turns —
+no new wire, which is why it is the roadmap’s smallest PR.</p>
 <p>The discussion-assist patterns — the coordinator contributing grounded answers to a
 debate between humans — are coordinator behavior, the <code>/orchestrator</code> skill’s
 territory, and deliberately not a pesu PR.</p>
-<p><strong>The milestone is concrete: run kolu’s own development from a thread (B0 + B1).</strong> kolu
-is already built this way — a coordinator driving a fleet of worker agents through the
-exact loop pesu mirrors — so the bridge is a renderer of a proven pattern, not new
-coordination machinery. What it proves is the <em>chat half</em>: XS identity mapped to
-attribution, a thread bound durably to one coordinator terminal, and the stream rendered
-where the team already is.</p>
-<style>
+<p><strong>The milestone is concrete: run kolu’s own development from a thread (B0 + B1).</strong><style>
   .pe-frame{font-family:ui-sans-serif,system-ui,sans-serif;max-width:33rem;margin:1.5rem 0 .4rem;border:1px solid #e6e2d6;border-radius:14px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.06);background:#fff}
   .pe-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem .9rem;background:#FBF1DC;border-bottom:1px solid #ecd9b0}
   .pe-hash{font:700 .82rem/1 ui-sans-serif,system-ui;color:#92400E}
@@ -459,7 +476,7 @@ where the team already is.</p>
   .pe-ci .dot{width:8px;height:8px;border-radius:50%;background:#15803D}
   .pe-merge{margin-left:auto;font:700 .64rem/1 ui-sans-serif,system-ui;color:#fff;background:#15803D;border-radius:6px;padding:.36rem .56rem}
   .pe-merged{display:inline-flex;align-items:center;gap:.3rem;font:700 .64rem/1 ui-sans-serif,system-ui;color:#fff;background:#7c3aed;border-radius:5px;padding:.28rem .46rem}
-  </style>
+  </style></p>
 <div class="pe-frame" role="img" aria-label="An XS chat thread driven by the pesu bot, replaying real merged PR #1544. Sridhar asks the bot to make session export a lightweight chat log — a picker for Chat log, Full transcript, or Both, plain HTML with no hidden tool payloads. The coordinator dispatches claude in a kolu terminal and the thread streams the live session: it adds the export picker dialog, single-sources the export-mode enum, renders a plain conversation ledger, and deletes about twelve hundred lines of the old Pierre and markdown renderer, then fmt and tests pass. The bot posts screenshot evidence — the rendered chat-log document with role colours and prompt-jump controls — and a link to connect to the live terminal. It reports the slash-be review gauntlet caught and fixed a stored XSS in the shared export, then posts pull request #1544 with plus 1254 and minus 2652 across 28 files and CI green on both platforms. Sridhar replies merge it, and the bot reports #1544 merged to master with the terminal parked."><div class="pe-bar"><span class="pe-hash">XS · #kolu-dev</span><span class="pe-sub">thread — lightweight chat-log export</span><span class="pe-badge">PESU BOT</span></div><div class="pe-thread"><div class="pe-msg"><span class="pe-av pe-av-h">SR</span><div class="pe-body"><div class="pe-meta"><b>Sridhar</b><span class="pe-time">14:31</span></div><div class="pe-bub">@kolu run <b>claude</b> on <code>kolu</code> — make session export a lightweight <b>chat log</b>: a picker for Chat log / Full transcript / Both, plain HTML, no hidden tool payloads. Open a PR.</div></div></div><div class="pe-msg"><span class="pe-av pe-av-b">k</span><div class="pe-body"><div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:31</span></div><div class="pe-bub">▶ Coordinator dispatched <b>claude</b> in <code>kolu·e7f2</code>. Streaming the worker here.</div><div class="pe-term"><div class="pe-term-bar"><span>kolu·e7f2 · claude</span><span class="pe-live">● live</span></div><div class="pe-term-body"><div class="pe-ln"><span class="dim">●</span> Edit <span class="path">client/src/ExportSessionDialog.tsx</span></div><div class="pe-ln"><span class="dim"></span>picker — Chat log · Full transcript · Both</div><div class="pe-ln"><span class="add">+ New</span> <span class="path">transcript-core/src/mode.ts</span> <span class="dim">— single-source the mode enum</span></div><div class="pe-ln"><span class="dim">●</span> Edit <span class="path">transcript-html/src/index.tsx</span> <span class="dim">— plain conversation ledger</span></div><div class="pe-ln"><span class="dim">− Del  components · markdown · pierre renderers (−1,200 lines)</span></div><div class="pe-ln"><span class="ok">✔</span> just fmt &amp;&amp; just check</div><div class="pe-ln"><span class="ok">✔</span> pnpm test <span class="dim">— transcript + exportTranscriptHtml green</span></div></div></div></div></div><div class="pe-msg"><span class="pe-av pe-av-b">k</span><div class="pe-body"><div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:36</span></div><div class="pe-bub">Chat-log export renders clean — evidence attached.</div><div class="pe-shot"><div class="pe-shot-cap">screenshot · exported chat log</div><div class="pe-doc"><div class="pe-doc-bar"><span class="pe-doc-dot"></span>Chat log — session export · kolu</div><div class="pe-doc-body"><div class="pe-turn pe-turn-h"><span class="pe-role pe-role-h">HUMAN</span><div class="pe-line">Make session export a plain chat log — drop the hidden tool payloads.</div></div><div class="pe-turn pe-turn-a"><span class="pe-role pe-role-a">CLAUDE</span><div class="pe-line">Done. Chat log is human + AI messages only, high-contrast HTML, no renderer app.</div></div></div><div class="pe-doc-nav">↑ ↓<span class="pe-doc-navlbl">jump between prompts</span></div></div></div><a class="pe-link">↪ Connect to the live terminal &amp; test it yourself</a></div></div><div class="pe-msg"><span class="pe-av pe-av-b">k</span><div class="pe-body"><div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:41</span></div><div class="pe-bub">PR opened. The <code>/be</code> review gauntlet caught + fixed a <b>stored XSS</b> in the shared export (raw HTML passthrough) — escaped, test added.</div><div class="pe-pr"><div class="pe-pr-top"><span class="pe-pr-ico">⬗</span><span class="pe-pr-num">#1544</span><span class="pe-pr-title">Make session export a lightweight chat log</span></div><div class="pe-pr-stat"><span class="add">+1,254</span><span class="del">−2,652</span><span class="files">· 28 files</span></div><div class="pe-pr-foot"><span class="pe-ci"><span class="dot"></span>CI green · both platforms</span><span class="pe-merge">Merge</span></div></div></div></div><div class="pe-msg"><span class="pe-av pe-av-h">SR</span><div class="pe-body"><div class="pe-meta"><b>Sridhar</b><span class="pe-time">14:42</span></div><div class="pe-bub">lgtm — @kolu merge it.</div></div></div><div class="pe-msg"><span class="pe-av pe-av-b">k</span><div class="pe-body"><div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:42</span></div><div class="pe-bub"><span class="pe-merged">✓ Merged</span>  #1544 → <code>master</code>. Terminal <code>kolu·e7f2</code> parked — reopen any time.</div></div></div></div></div>
 <p><em>The target user story, end to end — here replaying a real merged change,
 <a href="https://github.com/juspay/kolu/pull/1544"><strong>PR #1544</strong></a>, which made session export a
