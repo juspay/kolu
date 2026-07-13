@@ -322,11 +322,11 @@ import {
   a tap-sized movement threshold so scrolls never summon the keyboard, and
   the rule that on touch the keyboard rises *only* from an explicit tap —
   never from a tile switch or reveal (`focusOnSelection` is a deliberate
-  no-op on touch).<Footnote>All shipped behavior:
-  <Cite file="packages/client/src/terminal/Terminal.tsx" lines="272-279" />
-  (focus-is-a-no-op-on-touch) and
-  <Cite file="packages/client/src/terminal/Terminal.tsx" lines="576-669" />
-  (the contenteditable surface via `softKeyboardInput.ts`, the
+  no-op on touch).<Footnote>All shipped behavior: the focus-is-a-no-op rule
+  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="272-279" />)
+  and the tap surface
+  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="576-669" /> —
+  the contenteditable input via `softKeyboardInput.ts`, the
   `TAP_THRESHOLD_PX` discrimination, the pointerup gesture window). That is
   volatility, not product choice — which is why it's owned, not
   hook-provided.</Footnote> The one *domain* decision in the gesture — what a
