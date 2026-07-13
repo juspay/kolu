@@ -24,7 +24,7 @@ subpaths: the contract, the server, and the client.
 `Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
 object). Its `failure` schema is required and fixes the domain failure value; `Failure`
 is **inferred** from it (no explicit type args). The `SurfaceMap` carries
-`{ keySchema, entry, contract, entriesSpec, codec, failure }`; `entriesSpec` is the
+`{ keySchema, entry, contract, entriesSpec, codec, failureSchema }`; `entriesSpec` is the
 membership collection's wire spec, always string-keyed.
 
 `connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
