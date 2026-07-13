@@ -228,6 +228,31 @@ class PtyHostTerminalProxy implements TerminalHandle {
  *  rejects — failures are logged / routed to `onError`). The per-terminal taps
  *  ignore it (fire-and-forget); the inventory reconciler awaits it to know when
  *  to re-subscribe across a daemon recycle. */
+/** The FOREGROUND tap's `onError` — a NON-abort failure means the pty-host connection
+ *  dropped (an unclean kaval death). It ONLY logs and performs NO
+ *  `foreground.publish`: the W12 STAYS-DEFINED-UNDER-BLINDNESS invariant. The agent
+ *  sensor's shell-idle discriminant reads `foregroundPid === undefined` as a genuine
+ *  end (clears `restoreTarget`), so a blind observer must leave the LAST known sample
+ *  (the stale DEFINED agent pid) in place — never fabricate a `null`/undefined. The
+ *  only writer of the sensor's foreground is a real `onEvent` sample; `bridgeStream`
+ *  (pinned in `bridgeStream.test.ts`) guarantees the failure path can't fabricate an
+ *  `onEvent` either.
+ *
+ *  `foreground` is passed in — the handler HAS the capability to publish — precisely so
+ *  the invariant is TESTABLE: a regression that "clears stale foreground on disconnect"
+ *  would light up the pin in `bridgeStream.test.ts`. It is deliberately unused here. */
+export function onForegroundTapError(
+  id: string,
+  foreground: Pick<SensorSignals["foreground"], "publish">,
+  err: unknown,
+): void {
+  void foreground; // capability present, deliberately NOT exercised (blindness invariant)
+  log.error(
+    { err, terminal: id },
+    "pty-host foreground tap failed — keeping last foreground sample (blind)",
+  );
+}
+
 export function bridgeStream<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
   signal: AbortSignal,
@@ -844,21 +869,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           process: msg.process,
           foregroundPid: msg.foregroundPid,
         }),
-      (err) => {
-        // A non-abort foreground-tap failure means the pty-host connection dropped (an
-        // unclean kaval death). Surface it, but perform NO write to the foreground
-        // observation — this is a W12 INVARIANT the sensor's blindness-safety leans on:
-        // the agent sensor's shell-idle discriminant treats `foregroundPid === undefined`
-        // as a genuine end (clear `restoreTarget`), so blindness must leave the LAST
-        // known foreground sample (the stale DEFINED agent pid) in place, never reset it
-        // to undefined. The only writer of the sensor's foreground is a real foreground
-        // `onEvent` sample above; a resolved-null under blindness then sees the defined
-        // agent pid and emits `unknown` (keep-last). Pinned in sensors.observability.test.ts.
-        log.error(
-          { err, terminal: id },
-          "pty-host foreground tap failed — keeping last foreground sample (blind)",
-        );
-      },
+      (err) => onForegroundTapError(id, signals.foreground, err),
     );
     const stopAwareness = startSensors(
       id,

@@ -175,18 +175,30 @@ export async function restoreSession(input: {
       return;
     }
     const newId = respawnActive(t, parentId, optedIn(t.id));
-    if (newId) {
-      oldToNew.set(t.id, newId);
-      // `t` is the active arm here (the sleeping branch returned above). Capture the
-      // fresh proxy's `ready` promise NOW, while the entry is still the live shadow —
-      // its SETTLE (fulfilled vs rejected) is the authoritative "did the spawn succeed",
-      // read below without depending on later registry presence.
-      activeRespawns.push({
-        newId,
-        record: t,
-        ready: getActiveTerminal(newId)?.handle.ready,
-      });
+    if (newId === null) {
+      // `respawnActive` returns null ONLY for the already-live skip: this id already
+      // stands for a live PTY (a repeat/concurrent restore, OR a PRIOR restore that
+      // spawned THIS record live while a sibling failed — the mixed-outcome retry).
+      // Map it to ITSELF so its still-parked children re-parent onto the LIVE terminal
+      // instead of being dropped. Without the mapping a sub whose parent is already
+      // live gets `oldToNew.get(parent) === undefined` and is skipped — but its parked
+      // token would then linger FOREVER, pinning `hasParkedTerminals()` and suppressing
+      // every later autosave (F2, the retry half of mixed parent/child settlement).
+      // Nothing was spawned, so this record does NOT join `activeRespawns` (no `ready`
+      // to await, no re-park on failure).
+      oldToNew.set(t.id, t.id);
+      return;
     }
+    oldToNew.set(t.id, newId);
+    // `t` is the active arm here (the sleeping branch returned above). Capture the
+    // fresh proxy's `ready` promise NOW, while the entry is still the live shadow —
+    // its SETTLE (fulfilled vs rejected) is the authoritative "did the spawn succeed",
+    // read below without depending on later registry presence.
+    activeRespawns.push({
+      newId,
+      record: t,
+      ready: getActiveTerminal(newId)?.handle.ready,
+    });
   };
 
   // Freeze the autosave for the ENTIRE spawn window (through the tail await below): a

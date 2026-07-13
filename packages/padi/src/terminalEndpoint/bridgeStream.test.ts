@@ -6,14 +6,21 @@
  * shell-idle and clobber the resume target.
  *
  * `local.ts`'s foreground bridge upholds this by giving `bridgeStream` an `onError`
- * that ONLY logs (it performs no `signals.foreground.publish`). These tests pin the
- * MECHANISM that makes that safe: on a non-abort source failure `bridgeStream` routes
- * to `onError` and NEVER calls `onEvent`, so the failure path structurally cannot
- * emit a value onto the channel — the only writer stays the real-sample `onEvent`.
+ * that ONLY logs (it performs no `signals.foreground.publish`). Two pins, one per half
+ * of the guarantee:
+ *   1. the MECHANISM — on a non-abort source failure `bridgeStream` routes to `onError`
+ *      and NEVER calls `onEvent`, so the failure path structurally cannot emit a value
+ *      onto the channel;
+ *   2. the PRODUCTION handler — `onForegroundTapError` (the actual `onError` the
+ *      foreground bridge is wired with) never publishes onto the foreground channel it
+ *      is handed, so the only writer stays the real-sample `onEvent`. This pin is what
+ *      constrains a future "clear stale foreground on disconnect" regression that #1 (a
+ *      generic `onEvent`-never-called proof) would not catch.
  */
 
 import { describe, expect, it } from "vitest";
-import { bridgeStream } from "./local.ts";
+import type { ForegroundSample } from "kaval";
+import { bridgeStream, onForegroundTapError } from "./local.ts";
 
 /** An async iterable that REJECTS on first pull — the shape a dropped tap socket
  *  surfaces (the `for await` throws rather than ending cleanly). */
@@ -84,5 +91,29 @@ describe("bridgeStream — the failure path never fabricates an event", () => {
       },
     );
     expect(errored).toBe(false);
+  });
+});
+
+describe("onForegroundTapError — the production handler never publishes (STAYS-DEFINED)", () => {
+  it("a tap failure logs but leaves the foreground channel UNWRITTEN — blindness keeps the last sample", () => {
+    // The production `onError` the foreground bridge is wired with. It RECEIVES the
+    // foreground channel (it CAN publish), so this pins the load-bearing invariant that
+    // it does NOT: a regression that reset/cleared the foreground on a dropped tap would
+    // push a sample here and fail the assert. `bridgeStream` guarantees the failure path
+    // can't fabricate an `onEvent`; THIS guarantees the handler itself doesn't publish.
+    const published: ForegroundSample[] = [];
+    const foreground = {
+      publish: (s: ForegroundSample) => {
+        published.push(s);
+      },
+    };
+
+    onForegroundTapError(
+      "t1",
+      foreground,
+      new Error("kaval socket dropped mid-foreground-tap"),
+    );
+
+    expect(published).toEqual([]);
   });
 });

@@ -31,8 +31,10 @@ import {
 import { getSavedSession, setSavedSession } from "./session.ts";
 import { restoreSession } from "./sessionRestore.ts";
 import {
+  type ActiveTerminalProcess,
   getTerminal,
   parkedTerminalIds,
+  registerTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
@@ -332,6 +334,75 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
     expect(getTerminal(PARENT_ID)).toBeUndefined();
     expect(parkedTerminalIds()).toHaveLength(1);
+  });
+
+  it("W12/F2 — a parked child under an ALREADY-LIVE parent restores (not dropped) on retry", async () => {
+    // The mixed-outcome retry half of F2. After a PARTIAL mid-restore failure (the parent
+    // spawn confirmed, a later child spawn's `ready` rejected) the live parent stays live
+    // and only the child is re-parked. On the RETRY, `respawnActive` skips the already-live
+    // parent — BEFORE the fix that skip produced NO `oldToNew` mapping, so the parked child
+    // (`parentId` → the live parent) got `oldToNew.get(parent) === undefined` and was
+    // DROPPED, leaving its token parked forever (pinning `hasParkedTerminals()`, suppressing
+    // autosave). The fix maps the already-live parent to itself, so the child re-parents
+    // onto the LIVE parent and restores. Here we seed that exact post-partial-failure state
+    // directly (a live parent registered + a parked child under it).
+    const LIVE_PARENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const CHILD_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const liveParent: ActiveTerminalProcess = {
+      info: { id: LIVE_PARENT_ID, pid: 0 },
+      meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
+      snapshot: {
+        cwd: "/live-parent",
+        git: null,
+        pr: { kind: "absent" },
+        agent: null,
+        foreground: null,
+      },
+      handle: {} as ActiveTerminalProcess["handle"],
+    };
+    registerTerminal(LIVE_PARENT_ID, liveParent);
+    const childRecord: SavedActiveTerminal = {
+      ...base,
+      id: CHILD_ID,
+      state: "active",
+      cwd: "/retry-child",
+      parentId: LIVE_PARENT_ID,
+      lastActivityAt: 42,
+      restoreTarget: { kind: "none" },
+    };
+    // The child is the re-parked failed respawn from the first (partial) attempt.
+    seedParkedTerminal(childRecord);
+    // The disk session names both (the optimistic snapshot from the first attempt): the
+    // parent is still active/live, the child active under it.
+    setSavedSession({
+      terminals: [
+        {
+          ...base,
+          id: LIVE_PARENT_ID,
+          state: "active",
+          cwd: "/live-parent",
+          lastActivityAt: 0,
+          restoreTarget: { kind: "none" },
+        },
+        childRecord,
+      ],
+      activeTerminalId: LIVE_PARENT_ID,
+      savedAt: 1,
+    });
+
+    const done = restoreSession({});
+
+    // The parked child RESTORED to a fresh live PTY under the still-live parent — the old
+    // parked token was consumed (not left to linger).
+    const child = activeByCwd("/retry-child");
+    expect(child).toBeDefined();
+    expect(child?.id).not.toBe(CHILD_ID);
+    expect(child?.parentId).toBe(LIVE_PARENT_ID);
+    expect(getTerminal(CHILD_ID)).toBeUndefined();
+    // The already-live parent was left untouched (a live PTY, never re-parked).
+    expect(getTerminal(LIVE_PARENT_ID)?.meta.state).toBe("active");
+
+    await done;
   });
 
   it("W12/F1 — a failed restore then a RETRY leaves NO orphan parked residue", async () => {
