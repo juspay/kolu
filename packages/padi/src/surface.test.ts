@@ -24,34 +24,36 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 2.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
-    // 1.1 ADDED `lifecycle.recycleKaval` (the "Restart kaval" button); 1.2 ADDS the
-    // `hostInventory` cell (the "Running daemons" leak diagnostic); 1.3 ADDS the
-    // `identity` cell (padi's own build commit/surfaceVersion/boot time, per host) —
-    // all additive minors over 1.0. 2.0 is the first MAJOR, carrying TWO breaking
-    // changes: (a) it ADDS the per-terminal right-panel `collapsed` field (the panel
-    // follows the terminal, #959) — a major because its unsafe skew is old-client/
-    // new-padi (an older client's whole-record `chrome.setRightPanel` write omits
-    // `collapsed`, the schema defaults it false, and the REPLACE clobbers a newer
-    // client's persisted `collapsed:true` — the direction `isContractVersionCompatible`
-    // otherwise waves through); and (b) it REMOVES `fs.statFileMtimeMs` for
-    // `fs.filePreviewTag` — a shape-breaking rename. Both must refuse a 1.x↔2.0 skew.
-    expect(PADI_SURFACE_VERSION).toBe("2.0");
+  it("is version 4.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
+    // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
+    // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
+    // field (the panel follows the terminal, #959) — a major because an older client's
+    // whole-record `chrome.setRightPanel` write omits it and the REPLACE clobbers a
+    // newer client's `collapsed:true`; and (b) it REMOVED `fs.statFileMtimeMs` for
+    // `fs.filePreviewTag` — a shape-breaking rename. 3.0 was the second MAJOR
+    // (scrollback-backfill): the `terminalAttach` stream output was RESHAPED from a
+    // bare `z.string()` to a discriminated `{ kind, data, topLine? }` union frame —
+    // breaking in BOTH skew directions. 3.1 (additive minor) added the reflow guard
+    // (F3): OPTIONAL `reflowEpoch` + `epoch`/`stale`, both skew directions graceful.
+    // 4.0 is the third MAJOR: it REMOVES the dead `lifecycle.restoreSleeping` procedure
+    // (retired per #1784's W12 disposition — no production caller). A removed procedure
+    // is a shape-break, so an old binder that still called it must refuse a 4.0 padi
+    // rather than hit a missing proc — only a major closes that skew in both directions.
+    expect(PADI_SURFACE_VERSION).toBe("4.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
-    // A newer additive minor (a future 2.x) still serves a 2.0 consumer; a
+    // A newer additive minor (a future 4.x) still serves a 4.0 consumer; a
     // major bump is mutually incompatible in both directions.
-    expect(isContractVersionCompatible("2.1", "2.0")).toBe(true);
-    expect(isContractVersionCompatible("3.0", "2.0")).toBe(false);
-    expect(isContractVersionCompatible("2.0", "3.0")).toBe(false);
-    // The 2.0 major gate closes BOTH skew directions against any 1.x peer: a new
-    // client (needs 2.0) REFUSES an older 1.x padi that can't persist `collapsed`,
-    // AND an older 1.x client REFUSES this 2.0 padi rather than clobbering the field
-    // with an omitting whole-record write.
-    expect(isContractVersionCompatible("1.4", "2.0")).toBe(false);
-    expect(isContractVersionCompatible("2.0", "1.4")).toBe(false);
+    expect(isContractVersionCompatible("4.1", "4.0")).toBe(true);
+    expect(isContractVersionCompatible("5.0", "4.0")).toBe(false);
+    expect(isContractVersionCompatible("4.0", "5.0")).toBe(false);
+    // The 4.0 major gate closes BOTH skew directions against any 3.x peer: a new
+    // client (needs 4.0) REFUSES an older 3.x padi, AND an older 3.x client REFUSES
+    // this 4.0 padi rather than calling the removed `restoreSleeping`.
+    expect(isContractVersionCompatible("3.4", "4.0")).toBe(false);
+    expect(isContractVersionCompatible("4.0", "3.4")).toBe(false);
   });
 
   it("pins the EXACT member list — every member from the surface section", () => {
@@ -99,7 +101,6 @@ describe("padiSurface 1.0 contract", () => {
       "sleep",
       "wake",
       "discardSleeping",
-      "restoreSleeping",
       "resize",
       "sendInput",
       "recycleKaval",
@@ -113,7 +114,11 @@ describe("padiSurface 1.0 contract", () => {
       "setSubPanel",
       "setRightPanel",
     ]);
-    expect(Object.keys(procs.screen ?? {})).toEqual(["state", "text"]);
+    expect(Object.keys(procs.screen ?? {})).toEqual([
+      "state",
+      "text",
+      "history",
+    ]);
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
       "readFile",

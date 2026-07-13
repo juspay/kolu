@@ -29,13 +29,24 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
-import { restoreSession } from "./sessionRestore.ts";
 import {
+  persistSettledRestoreSnapshot,
+  restoreSession,
+  settleRestoreRespawns,
+} from "./sessionRestore.ts";
+import {
+  type ActiveTerminalProcess,
   getTerminal,
+  parkedTerminalIds,
+  registerTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
-import { seedParkedTerminal } from "./terminalEndpoint/local.ts";
+import {
+  seedParkedTerminal,
+  TerminalSpawnRacedError,
+} from "./terminalEndpoint/local.ts";
+import { setTerminalTheme } from "./terminals.ts";
 import {
   LOCAL_LOCATION,
   type SavedActiveTerminal,
@@ -244,5 +255,510 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     expect(activeByCwd("/parent")).toBeDefined();
     expect(activeByCwd("/sub")).toBeDefined();
     await done;
+  });
+
+  // Shared fixtures for the two W12 restore-respawn tests: one saved ACTIVE record
+  // carrying an EXACT resume target, seeded as BOTH the saved session and a parked
+  // entry (restore's idempotency token). The tests differ only in the resume opt-in.
+  const W12_EXACT = {
+    kind: "exact",
+    command: "claude --model sonnet",
+    agent: { kind: "claude-code", sessionId: "S1" },
+  } as const;
+  const w12AgentRecord: SavedActiveTerminal = {
+    ...base,
+    id: PARENT_ID,
+    state: "active",
+    cwd: "/agent",
+    lastActivityAt: 500,
+    lastAgentCommand: "claude --model sonnet",
+    restoreTarget: W12_EXACT,
+  };
+  const seedW12Agent = (): void => {
+    setSavedSession({
+      terminals: [w12AgentRecord],
+      activeTerminalId: PARENT_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(w12AgentRecord);
+  };
+  const restoredW12Agent = () =>
+    getSavedSession()?.terminals.find((t) => t.cwd === "/agent");
+
+  it("W12 — a resuming agent's restoreTarget survives the restore re-persist (not clobbered to none)", async () => {
+    // Restore closes with `saveSession(snapshotSession())`. The fresh terminal must
+    // carry the saved EXACT resume target on disk — BEFORE the fix, `createTerminal`
+    // seeded no `restoreTarget`/`lastAgentCommand`, so that re-persist wrote `none`
+    // and a second unclean death (or a resume that never landed) left a bare shell.
+    seedW12Agent();
+
+    const done = restoreSession({});
+
+    const restored = restoredW12Agent();
+    expect(restored).toBeDefined();
+    expect(restored?.restoreTarget).toEqual(W12_EXACT);
+    expect(restored?.lastAgentCommand).toBe("claude --model sonnet");
+
+    await done;
+  });
+
+  it("W12 — an OPTED-OUT agent restores to a bare shell: its exact target does NOT persist", async () => {
+    // The inverse of the test above (F2). When the user opts OUT of resuming this
+    // terminal's agent, the fresh terminal is a genuine BARE SHELL — seeding the saved
+    // `exact` target would persist it (the bare shell's fold never clears it, having no
+    // agent to re-derive from) and a later WAKE would resume the very agent the user
+    // declined. So the seed is gated on `resume`: the opted-out terminal restores with
+    // NO resume target on disk. `resumeFormFor(undefined/none)` → bare shell, so wake
+    // can't replay the agent by construction.
+    seedW12Agent();
+
+    // Opt OUT of resuming this terminal (empty resume set).
+    const done = restoreSession({ resumeIds: [] });
+
+    const restored = restoredW12Agent();
+    expect(restored).toBeDefined();
+    expect(restored?.restoreTarget).toBeUndefined();
+    expect(restored?.lastAgentCommand).toBeUndefined();
+
+    await done;
+  });
+
+  it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked under the FRESH id, NOT deleted", async () => {
+    // The env has no kaval, so every fresh spawn's async tail rejects — exactly the
+    // mid-restore kaval-death shape. `restoreSession` freezes the autosave across the
+    // spawn window and re-parks each failed respawn, so the failure NEVER journals a
+    // removal that would delete the terminal from the saved session (CONF-6).
+    seedW12Agent();
+
+    await restoreSession({}); // await the full spawn-settle + re-park
+
+    // The saved session was NOT shrunk away — it still names a terminal (the optimistic
+    // snapshot written before the tails rejected).
+    const restored = restoredW12Agent();
+    expect(restored).toBeDefined();
+    // The failed respawn is re-parked under the SAME (fresh) id the durable snapshot
+    // named — disk id and parked id MATCH, so a retry can consume the token (F1). The
+    // OLD saved id was consumed by the parked→active flip and must NOT linger parked.
+    expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
+    expect(getTerminal(PARENT_ID)).toBeUndefined();
+    expect(parkedTerminalIds()).toHaveLength(1);
+  });
+
+  it("W12/F2 — a parked child under an ALREADY-LIVE parent restores (not dropped) on retry", async () => {
+    // The mixed-outcome retry half of F2. After a PARTIAL mid-restore failure (the parent
+    // spawn confirmed, a later child spawn's `ready` rejected) the live parent stays live
+    // and only the child is re-parked. On the RETRY, `respawnActive` skips the already-live
+    // parent — BEFORE the fix that skip produced NO `oldToNew` mapping, so the parked child
+    // (`parentId` → the live parent) got `oldToNew.get(parent) === undefined` and was
+    // DROPPED, leaving its token parked forever (pinning `hasParkedTerminals()`, suppressing
+    // autosave). The fix maps the already-live parent to itself, so the child re-parents
+    // onto the LIVE parent and restores. Here we seed that exact post-partial-failure state
+    // directly (a live parent registered + a parked child under it).
+    const LIVE_PARENT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const CHILD_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const liveParent: ActiveTerminalProcess = {
+      info: { id: LIVE_PARENT_ID, pid: 0 },
+      meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
+      snapshot: {
+        cwd: "/live-parent",
+        git: null,
+        pr: { kind: "absent" },
+        agent: null,
+        foreground: null,
+      },
+      handle: {} as ActiveTerminalProcess["handle"],
+    };
+    registerTerminal(LIVE_PARENT_ID, liveParent);
+    const childRecord: SavedActiveTerminal = {
+      ...base,
+      id: CHILD_ID,
+      state: "active",
+      cwd: "/retry-child",
+      parentId: LIVE_PARENT_ID,
+      lastActivityAt: 42,
+      restoreTarget: { kind: "none" },
+    };
+    // The child is the re-parked failed respawn from the first (partial) attempt.
+    seedParkedTerminal(childRecord);
+    // The disk session names both (the optimistic snapshot from the first attempt): the
+    // parent is still active/live, the child active under it.
+    setSavedSession({
+      terminals: [
+        {
+          ...base,
+          id: LIVE_PARENT_ID,
+          state: "active",
+          cwd: "/live-parent",
+          lastActivityAt: 0,
+          restoreTarget: { kind: "none" },
+        },
+        childRecord,
+      ],
+      activeTerminalId: LIVE_PARENT_ID,
+      savedAt: 1,
+    });
+
+    const done = restoreSession({});
+
+    // The parked child RESTORED to a fresh live PTY under the still-live parent — the old
+    // parked token was consumed (not left to linger).
+    const child = activeByCwd("/retry-child");
+    expect(child).toBeDefined();
+    expect(child?.id).not.toBe(CHILD_ID);
+    expect(child?.parentId).toBe(LIVE_PARENT_ID);
+    expect(getTerminal(CHILD_ID)).toBeUndefined();
+    // The already-live parent was left untouched (a live PTY, never re-parked).
+    expect(getTerminal(LIVE_PARENT_ID)?.meta.state).toBe("active");
+
+    await done;
+  });
+
+  it("W12/F1 — a failed restore then a RETRY leaves NO orphan parked residue", async () => {
+    // The F1 regression: re-parking under the OLD saved id (while the disk snapshot names
+    // the FRESH id) desyncs the two identity spaces. A retry reads the fresh-id disk
+    // record, can't consume the old-id park, spawns yet another terminal, and leaves the
+    // old-id park orphaned FOREVER — and any lingering park pins `hasParkedTerminals()`
+    // true, suppressing every future autosave. Re-parking under the fresh id keeps the
+    // token consumable: each retry consumes the prior park and re-parks exactly one, so
+    // the parked set never accumulates and the original id never re-appears.
+    seedW12Agent();
+
+    await restoreSession({}); // first attempt fails (no kaval) → one parked entry
+    const firstParked = parkedTerminalIds();
+    expect(firstParked).toHaveLength(1);
+
+    await restoreSession({}); // retry: consume that park, fail again, re-park exactly one
+
+    // Still exactly one parked entry — no accumulation, no orphan under the original id.
+    expect(parkedTerminalIds()).toHaveLength(1);
+    expect(getTerminal(PARENT_ID)).toBeUndefined();
+    // And the surviving parked id matches the id the current saved snapshot names.
+    const restored = restoredW12Agent();
+    expect(restored).toBeDefined();
+    expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
+  });
+});
+
+describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / F5)", () => {
+  const mkRecord = (
+    id: string,
+    cwd: string,
+    parentId?: string,
+  ): SavedActiveTerminal => ({
+    ...base,
+    id,
+    state: "active",
+    cwd,
+    lastActivityAt: 1,
+    restoreTarget: { kind: "none" },
+    ...(parentId ? { parentId } : {}),
+  });
+
+  const liveEntry = (
+    id: string,
+    cwd: string,
+    parentId?: string,
+  ): ActiveTerminalProcess => ({
+    info: { id, pid: 1 },
+    meta: {
+      state: "active",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      ...(parentId ? { parentId } : {}),
+    },
+    snapshot: {
+      cwd,
+      git: null,
+      pr: { kind: "absent" },
+      agent: null,
+      foreground: null,
+    },
+    handle: {} as ActiveTerminalProcess["handle"],
+  });
+
+  it("F3 — a pre-ready KILL/SLEEP (typed race error) is NOT re-parked; a genuine spawn failure IS", async () => {
+    // A rejected `ready` carries WHY it rejected: `TerminalSpawnRacedError` is a second
+    // client's kill/sleep mid-spawn (honor it — never resurrect as a restore card), while a
+    // raw RPC error is a genuine infra spawn failure (re-park so the restore card re-offers).
+    const killed = mkRecord("11111111-1111-4111-8111-111111111111", "/killed");
+    const failed = mkRecord("22222222-2222-4222-8222-222222222222", "/failed");
+    await settleRestoreRespawns([
+      {
+        ready: Promise.reject(new TerminalSpawnRacedError()),
+        newId: killed.id,
+        record: killed,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.reject(new Error("pty-host terminal.spawn failed")),
+        newId: failed.id,
+        record: failed,
+        parentIdMapped: undefined,
+      },
+    ]);
+    expect(getTerminal(killed.id)).toBeUndefined();
+    expect(getTerminal(failed.id)?.meta.state).toBe("parked");
+  });
+
+  it("F2 — a live child under an infra-failed (re-parked) parent is PROMOTED to top-level", async () => {
+    // The non-monotonic mixed outcome: the parent respawn rejects for a per-record reason
+    // (a removed cwd) while its later-queued child spawn SUCCEEDS. Without the sweep the live
+    // child would dangle under the now-parked parent (hidden on the canvas). It is reparented
+    // to top-level, keeping its live PTY.
+    const parent = mkRecord(
+      "33333333-3333-4333-8333-333333333333",
+      "/p2-parent",
+    );
+    const CHILD = "44444444-4444-4444-8444-444444444444";
+    registerTerminal(CHILD, liveEntry(CHILD, "/p2-child", parent.id));
+    const child = mkRecord(CHILD, "/p2-child", parent.id);
+    await settleRestoreRespawns([
+      {
+        ready: Promise.reject(new Error("spawn failed — removed cwd")),
+        newId: parent.id,
+        record: parent,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.resolve(),
+        newId: CHILD,
+        record: child,
+        parentIdMapped: parent.id,
+      },
+    ]);
+    expect(getTerminal(parent.id)?.meta.state).toBe("parked");
+    expect(getTerminal(CHILD)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.parentId).toBeUndefined();
+  });
+
+  it("F2 — a live child under a still-LIVE parent is left untouched", async () => {
+    const PARENT = "55555555-5555-4555-8555-555555555555";
+    const CHILD = "66666666-6666-4666-8666-666666666666";
+    registerTerminal(PARENT, liveEntry(PARENT, "/p3-parent"));
+    registerTerminal(CHILD, liveEntry(CHILD, "/p3-child", PARENT));
+    const child = mkRecord(CHILD, "/p3-child", PARENT);
+    await settleRestoreRespawns([
+      {
+        ready: Promise.resolve(),
+        newId: CHILD,
+        record: child,
+        parentIdMapped: PARENT,
+      },
+    ]);
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(PARENT);
+  });
+
+  it("F5 — a spawn whose `ready` NEVER settles does not block re-parking a sibling that DID fail", async () => {
+    // The wedged-kaval residual codex sharpened: one respawn's `ready` never settles (socket
+    // open, `spawn` never answered). Because the settlement is per-spawn — NOT an
+    // `await Promise.allSettled` under a held freeze — a SIBLING that genuinely failed is
+    // still re-parked and RETAINED on disk while the wedged spawn hangs, so no live sibling's
+    // persistence is pinned for the process lifetime.
+    const wedged = mkRecord("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", "/wedged");
+    const failed = mkRecord(
+      "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+      "/failed-sib",
+    );
+    setSavedSession({
+      terminals: [wedged, failed],
+      activeTerminalId: wedged.id,
+      savedAt: 1,
+    });
+    // The wedged spawn's `ready` never resolves or rejects — a permanently-pending RPC.
+    const settle = settleRestoreRespawns([
+      {
+        ready: new Promise<void>(() => {}),
+        newId: wedged.id,
+        record: wedged,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.reject(new Error("spawn failed")),
+        newId: failed.id,
+        record: failed,
+        parentIdMapped: undefined,
+      },
+    ]);
+    // Let the failed sibling's rejection microtask chain drain. `settle` itself stays PENDING
+    // forever (the wedged spawn never settles), so we deliberately do NOT await it.
+    await new Promise((r) => setTimeout(r, 0));
+    void settle;
+
+    // The failed sibling was re-parked and its record retained on disk — all WITHOUT the
+    // wedged spawn settling.
+    expect(getTerminal(failed.id)?.meta.state).toBe("parked");
+    expect(
+      getSavedSession()?.terminals.some((t) => t.cwd === "/failed-sib"),
+    ).toBe(true);
+  });
+
+  it("F2 — a live child of a re-parked parent is PROMOTED even while an UNRELATED spawn never settles", async () => {
+    // The topology regression codex sharpened: parent A rejects and re-parks, its child B
+    // succeeded, and an UNRELATED spawn C never settles. If promotion waited on the whole
+    // batch's `Promise.all`, C's wedge would keep B hidden under A's parked entry forever.
+    // Because the reconcile now runs the INSTANT A settles — not after the batch — B is
+    // promoted to top-level without C ever settling.
+    const parentA = mkRecord("cccccccc-1111-4111-8111-cccccccccccc", "/A");
+    const CHILD_B = "dddddddd-2222-4222-8222-dddddddddddd";
+    registerTerminal(CHILD_B, liveEntry(CHILD_B, "/B", parentA.id));
+    const childB = mkRecord(CHILD_B, "/B", parentA.id);
+    const wedgedC = mkRecord("eeeeeeee-3333-4333-8333-eeeeeeeeeeee", "/C");
+
+    const settle = settleRestoreRespawns([
+      {
+        ready: Promise.reject(new Error("spawn failed — removed cwd")),
+        newId: parentA.id,
+        record: parentA,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.resolve(),
+        newId: CHILD_B,
+        record: childB,
+        parentIdMapped: parentA.id,
+      },
+      // C's `ready` never resolves or rejects — a permanently-pending RPC.
+      {
+        ready: new Promise<void>(() => {}),
+        newId: wedgedC.id,
+        record: wedgedC,
+        parentIdMapped: undefined,
+      },
+    ]);
+    // Let A's rejection microtask chain drain. `settle` stays PENDING forever (C never
+    // settles), so we deliberately do NOT await it.
+    await new Promise((r) => setTimeout(r, 0));
+    void settle;
+
+    // A re-parked, and B — its live child — was promoted to top-level, WITHOUT C settling.
+    expect(getTerminal(parentA.id)?.meta.state).toBe("parked");
+    expect(getTerminal(CHILD_B)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD_B)?.meta.parentId).toBeUndefined();
+  });
+});
+
+describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () => {
+  const LIVE_ID = "77777777-7777-4777-8777-777777777777";
+  const liveEntry = (id: string, cwd: string): ActiveTerminalProcess => ({
+    info: { id, pid: 1 },
+    meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 1 },
+    snapshot: {
+      cwd,
+      git: null,
+      pr: { kind: "absent" },
+      agent: null,
+      foreground: null,
+    },
+    handle: {} as ActiveTerminalProcess["handle"],
+  });
+
+  it("CLEAN settle — a padi-LOCAL metadata change made during the spawn window is persisted", () => {
+    // The F5 capture: during the spawn window a live sibling's `setTerminalTheme` (a
+    // padi-local setter — no kaval RPC) mutated in-memory state and fired `terminals:dirty`
+    // AFTER the optimistic snapshot was written. The post-settle re-persist folds that
+    // freshest metadata onto disk (and, now that no process-wide freeze is held across the
+    // spawn `await`, the normal autosave gate would ALSO catch it — this pins the merge).
+    registerTerminal(LIVE_ID, liveEntry(LIVE_ID, "/f5-live"));
+    setSavedSession({
+      terminals: [
+        {
+          ...base,
+          id: LIVE_ID,
+          state: "active",
+          cwd: "/f5-live",
+          lastActivityAt: 1,
+          restoreTarget: { kind: "none" },
+          // stale on disk — the pre-await snapshot predates the theme change
+        },
+      ],
+      activeTerminalId: LIVE_ID,
+      savedAt: 1,
+    });
+    // The in-window mutation — exactly the setter class codex flagged (commits locally,
+    // fires dirty, never touches kaval).
+    setTerminalTheme(LIVE_ID as never, "dracula");
+
+    persistSettledRestoreSnapshot([]);
+
+    const saved = getSavedSession()?.terminals.find(
+      (t) => t.cwd === "/f5-live",
+    );
+    expect(saved?.themeName).toBe("dracula");
+  });
+
+  it("PARKED residue — the re-parked record is RETAINED on disk (CONF-6)", () => {
+    // A spawn FAILED and was re-parked as it settled. `snapshotSession` skips parked records,
+    // so persisting it ALONE would DELETE the re-parked terminal from disk. Threading the
+    // re-parked record back into the merge keeps it named on disk.
+    const PARKED_ID = "88888888-8888-4888-8888-888888888888";
+    const record: SavedActiveTerminal = {
+      ...base,
+      id: PARKED_ID,
+      state: "active",
+      cwd: "/f5-parked",
+      lastActivityAt: 1,
+      restoreTarget: { kind: "none" },
+    };
+    setSavedSession({
+      terminals: [record],
+      activeTerminalId: PARKED_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(record);
+
+    persistSettledRestoreSnapshot([record]);
+
+    // Disk still names the re-parked terminal — not shrunk to an empty session.
+    expect(
+      getSavedSession()?.terminals.some((t) => t.cwd === "/f5-parked"),
+    ).toBe(true);
+  });
+
+  it("MIXED outcome — a live sibling's change AND a re-parked failure BOTH persist", () => {
+    // The reachable loss codex sharpened in round 5: terminal A rejects and is re-parked
+    // while already-live terminal B receives a theme change. The old `hasParkedTerminals()`
+    // guard made the re-persist RETURN early, so B's change was dropped and only the stale
+    // optimistic snapshot survived. The merge keeps A's re-parked record AND captures B's
+    // fresh metadata — neither is lost.
+    const PARKED_A = "99999999-9999-4999-8999-999999999999";
+    const parkedRecord: SavedActiveTerminal = {
+      ...base,
+      id: PARKED_A,
+      state: "active",
+      cwd: "/f5-mixed-parked",
+      lastActivityAt: 1,
+      restoreTarget: { kind: "none" },
+    };
+    // B is live; the pre-await optimistic snapshot named BOTH A (still live then) and B.
+    registerTerminal(LIVE_ID, liveEntry(LIVE_ID, "/f5-mixed-live"));
+    setSavedSession({
+      terminals: [
+        parkedRecord,
+        {
+          ...base,
+          id: LIVE_ID,
+          state: "active",
+          cwd: "/f5-mixed-live",
+          lastActivityAt: 1,
+          restoreTarget: { kind: "none" },
+          // stale on disk — predates B's theme change below
+        },
+      ],
+      activeTerminalId: LIVE_ID,
+      savedAt: 1,
+    });
+    // A failed its spawn and was re-parked; B took a padi-local metadata change in-window.
+    seedParkedTerminal(parkedRecord);
+    setTerminalTheme(LIVE_ID as never, "dracula");
+
+    persistSettledRestoreSnapshot([parkedRecord]);
+
+    const saved = getSavedSession()?.terminals ?? [];
+    // B's fresh metadata reached disk (the loss the guard caused)...
+    expect(saved.find((t) => t.cwd === "/f5-mixed-live")?.themeName).toBe(
+      "dracula",
+    );
+    // ...AND A's re-parked record was retained (CONF-6, not shrunk).
+    expect(saved.some((t) => t.cwd === "/f5-mixed-parked")).toBe(true);
   });
 });

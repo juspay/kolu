@@ -133,6 +133,7 @@ kolu, from the shell, with **no flags**:
 ```sh
 kaval-tui list                     # the terminals open in your kolu
 kaval-tui snapshot <id> | grep BUILD-
+kaval-tui history <id> --lines 200 # older scrollback above the screen
 ```
 
 kaval-tui discovers the daemon by scanning the per-user runtime dir — both a
@@ -197,10 +198,13 @@ over a socket. The system split is why [padi](/padi) handles workspace meaning
 while kaval handles terminal survival.
 
 <CardGrid>
-  <Card title="race-free attach">
+  <Card title="race-free, bounded attach">
     A late-joining client gets a screen snapshot and then live deltas with no gap
     and no overlap — every byte lands in exactly one of the two, so the screen
-    reconstructs perfectly and then streams.
+    reconstructs perfectly and then streams. The snapshot is **bounded** to the
+    recent screenful, so a cold or cross-host attach paints instantly instead of
+    replaying the whole 10,000-line mirror; older history streams in on demand as
+    the client scrolls up (`getHistory`).
   </Card>
   <Card title="drop-slow-subscriber">
     A wedged client that stops draining its output is dropped rather than pinning
@@ -279,6 +283,7 @@ the [hcom vs. kolu note](https://kolu.dev/atlas/hcom-vs-kolu.html).
 | `kaval-tui list` · `--json` | One row per live terminal — id · pid · idle · cmd · cwd. `--json` emits a top-level array for jq. |
 | `kaval-tui create` · `[-- cmd]` · `--json` | Spawn a new terminal on the daemon and print its short id — a plain `$SHELL`, or a command you pass (`create -- htop -d 5`). A freshly-started daemon owns nothing, so create is what attach needs first; the daemon then holds the terminal until something kills it. `--json` emits `{ id, pid, cwd }`. |
 | `kaval-tui snapshot <id>` · `--viewport` · `--tail N` | Print a terminal's rendered screen as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean). Defaults to the full scrollback; `--viewport` prints just the visible screen (the daemon's own last screenful — the right read when driving an agent), `--tail N` the last N rendered lines. |
+| `kaval-tui history <id>` · `--lines N` | Dump the terminal's OLDER scrollback — the mirror content *above* the current screen that `snapshot --viewport` can't show — VT-serialized so colors survive, cursor-paged from the newest older lines back. `--lines N` prints just the one page immediately above the screen; omit it for the full older history, oldest-first. Read-only, takes no TTY. |
 | `kaval-tui attach <id>` · `--escape <char>` | Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below. |
 | `kaval-tui send <id> [text...]` · `--file <path>` · `--paste/--no-paste` · `--key <name>` · `--json` | Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. `send` writes exactly the text OR the `--key`s you pass — never both, and no implicit Enter. Submitting is its own step, because a same-breath Enter races the TUI's paste debounce and is dropped: send the text, `wait --until idle:<ms>` to observe the TUI settle, then `send <id> --key Enter`. `--file <path>` reads the text straight from a file (byte-exact, no `"$(cat)"` shell mangling). Multiline / --file / piped-stdin text is sent as one bracketed paste so it doesn't submit line-by-line; `--key` also sends control keys (Escape, C-c, Up…). A write that can't complete fails loud in seconds instead of hanging. Known limitation: a large paste Claude Code folds into a placeholder doesn't reliably submit on Enter (issue #1702); the three-step flow is verified for normal-size prompts. `--json` emits `{ id, bytes, paste, keys }`. |
 | `kaval-tui wait <id> --until <cond>` · `--timeout <ms>` · `--json` | Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another. `--until idle:<ms>` resolves once no output byte has arrived for `<ms>` (the turn ended / it's awaiting you — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout` fails loud (exit 2) so a wedged agent can't hang the loop; a terminal that exits first exits 3. Keyed on raw PTY bytes, so it needs no shell hooks and works for any terminal — unlike `padi-tui wait`, which reads real agent state off padi. |

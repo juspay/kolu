@@ -91,7 +91,7 @@ import {
   ActivityFeedSchema,
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
-  InitialTerminalMetadataSchema,
+  CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
@@ -99,7 +99,6 @@ import {
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
   SavedSessionSchema,
-  SavedSleepingTerminalSchema,
   SleepingTerminalSchema,
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
@@ -161,8 +160,47 @@ export * from "./vocab.ts";
  *  added WITHOUT a contract bump: optional means a binder reading a survivor padi
  *  that predates it parses fine (falls back to "—"), so it needs no forced drain —
  *  the field simply arrives with padi's next respawn (which a code-change deploy
- *  triggers anyway). Kept symmetric with kaval's `system.version` lifetime field. */
-export const PADI_SURFACE_VERSION = "2.0";
+ *  triggers anyway). Kept symmetric with kaval's `system.version` lifetime field.
+ *
+ *  3.0 is the second MAJOR bump (scrollback-backfill). The `terminalAttach` stream's
+ *  output was RESHAPED — from a bare `z.string()` (the bytes to write) to a
+ *  discriminated `{ kind:"delta", data } | { kind:"snapshot", data, topLine }` frame
+ *  (a `snapshot` carries the absolute mirror-line backfill seed; a `delta` is plain
+ *  bytes), mirroring kaval's own `TerminalDataMsg` union rather than flattening it to
+ *  an optional field. This is breaking in BOTH skew directions — an old client's
+ *  `z.string()` schema rejects a new padi's object frame, and a new client's union
+ *  schema rejects an old padi's string frame — so ONLY a major flips
+ *  `isContractVersionCompatible` to refuse the skew both ways (an honest "upgrade the
+ *  other side" recycle rather than a mis-parsed, dataless, or frozen pane). The
+ *  additive `screen.history` procedure
+ *  (the client's older-scrollback read) rides the same release; it alone would be a
+ *  minor, but the `terminalAttach` reshape forces the major.
+ *
+ *  3.1 (additive · minor): the scrollback-backfill reflow guard (F3). Three
+ *  OPTIONAL adds — a `reflowEpoch` on the `terminalAttach` snapshot frame, an
+ *  `epoch` on `screen.history` input, a `stale` on its output — that let a
+ *  client whose SHARED mirror a foreign attach reflowed (its own `term.cols`
+ *  unchanged) HALT backfill instead of splicing a duplicated/skipped band. All
+ *  optional, so both skew directions are graceful: an older 3.0 client ignores
+ *  the extra fields, and a 3.1 client meeting a 3.0 padi reads them absent and
+ *  runs fail-open (no epoch → no gate, the historical single-width behavior).
+ *  A minor, not a major — no reshape, no required field, no emitted variant.
+ *
+ *  4.0 is a MAJOR bump that REMOVES the dead `lifecycle.restoreSleeping` procedure
+ *  (retired per #1784's W12 review disposition: it had no production caller — the
+ *  only writer, the client respawn loop, was already deleted; the real cold-boot
+ *  restore seeds a sleeping terminal directly via `seedSleepingTerminal` in
+ *  `sessionRestore.ts` / `reattach.ts`, never over the wire). A removed procedure is
+ *  a shape-break in BOTH directions (an old binder that still called `restoreSleeping`
+ *  would hit a missing proc on a 4.0 padi), so — exactly like 3.0's `terminalAttach`
+ *  reshape — only a major flips `isContractVersionCompatible` to refuse the skew and
+ *  force the honest recycle. The version is an honest statement of the wire SHAPE;
+ *  encoding "no caller today" as a minor would bake in exactly the soft assumption the
+ *  fail-fast rule rejects. Its consequence is the graceful padi-ONLY drain every
+ *  code-change deploy already pays (a newer binder drains the straddling 3.x padi —
+ *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
+ *  padi-surface bump does not touch the kaval contract. */
+export const PADI_SURFACE_VERSION = "4.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -414,19 +452,24 @@ export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 // These are the NEW contract shapes lifecycle/chrome/screen/bytes/session
 // migrate onto (the root `terminal.*` namespace dies across W1.R). They are
 // intentionally distinct from `kolu-common/contract`'s raw-oRPC schemas — most
-// notably `create` DROPS `lastActivityAt` (a fresh terminal seeds it to 0 and the
-// fold stamps recency later), so they are not duplicates to fold away.
+// notably `create` carries only the base chrome, never the three SERVER-DERIVED
+// authored facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that padi
+// earns from its own observation, so they are not duplicates to fold away.
 
-/** Create input — client-owned initial metadata MINUS `lastActivityAt`: a fresh
- *  terminal seeds `lastActivityAt: 0` (`createAuthoredActive` → `seedMemory`) and
- *  the fold stamps recency later, so the client cannot supply it. (`session
- *  .restore` re-threads a saved recency through `respawnActive`, not this input.) */
+/** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus `cwd` /
+ *  `parentId`. It derives from the base DIRECTLY rather than subtracting the three
+ *  server-derived authored facts, so the exclusion is structural, not a maintained
+ *  omit list: a future field added to `RestoreOnlyMetadataSchema` can never leak to
+ *  the wire by someone forgetting to extend an omit. A fresh terminal has no truth
+ *  about `lastActivityAt` / `lastAgentCommand` / `restoreTarget` (the fold derives
+ *  them from its own observation); `session.restore` threads them from the saved blob
+ *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input. */
 export const PadiCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
   })
-  .merge(InitialTerminalMetadataSchema.omit({ lastActivityAt: true }));
+  .merge(CreateTerminalInputSchema);
 
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
@@ -483,6 +526,38 @@ export const PadiScreenTextInputSchema = z.object({
   /** Last line to capture (exclusive). Defaults to buffer length. */
   endLine: z.number().int().nonnegative().optional(),
 });
+
+/** `screen.history` — the client's scrollback-backfill read. `before` is the
+ *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then
+ *  each reply's `topLine`); the host serves up to `max` older rows above it. */
+export const PadiScreenHistoryInputSchema = z.object({
+  id: TerminalIdSchema,
+  before: z.number().int().nonnegative().optional(),
+  max: z.number().int().positive(),
+  // `epoch` (3.1 · additive · optional) — the reflow generation the caller's
+  // `before` cursor was seeded under (the attach snapshot's `reflowEpoch`). The
+  // host returns an empty `stale` reply when a width reflow has since renumbered
+  // absolute rows, so a client whose shared mirror a foreign resize reflowed
+  // HALTS backfill rather than splices a duplicated/skipped band (F3). Omitted
+  // by an older client — fail-open.
+  epoch: z.number().int().nonnegative().optional(),
+});
+
+/** What `screen.history` returns — mirrors kaval's `getHistory` output as a
+ *  `chunk | stale` DISCRIMINATED UNION (invalid-states-unrepresentable; like this
+ *  surface's own attach `snapshot|delta` frame). The `chunk` arm is VT bytes
+ *  replayed at the live width with the next `topLine` cursor and an `exhausted`
+ *  flag; the `stale` arm (reachable only when the caller sent `epoch`) says the
+ *  mirror reflowed and the caller must HALT until re-seed (F3). */
+export const PadiScreenHistoryOutputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("chunk"),
+    chunk: z.string(),
+    topLine: z.number().int().nonnegative(),
+    exhausted: z.boolean(),
+  }),
+  z.object({ kind: z.literal("stale") }),
+]);
 
 /** `scratch.write` — write base64 bytes into a terminal's on-disk scratch dir
  *  (the write half the paste/upload procedures build on). Returns the on-disk
@@ -686,7 +761,24 @@ export const padiSurface = defineSurface({
      *  re-attaches end-to-end); the shipped overflow frame (#1591) rides it. */
     terminalAttach: {
       inputSchema: PadiTerminalIdInputSchema,
-      outputSchema: z.string(),
+      // A discriminated frame, not a bare string (contract) and not an optional
+      // field: a `delta` is bytes to write; a `snapshot` frame (the first frame
+      // and every overflow re-attach) also carries the absolute mirror-line
+      // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
+      // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
+      outputSchema: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("delta"), data: z.string() }),
+        z.object({
+          kind: z.literal("snapshot"),
+          data: z.string(),
+          topLine: z.number().int().nonnegative(),
+          // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
+          // generation this snapshot was serialized under; the client re-seeds
+          // its backfill epoch from it so a foreign-resize reflow halts backfill
+          // rather than corrupts it (F3). Absent from a kaval predating 5.2.
+          reflowEpoch: z.number().int().nonnegative().optional(),
+        }),
+      ]),
     },
   },
   events: {
@@ -699,7 +791,7 @@ export const padiSurface = defineSurface({
   },
   procedures: {
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
-     *  discardSleeping · restoreSleeping · resize · sendInput · recycleKaval. */
+     *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
       create: { input: PadiCreateInputSchema, output: TerminalInfoSchema },
       kill: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
@@ -707,7 +799,6 @@ export const padiSurface = defineSurface({
       sleep: { input: PadiTerminalIdInputSchema },
       wake: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
       discardSleeping: { input: PadiTerminalIdInputSchema },
-      restoreSleeping: { input: SavedSleepingTerminalSchema },
       resize: { input: PadiResizeInputSchema },
       sendInput: { input: PadiSendInputSchema },
       /** Force-recycle THIS host's kaval daemon, preserving the session — the
@@ -735,6 +826,10 @@ export const padiSurface = defineSurface({
     screen: {
       state: { input: PadiTerminalIdInputSchema, output: z.string() },
       text: { input: PadiScreenTextInputSchema, output: z.string() },
+      history: {
+        input: PadiScreenHistoryInputSchema,
+        output: PadiScreenHistoryOutputSchema,
+      },
     },
     /** Filesystem reads scoped to a repo on the serving host. */
     fs: {

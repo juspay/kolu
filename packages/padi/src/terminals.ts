@@ -38,8 +38,9 @@ import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import type { RightPanelPerTerminalState } from "./chromeVocab.ts";
 import {
   composeTerminalMetadata,
-  type InitialTerminalMetadata,
+  type CreateTerminalInput,
   LOCAL_LOCATION,
+  type RestoreOnlyMetadata,
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalInfo,
@@ -113,16 +114,20 @@ export function snapshotSession(): SessionSnapshot {
   return { terminals: snappedTerminals, activeTerminalId };
 }
 
-/** Create a new terminal. The endpoint owns PTY spawn, provider
- *  startup, and registry insert; this wrapper just mints an id and
- *  forwards. `initial` seeds client-owned
- *  metadata before providers run — see #642 (avoids racing post-hoc
- *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the
- *  client's canvas-cascade effect). */
+/** Create a new terminal — the ORDINARY constructor (the wire `lifecycle.create`
+ *  and every in-process caller). The endpoint owns PTY spawn, provider startup, and
+ *  registry insert; this wrapper just mints an id and forwards. `initial` seeds
+ *  client-owned chrome before providers run — see #642 (avoids racing post-hoc
+ *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the client's
+ *  canvas-cascade effect). Its `CreateTerminalInput` type carries NO server-derived
+ *  authored facts — a fresh terminal earns `lastActivityAt` / `lastAgentCommand` /
+ *  `restoreTarget` from padi's own observation, and the type makes them unspellable
+ *  here. The one path with prior truth about them, session restore, uses
+ *  {@link restoreSpawn} instead. */
 export function createTerminal(
   cwd?: string,
   parentId?: string,
-  initial?: InitialTerminalMetadata,
+  initial?: CreateTerminalInput,
 ): TerminalInfo {
   const id = crypto.randomUUID();
   // P3 will select the endpoint per create — e.g. a sub-terminal
@@ -131,6 +136,26 @@ export function createTerminal(
     cwd,
     parentId,
     initialMetadata: initial,
+  });
+}
+
+/** Re-spawn a terminal DURING SESSION RESTORE — the one constructor that may seed the
+ *  three server-derived authored facts (`restoreOnly`), read from the saved blob. It
+ *  is a distinct constructor rather than a mode flag on {@link createTerminal} so the
+ *  restore-only shape is structurally unspellable by an ordinary create: the fence is
+ *  the type, not a convention. Called ONLY by `sessionRestore.ts`'s `respawnActive`;
+ *  `restoreOnly` rides its own named parameter, never merged into `initial`. */
+export function restoreSpawn(
+  cwd: string | undefined,
+  parentId: string | undefined,
+  initial: CreateTerminalInput,
+  restoreOnly: RestoreOnlyMetadata,
+): TerminalInfo {
+  const id = crypto.randomUUID();
+  return localEndpoint.spawnPty(id, {
+    cwd,
+    parentId,
+    initialMetadata: { ...initial, ...restoreOnly },
   });
 }
 

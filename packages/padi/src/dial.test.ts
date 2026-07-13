@@ -19,6 +19,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import type { TerminalAttachFrame } from "./endpoint.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -304,7 +305,7 @@ describe("padi the process — dial acceptance", () => {
     const hello = await conn.client.surface.control.core.hello();
     // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("2.0");
+    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(hello.controlCoreVersion).toBe("1.0");
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
@@ -332,7 +333,16 @@ describe("padi the process — dial acceptance", () => {
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    // The first frame is a `snapshot` (contract 3.0 union): the snapshot bytes
+    // plus the absolute backfill seed `topLine` the snapshot frame carries.
+    // The stream iterator's value type erases to `{}`, so name the REAL frame
+    // union (not a hand-rolled shape) and narrow on its discriminant: the
+    // `snapshot` arm carries `data` + the absolute `topLine` seed.
+    const firstFrame = first.value as TerminalAttachFrame;
+    if (firstFrame.kind !== "snapshot")
+      throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
+    expect(typeof firstFrame.data).toBe("string");
+    expect(typeof firstFrame.topLine).toBe("number");
 
     // Drive the PTY through the lifecycle procedure and read it back off the
     // screen procedure — a full round-trip through padi's OWN kaval.
@@ -392,13 +402,13 @@ describe("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi (it requires padiSurface 3.0; padi serves 2.0)
+    // A binder NEWER than this padi (it requires padiSurface 5.0; padi serves 4.x)
     // reads the running version from the FROZEN control-core `hello` — the call
     // that must work at a mismatch — and finds it INCOMPATIBLE, so it REFUSES to
     // bind the versioned surface.
     const hello = await conn.client.surface.control.core.hello();
-    expect(hello.surfaceVersion).toBe("2.0");
-    expect(isContractVersionCompatible(hello.surfaceVersion, "3.0")).toBe(
+    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
+    expect(isContractVersionCompatible(hello.surfaceVersion, "5.0")).toBe(
       false,
     );
 
@@ -486,7 +496,7 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
 
     const hello = await client.surface.control.core.hello();
     expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe("2.0");
+    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(hello.controlCoreVersion).toBe("1.0");
     expect(hello.startedAt).toBeGreaterThan(0);
 
@@ -513,7 +523,15 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    // `snapshot` union frame (contract 3.0) relayed straight through the front.
+    // The stream iterator's value type erases to `{}`, so name the REAL frame
+    // union (not a hand-rolled shape) and narrow on its discriminant: the
+    // `snapshot` arm carries `data` + the absolute `topLine` seed.
+    const firstFrame = first.value as TerminalAttachFrame;
+    if (firstFrame.kind !== "snapshot")
+      throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
+    expect(typeof firstFrame.data).toBe("string");
+    expect(typeof firstFrame.topLine).toBe("number");
 
     await client.surface.padi.lifecycle.sendInput({
       id,
@@ -601,7 +619,7 @@ describe("assertPadiSurfaceCompatible", () => {
     // "Too old" is an earlier minor within the same major, or an earlier major
     // entirely. At a `.0` build (this major's floor) only the earlier-major form
     // is expressible, so pick whichever is genuinely older than this build — this
-    // keeps the older-skew covered even at a fresh major (2.0), where an in-major
+    // keeps the older-skew covered even at a fresh major (4.0), where an in-major
     // older minor doesn't exist.
     const older = minor > 0 ? `${major}.${minor - 1}` : `${major - 1}.0`;
     expect(() => assertPadiSurfaceCompatible(older)).toThrow(

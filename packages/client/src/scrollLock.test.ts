@@ -27,8 +27,11 @@ function makeMockTerm() {
         },
       };
     },
-    write(d: string) {
+    write(d: string, cb?: () => void) {
       written.push(d);
+      // Real xterm fires this once the chunk parses; synchronous here is enough
+      // to prove a buffered chunk's callback survives the flush.
+      cb?.();
     },
     scrollToBottom() {
       if (buf.viewportY === buf.baseY) return;
@@ -141,6 +144,27 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     expect(t.lock.isLocked()).toBe(false);
     expect(t.written).toEqual(["ab"]);
     expect(t.lock.pendingChunks()).toBe(0);
+    t.dispose();
+  });
+
+  it("fires a buffered chunk's onParsed callback on flush (backfill seed survives the lock)", () => {
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10);
+    let seeded = false;
+    // A snapshot frame's backfill re-seed rides the write callback. Buffered
+    // while scroll-locked, it must still fire when the flush lands on unlock —
+    // the old callback-less flush dropped it, stranding a stale backfill cursor.
+    t.lock.writeData(t.term, "SNAPSHOT", () => {
+      seeded = true;
+    });
+    expect(seeded).toBe(false); // buffered, not parsed yet
+    expect(t.written).toEqual([]);
+
+    t.buf.viewportY = t.buf.baseY; // user returns to the bottom → flush
+    t.scrollUp(0);
+    expect(t.written).toEqual(["SNAPSHOT"]);
+    expect(seeded).toBe(true); // the seed committer fired on flush, not lost
     t.dispose();
   });
 

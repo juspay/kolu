@@ -23,14 +23,14 @@ const h = vi.hoisted(() => ({
 
 // Spies for every RPC `handleRestoreSession` could conceivably fire. The W1.R6
 // contract: restore issues ONLY `session.restore` — the former client respawn
-// loop (`lifecycle.create` / `restoreSleeping` / `sendInput`) is DELETED, so
-// those must stay at zero.
+// loop (`lifecycle.create` / `sendInput`) is DELETED, so those must stay at zero.
+// (`lifecycle.restoreSleeping` was also part of that dead loop and is now retired
+// from the padi surface entirely — see #1784's W12 disposition.)
 const rpc = vi.hoisted(() => ({
   restore: vi.fn(async () => {}),
   import: vi.fn(async () => {}),
   forfeit: vi.fn(async () => {}),
   create: vi.fn(async () => {}),
-  restoreSleeping: vi.fn(async () => {}),
   sendInput: vi.fn(async () => {}),
 }));
 
@@ -62,7 +62,6 @@ vi.mock("../wire", async () => {
         },
         lifecycle: {
           create: rpc.create,
-          restoreSleeping: rpc.restoreSleeping,
           sendInput: rpc.sendInput,
         },
       },
@@ -253,7 +252,6 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
   it("issues session.restore with the resume set and ZERO lifecycle.* RPCs", async () => {
     rpc.restore.mockClear();
     rpc.create.mockClear();
-    rpc.restoreSleeping.mockClear();
     rpc.sendInput.mockClear();
 
     await new Promise<void>((resolve, reject) => {
@@ -294,7 +292,6 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             expect(rpc.restore).toHaveBeenCalledWith({ resumeIds: ["0"] });
             // The deleted client respawn loop: zero of these fire.
             expect(rpc.create).not.toHaveBeenCalled();
-            expect(rpc.restoreSleeping).not.toHaveBeenCalled();
             expect(rpc.sendInput).not.toHaveBeenCalled();
 
             dispose();

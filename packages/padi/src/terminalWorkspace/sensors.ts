@@ -477,7 +477,11 @@ function emitAgentValue(
   emit({ kind: "agent", agent: { value: nextAgent } });
 }
 
-function startAgentSensor<Session, Info extends AgentInfoShape>(
+// Exported for the producer-level regression test (`sensors.observability.test.ts`),
+// which drives the resolved-null branch's CONTENT discriminant directly — the two
+// absence flavors (shell-idle→authoritative-null, defined-non-shell→`unknown`) and the
+// defined-non-shell→shell-idle flavor flip that must re-emit the authoritative null.
+export function startAgentSensor<Session, Info extends AgentInfoShape>(
   adapter: AgentAdapter<Session, Info>,
   agentState: AgentEngineState,
   pid: number,
@@ -494,6 +498,16 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     key: string;
     stopPoll: () => void;
   } | null = null;
+  // When resolution is ABSENT (no session), its FLAVOR: was the foreground SHELL-IDLE
+  // (the shell/no process → authoritative end) or a defined NON-SHELL process (an
+  // unresolvable agent pid → keep-last `unknown`)? Tracked so the dedup below re-emits
+  // when the flavor FLIPS. The load-bearing case is non-shell→shell-idle: an agent
+  // whose session went unresolvable while it was still the foreground stayed as
+  // `unknown`, and must clear once the shell returns — but `current` is already null by
+  // then, so a session-key-only dedup would swallow the authoritative null and leave
+  // the dead agent resurrectable. `null` while a session is MATCHED (reset on match) so
+  // the next absence always emits.
+  let lastAbsenceShellIdle: boolean | null = null;
   // The most recent watcher-derived info for the matched session — the screen
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
@@ -566,20 +580,65 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     }
     const next = adapter.resolveSession(state, plog);
     const nextKey = next ? adapter.sessionKey(next) : null;
-    if ((current?.key ?? null) === nextKey) return;
+    // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
+    // (session key + the foreground's shell-idle flavor), not the key alone. A matched
+    // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
+    // flavor flips — a defined-non-shell `unknown` giving way to a shell-idle `null` —
+    // so a genuine quit after an ambiguous window still clears even though `current` is
+    // already null by then. `pid` is the shell's own pid (constant, from spawn), the
+    // same predicate `snapshotSignals` computes for `shellIdle`.
+    const shellIdle =
+      state.foregroundPid === undefined || state.foregroundPid === pid;
+    if (
+      (current?.key ?? null) === nextKey &&
+      (nextKey !== null || lastAbsenceShellIdle === shellIdle)
+    )
+      return;
     const hadCurrent = current !== null;
     destroyCurrent();
     if (!next || !nextKey) {
-      if (hadCurrent) plog.debug("agent session ended");
-      // Authoritative session-ended null — ONLY when THIS adapter owns the
-      // emitted tile (the mirror narrow). When no adapter owns it (a launch
-      // mid-resolution), nothing is emitted, so kolu keeps its value rather than
-      // seeing an ambiguous null.
+      // `resolveSession` found no agent — but two DIFFERENT facts hide behind the one
+      // `null` it returns, and W12 requires they persist differently. The discriminant
+      // is STRUCTURAL: the triggering sample's OWN content — its `foregroundPid` vs the
+      // shell pid — decided by pure data plus a local fs read, with NO cross-stream
+      // ordering, so there is no race to win:
+      //
+      //  - SHELL-IDLE (`foregroundPid` is the shell, or none) — the foreground moved
+      //    OFF this agent back to the shell: a genuine end. Emit `{ value: null }`, the
+      //    fold clears `restoreTarget`, and a later restore wakes to a bare shell (never
+      //    resurrecting a dead agent).
+      //  - DEFINED NON-SHELL foreground with an unresolvable session — the AMBIGUOUS
+      //    state: the agent's own pid is still the foreground but its session file is
+      //    gone. An unclean kaval death leaves exactly this stale-but-defined foreground
+      //    (the 2026-07-12 incident; the live kill-9 witness confirmed `foregroundPid`
+      //    was DEFINED). We cannot tell "the agent ended" from "we lost our observer",
+      //    so emit `unknown`: the fold KEEPS the last agent and its `restoreTarget`, and
+      //    a pre-death buffered BURST of such samples all resolve to `unknown` REGARDLESS
+      //    of count — the clobber is unspellable, not merely unlikely.
+      //
+      // Safety leans on ONE invariant, pinned in this file's tests: blindness never
+      // presents `foregroundPid === undefined` while an agent is live — the foreground
+      // tap's onError does NOT reset the last foreground sample (local.ts), so a dead
+      // observer always shows the stale DEFINED agent pid here, never a false shell-idle.
+      lastAbsenceShellIdle = shellIdle;
+      if (hadCurrent)
+        plog.debug(
+          shellIdle
+            ? "agent session ended (shell idle)"
+            : "agent foreground unresolvable but defined — keeping last (unknown)",
+        );
+      // ONLY when THIS adapter owns the emitted tile (the mirror narrow). When no
+      // adapter owns it (a launch mid-resolution), nothing is emitted, so kolu keeps
+      // its value rather than seeing an ambiguous null.
       if (agentState.mirror?.kind === adapter.kind) {
-        emitAgentValue(agentState, emit, null);
+        if (shellIdle) emitAgentValue(agentState, emit, null);
+        else emit({ kind: "agent", agent: "unknown" });
       }
       return;
     }
+    // A matched resolution resets the absence flavor: the NEXT absence — whatever its
+    // shell-idle-ness — is a fresh transition that must emit rather than dedup.
+    lastAbsenceShellIdle = null;
     plog.debug({ session: nextKey }, "agent session matched");
     current = {
       key: nextKey,
