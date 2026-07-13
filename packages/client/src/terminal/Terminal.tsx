@@ -84,6 +84,7 @@ import {
   trackLoseContextCalled,
 } from "./webglTracker";
 import {
+  cellAtPoint,
   patchTransformAwareMouseCoords,
   readBufferBytes,
 } from "@kolu/xterm-kit/internals";
@@ -603,41 +604,24 @@ const Terminal: Component<{
               startY: number;
             } | null = null;
             // Map a tap point to the `path:line` reference under it, if any.
-            // Reads the screen's `getBoundingClientRect()` to convert the
-            // viewport pixel into a (col, buffer-line) cell — both axes plus
-            // the rect offsets, since a tap is 2D (the touch-scroll handler
-            // below needs only `clientHeight`, one dimension, so the two
-            // don't share a geometry helper). Then hit-tests the link parser.
-            //
-            // Why this is transform-correct without an `unscaleEventPoint`-style
-            // correction (cf. `xtermInternals.ts`): kolu OWNS this touch divisor
-            // and derives the cell size from the POST-transform rect
-            // (`rect.width / cols`), so under a zoomed canvas tile the divisor
-            // already grows with the rect and the pixel lands on the right cell
-            // by construction. xterm OWNS its own internal divisor (the
-            // UNtransformed CSS cell size) and so its path must instead
-            // inverse-scale the INPUT point via `unscaleEventPoint`. Same
-            // pointer→cell invariant, two separately-owned divisors — do not
-            // merge them; keep both in step if you touch one.
+            // Resolve the cell through xterm's OWN mouse-coords authority
+            // (`cellAtPoint`, /internals) — the single transform-corrected
+            // pointer→cell divisor that selection, link hover, and TUI mouse
+            // reporting already share — then hit-test the link parser. The tap
+            // once hand-rolled its own `rect.width / cols`, which agreed with
+            // the authority only when the screen's layout width equalled
+            // `cols × cssCellWidth`; rounding, sub-pixel metrics, or padding
+            // diverge, magnified under a zoomed tile near a cell boundary
+            // (#1400), so the parallel divisor is deleted.
             const fileRefAtPoint = (
               clientX: number,
               clientY: number,
             ): LineRef | null => {
               if (!terminal) return null;
-              const rect = screen.getBoundingClientRect();
-              const cellW = rect.width / terminal.cols;
-              const cellH = rect.height / terminal.rows;
-              if (
-                !Number.isFinite(cellW) ||
-                cellW <= 0 ||
-                !Number.isFinite(cellH) ||
-                cellH <= 0
-              )
-                return null;
-              const col = Math.floor((clientX - rect.left) / cellW);
-              const row = Math.floor((clientY - rect.top) / cellH);
-              const bufferLine = terminal.buffer.active.viewportY + row;
-              return fileRefAtCell(terminal, col, bufferLine);
+              const cell = cellAtPoint(terminal, clientX, clientY);
+              if (!cell) return null;
+              const bufferLine = terminal.buffer.active.viewportY + cell.row;
+              return fileRefAtCell(terminal, cell.col, bufferLine);
             };
             makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
               e.preventDefault();
