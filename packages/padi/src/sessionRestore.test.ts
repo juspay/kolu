@@ -581,7 +581,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
     // fires dirty, never touches kaval).
     setTerminalTheme(LIVE_ID as never, "dracula");
 
-    persistSettledRestoreSnapshot();
+    persistSettledRestoreSnapshot([]);
 
     const saved = getSavedSession()?.terminals.find(
       (t) => t.cwd === "/f5-live",
@@ -589,10 +589,10 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
     expect(saved?.themeName).toBe("dracula");
   });
 
-  it("PARKED residue — the pre-await optimistic snapshot is NOT shrunk (CONF-6)", () => {
+  it("PARKED residue — the re-parked record is RETAINED on disk (CONF-6)", () => {
     // A spawn FAILED and was re-parked in pass 1. `snapshotSession` skips parked records,
-    // so a blind re-persist here would DELETE the re-parked terminal from disk. The guard
-    // leaves the optimistic snapshot standing; restore-pending suppression takes over.
+    // so persisting it ALONE would DELETE the re-parked terminal from disk. Threading the
+    // re-parked record back into the merge keeps it named on disk.
     const PARKED_ID = "88888888-8888-4888-8888-888888888888";
     const record: SavedActiveTerminal = {
       ...base,
@@ -609,11 +609,59 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
     });
     seedParkedTerminal(record);
 
-    persistSettledRestoreSnapshot();
+    persistSettledRestoreSnapshot([record]);
 
     // Disk still names the re-parked terminal — not shrunk to an empty session.
     expect(
       getSavedSession()?.terminals.some((t) => t.cwd === "/f5-parked"),
     ).toBe(true);
+  });
+
+  it("MIXED outcome — a live sibling's change AND a re-parked failure BOTH persist", () => {
+    // The reachable loss codex sharpened in round 5: terminal A rejects and is re-parked
+    // while already-live terminal B receives a theme change. The old `hasParkedTerminals()`
+    // guard made the re-persist RETURN early, so B's change was dropped and only the stale
+    // optimistic snapshot survived. The merge keeps A's re-parked record AND captures B's
+    // fresh metadata — neither is lost.
+    const PARKED_A = "99999999-9999-4999-8999-999999999999";
+    const parkedRecord: SavedActiveTerminal = {
+      ...base,
+      id: PARKED_A,
+      state: "active",
+      cwd: "/f5-mixed-parked",
+      lastActivityAt: 1,
+      restoreTarget: { kind: "none" },
+    };
+    // B is live; the pre-await optimistic snapshot named BOTH A (still live then) and B.
+    registerTerminal(LIVE_ID, liveEntry(LIVE_ID, "/f5-mixed-live"));
+    setSavedSession({
+      terminals: [
+        parkedRecord,
+        {
+          ...base,
+          id: LIVE_ID,
+          state: "active",
+          cwd: "/f5-mixed-live",
+          lastActivityAt: 1,
+          restoreTarget: { kind: "none" },
+          // stale on disk — predates B's theme change below
+        },
+      ],
+      activeTerminalId: LIVE_ID,
+      savedAt: 1,
+    });
+    // A failed its spawn and was re-parked; B took a padi-local metadata change in-window.
+    seedParkedTerminal(parkedRecord);
+    setTerminalTheme(LIVE_ID as never, "dracula");
+
+    persistSettledRestoreSnapshot([parkedRecord]);
+
+    const saved = getSavedSession()?.terminals ?? [];
+    // B's fresh metadata reached disk (the loss the guard caused)...
+    expect(saved.find((t) => t.cwd === "/f5-mixed-live")?.themeName).toBe(
+      "dracula",
+    );
+    // ...AND A's re-parked record was retained (CONF-6, not shrunk).
+    expect(saved.some((t) => t.cwd === "/f5-mixed-parked")).toBe(true);
   });
 });

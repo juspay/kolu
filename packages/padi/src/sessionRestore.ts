@@ -27,11 +27,7 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
-import {
-  getActiveTerminal,
-  getTerminal,
-  hasParkedTerminals,
-} from "./terminal-registry.ts";
+import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
 import {
   discardAllLocalParked,
   discardLocalParked,
@@ -247,7 +243,7 @@ export async function restoreSession(input: {
     const settled = await Promise.allSettled(
       activeRespawns.map((a) => a.ready),
     );
-    reconcileRestoreSettlement(
+    const reparked = reconcileRestoreSettlement(
       activeRespawns.map((a) => ({
         newId: a.newId,
         record: a.record,
@@ -264,7 +260,9 @@ export async function restoreSession(input: {
     // were SUPPRESSED by the freeze and the `finally`'s `cancelPendingAutosave` would
     // drop the last armed one, so without this they'd sit committed-in-memory but never
     // reach disk until some later dirty pulse (F5). This capture closes that window.
-    persistSettledRestoreSnapshot();
+    // The re-parked genuine-failure records are threaded in so the persist RETAINS them
+    // (a mixed outcome — a live sibling's change AND a failed re-park — persists BOTH).
+    persistSettledRestoreSnapshot(reparked);
   } finally {
     unfreezeAutosave(freeze);
     cancelPendingAutosave();
@@ -296,7 +294,13 @@ export async function restoreSession(input: {
  *     (which the canvas would hide). Spawn failures are NOT monotonic (a parent can
  *     reject while its later-queued child succeeds), so this reparents the live child
  *     to TOP-LEVEL, keeping its live PTY + agent visible. A SLEEPING (dormant) parent
- *     is a valid parent and is left alone. */
+ *     is a valid parent and is left alone.
+ *
+ *  RETURNS the records it re-parked (pass 1) as ACTIVE saved records — the exact set
+ *  {@link persistSettledRestoreSnapshot} must RETAIN when it re-persists the post-settle
+ *  snapshot (`snapshotSession` skips parked entries, so a plain re-save would drop them).
+ *  Precisely the genuine-failure residue: a raced-kill (honored, never re-parked) is
+ *  excluded, so it is neither live nor retained → correctly removed from disk. */
 export function reconcileRestoreSettlement(
   respawns: {
     newId: string;
@@ -304,16 +308,19 @@ export function reconcileRestoreSettlement(
     parentIdMapped: string | undefined;
   }[],
   settled: PromiseSettledResult<void>[],
-): void {
+): SavedActiveTerminal[] {
+  const reparked: SavedActiveTerminal[] = [];
   respawns.forEach((r, i) => {
     const outcome = settled[i];
     if (outcome?.status !== "rejected") return;
     if (outcome.reason instanceof TerminalSpawnRacedError) return; // F3: honor the kill/slept
-    seedParkedTerminal({
+    const record: SavedActiveTerminal = {
       ...r.record,
       id: r.newId,
       parentId: r.parentIdMapped,
-    });
+    };
+    seedParkedTerminal(record);
+    reparked.push(record);
   });
   for (const r of respawns) {
     if (!getActiveTerminal(r.newId as TerminalId)) continue; // failed / re-parked in pass 1
@@ -323,6 +330,7 @@ export function reconcileRestoreSettlement(
       setTerminalParent(r.newId as TerminalId, null);
     }
   }
+  return reparked;
 }
 
 /** Persist the FINAL live snapshot after the spawn window settles — the F5 fix. The
@@ -337,19 +345,29 @@ export function reconcileRestoreSettlement(
  *  lost from persistence. Re-persisting the live snapshot once the window settles
  *  captures it.
  *
- *  GUARDED on {@link hasParkedTerminals}: a spawn that FAILED was re-parked in pass 1,
- *  and `snapshotSession` SKIPS parked records — persisting here would DELETE the
- *  re-parked terminal from disk (the CONF-6 shrink the pre-await optimistic snapshot
- *  exists to prevent). So a restore left with parked residue keeps that optimistic
- *  snapshot standing (the restore-pending state correctly suppresses autosave until the
- *  user resolves the card); only a CLEAN settle re-persists. This does NOT bound the
- *  forever-hang case (a wedged kaval whose `ready` never settles keeps the freeze held
- *  and never reaches here) — that residual is the pre-existing transport-layer gap (no
- *  per-request deadline on any kaval RPC), a sibling of the dispositioned #1719
- *  follow-up, not a padi-restore concern. */
-export function persistSettledRestoreSnapshot(): void {
-  if (hasParkedTerminals()) return;
-  saveSession(snapshotSession());
+ *  MERGES the live snapshot with `reparked` — the genuine-failure records
+ *  {@link reconcileRestoreSettlement} re-parked in pass 1. `snapshotSession` SKIPS parked
+ *  records, so persisting it ALONE would DELETE a re-parked terminal from disk (the CONF-6
+ *  shrink the pre-await optimistic snapshot exists to prevent). Threading the re-parked set
+ *  back in RETAINS exactly those records while still capturing every live sibling's freshest
+ *  metadata — so a MIXED outcome (a live sibling changed AND a sibling failed + re-parked)
+ *  persists BOTH, rather than choosing between saving only-live (drops the re-park) and
+ *  saving-nothing (drops the live change — F5). The re-parked ids can't collide with the
+ *  live snapshot (a parked entry is excluded from it), and a raced-kill (honored, never
+ *  re-parked, never live) is in NEITHER set → correctly removed from disk.
+ *
+ *  This does NOT bound the forever-hang case (a wedged kaval whose `ready` never settles
+ *  keeps the freeze held and never reaches here) — that residual is the pre-existing
+ *  transport-layer gap (no per-request deadline on any kaval RPC), a sibling of the
+ *  dispositioned #1719 follow-up, not a padi-restore concern. */
+export function persistSettledRestoreSnapshot(
+  reparked: SavedActiveTerminal[],
+): void {
+  const live = snapshotSession();
+  saveSession({
+    ...live,
+    terminals: [...live.terminals, ...reparked],
+  });
 }
 
 /** FORFEIT the pending restore — the EXPLICIT "start fresh / discard my previous
