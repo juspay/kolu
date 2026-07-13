@@ -222,12 +222,7 @@ export async function prependScrollback(
   if (rawChunk.length === 0 && servedRows === 0) return 0;
   // No scrollback to extend under a full-screen app; caller shouldn't ask, but
   // guard anyway (a deliberate skip, not a corruption).
-  if (
-    isAltBufferActive(
-      term as unknown as { buffer: { active: { type: string } } },
-    )
-  )
-    return 0;
+  if (isAltBufferActive(term)) return 0;
 
   const lines = await replayToLines(
     rawChunk,
@@ -409,12 +404,7 @@ export function createBackfillController(
 
   async function maybeBackfill(): Promise<void> {
     if (cursor === null || exhausted || inFlight || disposed) return;
-    if (
-      isAltBufferActive(
-        term as unknown as { buffer: { active: { type: string } } },
-      )
-    )
-      return;
+    if (isAltBufferActive(term)) return;
     const triggerRows = opts.triggerRows ?? term.rows * 2;
     // `viewportY` is the top visible row (ydisp); near 0 means scrolled to the
     // top of what's loaded.
@@ -440,12 +430,7 @@ export function createBackfillController(
       // actually inserts rows (viewport moved — let the user scroll again) or the
       // mirror is exhausted.
       for (;;) {
-        if (
-          isAltBufferActive(
-            term as unknown as { buffer: { active: { type: string } } },
-          )
-        )
-          return;
+        if (isAltBufferActive(term)) return;
         let res: HistoryChunk;
         try {
           res = await opts.fetch(before, HISTORY_CHUNK_ROWS, seedEpoch);

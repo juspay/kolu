@@ -326,6 +326,12 @@ function writeOut(text: string): Promise<void> {
   });
 }
 
+/** {@link writeOut} with a single trailing newline ensured — the common
+ *  "print this block as a line" shape the screen/history dumps share. */
+function writeOutLine(text: string): Promise<void> {
+  return writeOut(text.endsWith("\n") ? text : `${text}\n`);
+}
+
 function fail(message: string): never {
   process.stderr.write(`kaval-tui: ${message}\n`);
   process.exit(1);
@@ -408,7 +414,7 @@ async function cmdSnapshot(
     id,
     extent,
   });
-  await writeOut(text.endsWith("\n") ? text : `${text}\n`);
+  await writeOutLine(text);
   // Trailer to stderr so stdout stays clean, scriptable scrollback — derived
   // from the text we already hold, no second round-trip to decorate it.
   const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
@@ -437,7 +443,7 @@ async function cmdHistory(
       id,
       max: opts.lines,
     });
-    if (chunk) await writeOut(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
+    if (chunk) await writeOutLine(chunk);
     process.stderr.write(
       `— ${shortId(id)} · older history (≤${opts.lines} lines)\n`,
     );
@@ -463,7 +469,7 @@ async function cmdHistory(
   }
   for (let i = pages.length - 1; i >= 0; i--) {
     const chunk = pages[i] as string;
-    await writeOut(chunk.endsWith("\n") ? chunk : `${chunk}\n`);
+    await writeOutLine(chunk);
   }
   process.stderr.write(
     `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`,

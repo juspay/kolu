@@ -102,6 +102,20 @@ function onNormalBufferTrim(
   return lines.onTrim(handler);
 }
 
+/** Snap a start row back over any wrapped-line continuation rows to the logical
+ *  line's HEAD (`isWrapped === false`; a blank line qualifies), so a serialize
+ *  cut never bisects a soft-wrapped line — which would replay the continuation
+ *  as a fresh hard line (the wrap flag is lost with no preceding row). The one
+ *  home for the invariant the bounded-snapshot start and `getHistory`'s chunk
+ *  top both enforce, so the two edges can't drift. */
+function snapToWrapHead(
+  buffer: { getLine(i: number): { isWrapped: boolean } | undefined },
+  start: number,
+): number {
+  while (start > 0 && buffer.getLine(start)?.isWrapped) start--;
+  return start;
+}
+
 /** The terminal-identity string the headless PTY reports in its XTVERSION
  *  (CSI > q) reply. The DCS reply is built from this — see the XTVERSION
  *  handler in {@link createPtyHost} — so the byte layout lives in one place.
@@ -851,12 +865,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
    *  A head is `isWrapped === false` (a blank line qualifies). */
   function snapshotStartLocal(entry: Entry): number {
     const normal = entry.headless.buffer.normal;
-    let start = Math.max(
-      0,
-      normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows,
+    return snapToWrapHead(
+      normal,
+      Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows),
     );
-    while (start > 0 && normal.getLine(start)?.isWrapped) start--;
-    return start;
   }
   /** Absolute mirror-line index of the row the bounded attach snapshot starts
    *  at — the client's backfill seed cursor. The wrap-safe local start shifted
@@ -1046,13 +1058,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     );
     if (localEnd < 0)
       return { chunk: "", topLine: cursor, exhausted: true, stale: false };
-    let start = Math.max(0, localEnd - max + 1);
-    // Snap the top edge back over any wrapped-line continuation rows to the
-    // line's head, so a chunk boundary never bisects a logical line (which would
-    // drop the wrap and render a dangling continuation as a fresh line). The
-    // caller advances its cursor by the returned `topLine`, so the extra rows are
-    // accounted for exactly.
-    while (start > 0 && buffer.getLine(start)?.isWrapped) start--;
+    // Snap the top edge back to the logical-line head (see `snapToWrapHead`), so
+    // a chunk boundary never bisects a wrapped line; the caller advances its
+    // cursor by the returned `topLine`, so the extra rows are accounted for.
+    const start = snapToWrapHead(buffer, Math.max(0, localEnd - max + 1));
     // Range serialize on the NORMAL buffer (its scrollback survives an alt-buffer
     // switch); no modes, no alt-buffer tail — this is raw older content the
     // client replays through a scratch terminal, not a screen restore.
