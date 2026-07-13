@@ -537,6 +537,12 @@ export function reServeSurface<S extends SurfaceSpec>(
 
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
+    // This hand-rolls the same abort-first / await-settle / dispose teardown
+    // doctrine that `superviseSurface` (@kolu/surface/server) is the canonical
+    // combinator for. It is NOT delegated to here because the resolve edges
+    // differ: the pump's own settlement is TERMINAL (a session destroy resolves
+    // `done`), whereas `superviseSurface.done` resolves only on `close`. Unifying
+    // the two — teaching `superviseSurface` a terminal source — is deferred to PR5.
     closing ??= (async () => {
       // Abort FIRST (the active mirror's per-key pumps settle via signal.reason —
       // #1719), then await the pump's own settle, then release the runtime.
