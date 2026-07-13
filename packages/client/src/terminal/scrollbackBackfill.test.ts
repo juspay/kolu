@@ -974,6 +974,47 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.dispose();
   });
 
+  it("mints seam tokens without crypto.randomUUID — works in an insecure context (F14)", async () => {
+    // kolu is reached over plain HTTP on a LAN, where `crypto.randomUUID` (a
+    // secure-context-only API) is ABSENT. The token generator must not touch it:
+    // `getRandomValues` is available in insecure contexts. Simulate that origin by
+    // removing `randomUUID` from the global crypto, then drive a full seed —
+    // consumeSnapshotFrame must not throw, the seam must carry a fresh unguessable
+    // token, and back-to-back frames must get DISTINCT tokens.
+    const original = crypto.randomUUID;
+    // biome-ignore lint/suspicious/noExplicitAny: deleting an optional API for the sim
+    delete (crypto as any).randomUUID;
+    try {
+      const f = fakeTerm();
+      const fetch = vi.fn(async () => chunk);
+      const c = createBackfillController(f.term, {
+        fetch,
+        prepend: vi.fn(async () => inserted(1)),
+        onError: () => {},
+        triggerRows: 1e9,
+      });
+      const first = c.consumeSnapshotFrame(30, 2, false);
+      const second = c.consumeSnapshotFrame(40, 2, false);
+      const t1 = seamPayload(first.seam);
+      const t2 = seamPayload(second.seam);
+      expect(t1, "token is a 128-bit hex string").toMatch(/^[0-9a-f]{32}$/);
+      expect(t2).toMatch(/^[0-9a-f]{32}$/);
+      expect(t1, "each frame gets a distinct token").not.toBe(t2);
+      // The seed still commits through the seam — no throw. Drain the FIFO in byte
+      // order (t1 then t2), then commit the live (second) frame: it seeds at 40.
+      f.fireOsc(t1);
+      f.fireOsc(t2);
+      second.commit();
+      f.fireScroll();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(fetch).toHaveBeenCalledWith(40, expect.any(Number), 2);
+      c.dispose();
+    } finally {
+      // biome-ignore lint/suspicious/noExplicitAny: restore the real API
+      (crypto as any).randomUUID = original;
+    }
+  });
+
   it("pages past an inserted-0 chunk instead of stalling (defensive loop)", async () => {
     const f = fakeTerm();
     // A page the prepend consumes but inserts 0 rows from — the viewport never

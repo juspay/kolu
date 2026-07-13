@@ -334,6 +334,22 @@ function seamFor(token: string): string {
   return `\x1b]${SNAPSHOT_SEED_SEAM_OSC};${token}\x07`;
 }
 
+/** Mint one unguessable per-frame seam token: 128 bits from `getRandomValues`,
+ *  hex-encoded (BEL-safe, no OSC-terminator bytes). Deliberately NOT
+ *  `crypto.randomUUID()` — that is restricted to SECURE contexts, and kolu is
+ *  reached over plain HTTP on a LAN, where `randomUUID` is absent and would throw
+ *  before the frame is written, wedging every attach (F14). `getRandomValues` is
+ *  available in insecure contexts too, and its cryptographic unpredictability is
+ *  what makes the token unforgeable by PTY output on the same OSC ident (F12) —
+ *  `Math.random()` would not. */
+function mintSeedToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex;
+}
+
 /** One older-history reply from the server, as the controller consumes it — a
  *  discriminated union mirroring the wire's `chunk | stale` shape, so a served
  *  chunk and a stale-reflow halt can't be conflated. */
@@ -483,9 +499,11 @@ export function createBackfillController(
   // into one bare number.
   let generation = 0;
   // A SECOND invalidation counter, bumped ONLY by OUT-OF-BAND lifecycle events —
-  // a width resize, an explicit `reset()`, a newer `consumeSnapshotFrame`, dispose
-  // — never by a byte-stream RIS. A snapshot's committer captures it at RECEIPT
-  // and re-checks it at commit, alongside the seam's byte-position `generation`
+  // a width resize, an explicit `reset()`, a newer `consumeSnapshotFrame` — never
+  // by a byte-stream RIS. (Disposal does NOT touch this: it flips the permanent
+  // one-way `disposed` flag below, which the committer checks first, so a bump
+  // here would be redundant.) A snapshot's committer captures it at RECEIPT and
+  // re-checks it at commit, alongside the seam's byte-position `generation`
   // baseline. `generation` alone can't do this job: the seam captures it LATE (to
   // exclude a byte-earlier foreign RIS, F11), so an out-of-band bump between
   // receipt and the seam gets folded into the baseline and wrongly forgiven —
@@ -525,13 +543,14 @@ export function createBackfillController(
     generation++;
   }
 
-  // An OUT-OF-BAND invalidation: a resize, an explicit `reset()`, a newer
-  // snapshot, or dispose — an event that must supersede any pending snapshot
-  // commit REGARDLESS of byte position (unlike a byte-stream RIS, whose
-  // provenance the seam resolves). Bumps the lifecycle token a pending
-  // committer captured at receipt, on top of `pause()`'s generation bump, so an
-  // invalidation in the receipt-to-seam window can't be folded into the
-  // seam-captured baseline and forgiven (F2).
+  // An OUT-OF-BAND invalidation: a resize, an explicit `reset()`, or a newer
+  // snapshot — an event that must supersede any pending snapshot commit
+  // REGARDLESS of byte position (unlike a byte-stream RIS, whose provenance the
+  // seam resolves). Bumps the lifecycle token a pending committer captured at
+  // receipt, on top of `pause()`'s generation bump, so an invalidation in the
+  // receipt-to-seam window can't be folded into the seam-captured baseline and
+  // forgiven (F2). Disposal is NOT routed here — it flips the permanent
+  // `disposed` flag the committer checks first.
   function pauseLifecycle(): void {
     pause();
     lifecycleToken++;
@@ -728,9 +747,10 @@ export function createBackfillController(
       pauseLifecycle();
       // Capture the lifecycle token AFTER this frame's own bump, so this frame
       // does not invalidate itself; any LATER out-of-band event (resize / newer
-      // snapshot / reset / dispose) moves it past this snapshot and the committer
-      // no-ops (F2), even when that event lands in the receipt-to-seam window the
-      // byte-position baseline alone would forgive.
+      // snapshot / reset) moves it past this snapshot and the committer no-ops
+      // (F2), even when that event lands in the receipt-to-seam window the
+      // byte-position baseline alone would forgive. (Disposal makes the committer
+      // no-op too, via the `disposed` guard it checks first — not this token.)
       const myLifecycle = lifecycleToken;
       // The committer's byte-position baseline is captured LATER, when this
       // frame's leading snapshot-seed seam parses (the OSC handler above) — NOT
@@ -743,7 +763,7 @@ export function createBackfillController(
       // token (in the seam and this entry) makes the capture unforgeable by
       // program output on the same OSC ident (F12). One entry per frame, drained
       // in receipt (== byte) order.
-      const token = crypto.randomUUID();
+      const token = mintSeedToken();
       let baseline: number | null = null;
       pendingSeeds.push({
         carriesReset,
