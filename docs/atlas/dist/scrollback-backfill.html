@@ -17,10 +17,28 @@ duplicate or skip rows at the seam. The shipped cursor is instead an <strong>abs
 mirror-line index</strong>, seeded from the attach snapshot’s <code>topLine</code> and anchored on
 an eviction origin the host tracks off the mirror’s <code>onTrim</code>; a fetch then serves
 strictly <em>above</em> the client’s content regardless of in-flight output. A width
-change (reflow renumbers absolute rows) pauses backfill until the next snapshot
-re-seeds — the loaded history reflows correctly, only further loading waits; a
-reflow-invariant cursor for continuous-across-resize backfill is a named
-follow-up.</p>
+change (reflow renumbers absolute rows) makes backfill <strong>deliberately halt</strong>
+until the next snapshot re-seeds — the loaded history reflows correctly, only
+further loading waits.</p>
+<p><strong>Follow-up — the foreign-reflow residual (deliberate, honest, rare).</strong> The halt
+comes in two shapes. A <em>local</em> width resize pauses the controller directly. A
+<em>foreign</em> width reflow — a second client resizing the <strong>shared</strong> mirror at a
+different width, this client’s own columns unchanged — is caught by a per-mirror
+<strong>reflow generation</strong> the host stamps on the snapshot and every fetch echoes:
+once it moves, the host serves a typed <code>stale</code> reply and the client halts rather
+than splice a renumbered band. That generation bumps <strong>only</strong> on a real width
+change and on a full RIS reset (which likewise renumbers the mirror); a
+height-only or same-dims resize renumbers nothing and must never halt backfill.
+The residual left in place is narrow and by design: after a genuine foreign-width
+reflow, <em>deeper</em> backfill stops until the next natural snapshot re-seeds. It is
+<strong>halt-not-corrupt and honest</strong> — the reply is typed, nothing is corrupted, and
+the user keeps their buffer <em>and every already-backfilled row</em>; only further
+loading waits. Its structural cure is a <strong>reflow-invariant (logical-line)
+cursor</strong> that keeps backfilling across a reflow — the named follow-up. A
+re-attach-on-<code>stale</code> bandaid was considered and <strong>rejected</strong>: it would repaint
+the screen and discard the backfilled history the user may be reading — trading a
+rare quiet halt for a rare visible loss — and the reflow-invariant cursor would
+delete it anyway.</p>
 
 <style>
   .sb-board{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.1rem 1rem .9rem;margin:1.2rem 0}

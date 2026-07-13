@@ -33,10 +33,29 @@ duplicate or skip rows at the seam. The shipped cursor is instead an **absolute
 mirror-line index**, seeded from the attach snapshot's `topLine` and anchored on
 an eviction origin the host tracks off the mirror's `onTrim`; a fetch then serves
 strictly *above* the client's content regardless of in-flight output. A width
-change (reflow renumbers absolute rows) pauses backfill until the next snapshot
-re-seeds — the loaded history reflows correctly, only further loading waits; a
-reflow-invariant cursor for continuous-across-resize backfill is a named
-follow-up.
+change (reflow renumbers absolute rows) makes backfill **deliberately halt**
+until the next snapshot re-seeds — the loaded history reflows correctly, only
+further loading waits.
+
+**Follow-up — the foreign-reflow residual (deliberate, honest, rare).** The halt
+comes in two shapes. A *local* width resize pauses the controller directly. A
+*foreign* width reflow — a second client resizing the **shared** mirror at a
+different width, this client's own columns unchanged — is caught by a per-mirror
+**reflow generation** the host stamps on the snapshot and every fetch echoes:
+once it moves, the host serves a typed `stale` reply and the client halts rather
+than splice a renumbered band. That generation bumps **only** on a real width
+change and on a full RIS reset (which likewise renumbers the mirror); a
+height-only or same-dims resize renumbers nothing and must never halt backfill.
+The residual left in place is narrow and by design: after a genuine foreign-width
+reflow, *deeper* backfill stops until the next natural snapshot re-seeds. It is
+**halt-not-corrupt and honest** — the reply is typed, nothing is corrupted, and
+the user keeps their buffer *and every already-backfilled row*; only further
+loading waits. Its structural cure is a **reflow-invariant (logical-line)
+cursor** that keeps backfilling across a reflow — the named follow-up. A
+re-attach-on-`stale` bandaid was considered and **rejected**: it would repaint
+the screen and discard the backfilled history the user may be reading — trading a
+rare quiet halt for a rare visible loss — and the reflow-invariant cursor would
+delete it anyway.
 
 export const SbStyles = () => (
   <style>{`
