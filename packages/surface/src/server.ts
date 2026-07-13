@@ -1467,17 +1467,19 @@ function superviseSurface(sources: SurfaceSource[]): {
   return { done, close };
 }
 
-/** A directly servable, supervised surface runtime — the return of
- *  {@link implementSurface} / {@link implementSurfaceOnPublisher}. The `router`
- *  is FINAL (no consumer re-finalizes the surface via oRPC `implement`); `done`
- *  rejects on an owned runtime fault (a cell connector rejecting) and resolves
- *  on a clean `close`; `close` releases every owned source and is idempotent. */
-export interface SurfaceRuntime<S extends SurfaceSpec> {
+/** The supervision contract shared by every servable surface runtime — one
+ *  axis (router + ctx + done + close) parameterized over its ctx shape, so the
+ *  singular and plural runtimes below differ only in `Ctx`, never in the
+ *  supervision members. The `router` is FINAL (no consumer re-finalizes the
+ *  surface via oRPC `implement`); `done` rejects on an owned runtime fault (a
+ *  cell connector rejecting) and resolves on a clean `close`; `close` releases
+ *  every owned source and is idempotent. */
+export interface SurfaceRuntimeHandle<Ctx> {
   /** The FINAL top-level oRPC router — ready for `RPCHandler` / `serveOverStdio`
    *  / `directLink`, or to spread beside a consumer's own raw namespaces. */
   readonly router: unknown;
   /** The typed cells/collections/events mutation ctx (domain writes). */
-  readonly ctx: SurfaceCtx<S>;
+  readonly ctx: Ctx;
   /** Rejects on an owned runtime fault; resolves on a clean {@link close}. A
    *  serving site MUST observe this and route it into its existing failure
    *  policy. */
@@ -1486,15 +1488,17 @@ export interface SurfaceRuntime<S extends SurfaceSpec> {
   close(): Promise<void>;
 }
 
+/** A directly servable, supervised surface runtime — the return of
+ *  {@link implementSurface} / {@link implementSurfaceOnPublisher}. `ctx` is the
+ *  single surface's mutation ctx. */
+export interface SurfaceRuntime<S extends SurfaceSpec>
+  extends SurfaceRuntimeHandle<SurfaceCtx<S>> {}
+
 /** The plural sibling of {@link SurfaceRuntime} — the return of
  *  {@link implementSurfaces} / {@link implementSurfacesOnPublisher}. `ctx` is
  *  keyed per sibling surface; `router`/`done`/`close` supervise the whole map. */
-export interface SurfacesRuntime<S extends SurfaceMap> {
-  readonly router: unknown;
-  readonly ctx: SurfacesCtx<S>;
-  readonly done: Promise<void>;
-  close(): Promise<void>;
-}
+export interface SurfacesRuntime<S extends SurfaceMap>
+  extends SurfaceRuntimeHandle<SurfacesCtx<S>> {}
 
 /** Build the full server router from a surface + dep wiring. Replaces the
  *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
