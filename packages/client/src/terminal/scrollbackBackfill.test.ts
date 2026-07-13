@@ -981,10 +981,23 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // removing `randomUUID` from the global crypto, then drive a full seed —
     // consumeSnapshotFrame must not throw, the seam must carry a fresh unguessable
     // token, and back-to-back frames must get DISTINCT tokens.
-    const original = crypto.randomUUID;
-    // biome-ignore lint/suspicious/noExplicitAny: deleting an optional API for the sim
-    delete (crypto as any).randomUUID;
+    // `randomUUID` lives on `Crypto.prototype`, not as an own property of the
+    // global `crypto`, so `delete crypto.randomUUID` removes nothing and leaves
+    // the inherited method callable (a regression back to it would slip through).
+    // Shadow it with an OWN `undefined` property so the whole `crypto.randomUUID`
+    // lookup resolves to undefined — exactly what an insecure context presents.
+    const originalDesc = Object.getOwnPropertyDescriptor(crypto, "randomUUID");
+    Object.defineProperty(crypto, "randomUUID", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
     try {
+      // Guard: the sim must actually hide `randomUUID`, or this test proves nothing.
+      expect(
+        (crypto as { randomUUID?: unknown }).randomUUID,
+        "the insecure-context sim must make randomUUID unavailable",
+      ).toBeUndefined();
       const f = fakeTerm();
       const fetch = vi.fn(async () => chunk);
       const c = createBackfillController(f.term, {
@@ -1010,8 +1023,12 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       expect(fetch).toHaveBeenCalledWith(40, expect.any(Number), 2);
       c.dispose();
     } finally {
-      // biome-ignore lint/suspicious/noExplicitAny: restore the real API
-      (crypto as any).randomUUID = original;
+      // Restore the exact original shape: if `randomUUID` was an own property,
+      // re-install its descriptor verbatim; otherwise it was inherited from
+      // `Crypto.prototype`, so remove the own shadow and let the lookup fall back.
+      if (originalDesc)
+        Object.defineProperty(crypto, "randomUUID", originalDesc);
+      else delete (crypto as { randomUUID?: unknown }).randomUUID;
     }
   });
 
