@@ -2,7 +2,7 @@
 title: xterm-kit — Graduating Kolu's xterm Machinery
 description: Plan of record for a core + /solid package that owns xterm's hazards — pinned internals with two failure philosophies, buffer surgery, the hardened write path, mirror anchoring, and the SolidJS adapter — with kaval and the client as two consumers from day one.
 parents: [feature]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-07-13
 ---
@@ -15,7 +15,10 @@ import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/xterm-kit-architecture.svg?raw";
 
 Ratified by srid (2026-07-13) as the next refactor task: graduate kolu's xterm
-machinery into its own workspace package. The [electricity ledger](electricity.html)
+machinery into its own workspace package. Shipped as two PRs on evidence class
+(see the migration): the behavior-neutral graduation in <PrLink pr={1795} /> (PR
+1), the `<Xterm>` wrapper + touch-divisor fix in the e2e-gated PR 2 fast-follow.
+The [electricity ledger](electricity.html)
 has carried this as its one not-yet-built row since the framework audit, under
 the working name `@kolu/solid-xterm` — and that name turned out to be the plan's
 own first bug. What kolu has actually accumulated is **high-level xterm.js
@@ -34,6 +37,22 @@ refactor. It is not the reference manual (kolu.dev reference docs come later):
 each export gets the sentence that justifies its existence, not its option list.
 The name is decided (srid, 2026-07-13): **`@kolu/xterm-kit`**, entrypoints
 `@kolu/xterm-kit` (core) + `@kolu/xterm-kit/solid`.
+
+<Callout kind="note" title="Revised against the installed system during the build">
+Three claims in the first draft were corrected by grounding them against the
+running code rather than trusting the plan — recorded here so the note stays the
+honest source of truth. **(1)** The core root is daemon-safe only once
+`createScrollLock` (solid-reactive) moves to `/solid` and the `@xterm/xterm`
+scratch path moves to `/backfill`: kaval runs from TS source under tsx (eager
+ESM), where a static `@xterm/xterm` named import crashes cjs-module-lexer and any
+re-exported `solid-js` loads into the daemon. A closure-guard test now enforces
+it. **(2)** The Mobile section's claim that the two touch divisors "unify by
+construction" was refuted — they agree only when xterm's font-metric cell equals
+`rect.width / cols`, which nothing guarantees, so unifying them is a behavior
+change, not a move (see the Mobile section). **(3)** Those two facts split the
+work into two PRs on evidence class (see the migration). The design and boundary
+are unchanged; only claims that didn't survive contact with the code are.
+</Callout>
 
 ## What a consumer gets
 
@@ -189,17 +208,29 @@ job, not this note's.
 
 ### Core — `@kolu/xterm-kit` and `/internals`
 
+The root barrel is the **daemon-safe** core — everything on it works on a browser
+`Terminal` or an `@xterm/headless` one, imports no `solid-js`, and constructs no
+concrete terminal, so kaval (a Node daemon run from TS source under tsx, eager
+ESM) imports it with no UI framework in its closure and no `@xterm/xterm`
+ESM-named-import to crash Node's cjs-module-lexer. Two exports the first draft
+put here moved out under that constraint, each behind the entrypoint that owns
+its dependency: `createScrollLock` is `solid`-reactive (`/solid`), and the
+backfill write path constructs `@xterm/xterm` scratch terminals (`/backfill`). A
+closure-guard test walks the root's import graph and fails if either returns.
+
 ```ts
 import {
-  // the hardened write path
-  createScrollLock,         // freeze-while-reading latch; buffered writes keep their callbacks
-  createSnapshotBoundary,   // first-frame-is-snapshot vs live-delta discrimination
-  createBackfillController, // scroll-triggered older-history backfill; fetch injected
-  prependScrollback,        // the fail-loud in-place prepend under the controller
-  // mirror anchoring (the kaval half)
+  // mirror anchoring (the kaval half) + reattach discrimination — runtime-neutral
   createMirrorAnchor,       // absolute-line origin that survives eviction and RIS
   snapToWrapHead,           // never cut a serialize at a soft-wrap continuation
+  createSnapshotBoundary,   // first-frame-is-snapshot vs live-delta discrimination
 } from "@kolu/xterm-kit";
+
+import {
+  createBackfillController, // scroll-triggered older-history backfill; fetch injected
+  prependScrollback,        // the fail-loud in-place prepend under the controller
+  defaultScratch,           // the @xterm/xterm scratch the controller replays through
+} from "@kolu/xterm-kit/backfill"; // browser-only — constructs @xterm/xterm
 
 import {
   renderService, readDecPrivateMode, readBufferBytes,
@@ -207,11 +238,6 @@ import {
 } from "@kolu/xterm-kit/internals"; // cosmetic reads — degrade to null
 ```
 
-- **`createScrollLock(enabled)`** exists because live output and a user reading
-  scrollback fight over the same viewport: it buffers writes while the user is
-  scrolled up and — the load-bearing part — preserves each buffered chunk's
-  parse callback across the flush, which is what lets a snapshot's re-seed
-  committer survive the lock.
 - **`createSnapshotBoundary()`** exists because a reattaching stream's first
   frame is a repaint, not activity: it gives any consumer the one bit
   "is this chunk a genuine live delta?" without the consumer tracking retry
@@ -234,24 +260,24 @@ import {
   subscription — and every history-paging feature dies with it. It pins
   `onTrim`, detects the buffer swap by identity from the consumer's write
   callback, advances its origin past discarded rows, and bumps a
-  `reflowEpoch` that stales outstanding cursors.<Footnote>Lifted, not
-  invented: this is `ptyHost.ts`'s `Entry` bookkeeping today —
-  `mirrorBaseLine` + the trim pin (<Cite file="packages/kaval/src/ptyHost.ts" lines="746-757" />)
-  and the RIS identity re-anchor in the write callback
-  (<Cite file="packages/kaval/src/ptyHost.ts" lines="874-895" />), including
-  the F5 fix that keeps re-subscriptions from leaking one disposable per
-  reset.</Footnote>
+  `reflowEpoch` that stales outstanding cursors.<Footnote>Lifted from
+  `ptyHost.ts`'s `Entry` bookkeeping, behavior-identical: `mirrorBaseLine` +
+  the trim pin and the RIS identity re-anchor now live in the kit
+  (<Cite file="packages/xterm-kit/src/mirrorAnchor.ts" />), and kaval drives it
+  from its write callback and resize path
+  (<Cite file="packages/kaval/src/ptyHost.ts" />) — including the F5 fix that
+  keeps re-subscriptions from leaking one disposable per reset.</Footnote>
 - **`snapToWrapHead(buffer, start)`** exists because a serialize cut through a
   soft-wrapped line replays the continuation as a fresh hard line: it is the
   one home for the invariant that kaval's bounded-snapshot start and history
-  chunk tops both enforce (<Cite file="packages/kaval/src/ptyHost.ts" lines="127-133" />).
+  chunk tops both enforce (<Cite file="packages/xterm-kit/src/mirrorAnchor.ts" />).
 - **`/internals`** exists as the *single* door to `_core.*` for cosmetic
   reads: a render-service probe, a DEC-mode read, per-buffer byte counts, and
   the transform-aware mouse-coords patch<Footnote>The coords patch corrects a
   known-but-unfixed upstream asymmetry (xterm.js #2488 made char measurement
   transform-agnostic; the hit-test was never reconciled — #3242 closed as its
   duplicate), so a pin bump won't retire it; only an upstream coord-path fix
-  would (<Cite file="packages/client/src/terminal/xtermInternals.ts" lines="203-241" />).</Footnote>
+  would (<Cite file="packages/xterm-kit/src/internals.ts" lines="203-241" />).</Footnote>
   — anything whose worst failure is a wrong number or a no-op.
 
 The two internals philosophies are not an implementation detail — they are the
@@ -259,8 +285,8 @@ The two internals philosophies are not an implementation detail — they are the
 
 | you call | when a pinned `_core` symbol moves | why | the tripwire |
 | --- | --- | --- | --- |
-| a **cosmetic read** (`/internals`) | returns `null` / no-ops — the probe reports "unknown" | a byte count or a coord patch may degrade; crashing a live terminal for it may not | `xtermInternals.test.ts` |
-| a **buffer mutation** (`prependScrollback`, `createMirrorAnchor`) | **throws**, immediately | a partial splice or a frozen eviction origin is silent scrollback corruption | the `CONTRACT PIN` suites, browser **and** headless<Footnote><Cite file="packages/client/src/terminal/scrollbackBackfill.test.ts" lines="1084" /> pins the `@xterm/xterm` shape (including the behavioral splice-fires-`onInsert` pin and the unopened-`write()` scratch pin); <Cite file="packages/kaval/src/xtermMirrorContract.test.ts" /> pins the `@xterm/headless` twin and verifies the shapes identical. Both suites move into the package — its CI teeth.</Footnote> |
+| a **cosmetic read** (`/internals`) | returns `null` / no-ops — the probe reports "unknown" | a byte count or a coord patch may degrade; crashing a live terminal for it may not | `internals.test.ts` |
+| a **buffer mutation** (`prependScrollback`, `createMirrorAnchor`) | **throws**, immediately | a partial splice or a frozen eviction origin is silent scrollback corruption | the `CONTRACT PIN` suites, browser **and** headless<Footnote><Cite file="packages/xterm-kit/src/scrollbackBackfill.test.ts" /> pins the `@xterm/xterm` shape (including the behavioral splice-fires-`onInsert` pin and the unopened-`write()` scratch pin); <Cite file="packages/xterm-kit/src/xtermMirrorContract.test.ts" /> pins the `@xterm/headless` twin and verifies the shapes identical. Both suites now live in the package — its CI teeth.</Footnote> |
 
 ### `/solid` — the browser adapter
 
@@ -271,9 +297,22 @@ import {
   attachWebGL,          // single-owner WebglAddon lifetime + context-loss recovery
   createRenderRecovery, // forced sync repaint when the rAF paint loop parks
   wireScrollIntent,     // DOM wheel/pointer wiring for the core scroll lock
+  createScrollLock,     // freeze-while-reading latch; buffered writes keep their callbacks
 } from "@kolu/xterm-kit/solid";
 ```
 
+- **`createScrollLock(enabled)`** lives here, not on the core root, because it is
+  `solid`-reactive today (its latch and buffered-write queue are `createSignal`s /
+  `createEffect`s) and the core root must stay free of `solid-js` so kaval's daemon
+  never vendors it. It exists because live output and a user reading scrollback
+  fight over the same viewport: it buffers writes while the user is scrolled up
+  and — the load-bearing part — preserves each buffered chunk's parse callback
+  across the flush, which lets a snapshot's re-seed committer survive the
+  lock.<Footnote>The reactivity is *incidental*, not intrinsic — the logic is a
+  buffering latch, not a rendering concern. A future framework-neutral rewrite
+  (plain callbacks over `createSignal`) could return it to the runtime-neutral
+  core, but only with that named change; until then its home is `/solid` and the
+  closure-guard test keeps it there.</Footnote>
 - **`<Xterm>`** exists so the whole hazard set is one JSX element (the
   hello-world above). Its `onReady` hands the consumer a handle —
   `{ terminal, container, addons: { fit, search, serialize }, write, scrollLock,
@@ -333,19 +372,28 @@ import {
   tap on content means (kolu: follow a `path:line` ref into the Code tab,
   else focus-to-type) — is the `onTap` hook, threaded through `<Xterm>` as a
   prop.
-- **The touch divisor unifies with `/internals`, killing a live drift
-  hazard.** One invariant — pointer→cell under a CSS transform — is enforced
-  today by **two separately-owned divisors**: xterm's hit-test path,
-  corrected by `unscaleEventPoint`, and the tap path's `fileRefAtPoint`,
-  which derives its own cell size from the post-transform rect. The two are
-  held in step by nothing but a mirrored comment — *"kolu OWNS this touch
-  divisor … keep both in step if you touch one"* — at both
-  sites.<Footnote><Cite file="packages/client/src/terminal/Terminal.tsx" lines="611-619" />
-  and <Cite file="packages/client/src/terminal/xtermInternals.ts" lines="150-157" />
-  carry the paired warning. A comment-coupled invariant is a drift waiting
-  for an editor who reads only one file.</Footnote> In the kit both paths
-  route through the one transform-aware pointer→cell mapping in `/internals`,
-  so there is no second divisor to fall out of step.
+- **The touch divisor is a hand-rolled parallel of a fact xterm already owns —
+  the follow-up deletes it; this PR keeps its fence.** One invariant —
+  pointer→cell under a CSS transform — is computed today by **two separate
+  divisors**: xterm's hit-test path (its font-metric cell mapping, the authority
+  that actually places the glyphs, corrected on the *input* by
+  `unscaleEventPoint`), and the tap path's `fileRefAtPoint`, which derives its
+  OWN cell size from the post-transform rect (`rect.width / cols`). These agree
+  only when xterm's internal cell equals `rect.width / cols` — which nothing
+  guarantees: font-metric rounding, sub-pixel, or screen padding can make a tap
+  near a cell boundary resolve to a *different* cell under zoom. So the
+  rect-derived divisor is a hand-rolled parallel of the existing source of
+  truth, and collapsing the two is a **behavior change, not a move**. The
+  `/solid`-component follow-up (PR 2 below) deletes the rect divisor and routes
+  the tap through xterm's mapping; its done-criterion is *correctness*, not
+  equivalence to today — a tap resolves to the cell the user visually tapped, at
+  normal scale AND under zoom, proven by standard-suite browser e2e (it may well
+  be a bug fix: today's taps can already mis-target under zoom where the cells
+  diverge). Until that PR both divisors stay, and the mirrored *"keep both in
+  step"* warnings at both sites<Footnote><Cite file="packages/client/src/terminal/Terminal.tsx" />
+  and <Cite file="packages/xterm-kit/src/internals.ts" /> carry the paired
+  warning — the load-bearing fence while two divisors coexist.</Footnote> are
+  the fence that keeps them from drifting.
 - **`stickyModifiers` stays out — the boundary test, applied honestly.** It
   never touches a `Terminal`: it is an arming latch over
   `@kolu/terminal-protocol`'s control/meta byte tables, armed by kolu's
@@ -388,73 +436,113 @@ as "live"), the **WebGL budget policy** (which panes deserve a context), and
 kolu's **diagnostics registry and e2e bridge**. Each is a "which bytes and
 when" concern — the consumer's policy half, per the diagram.
 
-## The migration
+## The migration — two PRs
 
-**One PR.** The diff is move-dominated (verbatim `git mv` + import re-points);
-the two genuinely new cuts — the component and the mirror anchor — thread seams
-the code already has, and nothing here can ship usefully alone, so staging it
-would be decomposition theater.
+The first draft planned one PR. Grounding the build against the installed system
+split it, on **evidence class**: what is behavior-neutral ships now, proven by the
+moved suites staying green plus two-platform CI; what changes on-screen behavior
+is its own immediate fast-follow, proven by e2e. One PR carrying both classes
+leaves its headline half-proven; two PRs each prove their own claim completely.
+The split is not decomposition theater — the hard volatility graduates whole in
+PR 1 and both consumers rest on it; PR 2 is ergonomics over already-graduated
+primitives, a leaf that may follow.
 
-1. **Create the package** — `packages/xterm-kit/`,
-   `package.json` modeled on `@kolu/solid-statepip`, exports
-   map `.` / `./internals` / `./solid` per `@kolu/surface`. `solid-js` is a
-   dependency of the `/solid` entry only (declared as a peer), so kaval's
-   daemon closure never vendors a UI framework. The xterm versions keep the
-   single root pnpm-overrides pin — scratch and live `BufferLine` shapes must
-   match, so one workspace-wide version is a correctness requirement, not
-   tidiness.
-2. **Move the core verbatim**: `scrollbackBackfill.ts` (+ its test, `CONTRACT
-   PIN` suite included), `snapshotBoundary.ts` (+ test), `scrollLock.ts`
-   (+ test) from the client; `xtermInternals.ts` (+ test) becomes
-   `./internals`; `xtermMirrorContract.test.ts` from kaval. Zero semantic edits
-   in moved files.
-3. **Lift `createMirrorAnchor`** out of `ptyHost.ts` (`normalLinesOf`, the
-   trim handler, the RIS identity re-anchor, the `reflowEpoch` bump,
-   `snapToWrapHead`) and re-point kaval onto it — the one non-mechanical core
-   change, behavior-identical by construction and gated on kaval's existing
-   suites (`ptyHostHistory.test.ts` covers eviction, RIS, and history paging).
-4. **Cut `/solid` from Terminal.tsx**: the font-wait/owner/`disposed`-bail
-   choreography and the synchronous-teardown ordering become
-   `createXtermLifecycle`; `loadWebgl`/`unloadWebgl` and their effects become
-   `attachWebGL`; `renderRecovery.ts` and `scrollLockWiring.ts` move
-   alongside; the touch machinery becomes the mobile surface —
-   `softKeyboardInput.ts` moves as `enableSoftKeyboardInput`, the tap/scroll
-   gesture handlers become `wireTouchTaps`/`wireTouchScroll`, and
-   `fileRefAtPoint`'s divisor is replaced by the `/internals` pointer→cell
-   mapping (deleting the mirrored keep-in-step comments). Terminal.tsx
-   becomes the policy half, consuming `<Xterm onReady onTap>` — the `__xterm`
-   e2e bridge, `data-*` attributes, keybindings, paste/drop, MobileKeyBar +
-   sticky modifiers, and diagnostics all stay in it, so cucumber step
-   definitions are untouched.
-5. **Re-point imports and prove the teeth**: typecheck drives the re-point;
-   before merge, deliberately break one pinned symbol locally and watch the
-   package's vitest lane go red — the relocation is only done when the
-   tripwire demonstrably still trips. Full e2e green.
+### PR 1 — graduate the volatility (behavior-neutral)
 
-Risks, each with the mitigation that ships in the same PR:
+The pinned internals, the fail-loud buffer surgery, the mirror anchoring, and the
+hardened write path move into the package, and both consumers import them. No
+on-screen behavior changes: `Terminal.tsx` still constructs its terminal inline,
+now from the kit's primitives — the `<Xterm>` wrapper is PR 2.
+
+1. **Create the package** — `packages/xterm-kit/`, `package.json` modeled on
+   `@kolu/solid-statepip`, exports map `.` / `./backfill` / `./internals` /
+   `./solid`. `solid-js` is a peer of the `/solid` entry only. The xterm versions
+   keep the single root pnpm-overrides pin — scratch and live `BufferLine` shapes
+   must match, so one workspace-wide version is a correctness requirement.
+2. **Move the core verbatim**: `scrollbackBackfill.ts` (+ its `CONTRACT PIN`
+   suite), `snapshotBoundary.ts` (+ test), `scrollLock.ts` (+ test) from the
+   client; `xtermInternals.ts` (+ test) becomes `./internals`;
+   `xtermMirrorContract.test.ts` from kaval. Zero semantic edits in moved files.
+3. **Lift `createMirrorAnchor`** out of `ptyHost.ts` (`normalLinesOf`, the trim
+   handler, the RIS identity re-anchor, the `reflowEpoch` bump, `snapToWrapHead`)
+   and re-point kaval onto it — the one non-mechanical change, behavior-identical
+   by construction, gated on kaval's existing suites (`ptyHostHistory.test.ts`
+   covers eviction, RIS, and history paging).
+4. **Re-point both consumers** onto the kit — client and kaval, import paths only.
+5. **Prove the teeth**: typecheck drives the re-point; deliberately break one
+   pinned symbol and watch the package's vitest lane go red before merge.
+
+Two corrections the first draft got wrong, each **grounded against the installed
+system** (not deduced) and pinned by a closure-guard test that walks the root
+barrel's import graph:
+
+- **kaval runs from TS source under tsx (eager ESM, no tree-shaking).** So a
+  module the root barrel re-exports is *loaded* by the daemon, whichever symbol it
+  imports. `createScrollLock` is `solid`-reactive, so it moved to `/solid` (the
+  root must stay solid-free); and a static `import { Terminal } from "@xterm/xterm"`
+  **crashes** Node's cjs-module-lexer under tsx (*"does not provide an export named
+  'Terminal'"*), so the `@xterm/xterm`-constructing backfill write path moved
+  behind `/backfill`. The root barrel is now genuinely what it claims — runtime-
+  neutral, daemon-safe — and the closure guard turns any future misclassification
+  into red CI rather than a broken daemon (superseding the first draft's
+  conditional `./scratch` containment).
+- kaval's currency slice treats `@kolu/xterm-kit` as a **stable leaf**, like the
+  daemon spine: the anchor's kaval-relevant behavioral surface is
+  `PTY_HOST_CONTRACT_VERSION` (hashed in kaval), so a wire-breaking anchor change
+  rides the contract bump while a `/solid` or `/backfill` change never recycles a
+  live PTY.
+
+### PR 2 — the `<Xterm>` wrapper + the divisor fix (e2e-gated, immediate fast-follow)
+
+Started as soon as PR 1 ships, same owner, its tests written into the standard e2e
+suite (`packages/tests/features/*`, which runs on the standing two-platform
+lanes — no special infrastructure).
+
+- **The component cut.** `Terminal.tsx`'s ~700-line `onMount` becomes the policy
+  half consuming `<Xterm onReady onTap>`: the font-wait/owner/`disposed`-bail
+  choreography becomes `createXtermLifecycle`; `loadWebgl`/`unloadWebgl` become
+  `attachWebGL`; the touch machinery becomes `wireTouchTaps`/`wireTouchScroll`
+  (`enableSoftKeyboardInput`, `createRenderRecovery`, `wireScrollIntent` already
+  moved in PR 1). The `__xterm` e2e bridge, `data-*` attributes, keybindings,
+  paste/drop, MobileKeyBar + sticky modifiers, and diagnostics all stay, so
+  cucumber steps are untouched.
+- **The divisor fix.** Delete the tap path's hand-rolled `rect.width / cols`
+  divisor and route the tap through xterm's font-metric mapping in `/internals` —
+  the one authority that places the glyphs. This is a **behavior change** (see the
+  Mobile section): its done-criterion is *correctness*, not equivalence to today —
+  a tap resolves to the cell the user visually tapped, at normal scale AND under
+  zoom. If the e2e shows today's taps already mis-target under zoom, an issue is
+  filed when PR 1 ships so the symptom is on record before its fix.
+
+Its gate is that standard-suite e2e proving three things on both platforms:
+tap-under-zoom correctness, WebGL context-loss recovery, and owner-correct async
+dispose — the properties a typecheck cannot vouch for.
+
+Risks (PR 1 unless noted):
 
 | # | risk | mitigation |
 | --- | --- | --- |
-| 1 | **The Terminal.tsx split line drifts** — a policy line crosses in (the activity-suppress window, the `__xterm` bridge) or a hazard stays behind (the `disposed`-flag bail). | One review question per moved line: *does it know which bytes, which host, which keybind?* Yes → stays. The diagram's stays-lists are the review checklist, not decoration. |
-| 2 | **Import-churn breadth** across client and kaval hides a semantic edit. | Moved files are byte-identical (`git mv`); the only edited lines are import paths and the two named cuts. Typecheck is the linter; the full e2e suite is the behavior gate. |
-| 3 | **Test relocation loses CI teeth** — a moved contract pin the unit lane no longer runs. | The package registers `test:unit` like every workspace package (the lane runs all workspaces), and step 5's deliberate-red rehearsal proves it before merge. |
-| 4 | **The mirror-anchor lift regresses a hot daemon path** (attach, history paging, RIS under load). | The lift is extract-and-delegate with no logic change; kaval's `ptyHost.test.ts` + `ptyHostHistory.test.ts` are the oracle and must stay green untouched. |
-| 5 | **The core root drags `@xterm/xterm` into plain Node** — `defaultScratch` constructs one, and kaval imports the core root. | If kaval's import trips on it, the scratch factory moves to its own subpath (`./scratch`); the exports map makes that a one-line containment, decided at implementation, never a reason to fork the core. |
-| 6 | **The WebGL gate crosses as a stale boolean.** | `attachWebGL` takes `Accessor<boolean>` in its signature and `<Xterm>`'s `webgl` prop is that accessor; no boolean overload exists to misuse. |
+| 1 | **The Terminal.tsx split line drifts** (PR 2) — a policy line crosses in, or a hazard stays behind. | One review question per moved line: *does it know which bytes, which host, which keybind?* Yes → stays. The diagram's stays-lists are the checklist. |
+| 2 | **Import-churn breadth** across client and kaval hides a semantic edit. | Moved files are byte-identical (`git mv`); the only edited lines are import paths. Typecheck is the linter; the moved + kaval suites are the behavior gate. |
+| 3 | **Test relocation loses CI teeth** — a moved contract pin the unit lane no longer runs. | The package registers `test:unit` like every workspace package (the lane runs all workspaces), proven by the deliberate-red rehearsal. |
+| 4 | **The mirror-anchor lift regresses a hot daemon path** (attach, history paging, RIS under load). | Extract-and-delegate, no logic change; kaval's `ptyHost.test.ts` + `ptyHostHistory.test.ts` are the oracle and stay green untouched. |
+| 5 | **The daemon imports a browser/solid dependency it can't run** (tsx eager ESM). | Resolved structurally: `/backfill` and `/solid` hold the browser/solid code; the root is daemon-safe and `noSolidInDaemon.test.ts` fails CI if either leaks back. |
+| 6 | **The WebGL gate crosses as a stale boolean** (PR 2). | `attachWebGL` takes `Accessor<boolean>` in its signature; `<Xterm>`'s `webgl` prop is that accessor; no boolean overload exists to misuse. |
 
 Two operational notes, for scope honesty:
 
 - **Sharing a package with the daemon does not couple browser churn to PTY
-  lifetimes.** A change to the `/solid` entrypoint never recycles kaval: kaval
-  restarts only on its own `PTY_HOST_CONTRACT_VERSION` bump (the staleKey),
-  never on build drift — a deploy's padi drain is graceful, and kaval and its
-  PTYs survive it.
+  lifetimes.** A `/solid` (or `/backfill`) change never recycles kaval: kaval
+  restarts only on its own `PTY_HOST_CONTRACT_VERSION` bump (the staleKey), never
+  on build drift — and the currency-slice leaf classification above enforces it.
 - **The core + `/solid` boundary is an *enabler* for per-binary nix source
-  filtering** — change-scoped build identity, where a `/solid`-only edit
-  wouldn't even dirty the daemon's build input. That opportunity pre-exists
-  this refactor and this package deliberately does not take it on.
+  filtering** — change-scoped build identity, where a `/solid`-only edit wouldn't
+  dirty the daemon's build input. That opportunity pre-exists this refactor and it
+  deliberately does not take it on.
 
-Done means: both consumers compile against the package, the contract-pin
-rehearsal has been seen red then green, kaval's suites and the client e2e pass
-unmodified, and the [electricity ledger](electricity.html)'s row flips from
-"to build" to done.
+**Done, PR 1:** both consumers compile against the package, the contract-pin
+rehearsal has been seen red then green, kaval's suites and the client suite pass
+unmodified, the closure guard is green, and the [electricity ledger](electricity.html)'s
+row flips from "to build" to done. **Done, PR 2:** `Terminal.tsx` consumes
+`<Xterm>`, the single-authority divisor is proven correct under zoom, and the
+webgl/dispose e2e is green on both platforms.
