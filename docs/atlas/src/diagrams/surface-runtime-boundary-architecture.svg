@@ -74,7 +74,7 @@
   <rect x="505" y="447" width="350" height="60" rx="10" class="box" />
   <text x="525" y="474" class="label">Clock at admit</text>
   <text x="800" y="474" class="pr">PR 3</text>
-  <text x="525" y="496" class="small">clockNow reserved member — L28 rung 2 rides here</text>
+  <text x="525" y="496" class="small">clockNow reserved member — rides the membership PR</text>
 
   <path d="M440 300 C455 300 465 300 480 300 M880 200 C905 200 915 175 940 175" class="arrow" />
   <path d="M440 200 C700 60 700 60 940 155" class="arrow" />
