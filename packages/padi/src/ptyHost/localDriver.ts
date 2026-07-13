@@ -29,6 +29,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import {
   type DaemonDriver,
   scrubDaemonNodeOptions,
@@ -86,6 +87,13 @@ function daemonEnv(): Record<string, string> {
   }
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
+  // Forward the run-bind pid one hop further (server → padi → kaval): a harness/
+  // smoke-spawned kaval binds its lifetime to the run and dies with it. UNSET in
+  // production → kaval stays `forever`. Forward every DEFINED value (including an
+  // empty one from a broken expansion) so it propagates to kaval and crashes there
+  // via `daemonLifetimeFromEnv`'s fail-fast, never silently dropped back to `forever`.
+  if (process.env[DAEMON_BIND_PID_ENV] !== undefined)
+    env[DAEMON_BIND_PID_ENV] = process.env[DAEMON_BIND_PID_ENV];
   // Forward the diagnostics base dir so the SPAWNED kaval — the actual heap-OOM
   // site (kaval-heap-oom.mdx) — arms its OWN heap-snapshot hooks + periodic
   // heap/terms log under it. We scrub the server's `--heapsnapshot*` from

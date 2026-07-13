@@ -66,6 +66,24 @@ export function encodeHostKey(k: HostKey): string {
   return k.kind === "local" ? "local" : `${REMOTE_WIRE_PREFIX}${k.target}`;
 }
 
+/** THE membership-equality authority: is `key` a member of `keys`? Compared by
+ *  `encodeHostKey` — a `HostKey` is an object with no reference identity across
+ *  independent decodes, so it is never `===`. The single edit site for "how a
+ *  HostKey's pool-membership is decided", so the READ-side scope grounding
+ *  (`groundActiveHost`) and the WRITE-side active-host reconcile
+ *  (`hostReconcileTarget`) share ONE encode-equality SCAN — the membership check
+ *  can't drift between them. (They are NOT identical DECISIONS: `hostReconcileTarget`
+ *  short-circuits `local` on the server invariant that `LOCAL_HOST` is the unremovable
+ *  seed and never scans for it, while `groundActiveHost` scans uniformly — so the two
+ *  agree for local only while that invariant holds, which `wire.ts` asserts fail-fast.) */
+export function hostKeysInclude(
+  keys: readonly HostKey[],
+  key: HostKey,
+): boolean {
+  const enc = encodeHostKey(key);
+  return keys.some((k) => encodeHostKey(k) === enc);
+}
+
 /** DECODE — the CANONICAL wire form's inverse: `"local"` → the local variant,
  *  `"remote:<target>"` → the remote variant (a `"remote:"` prefix with an empty
  *  target is rejected). Anything else is not a value this codec ever produced —
@@ -83,6 +101,43 @@ export function decodeHostKey(s: string): HostKey {
     `decodeHostKey: "${s}" is not a canonical host key (expected "local" or "remote:<target>")`,
   );
 }
+
+/** Whether a string is a CANONICAL encoded host key — exactly what {@link decodeHostKey}
+ *  accepts (`"local"` or `"remote:<target>"`). The total, throw-free predicate for a
+ *  parse-boundary guard: validate a candidate key HERE (drop/reject a malformed one)
+ *  rather than let it throw inside `decodeHostKey` downstream. Used by the attention
+ *  click-envelope guard (client) and the persisted-hosts schema (server). */
+export function isEncodedHostKey(s: string): boolean {
+  try {
+    decodeHostKey(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The persisted host-membership list — the encoded keys the pool remembers across a
+ *  kolu restart, stored as the `hosts` field of the server's conf state store (see
+ *  `packages/server/src/state.ts`'s `PersistedStateSchema`), NOT a standalone file: it
+ *  rides the same schema + migration ladder as every other durable server fact. A
+ *  well-formed value is exactly what the pool's `persist` hook writes: canonical encoded
+ *  keys, no `local` (the code-seeded default is never persisted — persisting it would mint
+ *  a second authority for "local always exists"), no duplicates. Each is a schema-level
+ *  invariant, so a hand-edited store that violates one is REJECTED loud where it's read
+ *  (`getPersistedHosts` throws) rather than silently normalized — the fail-fast stance a
+ *  silently-shrunk fleet would violate. */
+export const PersistedHostsSchema = z
+  .array(
+    z.string().refine(isEncodedHostKey, {
+      message: "not a canonical encoded host key",
+    }),
+  )
+  .refine((hosts) => !hosts.includes(encodeHostKey(LOCAL_HOST)), {
+    message: `the local default (${JSON.stringify(encodeHostKey(LOCAL_HOST))}) must never be persisted`,
+  })
+  .refine((hosts) => new Set(hosts).size === hosts.length, {
+    message: "duplicate host entries",
+  });
 
 /** Bare-loopback spellings of "this machine, as the current user" — the SAME host
  *  `{ kind: "local" }` already names, just three other words for it. Without this,

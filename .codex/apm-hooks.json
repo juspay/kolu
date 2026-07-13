@@ -1,0 +1,14 @@
+{
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": ".codex/hooks/agency/scripts/do-stop-guard.sh"
+        }
+      ],
+      "_apm_source": "agency"
+    }
+  ]
+}

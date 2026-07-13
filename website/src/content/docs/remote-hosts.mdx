@@ -1,6 +1,6 @@
 ---
 title: Remote Hosts
-description: "Run terminals on other machines as first-class canvas tiles — add hosts from the strip (or pre-seed with KOLU_PADI_HOST), switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
+description: "Run terminals on other machines as first-class canvas tiles — add hosts from the host row (or pre-seed with KOLU_PADI_HOST), switch between them live, and the ssh-session limitations (including gh's 'The token in default is invalid')."
 order: 52
 section: Use Kolu
 koluHero:
@@ -17,8 +17,8 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
 <Aside type="caution" title="alpha">
-  Remote hosts are an early preview — you can add one anytime from the **+** in
-  the host strip (which shows this same notice and links here). The behaviour and
+  Remote hosts are an early preview — you can add one anytime from the **+** on
+  the host row (which shows this same notice and links here). The behaviour and
   the flags **will change** before this is finalized. The [Known
   limitations](#known-limitations) at the end are honest, not exhaustive.
 </Aside>
@@ -26,10 +26,11 @@ import Steps from "../../components/docs/Steps.astro";
 kolu can put terminals from **other machines** right on your canvas. A remote
 host's terminals are first-class tiles — same [Code tab and file
 preview](/power-features), same paste, same session restore — just running on that
-host over ssh. The canvas shows **one host at a time**; a host strip in the top bar
-lets you switch which host you're looking at, and switching swaps the whole canvas
-**live, with no reload**. Each host keeps its own arrangement, so `you@box` looks
-the same from your laptop, your desktop, or your phone.
+host over ssh. The canvas shows **one host at a time**; a host row lets you switch
+which host you're looking at — a strip in the top bar on desktop, and a row in the
+pull-down chrome sheet on a phone — and switching swaps the whole canvas **live,
+with no reload**. Each host keeps its own arrangement, so `you@box` looks the same
+from your laptop, your desktop, or your phone.
 
 Under the hood that's [padi](/padi) — kolu's per-host workspace daemon — bound to
 the remote over the same ssh transport [`kaval-tui`](/kaval) uses from the shell;
@@ -59,14 +60,21 @@ from another device.
 
 ## Add a host
 
-The trailing **+ add** on the host strip is **always present** — you don't have
-to set anything to reach it. Clicking it opens a short popover: a reminder that
-remote hosts is alpha (linking back here) and an ssh-target box. What you type is
-added to the pool as a chip, and the canvas jumps to it. Your local host is
+The **+ add** affordance on the host row is **always present** — you don't have
+to set anything to reach it. It opens a short form: a reminder that remote hosts
+is alpha (linking back here) and an ssh-target box — an anchored popover on
+desktop, a full-width section inside the pull-down sheet on a phone. What you type
+is added to the pool as a chip, and the canvas jumps to it. Your local host is
 always the first, unremovable chip. Two formats work:
 
 - an `~/.ssh/config` alias — `zest`
 - a `user@host` destination — `srid@zest`
+
+A host you add is **remembered**: it comes back on the host row after a kolu
+restart and reconnects on its own, so you build your fleet once rather than
+re-adding it every launch. The only way a host leaves your fleet is your explicit
+remove — a host that has since gone away comes back as a **failed** chip with the
+reason, never silently dropped.
 
 Typing a **bare loopback** spelling — `localhost`, `127.0.0.1`, or `::1` — maps to
 your existing local host instead of minting a duplicate chip. (`user@localhost` is
@@ -75,9 +83,10 @@ session, so it's treated as a real remote.)
 
 ### Pre-seed hosts at launch (optional)
 
-If you'd rather have some hosts already present when kolu starts — instead of
-adding them from the strip each time — seed `KOLU_PADI_HOST` with a
-comma-separated list of ssh targets:
+Hosts you add from the host row already persist across restarts (above), so you
+rarely need this. Reach for it when you want a host present **declaratively** —
+a scripted launch, a shared dev box, a fresh profile with no saved fleet yet:
+seed `KOLU_PADI_HOST` with a comma-separated list of ssh targets:
 
 ```sh
 KOLU_PADI_HOST=localhost,you@box kolu

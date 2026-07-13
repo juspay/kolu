@@ -25,7 +25,8 @@ import {
   encodeHostKey,
   type HostKey,
 } from "kolu-common/hostKey";
-import { createSignal, onCleanup } from "solid-js";
+import { type Accessor, createSignal, onCleanup } from "solid-js";
+import { groundActiveHost } from "../host/groundActive";
 
 // Encoded host strings — the membership set the owner's disposal authority reads.
 const [members, setMembers] = createSignal<string[]>([]);
@@ -107,6 +108,16 @@ export const mockPadiMap = {
   dispose: () => {},
   // biome-ignore lint/suspicious/noExplicitAny: a minimal SurfaceMapClient stub — scopedByEntry touches entries + codec; entry() is the instrumented per-host lens
 } as any;
+
+/** The GROUNDED active-host accessor the per-host scope reads (juspay/kolu#1763) —
+ *  mirrors production's `wire.groundedActiveHost` (`groundActiveHost` composed against
+ *  live membership) over THIS mock's membership: the active host IFF a member, else
+ *  null (so an emptied `resetHosts` disposes the owner with no removal-race warn). The
+ *  composition lives HERE so a wiring-shape change lands once, not in every `vi.mock`
+ *  factory. Pass the test's `activeHost` accessor (or `() => LOCAL_HOST` for a static
+ *  single-host test). */
+export const mockGroundedActiveHost = (active: Accessor<HostKey>) => () =>
+  groundActiveHost(active(), mockPadiMap.entries.use().keys());
 
 /** The `padiRpcOf(host)` stub the per-host tests share — a partial padi RPC whose
  *  wired members are `surface.chrome.setActive` (where `createViewState`'s

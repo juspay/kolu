@@ -41,7 +41,11 @@ const silentLog: Logger = {
 describe("spawn handler — init-file rollback on host.spawn failure", () => {
   it("removes the files it wrote when host.spawn throws, leaving rcDir empty", async () => {
     const rcDir = mkdtempSync(join(tmpdir(), "kolu-spawnfail-"));
-    const client = createInProcessPtyHost({ log: silentLog, rcDir }).client;
+    const client = createInProcessPtyHost({
+      log: silentLog,
+      rcDir,
+      lifetime: { kind: "forever" },
+    }).client;
     await expect(
       client.surface.terminal.spawn({
         argv: ["/bin/bash"],

@@ -39,6 +39,7 @@ function makeRouter(opts?: { dataMaxQueue?: number }) {
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     dataMaxQueue: opts?.dataMaxQueue,
+    lifetime: { kind: "forever" },
   });
   return servedRouter;
 }
