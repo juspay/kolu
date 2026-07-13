@@ -406,11 +406,12 @@ between-message turns), not new machinery.</li>
 <p><strong>The one honest UX gap, stated:</strong> the apps platform delivers a channel message only on
 an explicit @mention — the follow-the-thread behavior (replying in a bot’s thread
 without re-mentioning) exists only in XS’s separate bot-catalog system, not for
-installed apps. So B0’s conversational home is the <strong>DM</strong>, where every message flows
-both ways with no ceremony, and in channels each instruction @mentions kolu. Two
-recorded options if thread-follow comes to matter: an XS-side feature request (the
-right fix), or a pesu-side poller over <code>conversationReplies</code> for its bound threads (a
-workaround with a polling cost — not built until wanted).</p>
+installed apps. B0’s home is the <strong>dedicated kolu channel</strong> that already exists: each
+instruction there @mentions kolu (the DM path works too, ceremony-free, since events
+for it come free). Two recorded options if the per-message @mention comes to grate: an
+XS-side feature request for app thread-follow (the right fix), or a pesu-side poller
+over the dedicated channel’s <code>channelHistory</code> — viable precisely because in that one
+channel <em>every</em> message is for the coordinator — not built until wanted.</p>
 <p><strong>Does the coordinator get chat verbs of its own?</strong> No — the coordinator stays
 chat-unaware, which keeps the mirror agent-CLI-agnostic and the bridge passive.
 Structured output doesn’t need coordinator agency either: <code>postMessage</code> takes plain
@@ -426,11 +427,14 @@ own.</p>
 <a id="b0"></a>
 <h3 id="b0--the-round-trip">B0 — the round trip</h3>
 <div style="border:1px solid #f5d8a8;background:#fef3e2;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B0</span><span style="color:#334155">· the bridge daemon — a chat-driven coordinator over the installed app</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#b45309">▶ do next</span></div></div>
-<p><strong>What you see:</strong> DM the kolu app and you are talking to the coordinator — every
-message you send lands in its terminal prefixed with your name; its answer appears as
-one message that grows while it works, with a typing indicator during the turn. In a
-channel, <strong>“@kolu ‹ask›”</strong> does the same into the message’s thread. Several people can
-take part; each message is attributed and handled in arrival order.</p>
+<p><strong>What you see:</strong> in the dedicated kolu channel, <strong>“@kolu ‹ask›”</strong> talks to the
+coordinator — your message lands in its terminal prefixed with your name; the answer
+appears in the thread as one message that grows while it works, with a typing indicator
+during the turn. (DMing the app works identically, with no @ needed.) <strong>B0 is
+single-operator by design:</strong> a configured allowlist of one — srid — and a message from
+anyone else gets a one-line visible decline, never silence and never a relayed turn.
+Multi-operator attribution is already built into the write-in (every message carries its
+sender), so widening later is a config change, not a code change.</p>
 <p><strong>The turn, end to end:</strong> verify <code>X-Xyne-Signature</code> (constant-time) → 200 immediately →
 enqueue on the FIFO inbox (the write floor — one turn in flight, ever) → resolve the
 coordinator terminal <strong>by title</strong> via the kaval client (ids re-key across kaval
@@ -455,11 +459,17 @@ typing off. A fault posts as a visible reply — never silence. Replies split at
 <span class="line"><span>  coordinator.ts    # terminal-by-title · attributed write-in · turn-end via</span></span>
 <span class="line"><span>                    #   padi's buckets · reply text via the loaders</span></span>
 <span class="line"><span>  attribution.ts    # "from Sridhar: " prefix formatting</span></span></code></pre>
-<p><strong>Hard requirements, in the PR:</strong> a <strong>stable public URL</strong> for the webhook (a named
-tunnel or funnel — quick-tunnels rotate their hostname per run and silently orphan the
-registration); secrets reach pesu <strong>only as environment variables</strong> — never the repo,
-the PR, logs, or an agent transcript; a forged-signature request is rejected (pinned by
-a test); a coordinator-busy message queues and answers in order.</p>
+<p><strong>Hard requirements, in the PR:</strong> a <strong>stable public URL</strong> for the webhook — the
+recommended shape for a home-manager host: pesu binds <code>127.0.0.1:&lt;port&gt;</code> as a systemd
+user service, fronted by <strong>Tailscale Funnel</strong> (<code>tailscale funnel</code>), which gives a
+stable <code>https://&lt;host&gt;.&lt;tailnet&gt;.ts.net</code> hostname with TLS terminated by tailscaled —
+no extra daemon, survives restarts, and the hostname registered in XS never changes (a
+cloudflared <em>named</em> tunnel is the fallback if Funnel is unavailable; quick-tunnels
+rotate their hostname per run and silently orphan the registration). Secrets reach pesu
+<strong>only as environment variables</strong> — never the repo, the PR, logs, or an agent
+transcript; the sender allowlist rejects non-operators visibly; a forged-signature
+request is rejected (pinned by a test); a coordinator-busy message queues and answers
+in order.</p>
 <a id="b1"></a>
 <h3 id="b1--the-board">B1 — the board</h3>
 <div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">B1</span><span style="color:#334155">· @kolu status — fleet status from chat</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> B0</span></div></div>

@@ -247,11 +247,12 @@ directions below are grounded in the XS source.
 **The one honest UX gap, stated:** the apps platform delivers a channel message only on
 an explicit @mention — the follow-the-thread behavior (replying in a bot's thread
 without re-mentioning) exists only in XS's separate bot-catalog system, not for
-installed apps. So B0's conversational home is the **DM**, where every message flows
-both ways with no ceremony, and in channels each instruction @mentions kolu. Two
-recorded options if thread-follow comes to matter: an XS-side feature request (the
-right fix), or a pesu-side poller over `conversationReplies` for its bound threads (a
-workaround with a polling cost — not built until wanted).
+installed apps. B0's home is the **dedicated kolu channel** that already exists: each
+instruction there @mentions kolu (the DM path works too, ceremony-free, since events
+for it come free). Two recorded options if the per-message @mention comes to grate: an
+XS-side feature request for app thread-follow (the right fix), or a pesu-side poller
+over the dedicated channel's `channelHistory` — viable precisely because in that one
+channel *every* message is for the coordinator — not built until wanted.
 
 **Does the coordinator get chat verbs of its own?** No — the coordinator stays
 chat-unaware, which keeps the mirror agent-CLI-agnostic and the bridge passive.
@@ -279,11 +280,14 @@ export const PESU = [
 
 <Phase id="B0" name="the bridge daemon — a chat-driven coordinator over the installed app" status="next" />
 
-**What you see:** DM the kolu app and you are talking to the coordinator — every
-message you send lands in its terminal prefixed with your name; its answer appears as
-one message that grows while it works, with a typing indicator during the turn. In a
-channel, **"@kolu ‹ask›"** does the same into the message's thread. Several people can
-take part; each message is attributed and handled in arrival order.
+**What you see:** in the dedicated kolu channel, **"@kolu ‹ask›"** talks to the
+coordinator — your message lands in its terminal prefixed with your name; the answer
+appears in the thread as one message that grows while it works, with a typing indicator
+during the turn. (DMing the app works identically, with no @ needed.) **B0 is
+single-operator by design:** a configured allowlist of one — srid — and a message from
+anyone else gets a one-line visible decline, never silence and never a relayed turn.
+Multi-operator attribution is already built into the write-in (every message carries its
+sender), so widening later is a config change, not a code change.
 
 **The turn, end to end:** verify `X-Xyne-Signature` (constant-time) → 200 immediately →
 enqueue on the FIFO inbox (the write floor — one turn in flight, ever) → resolve the
@@ -314,11 +318,17 @@ packages/pesu/src/
   attribution.ts    # "from Sridhar: " prefix formatting
 ```
 
-**Hard requirements, in the PR:** a **stable public URL** for the webhook (a named
-tunnel or funnel — quick-tunnels rotate their hostname per run and silently orphan the
-registration); secrets reach pesu **only as environment variables** — never the repo,
-the PR, logs, or an agent transcript; a forged-signature request is rejected (pinned by
-a test); a coordinator-busy message queues and answers in order.
+**Hard requirements, in the PR:** a **stable public URL** for the webhook — the
+recommended shape for a home-manager host: pesu binds `127.0.0.1:<port>` as a systemd
+user service, fronted by **Tailscale Funnel** (`tailscale funnel`), which gives a
+stable `https://<host>.<tailnet>.ts.net` hostname with TLS terminated by tailscaled —
+no extra daemon, survives restarts, and the hostname registered in XS never changes (a
+cloudflared *named* tunnel is the fallback if Funnel is unavailable; quick-tunnels
+rotate their hostname per run and silently orphan the registration). Secrets reach pesu
+**only as environment variables** — never the repo, the PR, logs, or an agent
+transcript; the sender allowlist rejects non-operators visibly; a forged-signature
+request is rejected (pinned by a test); a coordinator-busy message queues and answers
+in order.
 
 <a id="b1"></a>
 
