@@ -524,15 +524,13 @@ export function reServeSurface<S extends SurfaceSpec>(
 
   // Join the internal runtime's owned-fault channel into `done` WITHOUT letting
   // its clean-close resolution pre-empt the pump's own settle: only propagate a
-  // runtime REJECTION; a runtime resolve (on `close`) parks forever so `pumpDone`
-  // remains the resolving edge.
-  const done = Promise.race([
-    pumpDone,
-    runtime.done.then(
-      () => new Promise<void>(() => {}),
-      (err) => Promise.reject(err),
-    ),
-  ]);
+  // runtime REJECTION; a runtime resolve (on `close`) is intentionally ignored so
+  // `pumpDone` remains the resolving edge. First settle wins; each source routes
+  // its own resolve/reject.
+  const done = new Promise<void>((resolve, reject) => {
+    pumpDone.then(resolve, reject);
+    runtime.done.catch(reject);
+  });
   // `done` may reject from either arm; guard against an unhandled rejection if a
   // consumer only observes `close()`. (Consumers that read `done` still see it.)
   done.catch(() => {});
