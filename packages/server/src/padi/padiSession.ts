@@ -17,9 +17,15 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import type { DaemonSession, Session, SshProv } from "@kolu/surface-remote";
+import type {
+  DaemonSession,
+  DownSessionState,
+  Session,
+  SshProv,
+} from "@kolu/surface-remote";
 import type {
   EntryFailedCause,
+  PadiEntryFailure,
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
 import type { PadiConvergence } from "kolu-common/surface";
@@ -27,15 +33,42 @@ import type { PadiConvergence } from "kolu-common/surface";
 /** The domain detail a padi arm attaches to the map's published `EntryStatus`
  *  when its session is DOWN (D1 + D2) — the failure `cause`, plus the typed
  *  `running`/`expected` version pair when that cause is `contract-skew-refused`.
- *  Read by `packages/server/src/index.ts`'s `serveHostMap` `failureOf` hook, which
- *  pairs it with the transport `reason` into the schema-valid `PadiEntryFailure`.
- *  `null` = "this down state is NOT a standing failure — keep the entry warming"
- *  (PR4's single-meaning null): a transient reconnect, never a fabricated cause. A
- *  terminal `failed` session always classifies (its convergence is set to
- *  `link-failed`), so `null` never rides a genuinely failed entry. */
+ *  Paired with the transport `reason` into the schema-valid `PadiEntryFailure` by
+ *  {@link padiFailureOf} (the `serveHostMap` `failureOf` hook the composition root
+ *  injects). `null` = "this arm has no finer domain detail for this down state": a
+ *  transient reconnect (→ keep the entry warming), never a fabricated cause. The
+ *  REMOTE arm sets a `link-failed` detail on a terminal give-up (its convergence
+ *  tracks the link); the LOCAL arm has no convergence channel and returns `null`
+ *  even when terminally `failed` — so `null`-on-`failed` is NOT the "no failure"
+ *  signal: {@link padiFailureOf} floors a terminal give-up to `link-failed` off the
+ *  transport state, so a genuinely failed entry always classifies. */
 export type PadiEntryFailedDetail =
   | { readonly cause: Exclude<EntryFailedCause, "contract-skew-refused"> }
   | ({ readonly cause: "contract-skew-refused" } & SkewVersionPair);
+
+/** Classify a DOWN padi session into the map's schema-valid {@link PadiEntryFailure}
+ *  — the `serveHostMap` `failureOf` hook, pulled out of the composition root so it is
+ *  the ONE tested source of truth for "detail + transport state → published failure".
+ *
+ *  - A finer arm-local `detail` (skew / unconverged / cross-supervisor / a drv fault
+ *    / the remote arm's own `link-failed`) is paired with the transport `reason` and
+ *    published verbatim.
+ *  - No finer `detail` (`null`) but the session has TERMINALLY given up
+ *    (`state.phase === "failed"`) IS a `link-failed` by the schema's own definition
+ *    ("the transport gave up") — so the LOCAL arm, whose `entryFailedDetail()` is
+ *    always `null`, still classifies its terminal give-up rather than yielding `null`
+ *    into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError` seam.
+ *  - No finer `detail` and merely `disconnected` (retrying) → `null`: keep-warming,
+ *    the single-meaning absent (PR4). */
+export function padiFailureOf(
+  detail: PadiEntryFailedDetail | null,
+  state: DownSessionState,
+): PadiEntryFailure | null {
+  if (detail !== null) return { ...detail, reason: state.error };
+  return state.phase === "failed"
+    ? { cause: "link-failed", reason: state.error }
+    : null;
+}
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its
  *  convergence descriptor being padi's app-specific {@link PadiConvergence}.

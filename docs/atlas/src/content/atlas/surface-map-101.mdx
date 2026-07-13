@@ -1,6 +1,6 @@
 ---
 title: The surface framework's client half, taught — what surface-map added
-description: "A plain-words primer on @kolu/surface-map — a dynamic keyed map of remote surfaces over one socket — and the client story built on it: the entries membership authority, EntryStatus<Cause>, useEntry, per-key subscription slots, and typed teardown. kolu and drishti appear as the two proving consumers."
+description: "A plain-words primer on @kolu/surface-map — a dynamic keyed map of remote surfaces over one socket — and the client story built on it: the entries membership authority, EntryStatus<Failure>, useEntry, per-key subscription slots, and typed teardown. kolu and drishti appear as the two proving consumers."
 parents: [pedagogy, padi, surface]
 maturity: budding
 updated: 2026-07-08
@@ -28,21 +28,21 @@ A multi-host client faces one hard problem: **N same-shaped remote surfaces whos
 
 ## `entries` — the one membership authority
 
-The map publishes a single collection: `entries: Collection<Key, EntryStatus<Cause>>`. Two design commitments do most of the work:
+The map publishes a single collection: `entries: Collection<Key, EntryStatus<Failure>>`. Two design commitments do most of the work:
 
 **Absence means absence.** A key not in `entries` is *not in the map* — there is no `"absent"` status arm, because a collection already expresses absence by not containing the key. (The client-side fold adds an explicit `not-a-member` value when *you* ask about a key that isn't there, so reads stay total — but the wire never carries it.)
 
-**The status sum is small and honest.** `EntryStatus<Cause>` has exactly three arms:
+**The status sum is small and honest.** `EntryStatus<Failure>` has exactly three arms:
 
 ```ts
-| { kind: "warming" }                              // in motion — coming up, or coming back on its own
-| { kind: "connected"; clockOffset: number }        // live; the offset is THIS entry's clock seam
-| { kind: "failed"; reason: string; cause: Cause }  // NOT proceeding without intervention
+| { kind: "warming" }                          // in motion — coming up, or coming back on its own
+| { kind: "connected"; clockOffset: number }   // live; the offset is THIS entry's clock seam
+| { kind: "failed"; failure: Failure }         // NOT proceeding without intervention
 ```
 
 The arm meanings are a **projection contract**, not vibes: `warming` = the system is doing something and will resolve on its own (first provision *and* a transient reconnect-backoff both land here); `failed` = it will *not* resolve without someone acting (a terminal give-up, or a *standing refuse* like "another kolu owns this host's padi").<Footnote>Both halves of that contract were paid for in blood the week this shipped. First a retriable reconnect window rendered as a steady red "failed" chip (indistinguishable from dead — the architecture review's one confirmed defect); the fix over-corrected, and standing refuses got masked as an eternal "Connecting…" spinner. The settled contract discriminates the session's down state by its **domain cause**: a specific cause (cross-supervisor, contract-skew) is a standing condition → `failed` + an actionable card; no specific cause is a transient drop → `warming`. The invariant "every refuse verdict carries a specific cause" is pinned at the session layer so the discrimination can't rot.</Footnote>
 
-`Cause` is a **type parameter, not a baked-in list** — the generic package doesn't know padi's failure taxonomy; kolu instantiates `EntryStatus<PadiEntryFailedCause>` and attaches domain extras (the typed `running`/`expected` version pair on a contract-skew) through the schema's loose arm. That's the volatility-boundary rule applied to a type: domain vocabulary stays in the domain.
+`Failure` is a **type parameter, not a baked-in list** — the generic package doesn't know padi's failure taxonomy; kolu instantiates `EntryStatus<PadiEntryFailure>` (a `z.discriminatedUnion` on a structural `cause`) and attaches domain extras (the typed `running`/`expected` version pair on the contract-skew arm) inside that schema-validated failure, not a loose object. The map validates the failure against the map's own `failure` schema — an unclassifiable producer fails loud rather than publishing a fabricated catch-all. That's the volatility-boundary rule applied to a type: domain vocabulary stays in the domain.
 
 ## Reading one entry: `entry(key)` and `useEntry`
 
@@ -52,7 +52,7 @@ Underneath sits the **keyed subscription cache**: one singleton slot per `(proce
 
 ## Serving a map: `serveSurfaceMap` and the `MapRegistry` seam
 
-The server side takes an explicit **`MapRegistry`** — `members` / `subscribe` / `has` / `resolve(key) ⇒ EntrySession | EntryFault` (a `kind`-tagged sum, so the two arms are provably disjoint). Membership must be *observable* (the registry's subscribe drives `entries`), and status is a **projection of session state** — there is no second writer. kolu's instance is `serveHostMap` (sessions from `@kolu/surface-remote`, causes via a `causeFor` hook); drishti proved the seam's width by adapting its own pre-existing host registry to `MapRegistry` in one file. Clock stays per-entry: `connected.clockOffset` is *that host's* clock seam, and a consumer reprojects remote timestamps through it — never through its own wall clock.
+The server side takes an explicit **`MapRegistry`** — `members` / `subscribe` / `has` / `resolve(key) ⇒ EntrySession | EntryFault` (a `kind`-tagged sum, so the two arms are provably disjoint). Membership must be *observable* (the registry's subscribe drives `entries`), and status is a **projection of session state** — there is no second writer. kolu's instance is `serveHostMap` (sessions from `@kolu/surface-remote`, failures classified via a `failureOf` hook); drishti proved the seam's width by adapting its own pre-existing host registry to `MapRegistry` in one file. Clock stays per-entry: `connected.clockOffset` is *that host's* clock seam, and a consumer reprojects remote timestamps through it — never through its own wall clock.
 
 ## What survived, what died, and the moral
 

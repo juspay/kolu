@@ -79,7 +79,7 @@ import {
   handlePadiBootFailure,
 } from "./padi/padiBinding.ts";
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
-import type { PadiSession } from "./padi/padiSession.ts";
+import { padiFailureOf, type PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import {
   assertRemovableHost,
@@ -499,16 +499,15 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   // padi's own knowledge (`session.entryFailedDetail()`, derived from
   // `convergence()`/the drv-resolution fault, both arm-local), never guessed
   // generically by `serveHostMap` (a transport-only adapter). PR4: this is REQUIRED
-  // and TOTAL. `entryFailedDetail()` returns `null` for a transient drop → `null`
-  // here (keep the entry warming — the single-meaning null, never a fabricated
-  // catch-all); otherwise pair the structural detail with the transport `reason`
-  // into the failure the `failed` arm publishes. A terminal give-up always
-  // classifies (its convergence is set to `link-failed`), so a genuinely-failed
-  // entry never rides `null` — and an unclassifiable one fails loud, never buckets.
-  failureOf: (_host, session, state): PadiEntryFailure | null => {
-    const detail = session.entryFailedDetail();
-    return detail === null ? null : { ...detail, reason: state.error };
-  },
+  // and TOTAL — the classification lives in `padiFailureOf` (the ONE tested source of
+  // truth): a finer arm-local detail pairs with the transport `reason`; a transient
+  // `disconnected` with no detail keeps the entry warming (`null`, the single-meaning
+  // absent); and a terminal give-up (`state.phase === "failed"`) that carries no finer
+  // detail — the LOCAL arm, whose `entryFailedDetail()` is always null — is floored to
+  // `link-failed` rather than yielding `null` into `serveHostMap`'s fail-loud
+  // `UnclassifiedHostFailureError` seam. So a genuinely-failed entry always classifies.
+  failureOf: (_host, session, state): PadiEntryFailure | null =>
+    padiFailureOf(session.entryFailedDetail(), state),
 });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
