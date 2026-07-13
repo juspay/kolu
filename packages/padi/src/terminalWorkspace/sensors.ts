@@ -478,9 +478,9 @@ function emitAgentValue(
 }
 
 // Exported for the producer-level regression test (`sensors.observability.test.ts`),
-// which drives the resolved-null branch's observability discriminant directly — the
-// two absence flavors (observable→authoritative-null, unobservable→`unknown`) and the
-// unobservable→observable RECOVERY that must re-emit the authoritative null (W12 F1).
+// which drives the resolved-null branch's CONTENT discriminant directly — the two
+// absence flavors (shell-idle→authoritative-null, defined-non-shell→`unknown`) and the
+// defined-non-shell→shell-idle flavor flip that must re-emit the authoritative null.
 export function startAgentSensor<Session, Info extends AgentInfoShape>(
   adapter: AgentAdapter<Session, Info>,
   agentState: AgentEngineState,
@@ -637,7 +637,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       return;
     }
     // A matched resolution resets the absence flavor: the NEXT absence — whatever its
-    // observability — is a fresh transition that must emit rather than dedup.
+    // shell-idle-ness — is a fresh transition that must emit rather than dedup.
     lastAbsenceShellIdle = null;
     plog.debug({ session: nextKey }, "agent session matched");
     current = {

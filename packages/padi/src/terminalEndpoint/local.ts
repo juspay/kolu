@@ -235,11 +235,12 @@ export function bridgeStream<T>(
   // Called when the stream itself fails for a NON-abort reason (an abort is
   // expected teardown and is always swallowed). The pure-enrichment taps (cwd /
   // title / command-run) omit it — a dropped enrichment stream just stops updating
-  // that field, logged generically. The FOREGROUND and EXIT taps supply one: a
-  // dropped foreground stream means the terminal is no longer observable (the
-  // handler flips the observability flag so the agent sensor keeps `restoreTarget`
-  // — W12), and a dropped exit stream is a lifecycle problem ("we no longer know
-  // when this PTY dies"), not a missing field.
+  // that field, logged generically. The FOREGROUND and EXIT taps supply one for
+  // distinct reasons: the foreground handler exists to make the blindness event
+  // LOUD while performing NO reset of the last foreground sample (the W12 invariant
+  // the sensor's shell-idle discriminant leans on — a dead observer must keep showing
+  // the stale DEFINED agent pid, never a false shell-idle), and a dropped exit stream
+  // is a lifecycle problem ("we no longer know when this PTY dies"), not a missing field.
   onError?: (err: unknown) => void,
 ): Promise<void> {
   return (async () => {
