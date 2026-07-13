@@ -28,6 +28,11 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Drive kolu terminals through the kolu skill's messaging loop; submission is its own keystroke; never interrupt a working agent.
 - Payloads must survive the shell unmangled; large briefs ride in a file with a short pointer.
 - Every brief carries a unique report-back token.
+- An implementing agent runs /be by default: the dispatch prompt leads with
+  `/be` so the skill loads at pickup (e.g. `/be carry out the brief at <path>`),
+  and the brief states the task in /be's terms (interview → test-first → draft
+  PR → gauntlet → ship). Anything lighter — a direct PR, a docs-only task — is
+  an explicit coordinator ruling recorded in the brief, never a silent default.
 - A dispatch has landed only when you observe it at the recipient — through whatever record its runtime exposes — never because the send succeeded or a snapshot suggested it.
 - Briefs make LOADING the kolu skill for reports part of the brief itself — never a hand-transcribed protocol, never a parenthetical "two-step send" reminder: neither survives an implementer's long-context run, and a finished report once sat unsent on the input line until the human noticed. The skill's submit loop is the contract: each report submits with its own Enter keystroke and is snapshot-verified as landed.
 - Every brief routes every question — interview questions included — to the coordinator's terminal via the kolu skill, blocking on the reply. An interactive question dialog opened in the agent's own PTY is a brief defect: it sits unanswered unless someone happens to look — two /be interviews once sat blocked in their own terminals until the human noticed.
