@@ -14,12 +14,17 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it, vi } from "vitest";
 import {
   createBackfillController,
+  defaultScratch,
   HISTORY_CHUNK_ROWS,
   type HistoryChunk,
   isAltBufferActive,
+  type PrependResult,
   prependScrollback,
   type ScratchTerminal,
 } from "./scrollbackBackfill";
+
+/** The prepend seam the controller tests inject: a fixed `inserted` result. */
+const inserted = (rows: number): PrependResult => ({ kind: "inserted", rows });
 
 /* Headless scratch factory — the DOM-free replay env the tests run in. */
 function headlessScratch(cols: number, rows: number): ScratchTerminal {
@@ -132,19 +137,19 @@ describe("prependScrollback", () => {
 
     const m = await prependScrollback(live, olderChunk(), 0, { makeScratch });
     // 30 logical lines, one wraps to 3 rows at 20 cols => 32 buffer rows.
-    expect(m).toBe(32);
+    expect(m).toEqual({ kind: "inserted", rows: 32 });
 
     const b = normalBuf(live);
-    expect(b.lines.length).toBe(before.len + m);
+    expect(b.lines.length).toBe(before.len + 32);
     expect(b.lines.get(0)?.translateToString(true)).toBe("old-000");
-    expect(b.lines.get(m)?.translateToString(true)).toBe("new-000");
+    expect(b.lines.get(32)?.translateToString(true)).toBe("new-000");
     // Wrap flags survived the theft: old-007's continuation rows.
     expect(b.lines.get(7)?.isWrapped).toBe(false);
     expect(b.lines.get(8)?.isWrapped).toBe(true);
     expect(b.lines.get(9)?.isWrapped).toBe(true);
     // Registers shifted in lockstep -> the visible content did not move.
-    expect(b.ybase).toBe(before.ybase + m);
-    expect(b.ydisp).toBe(before.ydisp + m);
+    expect(b.ybase).toBe(before.ybase + 32);
+    expect(b.ydisp).toBe(before.ydisp + 32);
     expect(viewportRows(live)).toEqual(before.viewport);
 
     // The terminal still behaves: an append after the prepend lands at the bottom.
@@ -231,11 +236,14 @@ describe("prependScrollback", () => {
     ).rejects.toThrow(/internals contract broken/);
   });
 
-  it("skips (returns 0) on an empty chunk of an EMPTY range (servedRows 0)", async () => {
+  it("inserts 0 rows on an empty chunk of an EMPTY range (servedRows 0)", async () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, newerChunk());
     const before = normalBuf(live).lines.length;
-    expect(await prependScrollback(live, "", 0, { makeScratch })).toBe(0);
+    expect(await prependScrollback(live, "", 0, { makeScratch })).toEqual({
+      kind: "inserted",
+      rows: 0,
+    });
     expect(normalBuf(live).lines.length).toBe(before);
   });
 
@@ -247,7 +255,10 @@ describe("prependScrollback", () => {
     const one = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(one, "new-000\r\n");
     const beforeOne = normalBuf(one).lines.length;
-    expect(await prependScrollback(one, "", 1, { makeScratch })).toBe(1);
+    expect(await prependScrollback(one, "", 1, { makeScratch })).toEqual({
+      kind: "inserted",
+      rows: 1,
+    });
     const bOne = normalBuf(one);
     expect(bOne.lines.length).toBe(beforeOne + 1);
     expect(bOne.lines.get(0)?.translateToString(true)).toBe(""); // the blank row
@@ -256,14 +267,17 @@ describe("prependScrollback", () => {
     // A multi-row blank range materializes its full span too.
     const many = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(many, "new-000\r\n");
-    expect(await prependScrollback(many, "", 5, { makeScratch })).toBe(5);
+    expect(await prependScrollback(many, "", 5, { makeScratch })).toEqual({
+      kind: "inserted",
+      rows: 5,
+    });
     const bMany = normalBuf(many);
     for (let i = 0; i < 5; i++)
       expect(bMany.lines.get(i)?.translateToString(true)).toBe("");
     expect(bMany.lines.get(5)?.translateToString(true)).toBe("new-000");
   });
 
-  it("skips (returns 0) while the alt buffer is active", async () => {
+  it("returns a distinct `skipped` (not an empty insert) while the alt buffer is active", async () => {
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, newerChunk());
     await write(live, "\x1b[?1049h"); // enter alt buffer
@@ -272,9 +286,12 @@ describe("prependScrollback", () => {
         live as unknown as { buffer: { active: { type: string } } },
       ),
     ).toBe(true);
+    // `skipped`, NOT `{inserted, rows:0}`: the caller must be able to tell "nothing
+    // consumed" from "consumed, 0 rows" so it never advances its cursor past an
+    // unspliced band (the silent-hole bug).
     expect(
       await prependScrollback(live, olderChunk(), 0, { makeScratch }),
-    ).toBe(0);
+    ).toEqual({ kind: "skipped" });
   });
 
   it("keeps the SEAM row of a real serialize({range}) chunk (no trailing newline)", async () => {
@@ -305,7 +322,7 @@ describe("prependScrollback", () => {
     const m = await prependScrollback(live, chunk, 15, { makeScratch });
     // All 15 older rows land — including the seam "h-14" that a `ybase+y` steal
     // would drop. Before the fix this returned 14 and dropped "h-14".
-    expect(m).toBe(15);
+    expect(m).toEqual({ kind: "inserted", rows: 15 });
     const b = normalBuf(live);
     expect(b.lines.get(14)?.translateToString(true)).toBe("h-14"); // seam kept
     expect(b.lines.get(15)?.translateToString(true)).toBe("new-000"); // no gap
@@ -338,13 +355,18 @@ describe("prependScrollback", () => {
     // Baseline: servedRows = 0 replays content only, dropping the final blank row.
     const dropped = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(dropped, "new-000\r\n");
-    expect(await prependScrollback(dropped, chunk, 0, { makeScratch })).toBe(7);
+    expect(await prependScrollback(dropped, chunk, 0, { makeScratch })).toEqual(
+      {
+        kind: "inserted",
+        rows: 7,
+      },
+    );
 
     // Fixed: servedRows = span materializes the full 8-row range (row 7 restored).
     const live = makeLive({ cols: COLS, rows: ROWS, scrollback: 1000 });
     await write(live, "new-000\r\n");
     const m = await prependScrollback(live, chunk, span, { makeScratch });
-    expect(m).toBe(span);
+    expect(m).toEqual({ kind: "inserted", rows: span });
     const b = normalBuf(live);
     expect(b.lines.get(4)?.translateToString(true)).toBe("c-4");
     expect(b.lines.get(5)?.translateToString(true)).toBe(""); // blank rows kept
@@ -363,6 +385,7 @@ function fakeTerm(): {
   fireScroll(): void;
   fireResize(): void;
   setCols(n: number): void;
+  setAltActive(b: boolean): void;
 } {
   let scrollCb: (() => void) | undefined;
   let resizeCb: (() => void) | undefined;
@@ -385,6 +408,9 @@ function fakeTerm(): {
     fireResize: () => resizeCb?.(),
     setCols: (n: number) => {
       term.cols = n;
+    },
+    setAltActive: (b: boolean) => {
+      term.buffer.active.type = b ? "alternate" : "normal";
     },
   };
 }
@@ -410,8 +436,8 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const f = fakeTerm();
     const fetch = vi.fn(async () => chunk);
     const prepend = vi.fn<
-      (t: XTerm, c: string, sc: () => boolean) => Promise<number>
-    >(async () => 1);
+      (t: XTerm, c: string, sc: () => boolean) => Promise<PrependResult>
+    >(async () => inserted(1));
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
@@ -433,7 +459,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const f = fakeTerm();
     const gate = deferred<HistoryChunk>();
     const fetch = vi.fn(() => gate.promise);
-    const prepend = vi.fn(async () => 1);
+    const prepend = vi.fn(async () => inserted(1));
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
@@ -453,7 +479,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
   it("a width resize DURING prepend abandons the splice and does not clobber the paused cursor", async () => {
     const f = fakeTerm();
     const fetch = vi.fn(async () => chunk);
-    const prependGate = deferred<number>();
+    const prependGate = deferred<PrependResult>();
     let seenShouldCommit: (() => boolean) | undefined;
     const prepend = vi.fn((_t: XTerm, _c: string, sc: () => boolean) => {
       seenShouldCommit = sc;
@@ -474,7 +500,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     f.fireResize();
     // The splice guard the controller handed prepend now reads false.
     expect(seenShouldCommit?.()).toBe(false);
-    prependGate.resolve(0); // prepend no-ops (would-be splice skipped)
+    prependGate.resolve({ kind: "skipped" }); // prepend no-ops (splice skipped)
     await new Promise((r) => setTimeout(r, 0));
     // The cursor stays PAUSED (null) — not clobbered back to the chunk's topLine.
     // Re-scroll: cursor is null (paused), so no further fetch fires.
@@ -490,7 +516,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // the controller must discard the reply and PAUSE rather than splice a
     // renumbered cursor's duplicated/skipped band.
     const fetch = vi.fn(async () => ({ kind: "stale" as const }));
-    const prepend = vi.fn(async () => 1);
+    const prepend = vi.fn(async () => inserted(1));
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
@@ -517,7 +543,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       .fn<(before: number, max: number) => Promise<HistoryChunk>>()
       .mockRejectedValueOnce(new ORPCError("NOT_FOUND"))
       .mockResolvedValueOnce(chunk);
-    const prepend = vi.fn(async () => 1);
+    const prepend = vi.fn(async () => inserted(1));
     const onError = vi.fn();
     const c = createBackfillController(f.term, {
       fetch,
@@ -546,7 +572,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       .fn<(before: number, max: number) => Promise<HistoryChunk>>()
       .mockRejectedValueOnce(boom)
       .mockResolvedValueOnce(chunk);
-    const prepend = vi.fn(async () => 1);
+    const prepend = vi.fn(async () => inserted(1));
     const onError = vi.fn();
     const c = createBackfillController(f.term, {
       fetch,
@@ -567,12 +593,94 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.dispose();
   });
 
-  it("pages past an all-blank serialized chunk instead of stalling", async () => {
+  it("an alt-buffer switch DURING an in-flight fetch does NOT advance the cursor (no silent hole)", async () => {
     const f = fakeTerm();
-    // First fetch: a non-exhausted page that serializes to "" (an all-blank run)
-    // — prepend inserts 0 rows, so the viewport never moves. Second fetch has
-    // content. Without the internal paging loop the first page would STALL
-    // backfill (no scroll event re-arms it) with older content still above.
+    const gate = deferred<HistoryChunk>();
+    const fetch = vi.fn(() => gate.promise);
+    // The injected prepend mirrors the production one: it SKIPS (consumes
+    // nothing) when the alt buffer is active at splice time.
+    const prepend = vi.fn(
+      async (): Promise<PrependResult> =>
+        isAltBufferActive(
+          f.term as unknown as { buffer: { active: { type: string } } },
+        )
+          ? { kind: "skipped" }
+          : inserted(1),
+    );
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledWith(100, expect.any(Number), undefined);
+    // A full-screen TUI (vim/less) enters the alt buffer WHILE the fetch is in
+    // flight — the loop-top alt guard already passed, so this lands mid-await.
+    f.setAltActive(true);
+    gate.resolve(chunk); // fetch resolves; the prepend now skips (returns `skipped`)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(prepend).toHaveBeenCalledTimes(1);
+    // The cursor must NOT have advanced past the un-spliced band: on alt exit and
+    // a re-scroll, the SAME `before=100` is re-fetched — no hole, band re-owed.
+    f.setAltActive(false);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenLastCalledWith(100, expect.any(Number), undefined);
+    c.dispose();
+  });
+
+  it("consumeSnapshotFrame invalidates an in-flight fetch synchronously, then seeds only when its committer runs", async () => {
+    const f = fakeTerm();
+    const gate = deferred<HistoryChunk>();
+    const fetch = vi.fn(() => gate.promise);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    c.seed(100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // A mid-stream overflow re-attach snapshot frame arrives: consume it. This
+    // must SYNCHRONOUSLY invalidate the in-flight fetch (so its continuation
+    // can't splice across the RIS reset) and return a committer that seeds later.
+    const commit = c.consumeSnapshotFrame(30, 2);
+    gate.resolve(chunk); // the old fetch resolves AFTER the frame
+    await new Promise((r) => setTimeout(r, 0));
+    // Discarded — never spliced onto the reset buffer.
+    expect(prepend).not.toHaveBeenCalled();
+
+    // Before the committer runs the cursor is paused: a scroll fires no fetch.
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // Running the committer (as the write callback would, once the snapshot
+    // parsed) seeds the NEW cursor + reflow epoch; the next scroll fetches from 30.
+    commit();
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenLastCalledWith(30, expect.any(Number), 2);
+    c.dispose();
+  });
+
+  it("pages past an inserted-0 chunk instead of stalling (defensive loop)", async () => {
+    const f = fakeTerm();
+    // A page the prepend consumes but inserts 0 rows from — the viewport never
+    // moves, so no scroll event would re-arm the fetch; the internal paging loop
+    // continues to the next page instead of STALLING with older content above.
+    // (In production the F10 servedRows materialization makes a real served page
+    // always insert ≥1 row, so this inserted-0-non-exhausted path is defensive —
+    // it must page, never advance-and-halt. An `inserted` result with rows 0 is
+    // still a CONSUMED page, distinct from a `skipped` one, which would NOT
+    // advance the cursor.)
     const fetch = vi
       .fn<(before: number, max: number) => Promise<HistoryChunk>>()
       .mockResolvedValueOnce({
@@ -588,7 +696,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
         exhausted: true,
       });
     const prepend = vi.fn(async (_t: XTerm, chunkStr: string) =>
-      chunkStr === "" ? 0 : 3,
+      chunkStr === "" ? inserted(0) : inserted(3),
     );
     const c = createBackfillController(f.term, {
       fetch,
@@ -666,5 +774,32 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
     ).splice(0, 0, line);
     expect(lines.length).toBe(before + 1);
     expect(insertEvent).toEqual({ index: 0, amount: 1 });
+  });
+
+  it("the SHIPPED defaultScratch parses an unopened write() into rows and fires the callback", async () => {
+    // The production prepend replays every chunk through `defaultScratch` — an
+    // UNOPENED @xterm/xterm. Its one load-bearing assumption is that an unopened
+    // write() parses bytes into the buffer AND fires its callback. Exercise the
+    // EXACT shipped export (imported, never a reconstructed equivalent) so a
+    // caret-range @xterm bump that defers pre-open parsing turns RED here — not
+    // into silent scrollback corruption (blank rows spliced as history) or a
+    // wedged `inFlight` (callback never fires). Pin the artifact, not a copy.
+    const scratch = defaultScratch(20, 5);
+    try {
+      let fired = false;
+      await new Promise<void>((resolve) =>
+        scratch.write("hello\r\nworld", () => {
+          fired = true;
+          resolve();
+        }),
+      );
+      expect(fired, "unopened write() callback fired").toBe(true);
+      // The bytes parsed into the same `_core.buffers.normal` the steal reads.
+      const norm = normalBuf(scratch as unknown as XTerm);
+      expect(norm.lines.get(0)?.translateToString(true)).toBe("hello");
+      expect(norm.lines.get(1)?.translateToString(true)).toBe("world");
+    } finally {
+      scratch.dispose();
+    }
   });
 });

@@ -83,23 +83,39 @@ const { SerializeAddon } =
  *  off by the eviction total — a silent scrollback corruption. So a shape change
  *  under an `@xterm/headless` bump throws here, caught by the contract-pin test
  *  (`xtermMirrorContract.test.ts`) as red CI, never as user-visible corruption. */
-function onNormalBufferTrim(
+/** The headless normal buffer's line `CircularList` — the reach the eviction
+ *  pin and the RIS-reset detector share. `length` is the row count; `onTrim`
+ *  fires with the count evicted off the top. A full reset replaces this object
+ *  wholesale, which is why identity (not just `length`) is tracked. */
+interface NormalLinesRef {
+  length: number;
+  onTrim(l: (n: number) => void): { dispose(): void };
+}
+
+/** Reach the normal buffer's line list, or THROW — a missing shape is a broken
+ *  internals contract, never a silent degrade (the pin/base arithmetic is unsafe
+ *  without it). */
+function normalLinesOf(
   headless: InstanceType<typeof Terminal>,
-  handler: (evicted: number) => void,
-): { dispose(): void } {
+): NormalLinesRef {
   const lines = (
     headless as unknown as {
       _core?: { buffers?: { normal?: { lines?: unknown } } };
     }
-  )._core?.buffers?.normal?.lines as
-    | { onTrim?: (l: (n: number) => void) => { dispose(): void } }
-    | undefined;
+  )._core?.buffers?.normal?.lines as Partial<NormalLinesRef> | undefined;
   if (typeof lines?.onTrim !== "function") {
     throw new Error(
       "xterm-headless internals contract broken: _core.buffers.normal.lines.onTrim missing",
     );
   }
-  return lines.onTrim(handler);
+  return lines as NormalLinesRef;
+}
+
+function onNormalBufferTrim(
+  headless: InstanceType<typeof Terminal>,
+  handler: (evicted: number) => void,
+): { dispose(): void } {
+  return normalLinesOf(headless).onTrim(handler);
 }
 
 /** Snap a start row back over any wrapped-line continuation rows to the logical
@@ -474,8 +490,21 @@ interface Entry {
    *  `getHistory` echoes it, and the host serves an empty `stale` reply when it
    *  no longer matches — so a client whose mirror a FOREIGN attach reflowed
    *  underneath it (its own `term.cols` unchanged) HALTS backfill rather than
-   *  splicing a duplicated/skipped band (F3). Only grows. */
+   *  splicing a duplicated/skipped band (F3). Bumped on a WIDTH resize and on a
+   *  full RIS reset (which also renumbers absolutes — see `normalLines`). Only
+   *  grows. */
   reflowEpoch: number;
+  /** The headless normal buffer's line `CircularList`, captured for identity. A
+   *  full reset (RIS / `ESC c`, terminfo `rs1`) constructs a BRAND-NEW list
+   *  inside xterm, silently orphaning the spawn-time `onTrim` pin taken on the
+   *  old one (`mirrorBaseLine` would freeze) and renumbering absolutes with no
+   *  resize. The write callback compares identity against this each parse and
+   *  re-anchors on replacement (re-subscribe `onTrim`, advance `mirrorBaseLine`
+   *  past the discarded rows, bump `reflowEpoch`). */
+  normalLines: NormalLinesRef;
+  /** The live `onTrim` subscription on `normalLines`; disposed and replaced when
+   *  a reset swaps the underlying list. */
+  trimDisposable: { dispose(): void };
   cwd: string;
   title: string;
   lastActivity: number;
@@ -685,6 +714,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       boundedSnapshotCache: undefined,
       mirrorBaseLine: 0,
       reflowEpoch: 0,
+      normalLines: normalLinesOf(headless),
+      // Real subscription assigned right after `entry` exists (the handler needs
+      // to close over it); this placeholder keeps the literal total.
+      trimDisposable: { dispose() {} },
       cwd: spawnOpts.cwd,
       title: "",
       lastActivity: Date.now(),
@@ -706,12 +739,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
 
     // Track eviction so `getHistory`'s absolute cursor stays anchored: each time
     // scrollback overflows and the oldest rows fall off, advance the origin by
-    // the count trimmed. Disposed with the rest on teardown.
-    entry.disposables.push(
-      onNormalBufferTrim(headless, (evicted) => {
-        entry.mirrorBaseLine += evicted;
-      }),
-    );
+    // the count trimmed. Re-used verbatim when a RIS reset swaps the line list
+    // (see the write callback). Disposed with the rest on teardown.
+    const trimHandler = (evicted: number): void => {
+      entry.mirrorBaseLine += evicted;
+    };
+    entry.trimDisposable = entry.normalLines.onTrim(trimHandler);
+    entry.disposables.push(entry.trimDisposable);
 
     // OSC 7 (CWD reporting) — the rc wrapper kolu injects makes the shell
     // emit these on every prompt.
@@ -828,6 +862,25 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           // stale: clear it BEFORE publishing, so a cached value always implies
           // "no parse since it was taken" — the invariant `attach()` leans on.
           invalidateSnapshot(entry);
+          // A full reset (RIS / `ESC c`, terminfo `rs1` for xterm-256color — a
+          // plain `reset` emits it) replaces the normal buffer's line list. That
+          // silently orphans the `onTrim` pin (mirrorBaseLine would freeze) and
+          // renumbers absolutes with NO resize, so a pre-reset cursor would pass
+          // the epoch gate and getHistory would serve the live screen as "older
+          // history". Detect the swap by identity and re-anchor: advance the base
+          // past the rows the old buffer held (new content gets fresh absolute
+          // numbers, never reused), re-subscribe the trim pin to the new list,
+          // and bump the generation so every outstanding cursor re-seeds (F3
+          // halt-not-corrupt).
+          const currentLines = normalLinesOf(headless);
+          if (currentLines !== entry.normalLines) {
+            entry.mirrorBaseLine += entry.normalLines.length;
+            entry.trimDisposable.dispose();
+            entry.normalLines = currentLines;
+            entry.trimDisposable = currentLines.onTrim(trimHandler);
+            entry.disposables.push(entry.trimDisposable);
+            entry.reflowEpoch++;
+          }
           entry.data.publish(data);
         });
       }),
@@ -1098,6 +1151,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function resize(id: PtyId, cols: number, rows: number): void {
     const entry = entries.get(id);
     if (!entry) return;
+    const prevCols = entry.headless.cols;
+    const prevRows = entry.headless.rows;
+    // An EXACT same-dims resize renumbers and reflows nothing — a second viewer
+    // attaching at the same size, or the mount-time re-publish of the current
+    // dims, would otherwise spuriously stale every attached client's cursor
+    // (there is no dedupe upstream). Skip it wholesale.
+    if (cols === prevCols && rows === prevRows) return;
     entry.proc.resize(cols, rows);
     entry.headless.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
@@ -1105,10 +1165,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // the memo — invalidate here too, or a same-epoch attach after a resize
     // hands back the stale pre-resize snapshot.
     invalidateSnapshot(entry);
-    // Reflow renumbers absolute rows: bump the generation so any client holding
-    // a pre-resize `topLine` cursor is served a `stale` getHistory (F3). Bumped
-    // AFTER the rewrap so a getHistory racing this resize reads the new value.
-    entry.reflowEpoch++;
+    // Only a WIDTH change rewraps and RENUMBERS absolute rows; bump the
+    // generation just for that so a pre-resize `topLine` cursor is served a
+    // `stale` getHistory (F3). A HEIGHT-only change moves the viewport but not
+    // top-anchored absolute indices (eviction is already counted via `onTrim`),
+    // so bumping there would falsely stale cursors the client deliberately keeps
+    // (its own onResize pauses on a cols change only). Bumped AFTER the rewrap so
+    // a getHistory racing this resize reads the new value.
+    if (cols !== prevCols) entry.reflowEpoch++;
   }
 
   function handle(id: PtyId): PtyHandle {

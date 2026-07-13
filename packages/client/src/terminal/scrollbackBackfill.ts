@@ -137,8 +137,14 @@ function stealContentLines(
  *  steal needs. `scrollback` is generous so a large chunk never self-trims in
  *  the scratch before we steal it. If a browser is found to reject an unopened
  *  `write()`, swap this one factory for an `@xterm/headless` instance (its
- *  `BufferLine` shape is verified identical by the contract-pin tests). */
-function defaultScratch(cols: number, rows: number): ScratchTerminal {
+ *  `BufferLine` shape is verified identical by the contract-pin tests).
+ *
+ *  EXPORTED for the CONTRACT PIN test: the pin writes a known chunk through THIS
+ *  exact factory (never a reconstructed equivalent) and asserts an unopened
+ *  terminal parses it into rows and fires the callback — turning the one
+ *  load-bearing assumption into red CI on any `@xterm/xterm` bump that changes
+ *  pre-open write semantics, so pin and factory cannot drift apart. */
+export function defaultScratch(cols: number, rows: number): ScratchTerminal {
   return new XTerm({
     cols,
     rows,
@@ -181,16 +187,31 @@ export function isAltBufferActive(term: {
   return term.buffer.active.type === "alternate";
 }
 
+/** The outcome of a prepend, as a discriminated union so the caller can never
+ *  conflate "nothing was consumed" with "consumed, inserted 0 rows":
+ *   - `inserted` — the chunk was consumed; `rows` is the count spliced in (0 for
+ *     an exhausted/empty range, ≥1 for real content). The caller ADVANCES its
+ *     cursor to `res.topLine`.
+ *   - `skipped`  — nothing was consumed (the alt buffer was active, or the fetch
+ *     went stale during the async replay). The caller must NOT advance its
+ *     cursor: the band is still owed and a later scroll re-fetches it. */
+export type PrependResult =
+  | { kind: "inserted"; rows: number }
+  | { kind: "skipped" };
+
 /** Prepend `rawChunk` (older raw PTY bytes, from kaval's `getHistory`) above the
  *  existing content of the live terminal. `servedRows` is the mirror-range row
  *  count the server consumed for this chunk (`before - topLine`); the prepend
  *  materializes that many rows so a range whose trailing blanks `serialize`
- *  trimmed still occupies its full height (see `stealContentLines`). Returns the
- *  number of rows inserted (M) — the caller advances its own bookkeeping by
- *  this. Returns 0 without touching the buffer when the range is truly empty
- *  (`servedRows === 0`) or the alt buffer is active. An empty chunk that still
- *  spans rows (`servedRows > 0`, an all-blank range) materializes those blank
- *  rows rather than returning 0.
+ *  trimmed still occupies its full height (see `stealContentLines`). Returns an
+ *  `inserted` result carrying the number of rows spliced in (M) — the caller
+ *  advances its own bookkeeping by this. Returns `{kind:"inserted", rows:0}`
+ *  without touching the buffer when the range is truly empty (`servedRows === 0`,
+ *  the exhausted reply). Returns `{kind:"skipped"}` — a distinct arm the caller
+ *  treats as "not consumed, don't advance the cursor" — when the alt buffer is
+ *  active or the `shouldCommit` guard rejects the late splice. An empty chunk
+ *  that still spans rows (`servedRows > 0`, an all-blank range) materializes
+ *  those blank rows rather than skipping.
  *
  *  THROWS (never silently degrades) when xterm's internal shape is missing or
  *  the prepend would overflow the live buffer's `maxLength` — see the file
@@ -213,7 +234,7 @@ export async function prependScrollback(
     makeScratch?: (cols: number, rows: number) => ScratchTerminal;
     shouldCommit?: () => boolean;
   },
-): Promise<number> {
+): Promise<PrependResult> {
   // An empty serialized chunk is only a true no-op when the range it stands for
   // is ALSO empty (`servedRows === 0` — the exhausted / gone-PTY reply). An
   // ENTIRELY-BLANK range serializes to "" too (no content, no trailing newline)
@@ -221,10 +242,12 @@ export async function prependScrollback(
   // content, so fall through and materialize them from the sized scratch's own
   // initialized blank `BufferLine`s (see `stealContentLines`) — dropping them
   // would compress the backfilled buffer's spacing below native history (F10).
-  if (rawChunk.length === 0 && servedRows === 0) return 0;
+  if (rawChunk.length === 0 && servedRows === 0)
+    return { kind: "inserted", rows: 0 };
   // No scrollback to extend under a full-screen app; caller shouldn't ask, but
-  // guard anyway (a deliberate skip, not a corruption).
-  if (isAltBufferActive(term)) return 0;
+  // guard anyway — a deliberate SKIP (nothing consumed), never conflated with an
+  // empty insert, so the controller can't advance its cursor past this band.
+  if (isAltBufferActive(term)) return { kind: "skipped" };
 
   const lines = await replayToLines(
     rawChunk,
@@ -234,10 +257,11 @@ export async function prependScrollback(
     opts?.makeScratch ?? defaultScratch,
   );
   const m = lines.length;
-  if (m === 0) return 0;
+  if (m === 0) return { kind: "inserted", rows: 0 };
   // The terminal may have been reset or resized while the scratch replay was
-  // suspended on its write callback — abandon the splice if so (see the doc).
-  if (opts?.shouldCommit && !opts.shouldCommit()) return 0;
+  // suspended on its write callback — abandon the splice if so (see the doc). A
+  // SKIP, not an empty insert: the cursor must not advance past an unspliced band.
+  if (opts?.shouldCommit && !opts.shouldCommit()) return { kind: "skipped" };
 
   const core = coreOf(term);
   const buf = core.buffers.normal;
@@ -273,7 +297,7 @@ export async function prependScrollback(
   core._bufferService._onScroll.fire(buf.ydisp);
   term.refresh(0, term.rows - 1);
 
-  return m;
+  return { kind: "inserted", rows: m };
 }
 
 /** Rows requested per backfill fetch. Bounds a chunk's serialized payload and
@@ -339,6 +363,18 @@ export interface BackfillController {
   /** Forget the cursor (paused) — call when xterm is reset for a fresh snapshot,
    *  before the new snapshot's `seed`. */
   reset(): void;
+  /** Consume a fresh `snapshot` frame (initial attach OR a mid-stream overflow
+   *  re-attach) as ONE indivisible act, so a call site cannot express
+   *  seed-without-reset. Synchronously INVALIDATES now — forgets the cursor and
+   *  bumps the generation, killing any in-flight fetch so its continuation can't
+   *  splice across the RIS reset this frame carries — and RETURNS a committer to
+   *  run once the snapshot has PARSED into the buffer (from xterm's write
+   *  callback), which seeds the cursor from the frame's `topLine` + reflow
+   *  generation. Deferring the seed to post-parse keeps the snapshot's own
+   *  `onScroll` (as `ydisp` climbs from 0) from firing an unsolicited fetch
+   *  mid-parse; the synchronous invalidation fires NOW regardless of scroll-lock,
+   *  and the committer rides the same write callback the lock preserves on flush. */
+  consumeSnapshotFrame(topLine: number, reflowEpoch?: number): () => void;
   dispose(): void;
 }
 
@@ -374,7 +410,7 @@ export function createBackfillController(
       chunk: string,
       shouldCommit: () => boolean,
       servedRows: number,
-    ) => Promise<number>;
+    ) => Promise<PrependResult>;
   },
 ): BackfillController {
   const prepend =
@@ -388,18 +424,24 @@ export function createBackfillController(
   let seedEpoch: number | undefined;
   let exhausted = false;
   let inFlight = false;
-  let epoch = 0;
+  // The controller's LOCAL invalidation counter (distinct from `seedEpoch`, the
+  // mirror's reflow generation from kaval). Bumped on every seed/reset/resize/
+  // dispose; captured at fetch start so a continuation landing in a newer
+  // generation is discarded rather than spliced. Named `generation` — not a
+  // third "epoch" — so it and `seedEpoch` never blur into one bare number.
+  let generation = 0;
   let disposed = false;
   let lastCols = term.cols;
 
   // Pause backfill and invalidate any in-flight fetch: forget the cursor and
-  // bump the epoch so a chunk fetched for the old generation is discarded, not
-  // spliced. Shared by an explicit `reset()` and a width-change resize — a
-  // resize is a pause too — so the invalidation step has one home.
+  // bump the generation so a chunk fetched for the old one is discarded, not
+  // spliced. Shared by an explicit `reset()`, a `consumeSnapshotFrame`, and a
+  // width-change resize — a resize is a pause too — so the invalidation step has
+  // one home.
   function pause(): void {
     cursor = null;
     exhausted = false;
-    epoch++;
+    generation++;
   }
 
   async function maybeBackfill(): Promise<void> {
@@ -412,7 +454,7 @@ export function createBackfillController(
 
     inFlight = true;
     let before = cursor;
-    const myEpoch = epoch;
+    const myGeneration = generation;
     const fetchCols = term.cols;
     // The fetch, the prepend's inner replay, AND the window between them are all
     // async task boundaries a reset/resize/dispose can land in. `stillValid`
@@ -421,7 +463,7 @@ export function createBackfillController(
     // bump `epoch`/set `disposed`, so a chunk fetched for the old shape is
     // discarded rather than spliced onto a torn-down / reflowed / reset buffer.
     const stillValid = () =>
-      !disposed && epoch === myEpoch && term.cols === fetchCols;
+      !disposed && generation === myGeneration && term.cols === fetchCols;
     try {
       // Loop rather than fetch once: a page that serializes to nothing (an
       // all-blank run of scrollback) inserts zero rows, so the viewport does NOT
@@ -464,12 +506,29 @@ export function createBackfillController(
         const servedRows = before - res.topLine;
         // prepend re-checks `stillValid` after its own async replay, before the
         // splice; re-check here too before committing the cursor.
-        const inserted = await prepend(term, res.chunk, stillValid, servedRows);
+        let result: PrependResult;
+        try {
+          result = await prepend(term, res.chunk, stillValid, servedRows);
+        } catch (err) {
+          // A prepend fault is FAIL-LOUD (headroom overflow / broken internals —
+          // real corruption averted, per the file header). Surface it via
+          // `onError` (a toast) rather than let it vanish as an unhandled
+          // rejection off `void maybeBackfill()`, and stop backfill. NOT
+          // swallowed — the operator sees it; a reload re-attaches.
+          opts.onError(err);
+          return;
+        }
         if (!stillValid()) return;
+        // A `skipped` result consumed NOTHING (the alt buffer was active, or the
+        // fetch went stale during the async replay). Do NOT advance the cursor —
+        // the band [res.topLine, before) is still owed and a later scroll
+        // re-fetches it. Conflating this with an empty insert is the silent-hole
+        // bug: `skipped` is a distinct arm precisely so the cursor can't move.
+        if (result.kind === "skipped") return;
         cursor = res.topLine;
         exhausted = res.exhausted;
         before = res.topLine;
-        if (exhausted || inserted > 0) return;
+        if (exhausted || result.rows > 0) return;
       }
     } finally {
       inFlight = false;
@@ -486,21 +545,39 @@ export function createBackfillController(
     }
   });
 
+  // Commit a (re-)seed: point the cursor at the snapshot's topLine, stamp the
+  // reflow generation it echoes on fetches, and bump the local generation so any
+  // fetch from before the seed is discarded. Shared by `seed` and the deferred
+  // committer `consumeSnapshotFrame` returns.
+  function applySeed(topLine: number, reflowEpoch: number | undefined): void {
+    cursor = topLine;
+    seedEpoch = reflowEpoch;
+    exhausted = false;
+    generation++;
+  }
+
   return {
     seed(topLine, reflowEpoch) {
-      cursor = topLine;
-      seedEpoch = reflowEpoch;
-      exhausted = false;
-      epoch++;
+      applySeed(topLine, reflowEpoch);
     },
     reset() {
       pause();
+    },
+    consumeSnapshotFrame(topLine, reflowEpoch) {
+      // Invalidate NOW: forget the cursor + bump the generation so an in-flight
+      // fetch's continuation is discarded and can't splice across the RIS this
+      // frame carries — even while scroll-locked (this runs at frame receipt,
+      // before the bytes are written/buffered).
+      pause();
+      // Seed only once the snapshot has parsed (the caller runs this from xterm's
+      // write callback, which the scroll-lock preserves across a buffered flush).
+      return () => applySeed(topLine, reflowEpoch);
     },
     dispose() {
       // Invalidate any in-flight fetch so its continuation can't splice onto the
       // xterm Terminal.tsx is about to dispose — `stillValid` reads `disposed`.
       disposed = true;
-      epoch++;
+      generation++;
       onScroll.dispose();
       onResize.dispose();
     },

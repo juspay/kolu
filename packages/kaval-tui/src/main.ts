@@ -465,8 +465,19 @@ async function cmdHistory(
     if (res.kind === "stale") break;
     // An all-blank page serializes to "" but is NOT exhaustion — advance past it
     // (the cursor still moves up) so older content ABOVE a blank run isn't cut
-    // off. Only `exhausted` (the top of the mirror) ends the dump.
-    if (res.chunk !== "") pages.push(res.chunk);
+    // off. Only `exhausted` (the top of the mirror) ends the dump. But a blank
+    // page still SPANS rows (`before - topLine`): MATERIALIZE them as blank lines
+    // rather than dropping the page, or a blank run in scrollback silently
+    // compresses the dump's vertical spacing below what the terminal produced —
+    // the same F10 fidelity the browser path restores via `servedRows`. (`before`
+    // is undefined only on the self-seeded first page, whose span isn't known
+    // client-side; a leading blank run there is the one uncovered edge.)
+    if (res.chunk !== "") {
+      pages.push(res.chunk);
+    } else if (before !== undefined) {
+      const span = before - res.topLine;
+      if (span > 0) pages.push("\n".repeat(span));
+    }
     before = res.topLine;
     if (res.exhausted) break;
   }

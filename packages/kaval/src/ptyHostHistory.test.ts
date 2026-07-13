@@ -191,6 +191,69 @@ describe("scrollback backfill — bounded snapshot + getHistory", () => {
     expect(host.getHistory(id, seeded.topLine, 50).kind).toBe("chunk");
   });
 
+  it("a height-only or same-dims resize does NOT stale a stamped cursor — only a width reflow renumbers (F3 over-bump)", async () => {
+    const id = printLines(400);
+    await waitFor(() => host.getScreenText(id).includes(label(399)));
+    const seeded = asChunk(host.getHistory(id, undefined, 50, 0));
+    expect(seeded.chunk).not.toBe("");
+
+    // A HEIGHT-only resize (cols unchanged) reflows/renumbers NOTHING — absolute
+    // rows are unmoved — so a cursor stamped at generation 0 must still page.
+    host.resize(id, 80, 40);
+    expect(host.getHistory(id, seeded.topLine, 50, 0).kind).toBe("chunk");
+
+    // A SAME-DIMS resize (a second viewer attaching at the same size) is a pure
+    // no-op — it must not bump the generation either.
+    host.resize(id, 80, 40);
+    expect(host.getHistory(id, seeded.topLine, 50, 0).kind).toBe("chunk");
+
+    // Only a real WIDTH change renumbers → the stamped cursor goes stale.
+    host.resize(id, 100, 40);
+    expect(host.getHistory(id, seeded.topLine, 50, 0).kind).toBe("stale");
+  });
+
+  it("an in-band RIS (ESC c / `reset`) re-anchors the trim pin and stales pre-reset cursors (P3 buffer replacement)", async () => {
+    // Phase 1: 120 lines, then a RIS, then phase 2: 120 more. The RIS replaces
+    // the headless normal buffer's CircularList — the spawn-time onTrim pin goes
+    // deaf and mirrorBaseLine freezes unless the reset is re-anchored.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: [
+        "-c",
+        "i=0; while [ $i -lt 120 ]; do printf 'L%04d\\n' $i; i=$((i+1)); done;" +
+          " sleep 1; printf '\\033c';" +
+          " while [ $i -lt 240 ]; do printf 'L%04d\\n' $i; i=$((i+1)); done; sleep 30",
+      ],
+      env: { PATH: process.env.PATH ?? "" },
+      cwd: process.cwd(),
+      scrollback: 50,
+    });
+    await waitFor(() => host.getScreenText(id).includes(label(119)));
+    const pre = host.attach(id); // generation stamped BEFORE the RIS
+    // Wait for the RIS + phase 2: the screen shows post-reset lines and no longer
+    // the pre-reset tail.
+    await waitFor(
+      () =>
+        host.getScreenText(id).includes(label(239)) &&
+        !host.getScreenText(id).includes(label(119)),
+    );
+
+    // A cursor stamped before the RIS must be served `stale` (the reset renumbered
+    // absolutes with the epoch unchanged on the buggy path), so the client
+    // re-seeds instead of splicing the live screen as "older history".
+    expect(host.getHistory(id, pre.topLine, 50, pre.reflowEpoch).kind).toBe(
+      "stale",
+    );
+
+    // A fresh attach after the reset is self-consistent: its snapshot holds the
+    // live screen, and getHistory from its seed never re-serves that newest line.
+    const post = host.attach(id);
+    expect(post.snapshot).toContain(label(239));
+    const page = host.getHistory(id, post.topLine, 50, post.reflowEpoch);
+    if (page.kind === "chunk") expect(page.chunk).not.toContain(label(239));
+  });
+
   it("a non-positive max is a caller error (throws), even before the PTY lookup", () => {
     host = createPtyHost({ log: silentLog });
     // The wire schema rejects a non-positive `max`; the primitive fails loud too

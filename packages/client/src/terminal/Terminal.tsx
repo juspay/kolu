@@ -846,23 +846,28 @@ const Terminal: Component<{
                 { signal, onRetry: resetForFreshSnapshot },
               ),
             (frame) => {
-              // A `snapshot` frame begins a fresh snapshot (initial attach or an
-              // overflow re-attach). Its bytes describe the mirror line the
-              // backfill cursor seeds from — but seed only AFTER the snapshot has
-              // PARSED into the buffer (in the write callback below), not now:
-              // parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
-              // climbs from 0 through the near-top trigger band, and a cursor
-              // seeded up front would let one of those fire an unsolicited fetch
-              // that splices onto a still-parsing buffer. Once parsed, the viewport
-              // sits at the BOTTOM, so no fetch fires until a real user scroll-up.
-              const seedTopLine =
-                frame.kind === "snapshot" ? frame.topLine : undefined;
-              // The reflow generation this snapshot was taken under — echoed on
-              // every backfill fetch so a foreign-resize reflow halts backfill
-              // rather than corrupting it (F3). Undefined from a host predating
-              // the field (fail-open).
-              const seedReflowEpoch =
-                frame.kind === "snapshot" ? frame.reflowEpoch : undefined;
+              // A `snapshot` frame begins a fresh snapshot (initial attach or a
+              // MID-STREAM overflow re-attach). Consume it as one indivisible act:
+              // `consumeSnapshotFrame` INVALIDATES the backfill controller
+              // synchronously RIGHT HERE — before the bytes are written or
+              // scroll-lock-buffered — so an in-flight fetch's continuation can't
+              // splice across the RIS this frame carries onto the reset buffer.
+              // It returns a committer that SEEDS only once the snapshot has
+              // PARSED into the buffer (run from the write callback below): parsing
+              // a ~1000-line snapshot itself emits `onScroll` as `ydisp` climbs
+              // from 0 through the near-top trigger band, and a cursor seeded up
+              // front would let one of those fire an unsolicited fetch onto a
+              // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM,
+              // so no fetch fires until a real user scroll-up. The committer rides
+              // the write callback, which scroll-lock preserves across a buffered
+              // flush — so the seed can't be lost while the user is scrolled up.
+              const commitSeed =
+                frame.kind === "snapshot"
+                  ? backfill?.consumeSnapshotFrame(
+                      frame.topLine,
+                      frame.reflowEpoch,
+                    )
+                  : undefined;
               const data = frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
@@ -889,10 +894,9 @@ const Terminal: Component<{
                 scrollLock.writeData(terminal, data, () => {
                   recovery.noteData();
                   // Seed the backfill cursor now that this snapshot has landed in
-                  // the buffer (see the note above the write) — a no-op for a
-                  // plain delta frame, which carries no `topLine`.
-                  if (seedTopLine !== undefined)
-                    backfill?.seed(seedTopLine, seedReflowEpoch);
+                  // the buffer (see the note above the write) — undefined, hence a
+                  // no-op, for a plain delta frame, which carries no `topLine`.
+                  commitSeed?.();
                 });
               }
             },
