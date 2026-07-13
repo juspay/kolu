@@ -15,12 +15,7 @@
  * the link differs.
  */
 
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
-import { implement } from "@orpc/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import {
   DEFAULT_LOAD,
   DEFAULT_MEMORY,
@@ -49,7 +44,6 @@ export function createTop(): Top {
   const processes = new Map<Pid, Process>();
 
   const fragment = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       load: { store: loadStore },
       memory: { store: memoryStore },
@@ -106,11 +100,10 @@ export function createTop(): Top {
     }
   };
 
-  // `implementSurface` returns a fragment shaped `{ surface: <namespaces> }`.
-  // Flatten it once via `implement(contract).router(...)` — passing the raw
-  // fragment to a handler double-prefixes the matcher tree (`/surface/surface/…`)
-  // and every client request 404s.
-  const router = implement(surface.contract).router({ ...fragment.router });
+  // `implementSurface`'s `.router` is already the FINAL top-level router
+  // (`/surface/…`, flattened) — no consumer re-finalizes it via oRPC
+  // `implement`. It's typed `unknown`; `Top.router` is `any` at the boundary.
+  const router = fragment.router;
 
   return {
     router,

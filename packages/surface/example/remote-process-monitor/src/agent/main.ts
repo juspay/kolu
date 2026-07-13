@@ -30,10 +30,8 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
   implementSurface,
   inMemoryChannel,
-  inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
-import { implement } from "@orpc/server";
 import {
   type CoreId,
   type CpuCore,
@@ -96,7 +94,6 @@ async function main(): Promise<void> {
   // delta the poll loop publishes here.
   const snapshotDeltaBus = inMemoryChannel<ProcessesSnapshotMsg>();
   const fragment = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       // The agent serves the connection-FREE base surface. Link health is the
       // *parent's* observation of the parent↔agent link (lesson #6 — the agent
@@ -212,12 +209,10 @@ async function main(): Promise<void> {
     );
   }
 
-  // `implementSurface` returns a fragment with shape `{ surface: ... }`;
-  // passing it straight to `serveOverStdio`'s `StandardRPCHandler`
-  // double-wraps the path (`/surface/surface/...`) and every client
-  // request 404s. Wrap once via `implement(contract).router(...)` to
-  // flatten the prefix (same pattern Kolu's own server uses).
-  const router = implement(surface.contract).router({ ...fragment.router });
+  // `implementSurface`'s `.router` is already the FINAL flattened router
+  // (`/surface/...`) — no consumer re-finalizes it via oRPC `implement`.
+  // It's typed `unknown`; cast at the `serveOverStdio` boundary below.
+  const router = fragment.router;
 
   log("serving surface over stdio (read=stdin, write=stdout)");
   const end = await serveOverStdio({

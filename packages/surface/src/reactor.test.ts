@@ -12,11 +12,7 @@ import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
 import { derived, scan, source } from "./reactor";
 import type { CellStore } from "./server";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "./server";
+import { implementSurface, inMemoryStore } from "./server";
 
 /** A recorder that mirrors `server.ts`'s `ctxApply` write gate exactly — the
  *  path `connect(cell)` drives — so a unit test can observe what would reach the
@@ -352,10 +348,9 @@ describe("derived.cell", () => {
       },
     });
     const { router } = implementSurface(surface, {
-      channel: inMemoryChannelByName(),
       cells: { count: derived.cell(count) },
     });
-    const client = directLink<typeof surface.contract>(router);
+    const client = directLink<typeof surface.contract>(router as never);
 
     const iter = await client.surface.count.get(undefined);
     const collected = take(iter, 3);
@@ -382,7 +377,6 @@ describe("derived.cell", () => {
     });
     expect(() =>
       implementSurface(surface, {
-        channel: inMemoryChannelByName(),
         cells: { count: derived.cell(count) },
       }),
     ).toThrow(/wire-read-only/);
@@ -395,7 +389,6 @@ describe("derived.cell", () => {
     // Plain authored cell (not derived) — narrowing does not fire.
     expect(() =>
       implementSurface(surface, {
-        channel: inMemoryChannelByName(),
         cells: { count: { store: inMemoryStore(0) } },
       }),
     ).not.toThrow();

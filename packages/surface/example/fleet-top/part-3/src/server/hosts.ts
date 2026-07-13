@@ -17,13 +17,8 @@
  *      live agent client (an imperative mutation has no local state to keep).
  */
 
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { directLink } from "@kolu/surface/links/direct";
-import { implement } from "@orpc/server";
 import {
   type AgentClient,
   makeSession,
@@ -102,7 +97,6 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   const processes = new Map<Pid, Process>();
 
   const fragment = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       load: { store: loadStore },
       memory: { store: memoryStore },
@@ -166,8 +160,11 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   });
   // #endregion
 
-  const router = implement(surface.contract).router({ ...fragment.router });
-  const link = directLink<typeof surface.contract>(router);
+  // `implementSurface`'s `.router` is already the FINAL flattened router
+  // (`/surface/…`) — no consumer re-finalizes it via oRPC `implement`. It's
+  // typed `unknown`; cast at the `directLink` boundary.
+  const router = fragment.router;
+  const link = directLink<typeof surface.contract>(router as never);
 
   let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
   const unsub = session.onState((s) => {

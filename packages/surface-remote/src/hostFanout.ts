@@ -156,6 +156,13 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
    *  destroyed). `set` is the framework-wrapped `ctx.cells.connection.set` of the
    *  re-served surface. Omit for a re-serve that carries no link-health cell. */
   connection?: { set: (info: ConnectionInfo) => void };
+  /** Optional supervision signal. Aborting it STOPS the pump WITHOUT destroying
+   *  the caller-owned session: the active spawn's mirror is aborted (its per-key
+   *  pumps settle via `signal.reason` — the #1719 ownership doctrine), the
+   *  reconnect wait wakes, and the loop exits so the returned `done` resolves.
+   *  A re-serve's `close()` drives this; omit for a pump whose only stop is the
+   *  session's own destruction. */
+  signal?: AbortSignal;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }
@@ -193,21 +200,25 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   try {
     const cursor = makeClientCursor(session);
     let seq = 0;
-    while (!session.isDestroyed()) {
+    while (!session.isDestroyed() && !opts.signal?.aborted) {
       let client: SurfaceClientLike;
       try {
-        client = await cursor.next();
+        client = await cursor.next(opts.signal);
       } catch (err) {
         log(`pump: waiting for next client failed: ${(err as Error).message}`);
         break;
       }
       seq += 1;
       log(`agent client ready (client #${seq}); starting mirror`);
+      // Thread the supervision signal into the mirror: on `close()`'s abort the
+      // active spawn's per-key pumps reject their pulls with `signal.reason`
+      // (swallowed) and settle, so `mirror.done` resolves and the loop's guard
+      // above exits — composing WITH #1719's per-key ownership, not around it.
       const mirror = mirrorRemoteSurface(
         opts.source,
         client,
         opts.makeSink({ seq }),
-        { log },
+        { log, signal: opts.signal },
       );
       // Publish this spawn's forwarding stubs + live client; clear them the
       // instant the link dies so a forward in the gap fails honestly rather than

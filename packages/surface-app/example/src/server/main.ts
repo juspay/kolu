@@ -16,7 +16,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
+import {
+  implementSurfacesOnPublisher,
+  publisherChannel,
+} from "@kolu/surface/server";
 import {
   gateHttpRpcOrigin,
   gateWsOrigin,
@@ -25,13 +28,11 @@ import {
 import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
 import { resolveCommit } from "@kolu/surface-app/vite";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import { implement } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import {
-  contract,
   EMPTY_STATS,
   type ExampleBuildInfo,
   buildInfo as exampleBuildInfo,
@@ -82,7 +83,7 @@ const statsStore = {
 // The fragment seeds `{ commit, bootId: "" }` synchronously, folds the resolved
 // patch in when the promise settles, and the runtime republishes it to
 // subscribers — no hand-written second `ctx.cells.buildInfo.set`.
-const { router: surfacesRouter, ctx } = implementSurfaces(
+const { router: surfacesRouter, ctx } = implementSurfacesOnPublisher(
   // `surfaces` (the keyed map) is the single source shared with the contract
   // (`composeSurfaceContracts`) and the client (`surfaceClients`); here we add
   // only the server-only per-surface deps, keyed the same way.
@@ -114,10 +115,10 @@ function pushStats(patch: Partial<ServerStats>): void {
 // Tick the server clock once a second so even a single tab sees the cell update live.
 setInterval(() => pushStats({ now: Date.now() }), 1000);
 
-const appRouter = implement(contract).router({
-  ...surfacesRouter,
-  // biome-ignore lint/suspicious/noExplicitAny: see kolu server.ts — the router fragment's Lazy<Router> spread isn't accepted by RPCHandler's input type; runtime is valid.
-}) as any;
+// `implementSurfacesOnPublisher` already returns the FINAL top-level router — no
+// re-wrap; hand it straight to the RPC handlers.
+// biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; runtime shape is a valid top-level router for RPCHandler.
+const appRouter = surfacesRouter as any;
 
 const app = new Hono();
 

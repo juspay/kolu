@@ -1141,10 +1141,13 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
       /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
       hasSnapshot?: () => boolean;
       /** Optional async-source republish. The runtime fires it ONCE after
-       *  the cell is wired, handing it the cell ctx setter, so a
-       *  late-arriving value flows through the same equals/onWrite/store.set/
-       *  bus.publish path. Owned by the runtime — apps never call it. */
-      connect?: (cell: { set: (next: T) => void }) => void | Promise<void>;
+       *  the cell is wired, handing it the cell ctx setter (so a late-arriving
+       *  value flows through the same equals/onWrite/store.set/bus.publish path)
+       *  AND an abort signal. It MAY return a disposer. The connector is an
+       *  OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches `done`,
+       *  and `close()` aborts the signal then runs the disposer. Owned by the
+       *  runtime — apps never call it. */
+      connect?: CellConnector<T>;
     }
   : S extends { schema: ZodType<infer T> }
     ? {
@@ -1158,11 +1161,13 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
         /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
         hasSnapshot?: () => boolean;
         /** Optional async-source republish. The runtime fires it ONCE after
-         *  the cell is wired, handing it the cell ctx setter, so a
-         *  late-arriving value flows through the same equals/onWrite/
-         *  store.set/bus.publish path. Owned by the runtime — apps never
-         *  call it. */
-        connect?: (cell: { set: (next: T) => void }) => void | Promise<void>;
+         *  the cell is wired, handing it the cell ctx setter (so a late-arriving
+         *  value flows through the same equals/onWrite/store.set/bus.publish
+         *  path) AND an abort signal. It MAY return a disposer. The connector is
+         *  an OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches
+         *  `done`, and `close()` aborts the signal then runs the disposer. Owned
+         *  by the runtime — apps never call it. */
+        connect?: CellConnector<T>;
       }
     : never;
 
@@ -1335,13 +1340,6 @@ export type ProcedureImpl<
 // ── ImplementSurfaceDeps ────────────────────────────────────────────────
 
 export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
-  /** Channel factory. The framework computes channel names from surface
-   *  keys (e.g. `"prefs:changed"`, `"notes:keys"`, `"notes:key:n1"`) and
-   *  passes them into this fn — the consumer plugs in their underlying
-   *  publisher (`publisherChannel(publisher, name)` for the `@orpc/experimental-publisher`
-   *  adapter). */
-  channel: <T>(name: string) => Channel<T>;
-
   /** Default subsequent-read error handler for poll-shape streams (those
    *  declared with `{ read, install, isEqual }` rather than a raw `source`).
    *  Per-stream `onReadError` overrides this. The initial read's error
@@ -1378,6 +1376,119 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
   };
 }
 
+// ── Supervision: SurfaceRuntime / owned sources ─────────────────────────
+
+/** A teardown callback returned by an async cell connector — the framework
+ *  calls it during {@link SurfaceRuntime.close}. Sync or async. */
+export type Disposer = () => void | Promise<void>;
+
+/** A cell connector: the async-source republish hook the runtime fires once after
+ *  wiring a cell. It receives the cell's private setter and an abort signal, and
+ *  MAY return a {@link Disposer} (sync or async). The `void` arm is load-bearing,
+ *  not confusing — a `void`-returning `async` connector produces `Promise<void>`,
+ *  which the async arm must accept. */
+export type CellConnector<T> = (
+  cell: { set: (next: T) => void },
+  opts: { signal: AbortSignal },
+  // biome-ignore lint/suspicious/noConfusingVoidType: the void arm is required so a void-returning async connector's Promise<void> is assignable; see the doc above.
+) => void | Disposer | Promise<void | Disposer>;
+
+/** One supervised, owned async source of a served surface — today a cell
+ *  connector (the `connect` seam). Its `settled` reaching a rejection is an
+ *  OWNED FAULT that must reach `done`; `close()` aborts it (signal
+ *  cancellation), awaits its settlement, then runs its disposer — the #1719
+ *  ownership doctrine (abort first, then observe the settle) applied at the
+ *  runtime seam. */
+interface SurfaceSource {
+  /** Signal cancellation to the source (idempotent). */
+  abort(): void;
+  /** Resolves when the source's `connect` call settled; rejects if it faulted. */
+  settled: Promise<void>;
+  /** Release the source's held resources (its returned disposer). */
+  dispose(): Promise<void>;
+}
+
+/** Wire a set of owned sources into the `done` / `close` supervision contract.
+ *
+ *  - `done` rejects the instant ANY source faults before `close` (an owned
+ *    fault reaches `done` rather than floating as an unhandled rejection), and
+ *    resolves once a clean `close` has torn everything down.
+ *  - `close` is idempotent and always resolves (teardown is harmless to repeat):
+ *    it aborts every source FIRST, then awaits each settle (so a still-parked
+ *    source's rejection is observed, never abandoned — #1719), then runs the
+ *    disposers. A fault seen during teardown is routed to `done`, not thrown
+ *    from `close`. */
+function superviseSurface(sources: SurfaceSource[]): {
+  done: Promise<void>;
+  close: () => Promise<void>;
+} {
+  let sealed = false;
+  let resolveDone!: () => void;
+  let rejectDone!: (err: unknown) => void;
+  const done = new Promise<void>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+  const sealReject = (err: unknown): void => {
+    if (sealed) return;
+    sealed = true;
+    rejectDone(err);
+  };
+  const sealResolve = (): void => {
+    if (sealed) return;
+    sealed = true;
+    resolveDone();
+  };
+  // A source that faults BEFORE close reaches `done` as a rejection. (`close`
+  // observes the same settle again via allSettled — the seal guard dedups.)
+  for (const s of sources) s.settled.catch(sealReject);
+
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      for (const s of sources) s.abort();
+      const settles = await Promise.allSettled(sources.map((s) => s.settled));
+      await Promise.allSettled(sources.map((s) => s.dispose()));
+      const fault = settles.find(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+      if (fault) sealReject(fault.reason);
+      else sealResolve();
+    })();
+    return closing;
+  };
+  return { done, close };
+}
+
+/** A directly servable, supervised surface runtime — the return of
+ *  {@link implementSurface} / {@link implementSurfaceOnPublisher}. The `router`
+ *  is FINAL (no consumer re-finalizes the surface via oRPC `implement`); `done`
+ *  rejects on an owned runtime fault (a cell connector rejecting) and resolves
+ *  on a clean `close`; `close` releases every owned source and is idempotent. */
+export interface SurfaceRuntime<S extends SurfaceSpec> {
+  /** The FINAL top-level oRPC router — ready for `RPCHandler` / `serveOverStdio`
+   *  / `directLink`, or to spread beside a consumer's own raw namespaces. */
+  readonly router: unknown;
+  /** The typed cells/collections/events mutation ctx (domain writes). */
+  readonly ctx: SurfaceCtx<S>;
+  /** Rejects on an owned runtime fault; resolves on a clean {@link close}. A
+   *  serving site MUST observe this and route it into its existing failure
+   *  policy. */
+  readonly done: Promise<void>;
+  /** Release every owned source (cell-connector disposers). Idempotent. */
+  close(): Promise<void>;
+}
+
+/** The plural sibling of {@link SurfaceRuntime} — the return of
+ *  {@link implementSurfaces} / {@link implementSurfacesOnPublisher}. `ctx` is
+ *  keyed per sibling surface; `router`/`done`/`close` supervise the whole map. */
+export interface SurfacesRuntime<S extends SurfaceMap> {
+  readonly router: unknown;
+  readonly ctx: SurfacesCtx<S>;
+  readonly done: Promise<void>;
+  close(): Promise<void>;
+}
+
 /** Build the full server router from a surface + dep wiring. Replaces the
  *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
  *  cell, collection, stream, event, and imperative procedure declared in
@@ -1412,19 +1523,33 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
  *  `t.router({ [key]: namespaces })`) plus the typed mutation `ctx`.
  *
  *  Shared by `implementSurface` (singular) and `implementSurfaces` (plural)
- *  so the two paths can never drift on how a primitive is wired. */
+ *  so the two paths can never drift on how a primitive is wired.
+ *
+ *  `channel` is supplied by the constructor, NOT by the public deps: the
+ *  ordinary constructor owns an internal `inMemoryChannelByName()`, and the
+ *  `*OnPublisher` constructor injects the caller's shared channel. So the walk
+ *  takes the public deps PLUS the resolved channel factory. */
 function walkSurface<const S extends SurfaceSpec>(
   // biome-ignore lint/suspicious/noExplicitAny: the oRPC builder node is too dynamic for our runtime walk; spec types carry call-site safety.
   root: any,
   surface: Surface<S>,
-  deps: ImplementSurfaceDeps<S>,
+  deps: ImplementSurfaceDeps<S> & {
+    channel: <T>(name: string) => Channel<T>;
+  },
   identity?: BakedIdentity,
-): { namespaces: Record<string, Record<string, unknown>>; ctx: SurfaceCtx<S> } {
+): {
+  namespaces: Record<string, Record<string, unknown>>;
+  ctx: SurfaceCtx<S>;
+  sources: SurfaceSource[];
+} {
   const spec = surface.spec;
 
   const cellsCtx: Record<string, unknown> = {};
   const collectionsCtx: Record<string, unknown> = {};
   const namespaces: Record<string, Record<string, unknown>> = {};
+  // Owned async sources spun up by this surface (today: cell connectors). The
+  // returned runtime supervises them via `done` / `close`.
+  const sources: SurfaceSource[] = [];
 
   // ── Cells ────────────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -1579,10 +1704,28 @@ function walkSurface<const S extends SurfaceSpec>(
     // derived cell's graph pushes) flows through the same
     // equals/onWrite/store.set/bus.publish path — without exposing `set` on a
     // derived cell's public ctx.
-    const cd = cellDeps as {
-      connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
-    };
-    if (cd.connect) void cd.connect(writeArm);
+    //
+    // The connector is now an OWNED SOURCE (not fire-and-forget): it receives an
+    // abort signal and MAY return a disposer, and its settle is tracked so a
+    // fault reaches the runtime's `done` (never floats) and `close` aborts +
+    // disposes it. A `void`-returning connector keeps working unchanged.
+    const cd = cellDeps as { connect?: CellConnector<unknown> };
+    if (cd.connect) {
+      const connect = cd.connect;
+      const ctl = new AbortController();
+      let disposer: Disposer | undefined;
+      const settled = (async () => {
+        const d = await connect(writeArm, { signal: ctl.signal });
+        if (typeof d === "function") disposer = d;
+      })();
+      sources.push({
+        abort: () => ctl.abort(),
+        settled,
+        dispose: async () => {
+          await disposer?.();
+        },
+      });
+    }
 
     const verbs = resolveCellVerbs(cellSpec);
     const ns: Record<string, unknown> = {};
@@ -1901,33 +2044,28 @@ function walkSurface<const S extends SurfaceSpec>(
     ),
   };
 
-  return { namespaces, ctx: ctx as SurfaceCtx<S> };
+  return { namespaces, ctx: ctx as SurfaceCtx<S>, sources };
 }
 
-/** Build the full server router from a surface + dep wiring. Replaces the
- *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
- *  cell, collection, stream, event, and imperative procedure declared in
- *  the surface.
+/** Build a directly-servable, supervised {@link SurfaceRuntime} from a surface +
+ *  dep wiring. Replaces the hand-listed `t.X.<verb>.handler(handlers.<verb>)`
+ *  plumbing for every cell, collection, stream, event, and imperative procedure
+ *  declared in the surface.
  *
- *  Returns `{ router, ctx }`:
+ *  Returns a {@link SurfaceRuntime}:
  *
- *    - `router` — a fragment under the top-level `surface` key, ready to
- *      spread into the consumer's host `t.router({...})` alongside
- *      hand-listed raw namespaces:
- *
- *        const { router: surfaceRouter, ctx: surfaceCtx } =
- *          implementSurface(surface, deps);
- *        const appRouter = t.router({
- *          ...surfaceRouter,
- *          terminal: { create: t.terminal.create.handler(...) },
- *        });
- *
+ *    - `router` — the FINAL top-level oRPC router. Hand it straight to
+ *      `RPCHandler` / `serveOverStdio` / `directLink`, or spread its
+ *      `.surface` beside a consumer's own raw namespaces (kolu's server splices
+ *      `server`/`daemon` this way). No consumer re-finalizes via `implement`.
  *    - `ctx` — the typed cells/collections/events helper map. Domain code
- *      that mutates a cell or collection (or fires an event) imports
- *      `surfaceCtx` and calls `surfaceCtx.cells.X.set(value)` etc. — the
- *      surface owns the apply+publish chain so direct
- *      `store.set + bus.publish` parallel paths (and their drift risk)
- *      don't exist. */
+ *      mutates via `surfaceCtx.cells.X.set(value)` etc. — the surface owns the
+ *      apply+publish chain, so parallel `store.set + bus.publish` paths (and
+ *      their drift risk) don't exist.
+ *    - `done` / `close` — the supervision contract: `done` rejects on an owned
+ *      fault (a cell connector rejecting), `close` releases every owned source
+ *      and is idempotent. A serving site MUST observe `done` and route it into
+ *      its existing failure policy. */
 /** Optional serve-time knobs for {@link implementSurface}. */
 export interface ImplementSurfaceOptions {
   /** The server's DECLARED build triple — what the reserved `system.identity` serves
@@ -1938,27 +2076,60 @@ export interface ImplementSurfaceOptions {
   identity?: BakedIdentity;
 }
 
+/** Serve a single surface as a directly-servable, supervised
+ *  {@link SurfaceRuntime}. Owns an internal `inMemoryChannelByName()` — the
+ *  in-process channel factory every self-contained consumer was passing by hand.
+ *  A consumer that must serve on a SHARED, caller-owned publisher (cross-channel
+ *  microtask order load-bearing) reaches for {@link implementSurfaceOnPublisher}
+ *  instead — a distinct ownership promise, never a mode flag. */
 export function implementSurface<const S extends SurfaceSpec>(
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S>,
   opts?: ImplementSurfaceOptions,
-) {
+): SurfaceRuntime<S> {
+  return implementSurfaceOnPublisher(
+    surface,
+    deps,
+    inMemoryChannelByName(),
+    opts,
+  );
+}
+
+/** Serve a single surface on a caller-provided channel factory (a shared
+ *  publisher whose lifetime the runtime does NOT own — the runtime's `close`
+ *  releases only what IT minted). Distinct from {@link implementSurface}
+ *  because kolu's shared `MemoryPublisher` carries non-surface channels too, so
+ *  its cross-channel microtask order is load-bearing and its teardown is the
+ *  caller's, not the surface's. */
+export function implementSurfaceOnPublisher<const S extends SurfaceSpec>(
+  surface: Surface<S>,
+  deps: ImplementSurfaceDeps<S>,
+  channel: <T>(name: string) => Channel<T>,
+  opts?: ImplementSurfaceOptions,
+): SurfaceRuntime<S> {
   // oRPC's typed implement(contract) chain is too dynamic for our walk
   // (we walk the spec at runtime to wire each entry); cast the whole
   // builder + result to `any` and rely on the surface's spec types for
   // call-site safety.
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   const t = implement(surface.contract as any) as any;
-  const { namespaces, ctx } = walkSurface(
+  const { namespaces, ctx, sources } = walkSurface(
     t.surface,
     surface,
-    deps,
+    { ...deps, channel },
     opts?.identity,
   );
+  const { done, close } = superviseSurface(sources);
   return {
-    // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-    router: { surface: t.router(namespaces) } as any,
+    // The FINAL top-level router: `implement(contract).router({ ...fragment })`
+    // flattens the bare `{ surface: t.router(namespaces) }` fragment (which
+    // would double-prefix to `/surface/surface/…`) to `/surface/…`. No consumer
+    // re-finalizes the surface via oRPC `implement` anymore.
+    // biome-ignore lint/suspicious/noExplicitAny: Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
+    router: t.router({ surface: t.router(namespaces) }) as any,
     ctx,
+    done,
+    close,
   };
 }
 
@@ -1974,12 +2145,12 @@ export type SurfaceMap = Record<string, Surface<any>>;
 
 /** The per-key server-implementation deps for a `SurfaceMap` — the same
  *  per-primitive wiring `implementSurface` takes (cell stores, collection
- *  readers, stream/event sources, procedure handlers) MINUS `channel` (the
- *  base supplies it, key-namespaced). Typed against each surface's own spec,
+ *  readers, stream/event sources, procedure handlers). `channel` is not a dep
+ *  (the base owns it, key-namespaced). Typed against each surface's own spec,
  *  so a key's deps are checked precisely (no `any`-spec'd entry map). */
 export type SurfaceDepsFor<S extends SurfaceMap> = {
   [K in keyof S]: S[K] extends Surface<infer Spec>
-    ? Omit<ImplementSurfaceDeps<Spec>, "channel">
+    ? ImplementSurfaceDeps<Spec>
     : never;
 };
 
@@ -2010,23 +2181,44 @@ export type SurfacesCtx<S extends SurfaceMap> = {
  *  to `base.channel(key + "/" + name)`, so two surfaces that each own e.g. a
  *  `buildInfo:changed` channel can't collide on the wire. `base.onStreamReadError`
  *  is the fallback for any surface whose deps don't supply their own. */
+/** The transport-level base for {@link implementSurfaces} — everything shared
+ *  across the sibling surfaces EXCEPT the channel factory (which the ordinary
+ *  constructor owns internally; {@link implementSurfacesOnPublisher} injects). */
+export interface ImplementSurfacesBase<S extends SurfaceMap> {
+  /** Fallback subsequent-read error handler for any sibling's poll-shape streams
+   *  whose deps don't supply their own. */
+  onStreamReadError?: (err: unknown, info: { stream: string }) => void;
+  /** Per-key DECLARED build identity — what each sibling's reserved
+   *  `system.identity` serves as its `identified` arm (see `./identity`). Omit a
+   *  key → that sibling serves `anonymous`. Only a sibling whose identity a
+   *  consumer reads (kolu-server reads the `padi` sibling's) needs an entry. */
+  identity?: { [K in keyof S]?: BakedIdentity };
+}
+
 export function implementSurfaces<const S extends SurfaceMap>(
   surfaces: S,
-  base: {
+  base: ImplementSurfacesBase<S>,
+  deps: SurfaceDepsFor<S>,
+): SurfacesRuntime<S> {
+  return implementSurfacesOnPublisher(
+    surfaces,
+    { ...base, channel: inMemoryChannelByName() },
+    deps,
+  );
+}
+
+/** The shared-publisher sibling of {@link implementSurfaces}: the caller injects
+ *  the one transport's `channel` (a shared `MemoryPublisher` whose lifetime the
+ *  runtime does NOT own). Distinct constructor, not a mode flag — the shared
+ *  publisher's cross-channel microtask order is load-bearing (kolu's terminal
+ *  list vs. per-terminal exit ordering) and its teardown is the caller's. */
+export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
+  surfaces: S,
+  base: ImplementSurfacesBase<S> & {
     channel: <T>(name: string) => Channel<T>;
-    onStreamReadError?: (err: unknown, info: { stream: string }) => void;
-    /** Per-key DECLARED build identity — what each sibling's reserved
-     *  `system.identity` serves as its `identified` arm (see `./identity`). Omit a
-     *  key → that sibling serves `anonymous`. Only a sibling whose identity a
-     *  consumer reads (kolu-server reads the `padi` sibling's) needs an entry. */
-    identity?: { [K in keyof S]?: BakedIdentity };
   },
   deps: SurfaceDepsFor<S>,
-): {
-  // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-  router: any;
-  ctx: SurfacesCtx<S>;
-} {
+): SurfacesRuntime<S> {
   // The combined contract envelope has ONE definition — the receptacle the
   // contract side already uses. We re-key rather than raw-nest the built
   // routers (a built router keeps its baked `surface.*` path, which would
@@ -2037,16 +2229,17 @@ export function implementSurfaces<const S extends SurfaceMap>(
 
   const byKey: Record<string, Record<string, Record<string, unknown>>> = {};
   const ctxByKey: Record<string, unknown> = {};
+  const sources: SurfaceSource[] = [];
   for (const [key, surface] of Object.entries(surfaces)) {
     const keyedChannel = <T>(name: string): Channel<T> =>
       base.channel<T>(`${key}/${name}`);
     const surfaceDeps = (
-      deps as Record<string, Omit<ImplementSurfaceDeps<SurfaceSpec>, "channel">>
+      deps as Record<string, ImplementSurfaceDeps<SurfaceSpec>>
     )[key];
     if (!surfaceDeps) {
       throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
     }
-    const { namespaces, ctx } = walkSurface(
+    const walked = walkSurface(
       t.surface[key],
       surface,
       {
@@ -2057,14 +2250,20 @@ export function implementSurfaces<const S extends SurfaceMap>(
       },
       base.identity?.[key as keyof S],
     );
-    byKey[key] = namespaces;
-    ctxByKey[key] = ctx;
+    byKey[key] = walked.namespaces;
+    ctxByKey[key] = walked.ctx;
+    sources.push(...walked.sources);
   }
 
+  const { done, close } = superviseSurface(sources);
   return {
+    // FINAL top-level router (see `implementSurface` — the outer `t.router`
+    // flattens the `{ surface: … }` fragment to `/surface/<key>/…`).
     // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-    router: { surface: t.router(byKey) } as any,
+    router: t.router({ surface: t.router(byKey) }) as any,
     ctx: ctxByKey as SurfacesCtx<S>,
+    done,
+    close,
   };
 }
 

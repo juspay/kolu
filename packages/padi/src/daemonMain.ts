@@ -31,8 +31,11 @@ import {
 const PADI_STARTED_AT = Date.now();
 
 import { buildCommit } from "@kolu/surface/identity";
-import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
-import { implement, type Router } from "@orpc/server";
+import {
+  implementSurfacesOnPublisher,
+  publisherChannel,
+} from "@kolu/surface/server";
+import type { Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
 import { initAutosaveGate } from "./autosaveGate.ts";
 import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
@@ -69,11 +72,7 @@ import {
   writeStateRootManifest,
 } from "./stateRoot.ts";
 import { openPadiStateStores } from "./stateStore.ts";
-import {
-  PADI_SURFACE_VERSION,
-  padiDaemonContract,
-  padiDaemonSurfaces,
-} from "./surface.ts";
+import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "./surface.ts";
 import { hasParkedTerminals } from "./terminal-registry.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 import {
@@ -239,7 +238,7 @@ function serveDaemonSurfaces(
 ): SurfacesServed {
   const { stateRoot, onDrain, log, lifetime } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
-  const { router: surfaceFragment, ctx } = implementSurfaces(
+  const runtime = implementSurfacesOnPublisher(
     padiDaemonSurfaces,
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
@@ -286,15 +285,24 @@ function serveDaemonSurfaces(
     },
   );
   // Wire the late-bound ctx so every padi domain writer publishes deltas.
-  setPadiSurfaceCtx(ctx.padi);
-  // Wrap the fragment in a top-level contract router so the socket's handler can route
-  // it (the bare fragment answers "Not Found"; the same wrap kaval's inProcessPtyHost
-  // does).
-  const servedRouter = implement(padiDaemonContract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: the fragment's procedure-context type doesn't line up with implement().router()'s contract-derived param, though the runtime shape is exactly what serving wants (mirrors kaval's inProcessPtyHost wrap).
-    surfaceFragment as any,
-    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` cast kaval's inProcessPtyHost narrows to (the contract-derived context doesn't line up, runtime shape is correct).
-  ) as Router<any, any>;
+  setPadiSurfaceCtx(runtime.ctx.padi);
+  // Observe the surface runtime's `done` and route it into padi's EXISTING
+  // fault disposition — the loud-not-fatal unhandled-rejection boundary #1792
+  // installed (log + optional health sink, never a process kill). An owned
+  // surface fault becomes a diagnosable log line, not a dead workspace daemon;
+  // the disposition is unchanged (a fault does not exit), only its route (owned
+  // `done` instead of a floated rejection reaching the process boundary).
+  runtime.done.catch((err) =>
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "padi surface runtime faulted",
+    ),
+  );
+  // `implementSurfacesOnPublisher` returns the FINAL top-level router — the
+  // socket's handler routes it directly (no re-wrap; the double-prefix is gone
+  // at the framework seam).
+  // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level served router — the same cast every serving site uses.
+  const servedRouter = runtime.router as Router<any, any>;
   return { phase: "served", gate: identity.gate, router: servedRouter };
 }
 

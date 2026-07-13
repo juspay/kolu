@@ -25,10 +25,8 @@ import {
   type Channel,
   implementSurface,
   inMemoryChannel,
-  inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
-import { implement } from "@orpc/server";
 import { type PipelineSpec, validatePipeline } from "../common/pipeline";
 import {
   clampLog,
@@ -40,8 +38,8 @@ import {
 } from "../common/surface";
 
 export interface Runner {
-  /** Top-level router, already wrapped via `implement(contract).router(...)`
-   *  — ready to pass to `serveOverStdio({ router })`. */
+  /** Top-level router — `implementSurface`'s `.router` is already the FINAL
+   *  flattened router, ready to pass to `serveOverStdio({ router })`. */
   // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any, T> input type; the runtime shape is valid (the remote-process-monitor agent uses the same `as any`).
   router: any;
   /** Kick the scheduler — runs every task whose deps are already `ok`. */
@@ -104,7 +102,6 @@ export function createRunner(
   };
 
   const fragment = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       nodes: { store: stateStore },
     },
@@ -262,7 +259,7 @@ export function createRunner(
     return true;
   };
 
-  const router = implement(surface.contract).router({ ...fragment.router });
+  const router = fragment.router;
 
   return {
     router,

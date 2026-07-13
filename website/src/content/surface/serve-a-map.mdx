@@ -58,9 +58,9 @@ writer of membership.
 `serveSurfaceMap(map, registry)` publishes `entries` and derives each entry's
 `EntryStatus` by projecting its session's connection state — you never write
 status yourself. It returns a **finalized top-level router** — hand it straight to
-a transport (a `directLink` in-process, or an HTTP+WebSocket serve path); do *not*
-flatten it further with `implement(...).router({...})` (that flatten is only for
-an `implementSurface` fragment).
+a transport (a `directLink` in-process, or an HTTP+WebSocket serve path); like
+`implementSurface`'s own router, it is already final, so never re-wrap it with
+`implement(...).router({...})`.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="serve" />
 

@@ -11,12 +11,7 @@
 
 import { directLink } from "@kolu/surface/links/direct";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { implement } from "@kolu/surface/peer-server";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { createLiveSignal, type WatchableSocket } from "@kolu/surface/solid";
 import {
   type AgentClient,
@@ -126,7 +121,6 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
 
   const processes = new Map<Pid, Proc>();
   const fragment = implementSurface(entry, {
-    channel: inMemoryChannelByName(),
     cells: { load: { store: inMemoryStore(DEFAULT_LOAD) } },
     collections: {
       processes: {
@@ -180,8 +174,9 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     },
   });
 
-  const router = implement(entry.contract).router({ ...fragment.router });
-  const link = directLink<typeof entry.contract>(router);
+  // `.router` is already the FINAL flattened router — no re-finalize via oRPC.
+  const router = fragment.router;
+  const link = directLink<typeof entry.contract>(router as never);
 
   let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
   const unsub = session.onState((s) => {

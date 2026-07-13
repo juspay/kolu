@@ -26,7 +26,6 @@ import {
   type Channel,
   implementSurface,
   inMemoryChannel,
-  inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
@@ -38,7 +37,6 @@ import {
   seedConnectionCell,
   type SshProv,
 } from "@kolu/surface-remote";
-import { implement } from "@orpc/server";
 import {
   type CoreId,
   type CpuCore,
@@ -83,9 +81,6 @@ export function buildRouter(opts: BuildRouterOptions) {
   // seeded local store the session pump writes — the agent's surface stays
   // connection-free.
   const fragment = implementSurface(monitorSurface, {
-    // Name-keyed in-memory channel factory — publish/subscribe sites
-    // land on the same `Channel<T>` instance per name.
-    channel: inMemoryChannelByName(),
     cells: {
       system: { store: systemStore },
       connection,
@@ -189,16 +184,9 @@ export function buildRouter(opts: BuildRouterOptions) {
   // the loop advances to the respawned client.
   void bridgeAgentToParent(session, fragment, browserSnapshotBus);
 
-  // `implementSurface` returns a router *fragment* — `{ surface: ... }`
-  // wrapping the per-key namespaces. Passing it directly to RPCHandler
-  // produces a `surface/surface/...` double-prefix in the matcher tree
-  // (no procedure matches what the client sends). Wrap once via
-  // `implement(contract).router({...fragment})` to flatten the prefix
-  // — this is the same pattern Kolu's own server uses when spreading
-  // the surface fragment alongside raw oRPC procedures.
-  const router = implement(monitorSurface.contract).router({
-    ...fragment.router,
-  });
+  // `implementSurface`'s `.router` is already the FINAL flattened router
+  // (`/surface/...`) — no consumer re-finalizes it via oRPC `implement`.
+  const router = fragment.router;
   return { router, session };
 }
 

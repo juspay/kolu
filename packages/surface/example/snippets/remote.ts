@@ -15,12 +15,7 @@ import {
   type SurfaceTypes,
 } from "@kolu/surface/define";
 import type { SurfaceSink } from "@kolu/surface/mirror";
-import { implement } from "@kolu/surface/peer-server";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import {
   type AgentClient,
   makeSession,
@@ -74,7 +69,6 @@ export function buildMirror() {
   // #region pump
   const source = mirroredSurface(base); // adds + reserves the `connection` cell
   const fragment = implementSurface(source, {
-    channel: inMemoryChannelByName(),
     cells: { load: { store: loadStore }, connection: seedConnectionCell() },
     collections: {
       processes: {
@@ -109,10 +103,10 @@ export function buildMirror() {
   // #endregion pump
 
   // #region reserve
-  // Flatten the mirror fragment into a top-level router; a browser consumes the
-  // local copy exactly as if the agent were in-process.
-  const router = implement(source.contract).router({ ...fragment.router });
-  const link = directLink<typeof source.contract>(router);
+  // The mirror runtime's `.router` is already the FINAL top-level router; a
+  // browser consumes the local copy exactly as if the agent were in-process.
+  const router = fragment.router;
+  const link = directLink<typeof source.contract>(router as never);
   // #endregion reserve
 
   return { surface: source, router, link };
@@ -123,7 +117,6 @@ export function mirrorEndToEnd() {
   // #region endtoend
   const src = mirroredSurface(base);
   const fragment = implementSurface(src, {
-    channel: inMemoryChannelByName(),
     cells: {
       load: { store: inMemoryStore(DEFAULT_LOAD) },
       connection: seedConnectionCell(),

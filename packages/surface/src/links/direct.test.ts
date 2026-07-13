@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
-import { type Channel, implementSurface, inMemoryChannel } from "../server";
+import { implementSurface } from "../server";
 import { directLink } from "./direct";
 
 function buildClient() {
@@ -30,7 +30,6 @@ function buildClient() {
     },
   });
   const { router } = implementSurface(surface, {
-    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
     procedures: {
       math: { double: async ({ input }) => ({ y: input.x * 2 }) },
     },
@@ -42,7 +41,7 @@ function buildClient() {
       },
     },
   });
-  return directLink<typeof surface.contract>(router);
+  return directLink<typeof surface.contract>(router as never);
 }
 
 describe("directLink — the in-process identity link", () => {

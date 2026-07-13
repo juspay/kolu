@@ -18,7 +18,7 @@ function inProcess() {
   // Was: in-process
   const app = surfaceClient(
     surface,
-    directLink<typeof surface.contract>(fragment.router),
+    directLink<typeof surface.contract>(fragment.router as never),
   );
   // #endregion direct
   return app;

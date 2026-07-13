@@ -28,12 +28,7 @@ import {
   surfaceClientRef,
 } from "./project";
 import type { InMemoryChannel, SurfaceCtx } from "./server";
-import {
-  implementSurface,
-  inMemoryChannel,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "./server";
+import { implementSurface, inMemoryChannel, inMemoryStore } from "./server";
 
 // ── Surface A — the source ───────────────────────────────────────────────
 
@@ -87,7 +82,6 @@ function buildSourceA(): SourceA {
   const countStore = inMemoryStore(0);
 
   const { router, ctx } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       count: { store: countStore },
     },
@@ -156,7 +150,6 @@ function projectB(a: SourceA) {
   return projectSurface<ASpec, BSpec>(a.surface, {
     spec: bSpec,
     deps: (client) => ({
-      channel: inMemoryChannelByName(),
       cells: {
         count1: deriveCell(
           (opts) => client.surface.count.get(undefined, opts),
@@ -207,11 +200,11 @@ function setup(initialCount?: number): Harness {
   if (initialCount !== undefined) {
     a.countStore.set(initialCount);
   }
-  const aClient = surfaceClientRef(a.surface, a.router);
+  const aClient = surfaceClientRef(a.surface, a.router as never);
   const projected = projectB(a);
   const { router } = projected.implement(aClient);
   const bClient = directLink<typeof projected.surface.contract>(
-    router,
+    router as never,
   ) as BClient;
   return { a, aClient, bClient };
 }

@@ -467,7 +467,18 @@ const reServeFor = (
 // mirror, never the dead one still pinned to the destroyed session. `pool.subscribe` fires
 // only after `has()` reflects the drop, so the slot is gone before any re-add can re-request
 // it; the unremovable LOCAL host never leaves, so its eager mirror stays.
-pool.subscribe(() => pruneToMembers(reServes, (h) => pool.has(h)));
+// On eviction, close() the dropped re-serve — abort its pump and release the
+// supervised runtime's owned sources (SRT-PR1), rather than leaving them to the
+// session-destroy GC race. close() is idempotent and resolves cleanly (the pump's
+// own `done` still drives the retire/fatal observer above), so this fire-and-forget
+// teardown changes no disposition — it just makes the release deterministic.
+pool.subscribe(() =>
+  pruneToMembers(
+    reServes,
+    (h) => pool.has(h),
+    (r) => void r.close(),
+  ),
+);
 
 // Eagerly re-serve the LOCAL (default) host so the memory sampler has its in-process
 // client — a `directLink` over the mirror's own router, no socket/ssh hop. It reads

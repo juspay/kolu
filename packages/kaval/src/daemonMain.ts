@@ -76,11 +76,22 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // to `daemonMain` below, so the readout and the actual policy can't drift.
   const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
 
-  const { servedRouter, terminalCount } = createInProcessPtyHost({
+  const ptyHost = createInProcessPtyHost({
     log,
     rcDir,
     lifetime: lifetimeInfo(lifetime),
   });
+  const { servedRouter, terminalCount } = ptyHost;
+  // Observe the surface runtime's `done`: the ptyHost surface declares no cell
+  // connectors, so this is inert today (nothing faults) — wired so any future
+  // owned fault reaches kaval's log instead of floating, without changing today's
+  // behavior (fail-fast disposition unchanged; a fault does not kill the daemon).
+  ptyHost.done.catch((err) =>
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "pty-host surface runtime faulted",
+    ),
+  );
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
   // heap curve with the live-terminal count (the leak's independent variable)
@@ -106,6 +117,12 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // is simply never watched.
   const controller = new AbortController();
   forwardAbort(opts.signal, controller);
+  // Own the surface runtime's shutdown: release its owned sources when the
+  // daemon tears down (inert today — no cell connectors — but the daemon owns
+  // its runtime's lifetime by construction, not by convention).
+  controller.signal.addEventListener("abort", () => void ptyHost.close(), {
+    once: true,
+  });
   const stopWatch = watchStateRoot({
     dir,
     log,

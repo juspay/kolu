@@ -12,11 +12,7 @@
 
 import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
@@ -746,13 +742,14 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
       );
       const reg = makeRegistry();
       const { router } = implementSurface(collisionSurface, {
-        channel: inMemoryChannelByName(),
         cells: { session: { store: inMemoryStore({ n: 7 }) } },
         procedures: {
           session: { ping: ({ input }) => input.echo },
         },
       });
-      const entryLink = directLink<typeof collisionSurface.contract>(router);
+      const entryLink = directLink<typeof collisionSurface.contract>(
+        router as never,
+      );
       const served = serveSurfaceMap(map, reg.registry);
       const mapLink = directLink<AnyContractRouter>(
         // biome-ignore lint/suspicious/noExplicitAny: served router re-typed by the client via map.entry
@@ -796,7 +793,6 @@ const streamEntrySurface = defineSurface({
  *  the underlying subscription. */
 function makeStreamEntry(value: number) {
   const { router } = implementSurface(streamEntrySurface, {
-    channel: inMemoryChannelByName(),
     streams: {
       ping: {
         source: () =>
@@ -806,7 +802,9 @@ function makeStreamEntry(value: number) {
       },
     },
   });
-  return { link: directLink<typeof streamEntrySurface.contract>(router) };
+  return {
+    link: directLink<typeof streamEntrySurface.contract>(router as never),
+  };
 }
 
 describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a non-callable proxy", () => {

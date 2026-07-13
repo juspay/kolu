@@ -5,11 +5,14 @@
  * As of the W2.2 cutover kolu-server serves NO terminal domain: `padiSurface` is
  * RE-SERVED off a bound padi PROCESS (see `padiBinding.ts` + the async boot in
  * `index.ts`), not implemented in-process here. So this file implements only the
- * two siblings kolu-server owns and exports the built kolu router FRAGMENT
- * (`koluSurfaces.router`) for `index.ts` to splice the re-served `padi` sibling
- * into, plus the widened `servedContract` (kolu-server serves `padi` on the wire,
- * so the client's contract is unchanged) and the `t` builder `router.ts` binds
- * the two remaining raw RPCs against.
+ * two siblings kolu-server owns and exports the kolu+surfaceApp FINAL surface
+ * router (`koluSurfaceRouter`, a supervised {@link SurfaceRuntime}) for `index.ts`
+ * to splice the re-served `padi` sibling into, plus the `t` builder `router.ts`
+ * binds kolu-server's remaining raw RPCs (`server`/`daemon`/`hosts`) against. The
+ * surface is finalized by `implementSurfacesOnPublisher`, not by a local
+ * `implement(servedContract)` (retired at SRT-PR1 — the runtime returns a final
+ * router; routing is by the assembled object, so the padi splice needs no widened
+ * contract).
  *
  *   - The kolu surface's mutation ctx is built here and EXPORTED as
  *     `koluSurfaceCtx` (only the memory sampler in `index.ts` writes it —
@@ -33,14 +36,12 @@
 import { publisher } from "@kolu/padi/assembly";
 import {
   type CellStore,
-  composeSurfaceContracts,
   confStore,
   type ImplementSurfaceDeps,
-  implementSurfaces,
+  implementSurfacesOnPublisher,
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
-import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -58,7 +59,6 @@ import {
   type koluSurface,
   surfaces,
 } from "kolu-common/surface";
-import { padiHostMap, surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import {
   serverCommit,
   serverProcessId,
@@ -68,35 +68,20 @@ import {
 import { log } from "./log.ts";
 import { store } from "./state.ts";
 
-// kolu-server serves a SUPERSET contract locally: the padi-less kolu-common
-// `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
-// `padi` sibling. Spreading the already-built `contract` carries over its root
-// namespaces (`server`/`daemon` — `terminal`/`git` were deleted at W1.R7, their
-// mutations now on `padiSurface`) and its 2-sibling `surface` (kolu + surfaceApp);
-// the second spread of `composeSurfaceContracts(surfacesWithPadi)` then WIDENS
-// `surface` to three siblings (adds `padi`). This is the same spread idiom
-// `packages/common/src/contract.ts` assembles itself with — that file stays
-// untouched (its own comment already anticipates kolu-server widening locally).
-// The `padi` sibling is served as the keyed MAP (the key-folded members + the `entries`
-// membership collection), NOT the plain `padiSurface`: compose the three siblings, then
-// OVERWRITE `padi` with the map's own contract, so the served wire shape matches what
-// `serveHostMap` serves (in `index.ts`) and the client's `connectSurfaceMap` dials.
-// env-unset = a 1-member map = pixel-identical.
-const servedContract = oc.router({
-  ...contract,
-  surface: {
-    ...composeSurfaceContracts(surfacesWithPadi).surface,
-    // biome-ignore lint/suspicious/noExplicitAny: padiHostMap.contract is AnyContractRouter; its `.surface` is the folded map fragment.
-    padi: (padiHostMap.contract as any).surface,
-  },
-});
-
-// `t` is the host router builder against the SERVED (superset) contract; both
-// `surfaceRouter` and the raw oRPC handlers in `router.ts` plug procedures into
-// it. Exported so `router.ts` can call `t.server.info.handler(...)` /
-// `t.daemon.restart.handler(...)` against the same builder — every surviving
-// root procedure (only `server`/`daemon` after W1.R7) survives the widening.
-export const t = implement(servedContract);
+// `t` is the builder for kolu-server's RAW root RPCs — `server.info`,
+// `daemon.restart`, `hosts.*` — which are NOT surface members and so need their
+// own oRPC builder. It binds against the padi-less kolu-common `contract` (the
+// same one the client consumes, byte-for-byte).
+//
+// The SURFACE is no longer finalized here: `implementSurfacesOnPublisher`
+// (below) returns a FINAL top-level router for the `kolu` + `surfaceApp`
+// siblings, and `index.ts` splices the RE-SERVED `padi` sibling into its
+// `.surface` as a plain router object. The old `servedContract` superset — a
+// `padi`-widened contract built solely to finalize the surface via `t` — is gone
+// (the SRT-PR1 deletion): routing is driven by the assembled router object, not a
+// widened contract, so the spliced padi routes without the widening (proved by
+// the padiBinding integration test dialing `/surface/padi/*`).
+export const t = implement(contract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 //
@@ -306,12 +291,18 @@ const koluSurfaces =
   // `surfaceAppServer` returns the buildInfo cell carrying `.connect` — the surface
   // runtime fires it once the cell ctx is built, republishing the resolved
   // `{ commit, version }` (server-pushed, so the `srv` rail fills in without a
-  // client reload).
-  implementSurfaces(
+  // client reload). The connector is an OWNED source now: a fault reaches the
+  // runtime's `done` (routed to kolu's fatal policy below), never floats.
+  //
+  // ON PUBLISHER: kolu serves on the SHARED `@kolu/padi` publisher (its
+  // cross-channel microtask order is load-bearing — the terminal-list vs.
+  // per-terminal-exit ordering pinned by `kill.feature`), so the runtime does
+  // NOT own the channel's lifetime. Distinct constructor, not a mode flag.
+  implementSurfacesOnPublisher(
     // The padi-LESS `surfaces` map (`{ kolu, surfaceApp }`) — kolu-server implements
-    // only its own two siblings now. The contract widening above (`servedContract`,
-    // still `composeSurfaceContracts(surfacesWithPadi)`) is what keeps the client's
-    // wire contract unchanged; the padi IMPL comes from the re-serve, not here.
+    // only its own two siblings; the `padi` sibling's IMPL comes from the re-serve
+    // (spliced in `index.ts`), and the client's wire contract stays unchanged
+    // because the client dials padi through the map client, not this static router.
     surfaces,
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
@@ -355,16 +346,34 @@ const koluSurfaces =
     },
   );
 
-// The built kolu+surfaceApp router FRAGMENT (`{ surface: { kolu, surfaceApp } }`),
-// exported so `index.ts`'s async boot can splice the RE-SERVED `padi` sibling in
-// beside them (`{ surface: { ...koluSurfaceRouter.surface, padi } }`) and assemble
-// the final host router. padi is async (an `await`ed binding), so it cannot be
-// composed here at module-eval — hence the split.
+// Observe the surface runtime's `done` and route it into kolu-server's EXISTING
+// deliberately-fatal fault policy (the same disposition a floated cell-connector
+// rejection reached via the process `unhandledRejection` handler before, and the
+// same fatal treatment the default padi re-serve's `done` gets in `index.ts`): an
+// owned surface fault is unrecoverable for the web shell, so crash loud. The
+// DISPOSITION is unchanged — only the route (owned `done` instead of a floated
+// rejection). Byte-identical in the no-fault steady state.
+koluSurfaces.done.catch((err) => {
+  log.fatal({ err }, "kolu surface runtime faulted — unrecoverable");
+  process.exit(1);
+});
+
+// The kolu+surfaceApp FINAL surface router. Its `.surface` is the built
+// `{ kolu, surfaceApp }` sibling map — exported so `index.ts`'s async boot can
+// splice the RE-SERVED `padi` sibling in beside them
+// (`{ surface: { ...koluSurfaceRouter.surface, padi } }`) and assemble the final
+// host router. padi is async (an `await`ed binding), so it cannot be composed
+// here at module-eval — hence the split.
 export const koluSurfaceRouter = koluSurfaces.router as {
   surface: Record<string, unknown>;
 };
-// The kolu surface ctx (`implementSurfaces(...).ctx.kolu`) — exported so the memory
-// sampler (`index.ts`) writes `processMemory` through it. Only kolu-server's own
-// web shell writes koluSurface now (padi domain code lives in padi's process), so a
-// plain export off the built ctx suffices.
+// The kolu surface ctx (`implementSurfacesOnPublisher(...).ctx.kolu`) — exported so
+// the memory sampler (`index.ts`) writes `processMemory` through it. Only
+// kolu-server's own web shell writes koluSurface now (padi domain code lives in
+// padi's process), so a plain export off the built ctx suffices.
 export const koluSurfaceCtx = koluSurfaces.ctx.kolu;
+// The surface runtime's teardown — release its owned sources (the surface-app
+// buildInfo connector). Exported so a graceful kolu-server shutdown owns it; the
+// web shell has no graceful-shutdown caller today (it exits on signal/fatal), so
+// this is latent-but-correct, not dead — see the PR's per-site disposition table.
+export const closeKoluSurface = koluSurfaces.close;
