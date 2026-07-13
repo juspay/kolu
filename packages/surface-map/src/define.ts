@@ -270,14 +270,16 @@ function foldedMembers(
  *  IS the map key). Its wire key is ALWAYS `z.string()` (the canonical encoded
  *  form; see the module doc) — the client reads it (`keys`/`get`) and decodes
  *  through {@link KeyCodec}; the server is the sole writer (membership is
- *  published, not mutated over the wire). The per-entry value is validated
- *  against the map's OWN domain `failure` schema (folded into `entryStatusSchema`). */
-function entriesContract(failureSchema: ZodType): Record<string, unknown> {
+ *  published, not mutated over the wire). Takes the ALREADY-built
+ *  {@link entryStatusSchema} (derived ONCE in {@link defineSurfaceMap}) as the
+ *  per-entry `get` output, so the same instance backs both this contract and
+ *  `entriesSpec.schema` rather than being computed twice. */
+function entriesContract(statusSchema: ZodType): Record<string, unknown> {
   return {
     keys: oc.output(eventIterator(z.array(z.string()))),
     get: oc
       .input(z.object({ key: z.string() }))
-      .output(eventIterator(entryStatusSchema(failureSchema))),
+      .output(eventIterator(statusSchema)),
   };
 }
 
@@ -360,16 +362,20 @@ export function defineSurfaceMap<
 }): SurfaceMap<KS, ES, Failure> {
   const { key: keySchema, entry, codec, failure } = opts;
   const members = foldedMembers(entry.spec);
+  // Build the EntryStatus schema from the map's `failure` ONCE, then thread the SAME
+  // instance to both homes that need it — the `entries.get` contract output and the
+  // `entriesSpec` collection value — rather than deriving the identical schema twice.
+  const statusSchema = entryStatusSchema(failure);
   const contract = oc.router({
     surface: {
       ...members,
-      entries: entriesContract(failure),
+      entries: entriesContract(statusSchema),
     },
   } as unknown as AnyContractRouter) as AnyContractRouter;
 
   const entriesSpec: CollectionSpec<string, EntryStatus<Failure>> = {
     keySchema: z.string(),
-    schema: entryStatusSchema(failure),
+    schema: statusSchema,
     verbs: ["keys", "get"],
   };
 
