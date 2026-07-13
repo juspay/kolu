@@ -35,12 +35,15 @@ Split out of the root because it **constructs `@xterm/xterm` scratch terminals**
 - `defaultScratch` / `isAltBufferActive` — the scratch-terminal factory and the
   alt-buffer read the controller leans on.
 
-## `@kolu/xterm-kit/internals` — the single door to `_core.*`
+## `@kolu/xterm-kit/internals` — the fail-soft door to `_core.*`
 
 Cosmetic reads that **degrade to `null`** when a pinned private symbol moves (a
 render-service probe, a DEC-mode read, per-buffer byte counts, the
-transform-aware pointer→cell mapping) — the opposite philosophy from the core's
-buffer mutations, which **throw**. Both pinned by contract tests.
+transform-aware pointer→cell mapping). It is the *null-guarded* `_core` door; the
+two *fail-loud* reaches — `createMirrorAnchor` (core) and the backfill surgery
+(`/backfill`) — take the **opposite** philosophy and **throw**, because a partial
+buffer mutation corrupts a terminal. All three are pinned by contract tests, and
+a `_core.buffers.normal` rename touches all three in tandem.
 
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
