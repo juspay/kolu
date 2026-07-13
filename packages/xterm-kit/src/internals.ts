@@ -5,10 +5,13 @@
  *  return null (or a null-shaped result) when the shape isn't what we
  *  expect. This is the volatility axis for that shape: when the pinned
  *  `@xterm/xterm` beta bumps and renames a `_core` field, editing stays
- *  confined to two modules — this one (whose consumers degrade to a no-op /
- *  "unknown" probe instead of crashing) and `scrollbackBackfill.ts` (which
- *  reaches the same `_core.buffers.normal.lines` path with the OPPOSITE
- *  failure semantics — see below). A `_core` rename touches both in tandem.
+ *  confined to three modules — this one (whose consumers degrade to a no-op /
+ *  "unknown" probe instead of crashing) and TWO fail-loud siblings that reach
+ *  the same `_core.buffers.normal.lines` path with the OPPOSITE failure
+ *  semantics (see below): `scrollbackBackfill.ts`'s `coreOf` and
+ *  `mirrorAnchor.ts`'s `normalLinesOf` (the daemon-safe one). A
+ *  `_core.buffers.normal` path rename touches all THREE in tandem — this
+ *  module fail-soft, `scrollbackBackfill.ts` + `mirrorAnchor.ts` fail-loud.
  *
  *  Consumers:
  *   - `renderRecovery.ts` uses `renderService`/`readDecPrivateMode` for its
@@ -19,8 +22,13 @@
  *     reach (its `coreOf` THROWS rather than degrading to null, because a
  *     partial prepend corrupts the buffer). It pins its own
  *     `_core.buffers.normal.lines` / `_bufferService._onScroll.fire` shape
- *     with the inverted semantics of this module, so a `_core`
- *     `buffers.normal.lines` path rename must update it alongside this one. */
+ *     with the inverted semantics of this module.
+ *   - `mirrorAnchor.ts` is a THIRD, also FAIL-LOUD `_core` reach — the
+ *     daemon-safe one (its `normalLinesOf` THROWS on a missing
+ *     `_core.buffers.normal.lines` shape, because a poisoned eviction origin
+ *     corrupts absolute scrollback coordinates).
+ *   So a `_core.buffers.normal` path rename must update all THREE in tandem —
+ *   `scrollbackBackfill.ts` and `mirrorAnchor.ts` alongside this one. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 
@@ -138,7 +146,7 @@ const TRANSFORM_EPSILON = 1e-3;
  *  uses `transform-origin: 0 0` (CanvasTile.tsx sets this for `tileTransformCSS`,
  *  documented in canvas/viewport/coordinates.ts); a non-0/0 origin would move
  *  the fixed point and invalidate inverting about `rect.left`/`rect.top`. The
- *  round-trip test in `xtermInternals.test.ts` composes that documented
+ *  round-trip test in `internals.test.ts` composes that documented
  *  scale-about-(0,0) forward map and asserts this inverse recovers the point, so
  *  the two can't silently drift from the `transform-origin: 0 0` contract.
  *

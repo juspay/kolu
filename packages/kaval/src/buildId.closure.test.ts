@@ -73,6 +73,15 @@ const ALLOWED_EXTERNAL = [
   // IS hashed; a contract-compatible spine change must not fire kaval's PTY-costing nudge —
   // the zest incident, see header). So the walk STOPS at it rather than following its edge.
   "@kolu/surface-daemon",
+  // @kolu/xterm-kit is the graduated xterm machinery. kaval consumes ONLY its
+  // runtime-neutral core (the mirror anchor + snapToWrapHead) — a stable leaf here,
+  // NOT a hashed root, by the exact same reasoning as the spine: the anchor's
+  // kaval-relevant behavioral surface (the absolute-line coordinates getHistory
+  // pages by) IS part of PTY_HOST_CONTRACT_VERSION, which lives in kaval and IS
+  // hashed — so a wire-breaking anchor change rides the contract bump, while a
+  // /solid or /backfill change (browser-only, never reached from here) must not fire
+  // kaval's PTY-costing currency nudge. The walk STOPS at it.
+  "@kolu/xterm-kit",
 ];
 
 const isAllowed = (spec: string): boolean =>

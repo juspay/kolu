@@ -12,7 +12,7 @@
  *  (`scrollbackBackfill.test.ts`) — ported from an earlier feasibility spike
  *  (branch `xterm-prepend-spike`, commit `b3cfa37d1`, not in this tree).
  *
- *  ── FAIL LOUD — this leaf deliberately INVERTS its sibling `xtermInternals.ts`.
+ *  ── FAIL LOUD — this leaf deliberately INVERTS its sibling `internals.ts`.
  *  That module degrades to a no-op when a private `_core.*` symbol is missing,
  *  which is right for a cosmetic read (a byte count, a mouse-coord patch). It is
  *  WRONG here: a silent partial prepend corrupts a terminal. The spike
@@ -30,7 +30,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 
 /* ------------------------------------------------------------------ */
 /* The pinned internal shape — the whole reach into xterm privates.   */
-/* The contract-pin tests (scrollbackBackfill.test.ts, and kaval's     */
+/* The contract-pin tests (scrollbackBackfill.test.ts and the headless */
 /* xtermMirrorContract.test.ts) assert every symbol below exists with  */
 /* this shape in both `@xterm/xterm` and `@xterm/headless`.            */
 /* ------------------------------------------------------------------ */
