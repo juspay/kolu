@@ -31,8 +31,8 @@ import {
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
   persistSettledRestoreSnapshot,
-  reconcileRestoreSettlement,
   restoreSession,
+  settleRestoreRespawns,
 } from "./sessionRestore.ts";
 import {
   type ActiveTerminalProcess,
@@ -439,7 +439,7 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
   });
 });
 
-describe("reconcileRestoreSettlement — tree settlement (F2 / F3)", () => {
+describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / F5)", () => {
   const mkRecord = (
     id: string,
     cwd: string,
@@ -476,30 +476,31 @@ describe("reconcileRestoreSettlement — tree settlement (F2 / F3)", () => {
     handle: {} as ActiveTerminalProcess["handle"],
   });
 
-  it("F3 — a pre-ready KILL/SLEEP (typed race error) is NOT re-parked; a genuine spawn failure IS", () => {
+  it("F3 — a pre-ready KILL/SLEEP (typed race error) is NOT re-parked; a genuine spawn failure IS", async () => {
     // A rejected `ready` carries WHY it rejected: `TerminalSpawnRacedError` is a second
     // client's kill/sleep mid-spawn (honor it — never resurrect as a restore card), while a
     // raw RPC error is a genuine infra spawn failure (re-park so the restore card re-offers).
     const killed = mkRecord("11111111-1111-4111-8111-111111111111", "/killed");
     const failed = mkRecord("22222222-2222-4222-8222-222222222222", "/failed");
-    reconcileRestoreSettlement(
-      [
-        { newId: killed.id, record: killed, parentIdMapped: undefined },
-        { newId: failed.id, record: failed, parentIdMapped: undefined },
-      ],
-      [
-        { status: "rejected", reason: new TerminalSpawnRacedError() },
-        {
-          status: "rejected",
-          reason: new Error("pty-host terminal.spawn failed"),
-        },
-      ],
-    );
+    await settleRestoreRespawns([
+      {
+        ready: Promise.reject(new TerminalSpawnRacedError()),
+        newId: killed.id,
+        record: killed,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.reject(new Error("pty-host terminal.spawn failed")),
+        newId: failed.id,
+        record: failed,
+        parentIdMapped: undefined,
+      },
+    ]);
     expect(getTerminal(killed.id)).toBeUndefined();
     expect(getTerminal(failed.id)?.meta.state).toBe("parked");
   });
 
-  it("F2 — a live child under an infra-failed (re-parked) parent is PROMOTED to top-level", () => {
+  it("F2 — a live child under an infra-failed (re-parked) parent is PROMOTED to top-level", async () => {
     // The non-monotonic mixed outcome: the parent respawn rejects for a per-record reason
     // (a removed cwd) while its later-queued child spawn SUCCEEDS. Without the sweep the live
     // child would dangle under the now-parked parent (hidden on the canvas). It is reparented
@@ -511,32 +512,84 @@ describe("reconcileRestoreSettlement — tree settlement (F2 / F3)", () => {
     const CHILD = "44444444-4444-4444-8444-444444444444";
     registerTerminal(CHILD, liveEntry(CHILD, "/p2-child", parent.id));
     const child = mkRecord(CHILD, "/p2-child", parent.id);
-    reconcileRestoreSettlement(
-      [
-        { newId: parent.id, record: parent, parentIdMapped: undefined },
-        { newId: CHILD, record: child, parentIdMapped: parent.id },
-      ],
-      [
-        { status: "rejected", reason: new Error("spawn failed — removed cwd") },
-        { status: "fulfilled", value: undefined },
-      ],
-    );
+    await settleRestoreRespawns([
+      {
+        ready: Promise.reject(new Error("spawn failed — removed cwd")),
+        newId: parent.id,
+        record: parent,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.resolve(),
+        newId: CHILD,
+        record: child,
+        parentIdMapped: parent.id,
+      },
+    ]);
     expect(getTerminal(parent.id)?.meta.state).toBe("parked");
     expect(getTerminal(CHILD)?.meta.state).toBe("active");
     expect(getTerminal(CHILD)?.meta.parentId).toBeUndefined();
   });
 
-  it("F2 — a live child under a still-LIVE parent is left untouched", () => {
+  it("F2 — a live child under a still-LIVE parent is left untouched", async () => {
     const PARENT = "55555555-5555-4555-8555-555555555555";
     const CHILD = "66666666-6666-4666-8666-666666666666";
     registerTerminal(PARENT, liveEntry(PARENT, "/p3-parent"));
     registerTerminal(CHILD, liveEntry(CHILD, "/p3-child", PARENT));
     const child = mkRecord(CHILD, "/p3-child", PARENT);
-    reconcileRestoreSettlement(
-      [{ newId: CHILD, record: child, parentIdMapped: PARENT }],
-      [{ status: "fulfilled", value: undefined }],
-    );
+    await settleRestoreRespawns([
+      {
+        ready: Promise.resolve(),
+        newId: CHILD,
+        record: child,
+        parentIdMapped: PARENT,
+      },
+    ]);
     expect(getTerminal(CHILD)?.meta.parentId).toBe(PARENT);
+  });
+
+  it("F5 — a spawn whose `ready` NEVER settles does not block re-parking a sibling that DID fail", async () => {
+    // The wedged-kaval residual codex sharpened: one respawn's `ready` never settles (socket
+    // open, `spawn` never answered). Because the settlement is per-spawn — NOT an
+    // `await Promise.allSettled` under a held freeze — a SIBLING that genuinely failed is
+    // still re-parked and RETAINED on disk while the wedged spawn hangs, so no live sibling's
+    // persistence is pinned for the process lifetime.
+    const wedged = mkRecord("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", "/wedged");
+    const failed = mkRecord(
+      "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+      "/failed-sib",
+    );
+    setSavedSession({
+      terminals: [wedged, failed],
+      activeTerminalId: wedged.id,
+      savedAt: 1,
+    });
+    // The wedged spawn's `ready` never resolves or rejects — a permanently-pending RPC.
+    const settle = settleRestoreRespawns([
+      {
+        ready: new Promise<void>(() => {}),
+        newId: wedged.id,
+        record: wedged,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.reject(new Error("spawn failed")),
+        newId: failed.id,
+        record: failed,
+        parentIdMapped: undefined,
+      },
+    ]);
+    // Let the failed sibling's rejection microtask chain drain. `settle` itself stays PENDING
+    // forever (the wedged spawn never settles), so we deliberately do NOT await it.
+    await new Promise((r) => setTimeout(r, 0));
+    void settle;
+
+    // The failed sibling was re-parked and its record retained on disk — all WITHOUT the
+    // wedged spawn settling.
+    expect(getTerminal(failed.id)?.meta.state).toBe("parked");
+    expect(
+      getSavedSession()?.terminals.some((t) => t.cwd === "/failed-sib"),
+    ).toBe(true);
   });
 });
 
@@ -555,12 +608,12 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
     handle: {} as ActiveTerminalProcess["handle"],
   });
 
-  it("CLEAN settle — a padi-LOCAL metadata change made during the freeze window is persisted", () => {
-    // The F5 loss: while the restore held the process-wide autosave freeze across the
-    // spawn `await`, a live sibling's `setTerminalTheme` (a padi-local setter — no kaval
-    // RPC) mutated in-memory state and fired `terminals:dirty`, which the freeze
-    // suppressed and the caller's `cancelPendingAutosave` would drop. The pre-await
-    // optimistic snapshot therefore omits it. The post-settle re-persist captures it.
+  it("CLEAN settle — a padi-LOCAL metadata change made during the spawn window is persisted", () => {
+    // The F5 capture: during the spawn window a live sibling's `setTerminalTheme` (a
+    // padi-local setter — no kaval RPC) mutated in-memory state and fired `terminals:dirty`
+    // AFTER the optimistic snapshot was written. The post-settle re-persist folds that
+    // freshest metadata onto disk (and, now that no process-wide freeze is held across the
+    // spawn `await`, the normal autosave gate would ALSO catch it — this pins the merge).
     registerTerminal(LIVE_ID, liveEntry(LIVE_ID, "/f5-live"));
     setSavedSession({
       terminals: [
@@ -590,7 +643,7 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
   });
 
   it("PARKED residue — the re-parked record is RETAINED on disk (CONF-6)", () => {
-    // A spawn FAILED and was re-parked in pass 1. `snapshotSession` skips parked records,
+    // A spawn FAILED and was re-parked as it settled. `snapshotSession` skips parked records,
     // so persisting it ALONE would DELETE the re-parked terminal from disk. Threading the
     // re-parked record back into the merge keeps it named on disk.
     const PARKED_ID = "88888888-8888-4888-8888-888888888888";
