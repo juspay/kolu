@@ -372,8 +372,12 @@ export const koluSurfaceRouter = koluSurfaces.router as {
 // kolu-server's own web shell writes koluSurface now (padi domain code lives in
 // padi's process), so a plain export off the built ctx suffices.
 export const koluSurfaceCtx = koluSurfaces.ctx.kolu;
-// The surface runtime's teardown — release its owned sources (the surface-app
-// buildInfo connector). Exported so a graceful kolu-server shutdown owns it; the
-// web shell has no graceful-shutdown caller today (it exits on signal/fatal), so
-// this is latent-but-correct, not dead — see the PR's per-site disposition table.
-export const closeKoluSurface = koluSurfaces.close;
+// NB: the runtime's `close` is intentionally NOT exported. kolu-server's web-shell
+// runtime is process-lifetime (a module-eval singleton that lives exactly as long
+// as the process), and its graceful shutdown is a SYNCHRONOUS signal handler
+// (`index.ts` → `process.exit(0)`). For a process-lifetime owner, process death IS
+// the teardown; the runtime's only owned source (the surface-app buildInfo
+// connector) is released by process exit. Exporting a `close` nobody calls would be
+// a dead knob, and awaiting it inside the sync signal handler would add a
+// shutdown-hang risk (a parked connector) for zero real benefit. `done` (above) is
+// still observed — the fault channel is what matters here, not teardown.

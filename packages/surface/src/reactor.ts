@@ -315,6 +315,7 @@ export const derived = {
    *  unchanged and a spec-`equals`-equal recompute never crosses the wire. */
   cell<T>(node: GraphNode<T>): DerivedCell<T> {
     let disposeEffect: (() => void) | undefined;
+    let connected = false;
     // ONE idempotent teardown, shared by `connect`'s returned disposer (the
     // runtime's `close()`) and the standalone `dispose()` — so neither can
     // double-dispose the effect + node.
@@ -322,8 +323,13 @@ export const derived = {
     const teardown = (): void => {
       if (torn) return;
       torn = true;
-      disposeEffect?.();
-      node.dispose();
+      // Attempt BOTH the effect disposal and the node disposal even if the first
+      // throws — a failing effect teardown must not strand the backing node.
+      try {
+        disposeEffect?.();
+      } finally {
+        node.dispose();
+      }
     };
 
     return {
@@ -344,6 +350,23 @@ export const derived = {
       },
       [DERIVED_CELL_BRAND]: true,
       connect: (cell) => {
+        // One-shot lifecycle, fail-fast on misuse: a derived cell wires exactly
+        // ONE subscription, and only while it is live. Connecting after teardown
+        // (a standalone `dispose()` ran first) would install an effect whose
+        // returned teardown is a permanent no-op (`torn` is already set) — a
+        // silent leak; connecting twice would strand the first effect. Crash
+        // loudly rather than model either impossible state.
+        if (torn) {
+          throw new Error(
+            "derived cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
+          );
+        }
+        if (connected) {
+          throw new Error(
+            "derived cell: connect() called twice — a derived cell wires exactly one subscription",
+          );
+        }
+        connected = true;
         // The connect seam: an engine effect subscribes the node's level and
         // pushes every change through the ctx setter (the member's write gate).
         // The first synchronous run pushes the seed, which the member's `equals`

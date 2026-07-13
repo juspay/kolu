@@ -117,12 +117,6 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // is simply never watched.
   const controller = new AbortController();
   forwardAbort(opts.signal, controller);
-  // Own the surface runtime's shutdown: release its owned sources when the
-  // daemon tears down (inert today — no cell connectors — but the daemon owns
-  // its runtime's lifetime by construction, not by convention).
-  controller.signal.addEventListener("abort", () => void ptyHost.close(), {
-    once: true,
-  });
   const stopWatch = watchStateRoot({
     dir,
     log,
@@ -140,7 +134,17 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     log,
     signal: controller.signal,
     onReady: opts.onReady,
-  }).finally(stopWatch);
+  }).finally(() => {
+    stopWatch();
+    // Own the surface runtime's shutdown deterministically: once the daemon has
+    // stopped serving, release its owned sources. AWAITING close here (the
+    // `.finally` waits on the returned promise) — rather than a fire-and-forget
+    // `void ptyHost.close()` off an abort listener that an ALREADY-aborted input
+    // signal could register too late to ever fire — makes the release ordered
+    // and unmissable. Inert today (the ptyHost surface declares no cell
+    // connectors), but the daemon owns its runtime's lifetime by construction.
+    return ptyHost.close();
+  });
 }
 
 /** Poll the state-root recorded in the manifest beside kaval's socket; once it

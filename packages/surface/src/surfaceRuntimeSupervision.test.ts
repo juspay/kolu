@@ -22,11 +22,19 @@ import {
   type CellStore,
   type Disposer,
   implementSurface,
+  implementSurfaces,
   inMemoryStore,
 } from "./server";
 
 const oneCell = defineSurface({
   cells: { c: { schema: z.number(), default: 0 } },
+});
+
+const twoCells = defineSurface({
+  cells: {
+    a: { schema: z.number(), default: 0 },
+    b: { schema: z.number(), default: 0 },
+  },
 });
 
 const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
@@ -128,5 +136,108 @@ describe("SurfaceRuntime supervision — done / close", () => {
     const runtime = implementSurface(oneCell, { cells: { c: { store } } });
     await runtime.close();
     await expect(runtime.done).resolves.toBeUndefined();
+  });
+
+  it("a SYNC disposer rejection is an owned teardown fault that reaches done", async () => {
+    const runtime = implementSurface(oneCell, {
+      cells: {
+        c: {
+          store: inMemoryStore(0),
+          connect: (): Disposer => () => {
+            throw new Error("sync dispose boom");
+          },
+        },
+      },
+    });
+    await tick();
+    // close() ALWAYS resolves (never throws), and the disposer fault is routed to done.
+    await expect(runtime.close()).resolves.toBeUndefined();
+    await expect(runtime.done).rejects.toThrow("sync dispose boom");
+  });
+
+  it("an ASYNC disposer rejection is an owned teardown fault that reaches done", async () => {
+    const runtime = implementSurface(oneCell, {
+      cells: {
+        c: {
+          store: inMemoryStore(0),
+          connect: (): Disposer => async () => {
+            await Promise.resolve();
+            throw new Error("async dispose boom");
+          },
+        },
+      },
+    });
+    await tick();
+    await expect(runtime.close()).resolves.toBeUndefined();
+    await expect(runtime.done).rejects.toThrow("async dispose boom");
+  });
+
+  it("close() releases an independent source even while a sibling connector ignores cancellation", async () => {
+    let bDisposed = false;
+    const runtime = implementSurface(twoCells, {
+      cells: {
+        // `a` never settles and never respects abort — the misbehaving source.
+        a: {
+          store: inMemoryStore(0),
+          connect: () => new Promise<void>(() => {}),
+        },
+        // `b` settles immediately and returns a disposer.
+        b: {
+          store: inMemoryStore(0),
+          connect: (): Disposer => () => {
+            bDisposed = true;
+          },
+        },
+      },
+    });
+    await tick();
+    // Do NOT await close() — `a` parks forever, so the whole close never resolves.
+    // But `b`'s teardown must run INDEPENDENTLY, not behind a global barrier that
+    // `a` holds shut.
+    void runtime.close();
+    await tick();
+    await tick();
+    expect(bDisposed).toBe(true);
+  });
+
+  it("transactional construction: an invalid LATER cell never starts an earlier connector (singular)", () => {
+    let started = false;
+    expect(() =>
+      implementSurface(twoCells, {
+        cells: {
+          a: {
+            store: inMemoryStore(0),
+            connect: () => {
+              started = true;
+            },
+          },
+          // `b`'s deps are MISSING → the walk throws AFTER `a` was collected but
+          // BEFORE any connector was started.
+          // biome-ignore lint/suspicious/noExplicitAny: deliberately omitting a required dep to exercise the fail-fast walk.
+        } as any,
+      }),
+    ).toThrow(/missing deps for cell "b"/);
+    expect(started).toBe(false);
+  });
+
+  it("transactional construction: an invalid sibling never starts an earlier sibling's connector (plural)", () => {
+    let started = false;
+    expect(() =>
+      implementSurfaces({ one: oneCell, two: oneCell }, {}, {
+        one: {
+          cells: {
+            c: {
+              store: inMemoryStore(0),
+              connect: () => {
+                started = true;
+              },
+            },
+          },
+        },
+        // `two`'s deps are MISSING → the loop throws after `one` was walked.
+        // biome-ignore lint/suspicious/noExplicitAny: deliberately omitting a sibling's deps to exercise the fail-fast walk.
+      } as any),
+    ).toThrow(/missing deps for surface "two"/);
+    expect(started).toBe(false);
   });
 });

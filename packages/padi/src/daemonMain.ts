@@ -159,6 +159,11 @@ interface SurfacesServed {
   readonly gate: HeldGate;
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` the served fragment narrows to (see `serveDaemonSurfaces`).
   readonly router: Router<any, any>;
+  /** Release the surface runtime's owned sources — the daemon awaits this on
+   *  teardown (and on a boot-step failure) so the runtime's sources are released
+   *  deterministically rather than left to process death. Idempotent; the
+   *  loud-not-fatal `done` disposition is unchanged (close resolves cleanly). */
+  readonly close: () => Promise<void>;
 }
 
 /** The local kaval endpoint has booted (adopt-or-spawn) and the saved session is
@@ -303,7 +308,12 @@ function serveDaemonSurfaces(
   // at the framework seam).
   // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level served router — the same cast every serving site uses.
   const servedRouter = runtime.router as Router<any, any>;
-  return { phase: "served", gate: identity.gate, router: servedRouter };
+  return {
+    phase: "served",
+    gate: identity.gate,
+    router: servedRouter,
+    close: runtime.close,
+  };
 }
 
 /** Boot padi's OWN kaval (adopt-or-spawn under `kaval-<digest>/`), reconcile its live
@@ -421,47 +431,55 @@ export async function runPadiDaemon(
     log,
     lifetime: lifetimeInfo(lifetime),
   });
-  const endpoint = await bootLocalEndpoint(served, {
-    kavalSocket,
-    legacyKavalSocket: opts.legacyKavalSocket,
-  });
+  try {
+    const endpoint = await bootLocalEndpoint(served, {
+      kavalSocket,
+      legacyKavalSocket: opts.legacyKavalSocket,
+    });
 
-  // Samplers + manifests run AFTER the endpoint boot (the `endpoint` token proves it):
-  // they read the held kaval's socket / a connected daemon.
-  // Feed the chrome bar's memory rail: sample padi's OWN RSS + poll its kaval's on a
-  // fixed cadence; a not-yet-connected kaval reads `absent`.
-  startPadiMemorySampler();
-  // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
-  // discovers — written into both padi's and its kaval's runtime dirs.
-  writeStateRootManifest(dirname(socketPath), stateRoot);
-  // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
-  // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
-  // discovery labels the real daemon and no empty digest dir is minted.
-  writeStateRootManifest(
-    dirname(getLocalSocketPath() ?? kavalSocket),
-    stateRoot,
-  );
-  // Feed the Kaval + Padi dialogs' "Running daemons" list — started after the
-  // manifests so the very first tick labels the discovered kaval by state-root. The
-  // serving padi reports ITSELF by construction (see `withSelfPadi`).
-  startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
+    // Samplers + manifests run AFTER the endpoint boot (the `endpoint` token proves it):
+    // they read the held kaval's socket / a connected daemon.
+    // Feed the chrome bar's memory rail: sample padi's OWN RSS + poll its kaval's on a
+    // fixed cadence; a not-yet-connected kaval reads `absent`.
+    startPadiMemorySampler();
+    // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
+    // discovers — written into both padi's and its kaval's runtime dirs.
+    writeStateRootManifest(dirname(socketPath), stateRoot);
+    // Beside the kaval this padi ACTUALLY holds — `getLocalSocketPath()` is the digest
+    // socket normally, but the adopted LEGACY port socket after an upgrade adoption, so
+    // discovery labels the real daemon and no empty digest dir is minted.
+    writeStateRootManifest(
+      dirname(getLocalSocketPath() ?? kavalSocket),
+      stateRoot,
+    );
+    // Feed the Kaval + Padi dialogs' "Running daemons" list — started after the
+    // manifests so the very first tick labels the discovered kaval by state-root. The
+    // serving padi reports ITSELF by construction (see `withSelfPadi`).
+    startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
 
-  return daemonMain({
-    gatePath,
-    socketPath,
-    // The router is the serve phase's output — read it straight off `served` rather
-    // than re-threading it through the endpoint token that neither owns nor touches it.
-    router: served.router,
-    // The same lifetime resolved above (reused, never re-derived) — so the value
-    // seeded into the padiSurface `identity` cell is provably the one governing the
-    // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
-    // forwards the same var into its kaval).
-    lifetime,
-    log,
-    signal: drainController.signal,
-    onReady: opts.onReady,
-    // The gate claimed at the top, threaded through the pipeline — the spine serves
-    // under it and releases it on teardown, rather than acquiring it here (too late).
-    gate: endpoint.gate,
-  });
+    return await daemonMain({
+      gatePath,
+      socketPath,
+      // The router is the serve phase's output — read it straight off `served` rather
+      // than re-threading it through the endpoint token that neither owns nor touches it.
+      router: served.router,
+      // The same lifetime resolved above (reused, never re-derived) — so the value
+      // seeded into the padiSurface `identity` cell is provably the one governing the
+      // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
+      // forwards the same var into its kaval).
+      lifetime,
+      log,
+      signal: drainController.signal,
+      onReady: opts.onReady,
+      // The gate claimed at the top, threaded through the pipeline — the spine serves
+      // under it and releases it on teardown, rather than acquiring it here (too late).
+      gate: endpoint.gate,
+    });
+  } finally {
+    // Own the surface runtime's shutdown: once the daemon has stopped serving (or a
+    // boot step above threw), release its owned sources. Awaited here so the release
+    // is deterministic rather than left to process death; disposition unchanged
+    // (loud-not-fatal — close resolves cleanly and never faults `done`).
+    await served.close();
+  }
 }

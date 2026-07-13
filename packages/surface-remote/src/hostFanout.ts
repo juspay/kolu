@@ -205,6 +205,14 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       try {
         client = await cursor.next(opts.signal);
       } catch (err) {
+        // A supervision `close()` aborts `opts.signal` while the pump is WAITING
+        // for a fresh client (the link is down, no spawn coming) — `cursor.next`
+        // then rejects with the signal's reason. That is a clean, requested stop,
+        // NOT a failure: log it as such and exit quietly.
+        if (opts.signal?.aborted) {
+          log("pump: supervision stop while waiting for next client — exiting");
+          break;
+        }
         log(`pump: waiting for next client failed: ${(err as Error).message}`);
         break;
       }
@@ -254,7 +262,15 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   } finally {
     unsubConnection?.();
   }
-  log("pump: session destroyed — exiting reconnect loop");
+  // The loop exits on EITHER the session's own destruction OR a supervision
+  // `close()` (which aborts `opts.signal` but deliberately PRESERVES the
+  // caller-owned session — #1719). Name which one so a clean supervised stop
+  // never reads as a session teardown that never happened.
+  log(
+    opts.signal?.aborted
+      ? "pump: supervision stop — exiting reconnect loop (session preserved)"
+      : "pump: session destroyed — exiting reconnect loop",
+  );
 }
 
 // ── buildRemotePool — the keyed per-host fan-out ─────────────────────────

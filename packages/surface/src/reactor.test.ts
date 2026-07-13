@@ -382,6 +382,36 @@ describe("derived.cell", () => {
     ).toThrow(/wire-read-only/);
   });
 
+  it("fail-fast: connect() AFTER a standalone dispose() throws (no silent leaked effect)", () => {
+    let emit!: (n: number) => void;
+    const src = source<number>((e) => {
+      emit = e;
+    });
+    void emit;
+    const count = scan(src, 0, (n) => n + 1);
+    const dc = derived.cell(count);
+
+    // Standalone dispose first (a caller that owned its own teardown point) …
+    dc.dispose();
+    // … then a connect() would install an effect whose teardown is a permanent
+    // no-op (the cell is already torn). Crash loudly rather than leak it.
+    expect(() => dc.connect({ set: () => {} })).toThrow(/after dispose/);
+  });
+
+  it("fail-fast: connect() twice throws (a derived cell wires exactly one subscription)", () => {
+    let emit!: (n: number) => void;
+    const src = source<number>((e) => {
+      emit = e;
+    });
+    void emit;
+    const count = scan(src, 0, (n) => n + 1);
+    const dc = derived.cell(count);
+
+    dc.connect({ set: () => {} });
+    expect(() => dc.connect({ set: () => {} })).toThrow(/twice/);
+    dc.dispose();
+  });
+
   it("a non-derived cell with write verbs is unaffected by the narrowing", () => {
     const surface = defineSurface({
       cells: { count: { schema: z.number(), default: 0 } },

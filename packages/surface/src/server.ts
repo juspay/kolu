@@ -855,14 +855,14 @@ export function inMemoryChannel<T>(
  *
  *  ```ts
  *  const publisher = inMemoryPublisher();
- *  implementSurface(surface, {
- *    channel: <T>(name) => publisherChannel<T>(publisher, name),
- *    ...
- *  });
+ *  implementSurfaceOnPublisher(surface, deps, (name) =>
+ *    publisherChannel(publisher, name),
+ *  );
  *  ```
  *
- *  Why this exists: `implementSurface`'s `channel:` dep is called *once
- *  per publish/subscribe site* — the surface owns names like
+ *  Why this exists: the `channel` factory `implementSurfaceOnPublisher`
+ *  takes is called *once per publish/subscribe site* — the surface owns
+ *  names like
  *  `"<key>:changed"` and `"<key>:key:<k>"`. The consumer must return the
  *  *same* `Channel<T>` instance for the same name, or the framework's
  *  publishes go to one channel and the subscribers register on
@@ -908,19 +908,18 @@ export function inMemoryPublisher(channelOpts: InMemoryChannelOptions = {}): {
   };
 }
 
-/** Convenience: one-liner factory for the canonical `channel:` dep
- *  shape `implementSurface` expects, backed by a private
+/** Convenience: one-liner factory for the canonical `channel` factory
+ *  {@link implementSurfaceOnPublisher} takes, backed by a private
  *  `inMemoryPublisher`. Hides the two-step
- *  `const publisher = inMemoryPublisher(); channel: (name) =>
- *  publisherChannel(publisher, name)` cassette that every in-process
- *  consumer was repeating verbatim. Same semantics: one channel
- *  instance per name, shared by every call.
+ *  `const publisher = inMemoryPublisher(); (name) =>
+ *  publisherChannel(publisher, name)` cassette. This IS what the ordinary
+ *  {@link implementSurface} owns internally, so pass it EXPLICITLY only to
+ *  `implementSurfaceOnPublisher` — i.e. when the factory must be SHARED with
+ *  another concern (the cell fold in `reServeSurface`, a cross-cell publish):
  *
  *  ```ts
- *  implementSurface(surface, {
- *    channel: inMemoryChannelByName(),
- *    cells: { ... },
- *  });
+ *  const channel = inMemoryChannelByName();
+ *  implementSurfaceOnPublisher(surface, deps, channel);
  *  ```
  *
  *  Use `inMemoryPublisher` + `publisherChannel` directly when you
@@ -1415,16 +1414,26 @@ interface SurfaceSource {
   dispose(): Promise<void>;
 }
 
+/** A deferred connector START — a thunk the walk collects but does NOT invoke.
+ *  Construction is transactional: the walk validates EVERY member (and the caller
+ *  builds the final router) BEFORE any thunk runs, so a later missing dep or a
+ *  router-assembly throw can never leave an earlier connector already spun up with
+ *  no abort owner / no fault observer. Invoking the thunk starts the connector and
+ *  returns its supervised {@link SurfaceSource}. */
+type SurfaceSourceStart = () => SurfaceSource;
+
 /** Wire a set of owned sources into the `done` / `close` supervision contract.
  *
  *  - `done` rejects the instant ANY source faults before `close` (an owned
  *    fault reaches `done` rather than floating as an unhandled rejection), and
  *    resolves once a clean `close` has torn everything down.
  *  - `close` is idempotent and always resolves (teardown is harmless to repeat):
- *    it aborts every source FIRST, then awaits each settle (so a still-parked
- *    source's rejection is observed, never abandoned — #1719), then runs the
- *    disposers. A fault seen during teardown is routed to `done`, not thrown
- *    from `close`. */
+ *    it aborts every source FIRST, then runs each source's settle-then-dispose
+ *    sequence INDEPENDENTLY and concurrently (so a still-parked source's
+ *    rejection is observed, never abandoned — #1719, and a parked source blocks
+ *    only its own dispose, never a sibling's release). A fault seen during
+ *    teardown — a settle rejection OR a disposer rejection — is routed to
+ *    `done`, not thrown from `close`. */
 function superviseSurface(sources: SurfaceSource[]): {
   done: Promise<void>;
   close: () => Promise<void>;
@@ -1453,10 +1462,31 @@ function superviseSurface(sources: SurfaceSource[]): {
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
+      // Abort every source FIRST, then run each source's own
+      // settle-then-dispose sequence INDEPENDENTLY (not behind a global
+      // settlement barrier): a source that ignores cancellation blocks only its
+      // OWN dispose, never a sibling's resource release. Each sequence still
+      // observes the settle before disposing (#1719 abort-then-observe), and
+      // BOTH a settle fault AND a dispose fault are OWNED teardown faults that
+      // must reach `done` — so the per-source task rethrows whichever it saw
+      // (the settle fault first, as the earlier root cause).
       for (const s of sources) s.abort();
-      const settles = await Promise.allSettled(sources.map((s) => s.settled));
-      await Promise.allSettled(sources.map((s) => s.dispose()));
-      const fault = settles.find(
+      const outcomes = await Promise.allSettled(
+        sources.map(async (s) => {
+          let settleFault: { reason: unknown } | undefined;
+          try {
+            await s.settled;
+          } catch (err) {
+            settleFault = { reason: err };
+          }
+          // Always release the source's held resources, even if its settle
+          // faulted — a fault must not strand a disposer. A dispose rejection
+          // propagates out of this task (an owned teardown fault → `done`).
+          await s.dispose();
+          if (settleFault) throw settleFault.reason;
+        }),
+      );
+      const fault = outcomes.find(
         (r): r is PromiseRejectedResult => r.status === "rejected",
       );
       if (fault) sealReject(fault.reason);
@@ -1551,16 +1581,19 @@ function walkSurface<const S extends SurfaceSpec>(
 ): {
   namespaces: Record<string, Record<string, unknown>>;
   ctx: SurfaceCtx<S>;
-  sources: SurfaceSource[];
+  starts: SurfaceSourceStart[];
 } {
   const spec = surface.spec;
 
   const cellsCtx: Record<string, unknown> = {};
   const collectionsCtx: Record<string, unknown> = {};
   const namespaces: Record<string, Record<string, unknown>> = {};
-  // Owned async sources spun up by this surface (today: cell connectors). The
-  // returned runtime supervises them via `done` / `close`.
-  const sources: SurfaceSource[] = [];
+  // Deferred STARTS for the owned async sources this surface declares (today:
+  // cell connectors). Collected here but NOT invoked — the caller starts them
+  // only after the whole surface (and, for a sibling map, every sibling + the
+  // final router) validates, so construction is transactional. The returned
+  // runtime supervises the started sources via `done` / `close`.
+  const starts: SurfaceSourceStart[] = [];
 
   // ── Cells ────────────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -1576,7 +1609,10 @@ function walkSurface<const S extends SurfaceSpec>(
           onWrite?: (next: unknown) => void;
           forward?: CellForward<unknown, unknown>;
           hasSnapshot?: () => boolean;
-          connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
+          // The connector's ONE source of truth — a full `CellConnector`
+          // (abort signal + optional `Disposer`), not a re-declared narrower
+          // shape that a later cast would have to correct.
+          connect?: CellConnector<unknown>;
         }
       | undefined;
     if (!cellDeps) {
@@ -1720,35 +1756,42 @@ function walkSurface<const S extends SurfaceSpec>(
     // abort signal and MAY return a disposer, and its settle is tracked so a
     // fault reaches the runtime's `done` (never floats) and `close` aborts +
     // disposes it. A `void`-returning connector keeps working unchanged.
-    const cd = cellDeps as { connect?: CellConnector<unknown> };
-    if (cd.connect) {
-      const connect = cd.connect;
-      const ctl = new AbortController();
-      let disposer: Disposer | undefined;
-      const settled = (async () => {
-        try {
-          const d = await connect(writeArm, { signal: ctl.signal });
-          if (typeof d === "function") disposer = d;
-        } catch (err) {
-          // A rejection CAUSED by our own abort — `close()` aborted the signal
-          // and a signal-respecting connector cooperatively rejected with
-          // `signal.reason` (`await fetch({ signal })`, the package's own
-          // `Channel.subscribe`, etc.) — is expected end-of-life noise, NOT an
-          // owned fault. Swallow it through the canonical `isAbortReason` (the
-          // same rule `iterateUntilAborted` / `deriveCell` use) so a clean
-          // close resolves `done` (#1719). A GENUINE (non-abort) rejection —
-          // the connector faulting on its own — still propagates and reaches
-          // `done`.
-          if (isAbortReason(err, ctl.signal)) return;
-          throw err;
-        }
-      })();
-      sources.push({
-        abort: () => ctl.abort(),
-        settled,
-        dispose: async () => {
-          await disposer?.();
-        },
+    if (cellDeps.connect) {
+      const connect = cellDeps.connect;
+      // DEFER the start: collect a thunk rather than firing the connector here,
+      // so an invalid LATER member (or a router-assembly throw upstream) can
+      // never leave this connector spun up with no abort owner / no fault
+      // observer. The caller invokes the thunk only after the whole surface —
+      // and, for a sibling map, every sibling plus the final router — has
+      // validated.
+      starts.push(() => {
+        const ctl = new AbortController();
+        let disposer: Disposer | undefined;
+        const settled = (async () => {
+          try {
+            const d = await connect(writeArm, { signal: ctl.signal });
+            if (typeof d === "function") disposer = d;
+          } catch (err) {
+            // A rejection CAUSED by our own abort — `close()` aborted the signal
+            // and a signal-respecting connector cooperatively rejected with
+            // `signal.reason` (`await fetch({ signal })`, the package's own
+            // `Channel.subscribe`, etc.) — is expected end-of-life noise, NOT an
+            // owned fault. Swallow it through the canonical `isAbortReason` (the
+            // same rule `iterateUntilAborted` / `deriveCell` use) so a clean
+            // close resolves `done` (#1719). A GENUINE (non-abort) rejection —
+            // the connector faulting on its own — still propagates and reaches
+            // `done`.
+            if (isAbortReason(err, ctl.signal)) return;
+            throw err;
+          }
+        })();
+        return {
+          abort: () => ctl.abort(),
+          settled,
+          dispose: async () => {
+            await disposer?.();
+          },
+        };
       });
     }
 
@@ -2069,7 +2112,7 @@ function walkSurface<const S extends SurfaceSpec>(
     ),
   };
 
-  return { namespaces, ctx: ctx as SurfaceCtx<S>, sources };
+  return { namespaces, ctx: ctx as SurfaceCtx<S>, starts };
 }
 
 /** Build a directly-servable, supervised {@link SurfaceRuntime} from a surface +
@@ -2138,24 +2181,24 @@ export function implementSurfaceOnPublisher<const S extends SurfaceSpec>(
   // call-site safety.
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
   const t = implement(surface.contract as any) as any;
-  const { namespaces, ctx, sources } = walkSurface(
+  const { namespaces, ctx, starts } = walkSurface(
     t.surface,
     surface,
     { ...deps, channel },
     opts?.identity,
   );
+  // The FINAL top-level router: `implement(contract).router({ ...fragment })`
+  // flattens the bare `{ surface: t.router(namespaces) }` fragment (which
+  // would double-prefix to `/surface/surface/…`) to `/surface/…`. No consumer
+  // re-finalizes the surface via oRPC `implement` anymore.
+  // biome-ignore lint/suspicious/noExplicitAny: Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
+  const router = t.router({ surface: t.router(namespaces) }) as any;
+  // Transactional construction: only NOW — after the walk validated every member
+  // and the router assembled without throwing — do we start the connectors. A
+  // throw above returns before any source spins up, so none can be orphaned.
+  const sources = starts.map((start) => start());
   const { done, close } = superviseSurface(sources);
-  return {
-    // The FINAL top-level router: `implement(contract).router({ ...fragment })`
-    // flattens the bare `{ surface: t.router(namespaces) }` fragment (which
-    // would double-prefix to `/surface/surface/…`) to `/surface/…`. No consumer
-    // re-finalizes the surface via oRPC `implement` anymore.
-    // biome-ignore lint/suspicious/noExplicitAny: Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-    router: t.router({ surface: t.router(namespaces) }) as any,
-    ctx,
-    done,
-    close,
-  };
+  return { router, ctx, done, close };
 }
 
 // ── implementSurfaces — sibling surfaces over one transport ─────────────
@@ -2254,7 +2297,7 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
 
   const byKey: Record<string, Record<string, Record<string, unknown>>> = {};
   const ctxByKey: Record<string, unknown> = {};
-  const sources: SurfaceSource[] = [];
+  const starts: SurfaceSourceStart[] = [];
   for (const [key, surface] of Object.entries(surfaces)) {
     const keyedChannel = <T>(name: string): Channel<T> =>
       base.channel<T>(`${key}/${name}`);
@@ -2277,15 +2320,21 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
     );
     byKey[key] = walked.namespaces;
     ctxByKey[key] = walked.ctx;
-    sources.push(...walked.sources);
+    starts.push(...walked.starts);
   }
 
+  // FINAL top-level router (see `implementSurface` — the outer `t.router`
+  // flattens the `{ surface: … }` fragment to `/surface/<key>/…`).
+  // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
+  const router = t.router({ surface: t.router(byKey) }) as any;
+  // Transactional construction across the WHOLE map: every sibling has been
+  // walked (an invalid one threw above) and the combined router assembled, so
+  // starting the connectors now can never orphan a source spun up for an
+  // earlier sibling when a later sibling fails to validate.
+  const sources = starts.map((start) => start());
   const { done, close } = superviseSurface(sources);
   return {
-    // FINAL top-level router (see `implementSurface` — the outer `t.router`
-    // flattens the `{ surface: … }` fragment to `/surface/<key>/…`).
-    // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-    router: t.router({ surface: t.router(byKey) }) as any,
+    router,
     ctx: ctxByKey as SurfacesCtx<S>,
     done,
     close,

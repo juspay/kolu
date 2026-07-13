@@ -381,6 +381,45 @@ describe("projectSurface — surface B derived from a client of surface A", () =
     expect(() => derived.dispose()).not.toThrow();
   });
 
+  it("connect()'s disposer aborts AND awaits the upstream generator's async teardown (F3)", async () => {
+    let finallyDone = false;
+    const upstream = async (opts: {
+      signal?: AbortSignal;
+    }): Promise<AsyncIterable<number>> => ({
+      async *[Symbol.asyncIterator]() {
+        try {
+          yield 1;
+          // Park until the disposer aborts us.
+          await new Promise<void>((resolve) =>
+            opts.signal?.addEventListener("abort", () => resolve(), {
+              once: true,
+            }),
+          );
+        } finally {
+          // Async teardown work — `close()` (via the disposer) must WAIT for this,
+          // rather than resolving the instant it fires abort (#1719).
+          await new Promise((r) => setTimeout(r, 20));
+          finallyDone = true;
+        }
+      },
+    });
+
+    const seen: number[] = [];
+    const derived = deriveCell(upstream, (n) => n, 0);
+    const disposer = derived.connect({
+      set: (v) => seen.push(v),
+    }) as () => Promise<void>;
+    await vi.waitFor(() => expect(seen).toEqual([1]));
+
+    const p = disposer();
+    // The disposer's promise is still pending — the generator's async finally
+    // has not finished, so a runtime `close()` awaiting this would not yet resolve.
+    expect(finallyDone).toBe(false);
+    await p;
+    // Only after awaiting the disposer is the upstream fully torn down.
+    expect(finallyDone).toBe(true);
+  });
+
   it("deriveCell routes a non-abort upstream failure to onError, not the void (F8)", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => {
