@@ -218,16 +218,30 @@ export function serveHostMap<
         fire();
       } catch (err) {
         // d3 — `fire()` drives the map's republish over EVERY member (resolve →
-        // projectState → linkFor → belt). A throw for ONE member must NOT propagate out of
-        // this `onState` consumer: that would end its consume loop and FREEZE `EntryStatus`
-        // at its last value while the SIBLING connection-cell consumer keeps advancing — the
-        // green-chip-frozen / "Building forever" divergence. Surface it LOUDLY and keep
-        // consuming (never one-projection-dead); `latestState` is already updated, so the
-        // next frame republishes.
-        console.error(
-          `[serveHostMap] entries republish threw for member ${enc}; status stream kept alive:`,
-          err,
-        );
+        // projectState → linkFor → belt). Every throw that can escape it is an
+        // INVARIANT / producer defect, never a recoverable per-member condition: an
+        // unclassified terminal failure (`UnclassifiedHostFailureError`), a member with
+        // no session (`UnclassifiedHostSessionError`), or a non-provisioning session that
+        // reached "copying" (the belt). Two things must both hold, and they are
+        // compatible. (1) The throw must NOT propagate synchronously out of THIS `onState`
+        // consumer: that would tear down its consume loop mid-fire — the WRONG member for a
+        // sibling's defect — freezing this member's `EntryStatus` while the sibling
+        // connection-cell consumer advances (the green-chip-frozen / "Building forever"
+        // divergence). So we catch, letting this frame's loop finish with `latestState`
+        // already updated. (2) The defect must still FAIL LOUD — a `console.error` a server
+        // never watches, while health and publication continue, is the exact
+        // silently-degrading fallback the design philosophy forbids. So we RETHROW
+        // out-of-band on the next microtask: the invariant crashes the process (uncaught)
+        // instead of collapsing to stale-but-healthy. The two are not in tension — the
+        // synchronous loop survives the frame; the crash lands right after it.
+        queueMicrotask(() => {
+          throw new Error(
+            `[serveHostMap] entries republish threw for member ${enc} — an ` +
+              "invariant/producer defect; failing loud rather than degrading to a stale " +
+              "status stream",
+            { cause: err },
+          );
+        });
       }
     });
     stateSubs.set(enc, off);

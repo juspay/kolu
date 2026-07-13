@@ -90,7 +90,12 @@ verdict, never a fabrication) and a schema-valid domain `Failure` for a standing
 terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFailureError`
 (a failed entry cannot exist without a domain failure); the distinct member-with-no-session
 (unknown-host) race fails loud with `UnclassifiedHostSessionError`. There is no `"other"`
-fallback cause. Together they are the server half
+fallback cause. These are genuine producer defects, so they **crash the process** even when
+raised deep in the internal per-member republish: the loop catches synchronously (so one
+member's defect never freezes a sibling's status stream mid-frame) and then rethrows
+out-of-band on the next microtask, an uncaught exception — never a swallowed
+`console.error` that would let the server degrade to a stale-but-healthy status. Together
+they are the server half
 of a host map — see
 [How to serve a map](/surface/serve-a-map).
 
