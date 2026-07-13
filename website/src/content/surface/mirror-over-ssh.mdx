@@ -50,9 +50,10 @@ reconnect. When the mirrored surface carries `connection`, pass the pump a
 
 ## 3. Re-serve the same contract locally
 
-Flatten the fragment into a top-level router. A `directLink` over it is the
-in-process consumer; a browser reaches the same router over a WebSocket, with the
-app layer's `acceptSurfaceSocket` gating each upgrade (see
+The mirror runtime's `.router` is already the FINAL top-level router — serve it
+directly, no flatten. A `directLink` over it is the in-process consumer; a
+browser reaches the same router over a WebSocket, with the app layer's
+`acceptSurfaceSocket` gating each upgrade (see
 [@kolu/surface-app](/surface/ref-surface-app)). The browser now consumes the
 local copy exactly as if the agent were in-process.
 

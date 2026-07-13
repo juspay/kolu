@@ -1386,7 +1386,14 @@ export type Disposer = () => void | Promise<void>;
  *  wiring a cell. It receives the cell's private setter and an abort signal, and
  *  MAY return a {@link Disposer} (sync or async). The `void` arm is load-bearing,
  *  not confusing — a `void`-returning `async` connector produces `Promise<void>`,
- *  which the async arm must accept. */
+ *  which the async arm must accept.
+ *
+ *  Cancellation: `close()` aborts the signal. A connector that awaits abortable
+ *  work with it (`await fetch(url, { signal })`, the package's own
+ *  `Channel.subscribe`, …) and rejects with the signal's reason is treated as a
+ *  clean cancellation — that abort-caused rejection is swallowed, not an owned
+ *  fault, so a clean close resolves `done`. A GENUINE (non-abort) rejection is an
+ *  owned fault and reaches `done`. */
 export type CellConnector<T> = (
   cell: { set: (next: T) => void },
   opts: { signal: AbortSignal },
@@ -1715,8 +1722,22 @@ function walkSurface<const S extends SurfaceSpec>(
       const ctl = new AbortController();
       let disposer: Disposer | undefined;
       const settled = (async () => {
-        const d = await connect(writeArm, { signal: ctl.signal });
-        if (typeof d === "function") disposer = d;
+        try {
+          const d = await connect(writeArm, { signal: ctl.signal });
+          if (typeof d === "function") disposer = d;
+        } catch (err) {
+          // A rejection CAUSED by our own abort — `close()` aborted the signal
+          // and a signal-respecting connector cooperatively rejected with
+          // `signal.reason` (`await fetch({ signal })`, the package's own
+          // `Channel.subscribe`, etc.) — is expected end-of-life noise, NOT an
+          // owned fault. Swallow it through the canonical `isAbortReason` (the
+          // same rule `iterateUntilAborted` / `deriveCell` use) so a clean
+          // close resolves `done` (#1719). A GENUINE (non-abort) rejection —
+          // the connector faulting on its own — still propagates and reaches
+          // `done`.
+          if (isAbortReason(err, ctl.signal)) return;
+          throw err;
+        }
       })();
       sources.push({
         abort: () => ctl.abort(),

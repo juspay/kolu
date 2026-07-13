@@ -97,6 +97,32 @@ describe("SurfaceRuntime supervision — done / close", () => {
     await expect(runtime.done).resolves.toBeUndefined();
   });
 
+  it("a connector rejecting with the abort reason on close() is a CLEAN cancellation, not a fault", async () => {
+    const store: CellStore<number> = inMemoryStore(0);
+    const runtime = implementSurface(oneCell, {
+      cells: {
+        c: {
+          store,
+          // The idiomatic signal-respecting shape (`await fetch({ signal })`,
+          // the package's own Channel.subscribe): park on abortable work and
+          // reject with the signal's reason when close() aborts.
+          connect: (_cell, { signal }) =>
+            new Promise<void>((_resolve, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason), {
+                once: true,
+              });
+            }),
+        },
+      },
+    });
+    await tick();
+    await runtime.close();
+    // The abort-caused rejection is swallowed (isAbortReason) — the framework
+    // aborted the signal itself, so its cooperative rejection is teardown noise,
+    // not an owned fault. A clean close resolves done (#1719).
+    await expect(runtime.done).resolves.toBeUndefined();
+  });
+
   it("a connector-less surface resolves done on close", async () => {
     const store: CellStore<number> = inMemoryStore(0);
     const runtime = implementSurface(oneCell, { cells: { c: { store } } });
