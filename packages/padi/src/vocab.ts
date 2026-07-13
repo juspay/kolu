@@ -354,40 +354,48 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
   SleepingTerminalSchema,
 ]);
 
-/** Initial metadata supplied at create time — the SHARED shape for two callers:
- *  the CLIENT-facing `lifecycle.create` (genuinely fresh terminal) and the internal
- *  `restoreSession` respawn. Seeded onto the new terminal's `meta` before the first
- *  `terminal.list` yield, so session restore can't race the canvas default-cascade
- *  effect (#642).
- *
- *  Most fields are client-owned chrome (theme / layout / panels / intent). THREE are
- *  server-derived authored facts a fresh create has no business setting —
- *  `lastActivityAt`, `lastAgentCommand`, and the fold-derived `restoreTarget` — but
- *  session RESTORE is the one path with truth about their prior value (read from the
- *  saved blob), so the shape carries them for restore's sake. `lastActivityAt` keeps
- *  recency ordering stable across restart (without it `createMetadata` would reset
- *  every restored terminal to `0`); `lastAgentCommand` + `restoreTarget` bridge the
- *  agent-resume window (see their field doc). The client-facing `PadiCreateInputSchema`
- *  OMITS all three — a fresh terminal earns them from padi's own observation. */
-export const InitialTerminalMetadataSchema = z.object({
+/** The BASE create input — the client-owned chrome every ORDINARY create carries,
+ *  and the exact shape the wire `lifecycle.create` accepts (`PadiCreateInputSchema`
+ *  derives from this directly). Seeded onto the new terminal's `meta` before the first
+ *  `terminal.list` yield, so a create can't race the canvas default-cascade effect
+ *  (#642). It carries NO server-derived authored facts — a fresh terminal earns those
+ *  from padi's own observation. Those three restore-only facts live in a SEPARATE
+ *  shape below that only the restore path can spell (the type is the fence, not a
+ *  convention). */
+export const CreateTerminalInputSchema = z.object({
   themeName: z.string().min(1).optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
   subPanel: SubPanelStateSchema.optional(),
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
-  lastActivityAt: z.number().optional(),
   intent: z.string().min(1).optional(),
-  /** The remembered launch line + the fold-derived resume target — server-derived
-   *  authored facts, but (like `lastActivityAt`) session restore is the one path with
-   *  truth about their prior value, read from the saved blob. Threading them onto the
-   *  respawned terminal keeps the restore-time re-persist (`restoreSession`'s closing
-   *  `saveSession(snapshotSession())`) from writing `none` over a resuming agent's id
-   *  before the fold re-derives it — so a SECOND unclean death right after restore, or
-   *  a resume that never lands, still finds the target on disk. The client-facing
-   *  `lifecycle.create` drops both (a genuinely fresh terminal has no agent to
-   *  resume). */
+});
+
+/** The three server-derived authored facts a fresh create has NO business setting —
+ *  `lastActivityAt`, `lastAgentCommand`, and the fold-derived `restoreTarget`. Session
+ *  RESTORE is the one path with truth about their prior value (read from the saved
+ *  blob), so ONLY `restoreSpawn` (terminals.ts) threads them, through its distinct
+ *  `restoreOnly` parameter — an ordinary `createTerminal` can't name this shape at all.
+ *
+ *  `lastActivityAt` keeps recency ordering stable across a restart (without it a
+ *  restored terminal resets to `0`). `lastAgentCommand` + `restoreTarget` bridge the
+ *  agent-resume window: threading them onto the respawned terminal keeps restore's
+ *  closing re-persist (`restoreSession`'s `saveSession(snapshotSession())`) from
+ *  writing `none` over a resuming agent's id before the fold re-derives it — so a
+ *  SECOND unclean death right after restore, or a resume that never lands, still finds
+ *  the target on disk. */
+export const RestoreOnlyMetadataSchema = z.object({
+  lastActivityAt: z.number().optional(),
   lastAgentCommand: z.string().optional(),
   restoreTarget: RestoreTargetSchema.optional(),
 });
+
+/** The FULL seed shape spawnPty accepts — the base chrome plus the restore-only facts.
+ *  It is only ever CONSTRUCTED by the two constructors in terminals.ts (`createTerminal`
+ *  passes just the base; `restoreSpawn` merges in `restoreOnly`), never spelled by an
+ *  ordinary caller and never accepted at the wire. */
+export const InitialTerminalMetadataSchema = CreateTerminalInputSchema.merge(
+  RestoreOnlyMetadataSchema,
+);
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
@@ -493,6 +501,10 @@ export const SavedSessionSchema = z.object({
 export type TerminalClientMetadata = z.infer<
   typeof TerminalClientMetadataSchema
 >;
+/** The base create input — what every ordinary caller and the wire spell. */
+export type CreateTerminalInput = z.infer<typeof CreateTerminalInputSchema>;
+/** The three restore-only facts — only `restoreSpawn` (from the saved blob) spells them. */
+export type RestoreOnlyMetadata = z.infer<typeof RestoreOnlyMetadataSchema>;
 export type InitialTerminalMetadata = z.infer<
   typeof InitialTerminalMetadataSchema
 >;

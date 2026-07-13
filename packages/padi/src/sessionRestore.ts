@@ -36,8 +36,8 @@ import {
   TerminalSpawnRacedError,
 } from "./terminalEndpoint/local.ts";
 import {
-  createTerminal,
   restoreActiveTerminalId,
+  restoreSpawn,
   setTerminalParent,
   snapshotSession,
 } from "./terminals.ts";
@@ -75,36 +75,45 @@ function respawnActive(
     // Already restored to a live PTY (a repeat restore after the flip) — skip.
     return null;
   }
-  const info = createTerminal(t.cwd, parentId, {
-    themeName: t.themeName,
-    canvasLayout: t.canvasLayout,
-    subPanel: t.subPanel,
-    rightPanel: t.rightPanel,
-    intent: t.intent,
-    // Carry the saved agent-resume facts onto the fresh terminal ONLY when actually
-    // resuming, so the closing `saveSession(snapshotSession())` re-persists the EXACT
-    // target, not `none` (the fold's `updateMemory` re-derives both live once the
-    // resumed agent is re-observed; until then the saved value stands — a resume that
-    // never lands, or a second unclean death right after restore, still finds the target
-    // on disk). An OPTED-OUT terminal (`resume` false) spawns a genuine bare shell: it
-    // has no agent to re-observe, so the fold would NEVER clear a seeded `exact` (its
-    // `restoreTargetOf` is already `none`, so `updateMemory` never fires to overwrite the
-    // seed) — the exact target would persist and a later WAKE would resume the very agent
-    // the user declined. So drop both, leaving the bare shell's target at `none`.
-    lastAgentCommand: resume ? t.lastAgentCommand : undefined,
-    restoreTarget: resume ? t.restoreTarget : undefined,
-    // Preserve the saved recency across the restart (RISK Q6) — without this the
-    // fold reseeds the restored terminal to a fresh (never-active) recency and
-    // the dock's recency ranking permanently collapses after a `session.restore`.
-    // The parked record already copied this off the saved active record at park
-    // time; here it rides the fresh spawn. (Distinct from the client-facing
-    // `lifecycle.create`, which drops it so a genuinely fresh terminal gets
-    // padi's clock.) `?? undefined` bridges `AgentMemory`'s honest `null`
-    // (never-active) onto this input's `undefined` absence form — both fall
-    // through to the SAME `seedMemory()` default, so the bridge can't lose the
-    // never-active fact, only its spelling.
-    lastActivityAt: t.lastActivityAt ?? undefined,
-  });
+  // `restoreSpawn` — the ONE constructor that may seed the server-derived authored
+  // facts, through its distinct `restoreOnly` arm (an ordinary `createTerminal` can't
+  // spell them). Base chrome rides `initial`; the three restore-only facts ride
+  // `restoreOnly`.
+  const info = restoreSpawn(
+    t.cwd,
+    parentId,
+    {
+      themeName: t.themeName,
+      canvasLayout: t.canvasLayout,
+      subPanel: t.subPanel,
+      rightPanel: t.rightPanel,
+      intent: t.intent,
+    },
+    {
+      // Carry the saved agent-resume facts ONLY when actually resuming, so the closing
+      // `saveSession(snapshotSession())` re-persists the EXACT target, not `none` (the
+      // fold's `updateMemory` re-derives both live once the resumed agent is re-observed;
+      // until then the saved value stands — a resume that never lands, or a second unclean
+      // death right after restore, still finds the target on disk). An OPTED-OUT terminal
+      // (`resume` false) spawns a genuine bare shell: it has no agent to re-observe, so the
+      // fold would NEVER clear a seeded `exact` (its `restoreTargetOf` is already `none`, so
+      // `updateMemory` never fires to overwrite the seed) — the exact target would persist
+      // and a later WAKE would resume the very agent the user declined. So drop both,
+      // leaving the bare shell's target at `none`.
+      lastAgentCommand: resume ? t.lastAgentCommand : undefined,
+      restoreTarget: resume ? t.restoreTarget : undefined,
+      // Preserve the saved recency across the restart (RISK Q6) — without this the fold
+      // reseeds the restored terminal to a fresh (never-active) recency and the dock's
+      // recency ranking permanently collapses after a `session.restore`. The parked record
+      // already copied this off the saved active record at park time; here it rides the
+      // fresh spawn. (Distinct from the client-facing `lifecycle.create`, which drops it so
+      // a genuinely fresh terminal gets padi's clock.) `?? undefined` bridges `AgentMemory`'s
+      // honest `null` (never-active) onto this input's `undefined` absence form — both fall
+      // through to the SAME `seedMemory()` default, so the bridge can't lose the never-active
+      // fact, only its spelling.
+      lastActivityAt: t.lastActivityAt ?? undefined,
+    },
+  );
   // Auto-launch the resume form of the previously captured agent command, if the
   // user didn't opt out. `resumeFormFor` switches on the fold-derived
   // `restoreTarget` (the SAME composition the wake path feeds a fresh spawn, so
