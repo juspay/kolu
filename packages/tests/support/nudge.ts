@@ -60,10 +60,9 @@ export function nudgeFiles(paths: ReadonlyArray<string | undefined>): void {
  *  swallowed — the caller's poll loop retries on the next tick. */
 export function nudgeDir(dir: string | undefined): void {
   if (!dir) return;
-  const probe = path.join(dir, `.kolu-nudge-${process.pid}`);
   try {
-    fs.writeFileSync(probe, "");
-    fs.rmSync(probe, { force: true });
+    const probe = fs.mkdtempSync(path.join(dir, ".kolu-nudge-"));
+    fs.rmSync(probe, { recursive: true });
   } catch {
     // Dir may not exist yet or be mid-cleanup — fine; poll loop retries.
   }

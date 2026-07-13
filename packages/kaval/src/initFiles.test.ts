@@ -5,7 +5,7 @@
  * the containment guard that a name can't escape `rcDir`.
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -29,6 +29,16 @@ describe("writeInitFiles / removeInitFiles", () => {
     ]);
     expect(readFileSync(String(flat), "utf8")).toBe("export A=1");
     expect(readFileSync(String(nested), "utf8")).toBe("export B=2");
+    expect(statSync(String(flat)).mode & 0o777).toBe(0o600);
+  });
+
+  it("refuses to replace a pre-existing init file", () => {
+    const rcDir = freshRcDir();
+    writeInitFiles(rcDir, [{ name: "bashrc-T1", content: "original" }]);
+    expect(() =>
+      writeInitFiles(rcDir, [{ name: "bashrc-T1", content: "replacement" }]),
+    ).toThrow();
+    expect(readFileSync(join(rcDir, "bashrc-T1"), "utf8")).toBe("original");
   });
 
   it("removes the files and prunes the empty parent dir it created, up to rcDir", () => {

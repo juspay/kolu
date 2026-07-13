@@ -44,7 +44,10 @@ export function writeInitFiles(
   try {
     for (const { path, content } of planned) {
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, content);
+      // These files can contain shell setup and environment values. Create them
+      // atomically and owner-only; an existing path is a collision, not a file
+      // we are allowed to replace.
+      writeFileSync(path, content, { flag: "wx", mode: 0o600 });
       written.push(path);
     }
   } catch (err) {
