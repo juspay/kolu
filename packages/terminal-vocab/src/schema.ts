@@ -205,10 +205,14 @@ export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
 
 /** The async resolution of the agent field made LAWFUL. The session file lands a
  *  beat after the command mark (over the settle window), so a bare `agent: null`
- *  is ambiguous — "no agent" or "not resolved yet?". `"unknown"` means a producer
- *  is mid-resolution (kolu KEEPS its last value, no clobber); `{ value }` is
- *  authoritative (kolu APPLIES it, even when `null` — a shell-idle null is the
- *  session genuinely ended). Never stored — only the resolved value is. */
+ *  is ambiguous — "no agent" or "not resolved yet?". `"unknown"` means the producer
+ *  cannot currently KNOW — either mid-resolution (the session file hasn't landed) OR
+ *  the foreground is a defined non-shell process whose session is unresolvable (W12:
+ *  an unclean kaval death leaves the stale agent pid as foreground with its session
+ *  file gone; we can't tell "ended" from "lost our observer"). Either way kolu KEEPS
+ *  its last value, no clobber. `{ value }` is authoritative (kolu APPLIES it, even
+ *  when `null` — a SHELL-IDLE null is the session genuinely ended). Never stored —
+ *  only the resolved value is. */
 export type Known<T> = "unknown" | { value: T };
 
 /** A per-field sample a memoryless producer emits. The standing five build

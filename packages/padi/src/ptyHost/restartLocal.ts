@@ -33,6 +33,7 @@
  */
 
 import {
+  type AutosaveFreeze,
   cancelPendingAutosave,
   freezeAutosave,
   unfreezeAutosave,
@@ -48,6 +49,9 @@ import { restartLocalEndpoint } from "./index.ts";
  *  has already reported `dead`, and the captured session is safe on disk for the
  *  user to retry or restore). Concurrent calls coalesce onto one restart. */
 export function restartLocalDaemon(): Promise<void> {
+  // This restart's own freeze lease, captured at `capture` and released in the
+  // `finally` — releasing THIS token only, never a concurrent restore's lease.
+  let freeze: AutosaveFreeze | undefined;
   return restartLocalEndpoint({
     // Snapshot + persist BEFORE the kill — the session must outlive the daemon.
     capture: async () => {
@@ -56,7 +60,7 @@ export function restartLocalDaemon(): Promise<void> {
       // it: the drain below kills the PTYs → they fire `terminals:dirty` → the 500ms
       // autosave would fire in the recycle GAP with an empty registry and no parked
       // entries yet, nulling the session we're about to capture, before park runs.
-      freezeAutosave("restart critical section (capture→drain→park)");
+      freeze = freezeAutosave("restart critical section (capture→drain→park)");
       setSavedSessionFromSnapshot(snapshotSession());
     },
     // Tear down kolu's terminal layer; the recycle takes the PTYs themselves.
@@ -73,10 +77,12 @@ export function restartLocalDaemon(): Promise<void> {
     },
   }).finally(() => {
     // Park has seeded the parked entries (`hasParkedTerminals()` guards the autosave
-    // from here), OR the restart FAILED before park — either way lift the freeze and
-    // cancel any drain-armed timer, so a failed restart can't null the captured
-    // session after the freeze lifts.
-    unfreezeAutosave();
+    // from here), OR the restart FAILED before park — either way lift THIS restart's
+    // freeze lease (undefined if it failed before `capture` ran) and cancel any
+    // drain-armed timer, so a failed restart can't null the captured session after the
+    // freeze lifts. Releasing only our own token leaves a concurrent restore's lease
+    // intact.
+    if (freeze !== undefined) unfreezeAutosave(freeze);
     cancelPendingAutosave();
   });
 }
