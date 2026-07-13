@@ -90,6 +90,13 @@ Behind that hello-world, the package owns the hazards kolu paid to learn:
   scrollback (buffered writes keep their parse callbacks), seam tokens that
   bind a snapshot's re-seed to its byte position, and RIS handling that halts
   backfill rather than corrupt it (<PrLink pr={1783} />).
+- **Mobile input.** xterm 6.0 ships no touch path at all — it declares
+  `IViewport.handleTouchStart/Move` types with zero wiring, and the WebGL
+  canvas eats touch events before the viewport sees them — so the kit owns
+  touch-scroll bridging, tap-vs-scroll discrimination, the iOS soft-keyboard
+  summoning rules, and (once <PrLink pr={1634} /> merges) Android
+  IME/composition routing. What a tap *means* stays the consumer's `onTap`
+  hook — designed in the Mobile section below.
 
 And a **headless consumer** — kaval today, any TUI or server tomorrow — uses
 the same core to keep a long-lived mirror addressable:
@@ -105,7 +112,7 @@ const topLine = anchor.baseLine() + snapToWrapHead(buf, start);
 
 ## The package boundary
 
-<Svg svg={arch} wide caption="The boundary, its two compartments, and both day-one consumers. The runtime-neutral core (blue) owns the hardened write path, fail-loud buffer surgery, the mirror anchoring lifted from kaval, and the /internals door — with the contract-pin tests shipping inside the package, so the pins travel WITH the dependents. The /solid entrypoint (green) owns the component, owner-correct async dispose, and WebGL lifetime. Above the line, each consumer keeps its policy half: Terminal.tsx keeps which bytes and when (padi wire, keybindings, theme, budget policy, e2e bridge); ptyHost.ts keeps PTYs, verbs, and metadata. Below, the volatility being adapted: one workspace-wide exact xterm pin set, browser and headless." />
+<Svg svg={arch} wide caption="The boundary, its two compartments, and both day-one consumers. The runtime-neutral core (blue) owns the hardened write path, fail-loud buffer surgery, the mirror anchoring lifted from kaval, and the /internals door — with the contract-pin tests shipping inside the package, so the pins travel WITH the dependents. The /solid entrypoint (green) owns the component, owner-correct async dispose, WebGL lifetime, and the touch surface. Above the line, each consumer keeps its policy half: Terminal.tsx keeps which bytes and when (padi wire, keybindings, theme, budget policy, e2e bridge); ptyHost.ts keeps PTYs, verbs, and metadata. Below, the volatility being adapted: one workspace-wide exact xterm pin set, browser and headless." />
 
 The line, in one sentence: **a robust adapter over xterm goes in; "which bytes
 and when" stays out.** Nothing in the package knows a PTY, a host, a padi frame,
@@ -291,6 +298,86 @@ import {
   machine DOM-free: the wheel/pointer capture-hold-release rules live here,
   beside the component, so the core stays runtime-neutral.
 
+### Mobile — the touch half of the adapter
+
+The plan's first draft had no mobile lens (srid's review added it), and the
+gap was real: the client carries touch machinery that is adapter-grade, not
+kolu chrome. xterm 6.0 ships **no touch support** — the types exist, the
+wiring doesn't, and the WebGL canvas swallows touch events — so everything a
+terminal does on a phone, kolu hand-built inside Terminal.tsx. The
+adapter-grade parts join `/solid`:
+
+```tsx
+import {
+  enableSoftKeyboardInput, // contenteditable input surface — the iOS quirk knowledge, in one place
+  wireTouchTaps,           // tap-vs-scroll discrimination; `onTap` is the policy hook
+  wireTouchScroll,         // touch → scrollback bridge (xterm ships none); arms the scroll lock
+} from "@kolu/xterm-kit/solid"; // `<Xterm>` composes all three on touch devices
+```
+
+- **Touch intent and the soft-keyboard focus rules join as owned mechanism —
+  with exactly one policy hook.** The mechanism is browser-quirk knowledge
+  end to end: `preventDefault` on pointerdown to stop the focus shuffle iOS
+  Safari rejects, focus deferred to pointerup inside the user-gesture window,
+  a tap-sized movement threshold so scrolls never summon the keyboard, and
+  the rule that on touch the keyboard rises *only* from an explicit tap —
+  never from a tile switch or reveal (`focusOnSelection` is a deliberate
+  no-op on touch).<Footnote>All shipped behavior:
+  <Cite file="packages/client/src/terminal/Terminal.tsx" lines="272-279" />
+  (focus-is-a-no-op-on-touch) and
+  <Cite file="packages/client/src/terminal/Terminal.tsx" lines="576-669" />
+  (the contenteditable surface via `softKeyboardInput.ts`, the
+  `TAP_THRESHOLD_PX` discrimination, the pointerup gesture window). That is
+  volatility, not product choice — which is why it's owned, not
+  hook-provided.</Footnote> The one *domain* decision in the gesture — what a
+  tap on content means (kolu: follow a `path:line` ref into the Code tab,
+  else focus-to-type) — is the `onTap` hook, threaded through `<Xterm>` as a
+  prop.
+- **The touch divisor unifies with `/internals`, killing a live drift
+  hazard.** One invariant — pointer→cell under a CSS transform — is enforced
+  today by **two separately-owned divisors**: xterm's hit-test path,
+  corrected by `unscaleEventPoint`, and the tap path's `fileRefAtPoint`,
+  which derives its own cell size from the post-transform rect. The two are
+  held in step by nothing but a mirrored comment — *"kolu OWNS this touch
+  divisor … keep both in step if you touch one"* — at both
+  sites.<Footnote><Cite file="packages/client/src/terminal/Terminal.tsx" lines="611-619" />
+  and <Cite file="packages/client/src/terminal/xtermInternals.ts" lines="150-157" />
+  carry the paired warning. A comment-coupled invariant is a drift waiting
+  for an editor who reads only one file.</Footnote> In the kit both paths
+  route through the one transform-aware pointer→cell mapping in `/internals`,
+  so there is no second divisor to fall out of step.
+- **`stickyModifiers` stays out — the boundary test, applied honestly.** It
+  never touches a `Terminal`: it is an arming latch over
+  `@kolu/terminal-protocol`'s control/meta byte tables, armed by kolu's
+  MobileKeyBar and folded into outgoing input. The volatility it leans on
+  (PTY chord encoding) is already owned by `terminal-protocol`; nothing
+  xterm-shaped remains to encapsulate. A leaf beside the key bar, not kit
+  material (<Cite file="packages/client/src/terminal/stickyModifiers.ts" />).
+- **IME/composition routing is adapter-level; its machinery lands here once
+  <PrLink pr={1634} /> merges — open today, not shipped.** Android soft
+  keyboards replay autocorrect and suggestion state through xterm's
+  prose-oriented helper textarea (the `keyCode=229` diff path); the open PR
+  routes input through a hidden `type=password` transport with a zero-width
+  sentinel, forwarding `beforeinput` as raw data. That is soft-keyboard +
+  xterm-internals knowledge with zero kolu domain — the kit's mobile surface
+  is its home when it lands, and this plan reserves the slot rather than
+  claiming the ship.
+
+What stays kolu: **MobileKeyBar and the mobile chrome** (sheets, pull chrome,
+the mobile tile view) are pure policy — which keys a phone deserves and what
+the chrome looks like — plus the tap→file-ref decision via `onTap`, and the
+sticky-modifier arming above.
+
+Two interplays are already handled, recorded so mobile doesn't re-open them:
+raising the soft keyboard is a **rows-only** resize, and the backfill
+controller pauses only on a *cols* change — so the keyboard no longer stales
+backfill (the <PrLink pr={1783} /> family-3
+fix<Footnote><Cite file="packages/client/src/terminal/scrollbackBackfill.ts" lines="657-666" /> —
+"a height-only change is harmless"; a width reflow is what invalidates the
+absolute cursor.</Footnote>); and momentum-scroll flinging the viewport into
+the trigger band mid-backfill was a named spike risk, covered by the
+controller's in-flight serialization and generation guards.
+
 ### Deliberately not exported
 
 The package refuses to learn: **wire and frame types** (padi's attach schema,
@@ -329,11 +416,16 @@ would be decomposition theater.
 4. **Cut `/solid` from Terminal.tsx**: the font-wait/owner/`disposed`-bail
    choreography and the synchronous-teardown ordering become
    `createXtermLifecycle`; `loadWebgl`/`unloadWebgl` and their effects become
-   `attachWebGL`; `renderRecovery.ts` and `scrollLockWiring.ts` move alongside.
-   Terminal.tsx becomes the policy half, consuming `<Xterm onReady>` — the
-   `__xterm` e2e bridge, `data-*` attributes, keybindings, paste/drop, soft
-   keyboard, and diagnostics all stay in it, so cucumber step definitions are
-   untouched.
+   `attachWebGL`; `renderRecovery.ts` and `scrollLockWiring.ts` move
+   alongside; the touch machinery becomes the mobile surface —
+   `softKeyboardInput.ts` moves as `enableSoftKeyboardInput`, the tap/scroll
+   gesture handlers become `wireTouchTaps`/`wireTouchScroll`, and
+   `fileRefAtPoint`'s divisor is replaced by the `/internals` pointer→cell
+   mapping (deleting the mirrored keep-in-step comments). Terminal.tsx
+   becomes the policy half, consuming `<Xterm onReady onTap>` — the `__xterm`
+   e2e bridge, `data-*` attributes, keybindings, paste/drop, MobileKeyBar +
+   sticky modifiers, and diagnostics all stay in it, so cucumber step
+   definitions are untouched.
 5. **Re-point imports and prove the teeth**: typecheck drives the re-point;
    before merge, deliberately break one pinned symbol locally and watch the
    package's vitest lane go red — the relocation is only done when the
