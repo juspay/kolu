@@ -12,10 +12,12 @@
  */
 
 import { PassThrough, Writable } from "node:stream";
+import { ORPCError } from "@orpc/client";
 import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
 import { createLoopbackPair } from "../loopback";
 import { serveOverStdio } from "../peer-server";
 import { stdioLink } from "./stdio";
@@ -287,6 +289,61 @@ describe("stdio link over loopback", () => {
     // The link is now closed: a fresh RPC rejects fast rather than hanging
     // (or crashing).
     await expect(client.ping({})).rejects.toThrow();
+  });
+
+  it("PIN (i) #1719: a pull PARKED at transport close rejects with the ONE typed transport-closed error, never an anonymous AsyncIdQueue AbortError", async () => {
+    // The mechanism fence for #1719. When the transport dies,
+    // `handleTransportClosed` → `peer.close()` rejects every PENDING orpc
+    // async-iterator pull. Pre-fix, `close()` was called with NO reason, so
+    // orpc's `AsyncIdQueue` minted a FRESH, anonymous `AbortError`
+    // ("[AsyncIdQueue] Queue[N] … closed or aborted while waiting for
+    // pulling.") — an unowned, untyped rejection that a mirror consumer
+    // mis-classifies and floats (the padiBinding reconnect flake). The fix
+    // passes a TYPED reason (`deadTransportError(SURFACE_STDIO_TRANSPORT_CLOSED)`),
+    // so the ONE thing that can cross the stdio seam at close is that single
+    // owned, greppable `ORPCError` — the illegal "anonymous AbortError escapes
+    // the seam" state is made unconstructible. RED pre-fix (a bare `AbortError`,
+    // not an `ORPCError` with this code); GREEN post-fix.
+    const contract = {
+      forever: oc
+        .input(z.object({}))
+        .output(eventIterator(z.object({ n: z.number() }))),
+    };
+    const t = implement(contract);
+    const router = t.router({
+      forever: t.forever.handler(async function* () {
+        yield { n: 0 };
+        await new Promise<never>(() => {}); // park — no further frame ever arrives
+      }),
+    });
+
+    const pair = createLoopbackPair();
+    const serveDone = serveOverStdio({ router, transport: pair.server });
+    const client = stdioLink<typeof contract>({
+      read: pair.client.read,
+      write: pair.client.write,
+    });
+
+    const iter = (await client.forever({}))[Symbol.asyncIterator]();
+    // Drain the first frame so the NEXT pull is genuinely parked on the wire.
+    expect((await iter.next()).value).toEqual({ n: 0 });
+    const parked = iter.next();
+    // Observe it without letting an un-awaited rejection trip the runner.
+    const settled = parked.then(
+      () => "resolved" as const,
+      (e: unknown) => e,
+    );
+
+    // Transport dies → `handleTransportClosed` → `peer.close(reason)`.
+    pair.server.write.end();
+    pair.client.write.end();
+
+    const err = await settled;
+    expect(err).toBeInstanceOf(ORPCError);
+    expect((err as ORPCError<string, unknown>).code).toBe(
+      SURFACE_STDIO_TRANSPORT_CLOSED,
+    );
+    await serveDone.catch(() => {});
   });
 
   it("does not crash when a fire-and-forget teardown send hits a dead pipe (#32)", async () => {
