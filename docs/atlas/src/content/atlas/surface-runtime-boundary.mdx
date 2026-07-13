@@ -132,7 +132,7 @@ Kernel first — each PR independently landable, each proven by a deletion, sequ
 
 | PR | what lands | the deletion that proves it | gate |
 | --- | --- | --- | --- |
-| **1** | supervised `SurfaceRuntime` — final router, `done`, idempotent `close`; `implementSurfaceOnPublisher` stays distinct | kolu's `implement(servedContract)` finalization; drishti's fragment wrap; odu's two wraps at next pin. Done only when every serving site observes `runtime.done` and owns shutdown | drishti pair |
+| **1** (<PrLink pr={1805} />) | supervised `SurfaceRuntime` — final router, `done`, idempotent `close`; `implementSurfaceOnPublisher` stays distinct (with an `implementSurfacesOnPublisher` plural twin) | kolu's `implement(servedContract)` finalization; drishti's fragment wrap; odu's two wraps at next pin. Done only when every serving site observes `runtime.done` and owns shutdown | drishti pair |
 | **2** | bound procedures at `client.procedures.<ns>.<verb>` and on map entries | kolu's `PadiRpc` casts (both sites); drishti's `HostRpc`/`AdminScopedRpc` casts | drishti pair |
 | **3** | opaque `membershipId` per map add; typed map connection key; `clockNow` reserved member + offset-at-admit | `connectionRearm.ts` + test; the `"padi"`/`"hosts"` string keys and the `as any` contract/router splices; drishti's `offsetOf: () => 0` stub. Done only when same-key remove/re-add *and* authority restart rebuild subscriptions keyed on `{encodedKey, membershipId}` | drishti pair |
 | **4** | failure schema on `defineSurfaceMap`; required, total `failureOf` | both `"other"` fabrication sites in the map server; the loose `z.string()` cause on the wire | drishti pair |
