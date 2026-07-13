@@ -41,7 +41,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
 1. **Dial the host** — `makeSession({connectOnce: sshConnector<contract>({host, binary, resolveDrvPath})})` (`@kolu/surface-remote`): long-lived, `nix copy`s the agent closure, runs `<bin> --stdio` over ssh, reconnects. `buildRemotePool` fans out N hosts; one-shot CLIs use `dialAgentOnce` instead.
 2. **Mirror inward** — `pumpRemoteSurface({source, session, makeSink, …})` (`-remote`) folds the remote agent's frames into a local `implementSurface` re-serve via a `SurfaceSink` (`makeSink`, `@kolu/surface/mirror`). The parent implements the *same* surface; a remotely-unobservable cell (e.g. connection state) is parent-authoritative.
-3. **Re-serve** — the local fragment served on `/rpc/ws`, accepted via `acceptSurfaceSocket` (`@kolu/surface-app/server`). Browsers connect with `connectSurface` (`@kolu/surface-app/solid`), which bundles socket + `websocketLink` + `surfaceClient` + a default-on liveness heartbeat.
+3. **Re-serve** — the local re-served surface (a FINAL `implementSurface` router) served on `/rpc/ws`, accepted via `acceptSurfaceSocket` (`@kolu/surface-app/server`). Browsers connect with `connectSurface` (`@kolu/surface-app/solid`), which bundles socket + `websocketLink` + `surfaceClient` + a default-on liveness heartbeat.
 
 ## Gotchas (hard-won, all real)
 

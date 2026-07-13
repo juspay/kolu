@@ -2,12 +2,15 @@
  * @kolu/surface/server — server-side bindings for the typed reactive surface.
  *
  * Headline API: `implementSurface(surface, deps)` walks a `Surface` (from
- * `defineSurface`) and produces both a router fragment and a typed
- * mutation `ctx` — every cell/collection/stream/event/procedure wired in
- * one declarative call. The framework owns the snapshot+deltas wire
- * protocol on both sides; client `useCell` / `useCollection` /
- * `useStream` consume what `implementSurface` produces, and `ctx.cells.X.set(...)`
- * etc. let domain code mutate without parallel store-and-publish paths.
+ * `defineSurface`) and returns a supervised `SurfaceRuntime`
+ * `{ router, ctx, done, close }` — every cell/collection/stream/event/procedure
+ * wired in one declarative call. `router` is the FINAL top-level oRPC router:
+ * serve it directly (no consumer re-finalizes the surface via oRPC `implement`).
+ * The framework owns the snapshot+deltas wire protocol on both sides; client
+ * `useCell` / `useCollection` / `useStream` consume what `implementSurface`
+ * produces, and `ctx.cells.X.set(...)` etc. let domain code mutate without
+ * parallel store-and-publish paths. `done` rejects on an owned runtime fault and
+ * `close` releases every owned source (see {@link SurfaceRuntimeHandle}).
  *
  * Persistence and pub/sub are pluggable via `CellStore<T>` and
  * `Channel<T>` interfaces. Adapters for `conf` (`confStore`) and
@@ -1543,18 +1546,13 @@ export interface SurfacesRuntime<S extends SurfaceMap>
  *  persisted subscriptions, prefer adding a new key and migrating off the
  *  old one.
  *
- *  Returns `{ router, ctx }`. Spread `router` into a host `t.router({...})`
- *  alongside hand-written raw-oRPC blocks for procedures the surface can't
- *  model (custom `onRetry`, binary framing, subscribe-before-yield); use
- *  `ctx` from domain code for typed mutations:
- *
- *      const { router: surfaceRouter, ctx: surfaceCtx } =
- *        implementSurface(surface, deps);
- *      const t = implement(fullContract);
- *      export const appRouter = t.router({
- *        ...surfaceRouter,
- *        terminal: t.terminal.handler(...),
- *      });
+ *  Returns a supervised `SurfaceRuntime` `{ router, ctx, done, close }`.
+ *  `router` is the FINAL top-level router — serve it directly (no re-finalize
+ *  via oRPC `implement`). To sit a surface beside raw-oRPC procedures the
+ *  surface can't model (custom `onRetry`, binary framing, subscribe-before-
+ *  yield), spread the built router's own `surface` namespaces into an assembled
+ *  object rather than re-running `implement`; use `ctx` from domain code for
+ *  typed mutations.
  */
 /** Walk a single surface's spec and wire every cell/collection/stream/event/
  *  procedure onto `root` — the oRPC builder node *at the surface root* (i.e.

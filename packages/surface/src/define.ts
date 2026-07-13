@@ -22,10 +22,12 @@
  * `Conf` store), use the consumer's `Conf` migration ladder, not a
  * framework override.
  *
- * Compose with raw oRPC: `oc.router({ ...surface.contract, terminal:
- * rawTerminal, git: rawGit })`. Same on the server: `implementSurface`
- * returns a router fragment for the surface entries; spread alongside
- * `t.terminal.handler(...)` etc.
+ * Compose with raw oRPC at the CONTRACT level: `oc.router({ ...surface.contract,
+ * terminal: rawTerminal, git: rawGit })`. On the server, `implementSurface`
+ * returns a supervised runtime whose `router` is the FINAL top-level router —
+ * serve it directly; to sit it beside raw-oRPC procedures the surface can't
+ * model, spread the built router's own `surface` namespaces into an assembled
+ * object (never re-finalize it via oRPC `implement`).
  */
 
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";

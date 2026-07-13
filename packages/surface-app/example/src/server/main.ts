@@ -83,7 +83,12 @@ const statsStore = {
 // The fragment seeds `{ commit, bootId: "" }` synchronously, folds the resolved
 // patch in when the promise settles, and the runtime republishes it to
 // subscribers — no hand-written second `ctx.cells.buildInfo.set`.
-const { router: surfacesRouter, ctx } = implementSurfacesOnPublisher(
+const {
+  router: surfacesRouter,
+  ctx,
+  done,
+  close,
+} = implementSurfacesOnPublisher(
   // `surfaces` (the keyed map) is the single source shared with the contract
   // (`composeSurfaceContracts`) and the client (`surfaceClients`); here we add
   // only the server-only per-surface deps, keyed the same way.
@@ -106,6 +111,17 @@ const { router: surfacesRouter, ctx } = implementSurfacesOnPublisher(
     demo: { cells: { serverStats: { store: statsStore } } },
   },
 );
+
+// Own the supervised runtime, exactly as the doctrine (and the surface skill)
+// asks a serving site to: OBSERVE `done` — an owned fault (here the buildInfo
+// connector rejecting) is unrecoverable for this one-surface server, so crash
+// loud rather than leave the rejection unobserved — and AWAIT `close` from the
+// orderly shutdown path below so the runtime releases its owned sources before
+// the process exits.
+done.catch((err) => {
+  console.error("surface runtime faulted — unrecoverable:", err);
+  process.exit(1);
+});
 
 /** Broadcast a stats patch to every subscriber (snapshot + delta in one call). */
 function pushStats(patch: Partial<ServerStats>): void {
@@ -182,3 +198,19 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
   }
 });
+
+// Orderly shutdown: release the runtime's owned sources (its `close`), then stop
+// the HTTP/WS server. A serving site OWNS `close` — process death alone would
+// leak the buildInfo connector's abort-then-settle. Idempotent + guarded so a
+// double signal can't run teardown twice.
+let shuttingDown = false;
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n${signal} — closing surface runtime and server`);
+  await close();
+  wss.close();
+  server.close(() => process.exit(0));
+}
+process.on("SIGINT", (s) => void shutdown(s));
+process.on("SIGTERM", (s) => void shutdown(s));

@@ -66,6 +66,7 @@ export const surfaces = {
 } as const;
 
 /** The combined wire contract — `{ surface: { surfaceApp, demo } }`. The server
- *  wraps `implementSurfaces`' router with `implement(contract).router(...)`; the
- *  client types its `websocketLink` off `typeof contract`. */
+ *  serves `implementSurfaces`' router directly (it is already the FINAL top-level
+ *  router — no `implement(contract).router(...)` re-wrap); the client types its
+ *  `websocketLink` off `typeof contract`. */
 export const contract = composeSurfaceContracts(surfaces);
