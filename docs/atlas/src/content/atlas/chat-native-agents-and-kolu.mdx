@@ -164,6 +164,55 @@ running record of what was decided and why. AI-assisted discussion among humans 
 out of the coordinator pattern for free — no second bot, no separate "assistant" mode,
 one attributed inbox.
 
+## The XS apps platform, as grounded
+
+The contract pesu builds against — read from the xyne-spaces source (2026-07-13), not
+its docs, because XS has **three separate integration systems** that are easy to
+conflate: the *bot catalog* (backend-native bots, its own mention/thread semantics),
+*incoming webhooks* (URL-embedded-secret message drops), and the **apps platform** —
+installed apps with a webhook URL, a JWT token, and a signing secret. pesu is an
+installed app; only this third system applies.
+
+**What an installed app is.** Its own per-workspace user (name and avatar from the app
+record), addressable by @mention, DM-able. Created from the dashboard; the webhook URL,
+bearer token, and signing secret are per-install credentials.
+
+**Events — XS → the app's webhook URL.** One POST per event,
+`{eventType, payload, timestamp}`, fired on exactly three chat triggers:
+
+| Event | Fires when | Payload notes |
+| --- | --- | --- |
+| `APP_MENTIONED` | the app is explicitly @mentioned in a channel | `conversationId` (thread), `channelId`, `messageId`, sender `userId` + `senderName`, body as `content` (HTML) + `cleanContent` (text), attachments |
+| `DIRECT_MESSAGE` | *every* message in a 1:1 DM with the app | same shape but **no `senderName`** |
+| `USER_MENTIONED` | a human is @mentioned in a channel the app is in | observer signal; adds `mentionedUserIds` |
+
+Plain, unmentioned channel messages are **never delivered** — there is no
+follow-the-thread for apps (that behavior lives in the bot catalog only). No payload
+carries a sender email; `GET /api/apps/user/info` resolves it.
+
+**Authentication, both directions, one secret.** Deliveries carry `X-Xyne-Signature` —
+HMAC-SHA256 (hex) of the raw JSON body with the app's signing secret; there is no
+timestamp or replay scheme, so verification is a constant-time HMAC compare and replay
+is an accepted, recorded risk. The bearer token is a JWT signed HS256 *with that same
+secret*, payload `{appId, userId}`, no expiry — it lives until regenerated.
+
+**The app API — the app → XS, `Authorization: Bearer`.** All under `/api/apps`:
+
+- `POST chat/postMessage` — text, markdown, or structured content; target by
+  `channelId`/`channelName`, or by `conversationId` to reply **into a thread**; posts
+  as the app's user.
+- `POST chat/updateMessage` — edit a posted message in place (the growing-reply UX).
+- `POST chat/agentProgress` — an ephemeral typing/progress indicator.
+- `GET chat/channelHistory` · `GET chat/conversationReplies` — read back (catch-up
+  after downtime).
+- `POST channel/openDm` — open a DM with a user; `GET user/info` — id → name/email.
+
+**Operational facts.** Message content caps at 40,000 characters. Event delivery is
+fire-and-forget: no retries, failures logged server-side only — an app that was down
+missed those events (the read APIs recover). No effective rate limit is configured on
+the app API routes; cadence discipline (e.g. ≤1 `updateMessage`/s) is the app's own
+manners.
+
 ## The first proof: pesu, in the kolu tree
 
 pesu integrates through XS's **apps platform** — the shape the installed "kolu" app
