@@ -402,13 +402,13 @@ describe("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi (it requires padiSurface 4.0; padi serves 3.x)
+    // A binder NEWER than this padi (it requires padiSurface 5.0; padi serves 4.x)
     // reads the running version from the FROZEN control-core `hello` — the call
     // that must work at a mismatch — and finds it INCOMPATIBLE, so it REFUSES to
     // bind the versioned surface.
     const hello = await conn.client.surface.control.core.hello();
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
-    expect(isContractVersionCompatible(hello.surfaceVersion, "4.0")).toBe(
+    expect(isContractVersionCompatible(hello.surfaceVersion, "5.0")).toBe(
       false,
     );
 
@@ -619,7 +619,7 @@ describe("assertPadiSurfaceCompatible", () => {
     // "Too old" is an earlier minor within the same major, or an earlier major
     // entirely. At a `.0` build (this major's floor) only the earlier-major form
     // is expressible, so pick whichever is genuinely older than this build — this
-    // keeps the older-skew covered even at a fresh major (2.0), where an in-major
+    // keeps the older-skew covered even at a fresh major (4.0), where an in-major
     // older minor doesn't exist.
     const older = minor > 0 ? `${major}.${minor - 1}` : `${major - 1}.0`;
     expect(() => assertPadiSurfaceCompatible(older)).toThrow(

@@ -86,7 +86,6 @@ vi.mock("./wire", async () => {
         },
         lifecycle: {
           create: vi.fn(async () => {}),
-          restoreSleeping: vi.fn(async () => {}),
           sendInput: vi.fn(async () => {}),
         },
       },
