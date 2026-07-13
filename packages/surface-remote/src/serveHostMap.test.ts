@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildRemotePool } from "./hostFanout";
 import { projectState, serveHostMap } from "./serveHostMap";
-import type { Session, SessionState } from "./session";
+import type { DownSessionState, Session, SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
 const entrySurface = defineSurface({
@@ -49,16 +49,15 @@ const map = defineSurfaceMap({
 });
 
 /** A test `failureOf` — classifies a DOWN state's transport `error` into the
- *  schema-valid failure. Inert for the warming/connected/copying tests (they never
- *  reach a down state), a real classifier for the projection test below. */
+ *  schema-valid failure. `failureOf` is only ever invoked on a genuinely-down state,
+ *  so its param is the canonical {@link DownSessionState} and `error` reads with no
+ *  cast. Inert for the warming/connected/copying tests (they never reach a down
+ *  state, so this is never called there). */
 const classify = (
   _h: string,
   _s: FakeSession,
-  state: SessionState<string>,
-): TestFailure | null =>
-  state.phase === "disconnected" || state.phase === "failed"
-    ? { cause: "link-failed", reason: (state as { error: string }).error }
-    : null;
+  state: DownSessionState,
+): TestFailure | null => ({ cause: "link-failed", reason: state.error });
 
 /** Build a `SessionState` for the given `phase`. The DOWN arm
  *  (`disconnected`/`failed`) now REQUIRES a real `error` — the type no longer

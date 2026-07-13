@@ -507,9 +507,7 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   // entry never rides `null` — and an unclassifiable one fails loud, never buckets.
   failureOf: (_host, session, state): PadiEntryFailure | null => {
     const detail = session.entryFailedDetail();
-    return detail === null
-      ? null
-      : { ...detail, reason: (state as { error: string }).error };
+    return detail === null ? null : { ...detail, reason: state.error };
   },
 });
 

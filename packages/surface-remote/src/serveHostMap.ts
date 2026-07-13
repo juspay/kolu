@@ -142,8 +142,8 @@ export interface ServeHostMapOptions<K, S, Failure = unknown> {
    *  session that genuinely can't measure is that session's OWN honest declaration). */
   offsetOf: (session: S) => number | null;
   /** Classify a DOWN session into the map's schema-valid domain `failure` — this
-   *  adapter is transport-only (it projects a bare `SessionState`, which carries
-   *  only the transport-axis `failureCause`, "network" vs "remote"); a domain
+   *  adapter is transport-only (it projects a bare {@link DownSessionState}, which
+   *  carries only the transport-axis `cause`, "network" vs "remote"); a domain
    *  classification (padi's contract-skew-refused / unconverged / drv-unbaked /
    *  link-failed / … — a DIFFERENT axis, one layer up) is the app's own knowledge,
    *  so it is injected here rather than guessed. REQUIRED and TOTAL (PR4): a map
@@ -159,11 +159,7 @@ export interface ServeHostMapOptions<K, S, Failure = unknown> {
    *  UnclassifiedHostFailureError}), never a bucketed catch-all. (If a second
    *  meaning ever wants to ride that `null`, it becomes a discriminated union
    *  then — the no-overloaded-null boundary, recorded here.) */
-  failureOf: (
-    host: K,
-    session: S,
-    state: SessionState<string>,
-  ) => Failure | null;
+  failureOf: (host: K, session: S, state: DownSessionState) => Failure | null;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
@@ -297,7 +293,12 @@ export function serveHostMap<
       // its transport `error` is real, not invented.
       let state: EntryConnectionState<"copying", Failure>;
       if (projected.kind === "disconnected" || projected.kind === "failed") {
-        const failure = opts.failureOf(k, session, raw as SessionState<string>);
+        // Inside this guard `raw` is guaranteed a genuinely-down frame — reuse the
+        // canonical {@link DownSessionState} receptacle (not a hand-rolled
+        // `as { error }`) so the injected classifier AND the seam throw read `error`
+        // off the narrowed shape the type author intended.
+        const down = raw as DownSessionState;
+        const failure = opts.failureOf(k, session, down);
         if (projected.kind === "failed") {
           // A terminal `failed` session that yields NO domain failure is a producer
           // defect: the map's `failed` arm cannot exist without a schema-valid
@@ -306,10 +307,7 @@ export function serveHostMap<
           // null for a terminal failed session) — rather than construct a failed-
           // without-failure state the tightened published arm cannot even hold.
           if (failure === null)
-            throw new UnclassifiedHostFailureError(
-              enc,
-              (raw as DownSessionState).error,
-            );
+            throw new UnclassifiedHostFailureError(enc, down.error);
           state = { kind: "failed", failure };
         } else {
           // `disconnected`: `null` = transient drop → keep `failure` ABSENT
