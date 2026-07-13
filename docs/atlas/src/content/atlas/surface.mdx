@@ -1,0 +1,44 @@
+---
+title: The Surface framework
+description: "The hub for @kolu/surface and its satellite packages — what the framework is, every surface note filed in one map: the active consolidation plan, the primers, the package notes, and the design records."
+parents: [reference, feature]
+maturity: evergreen
+updated: 2026-07-13
+---
+
+**Surface is how a kolu-family daemon publishes its live state.** A daemon declares its data once — cells, collections, streams, events, procedures — as a typed *surface*, and the framework does the rest: serve it over a socket, mirror it across machines, re-serve a mirror to further consumers, and hand every client a typed reader. Three applications consume it today: **kolu** (padi + kaval), **drishti**, and **odu**.
+
+The packages, one line each:
+
+- **`@kolu/surface`** — the core: declarations, serving, the mirror, the typed client.
+- **`@kolu/surface-map`** — a dynamic keyed map of remote surfaces over one socket (hosts come and go; the client keys on membership).
+- **`@kolu/surface-remote`** — the ssh leg: sessions, host fan-out, connection state.
+- **`@kolu/surface-daemon`** / **`-supervisor`** — the daemon spine (socket lifecycle, contract handshake, identity) and the side that supervises daemons (convergence, drain/recycle).
+- **`@kolu/surface-app`** — the app shell for browser apps run against your own server (delivery, identity, connection lifecycle).
+- **`@kolu/surface-mcp`** — any surface re-exposed as an MCP server.
+
+## The active plan
+
+- [A Complete Surface Runtime](surface-runtime-boundary.html) — **the plan of record** for the surface-framework consolidation: six kernel PRs (runtime, procedures, membership, failure, mirror, adoptions), then the bridge spine, each proven by what a consumer deletes.
+- [The reactive bridge](surface-reactive-bridge.html) — the ratified backend-reactivity design the plan's PRs 7–10 implement: state is a signal, derived state is a computed, the wire is a signal boundary.
+- [The reactor engine — decided](surface-reactor-engine.html) — the engine ruling behind the bridge (`@preact/signals-core` now; `@solidjs/signals` the named swap target).
+
+## Learn it — the primers
+
+- [How a surface ships live data](surface-live-data.html) — value-bearing vs pulse-then-requery, and why kolu uses both.
+- [The client half, taught](surface-map-101.html) — what surface-map added: membership, `EntryStatus`, per-entry scopes.
+- [The hosting side, taught](surface-hosting-101.html) — how a surface travels between machines: serve, mirror, re-serve, sessions, the host registry.
+- [The attention pieces, taught](surface-attention-101.html) — the cell's `updated()` and the notify seam behind cross-host attention.
+
+## The package notes
+
+- [surface-daemon](surface-daemon.html) — one spine for kaval and `odu serve`.
+- [surface-app](surface-app.html) — the app-shell electricity and its lifecycle.
+- [surface-connection](surface-connection.html) — the WebSocket assembly (partysocket + oRPC) lifted upstream.
+- [surface-mcp](surface-mcp.html) — the MCP adapter and its subscribe/teardown lifecycle.
+- [remoteSurfaces](remote-surfaces.html) — the keyed map of re-served remote surfaces the host switch stands on.
+
+## The design records
+
+- [Surface hosting — the four roadblocks](surface-hosting-roadblocks.html) — the build-time design questions the hosting work answered in code.
+- [Electricity](electricity.html) — the volatility doctrine that decides when something graduates into a `@kolu/*` package at all; every extraction above passed its tests.

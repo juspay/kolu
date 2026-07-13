@@ -125,26 +125,38 @@ export class LinkStdioClient<T extends ClientContext>
    *  `write.on("error")` (EPIPE) AND the inbound stream's end/error both fire on
    *  a dropped transport — so a second call must no-op.
    *
-   *  The `try/catch` is a DEFENSIVE guard against a SYNCHRONOUS throw out of
-   *  `peer.close()` — e.g. an in-flight request's `AbortController.abort()` listener
-   *  throwing as the peer aborts its controllers. It does NOT — and cannot — catch the
-   *  teardown race it once claimed to: `peer.close()` → orpc's `AsyncIdQueue.close()`
-   *  calls `reject(new AbortError(...))` on every PENDING pull, and those rejections
-   *  deliver ASYNCHRONOUSLY on the pull awaiters. A consumer that parked a `.next()`
-   *  and was then abandoned floats that `AbortError` as an unhandled rejection — and a
-   *  sync `catch` here is powerless over an async rejection scheduled elsewhere. That
-   *  rare teardown race (the intermittent padi-reconnect flake) is tracked with its
-   *  full mechanism + a deterministic repro in juspay/kolu#1719; the real fix is a
-   *  teardown-swallow-contract change in the consumer layer, not here. */
+   *  TYPED close reason (#1719 mechanism fix). `peer.close()` → orpc's
+   *  `AsyncIdQueue.close({ reason })` rejects every PENDING pull with `reason` when one
+   *  is given, else it mints a FRESH, anonymous `AbortError` ("[AsyncIdQueue] Queue[N]
+   *  … closed or aborted while waiting for pulling."). Those rejections deliver
+   *  ASYNCHRONOUSLY on the pull awaiters, so a consumer that parked a `.next()` and was
+   *  then abandoned mid-teardown floats it — and a bare `AbortError` is unowned and
+   *  untyped, so a mirror consumer's swallow predicate (`isAbortReason`, keyed on
+   *  `err === signal.reason`) cannot recognize it and mis-classifies it (the padi
+   *  reconnect flake, juspay/kolu#1719). We pass an explicit TYPED reason
+   *  ({@link deadTransportError} with {@link SURFACE_STDIO_TRANSPORT_CLOSED}), so the
+   *  ONE thing that can cross the stdio seam at close is that single owned, greppable
+   *  `ORPCError` — the same non-retriable shape `call()` already throws on a dead link,
+   *  now also carried on every abandoned pull. The consumer-side ownership fix
+   *  (mirrorCollection awaits its per-key pumps) is the other half; this typed reason is
+   *  the seam fence that makes "an anonymous AbortError escapes the seam" unconstructible.
+   *
+   *  The `try/catch` remains a DEFENSIVE guard against a SYNCHRONOUS throw out of
+   *  `peer.close()` (e.g. an in-flight request's abort listener throwing) — the async
+   *  parked-pull rejections are handled by the typed reason above, not by this catch. */
   private handleTransportClosed(): void {
     if (this.closed) return;
     this.closed = true;
     try {
-      this.peer.close();
+      this.peer.close({
+        reason: deadTransportError(
+          SURFACE_STDIO_TRANSPORT_CLOSED,
+          "stdio transport closed (the peer process exited or its stream ended); parked request/stream pulls are cancelled.",
+        ),
+      });
     } catch {
       // A synchronous throw out of `close()` (an abort listener) — the transport is
-      // gone; nothing to reject that the close didn't already reject. (The ASYNC
-      // parked-pull rejections are NOT caught here — see the doc above + #1719.)
+      // gone; nothing to reject that the close didn't already reject.
     }
   }
 

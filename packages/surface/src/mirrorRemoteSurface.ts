@@ -629,6 +629,20 @@ async function mirrorCollection<K, V>(opts: {
   });
   // Don't crash on an unobserved rejection if the keys loop wins the race first.
   sinkFailed.catch(() => {});
+  // OWN the per-key value pumps (#1719). Each pump runs detached so a sink throw
+  // routes through `rejectSink` rather than this promise — but "detached" must NOT
+  // mean "abandoned": every pump is tracked here and AWAITED in the `finally` below
+  // before `mirrorCollection` (and thus the mirror's `done`) resolves. Without this,
+  // `done` could resolve — and `pumpRemoteSurface` advance to the next spawn — while a
+  // pump's `.next()` was still parked against the closing peer, so the pull rejected
+  // with no awaiter left and floated (the padi reconnect flake). Each pump's own
+  // `try/catch` still settles it (it never rejects THIS promise), so tracking is pure
+  // ownership: the settle is observed, never awaited-into-a-throw.
+  const pumps = new Set<Promise<void>>();
+  const track = (pump: Promise<void>): void => {
+    pumps.add(pump);
+    void pump.finally(() => pumps.delete(pump));
+  };
   const keysLoop = (async (): Promise<void> => {
     try {
       for await (const keys of iterateUntilAborted(
@@ -640,28 +654,30 @@ async function mirrorCollection<K, V>(opts: {
           if (open.has(key)) continue;
           const ctl = new AbortController();
           open.set(key, ctl);
-          void (async () => {
-            try {
-              const stream = await opts.get(key, ctl.signal);
-              for await (const value of stream) {
-                if (ctl.signal.aborted) break;
-                // The sink call is OUTSIDE the upstream try below: a throw here is
-                // the caller's, surfaced via `rejectSink`, not logged as a blip.
-                try {
-                  opts.onUpsert(key, value);
-                } catch (sinkErr) {
-                  rejectSink(new SinkError(sinkErr));
-                  return;
+          track(
+            (async () => {
+              try {
+                const stream = await opts.get(key, ctl.signal);
+                for await (const value of stream) {
+                  if (ctl.signal.aborted) break;
+                  // The sink call is OUTSIDE the upstream try below: a throw here is
+                  // the caller's, surfaced via `rejectSink`, not logged as a blip.
+                  try {
+                    opts.onUpsert(key, value);
+                  } catch (sinkErr) {
+                    rejectSink(new SinkError(sinkErr));
+                    return;
+                  }
+                }
+              } catch (err) {
+                if (!isAbortReason(err, ctl.signal)) {
+                  opts.log(
+                    `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
+                  );
                 }
               }
-            } catch (err) {
-              if (!isAbortReason(err, ctl.signal)) {
-                opts.log(
-                  `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
-                );
-              }
-            }
-          })();
+            })(),
+          );
         }
         for (const [key, ctl] of [...open]) {
           if (next.has(key)) continue;
@@ -709,6 +725,14 @@ async function mirrorCollection<K, V>(opts: {
   try {
     await Promise.race([keysLoop, sinkFailed]);
   } finally {
+    // Abort every open pump's ctl FIRST — so a still-parked pull rejects with
+    // `ctl.signal.reason` (the `isAbortReason` swallow), not an orpc AbortError —
+    // THEN await the tracked pumps so `mirrorCollection` does not resolve while any
+    // pump is still settling (#1719 ownership; the settle is observed regardless of
+    // whether the peer or this `finally` closed first). `allSettled` because each
+    // pump owns its own outcome via its internal try/catch — a pump never rejects
+    // this promise; we only wait for it to FINISH.
     for (const ctl of open.values()) ctl.abort(abortReason());
+    await Promise.allSettled([...pumps]);
   }
 }
