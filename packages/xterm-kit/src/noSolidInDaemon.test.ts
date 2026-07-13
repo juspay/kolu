@@ -43,7 +43,9 @@ function visitAst(node: AstNode, visit: (n: AstNode) => void): void {
   }
 }
 const stringLiteralValue = (node: unknown): string | null =>
-  isAstNode(node) && node.type === "StringLiteral" && typeof node.value === "string"
+  isAstNode(node) &&
+  node.type === "StringLiteral" &&
+  typeof node.value === "string"
     ? node.value
     : null;
 
