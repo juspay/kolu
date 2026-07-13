@@ -68,11 +68,16 @@ const hostKeyCodec: KeyCodec<HostKey> = {
 
 /** The typed version pair the `contract-skew-refused` failure carries (D2) — TYPED
  *  fields a producer sets on the failure value (`packages/server`'s remote padi
- *  binder), never scanned from `reason`'s human text by a consumer. */
-export interface SkewVersionPair {
-  readonly running: string;
-  readonly expected: string;
-}
+ *  binder), never scanned from `reason`'s human text by a consumer. Defined ONCE as
+ *  a schema so the wire failure arm, the `PadiEntryFailedDetail` type, and the client
+ *  reader all derive from a single source that agrees on optionality — the fields are
+ *  OPTIONAL because the binder omits them when it doesn't know the running/expected
+ *  versions (`computeEntryFailedDetail` returns `{ cause }` without them). */
+const SkewVersionPairSchema = z.object({
+  running: z.string().optional(),
+  expected: z.string().optional(),
+});
+export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
 
 /** The padi map's DOMAIN failure — "why did this host's padi entry fail". A
  *  STRUCTURAL classification never parsed from the human `reason` (the W4 types
@@ -102,11 +107,10 @@ export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
   z.object({
     cause: z.literal("contract-skew-refused"),
     reason: z.string(),
-    // OPTIONAL: the binder omits the pair when it doesn't know the running/expected
-    // versions (`computeEntryFailedDetail` returns `{ cause }` without them), so
-    // requiring them here would REJECT a valid producer value on the wire.
-    running: z.string().optional(),
-    expected: z.string().optional(),
+    // The skew fields are defined ONCE in `SkewVersionPairSchema` and spread here —
+    // one source of truth for the pair's shape and (optional) optionality, so the
+    // wire arm can never drift from the `SkewVersionPair` type consumers read.
+    ...SkewVersionPairSchema.shape,
   }),
   z.object({ cause: z.literal("cross-supervisor"), reason: z.string() }),
   z.object({ cause: z.literal("drv-unbaked"), reason: z.string() }),

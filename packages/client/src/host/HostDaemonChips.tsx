@@ -70,11 +70,11 @@ function entryAsPadiLink(state: EntryState): PadiLink | undefined {
 }
 
 function skewPairFor(host: HostKey): SkewVersionPair | undefined {
-  // PR4: the failed arm carries the schema-valid `PadiEntryFailure`, whose skew
-  // arm types `running`/`expected` directly — no `as PadiEntryStatus` cast, the
-  // map client already narrows the value. (They stay OPTIONAL on the schema — the
-  // binder may omit them — so the returned pair preserves today's exact runtime,
-  // undefined fields and all, cast to the pair type as before.)
+  // The failed arm carries the schema-valid `PadiEntryFailure`, whose skew arm
+  // types `running`/`expected` directly (both OPTIONAL — the binder may omit them).
+  // `SkewVersionPair` is now the honestly-optional schema-derived type, so the
+  // returned pair needs NO `as SkewVersionPair` cast — the type stops lying about
+  // possibly-undefined fields being present.
   const state = padiMap.entry(host).state();
   if (
     state.kind !== "failed" ||
@@ -82,7 +82,7 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
   )
     return undefined;
   const { running, expected } = state.failure;
-  return { running, expected } as SkewVersionPair;
+  return { running, expected };
 }
 
 /** The ONE per-host reader for Padi liveness + entry state — the receptacle for

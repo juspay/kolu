@@ -35,7 +35,7 @@ import type { PadiConvergence } from "kolu-common/surface";
  *  `link-failed`), so `null` never rides a genuinely failed entry. */
 export type PadiEntryFailedDetail =
   | { readonly cause: Exclude<EntryFailedCause, "contract-skew-refused"> }
-  | ({ readonly cause: "contract-skew-refused" } & Partial<SkewVersionPair>);
+  | ({ readonly cause: "contract-skew-refused" } & SkewVersionPair);
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its
  *  convergence descriptor being padi's app-specific {@link PadiConvergence}.
