@@ -332,7 +332,10 @@ export function serveHostMap<
               : { kind: "disconnected" };
         }
       } else {
-        state = projected as EntryConnectionState<"copying", Failure>;
+        // An up arm (copying/connecting/connected) — no `failure` field, so it's a
+        // structural subset of `EntryConnectionState<"copying", Failure>` and assigns
+        // directly (the previous cast was redundant).
+        state = projected;
       }
       // BELT (juspay/kolu#1716): a non-provisioning session (`session.provisions ===
       // false` — a `makeSession<_, never>` arm typed WITHOUT "copying") can NEVER
