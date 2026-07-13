@@ -53,6 +53,7 @@ import DegradedCanvas from "./kaval/DegradedCanvas";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
+import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import RightPanel from "./right-panel/RightPanel";
@@ -393,6 +394,21 @@ const App: Component = () => {
           onOpenPalette={() => commandPalette.openDialog()}
         />
       </Show>
+      {/* Touch chrome — the pull-down handle + chrome sheet (global controls +
+       *  the host row), the mobile analog of the desktop ChromeBar. Rendered
+       *  HERE, a sibling above the canvas `<Switch>`, so the host row stays
+       *  reachable in EVERY canvas mode — including while a host is
+       *  connecting/warming or down, which replace the workspace tile view with
+       *  a full-screen status canvas. (It used to live inside MobileTileView,
+       *  so switching to a not-yet-connected host stranded the user with no way
+       *  to switch back.) */}
+      <Show when={!isDesktop()}>
+        <MobilePullChrome
+          status={wsStatus()}
+          appTitle={appTitle()}
+          onOpenPalette={() => commandPalette.openDialog()}
+        />
+      </Show>
       {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
        *  can read them via CSS without prop drilling. The fg lets sub-
@@ -502,24 +518,19 @@ const App: Component = () => {
                 // `CompactTileView`. The inner tile props are identical, so
                 // they live in one `tileProps` object.
                 //
-                // The reactive reads stay GETTERS (not eager calls): Solid's JSX
-                // prop spread preserves the getters (mergeProps-style, not an
-                // eager copy), so each re-runs `orderedIds()` / `wsStatus()` /
-                // `appTitle()` when the tile view reads the prop, and tracks them.
-                // An eager `orderedIds: orderedIds()` would snapshot the value at
-                // mount — a freshly-created terminal would never reach the body's
-                // `<For each={props.orderedIds}>`.
+                // The reactive read stays a GETTER (not an eager call): Solid's
+                // JSX prop spread preserves the getter (mergeProps-style, not an
+                // eager copy), so it re-runs `orderedIds()` when the tile view
+                // reads the prop, and tracks it. An eager `orderedIds:
+                // orderedIds()` would snapshot the value at mount — a
+                // freshly-created terminal would never reach the body's
+                // `<For each={props.orderedIds}>`. (The chrome props — status /
+                // appTitle / onOpenPalette — moved to `MobilePullChrome` above,
+                // which is why they're no longer threaded through here.)
                 const tileProps = {
                   get orderedIds() {
                     return orderedIds();
                   },
-                  get status() {
-                    return wsStatus();
-                  },
-                  get appTitle() {
-                    return appTitle();
-                  },
-                  onOpenPalette: () => commandPalette.openDialog(),
                   renderBody: renderMobileTileBody,
                   bottomBar: <MobileKeyBar />,
                 };

@@ -31,6 +31,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
+import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -65,6 +66,10 @@ import { createRenderRecovery } from "./renderRecovery";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { createSnapshotBoundary } from "./snapshotBoundary";
+import {
+  type BackfillController,
+  createBackfillController,
+} from "./scrollbackBackfill";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
@@ -129,6 +134,7 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   let linkProviderDisposable: { dispose(): void } | null = null;
+  let backfill: BackfillController | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
@@ -417,6 +423,8 @@ const Terminal: Component<{
     unloadWebgl();
     linkProviderDisposable?.dispose();
     linkProviderDisposable = null;
+    backfill?.dispose();
+    backfill = null;
     terminal?.dispose();
     terminal = null;
     // Null out the other addon slots on this component's Context. xterm
@@ -516,6 +524,28 @@ const Terminal: Component<{
           term.loadAddon(new ImageAddon());
           const serializeAddon = new SerializeAddon();
           term.loadAddon(serializeAddon);
+
+          // Scrollback backfill: attach paints only the recent screenful; as the
+          // user scrolls up, fetch older chunks from kaval and prepend them into
+          // this terminal's own scrollback. Seeded from the attach snapshot's
+          // `topLine` (below); self-manages the near-top trigger and the
+          // reset/resize races.
+          backfill = createBackfillController(term, {
+            fetch: (before, max, epoch) =>
+              activePadiRpc.surface.screen.history({
+                id: props.terminalId,
+                before,
+                max,
+                epoch,
+              }),
+            // A killed terminal's NOT_FOUND is swallowed inside the controller; any
+            // OTHER backfill fetch fault (transport, schema, server) surfaces here
+            // rather than silently leaving a scrollback hole. A later scroll retries.
+            onError: (err) =>
+              toast.error(
+                `Failed to load older scrollback: ${err instanceof Error ? err.message : String(err)}`,
+              ),
+          });
 
           term.open(containerRef);
           // Canvas tiles render xterm inside a CSS `scale(zoom)` transform
@@ -804,6 +834,10 @@ const Terminal: Component<{
             terminal?.reset();
             scrollLock.reset();
             snapshotBoundary.armSnapshot();
+            // Forget the backfill cursor: the next frame is a fresh snapshot that
+            // re-seeds it (below). Fetching against the old cursor would splice
+            // onto the terminal we just reset.
+            backfill?.reset();
           };
           consumeReattachingStream(
             () =>
@@ -812,7 +846,50 @@ const Terminal: Component<{
                 { id: props.terminalId },
                 { signal, onRetry: resetForFreshSnapshot },
               ),
-            (data) => {
+            (frame) => {
+              // A `snapshot` frame begins a fresh snapshot (initial attach or a
+              // MID-STREAM overflow re-attach). Consume it as one indivisible act:
+              // `consumeSnapshotFrame` INVALIDATES the backfill controller
+              // synchronously RIGHT HERE — before the bytes are written or
+              // scroll-lock-buffered — so an in-flight fetch's continuation can't
+              // splice across the RIS this frame carries onto the reset buffer.
+              // It returns a committer that SEEDS only once the snapshot has
+              // PARSED into the buffer (run from the write callback below): parsing
+              // a ~1000-line snapshot itself emits `onScroll` as `ydisp` climbs
+              // from 0 through the near-top trigger band, and a cursor seeded up
+              // front would let one of those fire an unsolicited fetch onto a
+              // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM,
+              // so no fetch fires until a real user scroll-up. The committer rides
+              // the write callback, which scroll-lock preserves across a buffered
+              // flush — so the seed can't be lost while the user is scrolled up.
+              const commitSeed =
+                frame.kind === "snapshot"
+                  ? backfill?.consumeSnapshotFrame(
+                      frame.topLine,
+                      frame.reflowEpoch,
+                      // An overflow re-attach snapshot's data LEADS with a RIS
+                      // (`TERMINAL_RESET + snapshot`); the initial attach does
+                      // not. The controller's esc handler pauses on THIS frame's
+                      // own leading RIS too, so the controller must know it's
+                      // coming: the seam captures the committer's baseline one
+                      // generation-bump BEFORE that RIS and PREDICTS it, so the
+                      // frame's own reset doesn't read as an invalidation that
+                      // revokes this frame's re-seed — otherwise backfill pauses
+                      // forever after a re-attach (F11).
+                      frame.data.startsWith(TERMINAL_RESET),
+                    )
+                  : undefined;
+              // A consumed snapshot frame carries its OWN seed seam (with a
+              // per-frame token) so the controller captures its committer baseline
+              // at the snapshot's byte position, not at receipt — the F11 fix
+              // under scroll lock, where a foreign RIS buffered ahead of this
+              // snapshot would otherwise steal its seed. The controller mints the
+              // seam bytes (`commitSeed.seam`); prepended ONLY when a controller
+              // actually consumed the frame, so the seam and the controller's
+              // pending-seed FIFO stay 1:1.
+              const data = commitSeed
+                ? `${commitSeed.seam}${frame.data}`
+                : frame.data;
               if (terminal) {
                 // Every chunk AFTER the snapshot boundary is live output — light
                 // the terminal's live-activity dot (dock + title), even when
@@ -832,10 +909,19 @@ const Terminal: Component<{
                 // state, not in-flight data. A parked-rAF freeze on a real
                 // write then gets a forced sync paint even if the user never
                 // returns focus. scroll-lock buffers a chunk -> no paint -> the
-                // callback isn't invoked; the buffered flush rejoins the bottom
-                // via a user scroll / tab-visible / window-focus path, each of
-                // which already forces a repaint via recover().
-                scrollLock.writeData(terminal, data, () => recovery.noteData());
+                // callback isn't invoked NOW; it is stashed WITH the chunk, and
+                // flush() fires every buffered chunk's callback once the buffered
+                // write parses on unlock (a user scroll / tab-visible / window-
+                // focus flush, each of which also forces a repaint via recover())
+                // — so the snapshot re-seed committer that rides this callback
+                // survives the lock instead of being dropped.
+                scrollLock.writeData(terminal, data, () => {
+                  recovery.noteData();
+                  // Seed the backfill cursor now that this snapshot has landed in
+                  // the buffer (see the note above the write) — undefined, hence a
+                  // no-op, for a plain delta frame, which carries no `topLine`.
+                  commitSeed?.commit();
+                });
               }
             },
             resetForFreshSnapshot,

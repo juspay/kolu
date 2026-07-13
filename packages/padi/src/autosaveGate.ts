@@ -20,14 +20,17 @@
  *   - **armed** — a dirty pulse scheduled a save (leading-edge throttle). Arming is
  *     idempotent within the 500 ms window: the first pulse schedules, the rest are
  *     absorbed into the one upcoming snapshot.
- *   - **frozen(reason)** — a restart's critical section (capture → drain → park) has
- *     the gate pinned; the fire is blocked until {@link unfreezeAutosave}, regardless
- *     of arming. A PUSHED fact — `restartLocal.ts` calls {@link freezeAutosave} /
- *     {@link unfreezeAutosave} — because the restart is its own sole authority and
- *     there is no other source of truth for "is a restart in flight". It is
- *     orthogonal to the timer: the drain arms a save WHILE frozen (a `terminals:dirty`
- *     the exiting PTYs fire), and the freeze is what keeps that fire from nulling the
- *     just-captured session in the drain→park gap.
+ *   - **frozen(reason)** — a critical section (a restart's capture → drain → park, or
+ *     a `session.restore` spawn window) holds a freeze LEASE; the fire is blocked until
+ *     the LAST lease lifts via {@link unfreezeAutosave}, regardless of arming. A PUSHED
+ *     fact — `restartLocal.ts` / `sessionRestore.ts` call {@link freezeAutosave} /
+ *     {@link unfreezeAutosave} — because each critical section is its own sole authority
+ *     and there is no other source of truth for "is one in flight". Leases are
+ *     independent (a Map of tokens), so two overlapping owners can hold the gate at once
+ *     and neither thaws the other's section early. It is orthogonal to the timer: the
+ *     drain arms a save WHILE frozen (a `terminals:dirty` the exiting PTYs fire), and
+ *     the freeze is what keeps that fire from nulling the just-captured session in the
+ *     drain→park gap.
  *   - **suppressed(parked)** — a restore is pending (parked entries stand in for the
  *     on-disk blob). NOT stored here: it is read LIVE at fire via the injected
  *     `isRestorePending` query, because the terminal-registry is its sole source of
@@ -73,9 +76,19 @@ type SaveDecision =
  *  writers) can disarm it. */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** The restart critical section's reason while **frozen**, else `undefined`. Pushed
- *  by {@link freezeAutosave} / {@link unfreezeAutosave}; orthogonal to the timer. */
-let frozenReason: string | undefined;
+/** The set of ACTIVE freeze leases → their reason (for logging). The gate is
+ *  **frozen** while this is non-empty. A Map of independent leases — NOT a single
+ *  scalar — because TWO async owners can hold the critical section at once (a
+ *  `session.restore` spawn window overlapping a `restartLocalDaemon` capture→park,
+ *  or two concurrent restores): a scalar reason would let whichever finishes first
+ *  thaw the OTHER's still-live section, reopening the drain→park clobber window it
+ *  was pinning. Each `freezeAutosave` mints its OWN token and each `unfreezeAutosave`
+ *  releases only that token, so the gate stays frozen until the LAST lease lifts. */
+const activeFreezes = new Map<symbol, string>();
+
+/** An opaque freeze lease — {@link freezeAutosave} returns one, {@link unfreezeAutosave}
+ *  releases it. Idempotent: releasing an already-released (or unknown) token is a no-op. */
+export type AutosaveFreeze = symbol;
 
 /** Cancel any pending (armed) autosave, returning the gate to **idle** without
  *  firing. Called by the gate's own fire callback (a no-op there — the timer already
@@ -98,15 +111,23 @@ export function cancelPendingAutosave(): void {
  *  and an unfrozen fire would null the just-captured session before park runs (the
  *  zest restart-path clobber). Park then seeds the parked entries and the parked
  *  query takes over. */
-export function freezeAutosave(reason: string): void {
-  frozenReason = reason;
+export function freezeAutosave(reason: string): AutosaveFreeze {
+  const token: AutosaveFreeze = Symbol(reason);
+  activeFreezes.set(token, reason);
+  return token;
 }
 
-/** Leave **frozen** — back to **idle** / **armed** per the timer. Safe on a restart's
- *  success OR failure path; a failed restart pairs it with {@link cancelPendingAutosave}
- *  so a drain-armed timer cannot clobber the captured session after the freeze lifts. */
-export function unfreezeAutosave(): void {
-  frozenReason = undefined;
+/** Release a freeze lease — the gate returns to **idle** / **armed** per the timer
+ *  ONLY once EVERY lease is released. Safe on a restart's success OR failure path; a
+ *  failed restart pairs it with {@link cancelPendingAutosave} so a drain-armed timer
+ *  cannot clobber the captured session after the last freeze lifts. Idempotent.
+ *
+ *  A token-LESS call thaws ALL leases — the defensive reset the test teardown uses to
+ *  return the module-global gate to a clean slate between cases; production callers
+ *  always release their OWN token so they never thaw a concurrent owner's section. */
+export function unfreezeAutosave(token?: AutosaveFreeze): void {
+  if (token === undefined) activeFreezes.clear();
+  else activeFreezes.delete(token);
 }
 
 /** Decide, at fire, whether to persist — freeze first (the drain→park window a plain
@@ -115,8 +136,8 @@ export function unfreezeAutosave(): void {
  *  is a plain call — not an optional on a value that cannot be absent once the gate has
  *  fired. */
 function decideSave(deps: AutosaveGateDeps): SaveDecision {
-  if (frozenReason !== undefined)
-    return { kind: "frozen", reason: frozenReason };
+  if (activeFreezes.size > 0)
+    return { kind: "frozen", reason: [...activeFreezes.values()].join("; ") };
   if (deps.isRestorePending()) return { kind: "suppressed-parked" };
   return { kind: "persist" };
 }

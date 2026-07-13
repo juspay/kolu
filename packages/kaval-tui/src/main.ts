@@ -50,6 +50,7 @@ import {
   newPtyId,
 } from "./create.ts";
 import { isValidEscapeChar } from "./escape.ts";
+import { materializeHistoryPage } from "./historyPage.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
 import {
@@ -191,6 +192,22 @@ const argv = cli({
       },
     }),
     command({
+      name: "history",
+      parameters: ["<id>"],
+      help: {
+        description:
+          "Dump a terminal's OLDER scrollback — the mirror content ABOVE the current screen that `snapshot --viewport` can't show — as VT bytes (colors preserved), cursor-paged from the newest older lines back. `--lines N` prints just the N lines immediately above the screen; omit it to dump the whole mirror history. Read-only, takes no TTY. <id> is the short id from `list` or any unique prefix.",
+      },
+      flags: {
+        ...endpointFlags,
+        lines: {
+          type: Number,
+          description:
+            "print only the N older lines immediately above the current screen (one page); omit for the full older history",
+        },
+      },
+    }),
+    command({
       name: "send",
       parameters: ["<id>", "[text...]"],
       help: {
@@ -310,6 +327,12 @@ function writeOut(text: string): Promise<void> {
   });
 }
 
+/** {@link writeOut} with a single trailing newline ensured — the common
+ *  "print this block as a line" shape the screen/history dumps share. */
+function writeOutLine(text: string): Promise<void> {
+  return writeOut(text.endsWith("\n") ? text : `${text}\n`);
+}
+
 function fail(message: string): never {
   process.stderr.write(`kaval-tui: ${message}\n`);
   process.exit(1);
@@ -392,12 +415,68 @@ async function cmdSnapshot(
     id,
     extent,
   });
-  await writeOut(text.endsWith("\n") ? text : `${text}\n`);
+  await writeOutLine(text);
   // Trailer to stderr so stdout stays clean, scriptable scrollback — derived
   // from the text we already hold, no second round-trip to decorate it.
   const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
   process.stderr.write(
     `— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`,
+  );
+}
+
+/** Rows per page when dumping the whole older history — bounds each round-trip's
+ *  serialized payload; the pager loops until the mirror is exhausted. */
+const HISTORY_PAGE_ROWS = 1000;
+
+async function cmdHistory(
+  conn: Connection,
+  id: string,
+  opts: { lines: number | undefined },
+): Promise<void> {
+  // The `getHistory` verb self-seeds when `before` is omitted (starts from the
+  // top of the current screen region) and pages older with each reply's
+  // `topLine`. It returns VT-serialized chunks — the same bytes the browser
+  // replays — so colors survive; a consumer that wants plain text pipes through
+  // its own VT stripper, exactly as it would `snapshot`'s serialized frame.
+  // The pager sends no `epoch`, so the host never serves the `stale` arm — every
+  // reply is a `chunk` (the narrow below is exhaustive-safe, not a live branch).
+  if (opts.lines !== undefined) {
+    // One page: the N older lines immediately above the screen.
+    const res = await conn.client.surface.terminal.getHistory({
+      id,
+      max: opts.lines,
+    });
+    if (res.kind === "chunk" && res.chunk) await writeOutLine(res.chunk);
+    process.stderr.write(
+      `— ${shortId(id)} · older history (≤${opts.lines} lines)\n`,
+    );
+    return;
+  }
+  // Whole older history: page from the screen top back to the oldest retained
+  // line. We fetch newest-older first; collect, then emit OLDEST-first so the
+  // dump reads top-to-bottom like the terminal produced it.
+  const pages: string[] = [];
+  let before: number | undefined;
+  for (;;) {
+    const res = await conn.client.surface.terminal.getHistory({
+      id,
+      before,
+      max: HISTORY_PAGE_ROWS,
+    });
+    if (res.kind === "stale") break;
+    // An all-blank page serializes to "" but is NOT exhaustion — advance past it
+    // (the cursor still moves up) so older content ABOVE a blank run isn't cut
+    // off. Only `exhausted` (the top of the mirror) ends the dump. The blank-span
+    // materialization (and the self-seeded-first-page edge) lives in
+    // `materializeHistoryPage`, unit-tested in `historyPage.test.ts`.
+    const page = materializeHistoryPage(res.chunk, before, res.topLine);
+    if (page !== null) pages.push(page);
+    before = res.topLine;
+    if (res.exhausted) break;
+  }
+  for (const chunk of pages.slice().reverse()) await writeOutLine(chunk);
+  process.stderr.write(
+    `— ${shortId(id)} · ${pages.length} older page${pages.length === 1 ? "" : "s"}\n`,
   );
 }
 
@@ -1003,6 +1082,13 @@ async function main(): Promise<void> {
         viewport,
         tailLines,
       });
+    } else if (argv.command === "history") {
+      const { lines } = argv.flags;
+      if (lines !== undefined && (!Number.isInteger(lines) || lines <= 0))
+        fail(
+          `--lines takes a positive whole number of lines, got ${JSON.stringify(lines)}.`,
+        );
+      await cmdHistory(conn, await resolveOne(conn, argv._.id), { lines });
     } else if (sendCall !== null) {
       // `sendCall` is non-null exactly when the command is `send` (parsed +
       // validated pre-dial above), so keying the branch off it carries the

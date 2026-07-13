@@ -43,6 +43,7 @@ import {
   type PadiHostInventory,
   type PadiTerminal,
 } from "@kolu/padi/surface";
+import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import {
@@ -268,7 +269,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       Symbol.asyncIterator
     ]();
     const first = await attach.next();
-    expect(typeof first.value).toBe("string");
+    const firstFrame = first.value as TerminalAttachFrame;
+    expect(firstFrame.kind).toBe("snapshot");
+    expect(typeof firstFrame.data).toBe("string");
 
     await padi.surface.lifecycle.sendInput({ id, data: "echo SSHMARK\r" });
     let screen = "";

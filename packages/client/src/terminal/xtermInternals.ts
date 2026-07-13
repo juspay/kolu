@@ -3,16 +3,24 @@
  *  Every reach into xterm's undocumented internals — render service,
  *  buffer service, DEC private modes — lives here, behind accessors that
  *  return null (or a null-shaped result) when the shape isn't what we
- *  expect. This is the single volatility axis: when the pinned
- *  `@xterm/xterm` beta bumps and renames a `_core` field, exactly one
- *  module needs editing, and every consumer degrades to a no-op / "unknown"
- *  probe instead of crashing.
+ *  expect. This is the volatility axis for that shape: when the pinned
+ *  `@xterm/xterm` beta bumps and renames a `_core` field, editing stays
+ *  confined to two modules — this one (whose consumers degrade to a no-op /
+ *  "unknown" probe instead of crashing) and `scrollbackBackfill.ts` (which
+ *  reaches the same `_core.buffers.normal.lines` path with the OPPOSITE
+ *  failure semantics — see below). A `_core` rename touches both in tandem.
  *
  *  Consumers:
  *   - `renderRecovery.ts` uses `renderService`/`readDecPrivateMode` for its
  *     forced sync repaint + render-pipeline probes.
  *   - `Terminal.tsx` uses `readBufferBytes` for the Diagnostic dialog's
- *     per-terminal byte counts. */
+ *     per-terminal byte counts.
+ *   - `scrollbackBackfill.ts` is a SECOND, deliberately FAIL-LOUD `_core`
+ *     reach (its `coreOf` THROWS rather than degrading to null, because a
+ *     partial prepend corrupts the buffer). It pins its own
+ *     `_core.buffers.normal.lines` / `_bufferService._onScroll.fire` shape
+ *     with the inverted semantics of this module, so a `_core`
+ *     `buffers.normal.lines` path rename must update it alongside this one. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 

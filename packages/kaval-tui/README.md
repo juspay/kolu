@@ -14,6 +14,7 @@ The daemon owns the PTYs and outlives the clients; kaval-tui comes and goes.
 kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd · cwd)
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
+kaval-tui history <id>      dump older scrollback ABOVE the screen (--lines N for one page), then exit
 kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
 kaval-tui wait <id> --until <cond>  block until the terminal's output goes idle (or matches), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches

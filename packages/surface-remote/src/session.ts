@@ -42,6 +42,7 @@ import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
+import { monotonicNow } from "@kolu/surface/time";
 import {
   probeSurfaceIdentity,
   type ServedIdentity,
@@ -54,6 +55,15 @@ import type { LogEntry } from "./connection";
 
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
+
+/** The dead-man ceiling for a LOCAL arm's liveness watchdog (see
+ *  {@link Connection.processAlive}). When the same-box process oracle reports the padi
+ *  ALIVE but its heartbeat has stayed silent this long, the process is
+ *  deadlocked-but-alive (not merely slow under CPU load), so the watchdog force-cycles
+ *  anyway — slow-under-load and hung-forever are different facts and get different
+ *  treatment. Minute-scale and BAKED (no knob): far past any CPU-contention heartbeat
+ *  delay, far short of leaving a genuinely wedged local padi unhealed. */
+const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
 
 /** The observable link state a session publishes (snapshot-then-delta on
  *  `onState`) — ONE framework type. A `log` tail every arm carries, intersected
@@ -215,6 +225,20 @@ export interface Connection<Client> {
    *  rejection still counts as alive (the round-trip completed); only a true
    *  non-answer (timeout) is stale. Defaults to `system.live` for a plain client. */
   isAlive(): Promise<void>;
+  /** OPTIONAL same-box life-oracle — the arm-structural distinction a LOCAL
+   *  (stdio/endpoint) arm has that a REMOTE (ssh) arm cannot (P5: the guarantee
+   *  belongs at the knowing endpoint). When the watchdog's {@link isAlive} round-trip
+   *  goes SILENT, a remote arm has no recourse but to read silence as death — the
+   *  network can die silently. A local arm can do better: it reads the same-box
+   *  process table directly. So the LOCAL endpoint connector supplies this synchronous
+   *  predicate (the padi process is alive) BY CONSTRUCTION; the ssh connector OMITS it
+   *  (absent ≡ "no oracle better than the heartbeat" — today's semantics, exactly). On
+   *  a heartbeat timeout the watchdog consults it: alive → the link is merely SLOW
+   *  under load, not dead, so it keeps probing instead of force-cycling (bounded by
+   *  {@link LOCAL_LIVENESS_DEAD_MAN_CEILING_MS}); dead → force-cycle at once. This is
+   *  arm STRUCTURE, never a tuning knob — the distinction rides which connector built
+   *  the connection, not a mode flag. */
+  processAlive?: () => boolean;
   /** Force-tear-down THIS connection (recheck / connect-timeout / destroy). Routes
    *  through `closed` — so the loop's reconnect/give-up machinery runs once. */
   teardown(): void;
@@ -407,6 +431,26 @@ export function makeSession<
   /** The periodic liveness watchdog handle (ONE `@kolu/surface/heartbeat`), or
    *  `null` until first connect / after teardown. */
   let liveness: { dispose: () => void } | null = null;
+  /** The CURRENT connection's liveness EPISODE — its two coupled probe fields, born
+   *  and retired WITH `current` (created by {@link setCurrent}, nulled wherever
+   *  `current` is nulled) so neither field can leak onto a replacement link:
+   *   - `inFlight`: the single in-flight `isAlive` round-trip, or `null` when none is
+   *     pending. Caps concurrency to ONE probe per connection — during the local arm's
+   *     hold-off (a slow padi kept alive across repeated stale cycles) the heartbeat's
+   *     timer re-fires every cycle, but a fresh `hello()` would pile onto the already-
+   *     struggling process, so we REUSE this pending probe instead of launching another.
+   *   - `unresponsiveSince`: LOCAL arm only — when its heartbeat first went SILENT while
+   *     the {@link Connection.processAlive} oracle still reported the padi alive (the start
+   *     of the dead-man ceiling window). `null` whenever the link is answering (reset by
+   *     any completed probe). Unused by the ssh arm (no oracle → it force-cycles on the
+   *     first silence).
+   *  `null` when no link is up. Because both fields share `current`'s lifetime in ONE
+   *  record, the connection-boundary reset is a single `episode = null` — a future path
+   *  can't half-reset it (the old scatter's fourth-site bug becomes unrepresentable). */
+  let episode: {
+    inFlight: Promise<void> | null;
+    unresponsiveSince: number | null;
+  } | null = null;
   /** The bound server's served identity off its `system.identity`, or `null` before
    *  the first successful poll / after a link death (re-polled on the next connect,
    *  so a respawned server's fresh identity lands). `null` here is the INTERNAL
@@ -421,6 +465,15 @@ export function makeSession<
   let episodeStartedAt = Date.now();
   /** `now − episodeStartedAt` — the duration stamped on every published frame. */
   const since = (): number => Date.now() - episodeStartedAt;
+
+  /** Adopt `conn` as the live connection and open a FRESH liveness episode for it.
+   *  `current` and its `episode` share ONE lifetime, so every adopt site goes through
+   *  here — no episode is ever left over from the prior link, and the three set-sites
+   *  don't triplicate the init. */
+  const setCurrent = (conn: Connection<Client>): void => {
+    current = conn;
+    episode = { inFlight: null, unresponsiveSince: null };
+  };
 
   // The opening frame is ALWAYS an up arm (`initialConnection`'s type now
   // guarantees this — never a state that means "gave up before dialing"), so it
@@ -569,6 +622,16 @@ export function makeSession<
     pushLog("remote", line);
   };
 
+  /** The watchdog's force-cycle action — the ONE "give up on this link" step:
+   *  announce `reason` on the local log, then `recheck()` (tear the link down and
+   *  redial). The three `onStale` cycling branches differ only in their reason
+   *  string, so log-then-recheck lives here once. Touches NO episode state — the
+   *  connection-boundary reset in `handleClosed` owns that. */
+  const forceCycle = (reason: string): void => {
+    localProgress(reason);
+    session.recheck();
+  };
+
   const startLiveness = (): void => {
     if (opts.liveness === false || liveness !== null) return;
     const tuning = typeof opts.liveness === "object" ? opts.liveness : {};
@@ -581,15 +644,91 @@ export function makeSession<
         current !== null,
       probe: () => {
         const conn = current;
-        if (conn === null) return Promise.reject(new Error("no connection"));
-        return conn.isAlive();
+        // `conn` and `episode` share one lifetime (both set by `setCurrent`, both
+        // nulled together), so a non-null `conn` implies a non-null `episode`; the
+        // combined guard narrows the type without inventing an impossible branch.
+        if (conn === null || episode === null)
+          return Promise.reject(new Error("no connection"));
+        const ep = episode;
+        // Cap concurrency to ONE outstanding round-trip: while a probe is still in
+        // flight (a genuinely slow padi, mid hold-off), the heartbeat re-fires its timer
+        // each cycle — reuse the pending probe rather than piling a fresh `hello()` onto
+        // the already-struggling process every ~25s. The reused promise still times out
+        // against the heartbeat each cycle (so `onStale` keeps re-checking the ceiling).
+        if (ep.inFlight !== null) return ep.inFlight;
+        // Guard the ceiling-clock reset against a STRAGGLING settle from a superseded
+        // dial: `conn.isAlive()` is never cancelled, so it can resolve/reject arbitrarily
+        // late — after `current` has moved to a fresh connection mid-way through its OWN
+        // dead-man countdown. Capture the connection + dial generation and reset only if
+        // both still match (mirrors `pollIdentity`'s epoch guard below); a late settle
+        // from a torn-down probe must not wipe a newer connection's clock.
+        const connAtLaunch = conn;
+        const epoch = dialEpoch;
+        const probe: Promise<void> = conn.isAlive().finally(() => {
+          // Clear only if still OURS — a stale settle must not null out a newer probe's
+          // in-flight tracking. `ep` is this connection's episode record; once the
+          // connection is retired the record is detached, so writing it is inert.
+          if (ep.inFlight === probe) ep.inFlight = null;
+          // A COMPLETED round-trip (even a rejection) proves the link answered, so the
+          // local arm's "alive-but-silent" ceiling clock resets — the slow spell passed.
+          // Harmless for the ssh arm, which never reads the clock.
+          if (current === connAtLaunch && dialEpoch === epoch) {
+            ep.unresponsiveSince = null;
+          }
+        });
+        ep.inFlight = probe;
+        return probe;
       },
       onStale: () => {
         if (destroyed) return;
+        const oracle = current?.processAlive;
+        // REMOTE arm (no same-box oracle): a silent heartbeat is its ONLY life-signal,
+        // and the network can die silently — so silence means death: force-cycle.
+        // Today's semantics, provably untouched.
+        if (oracle === undefined) {
+          forceCycle(
+            "liveness probe timed out — remote wedged, force-cycling the link",
+          );
+          return;
+        }
+        // LOCAL arm: `current` is non-null (its `processAlive` is the `oracle`), so its
+        // `episode` is non-null too (they share one lifetime); the guard narrows the type.
+        const ep = episode;
+        if (ep === null) return;
+        // Consult the same-box process table — the superior oracle (P5).
+        if (!oracle()) {
+          // The padi process is genuinely gone → force-cycle now; reconnect heals.
+          forceCycle(
+            "liveness probe timed out and the local padi process has exited — force-cycling the link",
+          );
+          return;
+        }
+        // Alive but heartbeat-silent ≡ SLOW under load, not dead — do NOT force-cycle;
+        // keep probing. The dead-man ceiling bounds it so an alive-but-never-answering
+        // (deadlocked) padi still heals.
+        //
+        // Measured on the MONOTONIC clock (`monotonicNow`, the same clock
+        // `createHeartbeat` reads), never wall time: `onStale` only ever fires over a
+        // continuously-RUNNING probe window (the heartbeat VOIDS a suspension-straddling
+        // window and re-probes without calling us — heartbeat.ts § SUSPENSION_SLACK_MS),
+        // so the ceiling must accrue only running time too. Wall time (`Date.now`) would
+        // fold a laptop sleep / clock step INTO the silent span and force-cycle a merely-
+        // resumed-but-alive padi on the first post-wake stale — re-introducing the exact
+        // suspension-induced false recovery this arm exists to prevent. On the monotonic
+        // clock, suspended time never counts, so a resumed padi gets its full running-time
+        // grace before the ceiling bites.
+        const now = monotonicNow();
+        ep.unresponsiveSince ??= now;
+        const silentForMs = now - ep.unresponsiveSince;
+        if (silentForMs >= LOCAL_LIVENESS_DEAD_MAN_CEILING_MS) {
+          forceCycle(
+            `local padi alive but heartbeat-silent for ${silentForMs}ms (≥ dead-man ceiling) — force-cycling the link`,
+          );
+          return;
+        }
         localProgress(
-          "liveness probe timed out — remote wedged, force-cycling the link",
+          "liveness probe slow but the local padi process is alive — not cycling (load, not death)",
         );
-        session.recheck();
       },
     });
   };
@@ -638,7 +777,21 @@ export function makeSession<
   const handleClosed = (conn: Connection<Client>, info: ClosedInfo): void => {
     // Stale close from a connection we already replaced/tore down — ignore.
     if (conn !== current) return;
+    // Retire this connection's liveness EPISODE with the connection itself. The
+    // heartbeat is session-scoped (born once at the first connect, disposed only at
+    // `destroy`), so the per-connection probe state — the concurrency-capped `inFlight`
+    // probe and the dead-man `unresponsiveSince` clock — MUST go down with the
+    // connection, or it leaks onto the REPLACEMENT: a probe that never settled on the
+    // dead link would still be cached, so the heartbeat would hand the fresh connection
+    // the old link's forever-pending promise (the `probe` reuse above) instead of ever
+    // calling the new `isAlive()` — force-cycling a healthy successor (immediately for
+    // the ssh arm, after the ceiling for the local arm). Because `episode` shares
+    // `current`'s lifetime, nulling both together retires BOTH fields in ONE move — no
+    // boundary path can half-reset it. A late settle from the now-retired probe is
+    // inert: its captured episode is detached, and its `current === connAtLaunch` check
+    // fails.
     current = null;
+    episode = null;
     const wasConnected = stateCell.current().phase === "connected";
     let reason: string;
     let cause: "network" | "remote";
@@ -759,7 +912,7 @@ export function makeSession<
         // `remotePadiBinding.test.ts` (the "PROJECTION INVARIANT" tests). The
         // still-cleaner future shape — a SessionState arm that types standing-refuse
         // apart from transient-disconnected — is on the padi-cleanup ledger.
-        current = conn;
+        setCurrent(conn);
         wireClosed();
         consecutiveFailures = 0;
         setDown("disconnected", verdict.state.error, verdict.state.cause);
@@ -785,7 +938,7 @@ export function makeSession<
       // to signal `connecting`; a breach is surfaced loudly here, but the transition
       // still completes (the admit hello proved the link, so `connected` is correct).
       // A later consumer `markConnected` is a harmless no-op (state is `connected`).
-      current = conn;
+      setCurrent(conn);
       wireClosed();
       if (stateCell.current().phase !== "connecting") {
         emit(
@@ -798,7 +951,7 @@ export function makeSession<
       return conn.client;
     }
 
-    current = conn;
+    setCurrent(conn);
     // Defer `connected` until the first RPC roundtrips — the consumer signals that
     // via `markConnected()`; the connector's client has no synchronous "open".
     wireClosed();
@@ -914,6 +1067,7 @@ export function makeSession<
       stopLiveness();
       current?.teardown();
       current = null;
+      episode = null;
       clientPromise = null;
       cachedIdentity = null;
       // Re-publish (no field change) purely to wake `onState` listeners so a cursor

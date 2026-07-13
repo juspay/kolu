@@ -31,7 +31,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 
 | Tap            | Source                          | API                       |
 | -------------- | ------------------------------- | ------------------------- |
-| screen output  | `node-pty` `onData`             | `attach` (snapshot+deltas)|
+| screen output  | `node-pty` `onData`             | `attach` (bounded snapshot+deltas) · `getHistory` (older chunks) |
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
 | command-run    | OSC 633 ; E ; `<cmd>` preexec   | `subscribeCommandRun` / `getLastCommand` |
@@ -47,6 +47,17 @@ mirror), nothing can interleave between the two — every byte lands in exactly
 one of `snapshot` / `deltas`, with no gap and no overlap. This is what lets a
 late-joining client reconstruct the screen and then stream live output without
 losing or double-painting a single chunk.
+
+The attach snapshot is **bounded** — the recent screenful (`SNAPSHOT_SCROLLBACK`),
+not the whole `DEFAULT_MIRROR_SCROLLBACK`-deep mirror — so a cold or cross-host
+attach paints instantly instead of replaying 10k lines. It carries a `topLine`
+seed (the absolute mirror-line index of its top row); older history streams in on
+demand through **`getHistory(before, max)`**, which serves the chunk of rows just
+*above* an absolute cursor. Absolute addressing is what makes the seam where
+backfilled history meets existing content race-free: new output always appends at
+the mirror bottom, never shifting a line the client already holds, so a served
+chunk can neither duplicate nor skip a row regardless of in-flight output. The
+eviction origin the cursor rides on is tracked off the mirror's `onTrim`.
 
 **Cheap under a reconnect storm.** A client that drops and reconnects
 re-`attach()`es every terminal at once, aborting the in-flight attaches and

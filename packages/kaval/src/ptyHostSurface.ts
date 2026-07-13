@@ -107,8 +107,55 @@ import { z } from "zod";
  *  is RECYCLED — its live PTYs killed (unlike padi, which drains). A cosmetic readout
  *  must never cost a terminal: leaving the field optional at 5.0 keeps the survivor
  *  handshake-compatible (adopted, PTYs intact), and the reader falls back to "—" until
- *  the user's next kaval restart reports it. */
-export const PTY_HOST_CONTRACT_VERSION = "5.0";
+ *  the user's next kaval restart reports it.
+ *
+ *  Bumped to 5.1 (additive · minor): scrollback-backfill. Two shape changes,
+ *  both breaking only in the new-client/old-daemon direction the predicate
+ *  already recycles. (1) A new `terminal.getHistory` read verb serves older
+ *  mirror scrollback in cursor-paged chunks (the client backfills its own
+ *  scrollback as it scrolls up; `kaval-tui history` is a second consumer). (2)
+ *  The `terminalAttach` `snapshot` frame gained a required `topLine` — the
+ *  absolute mirror-line seed the client's backfill cursor starts from. Like the
+ *  3.3 `commandRun.replayed` add, a 5.0 survivor serving a bare `{ kind, data }`
+ *  snapshot frame is rejected by the new schema and RECYCLED on adoption, rather
+ *  than seeding the client's backfill from a missing anchor. The attach snapshot
+ *  is also now BOUNDED (the recent screenful, not the whole 10k mirror) — a
+ *  payload-size change, invisible to the wire shape, so it needs no bump on its
+ *  own.
+ *
+ *  Why the bounded snapshot stays a MINOR (the old-client/new-daemon direction).
+ *  A 5.0 client accepting a 5.1 daemon (minor >= its own, the direction the
+ *  predicate waves through) strips the unknown `topLine`, lacks `getHistory`, and
+ *  now paints only the ~1000-line bounded snapshot where it once got the full
+ *  mirror — it shows LESS scrollback. Unlike the 4.0 `getScreenText` reshape
+ *  (which returned the WRONG bytes — a full buffer where a tail was asked — and
+ *  mis-parsed a legacy field), this is a GRACEFUL degradation: no mis-parse, no
+ *  corruption, the PTY fully usable, just a shorter cold-attach history. That is
+ *  exactly the class the lifetime field above kept OPTIONAL rather than bump — "a
+ *  cosmetic readout must never cost a terminal." A major here would make an old
+ *  padi meeting a new surviving kaval a SKEW and RECYCLE it — killing the user's
+ *  live PTYs — to buy back scrollback depth on a downgrade-only path (a newer
+ *  kaval under an older padi arises only when padi is rolled BACK while its kaval
+ *  survives). And the end-to-end client↔padi skew that actually reaches a browser
+ *  is already refused by `PADI_SURFACE_VERSION`'s 3.0 major (the `terminalAttach`
+ *  reshape). So this leg stays minor: graceful, PTY-preserving, and belt-and-
+ *  suspendered by the padi major. */
+/*  Bumped to 5.2 (additive · minor): the scrollback-backfill reflow guard (F3).
+ *  (1) the `terminalAttach` snapshot frame carries an OPTIONAL `reflowEpoch` —
+ *  the mirror's reflow generation the snapshot was serialized under; (2)
+ *  `getHistory` input gains an OPTIONAL `epoch` the client echoes; (3)
+ *  `getHistory` output is reshaped to a `chunk | stale` DISCRIMINATED UNION (the
+ *  stale-reflow halt as its own arm, not a `stale` flag — invalid-states-
+ *  unrepresentable). Together they let a client whose shared mirror a FOREIGN
+ *  attach reflowed (its own `term.cols` unchanged) HALT backfill instead of
+ *  splicing a duplicated/skipped band. Skew stays graceful in the accepting
+ *  direction: the `stale` arm is reachable ONLY when the caller sends `epoch`, so
+ *  a 5.1 client (which sends none) receives only `chunk` frames and strips the
+ *  extra `kind` key — fail-open, exactly as before. The other direction
+ *  (new-client/old-daemon: a 5.2 client's union schema meets a 5.1 daemon's flat
+ *  reply) is the usual `reported.minor < expected.minor` recycle every minor bump
+ *  already forces, before any `getHistory` call runs. */
+export const PTY_HOST_CONTRACT_VERSION = "5.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -186,7 +233,24 @@ const TerminalListEntrySchema = z.object({
 });
 
 const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("snapshot"), data: z.string() }),
+  // `topLine` (contract 5.1) is the absolute mirror-line index of the snapshot's
+  // top row — the seed the client's scrollback-backfill cursor pages older
+  // history down from (`terminal.getHistory`'s first `before`). Required, and
+  // riding on the SAME frame as the bytes it describes, so the seed can never
+  // drift from the snapshot a client actually received.
+  z.object({
+    kind: z.literal("snapshot"),
+    data: z.string(),
+    topLine: z.number().int().nonnegative(),
+    // `reflowEpoch` (contract 5.2 · additive · optional) — the mirror's reflow
+    // generation this snapshot was serialized under. The client stamps it on
+    // every `getHistory` so a later width reflow (this or a FOREIGN attach's
+    // resize, which renumbers absolute rows) yields a no-splice `stale` reply
+    // instead of a duplicated/skipped backfill band (F3). Optional so an older
+    // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
+    // the historical single-width behavior), no skew refusal.
+    reflowEpoch: z.number().int().nonnegative().optional(),
+  }),
   z.object({ kind: z.literal("delta"), data: z.string() }),
   // The host dropped THIS attach subscriber for exceeding its buffered-chunk
   // cap (a slow consumer), then ended the stream. A pure CONTROL frame (no
@@ -414,6 +478,47 @@ export const ptyHostSurface = defineSurface({
             .optional(),
         }),
         output: z.object({ text: z.string() }),
+      },
+      /** Older-scrollback read for the client's in-place backfill (contract
+       *  5.1). `before` is the caller's absolute cursor (the attach snapshot's
+       *  `topLine`, then each reply's `topLine`); the host serves up to `max`
+       *  mirror rows immediately ABOVE it, VT-serialized for replay. Absolute
+       *  addressing keeps the seam where backfill meets existing content
+       *  race-free against live output (see `PtyHistoryChunk`). `max` is a
+       *  positive count — a non-positive request is a caller bug, rejected at the
+       *  wire rather than silently returning nothing. */
+      getHistory: {
+        input: z.object({
+          id: PtyIdSchema,
+          // Absolute cursor; omitted starts from the top of the current screen
+          // region (the self-seeding pager entry point).
+          before: z.number().int().nonnegative().optional(),
+          max: z.number().int().positive(),
+          // `epoch` (contract 5.2 · additive · optional) — the reflow generation
+          // the caller's `before` cursor was seeded under (the attach snapshot's
+          // `reflowEpoch`). The host serves the `stale` output arm when it no
+          // longer matches, so a client whose mirror a foreign resize reflowed
+          // HALTS rather than pages a renumbered cursor (F3). Omitted by an older
+          // client / the self-seeding pager — fail-open (never sees `stale`).
+          epoch: z.number().int().nonnegative().optional(),
+        }),
+        // A discriminated union, not a flat struct with a `stale` flag: the two
+        // outcomes — a served chunk vs a stale-reflow halt — can't be conflated
+        // (invalid-states-unrepresentable; mirrors this contract's own attach
+        // `snapshot|delta` frame). The `stale` arm is only reachable when the
+        // caller sends `epoch`, so an older (5.1) client — which sends none —
+        // never receives it and reads every reply as a plain chunk (the extra
+        // `kind` key is stripped by its flat schema); the breaking direction is
+        // the usual new-client/old-daemon one the predicate already recycles.
+        output: z.discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("chunk"),
+            chunk: z.string(),
+            topLine: z.number().int().nonnegative(),
+            exhausted: z.boolean(),
+          }),
+          z.object({ kind: z.literal("stale") }),
+        ]),
       },
     },
     system: {
