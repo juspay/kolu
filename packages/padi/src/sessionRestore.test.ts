@@ -29,7 +29,10 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
-import { restoreSession } from "./sessionRestore.ts";
+import {
+  reconcileRestoreSettlement,
+  restoreSession,
+} from "./sessionRestore.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -38,7 +41,10 @@ import {
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
-import { seedParkedTerminal } from "./terminalEndpoint/local.ts";
+import {
+  seedParkedTerminal,
+  TerminalSpawnRacedError,
+} from "./terminalEndpoint/local.ts";
 import {
   LOCAL_LOCATION,
   type SavedActiveTerminal,
@@ -428,5 +434,106 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     const restored = restoredW12Agent();
     expect(restored).toBeDefined();
     expect(getTerminal(restored!.id)?.meta.state).toBe("parked");
+  });
+});
+
+describe("reconcileRestoreSettlement — tree settlement (F2 / F3)", () => {
+  const mkRecord = (
+    id: string,
+    cwd: string,
+    parentId?: string,
+  ): SavedActiveTerminal => ({
+    ...base,
+    id,
+    state: "active",
+    cwd,
+    lastActivityAt: 1,
+    restoreTarget: { kind: "none" },
+    ...(parentId ? { parentId } : {}),
+  });
+
+  const liveEntry = (
+    id: string,
+    cwd: string,
+    parentId?: string,
+  ): ActiveTerminalProcess => ({
+    info: { id, pid: 1 },
+    meta: {
+      state: "active",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      ...(parentId ? { parentId } : {}),
+    },
+    snapshot: {
+      cwd,
+      git: null,
+      pr: { kind: "absent" },
+      agent: null,
+      foreground: null,
+    },
+    handle: {} as ActiveTerminalProcess["handle"],
+  });
+
+  it("F3 — a pre-ready KILL/SLEEP (typed race error) is NOT re-parked; a genuine spawn failure IS", () => {
+    // A rejected `ready` carries WHY it rejected: `TerminalSpawnRacedError` is a second
+    // client's kill/sleep mid-spawn (honor it — never resurrect as a restore card), while a
+    // raw RPC error is a genuine infra spawn failure (re-park so the restore card re-offers).
+    const killed = mkRecord("11111111-1111-4111-8111-111111111111", "/killed");
+    const failed = mkRecord("22222222-2222-4222-8222-222222222222", "/failed");
+    reconcileRestoreSettlement(
+      [
+        { newId: killed.id, record: killed, parentIdMapped: undefined },
+        { newId: failed.id, record: failed, parentIdMapped: undefined },
+      ],
+      [
+        { status: "rejected", reason: new TerminalSpawnRacedError() },
+        {
+          status: "rejected",
+          reason: new Error("pty-host terminal.spawn failed"),
+        },
+      ],
+    );
+    expect(getTerminal(killed.id)).toBeUndefined();
+    expect(getTerminal(failed.id)?.meta.state).toBe("parked");
+  });
+
+  it("F2 — a live child under an infra-failed (re-parked) parent is PROMOTED to top-level", () => {
+    // The non-monotonic mixed outcome: the parent respawn rejects for a per-record reason
+    // (a removed cwd) while its later-queued child spawn SUCCEEDS. Without the sweep the live
+    // child would dangle under the now-parked parent (hidden on the canvas). It is reparented
+    // to top-level, keeping its live PTY.
+    const parent = mkRecord(
+      "33333333-3333-4333-8333-333333333333",
+      "/p2-parent",
+    );
+    const CHILD = "44444444-4444-4444-8444-444444444444";
+    registerTerminal(CHILD, liveEntry(CHILD, "/p2-child", parent.id));
+    const child = mkRecord(CHILD, "/p2-child", parent.id);
+    reconcileRestoreSettlement(
+      [
+        { newId: parent.id, record: parent, parentIdMapped: undefined },
+        { newId: CHILD, record: child, parentIdMapped: parent.id },
+      ],
+      [
+        { status: "rejected", reason: new Error("spawn failed — removed cwd") },
+        { status: "fulfilled", value: undefined },
+      ],
+    );
+    expect(getTerminal(parent.id)?.meta.state).toBe("parked");
+    expect(getTerminal(CHILD)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.parentId).toBeUndefined();
+  });
+
+  it("F2 — a live child under a still-LIVE parent is left untouched", () => {
+    const PARENT = "55555555-5555-4555-8555-555555555555";
+    const CHILD = "66666666-6666-4666-8666-666666666666";
+    registerTerminal(PARENT, liveEntry(PARENT, "/p3-parent"));
+    registerTerminal(CHILD, liveEntry(CHILD, "/p3-child", PARENT));
+    const child = mkRecord(CHILD, "/p3-child", PARENT);
+    reconcileRestoreSettlement(
+      [{ newId: CHILD, record: child, parentIdMapped: PARENT }],
+      [{ status: "fulfilled", value: undefined }],
+    );
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(PARENT);
   });
 });

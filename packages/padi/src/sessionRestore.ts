@@ -13,6 +13,7 @@
  * by neither) keeps the graph acyclic.
  */
 
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import {
   type AutosaveFreeze,
@@ -32,10 +33,12 @@ import {
   discardLocalParked,
   seedParkedTerminal,
   seedSleepingTerminal,
+  TerminalSpawnRacedError,
 } from "./terminalEndpoint/local.ts";
 import {
   createTerminal,
   restoreActiveTerminalId,
+  setTerminalParent,
   snapshotSession,
 } from "./terminals.ts";
 import type {
@@ -233,36 +236,80 @@ export async function restoreSession(input: {
     saveSession(snapshotSession());
 
     // Then wait for every fresh spawn to SETTLE (the proxy `ready` resolves on success,
-    // rejects on failure). A REJECTED settle is a genuine spawn failure (a dead / wedged
-    // kaval, or a spawn that raced its own teardown) — RE-PARK its saved record so the
-    // restore card re-offers it. The autosave stayed FROZEN across this window, so the
-    // failure's `finalizeRemoval → notifyDirty` could not journal a shrunken session; the
-    // snapshot written above is the durable record.
-    //
-    // We key re-park on the SETTLE OUTCOME, not on registry absence: a second client that
-    // KILLS or SLEEPS the fresh terminal during this window leaves `ready` FULFILLED (the
-    // spawn did succeed), so we honor that newer intent and do NOT resurrect it as a
-    // parked card — registry absence alone could not tell "spawn failed" from "user just
-    // killed it".
+    // rejects on failure) and reconcile the outcomes as a TREE (`reconcileRestoreSettlement`).
+    // The autosave stayed FROZEN across this window, so any `finalizeRemoval → notifyDirty`
+    // a failure fires could not journal a shrunken session; the snapshot written above is
+    // the durable record.
     const settled = await Promise.allSettled(
       activeRespawns.map((a) => a.ready),
     );
-    activeRespawns.forEach((a, i) => {
-      if (settled[i]?.status !== "rejected") return;
-      // Re-park under the FRESH id (with the mapped parent), NOT the old saved id: the
-      // durable snapshot written above named this terminal by its fresh id, so the parked
-      // idempotency token MUST share that id or a retry's `respawnActive` can't consume it
-      // — it would spawn a duplicate and leave the old-id park an orphan forever, and a
-      // lingering parked entry pins `hasParkedTerminals()` true and suppresses every later
-      // autosave (CONF-6 / F1).
-      const parentId = a.record.parentId
-        ? oldToNew.get(a.record.parentId)
-        : undefined;
-      seedParkedTerminal({ ...a.record, id: a.newId, parentId });
-    });
+    reconcileRestoreSettlement(
+      activeRespawns.map((a) => ({
+        newId: a.newId,
+        record: a.record,
+        parentIdMapped: a.record.parentId
+          ? oldToNew.get(a.record.parentId)
+          : undefined,
+      })),
+      settled,
+    );
   } finally {
     unfreezeAutosave(freeze);
     cancelPendingAutosave();
+  }
+}
+
+/** Reconcile the settled respawn outcomes as a TREE — the ONE place the mixed
+ *  parent/child settlement (F2) and the kill-vs-infra discriminant (F3) are decided.
+ *  Runs while the autosave is still FROZEN (its caller's `finally` releases the
+ *  lease), so nothing here journals a shrunken session.
+ *
+ *  Two passes:
+ *
+ *  1. RE-PARK genuine spawn failures. A REJECTED settle is re-parked under its FRESH
+ *     id (with the mapped parent) so the restore card re-offers it — the durable
+ *     snapshot named it by that id, so the parked token stays consumable on a retry
+ *     (a mismatched id would orphan the park forever and pin `hasParkedTerminals()`,
+ *     suppressing every later autosave — CONF-6 / F1). We EXCLUDE the typed
+ *     {@link TerminalSpawnRacedError}: a pre-ready KILL/SLEEP by a second client is an
+ *     explicit newer intent, NOT an infrastructure failure — re-offering it would
+ *     manufacture restore-pending state for a terminal the user just killed (F3). A
+ *     spawn that SUCCEEDED but was killed/slept AFTER `ready` resolved leaves the
+ *     settle FULFILLED, so it is already honored (never re-parked).
+ *
+ *  2. PROMOTE orphaned children. A restored ACTIVE child whose parent is NO LONGER a
+ *     live terminal — its parent respawn failed for a PER-RECORD reason (a removed
+ *     cwd, a pre-ready lifecycle race) and was re-parked in pass 1, or a second client
+ *     killed the parent mid-restore — must not dangle under a parked/absent parent
+ *     (which the canvas would hide). Spawn failures are NOT monotonic (a parent can
+ *     reject while its later-queued child succeeds), so this reparents the live child
+ *     to TOP-LEVEL, keeping its live PTY + agent visible. A SLEEPING (dormant) parent
+ *     is a valid parent and is left alone. */
+export function reconcileRestoreSettlement(
+  respawns: {
+    newId: string;
+    record: SavedActiveTerminal;
+    parentIdMapped: string | undefined;
+  }[],
+  settled: PromiseSettledResult<void>[],
+): void {
+  respawns.forEach((r, i) => {
+    const outcome = settled[i];
+    if (outcome?.status !== "rejected") return;
+    if (outcome.reason instanceof TerminalSpawnRacedError) return; // F3: honor the kill/slept
+    seedParkedTerminal({
+      ...r.record,
+      id: r.newId,
+      parentId: r.parentIdMapped,
+    });
+  });
+  for (const r of respawns) {
+    if (!getActiveTerminal(r.newId as TerminalId)) continue; // failed / re-parked in pass 1
+    if (r.parentIdMapped === undefined) continue; // already top-level
+    const parent = getTerminal(r.parentIdMapped as TerminalId);
+    if (!parent || parent.meta.state === "parked") {
+      setTerminalParent(r.newId as TerminalId, null);
+    }
   }
 }
 

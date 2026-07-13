@@ -23,25 +23,11 @@
  */
 
 import { inMemoryChannel } from "@kolu/surface/server";
-import {
-  type CommandRunSample,
-  type SensorSignals,
-  startSensors,
-} from "../terminalWorkspace/sensors.ts";
-import {
-  type FoldCtx,
-  fold,
-  restoreTargetEqual,
-  restoreTargetOf,
-  seedRecencyBaseline,
-  stepRecencyBaseline,
-} from "../terminalWorkspace/fold.ts";
-import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import type {
   AgentIdentity,
+  TerminalEvent,
   TerminalId,
   TerminalSnapshot,
-  TerminalEvent,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
@@ -73,6 +59,20 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
+import {
+  type FoldCtx,
+  fold,
+  restoreTargetEqual,
+  restoreTargetOf,
+  seedRecencyBaseline,
+  stepRecencyBaseline,
+} from "../terminalWorkspace/fold.ts";
+import {
+  type CommandRunSample,
+  type SensorSignals,
+  startSensors,
+} from "../terminalWorkspace/sensors.ts";
 import type {
   AuthoredActiveTerminal,
   SavedActiveTerminal,
@@ -130,6 +130,22 @@ const { fs: localFs, git: localGit } = createTerminalWorkspaceEndpoint(log);
  *  contract widened those to allow a Promise). Holds only the terminal id +
  *  pid — the live reads (cwd / process / foregroundPid) the sensors need
  *  arrive over the tap streams, not this handle. */
+/** The rejection reason when a fresh `terminal.spawn` SUCCEEDED on the daemon but
+ *  the registry entry it belonged to was REPLACED or removed BEFORE it reached
+ *  `ready` — a second client killed or slept the terminal mid-spawn (the identity
+ *  check in {@link LocalTerminalEndpoint.spawnViaClient} fails). This is a typed,
+ *  padi-LOCAL discriminant (no kaval/handle-contract change): it distinguishes an
+ *  explicit newer user action from a genuine infrastructure spawn failure (a
+ *  dead/wedged kaval, or a bad cwd), which rejects with the raw RPC error instead.
+ *  Restore keys on THIS type to HONOR the kill/slept intent — it must NOT re-park a
+ *  terminal the user just killed as a restore offer (F3). */
+export class TerminalSpawnRacedError extends Error {
+  constructor() {
+    super("terminal raced during spawn (killed/slept)");
+    this.name = "TerminalSpawnRacedError";
+  }
+}
+
 class PtyHostTerminalProxy implements TerminalHandle {
   pid = 0;
   /** Resolves once `terminal.spawn` has created the PTY. Rejects if spawn
@@ -617,7 +633,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       await buildTerminalSpawnInput({ id, cwd: opts.cwd }),
     );
     if (getActiveTerminal(id) !== expected) {
-      proxy.markFailed(new Error("terminal raced during spawn (killed/slept)"));
+      proxy.markFailed(new TerminalSpawnRacedError());
       try {
         await ptyHostClient.surface.terminal.kill({ id });
       } catch (err) {
