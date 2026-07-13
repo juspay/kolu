@@ -813,15 +813,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       if (!restoreRelevantEqual(before, current, authoredEqual)) notifyDirty();
     };
 
-    // Is this terminal's pty-host connection still live? Starts true; a non-abort
-    // foreground/exit tap failure (an unclean kaval death severs the socket) flips
-    // it false, and a fresh foreground sample flips it back. The agent sensor reads
-    // it to tell a genuine agent-end (taps live → clear `restoreTarget`) from an
-    // unclean death (taps failed → keep it, emit `unknown`) — W12. The tap failure
-    // lands ~10 ms BEFORE the reconcile whose resolved-null would otherwise clobber
-    // the resume id, so this wins the race the endpoint's `degraded` flag loses.
-    let observable = true;
-
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the
     // abort signal owns teardown). The producer emits a `cwd` observation off the
     // `cwd` channel; the git sensor reads the same channel to re-resolve git.
@@ -847,25 +838,24 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     void bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
-      (msg) => {
-        // A fresh foreground sample proves the taps are live — (re)mark observable
-        // so a later resolved-null is read as a genuine end again.
-        observable = true;
+      (msg) =>
         signals.foreground.publish({
           process: msg.process,
           foregroundPid: msg.foregroundPid,
-        });
-      },
+        }),
       (err) => {
-        // A non-abort foreground-tap failure means the pty-host connection dropped
-        // (an unclean kaval death) — the terminal is now UNOBSERVABLE. Mark it so the
-        // agent sensor emits `unknown` (keep-last) for a resolved-null rather than an
-        // authoritative agent-end that would clobber `restoreTarget` (W12). Logged,
-        // not fatal: R-3 re-subscribe (or a fresh foreground sample) restores it.
-        observable = false;
+        // A non-abort foreground-tap failure means the pty-host connection dropped (an
+        // unclean kaval death). Surface it, but perform NO write to the foreground
+        // observation — this is a W12 INVARIANT the sensor's blindness-safety leans on:
+        // the agent sensor's shell-idle discriminant treats `foregroundPid === undefined`
+        // as a genuine end (clear `restoreTarget`), so blindness must leave the LAST
+        // known foreground sample (the stale DEFINED agent pid) in place, never reset it
+        // to undefined. The only writer of the sensor's foreground is a real foreground
+        // `onEvent` sample above; a resolved-null under blindness then sees the defined
+        // agent pid and emits `unknown` (keep-last). Pinned in sensors.observability.test.ts.
         log.error(
           { err, terminal: id },
-          "pty-host foreground tap failed — terminal unobservable (keeping last agent)",
+          "pty-host foreground tap failed — keeping last foreground sample (blind)",
         );
       },
     );
@@ -876,7 +866,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         cwd,
         signals,
         readScreenText: (tailLines) => readScreenTextFor(id, tailLines),
-        isObservable: () => observable,
         log,
       },
       emit,
@@ -890,9 +879,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
       (err) => {
-        // A lost exit tap is the same unclean-death signal as the foreground tap —
-        // mark unobservable too, so the agent sensor keeps `restoreTarget` (W12).
-        observable = false;
         // The exit tap is the terminal's lifecycle signal — losing it is not
         // a missing field, it's "we no longer know when this PTY dies." In
         // process the stream only ends via the exit code or an abort

@@ -489,7 +489,6 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   terminalId: TerminalId,
   signals: SensorSignals,
   readScreenText: ReadScreenText | undefined,
-  isObservable: () => boolean,
   emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
@@ -499,15 +498,16 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     key: string;
     stopPoll: () => void;
   } | null = null;
-  // When resolution is ABSENT (no session), its FLAVOR: was the terminal observable
-  // (taps live → authoritative end) or unobservable (taps failed → keep-last `unknown`)?
-  // Tracked so the dedup below re-emits when the flavor FLIPS. The load-bearing case is
-  // unobservable→observable: an agent that ended WHILE the taps were down must clear
-  // once they recover, but `current` is already null by then, so a session-key-only
-  // dedup would swallow the authoritative null and leave the dead agent resurrectable
-  // (W12 F1). `null` while a session is MATCHED (reset on match) so the next absence
-  // always emits.
-  let lastAbsenceObservable: boolean | null = null;
+  // When resolution is ABSENT (no session), its FLAVOR: was the foreground SHELL-IDLE
+  // (the shell/no process → authoritative end) or a defined NON-SHELL process (an
+  // unresolvable agent pid → keep-last `unknown`)? Tracked so the dedup below re-emits
+  // when the flavor FLIPS. The load-bearing case is non-shell→shell-idle: an agent
+  // whose session went unresolvable while it was still the foreground stayed as
+  // `unknown`, and must clear once the shell returns — but `current` is already null by
+  // then, so a session-key-only dedup would swallow the authoritative null and leave
+  // the dead agent resurrectable. `null` while a session is MATCHED (reset on match) so
+  // the next absence always emits.
+  let lastAbsenceShellIdle: boolean | null = null;
   // The most recent watcher-derived info for the matched session — the screen
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
@@ -581,14 +581,17 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     const next = adapter.resolveSession(state, plog);
     const nextKey = next ? adapter.sessionKey(next) : null;
     // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
-    // (session key + observability), not the key alone. A matched resolution dedups on
-    // the key as before; an ABSENT one must ALSO re-emit when observability flips, so an
-    // unobservable→observable absence (`current` already null, key still null) emits the
-    // authoritative null that clears an agent which ended while the taps were down (F1).
-    const observable = nextKey === null ? isObservable() : true;
+    // (session key + the foreground's shell-idle flavor), not the key alone. A matched
+    // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
+    // flavor flips — a defined-non-shell `unknown` giving way to a shell-idle `null` —
+    // so a genuine quit after an ambiguous window still clears even though `current` is
+    // already null by then. `pid` is the shell's own pid (constant, from spawn), the
+    // same predicate `snapshotSignals` computes for `shellIdle`.
+    const shellIdle =
+      state.foregroundPid === undefined || state.foregroundPid === pid;
     if (
       (current?.key ?? null) === nextKey &&
-      (nextKey !== null || lastAbsenceObservable === observable)
+      (nextKey !== null || lastAbsenceShellIdle === shellIdle)
     )
       return;
     const hadCurrent = current !== null;
@@ -596,42 +599,46 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     if (!next || !nextKey) {
       // `resolveSession` found no agent — but two DIFFERENT facts hide behind the one
       // `null` it returns, and W12 requires they persist differently. The discriminant
-      // is whether the terminal's pty-host taps are still OBSERVABLE (the endpoint's
-      // own state), NOT the observed `foregroundPid`:
+      // is STRUCTURAL: the triggering sample's OWN content — its `foregroundPid` vs the
+      // shell pid — decided by pure data plus a local fs read, with NO cross-stream
+      // ordering, so there is no race to win:
       //
-      //  - OBSERVABLE (taps live) — kolu genuinely observed the foreground move off
-      //    this agent (the shell after a quit, another program). The agent really
-      //    ENDED → emit `{ value: null }`, the fold clears `restoreTarget`, and a
-      //    later restore wakes to a bare shell (never resurrecting a dead agent).
-      //  - UNOBSERVABLE (taps failed) — the pty-host connection dropped, so kolu
-      //    CANNOT see the foreground at all; a resolved-null is IGNORANCE, not an
-      //    observed end. An unclean kaval death fails the taps ~10 ms BEFORE it fires
-      //    the reconcile whose `resolveSession` returns null against a STALE-but-
-      //    defined foreground — and ~13 ms before the endpoint is even marked
-      //    `degraded` (the 2026-07-12 prod incident; the live kill-9 witness confirmed
-      //    `foregroundPid` was DEFINED, so it can NOT be the discriminant). The tap
-      //    failure is the race-safe structural signal. Emit `unknown` so the fold
-      //    KEEPS the last agent and its `restoreTarget`, and the resume id survives on
-      //    disk by construction.
-      lastAbsenceObservable = observable;
+      //  - SHELL-IDLE (`foregroundPid` is the shell, or none) — the foreground moved
+      //    OFF this agent back to the shell: a genuine end. Emit `{ value: null }`, the
+      //    fold clears `restoreTarget`, and a later restore wakes to a bare shell (never
+      //    resurrecting a dead agent).
+      //  - DEFINED NON-SHELL foreground with an unresolvable session — the AMBIGUOUS
+      //    state: the agent's own pid is still the foreground but its session file is
+      //    gone. An unclean kaval death leaves exactly this stale-but-defined foreground
+      //    (the 2026-07-12 incident; the live kill-9 witness confirmed `foregroundPid`
+      //    was DEFINED). We cannot tell "the agent ended" from "we lost our observer",
+      //    so emit `unknown`: the fold KEEPS the last agent and its `restoreTarget`, and
+      //    a pre-death buffered BURST of such samples all resolve to `unknown` REGARDLESS
+      //    of count — the clobber is unspellable, not merely unlikely.
+      //
+      // Safety leans on ONE invariant, pinned in this file's tests: blindness never
+      // presents `foregroundPid === undefined` while an agent is live — the foreground
+      // tap's onError does NOT reset the last foreground sample (local.ts), so a dead
+      // observer always shows the stale DEFINED agent pid here, never a false shell-idle.
+      lastAbsenceShellIdle = shellIdle;
       if (hadCurrent)
         plog.debug(
-          observable
-            ? "agent session ended"
-            : "agent foreground unobservable — keeping last (unknown)",
+          shellIdle
+            ? "agent session ended (shell idle)"
+            : "agent foreground unresolvable but defined — keeping last (unknown)",
         );
       // ONLY when THIS adapter owns the emitted tile (the mirror narrow). When no
       // adapter owns it (a launch mid-resolution), nothing is emitted, so kolu keeps
       // its value rather than seeing an ambiguous null.
       if (agentState.mirror?.kind === adapter.kind) {
-        if (observable) emitAgentValue(agentState, emit, null);
+        if (shellIdle) emitAgentValue(agentState, emit, null);
         else emit({ kind: "agent", agent: "unknown" });
       }
       return;
     }
     // A matched resolution resets the absence flavor: the NEXT absence — whatever its
     // observability — is a fresh transition that must emit rather than dedup.
-    lastAbsenceObservable = null;
+    lastAbsenceShellIdle = null;
     plog.debug({ session: nextKey }, "agent session matched");
     current = {
       key: nextKey,
@@ -842,12 +849,6 @@ export interface SensorInputs {
   cwd: string;
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
-  /** Whether this terminal's pty-host taps are still live (the endpoint's own
-   *  state). The agent sensor reads it to tell a genuine agent-end (taps live →
-   *  clear `restoreTarget`) from an unclean kaval death (taps failed → keep it,
-   *  emit `unknown`) — see the resolved-null branch in `reconcileInner`. A host
-   *  with no failable transport (the in-process backend) passes `() => true`. */
-  isObservable: () => boolean;
   log: Logger;
 }
 
@@ -863,7 +864,7 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, signals, readScreenText, isObservable, log } = inputs;
+  const { pid, cwd, signals, readScreenText, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
@@ -921,7 +922,6 @@ export function startSensors(
       terminalId,
       signals,
       readScreenText,
-      isObservable,
       emit,
       log,
     );
