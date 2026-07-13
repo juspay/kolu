@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 614" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The seam between XS (the chat app) and kolu, on one machine. XS owns identity, login, presence, and the write-floor (at most one writer). Inside kolu, pulam is a read-only awareness fold (host-wide) and kaval is the single writer that serializes input to the terminal. Two channels, both over one trusted connection: OBSERVE flows out from pulam up to XS — observe, attach, getSession — read-only; observe and attach ship today, getSession is still to build. ACT flows in from XS down to kaval — submit, write, kill, resize, wake — as plain calls over the trusted connection; write is partial, the rest are still to build. kolu authenticates nothing: the connection is the trust, identity and the write-floor live in XS, and kolu serializes writes and keeps no roster.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 614" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The seam between XS (the chat app) and kolu, on one machine. XS owns identity, login, presence, and the write-floor (at most one writer). Inside kolu, padi is a read-only awareness fold (host-wide) and kaval is the single writer that serializes input to the terminal. Two channels, both over one trusted connection: OBSERVE flows out from padi up to XS — observe, attach, getSession &#183; ships (restore identity) — read-only; observe and attach ship today, getSession is still to build. ACT flows in from XS down to kaval — submit, write, kill, resize, wake — as plain calls over the trusted connection; write is partial, the rest are still to build. kolu authenticates nothing: the connection is the trust, identity and the write-floor live in XS, and kolu serializes writes and keeps no roster.">
   <defs>
     <marker id="cb2-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10z" fill="#15803D"/>
@@ -58,11 +58,11 @@
   <rect class="host" x="50" y="176" width="660" height="350" rx="12"/>
   <text class="hostlabel" x="380" y="196" text-anchor="middle">KOLU &#8212; ON ONE MACHINE</text>
 
-  <!-- pulam (read, left) -->
+  <!-- padi (read, left) -->
   <rect class="prim" x="86" y="288" width="246" height="98" rx="8"/>
-  <text class="prim-t" x="209" y="314" text-anchor="middle">pulam &#8212; read-only awareness</text>
-  <text class="prim-s" x="209" y="335" text-anchor="middle">observe &#183; rank &#183; fold to &#8220;who needs me&#8221;</text>
-  <text class="prim-n" x="209" y="358" text-anchor="middle">host-wide &#183; read-only by design</text>
+  <text class="prim-t" x="209" y="314" text-anchor="middle">padi &#8212; sensors + sessions</text>
+  <text class="prim-s" x="209" y="335" text-anchor="middle">sensors fold to &#8220;who needs me&#8221; &#183; restore identity</text>
+  <text class="prim-n" x="209" y="358" text-anchor="middle">per-host daemon &#183; observes without touching</text>
 
   <!-- kaval (write, right) -->
   <rect class="prim" x="434" y="288" width="246" height="98" rx="8"/>
@@ -75,12 +75,12 @@
   <text class="tile-t" x="380" y="459" text-anchor="middle">live terminal</text>
   <text class="tile-s mono" x="380" y="481" text-anchor="middle" font-size="11px">claude &#183; codex &#183; opencode</text>
 
-  <!-- OBSERVE channel: pulam -> XS (green, ships) -->
+  <!-- OBSERVE channel: padi -> XS (green, ships) -->
   <path class="eg" d="M188 288 L252 134" marker-end="url(#cb2-green)"/>
   <text class="lblg" x="135" y="206" text-anchor="middle">observe &#183; attach</text>
-  <text class="lblgb" x="135" y="222" text-anchor="middle">SHIP TODAY (surface)</text>
+  <text class="lblgb" x="135" y="222" text-anchor="middle">SHIPS TODAY (surface)</text>
   <text class="lblg" x="135" y="244" text-anchor="middle">getSession</text>
-  <text class="lblab" x="135" y="259" text-anchor="middle">TO BUILD</text>
+  <text class="lblab" x="135" y="259" text-anchor="middle">OUT &#183; READ-ONLY</text>
   <text class="lblgb" x="135" y="279" text-anchor="middle">OUT &#183; READ-ONLY</text>
 
   <!-- ACT channel: XS -> kaval (amber dashed, plain calls) -->
@@ -88,13 +88,13 @@
   <text class="lbla" x="628" y="200" text-anchor="middle">submit &#183; write &#183; kill</text>
   <text class="lbla" x="628" y="216" text-anchor="middle">resize &#183; wake</text>
   <text class="lbla" x="628" y="238" text-anchor="middle">over the trusted connection</text>
-  <text class="lbla" x="628" y="256" text-anchor="middle" font-size="10px">write: partial &#183; rest to build</text>
+  <text class="lbla" x="628" y="256" text-anchor="middle" font-size="10px">all ship &#8212; proven by the fleet loop</text>
 
   <!-- kaval -> tile (teal, internal write) -->
   <path class="et" d="M470 386 L500 428" marker-end="url(#cb2-teal)"/>
   <text class="lblt" x="520" y="410" text-anchor="start">write bytes</text>
 
-  <!-- tile -> pulam (teal, observe) -->
+  <!-- tile -> padi (teal, observe) -->
   <path class="et" d="M300 430 L244 388" marker-end="url(#cb2-teal)"/>
   <text class="lblt" x="248" y="406" text-anchor="start">observe</text>
 

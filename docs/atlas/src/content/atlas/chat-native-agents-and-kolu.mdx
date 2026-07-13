@@ -4,7 +4,7 @@ description: The coding agent has moved into the chat. kolu is the open, model-a
 parents: [comparison, remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-06-25
+updated: 2026-07-13
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -52,10 +52,14 @@ control, and watches what's happening inside them.** That core is three parts:
 
 - **kaval** owns each live terminal — start an agent, type into it, resize it, kill it.
   It is also the single point that *serializes* writes: when input arrives, last one wins.
-- **pulam** watches every terminal without touching them, folding the raw noise into a
-  simple, read-only board: which agent is working, which is blocked, who needs you.
+- **padi** is the per-host workspace daemon above it: its agent sensors watch every
+  terminal without touching it, folding the raw noise into a simple board — which agent
+  is working, which is asking you something, which just finished — and it owns the
+  durable session: what each terminal ran, the agent's resume identity, restore across
+  restarts and even an unclean daemon death.
 - **`@kolu/surface`** is the typed wire that carries both over any connection — a local
-  socket, ssh to another machine, or an Incus host (a sandboxed box).
+  socket, or ssh to another machine. Remote hosts are a shipped, first-class part of the
+  app: add a host and its terminals sit behind a host switcher, on desktop and mobile.
 
 <Svg svg={stack} caption="Not a rigid stack. XS is its own app and integrates kolu through one seam; kolu runs headlessly on whatever machine you point it at — your laptop, a server, or a remote sandbox. Chat, presence, and login stay in XS." />
 
@@ -110,22 +114,39 @@ nothing: the connection *is* the trust — an owner-only socket locally, an ssh 
 remote host — so identity, login, and presence stay in XS, and kolu just serializes
 whatever its one trusted client sends.
 
-<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out and largely ships today. ACT flows in as plain calls over the trusted connection and is mostly still to build. kaval serializes writes; XS, above, decides the floor." />
+<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out and ACT flows in as plain calls over the trusted connection — both halves ship on the wire today, proven by kolu's own fleet loop. kaval serializes writes; XS, above, decides the floor." />
 
 | Verb | Half | Reuses | Status |
 | --- | --- | --- | --- |
-| `observe` | out | pulam awareness + activity + read-only fs/git | **ships** |
-| `attach` | out | kaval's screen stream (+ a re-resolvable cursor marking where you reattached) | **ships** |
-| `getSession` | out | the saved session key + resume path — never transcript content | to build |
-| `submit` | in | `kaval.spawn` | to build |
-| `write` | in | `kaval.write` (covers the `y⏎` approve) | partial |
-| `kill` | in | `kaval.kill` | to build |
-| `resize` | in | `kaval.resize` — one terminal has one size; pairing needs it | to build |
-| `wake` / `wakeAndSend` | in | reopen a parked session, optionally inject one question (kolu stores none of it) | to build |
+| `observe` | out | padi's agent sensors — the working / asking-you / just-finished board (`padi-tui wait` blocks on exactly these buckets) + activity + read-only fs/git | **ships** |
+| `attach` | out | kaval's live screen mirror, plus older scrollback fetched on demand | **ships** |
+| `getSession` | out | padi's per-terminal restore identity — the agent kind + session id restore already resumes on; never transcript content | **ships** |
+| `submit` | in | `padi-tui create` — a fresh terminal, optionally in a fresh git worktree, running the named agent | **ships** |
+| `write` | in | `kaval-tui send` — text and named keys, submit as its own keystroke (covers the `y⏎` approve) | **ships** |
+| `kill` / `resize` | in | kaval's owner verbs on the wire | **ships** |
+| `wake` / `wakeAndSend` | in | session restore's respawn — reopen a parked agent on its exact prior session (kolu stores the key, never the transcript) | ships in restore; a single-terminal wake verb is thin glue |
+
+The proof is no longer hypothetical: **kolu's own development already runs as one agent
+driving a fleet of others through exactly these verbs** — briefs submitted with
+`padi-tui create`, answers typed with `kaval-tui send`, turn-ends observed with the wait
+buckets, screens read back with snapshots. What a chat bot adds is not new verbs in kolu;
+it is the thread: XS identity, the write floor, and rendering.
+
+Two integration shapes exist now, and the fork is named rather than implied. A **raw
+surface client** dials padi/kaval's surfaces directly — full fidelity, typed, what the
+fleet loop does today; a streaming pesu-shaped bot wants this. An **MCP host** consumes
+`@kolu/surface-mcp` (shipped), which re-exposes any surface as MCP tools — a chat
+platform whose agent already speaks MCP gets kolu with no custom wire code, at MCP's
+request/response grain. Both stand on the same seam.
+
+One more shipped half the first draft didn't have: **attention flows out.** kolu already
+computes per-terminal urgency and pushes OS notifications through a feature-detected
+notify seam; a bot subscribes to the same facts and pings the thread instead of the
+desktop — the @-tag-me-when-you-need-me half of the Claude Tag shape, for free.
 
 On these verbs — with no new auth in kolu — XS builds the who-needs-me board (`observe`),
 pairing on one terminal (`attach` + `write` + `resize`), a forward-facing punchlist pinned
-to durable terminals, and later **review-interrogation**: reopen the exact agent that did
+to durable terminals, and **review-interrogation**: reopen the exact agent that did
 the work and ask it *why* (`getSession` + `wakeAndSend`) — kolu keeps the session key and
 a resume path, the agent keeps its own transcript, and kolu never parses the bytes.
 
@@ -140,9 +161,10 @@ integration follows.
 **The milestone is concrete: run kolu's own development inside XS.** Today kolu is built by
 agents on a personal headless Linux box. The bot moves that work into an XS thread so the
 team can **watch the agents run** — observe first, not steer. Querying and writing from
-chat come once it's more than one personal host. What the bot proves is the *act-in verbs
-over the surface*, driven to a live agent — not a static view any already-shipping read
-could render.
+chat come once it's more than one personal host. The act-in verbs are already proven
+daily by kolu's own fleet loop; what the bot proves is the *chat half* — XS identity
+mapped to the write floor, a thread bound to a durable terminal, and the stream rendered
+where the team already is.
 
 <PesuStyles />
 <PesuThread />
