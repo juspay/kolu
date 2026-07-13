@@ -91,7 +91,7 @@ import {
   ActivityFeedSchema,
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
-  InitialTerminalMetadataSchema,
+  CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
@@ -438,19 +438,24 @@ export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 // These are the NEW contract shapes lifecycle/chrome/screen/bytes/session
 // migrate onto (the root `terminal.*` namespace dies across W1.R). They are
 // intentionally distinct from `kolu-common/contract`'s raw-oRPC schemas — most
-// notably `create` DROPS `lastActivityAt` (a fresh terminal seeds it to 0 and the
-// fold stamps recency later), so they are not duplicates to fold away.
+// notably `create` carries only the base chrome, never the three SERVER-DERIVED
+// authored facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that padi
+// earns from its own observation, so they are not duplicates to fold away.
 
-/** Create input — client-owned initial metadata MINUS `lastActivityAt`: a fresh
- *  terminal seeds `lastActivityAt: 0` (`createAuthoredActive` → `seedMemory`) and
- *  the fold stamps recency later, so the client cannot supply it. (`session
- *  .restore` re-threads a saved recency through `respawnActive`, not this input.) */
+/** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus `cwd` /
+ *  `parentId`. It derives from the base DIRECTLY rather than subtracting the three
+ *  server-derived authored facts, so the exclusion is structural, not a maintained
+ *  omit list: a future field added to `RestoreOnlyMetadataSchema` can never leak to
+ *  the wire by someone forgetting to extend an omit. A fresh terminal has no truth
+ *  about `lastActivityAt` / `lastAgentCommand` / `restoreTarget` (the fold derives
+ *  them from its own observation); `session.restore` threads them from the saved blob
+ *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input. */
 export const PadiCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
   })
-  .merge(InitialTerminalMetadataSchema.omit({ lastActivityAt: true }));
+  .merge(CreateTerminalInputSchema);
 
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });

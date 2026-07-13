@@ -107,7 +107,16 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  state, closing the race with the canvas cascade effect (#642). */
   async function handleCreate(
     cwd?: string,
-    initial?: InitialTerminalMetadata,
+    // CHROME-only seed: the create RPC forwards theme / layout / panels / intent and
+    // nothing else. `InitialTerminalMetadata` also carries the server-derived restore
+    // facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that only host-side
+    // `session.restore` threads through `respawnActive` — a client create has no truth
+    // about them and this handler drops them. Omit them from the param so the type can't
+    // advertise an option that has no effect (F6).
+    initial?: Omit<
+      InitialTerminalMetadata,
+      "lastActivityAt" | "lastAgentCommand" | "restoreTarget"
+    >,
   ): Promise<TerminalId> {
     // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
     // "New terminal", the Dock `+`, worktree ops, and session restore's

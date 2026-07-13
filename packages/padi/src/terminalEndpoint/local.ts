@@ -23,25 +23,11 @@
  */
 
 import { inMemoryChannel } from "@kolu/surface/server";
-import {
-  type CommandRunSample,
-  type SensorSignals,
-  startSensors,
-} from "../terminalWorkspace/sensors.ts";
-import {
-  type FoldCtx,
-  fold,
-  restoreTargetEqual,
-  restoreTargetOf,
-  seedRecencyBaseline,
-  stepRecencyBaseline,
-} from "../terminalWorkspace/fold.ts";
-import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
 import type {
   AgentIdentity,
+  TerminalEvent,
   TerminalId,
   TerminalSnapshot,
-  TerminalEvent,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
@@ -74,6 +60,20 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import { createTerminalWorkspaceEndpoint } from "../terminalWorkspace/endpoint.ts";
+import {
+  type FoldCtx,
+  fold,
+  restoreTargetEqual,
+  restoreTargetOf,
+  seedRecencyBaseline,
+  stepRecencyBaseline,
+} from "../terminalWorkspace/fold.ts";
+import {
+  type CommandRunSample,
+  type SensorSignals,
+  startSensors,
+} from "../terminalWorkspace/sensors.ts";
 import type {
   AuthoredActiveTerminal,
   SavedActiveTerminal,
@@ -131,6 +131,22 @@ const { fs: localFs, git: localGit } = createTerminalWorkspaceEndpoint(log);
  *  contract widened those to allow a Promise). Holds only the terminal id +
  *  pid — the live reads (cwd / process / foregroundPid) the sensors need
  *  arrive over the tap streams, not this handle. */
+/** The rejection reason when a fresh `terminal.spawn` SUCCEEDED on the daemon but
+ *  the registry entry it belonged to was REPLACED or removed BEFORE it reached
+ *  `ready` — a second client killed or slept the terminal mid-spawn (the identity
+ *  check in {@link LocalTerminalEndpoint.spawnViaClient} fails). This is a typed,
+ *  padi-LOCAL discriminant (no kaval/handle-contract change): it distinguishes an
+ *  explicit newer user action from a genuine infrastructure spawn failure (a
+ *  dead/wedged kaval, or a bad cwd), which rejects with the raw RPC error instead.
+ *  Restore keys on THIS type to HONOR the kill/slept intent — it must NOT re-park a
+ *  terminal the user just killed as a restore offer (F3). */
+export class TerminalSpawnRacedError extends Error {
+  constructor() {
+    super("terminal raced during spawn (killed/slept)");
+    this.name = "TerminalSpawnRacedError";
+  }
+}
+
 class PtyHostTerminalProxy implements TerminalHandle {
   pid = 0;
   /** Resolves once `terminal.spawn` has created the PTY. Rejects if spawn
@@ -243,15 +259,44 @@ class PtyHostTerminalProxy implements TerminalHandle {
  *  rejects — failures are logged / routed to `onError`). The per-terminal taps
  *  ignore it (fire-and-forget); the inventory reconciler awaits it to know when
  *  to re-subscribe across a daemon recycle. */
+/** The FOREGROUND tap's `onError` — a NON-abort failure means the pty-host connection
+ *  dropped (an unclean kaval death). It ONLY logs and performs NO
+ *  `foreground.publish`: the W12 STAYS-DEFINED-UNDER-BLINDNESS invariant. The agent
+ *  sensor's shell-idle discriminant reads `foregroundPid === undefined` as a genuine
+ *  end (clears `restoreTarget`), so a blind observer must leave the LAST known sample
+ *  (the stale DEFINED agent pid) in place — never fabricate a `null`/undefined. The
+ *  only writer of the sensor's foreground is a real `onEvent` sample; `bridgeStream`
+ *  (pinned in `bridgeStream.test.ts`) guarantees the failure path can't fabricate an
+ *  `onEvent` either.
+ *
+ *  `foreground` is passed in — the handler HAS the capability to publish — precisely so
+ *  the invariant is TESTABLE: a regression that "clears stale foreground on disconnect"
+ *  would light up the pin in `bridgeStream.test.ts`. It is deliberately unused here. */
+export function onForegroundTapError(
+  id: string,
+  foreground: Pick<SensorSignals["foreground"], "publish">,
+  err: unknown,
+): void {
+  void foreground; // capability present, deliberately NOT exercised (blindness invariant)
+  log.error(
+    { err, terminal: id },
+    "pty-host foreground tap failed — keeping last foreground sample (blind)",
+  );
+}
+
 export function bridgeStream<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
   // Called when the stream itself fails for a NON-abort reason (an abort is
-  // expected teardown and is always swallowed). Enrichment taps (cwd / title /
-  // command-run / foreground) omit it — a dropped enrichment stream just stops
-  // updating that field, logged generically. The exit tap supplies one because
-  // a dropped *exit* stream is a lifecycle problem, not a missing field.
+  // expected teardown and is always swallowed). The pure-enrichment taps (cwd /
+  // title / command-run) omit it — a dropped enrichment stream just stops updating
+  // that field, logged generically. The FOREGROUND and EXIT taps supply one for
+  // distinct reasons: the foreground handler exists to make the blindness event
+  // LOUD while performing NO reset of the last foreground sample (the W12 invariant
+  // the sensor's shell-idle discriminant leans on — a dead observer must keep showing
+  // the stale DEFINED agent pid, never a false shell-idle), and a dropped exit stream
+  // is a lifecycle problem ("we no longer know when this PTY dies"), not a missing field.
   onError?: (err: unknown) => void,
 ): Promise<void> {
   return (async () => {
@@ -453,6 +498,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     };
     if (opts.initialMetadata?.lastActivityAt !== undefined)
       meta.lastActivityAt = opts.initialMetadata.lastActivityAt;
+    // Session restore threads the saved agent-resume facts through so the restore-time
+    // re-persist can't write `none` over a resuming agent before the fold re-derives
+    // them (the fold's `updateMemory` rewrites both live once the agent is re-observed).
+    if (opts.initialMetadata?.lastAgentCommand !== undefined)
+      meta.lastAgentCommand = opts.initialMetadata.lastAgentCommand;
+    if (opts.initialMetadata?.restoreTarget !== undefined)
+      meta.restoreTarget = opts.initialMetadata.restoreTarget;
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
@@ -596,7 +648,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       await buildTerminalSpawnInput({ id, cwd: opts.cwd }),
     );
     if (getActiveTerminal(id) !== expected) {
-      proxy.markFailed(new Error("terminal raced during spawn (killed/slept)"));
+      proxy.markFailed(new TerminalSpawnRacedError());
       try {
         await ptyHostClient.surface.terminal.kill({ id });
       } catch (err) {
@@ -848,6 +900,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           process: msg.process,
           foregroundPid: msg.foregroundPid,
         }),
+      (err) => onForegroundTapError(id, signals.foreground, err),
     );
     const stopAwareness = startSensors(
       id,

@@ -40,10 +40,11 @@ export const RECENCY_THROTTLE_MS = 60_000;
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
  *  full {@link fold} and a memory-less dashboard accumulator (pulam), so "apply an
  *  observation to the snapshot state" lives once. The agent's `Known<>` rule
- *  lives here: `"unknown"` (mid-resolution) returns the SAME object — kolu KEEPS
- *  its last value, no clobber and no spurious autosave; `{ value }` is
- *  authoritative and APPLIES (even an authoritative `null` = session ended). A
- *  `commandRun` is a memory mark — the snapshot half is unchanged. */
+ *  lives here: `"unknown"` (mid-resolution, OR a defined non-shell foreground whose
+ *  session is unresolvable — W12's can't-tell-ended-from-lost-observer) returns the
+ *  SAME object — kolu KEEPS its last value, no clobber and no spurious autosave;
+ *  `{ value }` is authoritative and APPLIES (even an authoritative `null` = session
+ *  ended). A `commandRun` is a memory mark — the snapshot half is unchanged. */
 export function foldSnapshot(
   snapshot: TerminalSnapshot,
   o: TerminalEvent,
