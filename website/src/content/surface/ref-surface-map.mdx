@@ -24,8 +24,10 @@ subpaths: the contract, the server, and the client.
 `Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
 object). Its `failure` schema is required and fixes the domain failure value; `Failure`
 is **inferred** from it (no explicit type args). The `SurfaceMap` carries
-`{ keySchema, entry, contract, entriesSpec, codec, failureSchema }`; `entriesSpec` is the
-membership collection's wire spec, always string-keyed.
+`{ keySchema, entry, contract, entriesSpec, codec }`; `entriesSpec` is the
+membership collection's wire spec, always string-keyed. The domain failure schema is
+the `failure` argument itself — it is embedded in `entriesSpec.schema` and the
+`entries.get` contract output, so there is no separate `failureSchema` field.
 
 `connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
 `conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws.

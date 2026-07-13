@@ -338,12 +338,6 @@ export interface SurfaceMap<
   readonly entriesSpec: CollectionSpec<string, EntryStatus<Failure>>;
   /** The string <-> key codec — see {@link KeyCodec}. */
   readonly codec: KeyCodec<z.infer<KS>>;
-  /** The map's DOMAIN failure schema — validates the value on the `failed` arm
-   *  (PR4). REQUIRED: a failed entry can only exist with a schema-valid domain
-   *  failure, so this is the single authority that says what a failure IS. The
-   *  server projects its published `EntryStatus` through it; the client validates
-   *  what it reads against it. */
-  readonly failureSchema: ZodType<Failure>;
 }
 
 /** Build a `SurfaceMap` from a key schema, an entry surface, the key's string
@@ -385,6 +379,5 @@ export function defineSurfaceMap<
     contract,
     entriesSpec,
     codec,
-    failureSchema: failure,
   };
 }
