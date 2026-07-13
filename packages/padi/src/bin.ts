@@ -23,7 +23,9 @@
 import { parseArgs } from "node:util";
 import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
 import { runPadiDaemon } from "./daemonMain.ts";
+import { log as padiDaemonLog } from "./log.ts";
 import { runPadiStdioBridge } from "./stdioBridge.ts";
+import { installUnhandledRejectionBoundary } from "./unhandledRejectionBoundary.ts";
 
 const USAGE = `padi — the per-host terminal-workspace daemon
 
@@ -94,6 +96,19 @@ if (values.stdio) {
       process.exit(1);
     });
 } else {
+  // Install padi's loud-not-fatal `unhandledRejection` backstop for the
+  // DURABLE-daemon branch only (NOT the `--stdio` front, whose stdout is the
+  // wire and which is ephemeral — a front crash is recovered by kolu-server's
+  // reconnect, the durable daemon it fronts survives). Installed HERE, in the
+  // real process entrypoint, rather than inside `runPadiDaemon` because
+  // `daemonMain.test.ts` boots `runPadiDaemon` IN-PROCESS and a global handler
+  // there would suppress vitest's own unhandled-rejection detection. bin.ts is
+  // never an import target (it runs the daemon on load), so the handler lands
+  // only in a real/spawned padi process. It holds the `log` Proxy, which
+  // `runPadiDaemon`'s `configureDaemonLog()` swaps to the rolled-file+stderr
+  // multistream before any float can occur, so the marked ERROR is captured
+  // durably. See `unhandledRejectionBoundary.ts` for the doctrine + tension.
+  installUnhandledRejectionBoundary(padiDaemonLog);
   runPadiDaemon({
     stateRoot: values["state-root"],
     socketOverride: values.socket,
