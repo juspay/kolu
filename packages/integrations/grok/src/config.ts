@@ -6,10 +6,12 @@ import path from "node:path";
 
 /** Root of Grok Build's per-user state directory. Contains
  *  `active_sessions.json`, `sessions/<urlencode(cwd)>/<uuid>/`, auth,
- *  config, and skills. Overridable via `KOLU_GROK_DIR` so e2e fixtures
- *  and unit tests never scan the developer's real `~/.grok`. */
-export const GROK_DIR =
-  process.env.KOLU_GROK_DIR ?? path.join(os.homedir(), ".grok");
+ *  config, and skills. Resolved purely from `$HOME` (`os.homedir()`) — no
+ *  override knob: the e2e drives the REAL grok inside a throwaway `$HOME`, and
+ *  the unit tests isolate by pointing `$HOME` at a temp dir before import. An
+ *  override path would be a second source of truth for what `$HOME` already
+ *  determines (the repo's no-override-knob doctrine). */
+export const GROK_DIR = path.join(os.homedir(), ".grok");
 
 /** Live process map: `[{ session_id, pid, cwd, opened_at }, …]`. */
 export const ACTIVE_SESSIONS_PATH = path.join(GROK_DIR, "active_sessions.json");

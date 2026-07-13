@@ -59,23 +59,6 @@ const mkSubDir = (name: string) => {
   return dir;
 };
 
-/** Per-worker temp dirs for the Claude Code mock harness — see
- *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
- *  workers (the previous setup, exported once before `pnpm test`) puts
- *  enough inotify pressure on the server's `fs.watch(SESSIONS_DIR)` that
- *  events get dropped under load and detection silently misses the mock
- *  session. Each worker getting its own dir eliminates the contention. */
-const claudeSessionsDir = mkSubDir("claude-sessions");
-const claudeProjectsDir = mkSubDir("claude-projects");
-
-/** Per-worker temp roots for the Codex and OpenCode mock harnesses —
- *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
- *  `state.cwd`, so the fixture DB rows carry a cwd that the scenario
- *  also `cd`s into so `findSessionByDirectory` returns the mock row. */
-const codexDir = mkSubDir("codex");
-const opencodeDbDir = mkSubDir("opencode");
-const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
-
 /** The everyday-e2e vs recording (KOLU_X11CAP) divergence for the server's
  *  environment, decided ONCE here so no `if (KOLU_X11CAP)` has to be re-derived
  *  downstream (before this, the agent dirs branched here and HOME branched at
@@ -91,17 +74,14 @@ const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
  *  `testBaseDir` (AfterAll wipes it); the fake home is `fixtureHome`, wiped
  *  separately in AfterAll (it lives outside `testBaseDir` — see below).
  *
- *  Recording is the exact opposite: it launches the REAL claude/codex to
- *  capture footage, so the agent dirs must be ABSENT (the server then resolves
- *  them off the real `~/.claude` / `~/.codex` via `os.homedir()`) and HOME must
- *  stay inherited (real) so those agents find their login. Absent agent-dir
- *  keys are BOTH deleted from `process.env` (so a developer export can't shadow
- *  the real dir) and left out of the child env below.
- *
- *  `AGENT_DIR_VARS` names the exact agent-dir set the loop mutates onto
- *  `process.env` for step defs that read it directly — add a new agent dir
- *  there. HOME is child-env ONLY: never mutated onto the harness's own
- *  `process.env`, whose real value the recording path still needs. */
+ *  There are NO KOLU_*_DIR override knobs (stage-6 doctrine): the server child
+ *  runs with HOME = `fixtureHome`, so every provider's `os.homedir()`-based
+ *  state dir (~/.codex, ~/.claude, ~/.grok, ~/.local/share/opencode) resolves
+ *  under the throwaway home — the REAL default paths the real CLIs write to.
+ *  Recording is the opposite: HOME stays inherited (real) so the real
+ *  claude/codex find their login. HOME is child-env ONLY (via `serverModeEnv`
+ *  spread into the spawn) — never mutated onto the harness's own `process.env`,
+ *  whose real value the recording path still needs. */
 const RECORDING = !!process.env.KOLU_X11CAP;
 
 /** e2e's throwaway $HOME must NOT sit under any `/tmp` path. A new PTY opens in
@@ -127,71 +107,179 @@ const fixtureHome = RECORDING
   ? undefined
   : fs.mkdtempSync(path.join(fixtureHomeRoot, ".kolu-e2e-home-"));
 
-const AGENT_DIR_VARS = [
-  "KOLU_CLAUDE_SESSIONS_DIR",
-  "KOLU_CLAUDE_PROJECTS_DIR",
-  "KOLU_CODEX_DIR",
-  "KOLU_GROK_DIR",
-] as const;
-const grokDir = RECORDING ? undefined : mkSubDir("grok");
-const serverModeEnv: Record<
-  (typeof AGENT_DIR_VARS)[number],
-  string | undefined
-> & { HOME?: string } = RECORDING
-  ? {
-      KOLU_CLAUDE_SESSIONS_DIR: undefined,
-      KOLU_CLAUDE_PROJECTS_DIR: undefined,
-      KOLU_CODEX_DIR: undefined,
-      KOLU_GROK_DIR: undefined,
-    }
-  : {
-      KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-      KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-      KOLU_CODEX_DIR: codexDir,
-      KOLU_GROK_DIR: grokDir,
-      HOME: fixtureHome,
-    };
-for (const name of AGENT_DIR_VARS) {
-  const value = serverModeEnv[name];
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
-}
-process.env.KOLU_OPENCODE_DB = opencodeDbPath;
+// The kolu server (and its agent providers) run with HOME pointed at the
+// throwaway home, so every provider's `os.homedir()`-based state dir
+// (~/.codex, ~/.claude, ~/.grok, ~/.local/share/opencode) resolves there — the
+// REAL default paths the real CLIs write to. NO KOLU_*_DIR override knobs: an
+// override is a banned second source of truth for what HOME already determines
+// (stage-6 doctrine). RECORDING keeps the developer's real HOME (real cloud
+// agents for the marketing screencasts).
+const serverModeEnv: { HOME?: string } = RECORDING ? {} : { HOME: fixtureHome };
 
-/** Fake agent binaries the codex/opencode mock scenarios invoke by
- *  absolute path to bypass PATH resolution — the user's shell rc (e.g.
- *  ~/.bashrc) may prepend `~/.npm-global/bin` on startup and shadow any
- *  PATH override we set via the whitelist, so a real codex/opencode
- *  install on the host silently wins against the fake.
- *
- *  Each stub is a copy of `bash`, renamed to `codex` / `opencode`. The
- *  kernel's `/proc/<pid>/comm` (Linux) and sysctl KERN_PROC_PATHNAME
- *  (macOS) both reflect the execve basename, so a bash copy launched as
- *  `.../bin/codex -c "..."` shows up with comm="codex" — satisfying
- *  `readForegroundBasename() === "codex"` without requiring the real
- *  CLI to be installed.
- *
- *  `/bin/sleep` tempted as a simpler stub but fails on nixpkgs: coreutils
- *  ships as a multi-call binary that inspects argv[0] and errors with
- *  "unknown program 'codex'" when renamed. Bash is a single-purpose
- *  binary and copies cleanly.
- *
- *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN,
- *  KOLU_FAKE_OPENCODE_BIN, and KOLU_FAKE_GROK_BIN env vars (on this
- *  worker's process env, not forwarded to the spawned server — the step
- *  defs read them directly and type the absolute path into the pty). */
-const fakeBinDir = mkSubDir("bin");
-const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
-const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode", "grok"]) {
-  const target = path.join(fakeBinDir, name);
-  fs.copyFileSync(bashPath, target);
-  fs.chmodSync(target, 0o755);
-  fakeBins[name] = target;
+// Unconditional codex-on-ollama (srid's ruling): seed the throwaway home's codex
+// config so the real `codex` the live-state scenarios launch talks to the
+// locally-served ollama model instead of a cloud provider. The e2e recipe
+// ALWAYS starts ollama and exports the endpoint — the "main suite requires
+// ollama unconditionally" contract — so fail LOUD if it's absent rather than
+// silently degrade to a no-codex run. Skipped only under RECORDING (real cloud
+// codex/claude for the marketing screencasts).
+if (!RECORDING && fixtureHome) {
+  const baseUrl = process.env.KOLU_E2E_OLLAMA_BASE_URL;
+  const model = process.env.KOLU_E2E_OLLAMA_MODEL;
+  if (!baseUrl || !model) {
+    throw new Error(
+      "e2e requires ollama: KOLU_E2E_OLLAMA_BASE_URL / KOLU_E2E_OLLAMA_MODEL are unset. Run the suite via `just test` / `just test-quick` (they start ollama and export both), not cucumber directly.",
+    );
+  }
+  const codexHome = path.join(fixtureHome, ".codex");
+  fs.mkdirSync(codexHome, { recursive: true });
+  // `local-ollama`, not `ollama`: codex 0.130 reserves the built-in `ollama`
+  // provider id and refuses to override it. `wire_api = "responses"` because
+  // codex dropped chat-completions support; ollama serves the Responses API.
+  // No `env_key` — ollama needs no auth, so nothing has to cross the PTY env
+  // whitelist (HOME + PATH already do). `approval_policy`/`sandbox_mode` keep
+  // the turn autonomous (no confirm prompt to hang the headless run).
+  fs.writeFileSync(
+    path.join(codexHome, "config.toml"),
+    [
+      `model = "${model}"`,
+      `model_provider = "local-ollama"`,
+      `approval_policy = "never"`,
+      `sandbox_mode = "workspace-write"`,
+      `model_reasoning_effort = "none"`,
+      ``,
+      `[model_providers.local-ollama]`,
+      `name = "Local Ollama (kolu e2e)"`,
+      `base_url = "${baseUrl}"`,
+      `wire_api = "responses"`,
+      ``,
+      // Pre-trust the throwaway home (the terminal's cwd) so codex boots
+      // straight to its prompt instead of blocking on the interactive
+      // "Do you trust this directory?" gate — the disposable home IS trusted,
+      // it's ours. Without this the headless run wedges at the gate.
+      `[projects."${fixtureHome}"]`,
+      `trust_level = "trusted"`,
+      ``,
+    ].join("\n"),
+  );
+  // Surface the throwaway home to step defs (they run in the cucumber process,
+  // whose own HOME is the developer's) so the session-file assertion can look
+  // under the real default `<fixtureHome>/.codex`.
+  process.env.KOLU_E2E_FIXTURE_HOME = fixtureHome;
+  // Resolve codex's ABSOLUTE path and surface it: the hosted PTY re-sources the
+  // shell rc, which resets PATH to the system default and drops the nix-store
+  // `codex` the e2e shell put on OUR PATH — so a bare `codex` is
+  // "command not found" in the terminal. The step types this absolute path
+  // instead (the nix wrapper is self-contained, so it runs fine off-PATH). If
+  // codex isn't resolvable here the lane can't run — fail loud.
+  process.env.KOLU_E2E_CODEX_BIN = execSync("command -v codex", {
+    encoding: "utf8",
+  }).trim();
+
+  // Claude: same shape as codex. claude-code speaks the Anthropic Messages API,
+  // which ollama serves at /v1/messages, so point ANTHROPIC_BASE_URL at ollama's
+  // ROOT (claude appends /v1/messages). These MUST be real process env — claude
+  // does NOT apply settings.json's `env` to its API base URL — so they're set on
+  // process.env here (the server child inherits them) and added to the PTY
+  // whitelist in startServerChild so they reach the terminal claude runs in.
+  // `.claude.json` pre-clears claude's first-run gates (onboarding, theme,
+  // folder-trust) so it boots straight to the prompt. The "small/fast" model
+  // (claude's background summaries) is the same tiny model; ollama ignores auth.
+  const claudeHome = path.join(fixtureHome, ".claude");
+  fs.mkdirSync(claudeHome, { recursive: true });
+  process.env.ANTHROPIC_BASE_URL = baseUrl.replace(/\/v1\/?$/, "");
+  process.env.ANTHROPIC_AUTH_TOKEN = "kolu-e2e-ollama";
+  process.env.ANTHROPIC_MODEL = model;
+  process.env.ANTHROPIC_SMALL_FAST_MODEL = model;
+  process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+  fs.writeFileSync(
+    path.join(fixtureHome, ".claude.json"),
+    JSON.stringify(
+      {
+        hasCompletedOnboarding: true,
+        theme: "dark",
+        bypassPermissionsModeAccepted: true,
+        projects: {
+          [fixtureHome]: {
+            hasTrustDialogAccepted: true,
+            hasCompletedProjectOnboarding: true,
+            allowedTools: [],
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  process.env.KOLU_E2E_CLAUDE_BIN = execSync("command -v claude", {
+    encoding: "utf8",
+  }).trim();
+
+  // OpenCode: seed the throwaway home's global config so the real `opencode`
+  // talks to ollama via an OpenAI-compatible provider (its only ollama path;
+  // `baseUrl` already ends in /v1). `model` makes it the default so a launched
+  // session uses it without a picker. opencode writes its session to
+  // ~/.local/share/opencode/opencode-stable.db, which kolu's provider now
+  // resolves (the config.ts enumeration fix) — no KOLU_OPENCODE_DB override.
+  const opencodeCfgDir = path.join(fixtureHome, ".config", "opencode");
+  fs.mkdirSync(opencodeCfgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(opencodeCfgDir, "opencode.json"),
+    JSON.stringify(
+      {
+        $schema: "https://opencode.ai/config.json",
+        model: `ollama/${model}`,
+        // Auto-allow tools so nothing wedges on an interactive permission prompt
+        // if the model does reach for one. (opencode `permission` schema:
+        // config.mdx.)
+        permission: { bash: "allow", edit: "allow", webfetch: "allow" },
+        provider: {
+          ollama: {
+            npm: "@ai-sdk/openai-compatible",
+            name: "Ollama (kolu e2e)",
+            options: { baseURL: baseUrl },
+            models: { [model]: { name: model } },
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  process.env.KOLU_E2E_OPENCODE_BIN = execSync("command -v opencode", {
+    encoding: "utf8",
+  }).trim();
+
+  // Grok: seed the throwaway home's ~/.grok/config.toml so the genuine xAI Grok
+  // Build CLI talks to ollama via a CUSTOM model whose `base_url` is the local
+  // /v1 endpoint and `api_backend = "chat_completions"` (its OpenAI-compatible
+  // path). `env_key = "XAI_API_KEY"` + a dummy XAI_API_KEY makes grok boot
+  // "Logged in with API key" — NO xAI login / welcome gate — straight to the
+  // prompt (verified: `grok models` lists the custom model as default). grok
+  // writes its session state under ~/.grok (active_sessions.json + events.jsonl),
+  // which kolu's grok provider reads at the same $HOME-based default path.
+  const grokHome = path.join(fixtureHome, ".grok");
+  fs.mkdirSync(grokHome, { recursive: true });
+  process.env.XAI_API_KEY = "kolu-e2e-ollama";
+  fs.writeFileSync(
+    path.join(grokHome, "config.toml"),
+    [
+      `[model."local-ollama"]`,
+      `model = "${model}"`,
+      `base_url = "${baseUrl}"`,
+      `name = "Local Ollama (kolu e2e)"`,
+      `env_key = "XAI_API_KEY"`,
+      `api_backend = "chat_completions"`,
+      ``,
+      `[models]`,
+      `default = "local-ollama"`,
+      ``,
+    ].join("\n"),
+  );
+  process.env.KOLU_E2E_GROK_BIN = execSync("command -v grok", {
+    encoding: "utf8",
+  }).trim();
 }
-process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
-process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
-process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -210,6 +298,10 @@ const koluStateDir = mkSubDir("state");
  *  socket/gate paths the reapers below compute — is this worker's alone. Nested
  *  under `testBaseDir` so it's wiped with the rest of the run. */
 const padiStateDir = mkSubDir("padi-state");
+// Surface padi's per-worker state dir (which holds padi.log / padi.stderr.log,
+// where the agent-detection providers log) so the @real-agent failure hook can
+// dump the provider log tail into the CI lane as evidence — no local run.
+process.env.KOLU_E2E_PADI_STATE_DIR = padiStateDir;
 
 /** Per-worker `XDG_RUNTIME_DIR` so each worker's padi (and the kaval padi spawns)
  *  land at ISOLATED sockets + gates. Both are anchored under this dir but keyed by
@@ -740,9 +832,20 @@ async function startServerChild(koluServer: string): Promise<void> {
   // git commit` inside the terminal under test) inherit the same
   // identity set on process.env above. Without this, the whitelist
   // filter strips them and those scenarios fail on pristine hosts.
+  //
+  // ANTHROPIC_*/CLAUDE_CODE_* likewise must reach the PTY: the real `claude`
+  // the live-state scenario launches reads ANTHROPIC_BASE_URL from its own
+  // process env to find ollama's /v1/messages (claude does NOT honor
+  // settings.json's `env` for that). hooks.ts sets them on process.env; the
+  // server child inherits them, and this whitelist lets them cross into the
+  // terminal. Harmless everywhere else (only claude reads them). XAI_API_KEY is
+  // the same story for the real `grok`: its config.toml names it as the custom
+  // model's `env_key`, so the (dummy) value must cross into the PTY.
   const envWhitelist = [
     NIX_ENV_WHITELIST,
     "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
+    "ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,ANTHROPIC_MODEL,ANTHROPIC_SMALL_FAST_MODEL,CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "XAI_API_KEY",
   ].join(",");
   // Append-mode per-worker server log: a server that dies mid-run otherwise
   // leaves NO trace in the suite log; the file preserves the crash stack /
@@ -813,7 +916,6 @@ async function startServerChild(koluServer: string): Promise<void> {
           // HOME inherited (real) under X11CAP so the real claude/codex resolve
           // their sessions + login from the real home. See `serverModeEnv`.
           ...serverModeEnv,
-          KOLU_OPENCODE_DB: opencodeDbPath,
           // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
           // REMOTE padi over ssh (the whole canvas becomes that host) instead of
           // spawning a local one, so the SAME suite runs unchanged against a remote

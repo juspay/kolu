@@ -50,7 +50,25 @@
  *  Re-confirm the marker from a live capture (`tmux capture-pane`, the same
  *  VT-resolved text `getScreenText` returns) on any Claude UI change — never from
  *  a guess (the earlier guessed footer `↑/↓ to select` was never real and would
- *  have collided with the `/fork` agent list above). */
+ *  have collided with the `/fork` agent list above).
+ *
+ *  ## Fast-turn mid-turn "thinking" is screen-scrape-only (known limitation)
+ *  Claude Code writes its transcript JSONL at turn END (the SDK buffers the
+ *  in-flight assistant message and flushes it once the turn resolves), so the
+ *  JSONL-derived state cannot report `thinking` WHILE a turn is in flight — the
+ *  file that would carry it doesn't exist yet. Mid-turn `thinking` therefore
+ *  rides ENTIRELY on this screen-scrape poll reading the live spinner. On a very
+ *  short turn (a sub-3s ollama turn on fast hardware — Apple Silicon), the poll
+ *  can miss the window entirely and the sensor goes straight to `waiting`; worse,
+ *  the sensor can also STICK on `thinking` after a fast turn completes (the
+ *  transcript watcher attaches after the terminal entry is written and only
+ *  tails, and/or the emulated `stop_reason` isn't `end_turn`). Both are CLAUDE
+ *  provider behavior, not a test artifact — a fast turn can lie in production too
+ *  — so `claude-real.feature` deliberately asserts only DETECTION (kind=claude-
+ *  code) + the real session artifacts, NOT the transient state (srid's ruling
+ *  B-prime). This is tracked as a robustness BUG: juspay/kolu#1754 (both
+ *  directions evidenced; the fix includes an initial full-scan on watcher
+ *  attach). When it lands, restore the state asserts to claude-real.feature. */
 
 import type { ClaudeCodeInfo } from "./schemas.ts";
 

@@ -1,3 +1,9 @@
+// E2E EXEMPTION (srid's stage-5 ruling, token OLLAMA-E2E-R3W7). The
+// screen-scrape promotion covered here — AskUserQuestion / tool-permission →
+// awaiting_user — is MODEL-EMISSION-GATED: the prompt only appears when the
+// model asks a question or calls a tool, which no CI-runnable ollama model does
+// (the stages-3/4 five-config proof). So it stays unit-tested and the crafted
+// @claude-mock e2e scenarios are deleted; see the batch note in index.test.ts.
 import { describe, expect, it } from "vitest";
 import type { ClaudeCodeInfo } from "./schemas.ts";
 import {

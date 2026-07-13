@@ -82,6 +82,11 @@
         removeAttrs kolu [ "koluEnv" "typecheck" ] // {
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
+          # The e2e suite's ollama backend, orchestrated by process-compose via
+          # services-flake (npins-pinned). `just test` / `test-quick` run this
+          # package; its `test` process IS the cucumber suite, gated on ollama
+          # healthy + model pulled + warmed. See nix/e2e-pc.nix.
+          e2e-pc = import ./nix/e2e-pc.nix { inherit pkgs; };
         });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
@@ -100,10 +105,39 @@
         let default = import ./shell.nix { inherit pkgs; };
         in {
           inherit default;
-          # Extended shell with Playwright browsers for e2e testing.
+          # Extended shell with Playwright browsers for e2e testing, plus the
+          # binaries the real-agent-against-ollama lane needs on PATH: `ollama`
+          # (the locally-served model backend `just test-ollama` starts and
+          # health-gates) and `codex` (the real agent CLI that lane drives —
+          # see packages/tests/features/codex-ollama.feature). Both ride ONLY
+          # this e2e shell, so the ~0.3s-warm default `nix develop` is untouched.
+          # No process-compose / services-flake: the flake keeps its zero-input
+          # rule, and ollama joins the existing imperative harness graph as one
+          # more health-gated node (started by the recipe, seen by hooks.ts),
+          # not a parallel orchestration contraption.
+          #
           # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
+            buildInputs = (prev.buildInputs or [ ]) ++ [
+              pkgs.ollama
+              # Pinned codex 0.130.0 on EVERY platform (the lane runs on both
+              # linux and darwin): nixpkgs' 0.114.0 predates the threads columns
+              # kolu's codex provider requires, so its detection stays disabled.
+              # See nix/packages/codex-pinned.nix.
+              (import ./nix/packages/codex-pinned.nix { inherit pkgs; })
+              # Real Claude Code (unfree; scoped-allowUnfree import) for the
+              # claude live-state e2e — talks to ollama's /v1/messages.
+              (import ./nix/packages/claude-code.nix { inherit pkgs; })
+              # Real opencode for the opencode live-state e2e — talks to ollama
+              # via an OpenAI-compatible provider (opencode.json). kolu's
+              # provider reads its opencode-stable.db (see the config.ts fix).
+              pkgs.opencode
+              # The genuine xAI Grok Build CLI (unfree; scoped-allowUnfree
+              # native binary) for the grok live-state e2e — a custom model in
+              # ~/.grok/config.toml points it at ollama. See nix/packages/grok.nix.
+              (import ./nix/packages/grok.nix { inherit pkgs; })
+            ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
             };

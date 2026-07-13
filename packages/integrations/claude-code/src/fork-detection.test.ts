@@ -6,7 +6,20 @@
  *  `outstandingBackgroundTasks`. These cover the filesystem-based detection that
  *  replaces it: enumerate `subagents/agent-<id>.meta.json` tagged
  *  `agentType:"fork"`, drop the finished (`completed`) and the orphaned (stale
- *  transcript mtime), and keep the live ones. */
+ *  transcript mtime), and keep the live ones.
+ *
+ *  E2E EXEMPTION (srid's stage-5 (b) ruling, token OLLAMA-E2E-R3W7). This
+ *  filesystem derivation is the ONLY automated coverage of the fork →
+ *  running_background promotion, and it stays a pure-function unit test rather
+ *  than an e2e against a real `claude`. The (b) attempt was run and FAILED with
+ *  decisive evidence: real claude v2.1.76 `/fork` enters the fork
+ *  INTERACTIVELY ("Forked conversation … You are now in the fork."), foreground
+ *  — there is no BACKGROUND sub-agent, so no running_background state exists to
+ *  observe (the sensor correctly stays `waiting`). The mock scenario's premise
+ *  (a `/fork` spawns a background sub-agent) no longer matches the CLI, so an
+ *  e2e can't reproduce it; the on-disk derivation — which still fires when a
+ *  background fork DOES exist — is exercised here. RESUMPTION: if a future
+ *  claude reintroduces background forks, add a real e2e to claude-cli-real. */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -58,6 +71,7 @@ describe("completedBackgroundTaskIds", () => {
 });
 
 describe("outstandingForkRuns / nextStaleDeadline", () => {
+  let homeDir: string;
   let tmpDir: string;
   let outstandingForkRuns: typeof import("./index.ts").outstandingForkRuns;
   let nextStaleDeadline: typeof import("./index.ts").nextStaleDeadline;
@@ -68,8 +82,10 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
   const session = { pid: 1, sessionId, cwd };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     outstandingForkRuns = mod.outstandingForkRuns;
@@ -79,8 +95,7 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const subagentsDir = () => subagentsDirFor(session);
@@ -239,9 +254,10 @@ describe("outstandingForkRuns / nextStaleDeadline", () => {
  *
  *  Uses real `fs.watch` + real timers (the watcher's actual machinery), so each
  *  assertion polls for the expected published state rather than reading a single
- *  synchronous snapshot. `KOLU_CLAUDE_PROJECTS_DIR` is set, which both redirects
- *  the on-disk lookups into the tmp tree AND disables the SDK summary fetch. */
+ *  synchronous snapshot. `$HOME` points at a temp dir (no override knob), so
+ *  PROJECTS_DIR resolves the on-disk lookups into the tmp tree. */
 describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
+  let homeDir: string;
   let tmpDir: string;
   let createSessionWatcher: typeof import("./index.ts").createSessionWatcher;
   let subagentsDirFor: typeof import("./index.ts").subagentsDirFor;
@@ -258,8 +274,10 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     createSessionWatcher = mod.createSessionWatcher;
@@ -268,8 +286,7 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const projectDir = () => path.join(tmpDir, encodeProjectPath(cwd));

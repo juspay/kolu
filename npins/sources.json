@@ -1,5 +1,18 @@
 {
   "pins": {
+    "codex-cli-nix": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "sadjow",
+        "repo": "codex-cli-nix"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "77438a11367ee33190afe5c6cdf22634eced8e77",
+      "url": "https://github.com/sadjow/codex-cli-nix/archive/77438a11367ee33190afe5c6cdf22634eced8e77.tar.gz",
+      "hash": "sha256-abnrDpUkNg+/xm859m+9BOfjGDPmnAztQvBaR3596Ps="
+    },
     "iTerm2-Color-Schemes": {
       "type": "Git",
       "repository": {
@@ -38,6 +51,32 @@
       "revision": "f3a3e553c00486e7e2999d79495e2e52f6192703",
       "url": "https://github.com/juspay/odu/archive/f3a3e553c00486e7e2999d79495e2e52f6192703.tar.gz",
       "hash": "sha256-TlTWFf15JjOSP69W2er1u7Dv7isT2JBwcUfEfuIluyA="
+    },
+    "process-compose-flake": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "Platonic-Systems",
+        "repo": "process-compose-flake"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "464ff6880737f063c3f0d3d2c7781fda9190868f",
+      "url": "https://github.com/Platonic-Systems/process-compose-flake/archive/464ff6880737f063c3f0d3d2c7781fda9190868f.tar.gz",
+      "hash": "sha256-Q8HH2t1l3MITtWCWY4ytcH5F/Q7aAHo3Iq/QTMAKTe0="
+    },
+    "services-flake": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "juspay",
+        "repo": "services-flake"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "1c9142a3d74abc53aed62687106ee15e873dc3ff",
+      "url": "https://github.com/juspay/services-flake/archive/1c9142a3d74abc53aed62687106ee15e873dc3ff.tar.gz",
+      "hash": "sha256-yIVKacNpTvEY+xQf2MzNn6jerRrazrkXxTwmwTK4N7M="
     }
   },
   "version": 7

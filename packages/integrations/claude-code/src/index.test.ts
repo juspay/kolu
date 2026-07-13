@@ -1,3 +1,25 @@
+// E2E EXEMPTION (srid's stage-5 ruling, token OLLAMA-E2E-R3W7). These pure
+// derivations are the sanctioned unit coverage for the crafted @claude-mock
+// scenarios (claude-code.feature) that a real claude turn on a CI-runnable model
+// can't reproduce. That feature is deleted; coverage split as srid ruled:
+//
+//   MODEL-EMISSION-GATED (need the model to emit the shape — no CI-runnable
+//   ollama model does; inherits the stages-3/4 five-config proof): tool_use,
+//   task-progress (deriveTaskProgress), running_background / workflow fan-out,
+//   background_bash, an interrupted TOOL call, AskUserQuestion + tool-permission
+//   promotion (screen.test.ts), orphaned / journalless workflow
+//   (transient-decay.test.ts), /fork (fork-detection.test.ts). Exempt.
+//   STATE MACHINE (thinking / waiting / thinking→waiting cycle,
+//   previous-session-JSONL selection): deriveState is unit-tested here, and the
+//   real thinking→waiting arc is asserted live for codex/grok/opencode-real.
+//   PORTED to real (claude-cli-real.feature): interrupt (Esc → waiting),
+//   /compact (→ waiting), --continue resume, session-end. The 2 workspace-ping
+//   scenarios were redundant with activity-alerts.feature (a direct alert
+//   trigger, no agent mock) — dropped, not exempted.
+//
+// RESUMPTION: when a CI runner can serve a tool-capable model, port the
+// model-emission-gated states to claude-real / claude-cli-real (see #1754 for
+// the fast-turn state-detection bug that also gates claude's live state).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -738,6 +760,7 @@ describe("outstandingBackgroundTasks", () => {
 });
 
 describe("liveOutstandingTasks", () => {
+  let homeDir: string;
   let tmpDir: string;
   let live: typeof import("./index.ts").liveOutstandingTasks;
   let liveWorkflowRuns: typeof import("./index.ts").liveWorkflowRuns;
@@ -748,8 +771,12 @@ describe("liveOutstandingTasks", () => {
   const session = { pid: 1, sessionId, cwd };
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-live-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    // Isolate via $HOME (no override knob): PROJECTS_DIR resolves to
+    // os.homedir()/.claude/projects, re-captured by the resetModules import.
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-live-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     live = mod.liveOutstandingTasks;
@@ -769,8 +796,7 @@ describe("liveOutstandingTasks", () => {
   ) => nextStaleDeadline(liveWorkflowRuns(s, tasks), now);
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const wfDir = () =>
@@ -1082,20 +1108,22 @@ describe("firstTranscriptTimestampMs", () => {
 });
 
 describe("findTranscriptPath", () => {
+  let homeDir: string;
   let tmpDir: string;
   let findTranscriptPathFn: typeof import("./index.ts").findTranscriptPath;
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-find-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-find-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     findTranscriptPathFn = mod.findTranscriptPath;
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   it("returns exact match by session ID", () => {
@@ -1255,6 +1283,7 @@ describe("deriveTaskProgress", () => {
 });
 
 describe("deriveWorkflowProgress", () => {
+  let homeDir: string;
   let tmpDir: string;
   let deriveWorkflowProgressFn: typeof import("./index.ts").deriveWorkflowProgress;
   const cwd = "/home/user/project";
@@ -1272,16 +1301,17 @@ describe("deriveWorkflowProgress", () => {
   }
 
   beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-wf-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-wf-test-"));
+    process.env.HOME = homeDir;
+    tmpDir = path.join(homeDir, ".claude", "projects");
+    fs.mkdirSync(tmpDir, { recursive: true });
     vi.resetModules();
     const mod = await import("./index.ts");
     deriveWorkflowProgressFn = mod.deriveWorkflowProgress;
   });
 
   afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
   const session = () => ({ pid: 1, sessionId, cwd });

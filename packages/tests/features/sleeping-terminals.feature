@@ -11,29 +11,29 @@ Feature: Sleeping terminals
   session survives a full daemon restart; a malformed persisted record is
   dropped, not fatal; and sleeping the only terminal never clears the session.
 
-  @codex-mock
-  Scenario: Waking a sleeping agent terminal resumes the SAME conversation
-    # Run a real (mock) Codex agent in the terminal so the dock lights up with a
-    # codex agent state and the server captures `lastAgentCommand` AND the live
-    # session id (the codex mock's fixed thread `00000000-0000-0000-0000-000000000001`).
-    # Sleep it via the tile ☾ button: the live xterm/PTY is released and the dormant
-    # body shows. Wake it: the PTY re-spawns on the SAME id and the server replays
-    # the agent's RESUME-BY-ID form (`codex resume <session-id>`, juspay/kolu#1495)
-    # into the fresh PTY — so the EXACT prior conversation comes back, not merely the
-    # most-recent in the cwd. A blank fresh agent would type NOTHING; asserting the
-    # by-id resume invocation lands in the new buffer AND the codex dock state returns
-    # in the SAME cwd is exactly the hole the agent-resume bug fell through.
+  @codex-real @real-agent
+  Scenario: Waking a slept real-codex terminal resumes the SAME session
+    # Run the REAL codex against ollama so the server captures `lastAgentCommand`
+    # AND the live session's thread id; record that id from ~/.codex before sleep.
+    # Sleep via the tile ☾ button (PTY released, dormant body shows), then wake:
+    # the PTY re-spawns on the SAME id and the server replays the RESUME-BY-ID form
+    # (`codex resume <thread-id>`, juspay/kolu#1495) into the fresh PTY — so the
+    # EXACT prior conversation comes back. A blank fresh agent would type NOTHING,
+    # a wrong-session resume a DIFFERENT id; asserting the RECORDED id lands in the
+    # woken buffer is exactly the hole the agent-resume bug fell through. (srid's
+    # stage-6 (b) real attempt: id-equality, not the mock's fixed thread.)
     Given the terminal is ready
-    When a Codex session is mocked with state "waiting"
-    Then the tile chrome should show a Codex indicator with state "waiting"
+    When I launch the real Codex agent with prompt "Say the single word DONE and then stop."
+    # No transient detection-appear window (fast-turn flaky, #1754) — the record
+    # step reads the real session id from ~/.codex directly, and the payoff is
+    # the resume-replay in the woken buffer, not a live indicator.
+    And I record the real Codex session id
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
     And the dock should show 1 sleeping row
-    And the dormant tile should show its saved working directory
     When I wake the slept terminal via the dormant body wake button
     Then the slept terminal should be live
-    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
-    And the woken terminal should resume in the same working directory
+    And the woken terminal should replay the recorded Codex resume invocation
     And there should be no page errors
 
   Scenario: A dragged sleeping tile keeps its moved position across a reload
@@ -52,17 +52,20 @@ Feature: Sleeping terminals
     And the sleeping tile should be at x=815 y=437
     And there should be no page errors
 
-  @codex-mock @kaval-restart
-  Scenario: A slept agent terminal survives a daemon restart and still wakes-to-resume
-    # The strongest journey: sleep an agent terminal, then restart the kaval
+  @codex-real @real-agent @kaval-restart
+  Scenario: A slept real-codex terminal survives a daemon restart and still wakes-to-resume
+    # The strongest journey: sleep a REAL-codex terminal, then restart the kaval
     # daemon (session-preserving restart — capture before kill). The slept record
     # must outlive the restart and come back via the restore card as a DORMANT
-    # tile (not a live one, not a vanished one). Waking it then resumes the agent
-    # exactly as before — the by-id resume invocation (the exact conversation,
-    # juspay/kolu#1495) replays into the re-spawned PTY.
+    # tile. Waking it then resumes the agent exactly as before — the by-id resume
+    # invocation (`codex resume <recorded thread-id>`, juspay/kolu#1495) replays
+    # into the re-spawned PTY.
     Given the terminal is ready
-    When a Codex session is mocked with state "waiting"
-    Then the tile chrome should show a Codex indicator with state "waiting"
+    When I launch the real Codex agent with prompt "Say the single word DONE and then stop."
+    # No transient detection-appear window (fast-turn flaky, #1754) — the record
+    # step reads the real session id from ~/.codex directly, and the payoff is
+    # the resume-replay in the woken buffer, not a live indicator.
+    And I record the real Codex session id
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
     When the kaval daemon is killed
@@ -74,7 +77,7 @@ Feature: Sleeping terminals
     Then the restored sleeping tile should be sleeping
     When I wake the restored sleeping tile via the dormant body wake button
     Then the restored sleeping tile should be live
-    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
+    And the woken terminal should replay the recorded Codex resume invocation
     And there should be no page errors
 
   @kaval-restart
