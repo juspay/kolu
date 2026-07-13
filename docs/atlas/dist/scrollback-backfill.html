@@ -302,7 +302,9 @@ rather than scattered through the codebase.</p>
 <p><strong>One PR</strong>, five steps — the work threads existing seams (attach, the
 terminal module, kaval’s verbs) and nothing here can ship usefully alone:</p>
 <ol>
-<li><strong>The module</strong> — <code>packages/client/src/terminal/scrollbackBackfill.ts</code>
+<li><strong>The module</strong> — <code>scrollbackBackfill.ts</code> (shipped under
+<code>packages/client/src/terminal/</code>; later graduated verbatim into
+<code>packages/xterm-kit/src/</code> — see <a href="xterm-kit">xterm-kit</a>)
 exporting <code>prependScrollback(term, rawChunk, servedRows): PrependResult</code> — a
 discriminated <code>{ kind: &quot;inserted&quot;; rows } | { kind: &quot;skipped&quot; }</code>, so the
 caller can never conflate “consumed, inserted <em>M</em> rows” with “not consumed”

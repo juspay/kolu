@@ -13,7 +13,7 @@
  *
  *  Desktop is left untouched — xterm's mousedown → textarea.focus path works fine
  *  with a hardware keyboard, and we don't want to risk fighting its selection
- *  handling. The `isTouch()` guard lives here, so callers invoke this
+ *  handling. The `isCoarsePointer()` guard lives here, so callers invoke this
  *  unconditionally and never reach into xterm's shadow DOM themselves.
  *
  *  Returns the prepared `.xterm-screen` element (the input surface) so the caller

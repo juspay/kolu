@@ -35,7 +35,7 @@
  *
  *  This module owns render-stall RECOVERY (the watchdog and the forced sync
  *  paint); the knowledge of xterm's private `_core` shape it depends on
- *  (`_renderService`, DEC private modes) lives in `xtermInternals.ts`, the one
+ *  (`_renderService`, DEC private modes) lives in `internals.ts`, the one
  *  null-guarded home for every `_core.*` reach. So a future beta that renames
  *  those fields degrades to a no-op forceRepaint + "unknown" probes instead of
  *  crashing — and is fixed in exactly one place.

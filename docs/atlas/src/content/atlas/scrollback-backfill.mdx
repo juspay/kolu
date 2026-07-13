@@ -244,7 +244,9 @@ Three boundary decisions, stated as verdicts:
 **One PR**, five steps — the work threads existing seams (attach, the
 terminal module, kaval's verbs) and nothing here can ship usefully alone:
 
-1. **The module** — `packages/client/src/terminal/scrollbackBackfill.ts`
+1. **The module** — `scrollbackBackfill.ts` (shipped under
+   `packages/client/src/terminal/`; later graduated verbatim into
+   `packages/xterm-kit/src/` — see [xterm-kit](xterm-kit))
    exporting `prependScrollback(term, rawChunk, servedRows): PrependResult` — a
    discriminated `{ kind: "inserted"; rows } | { kind: "skipped" }`, so the
    caller can never conflate "consumed, inserted *M* rows" with "not consumed"

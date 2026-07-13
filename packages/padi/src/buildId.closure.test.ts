@@ -106,6 +106,17 @@ const ALLOWED_EXTERNAL = [
   "simple-git",
   "string-argv",
   "@kolu/surface",
+  // @kolu/xterm-kit — the graduated xterm machinery. padi reaches it ONLY
+  // transitively through kaval's embedded library (`ptyHost` → the runtime-
+  // neutral core: createMirrorAnchor / snapToWrapHead). It is a stable leaf here,
+  // NOT a hashed root, for the same reason kaval treats it so (see
+  // kaval/src/buildId.closure.test.ts): the anchor's daemon-relevant behavioral
+  // surface — the absolute mirror-line coordinates getHistory pages by — IS part
+  // of PTY_HOST_CONTRACT_VERSION, which lives in kaval's hashed closure that padi
+  // already embeds. A wire-breaking anchor change rides that contract bump; a
+  // browser-only /solid or /backfill change (never reached from padi's daemon)
+  // must not flip padi's key. The walk STOPS at it.
+  "@kolu/xterm-kit",
 ];
 
 const isAllowed = (spec: string): boolean =>

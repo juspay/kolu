@@ -146,7 +146,7 @@ const TRANSFORM_EPSILON = 1e-3;
  *  uses `transform-origin: 0 0` (CanvasTile.tsx sets this for `tileTransformCSS`,
  *  documented in canvas/viewport/coordinates.ts); a non-0/0 origin would move
  *  the fixed point and invalidate inverting about `rect.left`/`rect.top`. The
- *  round-trip test in `xtermInternals.test.ts` composes that documented
+ *  round-trip test in `internals.test.ts` composes that documented
  *  scale-about-(0,0) forward map and asserts this inverse recovers the point, so
  *  the two can't silently drift from the `transform-origin: 0 0` contract.
  *

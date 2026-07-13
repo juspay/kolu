@@ -35,8 +35,14 @@ This note is the plan and the **API design record** — the exported surface is
 designed here, per srid's instruction, because the API *is* the product of this
 refactor. It is not the reference manual (kolu.dev reference docs come later):
 each export gets the sentence that justifies its existence, not its option list.
-The name is decided (srid, 2026-07-13): **`@kolu/xterm-kit`**, entrypoints
-`@kolu/xterm-kit` (core) + `@kolu/xterm-kit/solid`.
+The name is decided (srid, 2026-07-13): **`@kolu/xterm-kit`**, with four
+entrypoints — `@kolu/xterm-kit` (the daemon-safe, runtime-neutral core),
+`@kolu/xterm-kit/backfill` (the `@xterm/xterm`-constructing scrollback write
+path), `@kolu/xterm-kit/internals` (the cosmetic `_core.*` reads), and
+`@kolu/xterm-kit/solid` (the SolidJS adapter). The core/`/solid` split is the
+headline (`@kolu/surface` → `@kolu/surface/solid`); `/backfill` and `/internals`
+exist because a static `@xterm/xterm` value import and the `_core` reaches must
+stay off the daemon-imported root (see the build-time correction below).
 
 <Callout kind="note" title="Revised against the installed system during the build">
 Three claims in the first draft were corrected by grounding them against the
@@ -60,7 +66,9 @@ The "user" of this feature is a developer embedding a terminal. Both consumers
 get the same promise: **the hazards are owned by the package**, and the consumer
 writes only its own policy — which bytes, when, for whom.
 
-A SolidJS app renders a live terminal in one component:
+A SolidJS app renders a live terminal in one component (the `<Xterm>` wrapper is
+**PR 2 target API** — it does not ship in PR 1, which graduates the primitives it
+will compose):
 
 ```tsx
 import { Xterm, type XtermHandle } from "@kolu/xterm-kit/solid";
@@ -144,7 +152,7 @@ keeps the wire knowledge: it discriminates `frame.kind === "snapshot"`, checks
 for the leading `TERMINAL_RESET`, and calls the controller with plain values
 (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="849-930" />). The
 seam bytes themselves are minted by the controller
-(<Cite file="packages/client/src/terminal/scrollbackBackfill.ts" lines="309-351" />);
+(<Cite file="packages/xterm-kit/src/scrollbackBackfill.ts" lines="309-351" />);
 the consumer only concatenates.</Footnote>
 
 Against the [electricity three tests](electricity.html):
@@ -290,14 +298,19 @@ The two internals philosophies are not an implementation detail — they are the
 
 ### `/solid` — the browser adapter
 
+The first three below are **PR 2 target API** (the `<Xterm>` component and its
+lifecycle/WebGL primitives); the rest ship in PR 1:
+
 ```tsx
 import {
-  Xterm,                // the component: lifecycle + addons + WebGL + fit, in JSX form
-  createXtermLifecycle, // the primitive under it, for a non-JSX composition
-  attachWebGL,          // single-owner WebglAddon lifetime + context-loss recovery
+  Xterm,                // PR 2 — the component: lifecycle + addons + WebGL + fit, in JSX form
+  createXtermLifecycle, // PR 2 — the primitive under it, for a non-JSX composition
+  attachWebGL,          // PR 2 — single-owner WebglAddon lifetime + context-loss recovery
   createRenderRecovery, // forced sync repaint when the rAF paint loop parks
   wireScrollIntent,     // DOM wheel/pointer wiring for the core scroll lock
   createScrollLock,     // freeze-while-reading latch; buffered writes keep their callbacks
+  enableSoftKeyboardInput, // iOS contenteditable soft-keyboard surface
+  isCoarsePointer,      // pointer:coarse media query (the touch gate)
 } from "@kolu/xterm-kit/solid";
 ```
 
@@ -420,7 +433,7 @@ Two interplays are already handled, recorded so mobile doesn't re-open them:
 raising the soft keyboard is a **rows-only** resize, and the backfill
 controller pauses only on a *cols* change — so the keyboard no longer stales
 backfill (the <PrLink pr={1783} /> family-3
-fix<Footnote><Cite file="packages/client/src/terminal/scrollbackBackfill.ts" lines="657-666" /> —
+fix<Footnote><Cite file="packages/xterm-kit/src/scrollbackBackfill.ts" lines="657-666" /> —
 "a height-only change is harmless"; a width reflow is what invalidates the
 absolute cursor.</Footnote>); and momentum-scroll flinging the viewport into
 the trigger band mid-backfill was a named spike risk, covered by the

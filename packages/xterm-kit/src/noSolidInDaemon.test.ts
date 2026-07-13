@@ -18,30 +18,57 @@
  *  future misclassification (re-exporting a `/solid` or `/backfill` module from
  *  the root) is red CI here, not a broken daemon in production. */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+/** Resolve a relative import `base` to the source file it names — trying the
+ *  bare path, `.ts`/`.tsx`, and a `index.ts`/`index.tsx` directory barrel, the
+ *  same order Node/tsx resolve (and the sibling daemon-closure walkers in
+ *  padi/kaval use). Returns null ONLY for a genuinely inert, non-source asset
+ *  (`.json`/`.css`/`.js`) — which cannot carry a `solid-js` / `@xterm/xterm`
+ *  value edge, so is safe to skip. Any relative edge that resolves to NEITHER a
+ *  source file NOR such an asset is an unresolved source edge and the caller
+ *  throws — silently ignoring it (the old behavior) would let a re-exported
+ *  `./solid` directory barrel or a `.tsx` component slip the guard, the exact
+ *  regression this test exists to catch. */
+function resolveSourceFile(base: string): string | null {
+  for (const c of [
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    join(base, "index.tsx"),
+    base,
+  ]) {
+    if (
+      (c.endsWith(".ts") || c.endsWith(".tsx")) &&
+      existsSync(c) &&
+      statSync(c).isFile()
+    ) {
+      return c;
+    }
+  }
+  // An inert asset (already carries its own extension, not a .ts/.tsx source).
+  if (/\.(json|css|js|cjs|mjs)$/.test(base) && existsSync(base)) return null;
+  return null;
+}
+
 /** Every bare (non-relative) VALUE module specifier transitively reachable from
  *  `entry` via static `import` / `export … from`, following relative edges into
- *  their `.ts` files. Type-only lines (`import type` / `export type`) are erased
+ *  their source files. Type-only lines (`import type` / `export type`) are erased
  *  at runtime, so they can neither crash the daemon nor bloat its closure and are
- *  skipped. */
+ *  skipped. An unresolved relative source edge THROWS rather than being silently
+ *  dropped. */
 function transitiveValueImports(entry: string): Set<string> {
   const seen = new Set<string>();
   const bare = new Set<string>();
   const visit = (file: string): void => {
     if (seen.has(file)) return;
     seen.add(file);
-    let src: string;
-    try {
-      src = readFileSync(file, "utf8");
-    } catch {
-      return; // a relative edge that isn't a .ts leaf — nothing to walk
-    }
+    const src = readFileSync(file, "utf8");
     for (const raw of src.split("\n")) {
       const line = raw.trim();
       // Runtime edges only: `import … from "x"`, bare `import "x"`, and
@@ -51,9 +78,15 @@ function transitiveValueImports(entry: string): Set<string> {
       const spec = m?.[1];
       if (!spec) continue;
       if (spec.startsWith(".")) {
-        visit(
-          resolve(dirname(file), spec.endsWith(".ts") ? spec : `${spec}.ts`),
-        );
+        const base = resolve(dirname(file), spec);
+        const resolved = resolveSourceFile(base);
+        if (resolved) {
+          visit(resolved);
+        } else if (!/\.(json|css|js|cjs|mjs)$/.test(spec)) {
+          throw new Error(
+            `daemon-closure guard: unresolved relative import '${spec}' from ${file} — cannot verify it stays solid-js/@xterm-free`,
+          );
+        }
       } else {
         bare.add(spec);
       }

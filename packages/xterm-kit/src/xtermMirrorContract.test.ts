@@ -4,11 +4,11 @@
  *  `isWrapped`, `serialize({range})`) — the ONE private reach is
  *  `_core.buffers.normal.lines.onTrim`, the eviction count that anchors the
  *  absolute history cursor (there is no public source for it). This is the
- *  headless twin of the client's `scrollbackBackfill.test.ts` pin: an
+ *  headless twin of the sibling `scrollbackBackfill.test.ts` pin: an
  *  `@xterm/headless` bump that moves the pinned symbol must fail HERE, loudly,
  *  not by silently freezing `mirrorBaseLine` while the buffer renumbers under it
  *  (a silent scrollback corruption). Every symbol below is verified
- *  shape-identical to the client's `@xterm/xterm` beta in that sibling test. */
+ *  shape-identical to the `@xterm/xterm` beta in that sibling test. */
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";

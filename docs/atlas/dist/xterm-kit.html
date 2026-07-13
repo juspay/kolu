@@ -19,8 +19,14 @@ core + <code>/solid</code>.</p>
 designed here, per srid’s instruction, because the API <em>is</em> the product of this
 refactor. It is not the reference manual (kolu.dev reference docs come later):
 each export gets the sentence that justifies its existence, not its option list.
-The name is decided (srid, 2026-07-13): <strong><code>@kolu/xterm-kit</code></strong>, entrypoints
-<code>@kolu/xterm-kit</code> (core) + <code>@kolu/xterm-kit/solid</code>.</p>
+The name is decided (srid, 2026-07-13): <strong><code>@kolu/xterm-kit</code></strong>, with four
+entrypoints — <code>@kolu/xterm-kit</code> (the daemon-safe, runtime-neutral core),
+<code>@kolu/xterm-kit/backfill</code> (the <code>@xterm/xterm</code>-constructing scrollback write
+path), <code>@kolu/xterm-kit/internals</code> (the cosmetic <code>_core.*</code> reads), and
+<code>@kolu/xterm-kit/solid</code> (the SolidJS adapter). The core/<code>/solid</code> split is the
+headline (<code>@kolu/surface</code> → <code>@kolu/surface/solid</code>); <code>/backfill</code> and <code>/internals</code>
+exist because a static <code>@xterm/xterm</code> value import and the <code>_core</code> reaches must
+stay off the daemon-imported root (see the build-time correction below).</p>
 <aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Revised against the installed system during the build</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Three claims in the first draft were corrected by grounding them against the
 running code rather than trusting the plan — recorded here so the note stays the
 honest source of truth. <strong>(1)</strong> The core root is daemon-safe only once
@@ -38,7 +44,9 @@ are unchanged; only claims that didn’t survive contact with the code are.</p><
 <p>The “user” of this feature is a developer embedding a terminal. Both consumers
 get the same promise: <strong>the hazards are owned by the package</strong>, and the consumer
 writes only its own policy — which bytes, when, for whom.</p>
-<p>A SolidJS app renders a live terminal in one component:</p>
+<p>A SolidJS app renders a live terminal in one component (the <code>&lt;Xterm&gt;</code> wrapper is
+<strong>PR 2 target API</strong> — it does not ship in PR 1, which graduates the primitives it
+will compose):</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="tsx"><code><span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { Xterm, </span><span style="color:#D73A49">type</span><span style="color:#24292E"> XtermHandle } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/xterm-kit/solid"</span><span style="color:#24292E">;</span></span>
 <span class="line"><span style="color:#D73A49">import</span><span style="color:#032F62"> "@xterm/xterm/css/xterm.css"</span><span style="color:#24292E">;</span></span>
 <span class="line"></span>
@@ -227,7 +235,7 @@ keeps the wire knowledge: it discriminates <code>frame.kind === &quot;snapshot&q
 for the leading <code>TERMINAL_RESET</code>, and calls the controller with plain values
 (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L849-L930" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:849-930</a>). The
 seam bytes themselves are minted by the controller
-(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/scrollbackBackfill.ts#L309-L351" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/scrollbackBackfill.ts:309-351</a>);
+(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/scrollbackBackfill.ts#L309-L351" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/scrollbackBackfill.ts:309-351</a>);
 the consumer only concatenates.</span></span></span></p>
 <p>Against the <a href="electricity.html">electricity three tests</a>:</p>
 <ol>
@@ -377,13 +385,17 @@ would (<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/sr
 </tbody>
 </table>
 <h3 id="solid--the-browser-adapter"><code>/solid</code> — the browser adapter</h3>
+<p>The first three below are <strong>PR 2 target API</strong> (the <code>&lt;Xterm&gt;</code> component and its
+lifecycle/WebGL primitives); the rest ship in PR 1:</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="tsx"><code><span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> {</span></span>
-<span class="line"><span style="color:#24292E">  Xterm,                </span><span style="color:#6A737D">// the component: lifecycle + addons + WebGL + fit, in JSX form</span></span>
-<span class="line"><span style="color:#24292E">  createXtermLifecycle, </span><span style="color:#6A737D">// the primitive under it, for a non-JSX composition</span></span>
-<span class="line"><span style="color:#24292E">  attachWebGL,          </span><span style="color:#6A737D">// single-owner WebglAddon lifetime + context-loss recovery</span></span>
+<span class="line"><span style="color:#24292E">  Xterm,                </span><span style="color:#6A737D">// PR 2 — the component: lifecycle + addons + WebGL + fit, in JSX form</span></span>
+<span class="line"><span style="color:#24292E">  createXtermLifecycle, </span><span style="color:#6A737D">// PR 2 — the primitive under it, for a non-JSX composition</span></span>
+<span class="line"><span style="color:#24292E">  attachWebGL,          </span><span style="color:#6A737D">// PR 2 — single-owner WebglAddon lifetime + context-loss recovery</span></span>
 <span class="line"><span style="color:#24292E">  createRenderRecovery, </span><span style="color:#6A737D">// forced sync repaint when the rAF paint loop parks</span></span>
 <span class="line"><span style="color:#24292E">  wireScrollIntent,     </span><span style="color:#6A737D">// DOM wheel/pointer wiring for the core scroll lock</span></span>
 <span class="line"><span style="color:#24292E">  createScrollLock,     </span><span style="color:#6A737D">// freeze-while-reading latch; buffered writes keep their callbacks</span></span>
+<span class="line"><span style="color:#24292E">  enableSoftKeyboardInput, </span><span style="color:#6A737D">// iOS contenteditable soft-keyboard surface</span></span>
+<span class="line"><span style="color:#24292E">  isCoarsePointer,      </span><span style="color:#6A737D">// pointer:coarse media query (the touch gate)</span></span>
 <span class="line"><span style="color:#24292E">} </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/xterm-kit/solid"</span><span style="color:#24292E">;</span></span></code></pre>
 <ul>
 <li><strong><code>createScrollLock(enabled)</code></strong> lives here, not on the core root, because it is
@@ -499,7 +511,7 @@ sticky-modifier arming above.</p>
 raising the soft keyboard is a <strong>rows-only</strong> resize, and the backfill
 controller pauses only on a <em>cols</em> change — so the keyboard no longer stales
 backfill (the <a href="https://github.com/juspay/kolu/pull/1783" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1783</a> family-3
-fix<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/scrollbackBackfill.ts#L657-L666" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/scrollbackBackfill.ts:657-666</a> —
+fix<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/scrollbackBackfill.ts#L657-L666" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/scrollbackBackfill.ts:657-666</a> —
 “a height-only change is harmless”; a width reflow is what invalidates the
 absolute cursor.</span></span></span>); and momentum-scroll flinging the viewport into
 the trigger band mid-backfill was a named spike risk, covered by the
