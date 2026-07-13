@@ -201,8 +201,8 @@ it with `padi-tui create` instead of raw `kaval-tui create`:
 
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
-padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent>
-# prints the new terminal's id; padi owns it and it appears on the canvas
+padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>
+# e.g. `-- claude --permission-mode auto` — prints the new terminal's id; padi owns it
 ```
 
 - **Never hardcode the agent CLI.** `<agent>` defaults to the same agent *you*
@@ -217,12 +217,13 @@ padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent>
   may sit on a one-time dialog (MCP server selection, a trust prompt) that needs
   its own `send --key Enter`. Drive every boot step by `snapshot`, never by
   sleeping and hoping.
-- **Set the permission mode deliberately, then verify it.** An agent that will
-  run unattended goes in **auto mode**. The mechanics below are Claude Code's
-  (other agent TUIs have their own equivalents): cycle with `kaval-tui send <id>
-  --key Shift-Tab` and re-`snapshot` the footer until it reads `auto mode on`
-  (the cycle is manual → accept edits → plan → auto — verify after each press;
-  never count presses blind, the starting point varies).
+- **Set the permission mode AT LAUNCH, then verify it from the footer.** An
+  agent that will run unattended goes in **auto mode**, and the mode is a launch
+  flag, not an interactive chore: `-- claude --permission-mode auto` (Claude
+  Code; other agent CLIs have their own equivalents). Snapshot the footer and
+  confirm it reads `auto mode on` before dispatching. Interactive cycling
+  (`send --key Shift-Tab`, re-snapshot after each press) is the fallback for an
+  agent that is already running — never the provisioning path.
 - **Restarting the agent CLI in place:** text typed at a *running* agent becomes
   a prompt (your relaunch command line gets answered, not executed), and `C-c`
   doesn't reliably quit the TUI — send the agent's quit command (`/exit` in
