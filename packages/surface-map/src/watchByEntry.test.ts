@@ -14,6 +14,7 @@ import {
   A,
   B,
   connected,
+  failed,
   type HostKey,
   makeEntry,
   settle,
@@ -116,7 +117,10 @@ describe("watchByEntry — eager attention over entries membership", () => {
       expect(att.get(A)?.kind).toBe("live");
 
       // The host's link goes down → its chip must DIM, not lie: stale, last value held.
-      setState(A, { kind: "failed", reason: "link died" });
+      setState(
+        A,
+        failed("link died", { cause: "link-failed", reason: "link died" }),
+      );
       await settle();
       const stale = att.get(A);
       expect(stale?.kind).toBe("stale");

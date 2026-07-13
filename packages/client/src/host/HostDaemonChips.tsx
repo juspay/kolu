@@ -25,7 +25,7 @@ import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type {
-  PadiEntryStatus,
+  PadiEntryFailure,
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
@@ -70,11 +70,19 @@ function entryAsPadiLink(state: EntryState): PadiLink | undefined {
 }
 
 function skewPairFor(host: HostKey): SkewVersionPair | undefined {
-  const state = padiMap.entry(host).state() as PadiEntryStatus;
-  if (state.kind !== "failed" || state.cause !== "contract-skew-refused")
+  // PR4: the failed arm carries the schema-valid `PadiEntryFailure`, whose skew
+  // arm types `running`/`expected` directly — no `as PadiEntryStatus` cast, the
+  // map client already narrows the value. (They stay OPTIONAL on the schema — the
+  // binder may omit them — so the returned pair preserves today's exact runtime,
+  // undefined fields and all, cast to the pair type as before.)
+  const state = padiMap.entry(host).state();
+  if (
+    state.kind !== "failed" ||
+    state.failure.cause !== "contract-skew-refused"
+  )
     return undefined;
-  const { running, expected } = state as SkewVersionPair;
-  return { running, expected };
+  const { running, expected } = state.failure;
+  return { running, expected } as SkewVersionPair;
 }
 
 /** The ONE per-host reader for Padi liveness + entry state — the receptacle for
@@ -85,11 +93,11 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
  *  static and interactive marks. */
 function useHostPadi(host: HostKey): {
   live: () => boolean;
-  entry: () => EntryState;
+  entry: () => EntryState<PadiEntryFailure>;
   link: () => PadiLink | undefined;
 } {
   const live = daemonTransportLive;
-  const entry = (): EntryState => padiMap.entry(host).state();
+  const entry = (): EntryState<PadiEntryFailure> => padiMap.entry(host).state();
   const link = (): PadiLink | undefined =>
     live() ? entryAsPadiLink(entry()) : undefined;
   return { live, entry, link };

@@ -44,6 +44,23 @@ import type { DownSessionState, Session, SessionState } from "./session";
  *  endpoint, an ssh arm, any connector — is assignable by `Prov`-covariance. */
 type MappableSession = Session<SurfaceClientLike, string>;
 
+/** Thrown (PR4) when `resolve` is asked for a member that has NO session — `has(k)`
+ *  true but `getSession(k)` undefined. Membership and sessions reconcile together, so
+ *  this can't legitimately happen in steady state; rather than fabricate a catch-all
+ *  failure for the race, the map fails loud. Named + typed + greppable so a field
+ *  firing reads as exactly what it is: a genuine unclassified producer to classify. */
+export class UnclassifiedHostSessionError extends Error {
+  constructor(encodedKey: string) {
+    super(
+      `serveHostMap: host "${encodedKey}" is a member but has no session — a map ` +
+        "member cannot enter a failed state without a schema-valid domain failure " +
+        "(PR4, no fabricated fallback), and a member with no session is unreachable " +
+        "in steady state. This is a defect to classify, never to bucket.",
+    );
+    this.name = "UnclassifiedHostSessionError";
+  }
+}
+
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
  *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset: until the admit
@@ -76,7 +93,7 @@ export function projectState<Prov extends string>(
   return { kind: "copying" };
 }
 
-export interface ServeHostMapOptions<K, S, Cause extends string = string> {
+export interface ServeHostMapOptions<K, S, Failure = unknown> {
   /** The re-served entry-surface CLIENT for one host — a `directLink` over the host's
    *  `reServeSurface(...).router` (the re-serve POLICY is app-specific, hence
    *  injected). Called once per host; the result is cached here and evicted on
@@ -93,24 +110,29 @@ export interface ServeHostMapOptions<K, S, Cause extends string = string> {
    *  `connecting` until it is (offset-at-hello is the contract; a `0` placeholder for a
    *  session that genuinely can't measure is that session's OWN honest declaration). */
   offsetOf: (session: S) => number | null;
-  /** Classify (and optionally ENRICH) a DOWN session's domain `cause` for the
-   *  map's published `EntryStatus` — this adapter is transport-only (it projects a
-   *  bare `SessionState`, which carries only the transport-axis `failureCause`,
-   *  "network" vs "remote"); a domain classification (padi's
-   *  contract-skew-refused / unconverged / drv-unbaked / link-failed / … —  a
-   *  DIFFERENT axis, one layer up) is the app's own knowledge, so it is injected
-   *  here rather than guessed. Return extra fields alongside `cause` (padi's D2
-   *  typed `running`/`expected` version pair on `contract-skew-refused`) and they
-   *  ride the wire untouched — `@kolu/surface-map`'s `EntryStatus` schema is a
-   *  loose object precisely so a domain producer can attach them. Omitted →
-   *  `EntryStatus.cause` falls back to `"other"` (`@kolu/surface-map`'s own
-   *  fallback, `projectStatus`) — sound for a map that has no domain cause
-   *  breakdown to report. */
-  causeFor?: (
+  /** Classify a DOWN session into the map's schema-valid domain `failure` — this
+   *  adapter is transport-only (it projects a bare `SessionState`, which carries
+   *  only the transport-axis `failureCause`, "network" vs "remote"); a domain
+   *  classification (padi's contract-skew-refused / unconverged / drv-unbaked /
+   *  link-failed / … — a DIFFERENT axis, one layer up) is the app's own knowledge,
+   *  so it is injected here rather than guessed. REQUIRED and TOTAL (PR4): a map
+   *  member cannot enter the `failed` state without a schema-valid domain failure,
+   *  so this classifier is not optional and there is no framework fallback cause.
+   *
+   *  Return value — a SINGLE-MEANING absent (PR4): `null` means "this down state
+   *  is NOT a standing failure — keep the entry WARMING" (a live host's normal
+   *  reconnect window). It is a classification VERDICT, never a fabrication. A
+   *  non-`null` return is the schema-valid domain failure the `failed` arm
+   *  publishes verbatim. A terminal `failed` session that yields `null` is a
+   *  classification defect and fails loud downstream ({@link
+   *  UnclassifiedEntryFailureError}), never a bucketed catch-all. (If a second
+   *  meaning ever wants to ride that `null`, it becomes a discriminated union
+   *  then — the no-overloaded-null boundary, recorded here.) */
+  failureOf: (
     host: K,
     session: S,
     state: SessionState<string>,
-  ) => { cause: Cause } & Record<string, unknown>;
+  ) => Failure | null;
 }
 
 /** The pool surface `serveHostMap` consumes — a slice of {@link RemotePool} (it never
@@ -127,11 +149,11 @@ export function serveHostMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
   S extends MappableSession,
-  Cause extends string = string,
+  Failure = unknown,
 >(
-  map: SurfaceMap<KS, ES, Cause>,
+  map: SurfaceMap<KS, ES, Failure>,
   pool: MembershipPool<S>,
-  opts: ServeHostMapOptions<z.infer<KS>, S, Cause>,
+  opts: ServeHostMapOptions<z.infer<KS>, S, Failure>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   // `pool` is ALWAYS string-keyed (the warm ssh pool's native key), while the map's
@@ -215,7 +237,7 @@ export function serveHostMap<
     return link;
   };
 
-  const registry: MapRegistry<K, "copying", Cause> = {
+  const registry: MapRegistry<K, "copying", Failure> = {
     members,
     has,
     subscribe(onChange) {
@@ -224,31 +246,41 @@ export function serveHostMap<
         changeListeners.delete(onChange);
       };
     },
-    resolve(k): EntrySession<"copying", Cause> | EntryFault {
+    resolve(k): EntrySession<"copying", Failure> | EntryFault<Failure> {
       const enc = encode(k);
       const session = sessionOf(k);
-      if (session === undefined)
-        return { kind: "fault", failed: `unknown host: ${enc}` };
+      if (session === undefined) {
+        // A member with NO session — `has(k)` true but `getSession(k)` undefined.
+        // Membership and sessions are reconciled together (CLAUSE 1/2), so this
+        // can't legitimately happen in steady state. PR4: rather than fabricate a
+        // catch-all failure for it, fail LOUD — a real firing means a genuine
+        // unclassified producer appeared, a defect to classify then.
+        throw new UnclassifiedHostSessionError(enc);
+      }
       const offset = opts.offsetOf(session);
       const raw = latestState.get(enc);
       const projected = projectState(raw, offset);
-      // Attach the DOMAIN cause (+ any extra typed detail, e.g. padi's D2
-      // running/expected pair) onto a DOWN state only — `opts.causeFor` is app
-      // knowledge this transport-only adapter doesn't have; omitted, the state
-      // rides through cause-less and `@kolu/surface-map`'s own `projectStatus`
-      // falls back to `"other"`. `raw` is always defined and genuinely down here
-      // (that's the only way `projectState` returns "disconnected"/"failed"), so
-      // its `failureCause`/`lastError` are real, not invented.
-      const state: EntryConnectionState<"copying", Cause> =
-        (projected.kind === "disconnected" || projected.kind === "failed") &&
-        opts.causeFor
-          ? {
-              ...projected,
-              ...opts.causeFor(k, session, raw as SessionState<string>),
-            }
-          : // `projectState` never sets `cause` itself (untouched, Cause-agnostic —
-            // see its own doc); this cast reflects that invariant, not a real widen.
-            (projected as EntryConnectionState<"copying", Cause>);
+      // Classify a DOWN state into the map's schema-valid domain `failure` via the
+      // REQUIRED, TOTAL `failureOf` (PR4). `raw` is always defined and genuinely
+      // down here (the only way `projectState` returns "disconnected"/"failed"), so
+      // its `failureCause`/`lastError` are real, not invented. `failureOf` returns
+      // `null` for a transient drop (→ warming, the failure field stays absent) and
+      // the schema-valid domain failure for a standing one — attached to the down
+      // state so `@kolu/surface-map`'s `projectStatus` publishes it verbatim.
+      let state: EntryConnectionState<"copying", Failure>;
+      if (projected.kind === "disconnected" || projected.kind === "failed") {
+        const failure = opts.failureOf(k, session, raw as SessionState<string>);
+        // `null` = transient drop → keep the failure field ABSENT (warming); a
+        // domain failure → attach it. `projectState` never sets `failure` itself
+        // (Failure-agnostic — see its own doc); the cast on the null branch
+        // reflects that invariant, not a real widen.
+        state =
+          failure !== null
+            ? { ...projected, failure }
+            : (projected as EntryConnectionState<"copying", Failure>);
+      } else {
+        state = projected as EntryConnectionState<"copying", Failure>;
+      }
       // BELT (juspay/kolu#1716): a non-provisioning session (`session.provisions ===
       // false` — a `makeSession<_, never>` arm typed WITHOUT "copying") can NEVER
       // legitimately reach the provisioning phase. Checked per-SESSION (the runtime

@@ -56,6 +56,7 @@ import {
   type HostKey,
   HostKeySchema,
   LOCAL_HOST,
+  type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import { type WebSocket, WebSocketServer } from "ws";
@@ -494,14 +495,22 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   // measurer. `null` until the first hello stamps it (offset-at-hello is the
   // contract) → the entry reads `connecting` until then.
   offsetOf: (s) => s.clockOffset(),
-  // D1 + D2: the DOMAIN cause (+ D2's typed running/expected pair on
-  // contract-skew-refused) — padi's own knowledge (`session.entryFailedDetail()`,
-  // derived from `convergence()`/the drv-resolution fault, both arm-local), never
-  // guessed generically by `serveHostMap` (a transport-only adapter). Falls through
-  // to `@kolu/surface-map`'s own `"other"` fallback when the session is down for a
-  // reason padi hasn't classified.
-  causeFor: (_host, session) =>
-    session.entryFailedDetail() ?? { cause: "other" },
+  // D1 + D2: classify a DOWN session into the schema-valid `PadiEntryFailure` —
+  // padi's own knowledge (`session.entryFailedDetail()`, derived from
+  // `convergence()`/the drv-resolution fault, both arm-local), never guessed
+  // generically by `serveHostMap` (a transport-only adapter). PR4: this is REQUIRED
+  // and TOTAL. `entryFailedDetail()` returns `null` for a transient drop → `null`
+  // here (keep the entry warming — the single-meaning null, never a fabricated
+  // catch-all); otherwise pair the structural detail with the transport `reason`
+  // into the failure the `failed` arm publishes. A terminal give-up always
+  // classifies (its convergence is set to `link-failed`), so a genuinely-failed
+  // entry never rides `null` — and an unclassifiable one fails loud, never buckets.
+  failureOf: (_host, session, state): PadiEntryFailure | null => {
+    const detail = session.entryFailedDetail();
+    return detail === null
+      ? null
+      : { ...detail, reason: (state as { error: string }).error };
+  },
 });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own

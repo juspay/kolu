@@ -16,8 +16,10 @@ describe("hostDownCopy", () => {
     }
   });
 
-  it("cross-supervisor is first-class — its own copy, never the generic `other`", () => {
-    expect(hostDownCopy("cross-supervisor")).not.toEqual(HOST_DOWN_COPY.other);
+  it("cross-supervisor is first-class — its own distinct copy (PR4: no generic `other` catch-all)", () => {
+    expect(hostDownCopy("cross-supervisor")).not.toEqual(
+      hostDownCopy("link-failed"),
+    );
     expect(hostDownCopy("cross-supervisor").title).toBe(
       "Another kolu owns this host",
     );

@@ -86,6 +86,7 @@ export {
   type MembershipPool,
   type ServeHostMapOptions,
   serveHostMap,
+  UnclassifiedHostSessionError,
 } from "./serveHostMap";
 export {
   type Admit,

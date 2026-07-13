@@ -50,7 +50,7 @@ void localSession;
 // compile error at the DEFINITION site, not just at a hand-built literal.
 declare const localRegistry: MapRegistry<string, never>;
 const resolved = localRegistry.resolve("a");
-if (!("failed" in resolved)) {
+if (resolved.kind === "session") {
   // The pin: `resolved.state.kind`'s type is EXACTLY the four-phase union below
   // (never widened by "copying") — if the `Prov` split regressed, this
   // assignment would fail (the source would carry an extra "copying" member the

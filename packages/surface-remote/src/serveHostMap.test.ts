@@ -38,7 +38,27 @@ const identityCodec: KeyCodec<z.infer<typeof HostKey>> = {
   encode: (k) => k,
   decode: (s) => s as z.infer<typeof HostKey>,
 };
-const map = defineSurfaceMap(HostKey, entrySurface, identityCodec);
+// A minimal domain failure schema (PR4) — the map's `failed` arm validates against it.
+const failureSchema = z.object({ cause: z.string(), reason: z.string() });
+type TestFailure = z.infer<typeof failureSchema>;
+const map = defineSurfaceMap({
+  key: HostKey,
+  entry: entrySurface,
+  codec: identityCodec,
+  failure: failureSchema,
+});
+
+/** A test `failureOf` — classifies a DOWN state's transport `error` into the
+ *  schema-valid failure. Inert for the warming/connected/copying tests (they never
+ *  reach a down state), a real classifier for the projection test below. */
+const classify = (
+  _h: string,
+  _s: FakeSession,
+  state: SessionState<string>,
+): TestFailure | null =>
+  state.phase === "disconnected" || state.phase === "failed"
+    ? { cause: "link-failed", reason: (state as { error: string }).error }
+    : null;
 
 /** Build a `SessionState` for the given `phase`. The DOWN arm
  *  (`disconnected`/`failed`) now REQUIRES a real `error` — the type no longer
@@ -169,6 +189,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -190,6 +211,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -208,6 +230,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(served.router as never);
     const iterA = await entriesGet(link, "local-a");
@@ -246,6 +269,7 @@ describe("serveHostMap — entries authority", () => {
       // dummy entry link — this pin exercises `entries`, not member forwarding
       linkFor: () => ({ surface: {} }),
       offsetOf: (sess) => sess.clockOffset(),
+      failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router
@@ -272,6 +296,7 @@ describe("serveHostMap — entries authority", () => {
     const served = serveHostMap(map, pf.pool, {
       linkFor: () => ({ surface: {} }),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router

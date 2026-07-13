@@ -27,10 +27,12 @@ import type { PadiConvergence } from "kolu-common/surface";
 /** The domain detail a padi arm attaches to the map's published `EntryStatus`
  *  when its session is DOWN (D1 + D2) — the failure `cause`, plus the typed
  *  `running`/`expected` version pair when that cause is `contract-skew-refused`.
- *  Read by `packages/server/src/index.ts`'s `serveHostMap` `causeFor` hook
- *  (`padiEntryFailedDetail`); `null` when the session isn't down for a
- *  classifiable domain reason (the generic `@kolu/surface-map` fallback,
- *  `"other"`, covers that case — see `projectStatus`). */
+ *  Read by `packages/server/src/index.ts`'s `serveHostMap` `failureOf` hook, which
+ *  pairs it with the transport `reason` into the schema-valid `PadiEntryFailure`.
+ *  `null` = "this down state is NOT a standing failure — keep the entry warming"
+ *  (PR4's single-meaning null): a transient reconnect, never a fabricated cause. A
+ *  terminal `failed` session always classifies (its convergence is set to
+ *  `link-failed`), so `null` never rides a genuinely failed entry. */
 export type PadiEntryFailedDetail =
   | { readonly cause: Exclude<EntryFailedCause, "contract-skew-refused"> }
   | ({ readonly cause: "contract-skew-refused" } & Partial<SkewVersionPair>);
