@@ -1342,8 +1342,9 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
 
 /** Seed a SLEEPING terminal into the registry from its saved record — the dormant
  *  analogue of adoption (there is no PTY to re-wire). Used by BOTH boot paths: the
- *  surviving-daemon reconcile (`adoptSurvivingSession`) and the cold-boot restore
- *  (`terminal.restoreSleeping`), so a slept terminal reappears as ☾ on any restart.
+ *  surviving-daemon reconcile (`adoptSurvivingSession`) and the host-side cold-boot
+ *  restore (`restoreSession` in `sessionRestore.ts`), so a slept terminal reappears
+ *  as ☾ on any restart.
  *  The agent the terminal will resume rides the AUTHORED sleeping record's
  *  `restoreTarget` (its `exact` arm keeps only the identity — no full-agent
  *  reconstruction needed across a cold restart). */

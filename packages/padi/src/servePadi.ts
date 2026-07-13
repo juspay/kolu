@@ -69,7 +69,6 @@ import {
 } from "./terminal-registry.ts";
 import {
   discardLocalSleeping,
-  seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
@@ -371,9 +370,6 @@ export function buildPadiSurfaceDeps(deps: {
         discardSleeping: ({ input }) => {
           log.info({ terminal: input.id }, "discard sleeping");
           discardLocalSleeping(input.id);
-        },
-        restoreSleeping: ({ input }) => {
-          seedSleepingTerminal(input);
         },
         // Fire-and-forget stream ops: a resize/keystroke landing just after a
         // kill is an EXPECTED race, so quiet-drop via `getActiveTerminal`

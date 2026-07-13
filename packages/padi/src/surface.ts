@@ -99,7 +99,6 @@ import {
   PersistedSnapshotSchema,
   PtyHostIdentitySchema,
   SavedSessionSchema,
-  SavedSleepingTerminalSchema,
   SleepingTerminalSchema,
   TerminalInfoSchema,
   TerminalOnExitOutputSchema,
@@ -185,8 +184,23 @@ export * from "./vocab.ts";
  *  optional, so both skew directions are graceful: an older 3.0 client ignores
  *  the extra fields, and a 3.1 client meeting a 3.0 padi reads them absent and
  *  runs fail-open (no epoch → no gate, the historical single-width behavior).
- *  A minor, not a major — no reshape, no required field, no emitted variant. */
-export const PADI_SURFACE_VERSION = "3.1";
+ *  A minor, not a major — no reshape, no required field, no emitted variant.
+ *
+ *  4.0 is a MAJOR bump that REMOVES the dead `lifecycle.restoreSleeping` procedure
+ *  (retired per #1784's W12 review disposition: it had no production caller — the
+ *  only writer, the client respawn loop, was already deleted; the real cold-boot
+ *  restore seeds a sleeping terminal directly via `seedSleepingTerminal` in
+ *  `sessionRestore.ts` / `reattach.ts`, never over the wire). A removed procedure is
+ *  a shape-break in BOTH directions (an old binder that still called `restoreSleeping`
+ *  would hit a missing proc on a 4.0 padi), so — exactly like 3.0's `terminalAttach`
+ *  reshape — only a major flips `isContractVersionCompatible` to refuse the skew and
+ *  force the honest recycle. The version is an honest statement of the wire SHAPE;
+ *  encoding "no caller today" as a minor would bake in exactly the soft assumption the
+ *  fail-fast rule rejects. Its consequence is the graceful padi-ONLY drain every
+ *  code-change deploy already pays (a newer binder drains the straddling 3.x padi —
+ *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
+ *  padi-surface bump does not touch the kaval contract. */
+export const PADI_SURFACE_VERSION = "4.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -777,7 +791,7 @@ export const padiSurface = defineSurface({
   },
   procedures: {
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
-     *  discardSleeping · restoreSleeping · resize · sendInput · recycleKaval. */
+     *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
       create: { input: PadiCreateInputSchema, output: TerminalInfoSchema },
       kill: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
@@ -785,7 +799,6 @@ export const padiSurface = defineSurface({
       sleep: { input: PadiTerminalIdInputSchema },
       wake: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
       discardSleeping: { input: PadiTerminalIdInputSchema },
-      restoreSleeping: { input: SavedSleepingTerminalSchema },
       resize: { input: PadiResizeInputSchema },
       sendInput: { input: PadiSendInputSchema },
       /** Force-recycle THIS host's kaval daemon, preserving the session — the
