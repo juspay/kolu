@@ -165,19 +165,14 @@ describe("projectState — SessionState → EntryConnectionState", () => {
     });
     // connected but no offset yet → still settling (connected REQUIRES the offset).
     expect(projectState(st("connected"), null)).toEqual({ kind: "connecting" });
+    // The RAW projection is domain-agnostic: the down arms carry NEITHER a domain
+    // `failure` NOR a transport `reason` (lowy-1/lowy-2). `resolve` classifies the
+    // down state into the schema-valid `failure` via `failureOf`, reading the
+    // transport error off the `SessionState` there — it is not threaded onto the arm.
     expect(projectState(st("disconnected", "boom"), 5)).toEqual({
       kind: "disconnected",
-      reason: "boom",
     });
-    expect(projectState(st("failed", "dead"), 5)).toEqual({
-      kind: "failed",
-      reason: "dead",
-    });
-    // NOTE: a down state with NO reason is no longer constructible at all — the
-    // `SessionState` sum requires `lastError` on `disconnected`/`failed` (see
-    // `st()` above), so the old "reason coalesces a null lastError" case (the
-    // `?? "disconnected"` fallback `projectState` used to need) has no
-    // representable input to test; the fallback itself was deleted as dead code.
+    expect(projectState(st("failed", "dead"), 5)).toEqual({ kind: "failed" });
     expect(projectState(undefined, 5)).toEqual({ kind: "connecting" });
   });
 });

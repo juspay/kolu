@@ -61,6 +61,39 @@ export class UnclassifiedHostSessionError extends Error {
   }
 }
 
+/** Thrown (PR4) at the classification seam when a session reaches a terminal
+ *  `failed` state but the injected `failureOf` returns `null` — i.e. it declined
+ *  to classify a genuinely-failed session. A map member cannot enter the `failed`
+ *  state without a schema-valid domain failure (there is no fabricated fallback),
+ *  so this names the TRUE producer defect: `failureOf` returned null for a terminal
+ *  failed session. Named + typed + greppable so a firing reads as exactly what it
+ *  is — a classifier to fix, never a state to bucket. */
+export class UnclassifiedHostFailureError extends Error {
+  constructor(encodedKey: string, transportError: string) {
+    super(
+      `serveHostMap: host "${encodedKey}" reached a terminal \`failed\` state, but ` +
+        "`failureOf` returned null — a failed map member must carry a schema-valid " +
+        "domain failure (PR4, no fabricated fallback). Classify this terminal " +
+        `failure at the map's \`failureOf\`, never bucket it. Transport error was: ${transportError}`,
+    );
+    this.name = "UnclassifiedHostFailureError";
+  }
+}
+
+/** {@link projectState}'s PRE-classification output: the phase only. The down arms
+ *  (`disconnected`/`failed`) carry NO domain `failure` yet — classification happens
+ *  at the map's `resolve` seam via the injected `failureOf`. This is the raw,
+ *  domain-agnostic half of the split: a `failed` arm HERE has no failure, whereas
+ *  the classified {@link EntryConnectionState.failed} REQUIRES one. Keeping the two
+ *  roles as two types is what stops "failed with no failure" from being spellable
+ *  on the published arm. */
+type RawConnectionState =
+  | { kind: "copying" }
+  | { kind: "connecting" }
+  | { kind: "connected"; clockOffset: number }
+  | { kind: "disconnected" }
+  | { kind: "failed" };
+
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
  *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset: until the admit
@@ -69,17 +102,15 @@ export class UnclassifiedHostSessionError extends Error {
 export function projectState<Prov extends string>(
   s: SessionState<Prov> | undefined,
   clockOffset: number | null,
-): EntryConnectionState {
+): RawConnectionState {
   if (s === undefined) return { kind: "connecting" };
   if (s.phase === "disconnected" || s.phase === "failed") {
-    // A generic `Prov` defeats discriminated narrowing on the down arm; assert the
-    // `Prov`-independent {@link DownSessionState}. `error` is REQUIRED on the down
-    // arm (a down link always has a real reason), so there is no invented
-    // `?? "disconnected"` fallback left to write.
-    const down = s as DownSessionState;
-    return down.phase === "failed"
-      ? { kind: "failed", reason: down.error }
-      : { kind: "disconnected", reason: down.error };
+    // The RAW (pre-classification) down arms carry NO domain `failure` and no
+    // transport `reason` — this projection is Failure-agnostic (it holds no domain
+    // knowledge). `resolve` classifies the down state into the schema-valid domain
+    // `failure` via the injected `failureOf`, reading the transport error off the
+    // `SessionState` itself there.
+    return s.phase === "failed" ? { kind: "failed" } : { kind: "disconnected" };
   }
   if (s.phase === "connected")
     return clockOffset === null
@@ -124,8 +155,8 @@ export interface ServeHostMapOptions<K, S, Failure = unknown> {
    *  reconnect window). It is a classification VERDICT, never a fabrication. A
    *  non-`null` return is the schema-valid domain failure the `failed` arm
    *  publishes verbatim. A terminal `failed` session that yields `null` is a
-   *  classification defect and fails loud downstream ({@link
-   *  UnclassifiedEntryFailureError}), never a bucketed catch-all. (If a second
+   *  classification defect and fails loud at the classification seam ({@link
+   *  UnclassifiedHostFailureError}), never a bucketed catch-all. (If a second
    *  meaning ever wants to ride that `null`, it becomes a discriminated union
    *  then — the no-overloaded-null boundary, recorded here.) */
   failureOf: (
@@ -263,21 +294,31 @@ export function serveHostMap<
       // Classify a DOWN state into the map's schema-valid domain `failure` via the
       // REQUIRED, TOTAL `failureOf` (PR4). `raw` is always defined and genuinely
       // down here (the only way `projectState` returns "disconnected"/"failed"), so
-      // its `failureCause`/`lastError` are real, not invented. `failureOf` returns
-      // `null` for a transient drop (→ warming, the failure field stays absent) and
-      // the schema-valid domain failure for a standing one — attached to the down
-      // state so `@kolu/surface-map`'s `projectStatus` publishes it verbatim.
+      // its transport `error` is real, not invented.
       let state: EntryConnectionState<"copying", Failure>;
       if (projected.kind === "disconnected" || projected.kind === "failed") {
         const failure = opts.failureOf(k, session, raw as SessionState<string>);
-        // `null` = transient drop → keep the failure field ABSENT (warming); a
-        // domain failure → attach it. `projectState` never sets `failure` itself
-        // (Failure-agnostic — see its own doc); the cast on the null branch
-        // reflects that invariant, not a real widen.
-        state =
-          failure !== null
-            ? { ...projected, failure }
-            : (projected as EntryConnectionState<"copying", Failure>);
+        if (projected.kind === "failed") {
+          // A terminal `failed` session that yields NO domain failure is a producer
+          // defect: the map's `failed` arm cannot exist without a schema-valid
+          // domain failure (PR4, no fabricated fallback). Fail LOUD at this
+          // classification seam — naming the TRUE producer (`failureOf` returned
+          // null for a terminal failed session) — rather than construct a failed-
+          // without-failure state the tightened published arm cannot even hold.
+          if (failure === null)
+            throw new UnclassifiedHostFailureError(
+              enc,
+              (raw as DownSessionState).error,
+            );
+          state = { kind: "failed", failure };
+        } else {
+          // `disconnected`: `null` = transient drop → keep `failure` ABSENT
+          // (→ warming); a domain failure → attach it (a standing refuse → failed).
+          state =
+            failure !== null
+              ? { kind: "disconnected", failure }
+              : { kind: "disconnected" };
+        }
       } else {
         state = projected as EntryConnectionState<"copying", Failure>;
       }

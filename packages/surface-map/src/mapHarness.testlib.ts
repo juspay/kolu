@@ -219,13 +219,13 @@ export const connected = (
   clockOffset,
 });
 
-/** A terminal `failed` connection state carrying a domain `failure` (PR4). */
+/** A terminal `failed` connection state carrying a domain `failure` (PR4) — the
+ *  arm REQUIRES it, so this helper cannot construct the illegal failed-without-
+ *  failure state (see `entryConnectionState.test-d.ts`). */
 export const failed = (
-  reason: string,
   failure: TestFailure,
 ): EntryConnectionState<"copying", TestFailure> => ({
   kind: "failed",
-  reason,
   failure,
 });
 
@@ -233,9 +233,8 @@ export const failed = (
  *  classifier returned nothing → projects to warming), STANDING when supplied
  *  (a refuse → projects to failed). */
 export const disconnected = (
-  reason: string,
   failure?: TestFailure,
 ): EntryConnectionState<"copying", TestFailure> =>
   failure === undefined
-    ? { kind: "disconnected", reason }
-    : { kind: "disconnected", reason, failure };
+    ? { kind: "disconnected" }
+    : { kind: "disconnected", failure };

@@ -36,7 +36,7 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
 /** A session's connection state — the map DERIVES {@link EntryStatus} from it (a
  *  projection, never a second writer). `copying`/`connecting` project to
  *  `warming`; `connected` carries the serving process's own-clock offset at
- *  hello; `disconnected`/`failed` project to `failed(reason)`.
+ *  hello; `disconnected`/`failed` project to `failed(failure)`.
  *
  *  `Prov` mirrors `@kolu/surface-remote/session`'s `SessionState<Prov extends
  *  string>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
@@ -77,17 +77,21 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *
  *  `Failure` mirrors {@link EntryStatus}'s own domain failure value, ONE layer
  *  earlier (the session's raw connection state, before {@link projectStatus}
- *  projects it onto the published `EntryStatus`). It is OPTIONAL here (unlike
- *  `EntryStatus.failed.failure`, which is required) and carries the WHOLE
- *  discriminant PR4's failed arm publishes: absent on a `disconnected` arm means
- *  a TRANSIENT drop (still coming back — projects to `warming`); present means a
- *  STANDING domain failure (projects to `failed(failure)`). A `failed` arm — a
- *  terminal give-up — is ALWAYS a real failure, so a `failed` arm that reaches
- *  {@link projectStatus} WITHOUT one is a producer defect and fails loud (there is
- *  no invented fallback — PR4). A generic transport-only registry
- *  (`@kolu/surface-remote`'s `serveHostMap`) obtains the value from an injected,
- *  REQUIRED `failureOf` classifier (domain knowledge it doesn't itself hold);
- *  the classifier returns `null` for a transient drop, exactly this absent case. */
+ *  projects it onto the published `EntryStatus`). Its optionality is PER-ARM, and
+ *  the two down arms differ because their lifecycles do:
+ *    - `disconnected.failure` is OPTIONAL — a transient drop legitimately carries
+ *      NONE (still coming back → projects to `warming`); a standing refuse carries
+ *      one (→ `failed(failure)`). Presence IS the warming-vs-failed discriminant.
+ *    - `failed.failure` is REQUIRED — a terminal give-up is ALWAYS a real failure,
+ *      so "failed with no failure" is an illegal state made UNCONSTRUCTIBLE at the
+ *      type, not caught by a runtime throw. The optionality a transient
+ *      `disconnected` legitimately needs does NOT bleed onto `failed` (independent
+ *      union members carry their own optionality).
+ *  A generic transport-only registry (`@kolu/surface-remote`'s `serveHostMap`)
+ *  obtains the value from an injected, REQUIRED `failureOf` classifier (domain
+ *  knowledge it doesn't itself hold), and fails loud at its OWN classification
+ *  seam when a terminal `failed` session yields none — so the illegal state is
+ *  refused at the producer, never represented here. */
 export type EntryConnectionState<
   Prov extends "copying" | never = "copying",
   Failure = unknown,
@@ -95,8 +99,8 @@ export type EntryConnectionState<
   | { kind: Prov }
   | { kind: "connecting" }
   | { kind: "connected"; clockOffset: number }
-  | { kind: "disconnected"; reason: string; failure?: Failure }
-  | { kind: "failed"; reason: string; failure?: Failure };
+  | { kind: "disconnected"; failure?: Failure }
+  | { kind: "failed"; failure: Failure };
 
 /** A resolved, serveable entry. Carries what the map needs to (a) FORWARD calls
  *  (a live entry-surface oRPC client/link to proxy to) and (b) observe status
@@ -150,24 +154,6 @@ function isFault<Failure>(
   return r.kind === "fault";
 }
 
-/** Thrown (PR4) when a terminal `failed` connection state reaches {@link projectStatus}
- *  carrying NO domain `failure`. A failed map entry can only exist with a schema-valid
- *  domain failure; the framework has no fabricated fallback cause. The only way to hit
- *  this is a producer that entered a terminal `failed` state without classifying it — a
- *  DEFECT to fix at the map's `failureOf`, not a state to bucket into a renamed
- *  catch-all. Named + typed + greppable so a field firing reads as exactly what it is. */
-export class UnclassifiedEntryFailureError extends Error {
-  constructor(reason: string) {
-    super(
-      "surface-map: a session reached a terminal `failed` state with no domain " +
-        "failure — a failed entry must carry a schema-valid domain failure (PR4, " +
-        "no fabricated fallback). Classify it at the map's `failureOf`, never " +
-        `bucket it into a catch-all. Transport reason was: ${reason}`,
-    );
-    this.name = "UnclassifiedEntryFailureError";
-  }
-}
-
 /** Project a session's connection state onto the published {@link EntryStatus}.
  *
  *  THE CONTRACT the three published arms mean (not an implementation note — this is
@@ -182,11 +168,12 @@ export class UnclassifiedEntryFailureError extends Error {
  *                    schema-valid domain `failure` so the host-down card can say what
  *                    to DO about it.
  *
- *  The warming-vs-failed discriminant is the PRESENCE of a domain `failure` on the
- *  down state (PR4) — no magic `"other"` sentinel: a transient reconnect carries
- *  none (→ warming), a standing failure carries one (→ failed). A terminal `failed`
- *  state is ALWAYS a real failure, so one without a `failure` is a producer defect
- *  and fails loud ({@link UnclassifiedEntryFailureError}) — never an invented card. */
+ *  The warming-vs-failed discriminant is the PRESENCE of a domain `failure` on a
+ *  `disconnected` state (PR4) — no magic `"other"` sentinel: a transient reconnect
+ *  carries none (→ warming), a standing refuse carries one (→ failed). A terminal
+ *  `failed` state ALWAYS carries a real failure — the arm is typed to REQUIRE it,
+ *  so "failed with no failure" is unconstructible, refused loud at the producer's
+ *  classification seam (`serveHostMap`) rather than here. */
 function projectStatus<Failure>(
   state: EntryConnectionState<"copying", Failure>,
 ): EntryStatus<Failure> {
@@ -213,10 +200,10 @@ function projectStatus<Failure>(
         ? { kind: "warming" }
         : { kind: "failed", failure: state.failure };
     // A terminal give-up (the reconnect loop stopped for good) — always a red
-    // `failed` chip carrying the domain failure; a missing one fails loud.
+    // `failed` chip carrying the domain failure the arm is now typed to REQUIRE
+    // (the illegal "failed with no failure" is unconstructible; the producer's
+    // classification seam in `serveHostMap` fails loud before it can arise here).
     case "failed":
-      if (state.failure === undefined)
-        throw new UnclassifiedEntryFailureError(state.reason);
       return { kind: "failed", failure: state.failure };
   }
 }

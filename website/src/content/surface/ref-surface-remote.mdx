@@ -87,7 +87,7 @@ once per host and evicted on **either** removal or retirement (both drop live me
 `failureOf(host, session, state)` is **required and total**: it returns `null` for a
 transient down state (keep the entry warming — a single-meaning null, a classification
 verdict, never a fabrication) and a schema-valid domain `Failure` for a standing one. A
-terminal `failed` state that yields `null` fails loud with `UnclassifiedEntryFailureError`
+terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFailureError`
 (a failed entry cannot exist without a domain failure); the distinct member-with-no-session
 (unknown-host) race fails loud with `UnclassifiedHostSessionError`. There is no `"other"`
 fallback cause. Together they are the server half

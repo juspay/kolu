@@ -73,11 +73,11 @@ function projectState(
     case "disconnected":
       // Transient — no domain failure attached, so it projects to `warming` (an
       // unreachable box self-heals; it does not become `failed`).
-      return { kind: "disconnected", reason: s.error };
+      return { kind: "disconnected" };
     case "failed":
       // A bounded terminal give-up — a failed entry must carry the schema-valid
       // domain failure it publishes.
-      return { kind: "failed", reason: s.error, failure: { reason: s.error } };
+      return { kind: "failed", failure: { reason: s.error } };
   }
 }
 

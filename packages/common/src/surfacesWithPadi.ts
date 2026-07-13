@@ -84,8 +84,8 @@ export interface SkewVersionPair {
  *  A schema VALIDATES this value on the wire (PR4): the map's `failed` arm can only
  *  carry a value this schema accepts, and there is NO fabricated catch-all — every
  *  arm is a named structural producer, so a failure kolu can't classify fails loud
- *  (`UnclassifiedEntryFailureError`) rather than bucketing into a renamed "other"
- *  (dropped in PR4). Each arm carries its human `reason` (shown verbatim on the
+ *  (`serveHostMap`'s `UnclassifiedHostFailureError`) rather than bucketing into a
+ *  renamed "other" (dropped in PR4). Each arm carries its human `reason` (shown verbatim on the
  *  host-down card, never parsed for control flow); `contract-skew-refused` carries
  *  the typed {@link SkewVersionPair} (D2) directly, when the binder knows it.
  *

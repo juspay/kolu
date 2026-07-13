@@ -176,7 +176,7 @@ interface MapRegistry<K> {
 
 - The registry is the **one writer of membership**; `entries` is that truth published; status is derived from each resolved session's state.
 - A call carries its key in every frame: an unknown key is a **typed rejection** (unary) or an **immediate typed end** (stream). A key that leaves membership mid-stream ends its subs with a typed `{ reason: "removed" }` **before** the session is destroyed — so no socket-error frame follows a typed end.
-- `resolve` returns `EntrySession` (`{ link, state }`) or `EntryFault` (`{ failure }`, a schema-valid domain value); `members()` and `has()` answer from one consistent snapshot. An unclassifiable failed state throws the named `UnclassifiedEntryFailureError` rather than falling back to a framework `"other"` cause.
+- `resolve` returns `EntrySession` (`{ link, state }`) or `EntryFault` (`{ failure }`, a schema-valid domain value); `members()` and `has()` answer from one consistent snapshot. The connection state's `failed` arm **requires** a domain `failure` — "failed with no failure" is unconstructible at the type, not caught by a runtime throw; the serving adapter (`serveHostMap`) fails loud at its own classification seam rather than falling back to a framework `"other"` cause.
 
 ## The fold envelope
 

@@ -115,10 +115,10 @@ function projectState(
       return { kind: "connected", clockOffset: 0 };
     case "disconnected":
       // Transient (no domain failure) → projects to `warming`, self-heals.
-      return { kind: "disconnected", reason: s.error };
+      return { kind: "disconnected" };
     case "failed":
       // A terminal give-up carries the schema-valid domain failure it publishes.
-      return { kind: "failed", reason: s.error, failure: { reason: s.error } };
+      return { kind: "failed", failure: { reason: s.error } };
   }
 }
 

@@ -47,7 +47,6 @@ import {
   type EntrySession,
   type MapRegistry,
   serveSurfaceMap,
-  UnclassifiedEntryFailureError,
 } from "./server";
 
 describe("surface-map mock-entry e2e harness", () => {
@@ -223,7 +222,7 @@ describe("surface-map mock-entry e2e harness", () => {
       // WARMING, not a red "failed" chip indistinguishable from a dead host (the P4
       // defect collapsed disconnected onto failed). PR4: the discriminant is
       // failure-PRESENCE now, not a magic "other" sentinel.
-      setState(C, disconnected("link dropped mid-flight"));
+      setState(C, disconnected());
       await settle();
       expect(st).toEqual({ kind: "warming" });
 
@@ -233,7 +232,7 @@ describe("surface-map mock-entry e2e harness", () => {
       // rather than a lying "connecting" spinner (the step-5 masking bug).
       setState(
         C,
-        disconnected("another kolu owns this host", {
+        disconnected({
           cause: "cross-supervisor",
           reason: "another kolu owns this host",
         }),
@@ -251,7 +250,7 @@ describe("surface-map mock-entry e2e harness", () => {
       // carrying its domain failure (a terminal give-up always classifies).
       setState(
         C,
-        failed("gave up after 5 tries", {
+        failed({
           cause: "link-failed",
           reason: "gave up after 5 tries",
         }),
@@ -265,24 +264,11 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(5c) a terminal failed state with NO domain failure fails loud (PR4 — no fabricated fallback cause)", async () => {
-    await createRoot(async (dispose) => {
-      const { addSession, setState } = setup();
-      addSession(
-        C,
-        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
-        connected(0),
-      );
-      await settle();
-      // A failed entry cannot exist without a schema-valid domain failure. The
-      // framework refuses to invent one — it throws (the republish runs synchronously
-      // off `setState`'s fire), rather than paint a card for a cause it fabricated.
-      expect(() =>
-        setState(C, { kind: "failed", reason: "unclassified give-up" }),
-      ).toThrow(UnclassifiedEntryFailureError);
-      dispose();
-    });
-  });
+  // (5c) — a terminal `failed` state with NO domain failure is no longer a RUNTIME
+  // throw: the `EntryConnectionState.failed` arm now REQUIRES `failure`, so the
+  // illegal state is UNCONSTRUCTIBLE at the type. The old `.toThrow(...)` pin moved
+  // to a compile-fail in `entryConnectionState.test-d.ts` (a `@ts-expect-error` on a
+  // failed arm missing `failure`), the honest home for "this state cannot be spelled".
 
   it("(6) rpc folds {mapKey,input} to the keyed entry and rejects an absent key", async () => {
     await createRoot(async (dispose) => {
