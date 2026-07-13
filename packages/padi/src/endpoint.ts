@@ -49,6 +49,16 @@ import type {
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
 
+/** RIS (`ESC c`) — a full terminal reset. An overflow-driven re-attach snapshot
+ *  frame's `data` LEADS with this (see `reattachingDeltas`) so the consumer's
+ *  screen + scrollback clear before the fresh snapshot repaints; the INITIAL
+ *  attach snapshot does not. The client discriminates on `data.startsWith(
+ *  TERMINAL_RESET)` so it can tell the reset a snapshot frame carries (expected)
+ *  from a later live-delta RIS (foreign) when re-seeding backfill. Lives here —
+ *  the client-reachable frame-type barrel — rather than in the server-only
+ *  `reattachingDeltas` so both sides read the one source of truth. */
+export const TERMINAL_RESET = "\x1bc";
+
 /** A late-joining client's view of a terminal: the screen state at attach
  *  time plus the live output stream from exactly that point forward. The
  *  endpoint produces both atomically (subscribe-before-serialize) so no

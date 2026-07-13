@@ -372,8 +372,21 @@ export interface BackfillController {
    *  generation. Deferring the seed to post-parse keeps the snapshot's own
    *  `onScroll` (as `ydisp` climbs from 0) from firing an unsolicited fetch
    *  mid-parse; the synchronous invalidation fires NOW regardless of scroll-lock,
-   *  and the committer rides the same write callback the lock preserves on flush. */
-  consumeSnapshotFrame(topLine: number, reflowEpoch?: number): () => void;
+   *  and the committer rides the same write callback the lock preserves on flush.
+   *
+   *  `carriesReset` — whether this frame's `data` LEADS with a RIS (`ESC c`) that
+   *  xterm will parse into the controller's own reset handler: true for an
+   *  overflow re-attach (`TERMINAL_RESET + snapshot`), false for the INITIAL
+   *  attach (bare snapshot). It must be threaded through because the reset the
+   *  frame carries and a LATER foreign live-delta RIS reach the SAME esc handler;
+   *  without this the frame's own RIS would re-invalidate — and silently revoke —
+   *  the very committer this call arms, pausing backfill after every re-attach
+   *  (F11). */
+  consumeSnapshotFrame(
+    topLine: number,
+    reflowEpoch: number | undefined,
+    carriesReset: boolean,
+  ): () => void;
   dispose(): void;
 }
 
@@ -431,6 +444,15 @@ export function createBackfillController(
   let generation = 0;
   let disposed = false;
   let lastCols = term.cols;
+  // How many snapshot-frame leading RISes are still owed to the esc handler. A
+  // re-attach snapshot's `data` begins with `TERMINAL_RESET` (ESC c) that xterm
+  // parses into the SAME esc handler a foreign live-delta RIS reaches;
+  // `consumeSnapshotFrame` already invalidated that reset synchronously, so its
+  // own RIS must be absorbed here rather than re-invalidating (which would revoke
+  // the committer that frame armed — F11). A counter, not a boolean: back-to-back
+  // re-attaches coalesced under scroll lock owe one absorb each, and the latest
+  // committer must still seed.
+  let expectedSelfResets = 0;
 
   // Pause backfill and invalidate any in-flight fetch: forget the cursor and
   // bump the generation so a chunk fetched for the old one is discarded, not
@@ -491,7 +513,7 @@ export function createBackfillController(
         // A foreign-resize reflow renumbered the mirror since our cursor was
         // seeded: our absolute `before` no longer names the same row, so the host
         // served nothing and told us to halt. Pause (forget the cursor, bump the
-        // local epoch) rather than splice a duplicated/skipped band — a fresh
+        // local generation) rather than splice a duplicated/skipped band — a fresh
         // snapshot re-seeds a valid cursor + epoch (F3). An older host never
         // sends this arm (fail-open).
         if (res.kind === "stale") {
@@ -561,7 +583,29 @@ export function createBackfillController(
   // `stillValid()` then discards its splice, and backfill HALTS until the next
   // snapshot re-seeds — halt-not-corrupt (F1). Return `false` so xterm still runs
   // its own full reset. The client twin of the host's RIS re-anchor (ptyHost.ts).
+  //
+  // ONE esc handler sees BOTH the reset a snapshot frame carries and a foreign
+  // live-delta RIS. `consumeSnapshotFrame` arms `expectedSelfResets` for the
+  // former so it's absorbed (already invalidated at frame receipt) instead of
+  // re-invalidating the committer that frame armed (F11); only the latter pauses.
   const onRisReset = term.parser.registerEscHandler({ final: "c" }, () => {
+    if (expectedSelfResets > 0) {
+      // This ESC c is the leading reset a snapshot frame carries (an overflow
+      // re-attach: `TERMINAL_RESET + snapshot`). `consumeSnapshotFrame` ALREADY
+      // invalidated any in-flight fetch synchronously at frame receipt AND armed
+      // a fresh committer; pausing again here would bump the generation past that
+      // committer's captured value and silently revoke the frame's OWN re-seed —
+      // permanently pausing backfill after every overflow re-attach (F11). Absorb
+      // the owed reset and leave the committer intact. Return `false` so xterm
+      // still runs its full reset.
+      expectedSelfResets--;
+      return false;
+    }
+    // A FOREIGN live-delta RIS (a PTY app's `tput reset` / full-screen exit)
+    // renumbers the buffer out from under any in-flight backfill — invalidate
+    // synchronously (halt-not-corrupt, F1). An in-flight prepend's post-replay
+    // `stillValid()` then discards its splice; backfill HALTS until the next
+    // snapshot re-seeds.
     pause();
     return false;
   });
@@ -582,20 +626,30 @@ export function createBackfillController(
     reset() {
       pause();
     },
-    consumeSnapshotFrame(topLine, reflowEpoch) {
+    consumeSnapshotFrame(topLine, reflowEpoch, carriesReset) {
       // Invalidate NOW: forget the cursor + bump the generation so an in-flight
       // fetch's continuation is discarded and can't splice across the RIS this
       // frame carries — even while scroll-locked (this runs at frame receipt,
       // before the bytes are written/buffered).
       pause();
+      // A re-attach snapshot's `data` leads with a RIS the esc handler WILL parse
+      // later; owe it an absorb so that reset doesn't re-invalidate (and revoke)
+      // the committer armed just below (F11). The INITIAL attach carries no RIS
+      // (carriesReset false) so nothing is owed, and the first genuine foreign RIS
+      // still invalidates (F1 preserved). Owed per-frame — never left dangling:
+      // the frame's own RIS is guaranteed to reach the handler (xterm parses the
+      // bytes we're about to write), and a scroll-lock flush preserves it.
+      if (carriesReset) expectedSelfResets++;
       // The generation this frame is the current owner of. The committer runs
       // LATER (from xterm's write callback, once the snapshot has parsed — which
       // the scroll-lock preserves across a buffered flush). If ANY later
-      // invalidation — a width resize, an in-band RIS, an explicit reset, a NEWER
-      // snapshot frame, or dispose — bumped the generation in between, this
+      // invalidation — a width resize, a FOREIGN in-band RIS, an explicit reset, a
+      // NEWER snapshot frame, or dispose — bumped the generation in between, this
       // committer is stale: seeding now would resurrect a cursor against a buffer
       // that has since been reflowed/reset. Guard on the captured generation so
-      // the newer invalidation's own snapshot re-seeds instead (F2).
+      // the newer invalidation's own snapshot re-seeds instead (F2). This frame's
+      // OWN leading RIS is absorbed (above), so it does NOT bump the generation
+      // and the committer survives to seed (F11).
       const committedGeneration = generation;
       return () => {
         if (disposed || generation !== committedGeneration) return;

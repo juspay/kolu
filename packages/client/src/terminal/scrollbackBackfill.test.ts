@@ -429,13 +429,14 @@ function fakeTerm(): {
 
 /** Seed the controller through its ONLY legitimate path — the reset+seed fused
  *  `consumeSnapshotFrame`, whose committer stands in for "the snapshot parsed"
- *  when run immediately (the bare `seed()` transition was removed, F3). */
+ *  when run immediately (the bare `seed()` transition was removed, F3). Models
+ *  the INITIAL attach snapshot (no leading RIS — `carriesReset` false). */
 function seedController(
   c: BackfillController,
   topLine: number,
   epoch?: number,
 ): void {
-  c.consumeSnapshotFrame(topLine, epoch)();
+  c.consumeSnapshotFrame(topLine, epoch, false)();
 }
 
 /** A promise plus its resolver, for driving an in-flight fetch/prepend. */
@@ -674,7 +675,8 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     // A mid-stream overflow re-attach snapshot frame arrives: consume it. This
     // must SYNCHRONOUSLY invalidate the in-flight fetch (so its continuation
     // can't splice across the RIS reset) and return a committer that seeds later.
-    const commit = c.consumeSnapshotFrame(30, 2);
+    // It carries a leading RIS (`carriesReset` true, an overflow re-attach).
+    const commit = c.consumeSnapshotFrame(30, 2, true);
     gate.resolve(chunk); // the old fetch resolves AFTER the frame
     await new Promise((r) => setTimeout(r, 0));
     // Discarded — never spliced onto the reset buffer.
@@ -685,6 +687,10 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
 
+    // Parsing this frame's own leading RIS fires the esc handler — but because
+    // the frame `carriesReset`, it is ABSORBED, not treated as a foreign reset
+    // that would revoke the committer (F11).
+    f.fireRis();
     // Running the committer (as the write callback would, once the snapshot
     // parsed) seeds the NEW cursor + reflow epoch; the next scroll fetches from 30.
     commit();
@@ -736,7 +742,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       triggerRows: 1e9,
     });
     // A snapshot frame arrives; its parse (the committer) is deferred.
-    const commit = c.consumeSnapshotFrame(30, 2);
+    const commit = c.consumeSnapshotFrame(30, 2, false);
     // Before the snapshot parses, a WIDTH resize reflows the buffer — the
     // controller must stay PAUSED, not resurrect the pre-resize cursor when the
     // now-stale committer finally runs.
@@ -746,6 +752,43 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
     // The stale committer did NOT seed: paused, so no fetch.
+    expect(fetch).not.toHaveBeenCalled();
+    c.dispose();
+  });
+
+  it("an overflow re-attach snapshot's OWN leading RIS does NOT revoke its committer — backfill resumes (F11)", async () => {
+    // Production ordering an overflow re-attach follows: consumeSnapshotFrame
+    // (invalidates + arms committer) → xterm parses the frame's leading RIS
+    // (`TERMINAL_RESET + snapshot`, so the esc handler fires) → the write
+    // callback runs the committer → scroll → fetch. Because the frame carries
+    // its own reset, that RIS must be ABSORBED, not treated as a foreign live
+    // RIS that pauses and revokes the committer (which left backfill dead after
+    // every re-attach). The composition the two independent F1/F2 tests missed.
+    const f = fakeTerm();
+    const fetch = vi.fn(async () => chunk);
+    const prepend = vi.fn(async () => inserted(1));
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend,
+      onError: () => {},
+      triggerRows: 1e9,
+    });
+    // An overflow re-attach snapshot frame — its data leads with a RIS.
+    const commit = c.consumeSnapshotFrame(30, 2, true);
+    // xterm parses that leading RIS: the esc handler fires but ABSORBS it.
+    f.fireRis();
+    // The write callback then seeds — the committer survived the frame's own RIS.
+    commit();
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetch).toHaveBeenLastCalledWith(30, expect.any(Number), 2);
+
+    // A subsequent FOREIGN live-delta RIS (not owed) still invalidates — the
+    // absorb was one-shot, so F1 remains intact after the re-attach.
+    f.fireRis();
+    fetch.mockClear();
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
     expect(fetch).not.toHaveBeenCalled();
     c.dispose();
   });

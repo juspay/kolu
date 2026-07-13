@@ -22,12 +22,14 @@
  */
 
 import { ORPCError } from "@orpc/server";
-import type { TerminalAttachFrame } from "../endpoint.ts";
+import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
 import type { PtyHostDataMsg } from "kaval";
 
-/** RIS (`ESC c`) — a full terminal reset. Prepended to a re-attach snapshot so
- *  the consumer's screen + scrollback clear before it redraws. */
-export const TERMINAL_RESET = "\x1bc";
+/** RIS (`ESC c`) — a full terminal reset. Re-exported from the frame-type barrel
+ *  (`endpoint.ts`, the one source of truth both sides read) so existing importers
+ *  keep resolving it here. Prepended to a re-attach snapshot so the consumer's
+ *  screen + scrollback clear before it redraws. */
+export { TERMINAL_RESET };
 
 /** Pause before an overflow-driven re-attach, so a pathological host that keeps
  *  dropping us immediately can't spin the loop hot (mirrors kaval-tui's

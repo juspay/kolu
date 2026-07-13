@@ -31,6 +31,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
+import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
@@ -866,6 +867,13 @@ const Terminal: Component<{
                   ? backfill?.consumeSnapshotFrame(
                       frame.topLine,
                       frame.reflowEpoch,
+                      // An overflow re-attach snapshot's data LEADS with a RIS
+                      // (`TERMINAL_RESET + snapshot`); the initial attach does
+                      // not. The controller must know which so the reset THIS
+                      // frame carries is absorbed by its esc handler instead of
+                      // re-invalidating (and revoking) this frame's own re-seed —
+                      // otherwise backfill pauses forever after a re-attach (F11).
+                      frame.data.startsWith(TERMINAL_RESET),
                     )
                   : undefined;
               const data = frame.data;
