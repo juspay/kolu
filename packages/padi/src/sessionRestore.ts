@@ -289,10 +289,12 @@ export async function restoreSession(input: {
  *  The eager {@link persistSettledRestoreSnapshot} RETAINS the re-parked record (which
  *  `snapshotSession` skips) alongside every live sibling's freshest metadata.
  *
- *  Once every spawn that WILL settle has, {@link promoteOrphanedRestoreChildren} lifts
- *  children orphaned by a failed/parked parent (F2) and a final merge is persisted. A
- *  never-settling spawn leaves that tail unrun — harmless, since its child still hangs off a
- *  live shadow (the pending spawn's registry entry), not an orphan. */
+ *  {@link promoteOrphanedRestoreChildren} lifts children orphaned by a failed/parked parent
+ *  (F2) and a merge is persisted after EACH spawn settles — NOT once after the whole batch.
+ *  That incrementality matters: a parent A can reject and re-park while an UNRELATED spawn C
+ *  never settles; if promotion waited on the batch `Promise.all`, C's wedge would keep A's
+ *  successful child B hidden under A's parked entry forever. Running the reconcile inside
+ *  each settle handler repairs B the instant A settles, independent of C. */
 export async function settleRestoreRespawns(
   respawns: {
     ready: Promise<void> | undefined;
@@ -308,23 +310,30 @@ export async function settleRestoreRespawns(
       try {
         await r.ready;
       } catch (err) {
-        if (err instanceof TerminalSpawnRacedError) return; // F3: honor the kill/slept
-        const record: SavedActiveTerminal = {
-          ...r.record,
-          id: r.newId,
-          parentId: r.parentIdMapped,
-        };
-        seedParkedTerminal(record); // idempotent — a repeat settle no-ops
-        reparked.push(record);
-        // Re-persist eagerly so the re-parked record survives even if a SIBLING spawn never
-        // settles (the final persist below would then never run). Threads the accumulated
-        // re-parked set in because `snapshotSession` skips parked entries.
-        persistSettledRestoreSnapshot(reparked);
+        if (err instanceof TerminalSpawnRacedError) {
+          // F3: honor a second client's pre-ready kill/slept — never re-park. But its
+          // removal may have orphaned a live child, so fall through to reconcile below
+          // rather than returning early.
+        } else {
+          const record: SavedActiveTerminal = {
+            ...r.record,
+            id: r.newId,
+            parentId: r.parentIdMapped,
+          };
+          seedParkedTerminal(record); // idempotent — a repeat settle no-ops
+          reparked.push(record);
+        }
       }
+      // Reconcile orphans across ALL respawns the INSTANT this one settles — NOT gated
+      // behind the whole batch's `Promise.all` (F2). A parent that just parked/removed
+      // itself here has orphaned any live child of its own; promoting incrementally means
+      // an UNRELATED never-settling sibling spawn can no longer strand that child under a
+      // hidden parent for the process lifetime. Then persist the merged live+re-parked
+      // snapshot so the promotion (and any re-park) reaches disk without awaiting the batch.
+      promoteOrphanedRestoreChildren(respawns);
+      persistSettledRestoreSnapshot(reparked);
     }),
   );
-  promoteOrphanedRestoreChildren(respawns);
-  persistSettledRestoreSnapshot(reparked);
 }
 
 /** Promote children orphaned by a failed/parked parent to TOP-LEVEL (F2). A restored

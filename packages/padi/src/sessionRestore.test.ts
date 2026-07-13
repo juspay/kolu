@@ -591,6 +591,50 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
       getSavedSession()?.terminals.some((t) => t.cwd === "/failed-sib"),
     ).toBe(true);
   });
+
+  it("F2 — a live child of a re-parked parent is PROMOTED even while an UNRELATED spawn never settles", async () => {
+    // The topology regression codex sharpened: parent A rejects and re-parks, its child B
+    // succeeded, and an UNRELATED spawn C never settles. If promotion waited on the whole
+    // batch's `Promise.all`, C's wedge would keep B hidden under A's parked entry forever.
+    // Because the reconcile now runs the INSTANT A settles — not after the batch — B is
+    // promoted to top-level without C ever settling.
+    const parentA = mkRecord("cccccccc-1111-4111-8111-cccccccccccc", "/A");
+    const CHILD_B = "dddddddd-2222-4222-8222-dddddddddddd";
+    registerTerminal(CHILD_B, liveEntry(CHILD_B, "/B", parentA.id));
+    const childB = mkRecord(CHILD_B, "/B", parentA.id);
+    const wedgedC = mkRecord("eeeeeeee-3333-4333-8333-eeeeeeeeeeee", "/C");
+
+    const settle = settleRestoreRespawns([
+      {
+        ready: Promise.reject(new Error("spawn failed — removed cwd")),
+        newId: parentA.id,
+        record: parentA,
+        parentIdMapped: undefined,
+      },
+      {
+        ready: Promise.resolve(),
+        newId: CHILD_B,
+        record: childB,
+        parentIdMapped: parentA.id,
+      },
+      // C's `ready` never resolves or rejects — a permanently-pending RPC.
+      {
+        ready: new Promise<void>(() => {}),
+        newId: wedgedC.id,
+        record: wedgedC,
+        parentIdMapped: undefined,
+      },
+    ]);
+    // Let A's rejection microtask chain drain. `settle` stays PENDING forever (C never
+    // settles), so we deliberately do NOT await it.
+    await new Promise((r) => setTimeout(r, 0));
+    void settle;
+
+    // A re-parked, and B — its live child — was promoted to top-level, WITHOUT C settling.
+    expect(getTerminal(parentA.id)?.meta.state).toBe("parked");
+    expect(getTerminal(CHILD_B)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD_B)?.meta.parentId).toBeUndefined();
+  });
 });
 
 describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () => {
