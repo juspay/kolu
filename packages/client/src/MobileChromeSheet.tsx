@@ -20,6 +20,7 @@ import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, createSignal, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
+import MobileHostRow from "./host/MobileHostRow";
 import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
@@ -64,6 +65,13 @@ const MobileChromeSheet: Component<{
           aria-label="Connection status"
         />
       </div>
+
+      {/* Host row — the mobile face of the keyed padi host map: per-host chips
+       *  (tap to switch), attention pills, and the in-sheet add-host section.
+       *  Closes the sheet on a switch so the canvas is visible immediately. The
+       *  desktop `HostSelectorStrip` is `isDesktop()`-gated, so this is the
+       *  ONLY host chrome the touch layout has. */}
+      <MobileHostRow onSwitch={props.onClose} />
 
       {/* Client out of sync with the server — the actionable mobile form of the
        *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
