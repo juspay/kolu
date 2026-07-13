@@ -1,6 +1,6 @@
 ---
 title: kolu under any chat app
-description: The coding agent has moved into the chat. kolu is the open, model-agnostic terminal/file foundation any chat app integrates — running claude, codex, or opencode on infrastructure you control. XS integrates kolu; the first proof is an XS bot that runs kolu's own development inside chat, in the open.
+description: "The coding agent has moved into the chat. kolu is the open, model-agnostic terminal/file foundation any chat app integrates — and the model is a mirror of the coordinator: observe flows out raw (the who-needs-me board), act flows in through one disciplined orchestrator agent, and the same door makes the coordinator a grounded participant in the humans' own discussion. The first proof is an XS bot binding a thread to the coordinator that already runs kolu's own development."
 parents: [comparison, remote-terminals]
 status: proposed
 maturity: seedling
@@ -21,10 +21,12 @@ thing to run kolu's own development inside chat.*
 
 <Callout kind="accent" title="The short version">
 kolu is the **foundation a chat app integrates** — it runs real terminals on machines you
-control and watches what happens inside them. Any chat app can drive it: **kolu runs
-claude, codex, or opencode under any front end, on infrastructure you own.** XS — the chat
-app — integrates kolu and keeps everything social: identity, login, presence, and who may
-write. kolu authenticates nothing; the connection is the trust.
+control and watches what happens inside them. **kolu runs claude, codex, or opencode under
+any front end, on infrastructure you own.** The integration is a **mirror of the
+coordinator**: observing comes straight off the daemons (the who-needs-me board), and
+acting goes through one door — an orchestrator agent in an ordinary kolu terminal. XS —
+the chat app — keeps everything social: identity, login, presence, attribution. kolu
+authenticates nothing; the connection is the trust.
 </Callout>
 
 ## The shift: the agent moved into the chat
@@ -106,65 +108,71 @@ hard-codes one vendor's model and hides the shell and files inside a cloud sandb
 gives up exactly the durable substance kolu keeps.
 </Callout>
 
-## The seam: observe out, act in
+## The seam: observe out raw, act through the coordinator
 
-XS integrates kolu through one seam — the same `@kolu/surface` wire kolu already has —
-split into two halves: **observe** flows out, **act** flows in. kolu authenticates
+XS integrates kolu through one seam with two deliberately asymmetric halves: **observe
+flows out raw; act flows in through one door — the coordinator.** kolu authenticates
 nothing: the connection *is* the trust — an owner-only socket locally, an ssh link to a
-remote host — so identity, login, and presence stay in XS, and kolu just serializes
-whatever its one trusted client sends.
+remote host — so identity, login, and presence stay in XS.
 
-<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out and ACT flows in as plain calls over the trusted connection — both halves ship on the wire today, proven by kolu's own fleet loop. kaval serializes writes; XS, above, decides the floor." />
+The **coordinator** is an orchestrator agent running in an ordinary kolu terminal — the
+same shape kolu's own development runs on: one agent that provisions worker terminals,
+dispatches briefs, answers the workers' questions, and verifies their claims at the tree.
+Its behavioral contract is the `/orchestrator` skill: rulings run through the review
+lenses with named grounding, teardown kills only recorded PIDs, the human merges every
+PR. The chat bot is a **mirror of that coordinator**: it binds one thread to that one
+terminal, renders the coordinator's reports into the thread, and relays the thread's
+messages back in — attributed per XS identity — using the same drive loop the coordinator
+itself uses on workers.
 
-| Verb | Half | Reuses | Status |
-| --- | --- | --- | --- |
-| `observe` | out | padi's agent sensors — the working / asking-you / just-finished board (`padi-tui wait` blocks on exactly these buckets) + activity + read-only fs/git | **ships** |
-| `attach` | out | kaval's live screen mirror, plus older scrollback fetched on demand | **ships** |
-| `getSession` | out | padi's per-terminal restore identity — the agent kind + session id restore already resumes on; never transcript content | **ships** |
-| `submit` | in | `padi-tui create` — a fresh terminal, optionally in a fresh git worktree, running the named agent | **ships** |
-| `write` | in | `kaval-tui send` — text and named keys, submit as its own keystroke (covers the `y⏎` approve) | **ships** |
-| `kill` / `resize` | in | kaval's owner verbs on the wire | **ships** |
-| `wake` / `wakeAndSend` | in | session restore's respawn — reopen a parked agent on its exact prior session (kolu stores the key, never the transcript) | ships in restore; a single-terminal wake verb is thin glue |
+<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out raw and read-only — the board straight off padi. ACT (blue) flows in through one door: the coordinator, an orchestrator agent in an ordinary kolu terminal, which drives the workers with the fleet loop. Chat never writes to a worker terminal." />
 
-The proof is no longer hypothetical: **kolu's own development already runs as one agent
-driving a fleet of others through exactly these verbs** — briefs submitted with
-`padi-tui create`, answers typed with `kaval-tui send`, turn-ends observed with the wait
-buckets, screens read back with snapshots. What a chat bot adds is not new verbs in kolu;
-it is the thread: XS identity, the write floor, and rendering.
+| Surface | Half | Reuses |
+| --- | --- | --- |
+| the board | out · read-only | padi's agent sensors — which agent is working / asking you / just finished (`padi-tui wait`'s buckets), rendered straight into the thread with no coordinator hop |
+| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop |
+| deep links | out | a kolu URL to the exact terminal — depth on demand: step in, answer the interactive prompt, debug, in kolu itself |
+| the coordinator bridge | in + out | one terminal's screen and input — send a message, wait for the turn to end, read the reply: the identical agent-drives-agent loop kolu already ships |
 
-Two integration shapes exist now, and the fork is named rather than implied. A **raw
-surface client** dials padi/kaval's surfaces directly — full fidelity, typed, what the
-fleet loop does today; a streaming pesu-shaped bot wants this. An **MCP host** consumes
-`@kolu/surface-mcp` (shipped), which re-exposes any surface as MCP tools — a chat
-platform whose agent already speaks MCP gets kolu with no custom wire code, at MCP's
-request/response grain. Both stand on the same seam.
+Chat gets **no raw act verbs on workers** — that absence is the design, not a gap:
 
-One more shipped half the first draft didn't have: **attention flows out.** kolu already
-computes per-terminal urgency and pushes OS notifications through a feature-detected
-notify seam; a bot subscribes to the same facts and pings the thread instead of the
-desktop — the @-tag-me-when-you-need-me half of the Claude Tag shape, for free.
+- **The write floor dissolves.** "At most one writer per terminal" machinery exists only
+  if chat can touch live terminals. With one door, the floor is the coordinator's inbox:
+  thread messages queue into a conversation and are handled in turn, attributed.
+  Serialization by conversation, not by locks.
+- **Guarantees live at the knowing endpoint.** The coordinator is the one place that
+  knows campaign state — what is in flight, which merge goes first, what a change must
+  not break — so "who does what next" is decided there, never in a thread reacting to a
+  screen.
+- **Discipline is inherited, not re-implemented.** Everything the orchestrator contract
+  enforces — claims verified at the tree, grounded rulings, no pattern kills, the human
+  merging — applies to chat traffic automatically, because chat traffic *is* coordinator
+  traffic.
 
-On these verbs — with no new auth in kolu — XS builds the who-needs-me board (`observe`),
-pairing on one terminal (`attach` + `write` + `resize`), a forward-facing punchlist pinned
-to durable terminals, and **review-interrogation**: reopen the exact agent that did
-the work and ask it *why* (`getSession` + `wakeAndSend`) — kolu keeps the session key and
-a resume path, the agent keeps its own transcript, and kolu never parses the bytes.
+### The same door assists the humans' own discussion
+
+Because a message to the thread and a message to the coordinator are the same thing,
+the coordinator is also a **participant in the conversation between humans** — the
+teammate shape, not just command-and-control. Several people argue a design in the
+thread; the coordinator contributes exactly what its contract makes it good at: the
+claim checked against the actual tree before anyone builds on it, the ruling with its
+grounding named so the humans can audit the reasoning rather than defer to it, and the
+running record of what was decided and why. AI-assisted discussion among humans falls
+out of the coordinator pattern for free — no second bot, no separate "assistant" mode,
+one attributed inbox.
 
 ## The first proof: an XS bot
 
-`pesu` is a small XS bot that bridges one XS thread to one kolu terminal: it streams the
-terminal into the thread (`attach` + `observe`) and relays the thread's one floor-holder
-back as keystrokes (`write`). It rides XS's own identity, presence, and login, and needs
-no auth in kolu — just the connection. The bot is the near-term path; closer, native XS
-integration follows.
+`pesu` is a small XS bot that binds one XS thread to the coordinator's terminal: it
+renders the board and the coordinator's reports into the thread, and relays the thread's
+messages — attributed — as the coordinator's input. It rides XS's own identity, presence,
+and login, and needs no auth in kolu: just the connection.
 
-**The milestone is concrete: run kolu's own development inside XS.** Today kolu is built by
-agents on a personal headless Linux box. The bot moves that work into an XS thread so the
-team can **watch the agents run** — observe first, not steer. Querying and writing from
-chat come once it's more than one personal host. The act-in verbs are already proven
-daily by kolu's own fleet loop; what the bot proves is the *chat half* — XS identity
-mapped to the write floor, a thread bound to a durable terminal, and the stream rendered
-where the team already is.
+**The milestone is concrete: run kolu's own development from a thread.** kolu is already
+built this way — a coordinator driving a fleet of worker agents through the exact loop
+the bot would mirror — so the bot is a renderer of a proven pattern, not new coordination
+machinery. What pesu proves is the *chat half*: XS identity mapped to attribution, a
+thread bound durably to one terminal, and the stream rendered where the team already is.
 
 <PesuStyles />
 <PesuThread />
@@ -177,11 +185,11 @@ leaving chat. The first milestone lights up the **observe** half (the stream and
 evidence); attaching to test and merging from chat ride the act-in verbs that follow.*
 
 <Callout kind="accent" title="The call">
-kolu is the foundation a chat app integrates — real terminals, durable sessions, an honest
-read, and writes over a trusted connection, model-agnostic and on hosts you own. XS owns
-identity and the floor; kolu owns the substance that doesn't change. Build the foundation,
-prove it with the `pesu` bot running kolu's own development in the open, and let any chat
-app be the front door.
+kolu is the foundation a chat app integrates — real terminals, durable sessions, an
+honest read, and one disciplined door for writes: the coordinator. XS owns identity; kolu
+owns the substance; the coordinator owns the discipline — and lends it to the humans'
+own discussion. Build the bridge, prove it with the `pesu` bot running kolu's own
+development in the open, and let any chat app be the front door.
 </Callout>
 
 export const PesuStyles = () => (
@@ -248,7 +256,7 @@ export const PesuStyles = () => (
 );
 
 export const PesuThread = () => (
-  <div class="pe-frame" role="img" aria-label="An XS chat thread driven by the pesu bot, replaying real merged PR #1544. Sridhar asks the bot to make session export a lightweight chat log — a picker for Chat log, Full transcript, or Both, plain HTML with no hidden tool payloads. The bot starts claude in a kolu terminal and streams the live session: it adds the export picker dialog, single-sources the export-mode enum, renders a plain conversation ledger, and deletes about twelve hundred lines of the old Pierre and markdown renderer, then fmt and tests pass. The bot posts screenshot evidence — the rendered chat-log document with role colours and prompt-jump controls — and a link to connect to the live terminal. It reports the slash-be review gauntlet caught and fixed a stored XSS in the shared export, then posts pull request #1544 with plus 1254 and minus 2652 across 28 files and CI green on both platforms. Sridhar replies merge it, and the bot reports #1544 merged to master with the terminal parked.">
+  <div class="pe-frame" role="img" aria-label="An XS chat thread driven by the pesu bot, replaying real merged PR #1544. Sridhar asks the bot to make session export a lightweight chat log — a picker for Chat log, Full transcript, or Both, plain HTML with no hidden tool payloads. The coordinator dispatches claude in a kolu terminal and the thread streams the live session: it adds the export picker dialog, single-sources the export-mode enum, renders a plain conversation ledger, and deletes about twelve hundred lines of the old Pierre and markdown renderer, then fmt and tests pass. The bot posts screenshot evidence — the rendered chat-log document with role colours and prompt-jump controls — and a link to connect to the live terminal. It reports the slash-be review gauntlet caught and fixed a stored XSS in the shared export, then posts pull request #1544 with plus 1254 and minus 2652 across 28 files and CI green on both platforms. Sridhar replies merge it, and the bot reports #1544 merged to master with the terminal parked.">
     <div class="pe-bar">
       <span class="pe-hash">XS · #kolu-dev</span>
       <span class="pe-sub">thread — lightweight chat-log export</span>
@@ -267,7 +275,7 @@ export const PesuThread = () => (
         <span class="pe-av pe-av-b">k</span>
         <div class="pe-body">
           <div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:31</span></div>
-          <div class="pe-bub">▶ Started <b>claude</b> in <code>kolu·e7f2</code>. Streaming the live session here.</div>
+          <div class="pe-bub">▶ Coordinator dispatched <b>claude</b> in <code>kolu·e7f2</code>. Streaming the worker here.</div>
           <div class="pe-term">
             <div class="pe-term-bar"><span>kolu·e7f2 · claude</span><span class="pe-live">● live</span></div>
             <div class="pe-term-body">
