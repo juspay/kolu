@@ -4,7 +4,7 @@ description: The living scope of padi's cleanup track (unnumbered — runs in pa
 parents: [padi]
 status: proposed
 maturity: seedling
-updated: 2026-07-10
+updated: 2026-07-13
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -20,7 +20,7 @@ The track ships as a **few substantial refactor campaigns** (srid, 2026-07-09: f
 
 **The campaigns** *(every live entry lands in exactly one place: absorbed by a campaign, riding one as hygiene, already shipped, or parked with its gate)*:
 
-1. **Complete the primitives** — *the W5 phase-1 surface refactor (one kolu PR + paired drishti + odu PRs; the campaign IS the drishti coordination)*. The deep move: the cell completed to a Dynamic (`updated()`), mirrors-never-fabricate, and the [reactive bridge](surface-reactive-bridge.html) — whose migration ledger already deletes the hand-rolled folds, pipes, and pollers across kolu and drishti. Absorbed as side effects: **L28 rung 2** (`clockNow` as a framework-reserved member — the same surface/surface-remote seam the campaign rebuilds), **L1** (the poll-on-change client core into `@kolu/surface` — the client dual of the poll shapes the bridge ships), **L20·21** (the re-serve internals dedup — the campaign reworks those internals anyway: the connect seam, the coalescer, the wrapped publishers).
+1. **Complete the primitives** — *plan of record: [the merged surface-runtime plan](surface-runtime-boundary.html) (2026-07-13), which sequences this campaign as PRs — kernel first, then the bridge spine; no longer one monolithic phase-1 PR*. The deep move: the cell completed to a Dynamic (`updated()`), mirrors-never-fabricate, and the [reactive bridge](surface-reactive-bridge.html) — whose migration ledger already deletes the hand-rolled folds, pipes, and pollers across kolu and drishti. Absorbed as side effects: **L28 rung 2** (`clockNow` as a framework-reserved member — the same surface/surface-remote seam the campaign rebuilds), **L1** (the poll-on-change client core into `@kolu/surface` — the client dual of the poll shapes the bridge ships), **L20·21** (the re-serve internals dedup — the campaign reworks those internals anyway: the connect seam, the coalescer, the wrapped publishers).
 2. **The padi/server re-cut** — *SHIPPED <PrLink pr={1747} /> (with campaign 3, one PR, merged 2026-07-09)*: L27's pure-motion opening commit · L17 · L13 rode — compacted into the shipped record below.
 3. **The client wire/state sweep** — *SHIPPED <PrLink pr={1747} /> (with campaign 2)*: L11 · L18 — compacted into the shipped record below.
 
@@ -30,12 +30,12 @@ The track ships as a **few substantial refactor campaigns** (srid, 2026-07-09: f
 
 **Bird's-eye** — the remaining campaign, the L24 feature PR, the gated lane, and the shipped record (click a node to jump to its section).
 
-<Svg svg={birdseye} wide caption="The ledger at a glance. Top: the one remaining campaign — complete the primitives (paired drishti + odu; the deep move is the derivation algebra), with L8's hygiene residue riding it. Middle: L24 ships as its own feature PR (a feature never rides a refactor campaign); then the parked/gated lane, each with its gate named. Bottom: shipped — including campaigns 2 and 3, merged together as #1747." />
+<Svg svg={birdseye} wide caption="The ledger at a glance. Top: the one remaining campaign — complete the primitives (paired drishti + odu; the deep move is the derivation algebra), with L8's hygiene residue riding it. Middle: L24 shipped as its own feature PR, #1749 (a feature never rides a refactor campaign); then the parked/gated lane, each with its gate named. Bottom: shipped — including campaigns 2 and 3, merged together as #1747." />
 
 **Status index** — updated as entries ripen or ship:
 
-- **Campaign 1 (complete the primitives):** L28 rung 2 · L1 · L20·21 — dispatches when the phase-1 surface refactor does; L8's residue rides it as the tail commit
-- **Its own feature PR (in flight):** L24 — `padi-tui --host`: new user-visible CLI behavior can't ride a byte-identical refactor campaign (autonomous /be run dispatched 2026-07-09)
+- **Campaign 1 (complete the primitives):** L28 rung 2 · L1 · L20·21 — placed in [the merged plan of record's](surface-runtime-boundary.html) PR sequence (L28 rung 2 → PR 3 · L20·21 → PR 5 · L1 → PR 8); L8's residue rides the campaign's last PR as the tail commit
+- **Its own feature PR — SHIPPED:** L24 — `padi-tui --host` (#1749, merged 2026-07-10): new user-visible CLI behavior can't ride a byte-identical refactor campaign, so it shipped standalone
 - **Parked / gated:** L2 on kolu-tui · L4 at a named version · L9, L22 on evidence · L12 srid mints · L10 tracker-driven · L29 (the typing-latency lane, a pre–campaign-1 candidate) srid revisits
 - <a id="l27"></a><a id="l17"></a><a id="l13"></a><a id="l11"></a><a id="l18"></a>**Shipped — campaigns 2 + 3, one PR (#1747, merged 2026-07-09):** L27 — `packages/server/src` re-cut, the padi hosting arm into `padi/` (the opening pure-motion commit) · L17 — chrome vocabulary split out of `vocab.ts` into `chromeVocab.ts` + `UPLOAD_VIDEO_EXTENSIONS` homed in `@kolu/padi` with the drift-guard test deleted (which also completes **L5**'s second half) · L13 — the seal's test-file flank closed (test files walked; `ALLOWED_PADI` and padi's exports reconciled) · L11 — the W4-switch interim wire scaffolding swept (`wire.ts` + the `createSharedRoot` family finalized) · L18 — session restore's boolean latches replaced by one named `HydrationPhase` signal
 - **Shipped — earlier:** L26 — the `no-overloaded-null` guardrail + the sweep's verdict (#1744, 2026-07-09); L7 — terminal-workspace re-cut into @kolu/padi + the @kolu/terminal-vocab leaf (#1734, 2026-07-09); L28's rung-1 dedup — drishti's `hostMapRegistry` clone deleted inside W6's pair (srid/drishti#92, merged); L15 + L16 — daemon lifecycle invariants typed, AutosaveGate + urgency + typed boot (incl. L19-folded) (#1703, 2026-07-05); L14 — memory via the mirror (#1699, 2026-07-05); L23 — remote arm on the kit (#1700, 2026-07-05); L6 — padiBinding split (#1698, 2026-07-05); L3 — the convergence kit (#1674, 2026-07-04); L5 — both halves (ProcessRss in W2.2 `3b3550642`; the video-ext half via L17 in #1747)
@@ -152,7 +152,7 @@ W3.1's `RemotePadiSession` (`packages/server/src/remotePadiBinding.ts`) hand-mir
 
 ### L24 — `padi-tui --host`: the CLI's remote leg
 
-*Status: its own **ready-now FEATURE PR** — new user-visible CLI behavior (`create` lands real terminals on the remote host), so it cannot ride a byte-identical refactor campaign; small: a thin flag over shipped machinery · Lens: parity (kaval-tui `--host` is the shipped precedent) · Gate: none (kolu-internal)*
+*Status: SHIPPED — #1749, merged 2026-07-10 (`--host` flag + `connectPadiTuiViaHost` in `packages/padi-tui/src/main.ts`); it shipped as its own feature PR because new user-visible CLI behavior (`create` lands real terminals on the remote host) cannot ride a byte-identical refactor campaign · Lens: parity (kaval-tui `--host` is the shipped precedent) · Gate: none (kolu-internal)*
 
 Reach a padi on a remote machine from the CLI: `padi-tui --host <ssh> wait|status|create|watch`, the exact twin of kaval-tui's `--host`. Everything it needs ships in W3.1 — `getHostSession({binary:"padi", extraArgs:["--stdio"]})`, the stdio front, and the per-system drv map **already baked** onto padi-tui's wrapper (`PADI_AGENT_DRVS_JSON` in `default.nix`, wired there by #1675 with this exact consumer named in its comment). The work is a thin flag: resolve `--host` → `getHostSession` instead of the local socket, same verbs on top. Mind F1's lesson: the remote padi is the target host's PRODUCTION daemon — read verbs are safe, but `create` lands real terminals there (that's the point), and nothing here may drain/converge (a tui is a dial, #1313 — guests never converge).
 
@@ -268,7 +268,7 @@ Two small `@kolu/surface*` cleanups that both need a paired drishti run — so t
 
 W2.2's h2 bounded the **re-serve's** per-subscriber channels (HWM 4096, loud overflow) — but that bound lives at one consumer; the framework's underlying oRPC receive queue remains unbounded for an unpaced sender (#1661 final-audit residual, explicitly framework-wide). Either the framework grows a first-class subscriber-bound (every serve site inherits it), or a recorded decision says the re-serve bound is the only place that needs one.
 
-**Done when:** a load test demonstrates bounded memory under an unpaced sender at every serve site — or the entry closes with the recorded per-consumer-bound decision.
+**Done when:** a load test demonstrates bounded memory under an unpaced sender at every serve site — or the entry closes with the recorded per-consumer-bound decision. *(Cross-link, 2026-07-13: [the merged plan of record](surface-runtime-boundary.html) routes the append-heavy wire concern — terminal bytes, logs — to a named bridge design question; if that design ships a framework-owned subscriber bound, L22 closes with it. The gate is unchanged either way.)*
 
 ## The deletions and hygiene
 

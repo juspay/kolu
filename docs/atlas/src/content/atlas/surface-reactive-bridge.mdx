@@ -4,7 +4,7 @@ description: "The ratified direction for backend reactivity: state is a signal, 
 parents: [pedagogy, padi]
 status: proposed
 maturity: seedling
-updated: 2026-07-11
+updated: 2026-07-13
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -240,7 +240,9 @@ Net public vocabulary: **seven orthogonal symbols** — `source` · `scan` · `c
 
 ## Migration — phase 0 IS the W5 slice
 
-- **Phase 0 — shipped as [W5's framework slice](padi.html#w5)** (<PrLink pr={1759} />, merged 2026-07-11). `reactor.ts` exporting `derived.cell` + `scan` + `source` with the error wrapper and the stopped-latch→health flip; boot narrowing (derived member: no ctx entry, no write verbs); the engine's deep import lint-banned. Zero runtime surgery — derived cells ride the existing cell connect seam (`server.ts:1120`, `:1490-1494`). First consumer: drishti alerts (worked example 2), the paired drishti PR per `.claude/rules/surface.md` ([srid/drishti#93](https://github.com/srid/drishti/pull/93), still in review).
+*Sequencing superseded (2026-07-13): the phase labels below are no longer the campaign's numbering — phases 1–4 land as PRs 7–10 of [the merged plan of record](surface-runtime-boundary.html), which carries the one sequenced PR list (kernel first). This section survives as the technical content of those PRs; the plan note says the same on its side.*
+
+- **Phase 0 — shipped as [W5's framework slice](padi.html#w5)** (<PrLink pr={1759} />, merged 2026-07-11). `reactor.ts` exporting `derived.cell` + `scan` + `source` with the error wrapper and the stopped-latch→health flip; boot narrowing (derived member: no ctx entry, no write verbs); the engine's deep import lint-banned. Zero runtime surgery — derived cells ride the existing cell connect seam (`server.ts:1120`, `:1490-1494`). First consumer: drishti alerts (worked example 2), the paired drishti PR per `.claude/rules/surface.md` ([srid/drishti#93](https://github.com/srid/drishti/pull/93), merged 2026-07-11 — the `alerts` cell ships).
 - **Phase 1 — the `$` read face + first sibling derivation.** Post-equals mirror pokes on both cell write paths, version-pokes on the wrapped collection publishers; `batch`; export `computed`. Consumer: padi urgency (worked example 1) — deletes `publishUrgency`, both riders, and the prose invariant.
 - **Phase 2 — `derived.collection` + the collection connect seam,** the keyed-reconciler diff, and `source`'s poll argument shape. Consumers: padi memorySampler + hostInventory + kolu-server processMemory; drishti's three keyed poll-reconciles (`main.ts:262-330`) — the most-repeated hand-roll in both trees dies here.
 - **Phase 3 — `reactiveFamily` + `derived.registry`.** The serveHostMap reshape (worked example 4); drishti deletes its clone.

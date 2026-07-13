@@ -1,53 +1,45 @@
 ---
 title: A Complete Surface Runtime
-description: A proposal to remove hand-built topology, lifetime, and projection machinery across Kolu, Drishti, and Odu.
-parents: [feature]
+description: The campaign plan of record for the surface-framework consolidation — the kernel of runtime, membership, and mirror moves, then the reactive-bridge spine, sequenced as one PR list that absorbs the consolidation ledger's residue.
+parents: [feature, padi]
 status: proposed
-maturity: seedling
-updated: 2026-07-11
+maturity: budding
+updated: 2026-07-13
 ---
 
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import architecture from "../../diagrams/surface-runtime-boundary-architecture.svg?raw";
 
-Surface declarations are already the source of truth for data shape. They stop one layer too early. Kolu, Drishti, and Odu receive a typed declaration, then each rebuilds some combination of router topology, subscription ordering, reconnect identity, procedure clients, or protocol projection by hand.
+**Revised 2026-07-13 — this note is now the merged plan of record.** The original audit (2026-07-11, <PrLink pr={1768} />) was written deliberately blind to the existing Atlas plans — that blindness was methodology, an independent read of three working trees — and this revision is the reconciliation it deferred. It folds in the two ratified plans this proposal overlapped ([the reactive bridge](surface-reactive-bridge.html) and [the consolidation ledger](padi-cleanup.html)'s campaign 1), re-grounds every code claim against the six PRs that merged since the audit pins (W9 <PrLink pr={1764} />, W10 <PrLink pr={1772} />, W11 <PrLink pr={1775} />, W12 <PrLink pr={1784} />, <PrLink pr={1783} />, <PrLink pr={1791} />), and re-cuts the proposal into one sequenced PR list. The dispositions below are the coordinator's reviewed ruling on #1768, ratified by srid; the status stays `proposed` until srid flips it.
 
-The proposal is to let a Surface become a supervised runtime, and to let one higher **Surface suite** value describe Kolu and Drishti’s multiplexed topology. The hard lifetimes remain separate: a Unix process attempt is not a reconnecting app connection; remote membership is not a WebSocket; an MCP projection is not the Surface it reads from.
+The audit's finding survives the merge intact: surface declarations are the source of truth for data shape, and they stop one layer too early. Kolu, Drishti, and Odu each receive a typed declaration and then rebuild some combination of router finalization, procedure clients, membership identity, failure vocabulary, or protocol projection by hand. What changed in the merge is *where the cures land*: every kept move lands in a package that already owns the volatility — no new package — and the derivation-shaped remainder was already the bridge's plan wearing different names.
 
-<Svg svg={architecture} wide caption="The suite owns multiplexed topology only. Individual Surfaces and projections still meet Remote and MCP through their own lifetime-specific adapters." />
-
-<Callout kind="accent" title="Decision">
-  Add a finalized, supervised Surface runtime and a thin `@kolu/surface-suite` composition package. Then close the semantic gaps the migrations expose: bound procedures, exact Feed ordering, complete map entries, delta-aware mirroring, and keyed MCP resources. Distinct lifetimes get distinct constructors and types—never mode flags or inferred ownership.
+<Callout kind="accent" title="Decision (merged)">
+  Ship a six-move kernel in the existing packages — supervised `SurfaceRuntime`, bound procedures, opaque membership ids, total schema-valid failure, a delta-aware mirror, and one-shot adoptions — then the reactive bridge's remaining spine as the same campaign's back half. The proposed `Feed` member kind dissolves into the bridge's `scan` + `derived.collection`; `@kolu/surface-suite` is deferred; the Odu lease stack stays Odu-local; `createLiveQuery` is obsolete against W9's shipped ownership shape. Distinct lifetimes keep distinct constructors and types — never mode flags or inferred ownership.
 </Callout>
 
-## What the three consumers reveal
+<Svg svg={architecture} wide caption="The merged plan at a glance. The kernel lands where the volatility already lives — @kolu/surface, surface-map, surface-remote — beside the already-shipped reactor bridge; each consumer deletes the machinery it hand-rolled; the faint strip records what the merge translated or dropped." />
 
-This audit used Kolu `843eb0f3450f`, Drishti `25f51e08e379` with Kolu pinned at `52d60bf1bf06`, and Odu `647d34821cc3` with Kolu pinned at `7d51cb2b290b`.<Footnote>The existing Atlas notes on this topic were deliberately not read. Evidence came from the three working trees, their exact framework pins, package documentation, and tests.</Footnote> The recurring defect is not “too many lines.” It is that one fact has several authorities, or that a hard lifetime is left for a caller to reconstruct.
+## What a user gets
 
-### What each library is already good at
+Almost nothing visible — deliberately. This is [the ledger](padi-cleanup.html)'s campaign 1, and the track's invariant governs: refactor PRs are byte-identical on screen, pinned by the e2e suite and the seal test. What a user gets is defect *classes* dying rather than defects being fixed one at a time:
 
-`@kolu/surface` gives all three systems one vocabulary for state and operations. Its declaration model is the right foundation; the missing piece is a complete runtime that carries that model through serving, procedure access, and time-aware streams.<Footnote>Kolu assembles its server from Surface fragments in <Cite file="packages/server/src/surface.ts" lines="71-99" rev="843eb0f3450f" />. Drishti implements its agent Surface in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/agent/src/main.ts" lines="207-270" />. Odu implements its runner Surface in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/runner/runner.ts" lines="54-74" />. The framework currently returns only `{ router: { surface: … }, ctx }` in <Cite file="packages/surface/src/server.ts" lines="1941-1962" rev="843eb0f3450f" />.</Footnote>
+- A remote host that is removed and re-added (or whose authority restarts) can never resurrect a stale subscription — the class kolu currently suppresses with a hand-rolled generation rearm.<Footnote>The rearm: `createRejoinKeyedSub` in <Cite file="packages/client/src/host/connectionRearm.ts" lines="35-64" rev="2b83737fd8f3" /> bumps a generation signal on membership re-join and re-keys the subscription effect. It works; the point of PR 3 is that no consumer should have to know to write it.</Footnote>
+- A failed host chip can never read a cause the framework invented: today an absent cause is filled with `"other"` by generic map code.<Footnote><Cite file="packages/surface-map/src/server.ts" lines="200" rev="2b83737fd8f3" /> and a second site at <Cite file="packages/surface-map/src/server.ts" lines="301" rev="2b83737fd8f3" />.</Footnote>
+- A registry writer can never *forget* to republish a derived fact (urgency, alerts, overview counts) — the bridge tracks the edge instead of trusting a convention.
+- The costs stay honest: the bridge's [ten named costs](surface-reactive-bridge.html#the-honest-costs) are carried into this plan unchanged, and its open question 4 (a permanently broken derivation looks healthy) remains open — srid rules on it inside the bridge track, not here.
 
-`@kolu/surface-app` correctly owns the browser connection, but its ownership is not yet singular. Kolu and Drishti still coordinate the same socket across the connector, lifecycle layer, and provider.<Footnote>Kolu describes the split and disables the second watchdog in <Cite file="packages/client/src/wire.ts" lines="65-94" rev="843eb0f3450f" />. Drishti makes the same coordination explicit in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/wire.ts" lines="64-82" /> and mounts the second lifecycle layer in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/App.tsx" lines="384-399" />.</Footnote>
+## The kernel — six moves, each where the volatility already lives
 
-`@kolu/surface-map` is already the right home for changing membership. What it lacks is composition with fixed surfaces and a complete entry view: capability, failure data, and membership incarnation should survive the map boundary.<Footnote>Kolu widens and splices the map into its fixed topology in <Cite file="packages/server/src/surface.ts" lines="71-99" rev="843eb0f3450f" /> and reconnects it by the string key `padi` in <Cite file="packages/client/src/wire.ts" lines="147-155" rev="843eb0f3450f" />. Drishti repeats that assembly for `hosts` in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/server/admin-router.ts" lines="173-208" /> and <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/wire.ts" lines="86-97" />.</Footnote>
+The merge's structural verdict: none of these needs a new package. Each move completes a receptacle that already owns the volatility, and each is proven by what it lets a consumer *delete*.
 
-`@kolu/surface-remote` owns genuine electricity: provisioning, reconnect, and remote-session replacement. That boundary should remain. Its mirror now needs to understand collection deltas and let local extensions observe committed state without becoming a second mirror.<Footnote>Kolu builds its remote entry Surface with `mirroredSurface` in <Cite file="packages/common/src/surfacesWithPadi.ts" lines="21-55" rev="843eb0f3450f" />; Drishti serves its host map through the remote adapter in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/server/admin-router.ts" lines="148-171" />; Odu uses `makeSession` for one-shot lanes in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/coordinator/lane.ts" lines="1-29" />. The mirror still expands a collection into `keys` plus one `get` stream per key in <Cite file="packages/surface/src/mirrorRemoteSurface.ts" lines="415-442" rev="843eb0f3450f" />.</Footnote>
+### A runtime you can serve — PR 1
 
-`@kolu/surface-mcp` has the right default-deny policy. Its missing seam is addressable streaming: an MCP resource needs a stable URI for a stream selected by input, plus an explicit owner for the client and subscription.<Footnote>Odu projects and exposes only selected members in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/cli/mcp.ts" lines="71-90" />. Because `nodeLog({ id })` cannot be addressed directly, it builds a synchronous `logs` collection around a cache, follower set, and late-bound publisher in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/mcp/agentSurface.ts" lines="276-380" />.</Footnote>
-
-`@kolu/surface-daemon` and its supervisor already isolate process and convergence volatility. They need no new primitive from this audit; only their dependency claims need to match the code that actually consumes them.<Footnote>Kaval delegates its daemon skeleton to `@kolu/surface-daemon` in <Cite file="packages/kaval/src/daemonMain.ts" lines="1-18" rev="843eb0f3450f" />, while Padi delegates survivable spawning to the supervisor in <Cite file="packages/padi/src/ptyHost/localDriver.ts" lines="29-43" rev="843eb0f3450f" />. Their READMEs nevertheless claim zero Kolu dependencies in <Cite file="packages/surface-daemon/README.md" lines="3-20" rev="843eb0f3450f" /> and <Cite file="packages/surface-daemon-supervisor/README.md" lines="3-18" rev="843eb0f3450f" />.</Footnote>
-
-## From duplicated mechanisms to framework primitives
-
-### A runtime owns the server side
-
-**A serving API should return something servable.** Today the caller receives an intermediate router fragment and must know the one correct oRPC finalization step. The runtime should return a final router and keep partial mount material private.<Footnote>`implementSurface` returns the fragment in <Cite file="packages/surface/src/server.ts" lines="1941-1962" rev="843eb0f3450f" />. Drishti documents the resulting double-prefix 404 and repairs it manually in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/agent/src/main.ts" lines="404-425" />. Odu repeats the finalization in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/runner/runner.ts" lines="331-340" /> and <Cite repo="juspay/odu" rev="647d34821cc3" file="src/coordinator/run.ts" lines="448-469" />.</Footnote>
-
-`implementSurface` returns a directly servable, supervised resource:
+`implementSurface` still returns an intermediate fragment — `{ router: { surface: … }, ctx }` — and every consumer must know the one correct oRPC finalization step.<Footnote>The fragment return: <Cite file="packages/surface/src/server.ts" lines="1958-1962" rev="2b83737fd8f3" />. The three re-learnings: kolu finalizes via `implement(servedContract)` in <Cite file="packages/server/src/surface.ts" lines="85-99" rev="2b83737fd8f3" />; drishti wraps the fragment in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/agent/src/main.ts" lines="404-409" />; odu does it twice, in <Cite repo="juspay/odu" rev="c3f24013daae" file="src/runner/runner.ts" lines="339" /> and <Cite repo="juspay/odu" rev="c3f24013daae" file="src/coordinator/run.ts" lines="469" />. The staleness sweep note: odu has already adopted `implementSurface` since the original audit — the finalization is down to one line per site, but it is still a caller obligation the framework should own.</Footnote> The runtime becomes a directly servable, supervised resource:
 
 ```ts
 interface SurfaceRuntime<S extends SurfaceSpec> {
@@ -55,243 +47,43 @@ interface SurfaceRuntime<S extends SurfaceSpec> {
   readonly ctx: SurfaceCtx<S>;
   readonly done: Promise<void>;  // rejects on an owned runtime fault
   close(): Promise<void>;        // idempotent; releases every owned source
-  // package-private mount material for suite composition
+  // package-private mount material for composition
 }
 ```
 
-Async cell connectors receive an abort signal and return a disposer. Reactor subscriptions, map subscriptions, and re-served pumps all join `done` and `close`; suite composition observes every child, propagates failure, and closes each child exactly once. A `close` that ignores today’s `cell.connect`, reactor, or `reServeSurface.done` would be ceremonial and is not acceptable.
+Async cell connectors receive an abort signal and return a disposer; reactor subscriptions, map subscriptions, and re-served pumps all join `done` and `close`. A `close` that ignores today's `cell.connect`, reactor, or `reServeSurface.done` would be ceremonial and is not acceptable. The ordinary constructor owns `inMemoryChannelByName()` internally; kolu's shared publisher stays a distinct, explicit constructor (`implementSurfaceOnPublisher`) because its cross-channel microtask order is load-bearing — two ownership promises, not an override knob.
 
-The ordinary constructor owns `inMemoryChannelByName()` internally. Kolu’s shared publisher is a distinct, explicit implementation role because its cross-channel microtask order and diagnostics are load-bearing:
+### Procedures join the typed dual — PR 2
 
-```ts
-implementSurface(surface, deps);
-implementSurfaceOnPublisher(surface, publisher, deps);
-```
+Cells, collections, streams, and events receive bound client capabilities; procedures alone remain behind raw `rpc`, so every consumer casts.<Footnote>The asymmetry: <Cite file="packages/surface/src/solid/surfaceClient.ts" lines="309-324" rev="2b83737fd8f3" /> — four bound member kinds plus a generic `rpc` field. Kolu recovers `PadiRpc` with a cast in <Cite file="packages/client/src/wire.ts" lines="202-207" rev="2b83737fd8f3" /> (a second cast at line 402); drishti casts `HostRpc` and `AdminScopedRpc` slices in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/wire.ts" lines="124-155" />.</Footnote> Every declared procedure appears at `client.procedures.<namespace>.<verb>` and on a map entry; the casts and their copied callable shapes delete.
 
-This is not an override option. The constructors promise different ownership; neither accepts an arbitrary `channel(name)` factory that can return a fresh instance and silently lose every update.
+### Membership is time, and time is a fact — PR 3
 
-### A higher package owns mixed topology
-
-**One topology should have one description.** Kolu and Drishti each describe fixed surfaces plus a keyed map separately to the contract, server, and client. A Surface suite makes those three views projections of one value.<Footnote>The concrete Kolu splice is visible in <Cite file="packages/server/src/surface.ts" lines="71-99" rev="843eb0f3450f" />, <Cite file="packages/server/src/index.ts" lines="460-475" rev="843eb0f3450f" />, and <Cite file="packages/client/src/wire.ts" lines="145-155" rev="843eb0f3450f" />. Drishti repeats it in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/server/admin-router.ts" lines="173-208" /> and <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/wire.ts" lines="87-97" />.</Footnote>
-
-`@kolu/surface-suite` is a thin composition leaf above `@kolu/surface` and `@kolu/surface-map`. It has split `/define`, `/server`, and `/solid` entrypoints so a common declaration imports no server or Solid implementation. A closed union covers the two proven node roles:
-
-```ts
-const appSuite = defineSurfaceSuite({
-  kolu: surfaceNode(koluSurface),
-  app: surfaceNode(surfaceAppSurface),
-  padi: surfaceMapNode(padiHostMap),
-});
-
-const koluRuntime = implementSurfaceOnPublisher(
-  koluSurface,
-  publisher,
-  koluDeps,
-);
-const appRuntime = implementSurface(surfaceAppSurface, surfaceAppDeps);
-const padiRuntime = serveHostMap(padiHostMap, pool, padiHostDeps);
-
-const runtime = implementSurfaceSuite(appSuite, {
-  kolu: koluRuntime,
-  app: appRuntime,
-  padi: padiRuntime,
-});
-
-serveRpc(runtime); // serving owns runtime.done and closes it on shutdown
-```
-
-The suite derives the contract, final router, Solid clients, health, contexts, and teardown from the same key set. Its `/solid` connector imports `connectSurfaceMap`; its `/server` connector imports `serveSurfaceMap`; neither leaks through `/define`. `@kolu/surface-app` may depend on the higher suite package without creating a cycle.
-
-The audited consumers need no raw root. Kolu’s remaining `server.info`, `daemon.restart`, and host-management calls move into declared Surface procedures. If generic oRPC interoperability remains, it is an explicitly tagged `rpcNode`; its contract is rejected at type and boot time if it contains the reserved `surface` key, and none of the three migrations uses it.
-
-### Hello world
-
-This in-process example is complete: declaration, implementation, suite composition, typed procedure, and reactive cell consumption use the same values.
-
-```tsx
-import { directLink } from "@kolu/surface/links/direct";
-import { defineSurface } from "@kolu/surface/define";
-import { inMemoryStore, implementSurface } from "@kolu/surface/server";
-import { defineSurfaceSuite, surfaceNode } from "@kolu/surface-suite/define";
-import { implementSurfaceSuite } from "@kolu/surface-suite/server";
-import { connectSurfaceSuite } from "@kolu/surface-suite/solid";
-import { createEffect, createRoot, onCleanup } from "solid-js";
-import { z } from "zod";
-
-const helloSurface = defineSurface({
-  cells: {
-    message: {
-      schema: z.string(),
-      default: "Hello",
-      verbs: ["get"],
-    },
-  },
-  procedures: {
-    greeter: {
-      greet: {
-        input: z.object({ name: z.string() }),
-        output: z.string(),
-      },
-    },
-  },
-});
-
-const helloSuite = defineSurfaceSuite({
-  hello: surfaceNode(helloSurface),
-});
-
-const helloRuntime = implementSurface(helloSurface, {
-  cells: { message: { store: inMemoryStore("Hello") } },
-  procedures: {
-    greeter: {
-      greet: ({ input }) => `Hello, ${input.name}!`,
-    },
-  },
-});
-
-const runtime = implementSurfaceSuite(helloSuite, {
-  hello: helloRuntime,
-});
-
-let firstMessage!: Promise<string>;
-let greeting!: Promise<string>;
-
-const stop = createRoot((dispose) => {
-  const app = connectSurfaceSuite(helloSuite, directLink(runtime.router));
-  const hello = app.surfaces.hello;
-  const message = hello.cells.message.use();
-
-  firstMessage = new Promise((resolve) => {
-    createEffect(() => {
-      const value = message.value();
-      if (value !== undefined) resolve(value);
-    });
-  });
-  greeting = hello.procedures.greeter.greet({ name: "Ada" });
-
-  onCleanup(app.dispose);
-  return dispose;
-});
-
-console.log(await firstMessage); // "Hello"
-console.log(await greeting);     // "Hello, Ada!"
-stop();
-await runtime.close();
-```
-
-### Member semantics become explicit
-
-**Declared procedures should be first-class client members.** Cells, collections, streams, and events receive bound capabilities, while procedures remain behind raw RPC. Binding them completes the typed dual and removes consumer casts.<Footnote>The client surface exposes bound members for the four data kinds but only a generic `rpc` field for procedures in <Cite file="packages/surface/src/solid/surfaceClient.ts" lines="300-324" rev="843eb0f3450f" />. Kolu recovers `PadiRpc` with a cast in <Cite file="packages/client/src/wire.ts" lines="191-204" rev="843eb0f3450f" />. Drishti similarly casts host and admin procedure slices in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/wire.ts" lines="124-154" />.</Footnote>
-
-Every declared procedure appears at `client.procedures.<namespace>.<verb>` and on a map entry. Raw `.rpc` belongs only to an explicit suite `rpcNode`. The existing `ReadOnlyBoundCollection` is generalized: `BoundCollectionsFor` selects it when wire verbs omit mutation, while server `ctx` always retains internal `upsert` and `remove`.
-
-**A live value is a fact plus an ordering promise.** “Snapshot, then changes” must be atomic with subscription. That is a framework time contract, not generator etiquette, so local state and externally opened streams get distinct source roles.<Footnote>Odu yields its log snapshot before installing the subscriber in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/common/logTail.ts" lines="59-65" />. Drishti does the same for process and history streams in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/server/router.ts" lines="188-216" />. Surface’s `pollOnEvent` reads and yields before installing in <Cite file="packages/surface/src/server.ts" lines="548-585" rev="843eb0f3450f" />, while collections already use the safe subscribe-before-snapshot sequence in <Cite file="packages/surface/src/server.ts" lines="350-405" rev="843eb0f3450f" />.</Footnote>
-
-`Stream` now means every frame is a complete replacement value enrolled in Surface health. `Event` remains occurrences with no snapshot. Snapshot-plus-delta data becomes `Feed`, with a generated wire union:
-
-```ts
-type FeedFrame<Snapshot, Delta> =
-  | { kind: "snapshot"; value: Snapshot }
-  | { kind: "delta"; value: Delta };
-```
-
-There are two source constructors, not a continuity flag. The local constructor owns both state and publication, so “mutate the snapshot, then remember to publish” is not a fallible paired obligation:
-
-```ts
-const runnerSurface = defineSurface({
-  feeds: {
-    nodeLog: {
-      inputSchema: z.object({ id: TaskIdSchema }),
-      snapshotSchema: z.object({ text: z.string() }),
-      deltaSchema: z.object({ append: z.string() }),
-    },
-  },
-});
-
-const nodeLog = feedState(runnerSurface.descriptors.feeds.nodeLog, {
-  initial: () => ({ text: "" }),
-  reduce: (state, delta) => ({ text: clampLog(state.text + delta.append) }),
-});
-
-const runnerRuntime = implementSurface(runnerSurface, {
-  feeds: { nodeLog },
-});
-
-nodeLog.commit({ id }, { append: text }); // update + publish atomically
-
-const attachFeed = feedFromOpenedSource(async (input, signal) => {
-  // The endpoint returns an already-attached pair. It—not a later generic
-  // subscriber—owns the asynchronous snapshot/delta boundary.
-  const attached = await terminalEndpoint.attach(input, signal);
-  return withFeedEnd(attached, classifyTerminalAttachEnd(attached, signal));
-});
-```
-
-`feedState` registers the subscriber and reads its synchronous state in one JS stack; its state function cannot return a Promise. It owns per-input channels with the baked `FEED_QUEUE_LIMIT = 4096` and aborts on overflow so retry starts from a fresh snapshot; append deltas are never dropped. An arbitrary external `AsyncIterable` cannot masquerade as this source. `feedFromOpenedSource` instead requires the upstream opener to return an already-attached snapshot/delta pair and a classified end. Replacement streams receive equivalent safe constructors: install-before-read polling and channel-backed state. Subsequent read errors reject and reach retry/error state; the current log-and-continue `onStreamReadError` collapse is removed.
-
-The bound Feed reuses `createSubscription`’s existing reducer machinery. Declarative and ordinary imperative consumers enroll in health. The terminal exception is named at its call site:
-
-```ts
-const text = entry.feeds.nodeLog.use(
-  () => ({ id }),
-  {
-    initial: "",
-    snapshot: ({ text }) => text,
-    reduce: (text, { append }) => text + append,
-  },
-);
-
-entry.feeds.terminalAttach.consumeUnenrolled(
-  { terminalId },
-  {
-    onSnapshot: (bytes) => resetScrollLockAndWrite(bytes),
-    onDelta: (bytes) => write(bytes),
-  },
-);
-```
-
-Both `consume` and `consumeUnenrolled` return owner-tied status and teardown; only the latter avoids the Surface-wide health registry. Every retry calls `onSnapshot` before deltas, so Kolu resets xterm and scroll lock at the correct boundary without a client-local reattach loop. The graduation sweep classifies Kaval `inventory`, `commandRun`, terminal attach, Drishti history, and Odu logs as Feeds. Drishti’s duplicate process stream is deleted in favor of collection `deltas`. Kaval `cwd`, `title`, and `exit` are Events; Kaval `foreground`, Padi activity, and Padi repo/file pulses remain replacement Streams.
-
-One-shot reads need no new primitive: they keep the existing non-empty first-frame contract instead of open-coding iterator advancement.<Footnote>`firstFrameOrThrow` already defines and implements that contract in <Cite file="packages/surface/src/firstFrame.ts" lines="24-54" rev="843eb0f3450f" />.</Footnote>
-
-`@kolu/surface/solid` also replaces Kolu’s six polled-query state machines with a thin adapter over Solid’s [`createResource`](https://docs.solidjs.com/reference/basic-reactivity/create-resource), not another async-state engine. Identity is required data:
-
-```ts
-const status = createLiveQuery({
-  // Stable by construction: membershipId is opaque, and a POSIX path
-  // cannot contain NUL. Equal domain inputs produce the same key.
-  key: () => `${entry.membershipId()}\0${props.repoPath}`,
-  request: () => ({
-    membershipId: entry.membershipId(),
-    input: { repoPath: props.repoPath },
-  }),
-  invalidate: {
-    stream: entry.streams.subscribeRepoChange,
-    input: ({ input }) => ({ repoPath: input.repoPath }),
-  },
-  read: ({ input }, { signal }) =>
-    entry.procedures.git.status(input, { signal }),
-});
-```
-
-The adapter owns value-stable re-keying, abort-latest, completion, and pending/error state. The invalidation source is a retry-aware replacement Stream: its first snapshot and every reconnect snapshot trigger a refresh, which a plain Event could not guarantee. Kolu still owns which errors are domain-benign and how the result is rendered. The existing `createPolledQuery` regression suite is the acceptance test; if this adapter cannot pass it without adding policy flags, it does not graduate.
-
-### Maps and remote mirrors own membership time
-
-**Membership includes incarnation.** A key that leaves and returns is a new member even when its spelling is unchanged. The map needs an opaque membership id, and failure must be schema-validated data supplied by the domain rather than a generic fallback.<Footnote>Kolu adds a generation-based rearm for same-key re-entry in <Cite file="packages/client/src/host/connectionRearm.ts" lines="11-60" rev="843eb0f3450f" />. The map’s TypeScript cause narrows while its wire schema still accepts any string in <Cite file="packages/surface-map/src/define.ts" lines="55-102" rev="843eb0f3450f" />, and the server fills an absent cause with `"other" as Cause` in <Cite file="packages/surface-map/src/server.ts" lines="155-200" rev="843eb0f3450f" />.</Footnote>
-
-`SurfaceMap` takes a real failure schema, and failed status carries the value under one field:
+A key that leaves and returns is a *new member* even when its spelling is unchanged. `serveSurfaceMap` stamps `crypto.randomUUID()` as an opaque `membershipId` on every add — never reused across map-server restart, published on every status arm — and clients key every cached owner on `{encodedKey, membershipId}`, so same-key remove/re-add and authority restart rebuild subscriptions by construction:
 
 ```ts
 type EntryStatus<Failure> =
   | { kind: "warming"; membershipId: string }
   | { kind: "connected"; membershipId: string; clockOffset: number }
   | { kind: "failed"; membershipId: string; failure: Failure };
+```
 
+W11 already proved the doctrine's sibling on the server side: the remembered fleet became its own ordered fact (`persistedMembership`), never derived from the live pool's keys, exactly because retire deliberately desyncs live from remembered.<Footnote><Cite file="packages/surface-remote/src/hostFanout.ts" lines="486" rev="2b83737fd8f3" /> inside `buildRemotePool`, shipped by W11 (<PrLink pr={1775} />). Membership identity is the client-side twin of the same insight: identity is a fact in its own right, not a projection of key spelling.</Footnote> This PR kills kolu's `createRejoinKeyedSub` and its test outright.
+
+Two riders land here because they touch the same admit/connection seam:
+
+- **The typed connection key.** Kolu reconnects its map by the string `"padi"` and drishti by `"hosts"` — a stringly sibling key at every connection site.<Footnote>Kolu: <Cite file="packages/client/src/wire.ts" lines="158" rev="2b83737fd8f3" />; drishti: <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/wire.ts" lines="97" />. The server-side dual — the widened `as any` contract splice — is kolu's <Cite file="packages/server/src/surface.ts" lines="85-99" rev="2b83737fd8f3" /> plus the router splice in <Cite file="packages/server/src/index.ts" lines="484-516" rev="2b83737fd8f3" />, repeated by drishti in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/server/admin-router.ts" lines="187-208" />. This was the deferred suite package's one real client-side move; it lands here as a typed key derived from the declaration, without the package.</Footnote>
+- **L28 rung 2 — `clockNow` as a framework-reserved member.** `makeSession` measures the clock offset at admit automatically (the reserved-member pattern `system.identity` already shipped), the `offsetOf` injection point ceases to be a caller obligation, and drishti's `offsetOf: () => 0` stub deletes. The ledger absorbed this into campaign 1; it rides the membership PR because both rework the same admit seam.
+
+### Failure is domain data, never fabricated — PR 4
+
+The map's TypeScript cause narrows while its wire schema accepts any string, and the server fills an absent cause with `"other"`.<Footnote>The narrowing: <Cite file="packages/surface-map/src/define.ts" lines="70-73" rev="2b83737fd8f3" /> against the loose wire arm at <Cite file="packages/surface-map/src/define.ts" lines="94-102" rev="2b83737fd8f3" /> (`cause: z.string()` at line 100). The fabrications: <Cite file="packages/surface-map/src/server.ts" lines="200" rev="2b83737fd8f3" /> and <Cite file="packages/surface-map/src/server.ts" lines="301" rev="2b83737fd8f3" />.</Footnote> `SurfaceMap` takes a real failure schema, and `failureOf` is required and total:
+
+```ts
 const padiHostMap = defineSurfaceMap({
   key: HostKeySchema,
   codec: hostKeyCodec,
-  entry: padiSurface,
+  entry: padiEntrySurface,
   failure: PadiEntryFailureSchema,
 });
 
@@ -302,205 +94,71 @@ serveHostMap(padiHostMap, pool, {
 });
 ```
 
-The migration starts from Padi’s real producers—contract skew, cross-supervisor, two drv failures, unconverged, link failure, and the structural cases currently collapsed into `other`—then gives every structural producer a named failure arm. An unclassified producer throws; neither Padi nor the framework may publish a renamed catch-all. Contract-skew detail is either `{kind: "known", running, expected}` or `{kind: "unknown"}`—never a partially present pair. A schema validates this value; it does not derive one. `failureOf` is required and total, and a registry member cannot exist without a warming session, a live session, or a complete failure. Generic map code fabricates nothing.
+The migration starts from Padi's real producers — contract skew, cross-supervisor, the two drv failures, unconverged, link failure, and the structural cases currently collapsed into `other` — and gives every structural producer a named arm. An unclassified producer throws; neither Padi nor the framework may publish a renamed catch-all. A schema validates this value; it never derives one.
 
-`serveSurfaceMap` stamps `crypto.randomUUID()` as an opaque `membershipId` on every add. It keeps no per-key tombstones, never reuses an id after map-server restart, and publishes the id on every status arm. Clients key every cached owner on `{encodedKey, membershipId}`, so remove/re-add and authority restart rebuild subscriptions.
+### One protocol across the wire — PR 5
 
-A map entry exposes a non-owning `SurfaceClientView`: cells, read-only collection types, Streams, Feeds, Events, bound procedures, health, enrollment, and raw consumption. It does not expose `dispose`, because the map owns the shared cached client. `clockOffset` remains a typed wire fact on the connected arm and backs `entry.clock`; an adapter may add facts but may not erase underlying capability.
+A collection should stay one protocol when it crosses a network. Drishti's process fact is both a Surface collection and a second snapshot/delta stream *because* the remote mirror fans collections into `keys` plus one `get` stream per key.<Footnote>The fan-out: <Cite file="packages/surface/src/mirrorRemoteSurface.ts" lines="415-443" rev="2b83737fd8f3" /> — and the sweep confirms no collection-level `deltas` verb is consumed anywhere yet. Drishti's resulting dual: the collection and the parallel `processesSnapshot` stream declared together in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/common/src/surface.ts" lines="259-291" />, the extra stream implemented in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/agent/src/main.ts" lines="252-262" />, the parent reducer in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/server/router.ts" lines="409-434" />.</Footnote> `mirrorRemoteSurface` selects a collection's declared `deltas` verb and folds the initial snapshot plus batches into its existing sink; `reServeSurface` inherits that path and returns a normal supervised `SurfaceRuntime`; relay loss crosses oRPC as a named retryable transport end.
 
-**A collection should stay one protocol when it crosses a network.** Drishti’s process fact becomes both a Surface collection and a second snapshot/delta stream because the remote mirror fans collections into many subscriptions. The mirror should consume the collection’s existing delta verb.<Footnote>Drishti declares the collection and the parallel `processesSnapshot` stream together in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/common/src/surface.ts" lines="260-288" />, implements the extra stream in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/agent/src/main.ts" lines="222-261" />, and maintains the parent reducer in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/server/router.ts" lines="403-430" />. The current mirror opens `keys` and one `get` per member in <Cite file="packages/surface/src/mirrorRemoteSurface.ts" lines="415-442" rev="843eb0f3450f" />.</Footnote>
+Parent-owned additions remain causally separate from mirroring: `extendSurface(mirroredSurface(agentSurface), historySurface)` composes a local runtime onto a re-served one, with post-commit observation instead of a second mirror — so drishti deletes its inert agent-side `metricHistory` stub and keeps its retention as local policy.<Footnote>The stub, marked inert in its own comment: <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/agent/src/main.ts" lines="263-278" />, declared at <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/common/src/surface.ts" lines="292-298" />; the parent's real ring + bus serve it at <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/server/router.ts" lines="193-216" />.</Footnote>
 
-`mirrorRemoteSurface` selects collection `deltas` when declared and folds the initial snapshot plus batches into its existing sink. `reServeSurface` inherits that path and returns a normal supervised `SurfaceRuntime`. Relay loss crosses oRPC as a named retryable transport end; it is not flattened into the blanket non-retryable `ORPCError` arm.
+This PR reworks the re-serve internals, so the ledger's **L20·L21** (the opaque-client navigation casts in `reServeSurface.ts`; the duplicated in-memory collection shape) are absorbed here as side effects.
 
-Parent-owned additions remain causally separate from mirroring:
+### Adopt before you mint — PR 6
 
-```ts
-// Shared by the parent server and browser client; collisions fail at type
-// and boot time rather than overwriting a member by object spread.
-export const browserSurface = extendSurface(
-  mirroredSurface(agentSurface),
-  historySurface,
-);
+Some cleanup is adoption rather than invention, and it needs no new framework API. One-shot reads keep the existing non-empty first-frame contract (`firstFrameOrThrow`) instead of open-coding iterator advancement; socket acceptance, connection presentation, attention, and combined health all have existing primitives consumers should reach before the framework grows another concept.<Footnote>`firstFrameOrThrow`: <Cite file="packages/surface/src/firstFrame.ts" lines="42-48" rev="2b83737fd8f3" />. The primitives to adopt: `acceptSurfaceSocket` in <Cite file="packages/surface-app/src/server.ts" lines="597-640" rev="2b83737fd8f3" />, `presentingDown` in <Cite file="packages/surface-app/src/solid/index.ts" lines="674-677" rev="2b83737fd8f3" />, `setAttention` in <Cite file="packages/surface-app/src/solid/index.ts" lines="584-602" rev="2b83737fd8f3" />; drishti already computes combined health from its two siblings via `surfaceClientsHealth` (<Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/App.tsx" lines="461-466" />).</Footnote> This is consumer-side and may ride PRs 1–5's branches rather than ship alone.
 
-const remote = reServeSurface({ source: agentSurface, session });
-const history = implementSurface(historySurface, historyDeps);
-const recording = remote.observations.cells.system.consume(history.append);
+## Translated or dropped — reconciling the contested pile
 
-const browser = extendSurfaceRuntime(browserSurface, {
-  runtimes: { remote, history },
-  owned: { recording },
-});
-```
+The original proposal and the ratified bridge described overlapping territory in different vocabularies. The merge's rule: a name survives only where its promise cannot be expressed by what is already ratified or shipped. The reasoning is recorded here so it is not relitigated per-PR.
 
-Observations fire after the remote fold commits. `recording.done` surfaces sampling failure without throwing from the mirror sink or corrupting its reconnect loop; the composed parent runtime supervises and closes both runtimes plus the recording. `extendSurface` rejects overlapping members both statically and at boot. Drishti can remove the inert agent history member and keep its 30-minute retention as local policy.
+| #1768 proposed | ruling | where it went |
+| --- | --- | --- |
+| `Feed` member kind — `FeedFrame`, `feedState`, `feedFromOpenedSource`, `consume`/`consumeUnenrolled` | **dropped** — it is the bridge's `scan` wearing a wire protocol | `feedState({initial, reduce})` + `commit` ≡ `scan(source, initial, step)` published via `derived.cell` — one atomic update-and-publish; the delta projection ≡ `derived.collection`'s diff-by-`equals` → wire patches. The genuinely unserved residue — the **append-heavy wire member** (terminal bytes, CI logs) — is routed to a named bridge-track design question, not a fourth member kind |
+| `@kolu/surface-suite` | **deferred** — a thin composition leaf earns no receptacle | its two real moves were never suite-shaped: the final router is PR 1, the typed connection key is PR 3. Sole revival condition: `@kolu/surface-app` needing to depend on a suite value (the dependency-direction question) — if that day comes, the package question reopens with a real consumer in hand |
+| the Odu lease stack — `SurfaceLease`, `LeaseOpen`, `surfaceClientFromLeases`, `projectSurface`, `SurfacePort` | **Odu-local** — five concepts for one caller fails prove-then-extract | Odu fixes its MCP projection with these shapes in its own tree (they are the right shapes: the stable client is projected Surface B, every A-lease pinned and released, unavailability a typed arm); they graduate to the framework at a second consumer. `SurfacePort` — a TS2590 workaround — dies with the stack |
+| `createLiveQuery` | **obsolete as proposed** | W9 shipped the per-host *ownership* shape that supersedes its string-keyed singleton: one retained query world per host, paused/resumed/disposed by membership, in `right-panel/hostCodeTab.ts`. One line survives: the createResource-over-hand-rolled-async instinct may refine *inside* that ownership shape |
+| `notificationSurfaceApp` / `bootSurfaceApp` | **needs grounding** | W5 already shipped the notify seam — `createNotify` with a feature-detected worker discriminant, consumed by kolu and drishti. The proposal's server-*authored* capability discriminant (boot parses a no-store payload; workerless can never produce the notify arm) survives as a candidate, explicitly marked needs-grounding-against-what-shipped before any PR is cut |
 
-### Transport and protocol adapters keep distinct lifetimes
+Three of these deserve their sentence of reasoning in full:
 
-**Different endings need different owners.** A failed dial attempt, a reconnecting browser connection, and a replaced remote process are not modes of one lifecycle. Give each a distinct resource type, then compose them deliberately.<Footnote>Kolu coordinates connector and lifecycle ownership in <Cite file="packages/client/src/wire.ts" lines="65-94" rev="843eb0f3450f" />; Drishti does the same in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/wire.ts" lines="64-82" />. Odu hand-builds a fresh-per-call client because the coordinator at one socket path is replaceable in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/mcp/agentSurface.ts" lines="383-435" /> and then places that beneath MCP’s stable client in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/cli/mcp.ts" lines="60-83" />.</Footnote>
+**The Feed mapping, stated.** The proposal's `feedState` owns state and publication so "mutate, then remember to publish" is not a fallible paired obligation — which is exactly `scan`'s promise, with the stop-hold error doctrine already specified in the bridge's law table. What `Feed` added was a wire union (`snapshot | delta`) as a *member kind*; but for state-shaped data the bridge's `derived.collection` already promises "membership changes become wire frames," and for append-shaped data (a terminal's bytes, a CI log) a signal is the wrong substrate *by the bridge's own law* — a signal conflates same-batch frames, and an append consumer must see every one. So the append-heavy wire member is real, unserved, and *off the graph by design*: snapshot-then-append with a bounded per-subscriber queue, abort-on-overflow so retry restarts from a fresh snapshot, and a retryable relay end. The live defect class it must kill is already in the tree three ways: odu's log tail yields its snapshot before installing the subscriber, kolu re-arms terminal attach with a client-local reattach loop, and the padi relay's forwarding policy is a hand-maintained per-member table.<Footnote>Odu: <Cite repo="juspay/odu" rev="c3f24013daae" file="src/common/logTail.ts" lines="59-66" /> — `yield snapshot` at 64 *before* the bus subscribe at 65, the lost-update window. Kolu client: `consumeReattachingStream` in <Cite file="packages/client/src/terminal/reattachingStream.ts" lines="21-48" rev="2b83737fd8f3" />. The table: `PADI_FORWARDING_POLICY` at <Cite file="packages/padi/src/surface.ts" lines="939" rev="2b83737fd8f3" />. Whether the answer is a new off-graph member kind or a completion of the existing stream role is precisely the design question — decided inside the bridge track where the other wire laws live. The ledger's L22 (framework-wide backpressure, gated on evidence) closes with this design if it ships a framework-owned subscriber bound.</Footnote>
 
-The existing one-attempt role in Surface Remote moves down as the shared lease shape rather than being copied:
+**Why the suite dies but its moves live.** Kolu's splice is real and ugly — a server-only widened contract with `as any` casts, a hand-spliced router, and a string key at the client — and drishti repeats all three. But every line of that ugliness is *addressing*, not topology: once the runtime returns a final router (PR 1) and the map connection key is typed from the declaration (PR 3), the splice collapses without any value describing "the topology" existing anywhere. A `defineSurfaceSuite` would then be three lines of object literal wearing a package — the thin-composition-leaf shape the electricity tests exist to reject.
 
-```ts
-interface SurfaceLease<Client, End> {
-  readonly client: Client;
-  readonly closed: Promise<End>;
-  isAlive(): Promise<void>; // an actual round-trip half-open probe
-  teardown(): void;
-}
-```
+**Why `createLiveQuery` is the cautionary tale.** The proposal's adapter — stable keys, abort-latest, stream-driven invalidation — was designed against a kolu that had six free-floating polled-query state machines. W9 replaced that world: the Code tab's queries live in a per-host owner (`buildHostCodeTab`), born inside `scopedByEntry`, paused while backgrounded, resumed from the held value, disposed on membership exit — and the old constructors were retired so component-owned retention is *unspellable*. Only two `createPolledQuery` instances remain, both inside that owner.<Footnote><Cite file="packages/client/src/right-panel/hostCodeTab.ts" lines="85" rev="2b83737fd8f3" /> (`buildHostCodeTab`), the shared owner at line 258; the two surviving `createPolledQuery` call sites at lines 119 and 197. The audit's "six polled-query state machines" claim was true at its pin and is stale now — the staleness sweep's clearest example of why this revision re-grounded everything.</Footnote> A string-keyed singleton cache would have *reintroduced* the class W9 deleted. The surviving insight — prefer Solid's `createResource` to a hand-rolled async engine — applies inside the owner, if at all, and the existing `createPolledQuery` regression suite stays the acceptance bar for touching it.
 
-Unix and owned stdio connections return leases with exhaustive peer-ended, transport-lost, protocol-failed, and owner-ended outcomes. A borrowed stdio link is not a lease because it owns neither stream. `SurfaceAppConnection` remains a logical reconnecting resource with reactive status, identity generations, combined suite health, and `dispose`; Surface Remote keeps its richer `Session` over successive leases. A transient transport end is not falsely called the end of either logical connection.
+## The PR sequence
 
-Some cleanup is adoption rather than invention. Existing socket-acceptance, connection-presentation, attention, and combined-health primitives should be used before the framework grows another concept.<Footnote>`acceptSurfaceSocket` is the existing server acceptance seam in <Cite file="packages/surface-app/src/server.ts" lines="557-619" rev="843eb0f3450f" />. `presentingDown` and `setAttention` are already part of the provider model in <Cite file="packages/surface-app/src/solid/index.ts" lines="442-457" rev="843eb0f3450f" /> and <Cite file="packages/surface-app/src/solid/index.ts" lines="674-711" rev="843eb0f3450f" />. Drishti already computes combined Surface health in <Cite repo="srid/drishti" rev="25f51e08e379" file="packages/app/src/client/App.tsx" lines="437-453" />.</Footnote>
+Kernel first — each PR independently landable, each proven by a deletion, sequenced so no PR depends on an unshipped sibling. Then the bridge spine, whose technical content lives in [the bridge note](surface-reactive-bridge.html) (its phase labels are superseded by this list; the pointer there says so). Every `@kolu/surface*` PR ships with a paired drishti PR pinned to final kolu HEAD per `.claude/rules/surface.md`. Odu is not schedulable from this repo: it pins kolu by npins (currently `7d51cb2b290b`), so its adoptions and its lease-stack work are recorded as odu-tree obligations that land at its next pin bump.
 
-`connectSurfaceApp({ suite, url })` becomes the only owner of socket echo, one watchdog, stale-process retirement, and the suite clients. `<SurfaceAppProvider connection={app}>` consumes that resource instead of accepting overlapping socket/lifecycle pieces.
+| PR | what lands | the deletion that proves it | gate |
+| --- | --- | --- | --- |
+| **1** | supervised `SurfaceRuntime` — final router, `done`, idempotent `close`; `implementSurfaceOnPublisher` stays distinct | kolu's `implement(servedContract)` finalization; drishti's fragment wrap; odu's two wraps at next pin. Done only when every serving site observes `runtime.done` and owns shutdown | drishti pair |
+| **2** | bound procedures at `client.procedures.<ns>.<verb>` and on map entries | kolu's `PadiRpc` casts (both sites); drishti's `HostRpc`/`AdminScopedRpc` casts | drishti pair |
+| **3** | opaque `membershipId` per map add; typed map connection key; `clockNow` reserved member + offset-at-admit (**L28 rung 2**) | `connectionRearm.ts` + test; the `"padi"`/`"hosts"` string keys and the `as any` contract/router splices; drishti's `offsetOf: () => 0` stub. Done only when same-key remove/re-add *and* authority restart rebuild subscriptions keyed on `{encodedKey, membershipId}` | drishti pair |
+| **4** | failure schema on `defineSurfaceMap`; required, total `failureOf` | both `"other"` fabrication sites in the map server; the loose `z.string()` cause on the wire | drishti pair |
+| **5** | mirror + `reServeSurface` consume declared collection `deltas`; named retryable relay end; `extendSurface` for parent-owned additions (**absorbs L20·L21**) | drishti's `processesSnapshot` stream, parent reducer, and inert `metricHistory` stub; the mirror's per-key stream fan-out for delta-declaring collections | drishti pair |
+| **6** | adoption sweep — `firstFrameOrThrow`, `acceptSurfaceSocket`, `presentingDown`/`setAttention`, `surfaceClientsHealth` at every open-coded site | the open-coded iterator advances and duplicate presentation/health logic (consumer-side; may ride PRs 1–5's branches) | none |
+| **7** | bridge: the `$` read face, `computed`, `batch`, post-equals mirror pokes | padi urgency's `publishUrgency` + both riders + the prose invariant ([worked example 1](surface-reactive-bridge.html#the-worked-examples)) | drishti pair |
+| **8** | bridge: `derived.collection` + `source`'s poll shape; **L1** — the poll-on-change client core moves beside `pollOnEvent` as its named dual | the three hand-rolled samplers (padi memory, hostInventory, kolu-server); drishti's keyed poll-reconciles; the app-local copy of `writeWrappedValue` | drishti pair |
+| **9** | bridge: `reactiveFamily` + `derived.registry` — the `serveHostMap` reshape (worked example 4) | ~60 lines of serveHostMap plumbing (drishti's clone already died in #92) | drishti pair |
+| **10** | bridge: the padi registry as `signalMap` — padi's call, taken on PRs 7–9 as evidence; **L8**'s hygiene residue rides the campaign's last-shipping PR as its tail commit | with it, all five `metadata.ts` publish seams; without it, convention-published members persist and this row closes as "declined, dated" | drishti pair |
 
-Suite health is not “every map entry is ready.” It folds the shared transport, fixed Surface health, and each map’s membership-stream health. Domain readiness stays on `entry.health`/`entry.state`, so one failed remote host cannot close the global app gate.
+Ordering constraints, honestly stated: PRs 1–6 are mutually independent (land in any order); PR 7 needs only shipped phase 0; PR 8 needs 7 (`$` and the poke seams); PR 9 needs 8 (the collection wire form); PR 10 needs 7–9 (it is their evidence). The **named design questions** that are deliberately *not* PRs here: the append-heavy wire member (above); the bridge's open questions, ruled inside its track; the server-authored notify discriminant (needs grounding first). The ledger's other entries keep their own gates — **L22** closes with the append-wire design if that ships a framework bound, **L24** already shipped standalone (<PrLink pr={1749} />), and the parked lane (L2 · L4 · L9 · L10 · L12 · L29) is untouched by this plan.
 
-Service-worker deployment is a different lifetime. Two server-side constructors author a no-store bootstrap payload; browser boot parses that server-authored fact before exposing capabilities:
+The campaign is complete only when these negative properties hold — each is a grep or a test, not a judgment call:
 
-```ts
-const deployment = notificationSurfaceApp({ clickSchema });
-installSurfaceApp(server, deployment); // serves mode in bootstrap payload
-
-const shell = bootSurfaceApp(readSurfaceAppBootstrap());
-if (shell.kind === "notify") shell.notify.show(...);
-
-// A separate workerlessSurfaceApp() server definition can never produce
-// the `notify` boot arm.
-const app = connectSurfaceApp({ suite, url });
-```
-
-This completes the existing server-side mode discriminant without putting it on the WebSocket connection or trusting a separately bundled browser choice. Drishti cannot serve/retire a worker and still obtain a notification capability.
-
-**Protocol addressing should not turn motion into state.** An input-bearing Feed needs a keyed MCP resource template. Odu’s synthetic log collection is evidence of the missing address, not a domain collection to preserve.<Footnote>The cache, following set, and late-bound publish hook occupy <Cite repo="juspay/odu" rev="647d34821cc3" file="src/mcp/agentSurface.ts" lines="276-380" />; the projection exposes that synthetic collection as the `logs` resource in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/cli/mcp.ts" lines="75-87" />.</Footnote>
-
-Surface MCP extends its existing collection item templates with keyed Feed templates and uses the MCP SDK’s resource-template machinery:
-
-```ts
-serveSurfaceAsMcp({
-  surface: agentSurface,
-  client: { kind: "stable", client: agentClient },
-  expose: {
-    nodes: "resource",
-    nodeLog: {
-      resource: {
-        uriTemplate: "surface://feeds/nodeLog/{id}",
-        input: ({ id }) => ({ id }),
-      },
-    },
-    "node.rerun": "tool",
-  },
-});
-```
-
-The mapper translates URI strings; the Feed’s existing input schema validates the result, so Odu does not duplicate `TaskIdSchema`. MCP owns each concrete URI’s abort, update notification, and disposal. It opens a new iterator only after a named retryable Feed end such as `source-replaced` or `source-unavailable`; normal finite completion stays complete. A stable client and an owned lease source are a discriminated API, never a bare-or-`{dispose}` union detected at runtime.
-
-**A live fact must end with the process that made it true.** Odu’s current cache can retain text marked live after its follower ends, while the follower itself has no MCP-shutdown owner. The stable projection must instead own every upstream lease and publish only values whose lifetime it can prove.<Footnote>The retained live value wins before a new follow is considered in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/mcp/agentSurface.ts" lines="328-365" />. The follower is a detached async task in <Cite repo="juspay/odu" rev="647d34821cc3" file="src/mcp/agentSurface.ts" lines="333-352" />.</Footnote>
-
-For Odu, the stable client is projected Surface **B**, not the coordinator socket’s Surface **A**:
-
-```ts
-type LeaseOpen<Client, End> =
-  | { kind: "available"; lease: SurfaceLease<Client, End> }
-  | { kind: "unavailable"; reason: "no-listener" };
-
-type AgentSourcePort = SurfacePort<
-  typeof oduSurface.spec,
-  {
-    cells: "nodes";
-    feeds: "nodeLog";
-    procedures: { node: "rerun" };
-  }
->;
-
-const coordinator = surfaceClientFromLeases<AgentSourcePort>(
-  oduSurface,
-  unixCoordinatorLeases,
-);
-const projection = projectSurface<AgentSourcePort>(oduSurface, agentProjection);
-const agentRuntime = projection.implement(coordinator, {
-  unavailable: {
-    nodes: () => EMPTY_STATE,
-    nodeLog: ({ id }) => {
-      const context = resolveRunContext();
-      return context === null
-        ? missingLog(id)
-        : durableLog(id, context.repoRoot, context.sha7);
-    },
-    "node.rerun": () => ({ ok: false }),
-  },
-}); // A -> stable local B
-
-const mcp = await serveSurfaceRuntimeAsMcp({
-  runtime: agentRuntime,
-  expose: agentExposure,
-});
-
-try {
-  await mcp.done;
-} finally {
-  await mcp.close(); // MCP + B runtime + every active A lease
-}
-```
-
-`surfaceClientFromLeases` is spec-derived: each call or iterator is pinned to exactly one A lease and releases it on return/end. Lease acquisition returns the typed `unavailable` arm only for `ENOENT`/`ECONNREFUSED`; permission, descriptor, and protocol faults throw. The projection maps unavailability exhaustively per selected member to Odu’s no-run snapshot, durable log, or `{ok:false}`. It never silently attaches that iterator to a later coordinator—`wait_for_settle` therefore keeps its one-run contract. Only the MCP resource-subscription owner may open a successive B iterator after a named retryable end and an abortable backoff. MCP never mistakes A for B, and its composed owner closes B plus all A leases. This deletes the handwritten partial `redialingAClient` while preserving the two-Surface boundary.
-
-Bespoke MCP tools are contextually typed from `surface` inside `serveSurfaceAsMcp`; no separate `defineMcpTools` selection is added. `SurfacePort` is an explicit type-only selection—the single source-port description used by both `projectSurface` and the lease-derived client—so it avoids TS2590 without creating another runtime allowlist.
-
-## How the consumers become smaller
-
-### Kolu
-
-Kolu common exports one suite from `surfacesWithPadi`: `kolu`, `app`, and the `padi` map. Server-only contract widening, router splicing, the `"padi"` client key, and parallel root contract disappear. The remaining root RPCs become procedures on the Kolu Surface. The server retains `implementSurfaceOnPublisher` because its shared publisher ordering is real behavior.
-
-Member kinds replace `PADI_FORWARDING_POLICY`. Terminal attach plus Kaval inventory/command-run become Feeds; Kaval cwd/title/exit are Events; Kaval foreground, Padi repo/file pulses, and other replacement state remain Streams. Bound procedures delete `PadiRpc`; membership ids delete `connectionRearm`; retryable Feed relay deletes `consumeReattachingStream`. `createLiveQuery` receives an explicit stable key containing the entry membership id, so an active-host rebind cannot reuse stale async state. Active-host choice, daemon convergence, terminal painting, and user-facing failure copy remain Kolu.
-
-Kolu’s app connection becomes the sole socket lifecycle. Its HTTP+WebSocket RPC mount may get a dedicated Node/Hono constructor only after Drishti first adopts the existing `acceptSurfaceSocket` and a duplicate still remains; a universal HTTP+WS mount is rejected because Drishti intentionally serves WebSocket only.
-
-### Drishti
-
-Drishti’s suite contains `admin`, `app`, and the `hosts` map. It no longer creates a server-only widened contract or calls `connectSurfaceMap(..., "hosts")`. Each entry retains health and typed procedures, so a host view uses a normal `SurfaceGate` and `entry.procedures.process.kill`.
-
-The agent keeps one `processes` collection with read-only wire verbs plus `deltas`. The duplicate `processesSnapshot` schema, agent bus, parent relay bus/cache, and browser reducer disappear. Parent history is a separate local runtime extended onto the re-served agent surface, and post-commit observation records samples without becoming part of the mirror sink. Alert policy, history retention, charts, host persistence, and notification permission remain Drishti.
-
-The server’s `notificationSurfaceApp` or `workerlessSurfaceApp` definition authors the no-store browser bootstrap fact. Browser boot parses it before exposing capability. The current notify-plus-retire contradiction becomes unrepresentable without coupling worker deployment to WebSocket reconnect.
-
-### Odu
-
-Odu’s runner and coordinator hand each final `SurfaceRuntime` resource to stdio or Unix serving, which observes `done` and owns shutdown. Log tail is a local Feed with a framework-owned bounded channel; the lost-update window and unbounded append queue disappear.
-
-The coordinator remains Surface A. A lease-derived client feeds the local A-to-B projection, and Surface MCP receives only B’s stable direct client. The keyed log Feed becomes a resource template. The fake `logs` collection, relaxed duplicate key schema, stale cache, detached follower, late `setPublish`, handwritten partial client, and three manual router-finalization wraps disappear.
-
-Odu’s one-shot-after-first-attach lane rule stays local: CI task state cannot survive runner replacement, so a `reconnect: false` framework flag would mix two contracts. “No coordinator means no live run,” durable-log selection, task states, pipeline policy, and rerun meaning remain Odu. Its broad catches still need local correction: only `ENOENT` is a missing log, and a transport fault is not an ordinary `false` rerun result.
-
-## Landing and proof
-
-This spans three repositories and changes Surface client/server contracts, so it lands in dependency order. These are real pinning boundaries, not decorative phases.
-
-1. **Complete one Surface before composing many.** Land the supervised runtime, owned channels, bound procedures, honest Stream/Event/Feed roles, and both reactive and imperative Feed consumers. Odu’s runner and coordinator are the first production proof because they exercise serving, procedures, and logs without the mixed-topology work.<Footnote>The proof must publish deterministically around the snapshot boundary, reject asynchronous local snapshots at type level, exercise the externally opened terminal-attach shape, recover from overflow with a fresh snapshot, and show that runtime failure and close supervise every owned source.</Footnote>
-
-2. **Compose the topology and preserve membership time.** Add the split-entrypoint suite, complete map entry views, schema-valid failure production, opaque membership ids, delta-aware mirroring, and post-commit observation. Then migrate Kolu and a paired Drishti revision pinned to the final Kolu head.<Footnote>The proof must cover fixed surfaces plus a map through one declaration, same-key remove/re-add, authority restart, process deltas without one value stream per process, and parent-owned history without an inert agent stub.</Footnote>
-
-3. **Project stable resources from replaceable processes.** Add lease-derived clients and keyed Feed templates, then pin Odu to the final Kolu head and replace its synthetic log collection and redialing client.<Footnote>The decisive test restarts a coordinator through a no-listener gap at the same socket path and node id without returning stale text. Closing MCP while a subscription is live must leave no follower or lease behind.</Footnote>
-
-4. **Give the browser connection one owner.** Finish with one suite-aware `SurfaceAppConnection`, provider-by-connection, and server-authored notification capability. Migrate Kolu and Drishti together.<Footnote>The proof is one watchdog per socket, stale-process retirement, agreement between server and browser about the worker build, and no notification capability in workerless mode.</Footnote>
-
-The implementation is complete only when these negative properties hold:
-
-- No production consumer imports oRPC `implement` merely to finalize a Surface; no serving API accepts private mount material; every serving API observes `runtime.done` and owns shutdown.
-- Every runtime-owned async source is abortable/disposable; child failure reaches `done`; repeated close is harmless.
+- No production consumer imports oRPC `implement` merely to finalize a Surface; no serving API accepts private mount material; child failure reaches `done`; repeated `close` is harmless.
 - No production consumer casts a declared Surface procedure or copies its callable client shape.
-- Kolu and Drishti contain no `as any` contract/map splice and no string sibling key at the connection site.
-- A map member cannot enter failed state without a schema-valid domain failure, and no framework fallback cause exists.
-- A map add always gets a never-reused membership id; every owner/cache switches on it.
-- A failed map entry does not collapse the suite-wide app gate; entry readiness stays per entry.
-- A Feed cannot publish a delta before its snapshot, append deltas are never dropped, and retry cannot append to the previous incarnation’s accumulator.
-- Every client-side async iterator still carries `STREAM_RETRY`; imperative Feed consumption preserves terminal’s deliberate global-health carve-out.
+- Kolu and Drishti contain no `as any` contract/map splice and no string sibling key at any connection site.
+- A map member cannot enter failed state without a schema-valid domain failure; no framework fallback cause exists.
+- A map add always gets a never-reused membership id; every owner and cache switches on it; `connectionRearm.ts` does not exist.
+- A failed map entry never collapses an app-wide gate — readiness stays per entry.
 - Drishti has one process protocol and no inert parent-owned member on the agent.
-- Odu exposes projected B to MCP, has no synthetic log collection, and leaves no lease or follower after its owner closes.
+- A derived member has no ctx entry and no write verbs (the bridge's one-writer law, held from phase 0 on).
 
-Update each affected package README and the Surface, Surface Suite, Surface Map, Surface Remote, Surface App, and Surface MCP reference pages with the change that introduces each API. Correct the two stale daemon/supervisor dependency claims in the same documentation pass. Update Kolu’s canonical architecture page when the suite replaces its contract/router assembly. Each framework change runs package tests and full CI; every downstream proof runs its own CI against the exact Kolu commit it pins.
+Each framework PR updates the affected package README and reference note with the change that introduces its API (and the pass verifies the two daemon/supervisor README dependency claims against their real consumers<Footnote><Cite file="packages/surface-daemon/README.md" lines="8-9" rev="2b83737fd8f3" /> and <Cite file="packages/surface-daemon-supervisor/README.md" lines="8-9" rev="2b83737fd8f3" /> both claim zero `kolu-*` dependencies; the audit flagged the claims as needing verification against the code that consumes them, not as known-false.</Footnote>); each runs package tests and full CI, and every drishti pair runs its own CI against the exact kolu commit it pins.
 
 <Callout kind="good" title="The boundary test">
   If a caller is choosing active hosts, retention windows, alert text, or what a failed CI lane means, it is application policy. If a caller is reconstructing router topology, subscription ordering, membership identity, attempt ownership, retry boundaries, or protocol disposal, the framework stopped too early.
