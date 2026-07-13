@@ -1964,6 +1964,9 @@ importers:
         specifier: 6.1.0-beta.225
         version: 6.1.0-beta.225
     devDependencies:
+      '@babel/parser':
+        specifier: ^7.29.2
+        version: 7.29.2
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

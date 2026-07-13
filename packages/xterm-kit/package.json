@@ -29,6 +29,7 @@
     "@xterm/xterm": "^6.0.0"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.2",
     "@types/node": "^22.0.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
