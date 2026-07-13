@@ -27,7 +27,11 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
-import { getActiveTerminal, getTerminal } from "./terminal-registry.ts";
+import {
+  getActiveTerminal,
+  getTerminal,
+  hasParkedTerminals,
+} from "./terminal-registry.ts";
 import {
   discardAllLocalParked,
   discardLocalParked,
@@ -253,6 +257,14 @@ export async function restoreSession(input: {
       })),
       settled,
     );
+    // Re-persist the FINAL live snapshot now the window has settled. While the freeze
+    // was held, a terminal that spawned FAST (a live sibling) could accrue padi-LOCAL
+    // metadata — a theme / layout / panel / intent / active-marker change, all of which
+    // mutate in-memory state and fire `terminals:dirty` with NO kaval RPC. Those pulses
+    // were SUPPRESSED by the freeze and the `finally`'s `cancelPendingAutosave` would
+    // drop the last armed one, so without this they'd sit committed-in-memory but never
+    // reach disk until some later dirty pulse (F5). This capture closes that window.
+    persistSettledRestoreSnapshot();
   } finally {
     unfreezeAutosave(freeze);
     cancelPendingAutosave();
@@ -311,6 +323,33 @@ export function reconcileRestoreSettlement(
       setTerminalParent(r.newId as TerminalId, null);
     }
   }
+}
+
+/** Persist the FINAL live snapshot after the spawn window settles — the F5 fix. The
+ *  restore holds a PROCESS-WIDE autosave freeze across the whole `await` on every
+ *  spawn's `ready`. If one spawn is slow (or a socket-open kaval wedges a single RPC),
+ *  a terminal that already spawned stays fully interactive, and a padi-LOCAL setter
+ *  ({@link setTerminalTheme} / {@link setCanvasLayout} / {@link setSubPanelState} /
+ *  {@link setRightPanelState} / {@link setTerminalIntent} / {@link setTerminalParent} /
+ *  {@link setActiveTerminalId}) mutates committed in-memory state and fires
+ *  `terminals:dirty` WITHOUT waiting on kaval. The freeze suppresses that autosave and
+ *  the caller's `cancelPendingAutosave` drops the last armed one — so the change is
+ *  lost from persistence. Re-persisting the live snapshot once the window settles
+ *  captures it.
+ *
+ *  GUARDED on {@link hasParkedTerminals}: a spawn that FAILED was re-parked in pass 1,
+ *  and `snapshotSession` SKIPS parked records — persisting here would DELETE the
+ *  re-parked terminal from disk (the CONF-6 shrink the pre-await optimistic snapshot
+ *  exists to prevent). So a restore left with parked residue keeps that optimistic
+ *  snapshot standing (the restore-pending state correctly suppresses autosave until the
+ *  user resolves the card); only a CLEAN settle re-persists. This does NOT bound the
+ *  forever-hang case (a wedged kaval whose `ready` never settles keeps the freeze held
+ *  and never reaches here) — that residual is the pre-existing transport-layer gap (no
+ *  per-request deadline on any kaval RPC), a sibling of the dispositioned #1719
+ *  follow-up, not a padi-restore concern. */
+export function persistSettledRestoreSnapshot(): void {
+  if (hasParkedTerminals()) return;
+  saveSession(snapshotSession());
 }
 
 /** FORFEIT the pending restore — the EXPLICIT "start fresh / discard my previous

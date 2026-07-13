@@ -30,6 +30,7 @@ import {
 } from "./padiSurfaceCtx.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
+  persistSettledRestoreSnapshot,
   reconcileRestoreSettlement,
   restoreSession,
 } from "./sessionRestore.ts";
@@ -45,6 +46,7 @@ import {
   seedParkedTerminal,
   TerminalSpawnRacedError,
 } from "./terminalEndpoint/local.ts";
+import { setTerminalTheme } from "./terminals.ts";
 import {
   LOCAL_LOCATION,
   type SavedActiveTerminal,
@@ -535,5 +537,83 @@ describe("reconcileRestoreSettlement — tree settlement (F2 / F3)", () => {
       [{ status: "fulfilled", value: undefined }],
     );
     expect(getTerminal(CHILD)?.meta.parentId).toBe(PARENT);
+  });
+});
+
+describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () => {
+  const LIVE_ID = "77777777-7777-4777-8777-777777777777";
+  const liveEntry = (id: string, cwd: string): ActiveTerminalProcess => ({
+    info: { id, pid: 1 },
+    meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 1 },
+    snapshot: {
+      cwd,
+      git: null,
+      pr: { kind: "absent" },
+      agent: null,
+      foreground: null,
+    },
+    handle: {} as ActiveTerminalProcess["handle"],
+  });
+
+  it("CLEAN settle — a padi-LOCAL metadata change made during the freeze window is persisted", () => {
+    // The F5 loss: while the restore held the process-wide autosave freeze across the
+    // spawn `await`, a live sibling's `setTerminalTheme` (a padi-local setter — no kaval
+    // RPC) mutated in-memory state and fired `terminals:dirty`, which the freeze
+    // suppressed and the caller's `cancelPendingAutosave` would drop. The pre-await
+    // optimistic snapshot therefore omits it. The post-settle re-persist captures it.
+    registerTerminal(LIVE_ID, liveEntry(LIVE_ID, "/f5-live"));
+    setSavedSession({
+      terminals: [
+        {
+          ...base,
+          id: LIVE_ID,
+          state: "active",
+          cwd: "/f5-live",
+          lastActivityAt: 1,
+          restoreTarget: { kind: "none" },
+          // stale on disk — the pre-await snapshot predates the theme change
+        },
+      ],
+      activeTerminalId: LIVE_ID,
+      savedAt: 1,
+    });
+    // The in-window mutation — exactly the setter class codex flagged (commits locally,
+    // fires dirty, never touches kaval).
+    setTerminalTheme(LIVE_ID as never, "dracula");
+
+    persistSettledRestoreSnapshot();
+
+    const saved = getSavedSession()?.terminals.find(
+      (t) => t.cwd === "/f5-live",
+    );
+    expect(saved?.themeName).toBe("dracula");
+  });
+
+  it("PARKED residue — the pre-await optimistic snapshot is NOT shrunk (CONF-6)", () => {
+    // A spawn FAILED and was re-parked in pass 1. `snapshotSession` skips parked records,
+    // so a blind re-persist here would DELETE the re-parked terminal from disk. The guard
+    // leaves the optimistic snapshot standing; restore-pending suppression takes over.
+    const PARKED_ID = "88888888-8888-4888-8888-888888888888";
+    const record: SavedActiveTerminal = {
+      ...base,
+      id: PARKED_ID,
+      state: "active",
+      cwd: "/f5-parked",
+      lastActivityAt: 1,
+      restoreTarget: { kind: "none" },
+    };
+    setSavedSession({
+      terminals: [record],
+      activeTerminalId: PARKED_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(record);
+
+    persistSettledRestoreSnapshot();
+
+    // Disk still names the re-parked terminal — not shrunk to an empty session.
+    expect(
+      getSavedSession()?.terminals.some((t) => t.cwd === "/f5-parked"),
+    ).toBe(true);
   });
 });
