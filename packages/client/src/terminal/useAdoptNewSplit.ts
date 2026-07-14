@@ -30,9 +30,9 @@
  *  genuinely-new sub that appears WHILE seeded is adopted. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createMemo, on } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
-import { sameParentSnapshot } from "./useActiveReconcile";
+import { createHostScopedParentSnapshot } from "./parentSnapshot";
 
 /** The sub-panel seams a new split drives — read live, mutated to adopt. Bundled
  *  so the hook is a pure function of (ports, list, phase): unit-testable with
@@ -61,23 +61,22 @@ export function useAdoptNewSplit(deps: {
   restorePhase: () => HydrationPhase;
   ports: SplitAdoptPorts;
 }) {
-  // A live snapshot of every SUB terminal's parentId (top-level ids excluded), in
-  // key order, tagged with the active host. `equals` wakes the effect only on a
-  // sub membership/parent change or a host switch — the reconcile sibling's gate.
-  const snapshot = createMemo<{
-    host: string;
-    map: Map<TerminalId, TerminalId>;
-  }>(
-    () => {
+  // A live snapshot of every SUB terminal's parentId (top-level ids excluded — a
+  // sub-only projection, so `equals` fires only on a SUB change), in key order,
+  // tagged with the active host. The shared factory owns the host-tag, seed, and
+  // gate (sub membership/parent change or host switch) — one construction with the
+  // reconcile sibling, differing only in this map projection.
+  const snapshot = createHostScopedParentSnapshot<TerminalId>(
+    deps.rawList,
+    deps.activeHostKey,
+    (ids) => {
       const m = new Map<TerminalId, TerminalId>();
-      for (const id of deps.rawList()) {
+      for (const id of ids) {
         const parentId = deps.parentOf(id);
         if (parentId !== null) m.set(id, parentId);
       }
-      return { host: deps.activeHostKey(), map: m };
+      return m;
     },
-    { host: "", map: new Map() },
-    { equals: (a, b) => a.host === b.host && sameParentSnapshot(a.map, b.map) },
   );
 
   createEffect(

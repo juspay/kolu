@@ -20,7 +20,8 @@
  *  CLAIMS the id, and the reconcile skips (draining) a claimed id. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createMemo, on } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
+import { createHostScopedParentSnapshot } from "./parentSnapshot";
 
 /** Pick the tile that inherits focus when the active tile is removed: the
  *  survivor now occupying the removed tile's slot (its old index, clamped to the
@@ -147,25 +148,6 @@ export function createEvictionDedup(
   };
 }
 
-/** Whether two parent-snapshots are identical — same ids, same order, same
- *  parentId each. The `equals` gate on the snapshot memo below, so a metadata
- *  change that touches neither membership nor any parentId (the common case) does
- *  not wake the reconcile. Order-sensitive to match `terminalIds`. Read-only
- *  (`ReadonlyMap`) so the arrival sibling (`useAdoptNewSplit`) can reuse it with
- *  a never-null sub-only map — a comparator this pure has one home, not two. */
-export function sameParentSnapshot(
-  a: ReadonlyMap<TerminalId, TerminalId | null>,
-  b: ReadonlyMap<TerminalId, TerminalId | null>,
-): boolean {
-  if (a.size !== b.size) return false;
-  const bIter = b.entries();
-  for (const [k, v] of a) {
-    const next = bIter.next().value;
-    if (next === undefined || next[0] !== k || next[1] !== v) return false;
-  }
-  return true;
-}
-
 export function useActiveReconcile(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
   rawList: Accessor<TerminalId[]>;
@@ -190,24 +172,20 @@ export function useActiveReconcile(deps: {
    *  so the reconcile SUPPRESSES its authoritative promote-on-departure writes. */
   isDaemonConnected: () => boolean;
 }) {
-  // A live snapshot of every listed terminal's parentId, in key order — so a
-  // DEPARTED terminal's tree relationship (parent? which parent?) survives its
-  // removal, when its metadata is already gone. Rebuilt on any record change but
-  // gated to parentId/membership changes (and host switch) by `equals` below. The
-  // host rides ALONG so a switch is one atomic snapshot step, never seen as
-  // departures of the prior host's tiles.
-  const snapshot = createMemo<{
-    host: string;
-    map: Map<TerminalId, TerminalId | null>;
-  }>(
-    () => {
+  // A live snapshot of every listed terminal's parentId (ALL ids — top-level with
+  // a `null` parent too, for byte-identical switch-target order), in key order — so
+  // a DEPARTED terminal's tree relationship (parent? which parent?) survives its
+  // removal, when its metadata is already gone. The shared factory gates it to
+  // parentId/membership changes (and host switch), and rides the host ALONG so a
+  // switch is one atomic snapshot step, never seen as departures of the prior
+  // host's tiles.
+  const snapshot = createHostScopedParentSnapshot<TerminalId | null>(
+    deps.rawList,
+    deps.activeHostKey,
+    (ids) => {
       const m = new Map<TerminalId, TerminalId | null>();
-      for (const id of deps.rawList()) m.set(id, deps.parentOf(id));
-      return { host: deps.activeHostKey(), map: m };
-    },
-    { host: "", map: new Map() },
-    {
-      equals: (a, b) => a.host === b.host && sameParentSnapshot(a.map, b.map),
+      for (const id of ids) m.set(id, deps.parentOf(id));
+      return m;
     },
   );
 
