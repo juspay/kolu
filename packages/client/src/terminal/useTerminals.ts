@@ -91,9 +91,13 @@ export function useTerminals() {
 
   // Keep exactly one exit subscription per live terminal (top-level and sub),
   // keyed to the server list so kills/exits dispose it. See useTerminalExits.
+  // `allTerminalIds` is the ONE memoized projection of the list ids — also fed to
+  // the reconcile + adopt hooks below (not re-mapped per hook). `parentOf` is the
+  // ONE live parentId reader both hooks share.
   const allTerminalIds = createMemo(
     () => store.listSub()?.map((t) => t.id) ?? [],
   );
+  const parentOf = (id: TerminalId) => store.getMetadata(id)?.parentId ?? null;
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
   // The FULL terminal-removal cleanup, driven off the LIST (not the raceable
@@ -104,8 +108,8 @@ export function useTerminals() {
   // useTerminalStore's factory can't reach crud without a require cycle. See
   // useActiveReconcile.
   useActiveReconcile({
-    rawList: () => store.listSub()?.map((t) => t.id) ?? [],
-    parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
+    rawList: allTerminalIds,
+    parentOf,
     // Host-scope the reconcile: a switch replaces the whole list, and the baseline
     // must reset rather than evict the departed host's tiles (no wrong-host writes).
     activeHostKey: () => encodeHostKey(activeHost()),
@@ -133,8 +137,8 @@ export function useTerminals() {
   // records the sub into its baseline, and skips — hydration then owns the seed.
   const subPanel = useSubPanel();
   useAdoptNewSplit({
-    rawList: () => store.listSub()?.map((t) => t.id) ?? [],
-    parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
+    rawList: allTerminalIds,
+    parentOf,
     activeHostKey: () => encodeHostKey(activeHost()),
     restorePhase: () => activeScope()?.restore.phase ?? "pending",
     ports: {
