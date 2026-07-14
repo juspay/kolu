@@ -56,11 +56,14 @@ host's subscriptions and populating the new one's.
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/client/App.tsx" region="mapped" />
 
-<Aside type="caution" title="entry.rpc is unknown — cast it once">
-  On a generic map, `entry.rpc` is typed `unknown` (a fully generic client type
-  would overflow TypeScript's union budget). The consumer casts it once to its
-  own surface's procedure shape — the `KillRpc` cast above. This is the one place
-  the map hands you an untyped edge; see [Entry contracts](/surface/entry-contracts).
+<Aside type="tip" title="entry.procedures is typed — no cast">
+  Declared procedures ride `entry.procedures.<ns>.<verb>(input)` — the
+  `kill` call above — bound and typed straight from the entry spec, with no cast.
+  The bound `procedures` map is a narrow type that dodges the union-budget overflow
+  (TS2590) the fully generic `entry.rpc` contract client trips on a generic map, so
+  the map no longer hands you an untyped edge for declared calls. `entry.rpc` stays
+  `unknown` and is reserved for the framework procedures and the link-root escape
+  hatch; see [Entry contracts](/surface/entry-contracts).
 </Aside>
 
 ## Watch one box drop on its own

@@ -38,6 +38,10 @@ vi.mock("../wire", () => {
           ? () => ({ state: "active", ...(bag.metaOf(id) as TestMeta) })
           : undefined,
     }),
+    // `createHostWire`'s `terminalKeys` opens this un-enrolled keys-stream ref via
+    // `unenrolledStreamCall` — a no-op async iterable that completes at once (this
+    // test drives ids through `bag.keys`/`deps.list`, not the keys stream).
+    unenrolledKeys: async function* () {},
   };
   // Benign no-op stubs for the OTHER retained subs `createHostWire` opens beside
   // `terminals` (session / activityFeed / daemonStatus) — this test drives ONLY the
@@ -67,6 +71,9 @@ vi.mock("../wire", () => {
     },
     collections: { terminals, daemonStatus: stubCollection },
     cells: { session: stubCell, activityFeed: stubCell },
+    // `createViewState`'s `writeActive` reports the active tile via
+    // `entry(host).procedures.chrome.setActive` — a benign no-op here.
+    procedures: { chrome: { setActive: async () => {} } },
   });
   // The `terminals` collection now rides the active host's RETAINED `scopedByEntry`
   // owner (W9), read via `activeScope().wire.terminals` — so the mock is
@@ -83,12 +90,6 @@ vi.mock("../wire", () => {
       entry,
       useEntry: entry,
     },
-    // `createHostWire`'s `terminalKeys` opens `padiRpcOf(host).surface.terminals.keys`
-    // — a no-op async iterable that completes at once (this test drives ids through
-    // `bag.keys`/`deps.list`, not the keys stream).
-    padiRpcOf: () => ({
-      surface: { terminals: { keys: async function* () {} } },
-    }),
     activeHost: () => LOCAL_HOST,
     // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763). This mock's
     // membership is a static single local host and it never switches, so LOCAL_HOST is

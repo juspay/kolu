@@ -64,8 +64,6 @@ import {
   RepoChangePulseSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/schema";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -899,23 +897,6 @@ type PadiSF = SurfaceTypes<typeof padiSurface.spec>;
 
 /** The `terminals` collection key — a terminal id. */
 export type PadiTerminalKey = PadiSF["collections"]["terminals"]["Key"];
-
-// ── The typed-rpc cast (mirrors surface-app's `surfaceAppProbe`) ──────────
-
-/** The concrete client type of `padiSurface`'s procedures — what a scoped padi
- *  client's `.rpc` IS at runtime. Type-only (browser-safe): the `@orpc/*`
- *  imports are erased. */
-export type PadiRpc = ContractRouterClient<
-  typeof padiSurface.contract,
-  ClientRetryPluginContext
->;
-
-/** Cast a scoped padi client's `unknown`-typed `.rpc` to its concrete contract.
- *  Sound: the runtime `.rpc` IS that link — `{ surface: link.surface.padi }` —
- *  so `padiRpc(padi).surface.<ns>.<verb>(...)` resolves at
- *  `/surface/padi/<ns>/<verb>`. Blessed by the same `SurfaceClient.rpc: unknown`
- *  boundary `surfaceAppProbe` casts across. No consumers at W1.R0. */
-export const padiRpc = (c: { rpc: unknown }): PadiRpc => c.rpc as PadiRpc;
 
 // ── Per-member forwarding policy (W1.C declares; W2.1's helpers read) ──────
 

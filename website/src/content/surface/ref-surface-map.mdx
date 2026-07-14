@@ -44,19 +44,20 @@ lenses onto an entry.
 
 | Member | Returns |
 | --- | --- |
-| `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; upsert/delete only |
+| `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; **read-only** (the map server is the sole writer — no client `upsert`/`delete`) |
 | `live` | `Accessor<boolean>` — resolved transport liveness for the membership strip |
 | `codec` | `KeyCodec<Key>` — the one key-identity authority; `encode`/`decode` the canonical wire string |
 | `entry(key)` | `Entry<ES>` — the pure point lens (no owner, no I/O, total) |
 | `useEntry(keyAccessor)` | `Entry<ES>` — the Solid lens; re-keys on key change; throws ownerless |
 | `dispose()` | tear down |
 
-An `Entry<ES>` carries `cells` / `collections` / `streams` / `events` (the same
-bound hooks a single surface has), plus:
+An `Entry<ES>` carries `cells` / `collections` / `streams` / `events` /
+`procedures` (the same bound hooks a single surface has), plus:
 
 | Member | Returns |
 | --- | --- |
-| `rpc` | the entry's procedure client; folds `{ mapKey }` per call so the caller never passes the key |
+| `procedures` | the entry's declared procedures, bound and typed from the spec — `entry.procedures.<ns>.<verb>(input)`; folds `{ mapKey }` per call so the caller never passes the key |
+| `rpc` | the raw oRPC client — reserved procs (`system.*`) + the escape hatch only; typed `unknown` on a generic map (see below) |
 | `clock.toLocal(remoteMs)` | reproject a host-stamped epoch: `number \| null` (null when the entry has no offset yet) |
 | `state()` | `EntryStatus \| { kind: "not-a-member" }` — a total fold over `entries`, never nullable |
 
@@ -68,10 +69,15 @@ encoded string, so a same-key re-decode reads as a no-op, never a re-key.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="useentry" />
 
-`entry.rpc` is typed **`unknown`** on a generic map — a `ContractRouterClient`
-over an abstract entry spec would overflow TS's union budget (TS2590). The
-consumer casts it **once** to its own surface's procedure shape; the key-injecting
-link still folds `{ mapKey }` into every call, so the caller never passes the key.
+Declared procedures ride `entry.procedures.<ns>.<verb>(input)` — a **narrow**
+mapped type over the entry spec's `procedures`, so it types straight from the
+declaration with **no cast**, while dodging the union-budget overflow (TS2590) a
+full `ContractRouterClient` over an abstract entry spec would trip. The
+key-injecting link folds `{ mapKey }` into every call, so the caller never passes
+the key. `entry.rpc` stays typed **`unknown`** on a generic map — it is only for
+the framework-**reserved** procedures (`system.live` / `system.identity`) and the
+link-root escape hatch, which a consumer reaches through its own concrete contract;
+a declared procedure never needs it.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="rpc" />
 
@@ -212,7 +218,7 @@ independent decodes of the same logical key.
 
 ## Typed sub ends and the clock seam
 
-- **`entry(key).rpc`** is the entry surface's procedure client; the key-injecting link folds `{ mapKey }` into every call. Typed `SurfaceClient<ES>["rpc"]` (`unknown` at the generic map — a consumer casts it once) to sidestep the "union too complex" a generic expansion trips. An absent-key call is a **typed rejection** (`MAP_KEY_UNKNOWN`), the one-shot twin of a sub's typed stream-end.
+- **`entry(key).procedures`** binds the entry surface's declared procedures, typed from the spec (`entry.procedures.<ns>.<verb>(input)`); the key-injecting link folds `{ mapKey }` into every call. A narrow mapped type — no cast, and it sidesteps the "union too complex" a full `entry.rpc` contract client trips on a generic map. An absent-key call is a **typed rejection** (`MAP_KEY_UNKNOWN`), the one-shot twin of a sub's typed stream-end. **`entry(key).rpc`** stays typed `unknown` at the generic map — only the framework-reserved procs (`system.*`) and the link-root escape hatch reach through it.
 - **`entry(key).clock.toLocal(remoteMs)`** reprojects a host-stamped timestamp into the local clock via the entry's measured offset: `remoteMs − offset`. It returns **`null`** (never a silent identity) when the entry has no offset yet (warming/failed/not-a-member); the `number | null` type forces the caller to render a pending "—" rather than fall back to the raw remote value. It reads only `.kind`, never `.failure`, and folds the membership collection so it re-answers as the entry connects.
 
 <Aside type="caution" title="No status renders green over a dead transport">

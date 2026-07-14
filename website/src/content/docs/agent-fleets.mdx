@@ -1,0 +1,108 @@
+---
+title: Agent Fleets
+description: "A way of using kolu where an agent — not a person — drives the work: one coordinator terminal dispatches briefs to worktree'd implementing agents, watches them through padi's agent-state, routes their questions back to itself, and lets you sit one layer up. The pattern kolu's own development runs on."
+order: 62
+section: Use Kolu
+koluHero:
+  eyebrow: the coordinator pattern
+  headline: |
+    One driver,
+    {many} agents.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+_This page explains a **pattern** — a way of using kolu — not a feature to turn on. It's the "why" and the shape; the exact commands live on the [kaval](/kaval) and [padi](/padi) pages, linked throughout._
+
+kolu can be driven by an **agent**, not just a person. Because every terminal kolu owns can be created, prompted, watched, and read from the shell, one agent sitting in a terminal can do to another terminal exactly what you would: open it, type a task, wait for the reply, read it, type the next one. Scale that up and you get a **fleet**: one _coordinator_ agent driving many _implementing_ agents, each in its own worktree, while you stay one layer above all of it.
+
+This isn't hypothetical. kolu's own features are built this way — the [remote-terminals work](/blog/remote-terminals) was a coordinator dispatching briefs to agents running inside kolu's terminals, on real hosts, for weeks. This page describes that pattern as something you can use.
+
+<Aside type="note" title="alpha">
+  The shell-facing tools this pattern leans on ([`kaval-tui`](/kaval), [`padi-tui`](/padi)) are an early preview; commands and flags will change. The pattern itself — one driver, many agents, questions routed to the driver — is stable.
+</Aside>
+
+## Three layers: you, a coordinator, a fleet
+
+The pattern has three roles, and the point of it is the top one.
+
+<CardGrid>
+  <Card title="You (the human)">
+    Set the intent and merge the results. You don't watch ten agents; you can't. You talk to **one** agent — the coordinator — and review the pull requests that come out.
+  </Card>
+  <Card title="The coordinator">
+    One agent in one terminal. It breaks the work into briefs, spawns an implementing agent per brief, watches each one, verifies what they claim, and answers their questions. It is the single door that work passes through.
+  </Card>
+  <Card title="The fleet">
+    One implementing agent per task, each in its **own worktree** so they can't step on each other. They do the work, open PRs, and route anything they're unsure about back _up_ to the coordinator — never to you.
+  </Card>
+</CardGrid>
+
+The reason to add a coordinator at all is **span of attention**. A person can drive one agent well and three agents badly; past a handful, you spend all your time context-switching and none of it thinking. A coordinator doesn't get tired of switching. It holds the state of every agent it spawned, notices the moment one needs input, and only surfaces to you when a PR is ready or a decision is genuinely yours. You trade keystrokes for review.
+
+## The loop: create, prompt, wait, read
+
+Driving another agent is a loop of discrete moves, because each move is a separate, observable thing. The coordinator [creates a worktree'd agent](/padi#the-thin-shell-face--padi-tui), sends it a brief, waits for it to settle, submits, waits for its turn to end, and reads the screen:
+
+```sh
+# spawn an implementing agent in its own worktree — it appears live on the canvas
+id=$(padi-tui create --worktree fix-parser -- claude --dangerously-skip-permissions | jq -r .id)
+
+kaval-tui send "$id" "read /tmp/brief-fix-parser.md and take it end-to-end"  # 1. the brief
+kaval-tui wait "$id" --until idle:300                                        # 2. observe it settle
+kaval-tui send "$id" --key Enter                                             # 3. submit — its own step
+padi-tui  wait "$id" --until awaiting,waiting                                # 4. its turn ended
+kaval-tui snapshot "$id" --viewport                                         # 5. read what it said
+```
+
+The one move that surprises people is that **submitting is separate from typing**. An Enter sent in the same breath as the text races the terminal UI's paste-debounce and gets silently dropped, leaving the prompt sitting unsent — so you type the text, watch the UI go quiet, _then_ send Enter as its own command. That's [why `kaval-tui send` carries text or a key but never both](/kaval#why-kaval-tui-send-not-a-message-bus). The full command surface — `send`, `wait`, `snapshot`, the byte-exact `--file`, the control keys — is on the [kaval page](/kaval#commands--kaval-tui); a worktree'd agent that appears on the canvas comes from [`padi-tui create`](/padi).
+
+Long briefs don't paste cleanly (kolu folds a big paste into a placeholder that Enter won't submit — [issue #1702](https://github.com/juspay/kolu/issues/1702)). So the coordinator writes the brief to a file and sends a _short_ prompt that points the agent at it, the way the loop above does. The agent reads its own brief.
+
+## Knowing when an agent is done — and whether it's asking you
+
+The hardest part of driving an agent isn't sending input; it's knowing when to send the next thing. There are two done-signals, and they answer different questions.
+
+<CardGrid>
+  <Card title="Output went quiet">
+    [`kaval-tui wait --until idle:<ms>`](/kaval) blocks until no output byte has arrived for a while. It works on **any** terminal with no setup, but it can't tell "finished" from "stopped to ask you" — both look like silence.
+  </Card>
+  <Card title="The agent's state changed">
+    [`padi-tui wait --until awaiting,waiting`](/padi) blocks on padi's real [agent-state](/padi) — `working`, `awaiting` (it's asking you), `waiting` (it just finished). This one _distinguishes_ a finished turn from a blocked question, for the terminals kolu owns.
+  </Card>
+</CardGrid>
+
+That distinction is why a coordinator uses the agent-state signal when it can: piling a new task on top of an agent that stopped to **ask a question** is how a fleet wedges. When the state says `awaiting`, the coordinator reads the screen and answers; when it says `waiting`, the turn is genuinely done. Silence alone can't tell you which, so — after any `wait` returns — the coordinator [reads the snapshot](/kaval) before it responds.
+
+## Questions flow up to the coordinator, never out to you
+
+An implementing agent that hits a real decision has a problem: it's alone in its own terminal, and the human is one layer up and probably asleep. If it pops an interactive question, that question sits unanswered in a PTY nobody is looking at, and the agent stalls.
+
+So the discipline is: **an implementing agent routes every question to the coordinator**, using the same drive loop in reverse — it writes to the coordinator's terminal and waits for a ruling. The coordinator is the one door in the [seam](/blog/remote-terminals) the fleet is built on: observation flows _out_ freely (you, or the coordinator, can watch every agent's state at any time), but action and decisions flow _in_ through a single point. That one-door shape is what keeps a fleet autonomous instead of stalling on a dozen unanswered prompts — and it's the same shape kolu uses to [put an agent under a chat app](/architecture).
+
+## A fleet can span machines
+
+Nothing about this is local. Because [padi](/padi) binds a per-host daemon over ssh, a coordinator on your laptop can drive agents running on a [remote host](/remote-hosts) — `padi-tui wait --host prod <id>`, `kaval-tui snapshot --host prod <id>` — the same loop, a different box. A remote PTY survives the link dropping, so an agent keeps working while your laptop sleeps. The [fleet is a mix of hosts](/remote-hosts); the driving code doesn't change.
+
+## The seams, and when not to bother
+
+This pattern is real but not seamless, and it's worth knowing the sharp edges before you lean on it:
+
+- **Submit is a separate step.** The single most common failure is a brief that "was sent" but sits unsubmitted because the Enter got dropped. Watch the settle, then submit.
+- **Terminal ids re-key on a daemon restart.** An id you cached can go stale after a redeploy or a crash-restore; track a long-lived terminal by its **title**, which survives, and re-find its current id.
+- **Big pastes fold.** Anything past a couple of lines goes through a file the agent reads, not the prompt box.
+- **The human is still in the loop.** In practice a coordinator still surfaces to you more than the ideal — a decision it won't make, a PR that needs your eyes. That's a feature, not a bug.
+
+And the honest trade-off: a coordinator earns its overhead only past a handful of agents. For one quick task, drive the agent yourself — the loop above _is_ the coordinator's move, and you can run it by hand. The pattern pays off when the number of agents crosses what one person can hold in their head at once, which is exactly the moment you'd otherwise start dropping threads.
+
+## Related
+
+<CardGrid>
+  <LinkCard title="Kaval" href="/kaval" description="the drive loop's command surface — kaval-tui send / wait / snapshot, and the two env vars an agent uses to find itself" />
+  <LinkCard title="Padi" href="/padi" description="padi-tui create --worktree and padi-tui wait --until awaiting,waiting — worktree'd agents and the real agent-state done-signal" />
+  <LinkCard title="Remote Hosts" href="/remote-hosts" description="run the fleet across machines — the same loop over ssh, one tab per host" />
+  <LinkCard title="Seven weeks to a remote terminal" href="/blog/remote-terminals" description="the story of kolu building itself this way, coordinator and all" />
+</CardGrid>

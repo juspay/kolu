@@ -5,9 +5,10 @@
  *   - `app.cells / .collections / .streams / .events` — bound `.use()`
  *     hooks with `source` / `mutate` / `valueSource` / `keyToInput`
  *     pre-filled.
- *   - `app.rpc` — typed oRPC client for imperative procedures
- *     (`app.rpc.notes.create({...})`) and any verb the bound hooks
- *     don't cover.
+ *   - `app.procedures` — declared imperative procedures, bound and typed
+ *     from the spec (`app.procedures.notes.create({...})`), no cast.
+ *   - `app.rpc` — the raw oRPC client, for the reserved framework
+ *     procedures and any verb the bound hooks / `procedures` can't cover.
  */
 
 import { createLiveSignal, surfaceClient } from "@kolu/surface/solid";

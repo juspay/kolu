@@ -44,7 +44,7 @@ function init() {
   const close = () => setSession(null);
 
   const writeIntent = (id: TerminalId, intent: string) => {
-    void activePadiRpc.surface.chrome
+    void activePadiRpc.chrome
       .setIntent({ id, intent })
       .catch((err: Error) =>
         toast.error(`Failed to save intent: ${err.message}`),

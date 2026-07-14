@@ -81,7 +81,7 @@ const ComposeSection: Component<{
     const sent = draft();
     setSending(true);
     try {
-      await activePadiRpc.surface.lifecycle.sendInput({
+      await activePadiRpc.lifecycle.sendInput({
         id: props.terminalId,
         data,
       });
