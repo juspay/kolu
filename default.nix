@@ -570,6 +570,30 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
 
+  # pesu (B0): the XS chat bridge — an app-tier sibling of kolu-server that binds
+  # one chat thread to the coordinator terminal. Runs from the SAME built workspace
+  # closure as `kolu` (so kaval + @kolu/padi + the transcript loaders resolve
+  # identically). It DIALS the host's running kaval + padi over their unix sockets
+  # (it never spawns them, so no KOLU_KAVAL_BIN) and the XS app API over HTTPS, and
+  # shells out to nothing — so PATH needs only nodejs. All config is env-only and
+  # fail-fast (`nix run .#pesu` crashes loudly if a required var is absent), so it
+  # carries no baked identity or diag hook.
+  #
+  # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
+  # single-process loader form delivers SIGTERM to the daemon so its HTTP listener
+  # tears down cleanly (the same reason kaval/padi use it).
+  pesu = pkgs.runCommand "pesu"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "pesu";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/pesu \
+      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+      --add-flags "${kolu}/packages/pesu/src/bin.ts" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
   # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
   # remote. kaval-tui and padi-tui both consume it (the two thin, single-daemon
@@ -680,5 +704,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui padi padi-tui pesu koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // fleetTop // docsiteExample // oduPackages

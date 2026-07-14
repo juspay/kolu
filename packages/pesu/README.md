@@ -42,6 +42,18 @@ and the live mirror (B2) build on it. The design of record is the Atlas note
 7. Replies over XS's **40,000-character** cap are split across messages. **A
    fault posts as a visible reply — never silence.**
 
+## Running
+
+```sh
+nix run .#pesu    # crashes loudly if a required env var (below) is absent
+```
+
+`nix run .#pesu` builds pesu from the same workspace closure as `kolu` and runs
+it under `node --import tsx`, so a `SIGTERM` tears the HTTP listener down cleanly.
+In production it's a systemd user service whose `ExecStart` is that same wrapper,
+with the environment below supplied by the unit (secrets via the service's secret
+mechanism).
+
 ## Configuration (environment only)
 
 Secrets reach pesu **only as environment variables** — never the repo, the PR,
