@@ -257,7 +257,7 @@ const Terminal: Component<{
       xterm: term,
       serialize: h.addons.serialize,
       probes: {
-        webglAtlas: () => h.textureAtlasSize(),
+        webglAtlas: () => h.webgl.textureAtlasSize(),
         bufferBytes: () => readBufferBytes(term),
         scrollLockEvents: () => h.scrollLock.events(),
         ...h.recovery.probes,
@@ -267,7 +267,7 @@ const Terminal: Component<{
     // source of truth, no imperative updater to forget.
     disposeDiagnostics = registerDiagnostics(props.terminalId, {
       xterm: term,
-      renderer: () => (h.hasWebgl() ? "webgl" : "dom"),
+      renderer: () => (h.webgl.hasWebgl() ? "webgl" : "dom"),
       scrollLock: {
         locked: h.scrollLock.isLocked,
         pendingChunks: h.scrollLock.pendingChunks,
@@ -340,7 +340,7 @@ const Terminal: Component<{
     refitOnTabVisible(
       () => {
         h.refit();
-        h.clearTextureAtlas();
+        h.webgl.clearTextureAtlas();
         h.scrollLock.handleTabVisible();
         h.recovery.recover();
       },
@@ -764,7 +764,7 @@ const Terminal: Component<{
         data-focused={isFocused() ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
-        data-renderer={(handle()?.hasWebgl() ?? false) ? "webgl" : "dom"}
+        data-renderer={(handle()?.webgl.hasWebgl() ?? false) ? "webgl" : "dom"}
       />
     </div>
   );

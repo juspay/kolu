@@ -30,7 +30,11 @@ import { createScrollLock } from "./scrollLock";
 import { wireScrollIntent } from "./scrollLockWiring";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { wireTouchScroll, wireTouchTaps } from "./touch";
-import { attachWebGL, type WebglLifecycleHooks } from "./webgl";
+import {
+  attachWebGL,
+  type WebglHandle,
+  type WebglLifecycleHooks,
+} from "./webgl";
 import { createXtermLifecycle, type XtermCore } from "./xtermLifecycle";
 
 /** The scroll-lock latch instance shape (structural — no exported nominal). */
@@ -47,9 +51,7 @@ export interface XtermHandle {
   /** `scrollLock.writeData` bound to this terminal — the buffer-through-the-lock
    *  write the consumer's stream drives, `onParsed` firing when the chunk lands. */
   write: (data: string, onParsed?: () => void) => void;
-  hasWebgl: Accessor<boolean>;
-  clearTextureAtlas: () => void;
-  textureAtlasSize: () => { w: number; h: number } | null;
+  webgl: WebglHandle;
   recovery: RenderRecovery;
   /** Debounced fit — one call per animation frame (ResizeObserver fires fast). */
   refit: () => void;
@@ -196,9 +198,7 @@ export const Xterm: Component<
         addons: core.addons,
         scrollLock,
         write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
-        hasWebgl: webgl.hasWebgl,
-        clearTextureAtlas: webgl.clearTextureAtlas,
-        textureAtlasSize: webgl.textureAtlasSize,
+        webgl,
         recovery,
         refit,
       };
