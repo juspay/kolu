@@ -186,6 +186,57 @@ describe("extendSurface", () => {
     ).toThrow(/both serve member "status"/);
   });
 
+  it("preserves an extension's app-owned system verb (deep-merges the reserved namespace)", () => {
+    // `defineSurface` permits app-owned `system.*` verbs beside the reserved
+    // live/identity/clockNow. A shallow base-wins spread would drop the ext's — the
+    // deep-merge keeps base authoritative on the reserved verbs AND serves ext's.
+    const extWithSystem = defineSurface({
+      cells: { history: { schema: z.array(z.number()), default: [] } },
+      procedures: {
+        system: {
+          echo: {
+            input: z.object({ x: z.number() }),
+            output: z.object({ x: z.number() }),
+          },
+        },
+      },
+    });
+    const composed = extendSurface(
+      { surface: baseSurface, ...buildBase() },
+      {
+        surface: extWithSystem,
+        ...implementSurface(extWithSystem, {
+          cells: { history: { store: inMemoryStore<number[]>([]) } },
+          procedures: { system: { echo: ({ input }) => input } },
+        }),
+      },
+    );
+    const matcher = new StandardRPCMatcher();
+    // biome-ignore lint/suspicious/noExplicitAny: matcher.init takes a Router; the composed runtime shape satisfies it.
+    matcher.init(composed.router as any);
+    const paths = Object.keys(
+      (matcher as unknown as { tree: Record<string, unknown> }).tree,
+    );
+    // The ext's app-owned system verb survives the reserved-namespace deep-merge…
+    expect(paths).toContain("/surface/system/echo");
+    // …and the base's reserved system verbs still route.
+    expect(paths.some((p) => p.startsWith("/surface/system/"))).toBe(true);
+  });
+
+  it("materializes every kind so an absent kind reads as an object, not undefined", () => {
+    // ComposedSurfaceSpec types every kind present; mergeSurfaceSpecs materializes
+    // them so `composed.surface.spec.<kind>` is an object even when both sides omit
+    // it — the descriptor type and value agree.
+    const composed = extendSurface(
+      { surface: baseSurface, ...buildBase() },
+      { surface: extSurface, ...buildExt() },
+    );
+    // extSurface declares no streams/events/procedures; the merged spec still has them.
+    expect(composed.surface.spec.streams).toEqual({});
+    expect(composed.surface.spec.events).toEqual({});
+    expect(composed.surface.spec.procedures).toEqual({});
+  });
+
   it("fails loud on a CROSS-KIND name collision (base cell vs ext procedure namespace)", () => {
     // The flat wire namespace is per-NAME across all kinds: a base cell `status` and
     // an ext procedure namespace `status` have disjoint verbs, so they escape the

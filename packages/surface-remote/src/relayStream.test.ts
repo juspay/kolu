@@ -12,11 +12,12 @@
  * live xterm" corruption is unrepresentable, not a rule to remember.
  */
 
-import { ORPCError } from "@orpc/client";
 import {
   SURFACE_RELAY_TRANSPORT_LOST,
+  SURFACE_STDIO_TRANSPORT_CLOSED,
   shouldNotRetryORPCError,
 } from "@kolu/surface/client";
+import { ORPCError } from "@orpc/client";
 import { describe, expect, it } from "vitest";
 import { controllable } from "./controllableStream.testutil";
 import { observableHolder } from "./hostFanout";
@@ -103,6 +104,70 @@ describe("relayFailThroughStream (delta)", () => {
     // The shared retry fence classifies it RETRYABLE (unlike any other ORPCError).
     expect(fence({ error })).toBe(true);
     expect(frames).toEqual(["snapshot", "live-1"]); // no spliced frame
+  });
+
+  it("surfaces an APPLICATION error unchanged (non-retryable), only a TRANSPORT death becomes the retryable end", async () => {
+    // The relay end is retryable ONLY for a genuine middle-hop transport loss. An
+    // application ORPCError the agent raised (NOT_FOUND for a gone terminal, say)
+    // must cross unchanged and stay NON-retryable — else the fence retries a
+    // permanent failure forever.
+    const appErr = new ORPCError("NOT_FOUND", { message: "terminal gone" });
+    const up1 = controllable<string>();
+    const holder = observableHolder<ByteClient>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up1.stream(opts?.signal) } },
+    };
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    let appError: unknown = null;
+    const run1 = (async () => {
+      try {
+        for await (const _ of relay({ id: "t1" }, undefined)) {
+          /* consume */
+        }
+      } catch (err) {
+        appError = err;
+      }
+    })();
+    up1.push("live");
+    await delay();
+    up1.fail(appErr);
+    await run1;
+    expect(appError).toBe(appErr); // the SAME error, unwrapped
+    expect(appError).not.toBeInstanceOf(RelayTransportLostError);
+    expect(fence({ error: appError })).toBe(false); // application error → NOT retried
+
+    // A genuine transport-death code, by contrast, becomes the retryable relay end.
+    const transportErr = new ORPCError(SURFACE_STDIO_TRANSPORT_CLOSED, {
+      message: "stdio closed",
+    });
+    const up2 = controllable<string>();
+    holder.current = {
+      surface: { s: { get: async (_i, opts) => up2.stream(opts?.signal) } },
+    };
+    let relayError: unknown = null;
+    const run2 = (async () => {
+      try {
+        for await (const _ of relay({ id: "t2" }, undefined)) {
+          /* consume */
+        }
+      } catch (err) {
+        relayError = err;
+      }
+    })();
+    up2.push("live");
+    await delay();
+    up2.fail(transportErr);
+    await run2;
+    expect(relayError).toBeInstanceOf(RelayTransportLostError);
+    expect((relayError as ORPCError<string, unknown>).code).toBe(
+      SURFACE_RELAY_TRANSPORT_LOST,
+    );
+    expect(fence({ error: relayError })).toBe(true); // transport loss → retried
   });
 
   it("propagates a clean upstream end as a clean downstream end", async () => {

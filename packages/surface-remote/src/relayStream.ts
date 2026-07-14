@@ -44,7 +44,11 @@
  * graduates the machinery; W1 shipped that classification.
  */
 
-import { SURFACE_RELAY_TRANSPORT_LOST } from "@kolu/surface/client";
+import {
+  SURFACE_RELAY_TRANSPORT_LOST,
+  SURFACE_STDIO_TRANSPORT_CLOSED,
+  SURFACE_TRANSPORT_RETIRED,
+} from "@kolu/surface/client";
 import type { UpstreamSource } from "@kolu/surface/project";
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
 import { ORPCError } from "@orpc/client";
@@ -273,6 +277,28 @@ export class RelayTransportLostError extends ORPCError<
   }
 }
 
+/** Whether a caught upstream rejection is a genuine MIDDLE-HOP transport loss —
+ *  the parent's link to the agent died — as opposed to an APPLICATION error the
+ *  agent's handler deliberately raised. Only the former becomes the retryable
+ *  {@link RelayTransportLostError}; an application `ORPCError` (`NOT_FOUND`,
+ *  `BAD_REQUEST`, an authorization failure, …) must surface UNCHANGED so it crosses
+ *  oRPC with its code preserved and stays NON-retryable — otherwise the downstream
+ *  retry fence would retry a permanent failure forever (e.g. attaching to a
+ *  terminal that is genuinely gone). Transport loss is: an already-named relay end
+ *  (a nested re-serve), a permanently-dead transport code the link rejects with, or
+ *  a non-`ORPCError` (a raw transport/network reject the client never turned into an
+ *  application error). */
+function isMiddleHopTransportLoss(err: unknown): boolean {
+  if (err instanceof RelayTransportLostError) return true;
+  if (err instanceof ORPCError) {
+    return (
+      err.code === SURFACE_STDIO_TRANSPORT_CLOSED ||
+      err.code === SURFACE_TRANSPORT_RETIRED
+    );
+  }
+  return true;
+}
+
 /**
  * Relay an input-keyed DELTA (byte / liveness) stream, FAILING THROUGH.
  *
@@ -329,9 +355,19 @@ export function failThroughStreamCore<Cl, I, F>(
       log(`${member}: upstream stream ended — ending downstream`);
     } catch (err) {
       if (isAbortReason(err, signal)) return;
-      // A mid-stream upstream death. End the downstream with the NAMED RETRYABLE
-      // transport end (carrying the raw upstream error as `cause`), NOT a raw
-      // re-throw: a raw error crosses oRPC sanitized to a NON-retriable
+      // An APPLICATION error the agent deliberately raised (NOT_FOUND, BAD_REQUEST,
+      // an auth failure, …) is NOT a middle-hop transport loss — surface it UNCHANGED
+      // so it crosses oRPC with its code preserved and stays NON-retriable, never
+      // retried forever by the downstream fence.
+      if (!isMiddleHopTransportLoss(err)) {
+        log(
+          `${member}: upstream application error — surfacing unchanged: ${(err as Error).message}`,
+        );
+        throw err;
+      }
+      // A genuine mid-stream transport death. End the downstream with the NAMED
+      // RETRYABLE transport end (carrying the raw upstream error as `cause`), NOT a
+      // raw re-throw: a raw error crosses oRPC sanitized to a NON-retriable
       // `INTERNAL_SERVER_ERROR`, which would STRAND the downstream instead of
       // re-subscribing it end-to-end.
       log(

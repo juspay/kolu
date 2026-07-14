@@ -439,9 +439,17 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const collSpec = spec.collections?.[key] as CollectionSpec;
       if (collectionHasDeltas(collSpec)) {
         // Delta protocol: one stream carries snapshot-then-deltas for the whole
-        // collection. SUPPLYING a sink means the caller expects that stream, so a
-        // client with no `deltas` verb is a mismatch (fail-fast), never a silent
-        // fall back to the per-key path.
+        // collection. SUPPLYING a sink means the caller expects that stream, never a
+        // silent fall back to the per-key path. This structural check catches a
+        // client whose namespace object literally lacks `deltas` (a plain-object /
+        // test client, or one built from a DIFFERENT surface family). A real oRPC
+        // WIRE client is a lazy proxy on which every property is a callable, so a
+        // route the server never registered can't be caught here — it surfaces
+        // instead as the subscribe rejection `mirrorCollectionDeltas` handles per the
+        // mirror's upstream-error contract (the SAME limit the per-key `requireEntry`
+        // path has). Routing is spec-driven — server and client share ONE surface
+        // spec, so a declared-deltas collection IS served with deltas; a genuine
+        // absence is a version skew, not a normal case.
         if (!entry || typeof entry.deltas !== "function") {
           throw new ClientSurfaceMismatchError(
             `a sink was supplied for collection "${key}" (declares the "deltas" verb) but the client has no "deltas" verb`,

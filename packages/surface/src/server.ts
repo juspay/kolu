@@ -2387,8 +2387,11 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
   for (const kind of SURFACE_KINDS) {
     const av = (a as Record<string, Record<string, unknown> | undefined>)[kind];
     const bv = (b as Record<string, Record<string, unknown> | undefined>)[kind];
-    if (!av && !bv) continue;
-    // Names are guaranteed disjoint across the two specs by the check above.
+    // EVERY kind is materialized (empty when both sides omit it), so the runtime
+    // spec value matches `ComposedSurfaceSpec`'s all-kinds-present type — a reader of
+    // `composed.surface.spec.<kind>` gets an object, never `undefined` behind an
+    // object type. Names are guaranteed disjoint across the two specs by the check
+    // above, so the shallow merge never overwrites.
     merged[kind] = { ...av, ...bv };
   }
   return merged as SurfaceSpec;
@@ -2440,17 +2443,32 @@ export function extendSurface<
   const t = implement(combined.contract as any) as any;
   const baseNs = (base.router as { surface: Record<string, unknown> }).surface;
   const extNs = (ext.router as { surface: Record<string, unknown> }).surface;
-  // Splice the two flat surface namespaces. The DECLARED members are guaranteed
-  // disjoint by `mergeSurfaceSpecs` (checked on the flat per-name wire axis), so the
-  // only member present in BOTH is the framework-injected reserved `system`; base
-  // spread LAST makes the BASE's `system` authoritative — it carries the re-served
-  // agent's identity + liveness gate, whereas a local `ext` (a retention ring) adds
-  // no gate. `t` is already `any` (the implement chain above); the spliced runtime
-  // shape is a valid router re-adapted against the combined contract (pinned by
-  // extendSurface.test's matcher-tree assertion).
-  const router = t.router({
-    surface: { ...extNs, ...baseNs },
-  }) as unknown;
+  // Splice the two flat surface namespaces. `mergeSurfaceSpecs` guarantees the
+  // DECLARED members are disjoint (checked on the flat per-name wire axis), so the
+  // only members present in BOTH are framework-injected reserved namespaces
+  // (`system`). Those are DEEP-merged per verb rather than overwritten wholesale:
+  // the BASE is authoritative on the reserved verbs (live/identity/clockNow — it
+  // carries the re-served agent's identity + liveness gate, whereas a local `ext`
+  // retention ring adds no gate), while any APP-OWNED verb the extension declared on
+  // the same namespace (e.g. `procedures.system.echo`, which the combined contract
+  // advertises) is PRESERVED — a shallow last-wins spread would silently drop it and
+  // 404 the advertised route. `t` is already `any`; the spliced runtime shape is a
+  // valid router re-adapted against the combined contract (pinned by the matcher test).
+  const surfaceNs: Record<string, unknown> = { ...extNs };
+  for (const [name, baseMember] of Object.entries(baseNs)) {
+    const extMember = surfaceNs[name];
+    surfaceNs[name] =
+      extMember &&
+      typeof extMember === "object" &&
+      baseMember &&
+      typeof baseMember === "object"
+        ? {
+            ...(extMember as Record<string, unknown>),
+            ...(baseMember as Record<string, unknown>),
+          }
+        : baseMember;
+  }
+  const router = t.router({ surface: surfaceNs }) as unknown;
 
   // Supervise through the framework's terminal-source combinator: the base (a
   // re-served mirror) is the TERMINAL driver — its `done` resolves when the remote
