@@ -15,7 +15,7 @@ import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 const T = (s: string) => s as TerminalId;
 
@@ -59,9 +59,11 @@ function harness() {
   const [store, setStore] = createStore<
     Record<string, TerminalMetadata | undefined>
   >({});
-  let dispose = () => {};
-  createRoot((d) => {
-    dispose = d;
+  // `useTerminalAlerts` installs a module-global `window.__koluSimulateAlert`;
+  // snapshot it so the per-test teardown restores whatever was there before,
+  // rather than leaving the last harness's closure globally reachable.
+  const priorSimulate = window.__koluSimulateAlert;
+  const dispose = createRoot((d) => {
     useTerminalAlerts({
       activeId: () => null,
       activate: vi.fn(),
@@ -70,6 +72,13 @@ function harness() {
       markUnread: vi.fn(),
       terminalIds: ids,
     });
+    return d;
+  });
+  // Dispose the reactive root and restore the global at the end of THIS test, so
+  // no test leaks its effect graph or its alert closure into the next one.
+  onTestFinished(() => {
+    dispose();
+    window.__koluSimulateAlert = priorSimulate;
   });
   return { setIds, setStore, dispose };
 }
@@ -137,6 +146,27 @@ describe("useTerminalAlerts — agent-state transition diff", () => {
     // Remove `del` — `keep` shifts from index 1 to index 0, where the prior tick's
     // state was `del`'s `thinking`. A positional diff reads a phantom transition.
     setIds([T("keep")]);
+    await tick();
+
+    expect(fired).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire when two hosts share a TerminalId (session import) and one is awaiting", async () => {
+    // Session import/restore preserves a SLEEPING terminal's id, so the SAME
+    // `TerminalId` can appear on two hosts. Membership (`has(id)`) alone would then
+    // pair host B's non-notify state against host A's `awaiting_user` and manufacture
+    // the exact phantom. The host gate in the diff must suppress this: a host switch
+    // makes every terminal a first sighting regardless of id collision.
+    const { setStore, setIds } = harness();
+    // Host B (local): the shared id `dup` is a plain shell (agent not detected).
+    setStore({ dup: { state: "active" } as unknown as TerminalMetadata });
+    setIds([T("dup")]);
+    await tick();
+
+    // Switch to host A (zest): the SAME id `dup` is a live agent already awaiting.
+    h.activeHost = { kind: "remote", target: "zest" };
+    setStore("dup", meta("awaiting_user"));
+    setIds([T("dup")]);
     await tick();
 
     expect(fired).not.toHaveBeenCalled();

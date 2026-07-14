@@ -42,7 +42,8 @@ export function useTerminalAlerts(deps: {
   // `serviceWorker` message listener — a second listener on the same channel
   // would cross-deliver a `host` payload into a `terminal` handler.
 
-  // Reactively watch agent state for all terminals, keyed by TerminalId.
+  // Reactively watch agent state for all terminals, keyed by TerminalId AND scoped
+  // to the active host.
   //
   // The diff MUST key on identity, not list POSITION. `deps.terminalIds()` is the
   // ACTIVE host's window (`activeWire.terminalListSub`) — a host switch swaps the
@@ -61,10 +62,21 @@ export function useTerminalAlerts(deps: {
   // agent state was undefined *then* is distinguished from a first sighting, so an
   // agent that appears and jumps straight into the notify class still fires
   // (`checkAgentFinished` treats an undefined `prev` as non-notify).
+  //
+  // Snapshot the ACTIVE HOST alongside the states and SKIP the whole diff on a host
+  // change. `has(id)` alone assumes ids are disjoint across hosts, which holds for
+  // fresh `crypto.randomUUID()` terminals — but session import/restore preserves a
+  // SLEEPING terminal's id (`seedSleepingTerminal` re-seeds `t.id`, and sleep/wake
+  // keep the id in place), so the SAME `TerminalId` can live on two hosts. Without
+  // the host gate, switching between two hosts that share such an id would pair the
+  // one host's `awaiting_user` against the other's non-notify state and re-fire the
+  // exact phantom this change removes. Gating on the host makes it impossible by
+  // construction: after a switch every terminal is a first sighting on the new host.
   createEffect(
     on(
-      () =>
-        new Map(
+      () => ({
+        host: encodeHostKey(activeHost()),
+        states: new Map(
           deps
             .terminalIds()
             .map(
@@ -72,11 +84,12 @@ export function useTerminalAlerts(deps: {
                 [id, activeArm(deps.getMetadata(id))?.agent?.state] as const,
             ),
         ),
-      (states, prevStates) => {
-        if (!prevStates) return;
-        for (const [id, next] of states) {
-          if (prevStates.has(id))
-            checkAgentFinished(id, prevStates.get(id), next);
+      }),
+      (curr, prev) => {
+        if (!prev || prev.host !== curr.host) return;
+        for (const [id, next] of curr.states) {
+          if (prev.states.has(id))
+            checkAgentFinished(id, prev.states.get(id), next);
         }
       },
     ),
