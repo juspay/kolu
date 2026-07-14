@@ -14,7 +14,6 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
-import type { SearchAddon } from "@xterm/addon-search";
 import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
 import {
   type Component,
@@ -124,13 +123,11 @@ const Terminal: Component<{
   // Policy refs, set in onReady and nulled in onCleanup so this component's
   // closures don't retain the xterm graph after disposal (the #606 leak — the
   // kit disposes the terminal itself; we release only our own references).
-  let terminal: XTerm | null = null;
   let linkProviderDisposable: { dispose(): void } | null = null;
   let backfill: BackfillController | null = null;
   let streamAbort: AbortController | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
-  const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
   const terminalStore = useTerminalStore();
   const activity = useTerminalActivity();
@@ -175,7 +172,7 @@ const Terminal: Component<{
   // switching/revealing a tile. So this is a no-op on touch. Real taps still
   // call terminal.focus() directly.
   function focusOnSelection() {
-    if (!isTouch()) terminal?.focus();
+    if (!isTouch()) handle()?.terminal?.focus();
   }
 
   // Open a `path:line` reference in the Code tab. Shared by the hover link
@@ -193,11 +190,12 @@ const Terminal: Component<{
   // selection/hover share), hit-test the link parser, and follow a hit. Returns
   // true if the tap was consumed (so <Xterm> doesn't summon the soft keyboard).
   const onTap = (clientX: number, clientY: number): boolean => {
-    if (!terminal) return false;
-    const cell = cellAtPoint(terminal, clientX, clientY);
+    const term = handle()?.terminal;
+    if (!term) return false;
+    const cell = cellAtPoint(term, clientX, clientY);
     if (!cell) return false;
-    const bufferLine = terminal.buffer.active.viewportY + cell.row;
-    const ref = fileRefAtCell(terminal, cell.col, bufferLine);
+    const bufferLine = term.buffer.active.viewportY + cell.row;
+    const ref = fileRefAtCell(term, cell.col, bufferLine);
     if (ref) {
       activateFileRef(ref);
       return true;
@@ -233,8 +231,6 @@ const Terminal: Component<{
   const onReady = (h: XtermHandle) => {
     setHandle(h);
     const term = h.terminal;
-    terminal = term;
-    setSearchAddon(h.addons.search);
 
     // Kolu-owned bridge consumed by e2e step definitions — `support/buffer.ts`,
     // `step_definitions/file_ref_link_steps.ts`, and friends read
@@ -387,7 +383,7 @@ const Terminal: Component<{
     // re-subscribe on a transport blip) and the outer re-attach (a mid-chain padi
     // death STREAM_RETRY won't retry — done-criterion (c)).
     const resetForFreshSnapshot = () => {
-      terminal?.reset();
+      handle()?.terminal?.reset();
       h.scrollLock.reset();
       snapshotBoundary.armSnapshot();
       // Forget the backfill cursor: the next frame is a fresh snapshot that
@@ -452,7 +448,7 @@ const Terminal: Component<{
         const data = commitSeed
           ? `${commitSeed.seam}${frame.data}`
           : frame.data;
-        if (terminal) {
+        if (handle()) {
           // Every chunk AFTER the snapshot boundary is live output — light the
           // terminal's live-activity dot (dock + title), even when scroll-locked
           // (the bytes still arrived; the user just isn't at the bottom). The
@@ -609,8 +605,6 @@ const Terminal: Component<{
     linkProviderDisposable = null;
     backfill?.dispose();
     backfill = null;
-    terminal = null;
-    setSearchAddon(null);
     const h = handle();
     if (h)
       (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
@@ -672,7 +666,7 @@ const Terminal: Component<{
       classList={{ hidden: !props.visible }}
       {...TERMINAL_SEARCH_ATTR_PROP}
     >
-      <Show when={searchAddon()}>
+      <Show when={handle()?.addons.search}>
         {(addon) => (
           <SearchBar
             searchAddon={addon()}
@@ -692,7 +686,7 @@ const Terminal: Component<{
         active={handle()?.scrollLock.hasNewOutput() ?? false}
         onClick={() => {
           const h = handle();
-          if (h && terminal) h.scrollLock.scrollToBottom(terminal);
+          if (h) h.scrollLock.scrollToBottom(h.terminal);
           // focusOnSelection is a no-op on touch: tapping the scroll-to-bottom
           // FAB to catch up on output must not summon the soft keyboard (only an
           // explicit tap on the terminal does). Desktop still refocuses so the
