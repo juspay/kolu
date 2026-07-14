@@ -32,7 +32,9 @@ import {
   type HostKey,
   HostKeySchema,
   identityCodec,
+  liveWhenEntrySurface,
   makeEntry,
+  makeLiveWhenEntry,
   makeRegistry,
   settle,
   setup,
@@ -186,6 +188,13 @@ describe("surface-map mock-entry e2e harness", () => {
       setState(C, connected(42));
       await settle();
       expect(stC).toMatchObject({ kind: "connected", clockOffset: 42 });
+
+      // Readiness is decoupled from the clock offset (PR3): a connected session whose
+      // `system.clockNow` probe hasn't landed carries `clockOffset: null` and still reads
+      // CONNECTED end-to-end (server projection → client), never demoted to connecting/warming.
+      setState(C, connected(null));
+      await settle();
+      expect(stC).toMatchObject({ kind: "connected", clockOffset: null });
 
       addFault(D, { cause: "drv-missing", reason: "no drv for arch" });
       await settle();
@@ -908,6 +917,47 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       entryA.setUrgency({ awaiting: 9, awaitingIds: [] });
       await settle();
       expect(retainedAwaiting).toBe(9);
+      dispose();
+    });
+  });
+
+  it("a liveWhen cell's standing subscription REBUILDS on a same-key re-add — not stranded by clientFor eviction (F1)", async () => {
+    // A `liveWhen` cell (padi's real `connection` cell) opens an EAGER, CLIENT-OWNED
+    // standing subscription that `SurfaceClient.dispose()` destroys — a DIFFERENT lifecycle
+    // from an ordinary cell. `clientFor` disposes the superseded client on a re-add, so the
+    // reactive lens must REBUILD that standing sub against the fresh client. The `urgency`
+    // re-add pin can't exercise this (ordinary cells have no standing root); here the health
+    // value must follow the NEW session, proving the standing sub was rebuilt, not stranded.
+    await createRoot(async (dispose) => {
+      const map = buildTestMap({
+        key: HostKeySchema,
+        entry: liveWhenEntrySurface,
+        codec: identityCodec,
+      });
+      const reg = makeRegistry();
+      const served = serveSurfaceMap(map, reg.registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+
+      reg.addSession(A, makeLiveWhenEntry(1).link, connected(0));
+
+      const [active] = createSignal<HostKey>(A);
+      const cell = client.useEntry(active).cells.health.use();
+      let n: number | undefined;
+      createEffect(() => {
+        n = (cell.value() as { n: number } | undefined)?.n;
+      });
+      await settle();
+      expect(n).toBe(1);
+
+      // Flap: remove A (its standing liveWhen sub is disposed with the client), then re-add
+      // under a NEW session whose `health` reads a DIFFERENT value.
+      reg.remove(A);
+      await settle();
+      reg.addSession(A, makeLiveWhenEntry(2).link, connected(0));
+      await settle();
+
+      expect(n).toBe(2); // the standing sub REBUILT against the new session — not stranded at 1
       dispose();
     });
   });
