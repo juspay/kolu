@@ -9,7 +9,7 @@ author: "Sridhar Ratnakumar"
 import PR from "../../components/PR.astro";
 import Prompt from "../../components/Prompt.astro";
 
-Here's a feature that sounds like an afternoon of work. You already [SSH](https://www.openssh.com/) into a build box every day. You'd like a terminal in [Kolu](https://kolu.dev) — the terminal-native cockpit I build coding agents in — to run its shell on that box instead of your laptop. Pick the host from a menu, get a shell. How hard can it be?
+Here's a feature that sounds like an afternoon of work. You already [SSH](https://www.openssh.com/) into a build box every day. You'd like a terminal in [Kolu](https://kolu.dev) — the terminal-native cockpit I build coding agents in — to run its shell on that box instead of your laptop. Point Kolu at the host, get a shell. How hard can it be?
 
 I filed that as issue <PR id={951} kind="issue" state="closed" /> on May 21. I closed it on July 14, the day I wrote this. In between were seven weeks, roughly two dozen pull requests I built and then threw in the trash, a 6,000-line PR nobody could review, and one afternoon where a daemon I'd written deleted a live 20-terminal session out from under me. The answer, when it finally came, was almost boring: **one daemon per host, and you switch between hosts instead of mixing them.** Getting there was not boring at all.
 
@@ -271,6 +271,6 @@ So, the bill. About seven weeks. Two dozen pull requests built and thrown away. 
   <text x="350" y="236" fill="var(--color-ink-muted)" font-size="9" text-anchor="middle" font-family="monospace">exact diffs from the PRs; red bars are code that was written and did not survive</text>
 </svg>
 
-Was it worth it? The feature works. You add a `Host` to your `~/.ssh/config`, [pick it from a menu](/remote-hosts), and get a shell on that box that behaves exactly like a local one — chips, badges, Code tab, worktrees, restore, and it survives your Wi-Fi dropping. Every experiment I threw away taught the one rule the final design leans on: one daemon per host, switch don't multiplex, illegal states unrepresentable, adopt don't restart, never destroy on an ambiguous read. None of those were in the first plan. You couldn't have written them down in advance. You had to lose twenty terminals and six thousand lines to earn each one.
+Was it worth it? The feature works. You add a host to Kolu's [host row](/remote-hosts) — an `~/.ssh/config` alias, or a plain `user@host` — Kolu copies itself onto the box over ssh, and the host becomes a tab you switch to, the canvas swapping to it live. Every terminal you open there behaves exactly like a local one: chips, badges, Code tab, worktrees, restore, and it survives your Wi-Fi dropping. Every experiment I threw away taught the one rule the final design leans on: one daemon per host, switch don't multiplex, illegal states unrepresentable, adopt don't restart, never destroy on an ambiguous read. None of those were in the first plan. You couldn't have written them down in advance. You had to lose twenty terminals and six thousand lines to earn each one.
 
 Issue #951 stayed open for seven weeks. I closed it the day I finished writing this. The ticket was never the hard part. The seven weeks were.
