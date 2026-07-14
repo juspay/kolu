@@ -277,8 +277,11 @@ function leafAt(
 export interface ServeSurfaceMapResult {
   /** A finalized top-level oRPC router — hand it straight to `directLink` (or a
    *  wire serve path). Serves `surface.<member>.<verb>` (key-folded, forwarded)
-   *  and `surface.entries.{keys,get}` (the membership projection). */
-  readonly router: unknown;
+   *  and `surface.entries.{keys,get}` (the membership projection). Typed as
+   *  `{ surface: … }` (PR3) — not `unknown` — so a host that mounts this router as a
+   *  sibling (`{ surface: { …, [name]: served.router.surface } }`) reaches `.surface`
+   *  with NO `as any` cast; the cast is unspellable by type, not merely deleted. */
+  readonly router: { readonly surface: Record<string, unknown> };
   /** Tear down the membership republish subscription. */
   dispose(): void;
 }

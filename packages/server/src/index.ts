@@ -526,10 +526,13 @@ const padiMap = serveHostMap(padiHostMap, pool, {
 // siblings. `serveHostMap` returns a top-level single-surface router
 // (`{ surface: { <folded members>, entries } }`), so nesting its `.surface` under `padi`
 // yields `/surface/padi/<folded-member>` + `/surface/padi/entries`, no double prefix.
+// `padiMap.router` is typed `{ surface: … }` (PR3), so `.surface` reads cast-free — the
+// router splice's old `as any` is now unspellable by type, closing the campaign's
+// no-splice property WHOLLY in PR3 (contract cast + string keys + router cast).
 const surfaceRouter = {
   surface: {
     ...koluSurfaceRouter.surface,
-    padi: (padiMap.router as { surface: Record<string, unknown> }).surface,
+    padi: padiMap.router.surface,
   },
 };
 
