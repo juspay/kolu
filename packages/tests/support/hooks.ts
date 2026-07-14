@@ -1103,7 +1103,8 @@ Before(async function (this: KoluWorld, scenario) {
   // prefers-reduced-motion tells well-behaved libraries to skip animations;
   // the style override catches anything that ignores the media query. SKIPPED
   // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
-  if (!EVIDENCE && !X11CAP) {
+  const reducedMotion = !EVIDENCE && !X11CAP;
+  if (reducedMotion) {
     await this.page.emulateMedia({ reducedMotion: "reduce" });
     await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {

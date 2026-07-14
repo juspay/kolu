@@ -155,14 +155,11 @@ const TRANSFORM_EPSILON = 1e-3;
  *  no effective scale, so untransformed terminals (split / sub-panels,
  *  zoom = 1) get a strict identity.
  *
- *  Reciprocal of `Terminal.tsx`'s `fileRefAtPoint` (touch tap → file ref): both
- *  enforce the one pointer→cell invariant under zoom, but from opposite ends of
- *  the same canvas scale. xterm OWNS its internal divisor (the UNtransformed CSS
- *  cell size), so its path can't change the divisor and must correct the INPUT
- *  point here. kolu OWNS the touch divisor and derives the cell size from the
- *  POST-transform rect (`rect.width / cols`), so its tap path is correct by
- *  construction and needs no correction. Two separately-owned divisors, one
- *  invariant — do not merge them; keep both in step if you touch one. */
+ *  This correction is the ONE pointer→cell divisor. Selection, link hover, TUI
+ *  mouse reporting, AND the touch tap (`cellAtPoint`, via this same wrapped
+ *  `getCoords`) all resolve through it — there is no second, separately-owned
+ *  divisor to keep in step. (A touch tap once hand-rolled its own
+ *  `rect.width / cols`; PR-2 deleted that parallel and routed it here.) */
 export function unscaleEventPoint(
   clientX: number,
   clientY: number,
@@ -283,4 +280,49 @@ export function patchTransformAwareMouseCoords(term: XTerm): void {
   svc.getMouseReportCoords = (event, element) =>
     getMouseReportCoords.call(svc, corrected(event, element), element);
   svc.__koluTransformPatched = true;
+}
+
+/** Resolve a viewport pixel `(clientX, clientY)` to the 0-based `{ col, row }`
+ *  cell under it — `col` a buffer column, `row` a VIEWPORT row (add
+ *  `buffer.active.viewportY` for an absolute buffer line) — through xterm's OWN
+ *  `_core._mouseCoordsService`, the single authority that places the glyphs.
+ *
+ *  This is the one home for pointer→cell. xterm's selection, link hover, and TUI
+ *  mouse reporting all resolve through this same service (transform-corrected by
+ *  `patchTransformAwareMouseCoords`), so a touch tap routing here shares their
+ *  divisor instead of hand-rolling a parallel `rect.width / cols`. That parallel
+ *  agrees with the authority only when the screen's layout width happens to equal
+ *  `cols × cssCellWidth` — which nothing guarantees: integer-rounded
+ *  `offsetWidth`, sub-pixel font metrics, or screen padding make them diverge,
+ *  and a zoomed tile magnifies the gap near a cell boundary and far from the tile
+ *  origin (#1400). One authority, no metric to keep in sync.
+ *
+ *  Cosmetic read — degrades to null: a missing service / `.xterm-screen` /
+ *  method, or a point xterm can't map, returns null and the caller (a tap)
+ *  simply resolves no ref. A wrong cell here is a mis-tap, never buffer
+ *  corruption, so null is the correct failure, not a throw. Call after
+ *  `term.open()` + `patchTransformAwareMouseCoords(term)`.
+ *
+ *  `getCoords` returns xterm's 1-based `[col, row]` (col ∈ [1, cols], row ∈
+ *  [1, rows]); we hand back 0-based. `isSelection` is omitted deliberately — a
+ *  tap is a point hit, not a selection endpoint (which would add a half-cell of
+ *  precision and a `cols + 1` clamp to cover the span's end). */
+export function cellAtPoint(
+  term: XTerm,
+  clientX: number,
+  clientY: number,
+): { col: number; row: number } | null {
+  const svc = core<{ _mouseCoordsService?: MouseCoordsShape }>(
+    term,
+  )?._mouseCoordsService;
+  const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+  if (!svc || typeof svc.getCoords !== "function" || !screen) return null;
+  const coords = svc.getCoords(
+    { clientX, clientY },
+    screen,
+    term.cols,
+    term.rows,
+  );
+  if (!coords) return null;
+  return { col: coords[0] - 1, row: coords[1] - 1 };
 }

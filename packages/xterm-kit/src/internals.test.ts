@@ -10,8 +10,9 @@
  *  ancestor it must invert the scale about the element's border-box top-left
  *  (the fixed point xterm subtracts via `getBoundingClientRect().left`). */
 
+import type { Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it } from "vitest";
-import { unscaleEventPoint } from "./internals";
+import { cellAtPoint, unscaleEventPoint } from "./internals";
 
 const rect = (left: number, top: number, width: number, height: number) => ({
   left,
@@ -107,5 +108,98 @@ describe("unscaleEventPoint", () => {
       expect(out.clientX).toBeCloseTo(logicalX, 9);
       expect(out.clientY).toBeCloseTo(logicalY, 9);
     }
+  });
+});
+
+/** Contract of `cellAtPoint` — the single-authority pointer→cell resolver a
+ *  touch tap routes through. Its JOB is to delegate to xterm's own (already
+ *  transform-corrected) `_core._mouseCoordsService.getCoords`, hand back a
+ *  0-based cell, and degrade to null rather than throw. The transform-CORRECTNESS
+ *  under zoom lives in `unscaleEventPoint` above (pinned there) and in the
+ *  end-to-end `canvas-selection.feature` + the PR-2 tap-under-zoom scenario; here
+ *  we pin the delegation, the 1-based→0-based conversion, and the null-degrade,
+ *  so a future edit can't silently re-hand-roll the divisor or drop a guard. */
+describe("cellAtPoint", () => {
+  type GetCoords = (
+    event: { clientX: number; clientY: number },
+    element: HTMLElement,
+    colCount: number,
+    rowCount: number,
+    isSelection?: boolean,
+  ) => [number, number] | undefined;
+
+  /** Minimal xterm stand-in exposing only what `cellAtPoint` reaches: the
+   *  private `_core._mouseCoordsService.getCoords`, a `.xterm-screen` under
+   *  `element`, and `cols`/`rows`. */
+  const makeTerm = (
+    getCoords: GetCoords | null,
+    opts: { noElement?: boolean } = {},
+  ): XTerm => {
+    const screen = { tagName: "DIV" } as unknown as HTMLElement;
+    const element = {
+      querySelector: (sel: string) => (sel === ".xterm-screen" ? screen : null),
+    } as unknown as HTMLElement;
+    return {
+      element: opts.noElement ? undefined : element,
+      cols: 80,
+      rows: 24,
+      _core: {
+        _mouseCoordsService: getCoords ? { getCoords } : undefined,
+      },
+    } as unknown as XTerm;
+  };
+
+  it("returns the 0-based cell the authority reports (1-based → 0-based)", () => {
+    const term = makeTerm(() => [12, 5]); // xterm's 1-based col/row
+    expect(cellAtPoint(term, 100, 50)).toEqual({ col: 11, row: 4 });
+  });
+
+  it("hands the authority the raw point, the .xterm-screen, and the grid size — as a point hit (isSelection omitted)", () => {
+    const calls: Array<{
+      event: { clientX: number; clientY: number };
+      element: HTMLElement;
+      cols: number;
+      rows: number;
+      isSelection?: boolean;
+    }> = [];
+    const term = makeTerm((event, element, cols, rows, isSelection) => {
+      calls.push({ event, element, cols, rows, isSelection });
+      return [1, 1];
+    });
+    const screen = (term.element as HTMLElement).querySelector(".xterm-screen");
+    cellAtPoint(term, 7, 9);
+    expect(calls).toHaveLength(1);
+    const s = calls[0];
+    if (!s) throw new Error("expected one getCoords call");
+    expect(s.event).toEqual({ clientX: 7, clientY: 9 });
+    expect(s.element).toBe(screen);
+    expect(s.cols).toBe(80);
+    expect(s.rows).toBe(24);
+    // A tap is a point hit, not a selection endpoint — no half-cell precision.
+    expect(s.isSelection).toBeUndefined();
+  });
+
+  it("degrades to null when the mouse-coords service is absent", () => {
+    expect(cellAtPoint(makeTerm(null), 1, 1)).toBeNull();
+  });
+
+  it("degrades to null when the authority can't map the point", () => {
+    expect(
+      cellAtPoint(
+        makeTerm(() => undefined),
+        1,
+        1,
+      ),
+    ).toBeNull();
+  });
+
+  it("degrades to null when there is no element / .xterm-screen", () => {
+    expect(
+      cellAtPoint(
+        makeTerm(() => [1, 1], { noElement: true }),
+        1,
+        1,
+      ),
+    ).toBeNull();
   });
 });
