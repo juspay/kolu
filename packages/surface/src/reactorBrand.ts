@@ -24,6 +24,16 @@ export const DERIVED_CELL_BRAND: unique symbol = Symbol.for(
  *  it without importing `reactor.ts`. */
 export interface DerivedCellBranded {
   readonly [DERIVED_CELL_BRAND]: true;
+  /** An ENGINE-TRACKED read of this derived member's graph node — the reactor
+   *  reads its `computed`/`scan` signal LIVE, so a sibling that reads it (via `$`)
+   *  inside its OWN computed depends on this node DIRECTLY. That is the bridge's
+   *  law "a derived member's graph face is its computed, never its mirror": a
+   *  derived-reads-derived chain becomes a pure computed graph, glitch-free by the
+   *  engine's version-checked lazy pull (a downstream read always pulls the fresh
+   *  upstream value), never the push-lagging mirror an authored sibling exposes.
+   *  The boot walk registers THIS as the sibling source for a derived cell (and
+   *  holds it as an opaque closure — the walk never touches a signal). */
+  siblingRead(): unknown;
 }
 
 /** Whether a cell dep is a reactor derived cell. */
@@ -52,15 +62,24 @@ export const DERIVED_COMPUTE_BRAND: unique symbol = Symbol.for(
  *  an engine signal so `$.<sibling>()` becomes a tracked read; the walk never
  *  touches the engine. */
 export interface SiblingSource {
-  /** The sibling's CURRENT value — a cell's post-equals value, a collection's
-   *  live `readAll()` map. Read live inside the compute; the version signal (in
-   *  `reactor.ts`) is the reactive dependency, this is the value. */
+  /** The sibling's CURRENT value. For an AUTHORED sibling (`engineTracked` false):
+   *  a cell's post-equals value / a collection's live `readAll()` map — the value
+   *  half of a mirror, whose reactive edge is the version signal below. For a
+   *  DERIVED sibling (`engineTracked` true): a LIVE read of its graph node's
+   *  `computed`, which the reader's own computed tracks directly. */
   read(): unknown;
   /** Subscribe to the sibling's post-equals change edge (fired synchronously,
    *  inside the writer's stack, by the bridge-owned store wrapper both cell
    *  write paths pass through — and by the wrapped collection publishers).
-   *  Returns an unsubscribe fn the compute cell runs on dispose. */
+   *  Returns an unsubscribe fn the compute cell runs on dispose. UNUSED for an
+   *  `engineTracked` source (the engine tracks its computed directly). */
   subscribe(onChange: () => void): () => void;
+  /** True iff `read()` is an engine-tracked read of a DERIVED member's `computed`.
+   *  The `$` face then reads it DIRECTLY (no version signal, no `subscribe`), so a
+   *  derived-reads-derived chain is a pure computed graph — glitch-free by the
+   *  engine's lazy pull, per the bridge law. An authored mirror leaves this false
+   *  and rides the version-signal bridge. Only `reactor.ts` sets it true. */
+  readonly engineTracked?: boolean;
 }
 
 /** The `$` sibling-read face as RUNTIME sources — one {@link SiblingSource} per

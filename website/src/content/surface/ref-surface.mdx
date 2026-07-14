@@ -133,7 +133,11 @@ The `$` face is a plain mapped type over the surface spec (`SiblingRead<S>` in
 pokes **post-spec-equals**, riding a bridge-owned store wrapper both cell write
 paths pass through (so a missed poke is unwritable, not a rider held by tests); a
 derived sibling reads as its own `computed`, so every chain is a pure computed
-graph — glitch-free, and a suppressed write never pokes.
+graph — glitch-free by the engine's lazy pull even across a diamond, and a
+suppressed write never pokes. **Declare an upstream before a downstream:** a
+`derived.cell` that reads a sibling `derived.cell` via `$` must be declared after
+it (the walk builds nodes in declaration order, exactly as an app orders its own
+`computed`s); reading a not-yet-declared derived sibling crashes the boot walk.
 
 Guarantees a `derived.cell` rides:
 

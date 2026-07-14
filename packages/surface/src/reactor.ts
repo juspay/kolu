@@ -314,6 +314,12 @@ export interface DerivedCell<T> {
    *  teardown `connect` returns, so a standalone owner and the runtime's
    *  `close()` never double-dispose. */
   readonly dispose: () => void;
+  /** An ENGINE-TRACKED read of this cell's graph node (its `computed`/`scan`
+   *  signal, LIVE). The boot walk registers it as this derived member's `$`
+   *  sibling source, so a sibling reading it inside its own computed depends on
+   *  this node directly — the derived-reads-derived chain is a pure computed
+   *  graph, glitch-free by lazy pull (never the push-lagging mirror). */
+  siblingRead(): T;
   readonly [DERIVED_CELL_BRAND]: true;
 }
 
@@ -383,6 +389,10 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
         );
       },
     },
+    // Engine-tracked sibling read: `.value` (not `.peek()`) so a downstream
+    // computed reading `$.thisCell()` tracks this node directly — the shared
+    // computed graph the glitch-freedom law rests on.
+    siblingRead: () => node.value.value,
     [DERIVED_CELL_BRAND]: true,
     connect: (cell) => {
       // One-shot lifecycle, fail-fast on misuse: a derived cell wires exactly
@@ -462,12 +472,16 @@ function computeCell<S extends SurfaceSpec, T>(
         "derived compute cell: bindSiblings() called twice — the compute node is built once.",
       );
     }
-    // Per-sibling version signals, created LAZILY on first read INSIDE the
-    // compute: an unread sibling gets no signal and no subscription, so a
-    // derivation depends only on what it actually reads. The value is the
-    // sibling's LIVE `read()`; the version signal is purely the reactive edge
-    // (bumped on the sibling's post-equals change), which the engine tracks
-    // because the read happens inside `engineComputed` below.
+    // Two sibling kinds, distinguished by `source.engineTracked`:
+    //   - DERIVED sibling → its graph node's `computed` read LIVE: the engine
+    //     tracks it DIRECTLY when read inside this compute, so a derived-reads-
+    //     derived chain is one pure computed graph, glitch-free by lazy pull. No
+    //     version signal, no subscription — the engine owns the edge.
+    //   - AUTHORED sibling (cell/collection) → a mirror: its value read live, its
+    //     reactive edge a per-sibling version signal, created LAZILY on first read
+    //     (an unread sibling gets no signal and no subscription) and bumped by the
+    //     sibling's post-equals change. Both reads happen inside `engineComputed`
+    //     below, so the engine tracks them.
     const versions = new Map<string, ReturnType<typeof signal<number>>>();
     const siblings = new Proxy({} as SiblingRead<S>, {
       get(_target, key) {
@@ -479,6 +493,7 @@ function computeCell<S extends SurfaceSpec, T>(
               `derived compute cell: read of unknown sibling "$.${name}" — no such cell or collection on this surface.`,
             );
           }
+          if (source.engineTracked) return source.read(); // derived: shared computed
           let version = versions.get(name);
           if (!version) {
             const created = signal(0);
@@ -490,7 +505,7 @@ function computeCell<S extends SurfaceSpec, T>(
             );
             version = created;
           }
-          version.value; // track — depend on this sibling
+          version.value; // track — depend on this authored sibling
           return source.read();
         };
       },
@@ -510,6 +525,9 @@ function computeCell<S extends SurfaceSpec, T>(
         );
       },
     },
+    // Engine-tracked sibling read of this compute cell's computed (`.value`, not
+    // `.peek()`), so a downstream `$.thisCell()` tracks it directly — glitch-free.
+    siblingRead: () => requireNode().value,
     [DERIVED_CELL_BRAND]: true,
     [DERIVED_COMPUTE_BRAND]: true,
     bindSiblings,

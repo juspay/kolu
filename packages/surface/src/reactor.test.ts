@@ -637,4 +637,65 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     >;
     expect(() => dc.store.get()).toThrow(/before bindSiblings/);
   });
+
+  it("DIAMOND: derived-reads-derived is glitch-free (the law's permanent pin)", async () => {
+    // overview reads BOTH terminals (authored, direct) AND urgency (DERIVED) —
+    // worked example 5's diamond. A derived sibling is read as its COMPUTED (not a
+    // push-lagging mirror), so the engine's lazy pull orders the recompute: overview
+    // never observes a half-updated pair. This test is RED on an all-mirror bridge
+    // (overview sees {t:2,u:10} before {t:2,u:20}) and GREEN once a derived sibling
+    // is read as its computed. It is the law "derived reads derived as computed,
+    // never as mirror" made executable.
+    const surface = defineSurface({
+      cells: {
+        terminals: { schema: z.number(), default: 0 },
+        urgency: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+        overview: {
+          schema: z.object({ t: z.number(), u: z.number() }),
+          default: { t: 0, u: 0 },
+          equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
+            a.t === b.t && a.u === b.u,
+          verbs: ["get"],
+        },
+      },
+    });
+    const seen: Array<{ t: number; u: number }> = [];
+    const { router, ctx } = implementSurface(surface, {
+      cells: {
+        terminals: { store: inMemoryStore(0) },
+        // urgency DECLARED BEFORE overview — the upstream-before-downstream contract
+        // the $ face requires (a downstream reads an upstream's computed, which must
+        // exist when the downstream binds).
+        urgency: derived.cell(($) => $.terminals() * 10),
+        overview: derived.cell(($) => {
+          const v = { t: $.terminals(), u: $.urgency() };
+          seen.push(v);
+          return v;
+        }),
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const frames = take(await client.surface.overview.get(undefined), 3);
+    await flush();
+
+    ctx.cells.terminals.set(1); // → overview {t:1,u:10}
+    batch(() => {
+      ctx.cells.terminals.set(2); // → overview {t:2,u:20}
+    });
+
+    // No `seen` value is ever a half-updated pair (u must always equal t*10).
+    for (const v of seen) expect(v.u).toBe(v.t * 10);
+    // And each terminals change publishes overview exactly once (no double from a
+    // transient glitch): seed + two coalesced deltas.
+    expect(await frames).toEqual([
+      { t: 0, u: 0 },
+      { t: 1, u: 10 },
+      { t: 2, u: 20 },
+    ]);
+  });
 });

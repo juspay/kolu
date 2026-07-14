@@ -69,6 +69,7 @@ import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 // (read + a synchronous post-equals change edge), so the engine stays reachable
 // only through `reactor.ts`: the walk itself never touches a signal.
 import {
+  type DerivedCellBranded,
   isDerivedCellDeps,
   isDerivedComputeCellDeps,
   type SiblingSource,
@@ -1651,8 +1652,16 @@ function walkSurface<const S extends SurfaceSpec>(
   const siblingChange: Record<string, () => void> = {};
   // A cell/collection registers its live read + change fan-out here. Subscribers
   // are held per key; `subscribe` returns an unsubscribe the compute cell runs on
-  // dispose.
-  const registerSibling = (key: string, read: () => unknown): void => {
+  // dispose. `engineTracked` marks a DERIVED member (its `read` is a reactor-made
+  // closure over its `computed`, held here opaquely — the walk never touches a
+  // signal): the `$` face reads it directly, so a derived-reads-derived chain is a
+  // pure computed graph, glitch-free. An AUTHORED member leaves it false and rides
+  // the version-signal bridge fed by `siblingChange`.
+  const registerSibling = (
+    key: string,
+    read: () => unknown,
+    engineTracked = false,
+  ): void => {
     const subscribers = new Set<() => void>();
     siblingSources[key] = {
       read,
@@ -1662,6 +1671,7 @@ function walkSurface<const S extends SurfaceSpec>(
           subscribers.delete(cb);
         };
       },
+      engineTracked,
     } satisfies SiblingSource;
     siblingChange[key] = () => {
       for (const cb of subscribers) cb();
@@ -1763,9 +1773,18 @@ function walkSurface<const S extends SurfaceSpec>(
         siblingChange[key]?.();
       },
     };
-    // Expose this cell to `$`: a sibling read returns its CURRENT (post-equals)
-    // value; its change edge is the store wrapper above.
-    registerSibling(key, () => store.get());
+    // Expose this cell to `$`. A DERIVED cell (either `derived.cell` form) is read
+    // as its graph node's computed — an ENGINE-TRACKED read (a reactor-made closure,
+    // `siblingRead`, held opaquely here — the walk touches no signal), so a
+    // derived-reads-derived chain is a pure computed graph, glitch-free by lazy
+    // pull, per the bridge law. An AUTHORED cell is read as its post-equals mirror
+    // (the store wrapper above is its change edge, bridged via a version signal).
+    if (isDerivedCellDeps(cellDeps)) {
+      const derivedDeps = cellDeps as unknown as DerivedCellBranded;
+      registerSibling(key, () => derivedDeps.siblingRead(), true);
+    } else {
+      registerSibling(key, () => store.get());
+    }
     // Defer a compute cell's node build + eager seed until every sibling source
     // exists (after both loops). `bindSiblings` builds the node; the eager pull
     // re-seeds the private store (a throw is a boot crash — mirror-never-fabricate)
