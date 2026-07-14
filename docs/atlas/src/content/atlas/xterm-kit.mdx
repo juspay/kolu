@@ -408,10 +408,28 @@ import {
   `getCoords`, shared by selection, hover, and the tap
   (<Cite file="packages/xterm-kit/src/internals.ts" />).</Footnote> Its
   done-criterion was *correctness*, not equivalence — a tap resolves to the cell
-  the user visually tapped, at normal scale AND under zoom, proven by a
-  standard-suite browser e2e (the `@touch-desktop` tap-under-zoom scenario). No
-  user-observed regression surfaced, so it landed as the
+  the user visually tapped, under a CSS transform — proven by a standard-suite
+  browser e2e. No user-observed regression surfaced, so it landed as the
   reuse-the-source-of-truth dedup rather than a bug fix.
+- **The e2e proves it under a transform, but NOT in the literal desktop-zoom
+  quadrant — because Chromium cannot emulate that quadrant (do not re-attempt
+  it).** The real state the tap-under-zoom guards is a touch tap on the *desktop
+  canvas's zoomed tile*, which needs a coarse-PRIMARY pointer that can *hover*
+  (`isTouch` wires the tap; `handheld = coarse ∧ hover:none` being false mounts
+  the canvas). Chromium welds pointer↔hover to touch capability: **coarse ⟺ touch
+  ⟺ `hover:none`**. A two-run CI oracle proved both directions — with Playwright
+  `hasTouch` the media is `{coarse, hover:none}`; without it, `{fine, hover}`; and
+  CDP `setEmulatedMedia`'s `pointer`/`hover` features had *no effect* (pure device
+  defaults). So `(pointer:coarse) and (hover:hover)` is unconstructable, and the
+  gate instead runs in the reachable `@mobile` touch config with an **injected**
+  CSS `scale()` standing in for the tile-zoom transform. That is honest, not a
+  cheat: `cellAtPoint` reads the scale off `getBoundingClientRect`/`offsetWidth`,
+  so the transform's *source* is transparent to the code under test — the exact
+  tap path runs under a real CSS transform. It is corroborated by
+  `canvas-selection.feature` (the *same* `unscaleEventPoint` + `getCoords`
+  authority under real canvas zoom, for selection) and the `cellAtPoint` unit
+  delegation pin. A future reviewer should NOT try to build the desktop-zoom
+  quadrant in e2e — it is a browser-emulation limit, not a missing test.
 - **`stickyModifiers` stays out — the boundary test, applied honestly.** It
   never touches a `Terminal`: it is an arming latch over
   `@kolu/terminal-protocol`'s control/meta byte tables, armed by kolu's

@@ -649,13 +649,6 @@ async function newScenarioPage(
             ? EVIDENCE_VIEWPORT
             : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
-      // @touch-desktop deliberately does NOT set `hasTouch`: Chromium's touch
-      // emulation forces `(hover: none)`, which CDP `setEmulatedMedia(hover:
-      // hover)` cannot override — so `hasTouch` and the coarse-primary-HOVER
-      // quadrant are mutually exclusive. Instead the desktop viewport stays put,
-      // the coarse+hover media is pinned via CDP (below), and the tap is driven
-      // by a synthetic `pointerType:"touch"` PointerEvent (no touch emulation
-      // needed — see `file_ref_link_steps.ts`).
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
       // clipboard-write: lets tests place images in the clipboard for paste testing.
@@ -672,51 +665,9 @@ async function newScenarioPage(
     });
     previousContext = context;
     const page = await context.newPage();
-    // NOTE: the @touch-desktop pointer/hover media is pinned in the Before hook
-    // AFTER Playwright's own `emulateMedia` runs — a `page.emulateMedia` call
-    // resends `Emulation.setEmulatedMedia` with ONLY its own features, replacing
-    // the whole emulated set, so a CDP override sent here would be clobbered by
-    // the reduced-motion emulation below. See `pinTouchDesktopMedia`.
     previousContext = undefined;
     return { context, page };
   });
-}
-
-/** Pin the `@touch-desktop` pointer/hover media — a coarse PRIMARY pointer that
- *  CAN hover (a touchscreen laptop): `handheld` (coarse AND hover:none) is false,
- *  so the desktop spatial canvas mounts, while `isTouch` (coarse) still wires the
- *  touch tap. Playwright's `emulateMedia` can't set pointer/hover, so use CDP.
- *
- *  MUST run AFTER any `page.emulateMedia(...)`: Playwright implements that by
- *  resending `Emulation.setEmulatedMedia` with only ITS features, replacing the
- *  whole emulated set — so an earlier CDP pointer/hover override is wiped, and
- *  the scenario silently falls back to the handheld drawer layout. We send the
- *  final, authoritative set here, folding reduced-motion back in when the suite
- *  wanted it, then assert the media actually took before any navigation. */
-async function pinTouchDesktopMedia(
-  context: BrowserContext,
-  page: Page,
-  reducedMotion: boolean,
-): Promise<void> {
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("Emulation.setEmulatedMedia", {
-    features: [
-      { name: "pointer", value: "coarse" },
-      { name: "hover", value: "hover" },
-      ...(reducedMotion
-        ? [{ name: "prefers-reduced-motion", value: "reduce" }]
-        : []),
-    ],
-  });
-  const media = await page.evaluate(() => ({
-    coarse: matchMedia("(pointer: coarse)").matches,
-    hover: matchMedia("(hover: hover)").matches,
-    handheld: matchMedia("(pointer: coarse) and (hover: none)").matches,
-  }));
-  if (!media.coarse || !media.hover || media.handheld)
-    throw new Error(
-      `@touch-desktop media not pinned before navigation: ${JSON.stringify(media)}`,
-    );
 }
 
 /** Wait until the server WE spawned owns the port and answers health.
@@ -1137,13 +1088,6 @@ Before(async function (this: KoluWorld, scenario) {
   const isMobile =
     isCompact || scenario.pickle.tags.some((t) => t.name === "@mobile");
   const touchViewport = isCompact ? COMPACT_VIEWPORT : PHONE_VIEWPORT;
-  // @touch-desktop → touch input at desktop width with a coarse+hover pointer
-  // (a touchscreen device that can hover): the only quadrant that mounts the
-  // spatial canvas AND wires the touch tap. Distinct from @mobile/@compact,
-  // which shrink the viewport into the drawer layout (no canvas).
-  const isTouchDesktop = scenario.pickle.tags.some(
-    (t) => t.name === "@touch-desktop",
-  );
 
   // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
   // browser chrome and its capture viewport — read it so the launch + grab match.
@@ -1169,12 +1113,6 @@ Before(async function (this: KoluWorld, scenario) {
         document.head.appendChild(style);
       });
     `);
-  }
-  // AFTER the reduced-motion emulateMedia (which would otherwise clobber it), pin
-  // the coarse+hover pointer/hover media @touch-desktop keys its layout on —
-  // folding reduced-motion back into the same authoritative CDP call.
-  if (isTouchDesktop) {
-    await pinTouchDesktopMedia(this.context, this.page, reducedMotion);
   }
   // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
   // banner unconditionally (it's desktop-always-on, not the startupTips pref).

@@ -487,10 +487,28 @@ history in past tense — the single divisor is <code>unscaleEventPoint</code> +
 <code>getCoords</code>, shared by selection, hover, and the tap
 (<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/internals.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/internals.ts</a>).</span></span></span> Its
 done-criterion was <em>correctness</em>, not equivalence — a tap resolves to the cell
-the user visually tapped, at normal scale AND under zoom, proven by a
-standard-suite browser e2e (the <code>@touch-desktop</code> tap-under-zoom scenario). No
-user-observed regression surfaced, so it landed as the
+the user visually tapped, under a CSS transform — proven by a standard-suite
+browser e2e. No user-observed regression surfaced, so it landed as the
 reuse-the-source-of-truth dedup rather than a bug fix.</li>
+<li><strong>The e2e proves it under a transform, but NOT in the literal desktop-zoom
+quadrant — because Chromium cannot emulate that quadrant (do not re-attempt
+it).</strong> The real state the tap-under-zoom guards is a touch tap on the <em>desktop
+canvas’s zoomed tile</em>, which needs a coarse-PRIMARY pointer that can <em>hover</em>
+(<code>isTouch</code> wires the tap; <code>handheld = coarse ∧ hover:none</code> being false mounts
+the canvas). Chromium welds pointer↔hover to touch capability: <strong>coarse ⟺ touch
+⟺ <code>hover:none</code></strong>. A two-run CI oracle proved both directions — with Playwright
+<code>hasTouch</code> the media is <code>{coarse, hover:none}</code>; without it, <code>{fine, hover}</code>; and
+CDP <code>setEmulatedMedia</code>’s <code>pointer</code>/<code>hover</code> features had <em>no effect</em> (pure device
+defaults). So <code>(pointer:coarse) and (hover:hover)</code> is unconstructable, and the
+gate instead runs in the reachable <code>@mobile</code> touch config with an <strong>injected</strong>
+CSS <code>scale()</code> standing in for the tile-zoom transform. That is honest, not a
+cheat: <code>cellAtPoint</code> reads the scale off <code>getBoundingClientRect</code>/<code>offsetWidth</code>,
+so the transform’s <em>source</em> is transparent to the code under test — the exact
+tap path runs under a real CSS transform. It is corroborated by
+<code>canvas-selection.feature</code> (the <em>same</em> <code>unscaleEventPoint</code> + <code>getCoords</code>
+authority under real canvas zoom, for selection) and the <code>cellAtPoint</code> unit
+delegation pin. A future reviewer should NOT try to build the desktop-zoom
+quadrant in e2e — it is a browser-emulation limit, not a missing test.</li>
 <li><strong><code>stickyModifiers</code> stays out — the boundary test, applied honestly.</strong> It
 never touches a <code>Terminal</code>: it is an arming latch over
 <code>@kolu/terminal-protocol</code>’s control/meta byte tables, armed by kolu’s
