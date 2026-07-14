@@ -81,6 +81,7 @@ import {
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
 import { padiFailureOf, type PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { surviveReserveTransportFloat } from "./reserveFloatBoundary.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
@@ -208,6 +209,15 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
+  // NARROW-LOUD-REMOVAL-CONDITIONED survival carve-out for the padiBinding
+  // "reconnects when padi dies" residual (#1719's survivor): the ONE typed
+  // transport-closed float from a re-served terminal stream is an oRPC-INTERNAL
+  // abandoned intermediate promise kolu proved it cannot own (7 seams measured;
+  // `ownReadAheadPull` removes ~67%, this is the ~3% remainder). Survive it LOUD;
+  // everything else stays fatal. TEMPORARY — tied to the upstream oRPC fix; remove
+  // this line + `./reserveFloatBoundary.ts` when the pinned oRPC settles its own
+  // response promise on close. See `reserveFloatBoundary.ts` for the full doctrine.
+  if (surviveReserveTransportFloat(reason, log)) return;
   // Deliberately fatal — same as an uncaught exception. A floating promise
   // is as corrupting as a sync throw, and a context-free global handler is
   // the wrong place to make a recover-or-die call (per-task error boundaries

@@ -53,6 +53,29 @@ export function deadTransportError(
   return new ORPCError(code, { message });
 }
 
+/** Is `reason` the ONE typed shape a closed stdio link floats — the greppable
+ *  {@link deadTransportError}(`SURFACE_STDIO_TRANSPORT_CLOSED`) #1719 made the only
+ *  thing crossing the stdio seam at close? Brand-checked on `ORPCError` + the exact
+ *  code, so it holds across module-instance / realm boundaries (the robustness oRPC
+ *  errors use), and it is DELIBERATELY tight: it matches nothing but that one owned
+ *  transport-closed error.
+ *
+ *  This is the NARROW predicate a consumer-side `unhandledRejection` boundary uses
+ *  to survive the padiBinding "reconnects when padi dies" residual — an oRPC-INTERNAL
+ *  intermediate promise (in `ClientPeer.request`'s streaming response handling) that
+ *  is abandoned as a re-served relay's nested-generator consumer unwinds mid-subscribe
+ *  and floats this typed error. kolu proved it cannot OWN that promise from any of its
+ *  own layers (the ownership guarantee is oRPC's, a lower layer cannot complete it —
+ *  architecture-first-principles P5), so a narrow-loud survival boundary + an upstream
+ *  fix is the honest kolu-side maximum. The predicate is tight so the boundary can
+ *  never mask any OTHER float: a rejection of any other shape stays fatal. */
+export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
+  return (
+    reason instanceof ORPCError &&
+    reason.code === SURFACE_STDIO_TRANSPORT_CLOSED
+  );
+}
+
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application

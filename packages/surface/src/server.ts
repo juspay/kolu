@@ -502,11 +502,91 @@ export function streamHandlers<Name extends string, I, T>(
   _stream: Stream<Name, I, T>,
   deps: StreamHandlerDeps<I, T>,
 ): StreamHandlers<I, T> {
+  // Return the source through `ownReadAheadPull` (NOT a `for await … yield`
+  // async generator): the wrapper's `.next()` hands the source's own pull promise
+  // straight back, so when the oRPC client abandons a read-ahead pull at teardown
+  // the handler can OBSERVE — and catch — it. An `async function*` cannot: its
+  // `.next()` result is a fresh promise the client iterator holds, and if that pull
+  // later rejects (a mid-stream upstream death) with no awaiter it floats. See
+  // {@link ownReadAheadPull}.
   return {
-    get: async function* ({ input, signal }) {
-      for await (const v of deps.source(input, signal)) yield v;
-    },
+    get: ({ input, signal }) => ownReadAheadPull(deps.source(input, signal)),
   };
+}
+
+/**
+ * Wrap a stream source so a read-ahead pull ABANDONED at teardown cannot float.
+ *
+ * The mechanism (the padiBinding "reconnects when padi dies" residual, #1719's
+ * survivor). An oRPC client iterator pulls the next frame EAGERLY — it calls the
+ * handler's `.next()` to have the following frame ready — and then, when the
+ * consumer unsubscribes (`iterator.return()`), DISCARDS that in-flight pull's
+ * promise. If the upstream link then dies, that abandoned pull rejects with the
+ * typed transport-closed `ORPCError` (`deadTransportError` /
+ * `SURFACE_STDIO_TRANSPORT_CLOSED`, the one owned, greppable shape #1719 made cross
+ * the stdio seam) — and, with no awaiter left, it floats as an unhandled rejection
+ * (in kolu-server, its fatal-unhandledRejection policy turns that into a crash).
+ * Over a re-served surface's fail-through relay this is the close-vs-reconnect race
+ * that flakes the padi reconnect unit test on `unit@x86_64-linux`.
+ *
+ * A `for await (const v of source) yield v` handler CANNOT own this: the promise
+ * that floats is the async generator's OWN `.next()` result (held by the oRPC
+ * client iterator), not the internal `source.next()` the `for await` consumes — an
+ * async generator has no handle on its own abandoned `.next()`. A manual iterator
+ * whose `.next()` returns `source.next()` DIRECTLY does: the pull the client holds
+ * IS the pull we track, so `return()` can attach a catch to an in-flight one, and
+ * every pull carries a settle handler so one rejected-then-abandoned before
+ * `return()` is owned too.
+ *
+ * Crucially this does NOT swallow the error for a LIVE consumer: while the consumer
+ * keeps pulling, each pull is delivered (its rejection reaches the awaiting consumer)
+ * exactly as before — so a fail-through relay's re-throw, the thing a browser's
+ * `consumeReattachingStream` re-attaches on, is untouched. It is WHO-owns-the-pull,
+ * independent of WHAT is thrown; the catch fires only for a pull the consumer has
+ * already walked away from.
+ */
+function ownReadAheadPull<T>(source: AsyncIterable<T>): AsyncGenerator<T> {
+  const it = source[Symbol.asyncIterator]() as AsyncGenerator<T>;
+  let inFlight: Promise<IteratorResult<T>> | null = null;
+  const forget = (p: Promise<IteratorResult<T>>): void => {
+    if (inFlight === p) inFlight = null;
+  };
+  // A manual async iterator (not a full `AsyncGenerator`): we implement
+  // next/return/throw and cast at the boundary. The cast avoids depending on
+  // whether the ambient lib's `AsyncGenerator` carries `[Symbol.asyncDispose]`
+  // (present under the surface package's lib but not every consumer's — e.g.
+  // surface-remote typechecks this source under a lib that omits it). oRPC drives
+  // handlers via next/return/throw, not `await using`, so no disposer is needed.
+  const wrapped: AsyncIterableIterator<T> = {
+    [Symbol.asyncIterator]() {
+      return wrapped;
+    },
+    next: (...args: [] | [unknown]) => {
+      // Hand back the source's OWN pull promise (no extra wrapper promise, so no
+      // extra async tick — the eventHandlers single-yield hazard doesn't arise) and
+      // remember it as the in-flight pull; the settle handler both clears it and
+      // OWNS a rejection that would otherwise float if abandoned before `return()`.
+      const p = it.next(...(args as [undefined?]));
+      inFlight = p;
+      p.then(
+        () => forget(p),
+        () => forget(p),
+      );
+      return p;
+    },
+    return: (value?: unknown) => {
+      // The consumer unsubscribed. If a read-ahead pull is still in flight, the
+      // client has abandoned it — a later upstream death would float its rejection.
+      // Observe it. This never runs for a live consumer (one still pulling never
+      // calls `return()`), so the live re-throw path is untouched.
+      if (inFlight !== null) inFlight.catch(() => {});
+      return it.return
+        ? it.return(value as never)
+        : Promise.resolve({ value: value as never, done: true });
+    },
+    throw: (err?: unknown) => (it.throw ? it.throw(err) : Promise.reject(err)),
+  };
+  return wrapped as unknown as AsyncGenerator<T>;
 }
 
 // ── Event handlers ─────────────────────────────────────────────────────
