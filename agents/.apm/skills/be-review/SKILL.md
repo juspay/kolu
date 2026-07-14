@@ -177,12 +177,16 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
    {
      printf '## Codex ⇄ Claude debate\n\n'
      printf '✅ Consensus in %s round(s) · reviewer effort: xhigh\n\n' "$rounds"
-     printf '| Round | Commit | Summary |\n|---|---|---|\n'
+     printf '| Round | Commit | Description |\n|---|---|---|\n'
      # BARE sha (no backticks) so GitHub autolinks each row to its commit.
      git -C "$repoPath" log --reverse --format='%h	%s' "$CODEX_START"..HEAD \
        | nl -w1 -s'	' | while IFS=$'\t' read -r n sha subj; do
            printf '| %s | %s | %s |\n' "$n" "$sha" "$subj"
          done
+     # Legend: one line per finding id (the subjects reference F2/F14/… by stable id).
+     printf '\n**Legend** — findings codex raised:\n\n'
+     jq -rs '[.[].findings[]] | unique_by(.id) | sort_by(.id|ltrimstr("F")|tonumber)[]
+             | "- **\(.id)** — \(.issue|split(". ")[0])"' "$workDir"/verdict-*.json
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```
 

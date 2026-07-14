@@ -249,11 +249,19 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
    - a one-line header — `## Codex ⇄ Claude debate` then `✅ Consensus in N rounds ·
      reviewer effort: <effort> · base: <base>`;
    - a **single table of the debate commits** (`git -C "$REPO" log --oneline
-     <merge-base>..HEAD`), one row per round: `| Round | Commit | Summary |` with the
+     <merge-base>..HEAD`), one row per round: `| Round | Commit | Description |` with the
      **bare** short SHA (NOT wrapped in backticks/code — GitHub only autolinks a bare SHA
-     to its commit; a code-wrapped one renders as plain text) and the commit subject.
+     to its commit; a code-wrapped one renders as plain text) and the commit subject;
+   - a **Legend** — because the commit subjects reference findings by stable id (`F2`,
+     `F14`, …), list **one line per finding id** so the ids are legible. Gather the unique
+     ids across the run's `verdict-NNN.json` files and, for each, emit `- **Fn** — <the
+     first sentence of its issue>`, in numeric id order:
+     ```sh
+     jq -rs '[.[].findings[]] | unique_by(.id) | sort_by(.id|ltrimstr("F")|tonumber)[]
+             | "- **\(.id)** — \(.issue|split(". ")[0])"' "$REPO"/.codex-debate/verdict-*.json
+     ```
 
-   That's the whole comment — a short header and one commit table, nothing more. **Do not**
+   That's the whole comment — a short header, one commit table, and the legend. **Do not**
    inline the per-round codex verdicts or your dispositions; they are in the commits (and
    the gitignored `.codex-debate/` scratch) for anyone who wants the detail. Post from the
    target repo: `(cd "$REPO" && gh pr comment <pr> -F <file>)`. The per-round commits sit
