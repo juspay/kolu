@@ -62,32 +62,36 @@ const bag = vi.hoisted(() => ({
 
 vi.mock("../wire", async () => {
   const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
+  // Bound procedures face (no `.surface` prefix now).
   const activePadiRpc = {
-    surface: {
-      git: {
-        getStatus: async (i: { repoPath: string; mode: string }) => {
-          bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
-          return {
-            files: [],
-            label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
-            n: bag.counts[i.mode],
-          };
-        },
-        getDiff: async () => ({ hunks: [] }),
+    git: {
+      getStatus: async (i: { repoPath: string; mode: string }) => {
+        bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
+        return {
+          files: [],
+          label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
+          n: bag.counts[i.mode],
+        };
       },
-      fs: {
-        listAll: async () => ({ paths: [] }),
-        readFile: async () => ({ content: "", truncated: false }),
-        filePreviewTag: async () => "tag",
-      },
-      subscribeRepoChange: { get: () => ({}) },
-      subscribeFileChange: { get: () => ({}) },
+      getDiff: async () => ({ hunks: [] }),
     },
+    fs: {
+      listAll: async () => ({ paths: [] }),
+      readFile: async () => ({ content: "", truncated: false }),
+      filePreviewTag: async () => "tag",
+    },
+  };
+  // The un-enrolled change pulses ride the entry's STREAM face now
+  // (`activePadiStreams.<pulse>.unenrolled`) — a no-op stream stub.
+  const activePadiStreams = {
+    subscribeRepoChange: { unenrolled: () => ({}) },
+    subscribeFileChange: { unenrolled: () => ({}) },
   };
   return {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
     activePadiRpc,
+    activePadiStreams,
   };
 });
 

@@ -48,7 +48,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Set a terminal's theme name on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    void activePadiRpc.surface.chrome
+    void activePadiRpc.chrome
       .setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
@@ -65,7 +65,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     dropFromMru: (id) =>
       store.setMruOrder((prev) => prev.filter((x) => x !== id)),
     promoteToTopLevel: (subId) =>
-      void activePadiRpc.surface.chrome
+      void activePadiRpc.chrome
         .setParent({ id: subId, parentId: null })
         .catch((err: Error) =>
           toast.error(`Failed to set parent: ${err.message}`),
@@ -190,7 +190,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
       );
     }
-    const info = await activePadiRpc.surface.lifecycle
+    const info = await activePadiRpc.lifecycle
       .create({
         cwd,
         themeName: theme,
@@ -221,7 +221,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     // `handleCreate`), so it needs the same warming guard — the split
     // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
     if (refuseIfWarming()) return;
-    const info = await activePadiRpc.surface.lifecycle
+    const info = await activePadiRpc.lifecycle
       .create({ cwd, parentId })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
@@ -248,7 +248,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleKill(id: TerminalId) {
     try {
-      await activePadiRpc.surface.lifecycle.kill({ id });
+      await activePadiRpc.lifecycle.kill({ id });
     } catch {
       // Terminal may already be gone
     }
@@ -292,7 +292,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await handleKill(subId);
     try {
-      await activePadiRpc.surface.lifecycle.sleep({ id });
+      await activePadiRpc.lifecycle.sleep({ id });
     } catch (err) {
       toast.error(`Failed to sleep terminal: ${(err as Error).message}`);
     }
@@ -303,7 +303,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  it back to active and the tile re-renders live — so the client just asks. */
   async function handleWake(id: TerminalId) {
     try {
-      await activePadiRpc.surface.lifecycle.wake({ id });
+      await activePadiRpc.lifecycle.wake({ id });
     } catch (err) {
       toast.error(`Failed to wake terminal: ${(err as Error).message}`);
     }
@@ -327,7 +327,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  the result (it only needs the toast). */
   async function handleDiscard(id: TerminalId): Promise<boolean> {
     try {
-      await activePadiRpc.surface.lifecycle.discardSleeping({ id });
+      await activePadiRpc.lifecycle.discardSleeping({ id });
     } catch (err) {
       toast.error(`Failed to discard terminal: ${(err as Error).message}`);
       return false;
@@ -341,7 +341,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     if (id === null) return;
     let text: string;
     try {
-      text = await activePadiRpc.surface.screen.text({ id });
+      text = await activePadiRpc.screen.text({ id });
     } catch (err) {
       console.error("Failed to read terminal text:", err);
       toast.error(`Failed to read terminal text: ${(err as Error).message}`);
@@ -379,7 +379,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   function handleRunInActiveTerminal(command: string) {
     const id = store.focusedId();
     if (id === null) return;
-    void activePadiRpc.surface.lifecycle
+    void activePadiRpc.lifecycle
       .sendInput({ id, data: command })
       .catch((err: Error) =>
         toast.error(`Failed to prefill command: ${err.message}`),
@@ -388,7 +388,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleCloseAll() {
     try {
-      await activePadiRpc.surface.lifecycle.killAll();
+      await activePadiRpc.lifecycle.killAll();
       store.reset();
       // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
       // the find-bar map wholesale here too — otherwise stale keys outlive the

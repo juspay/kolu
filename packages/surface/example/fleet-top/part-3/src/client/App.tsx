@@ -32,18 +32,11 @@ export default function App() {
     ),
   );
 
-  // `entry.rpc` is `unknown` on a generic map (a `ContractRouterClient` over an
-  // abstract `ES` would overflow TS's union budget) — the consumer casts it once
-  // to its own surface's procedure shape.
-  type KillRpc = {
-    surface: {
-      process: {
-        kill: (input: { pid: Pid; signal: "TERM" }) => Promise<{ ok: boolean }>;
-      };
-    };
-  };
+  // Declared procedures ride `entry.procedures.<ns>.<verb>` — bound and typed from
+  // the entry spec, NO cast (the narrow `procedures` map dodges the TS2590 union
+  // overflow the full `entry.rpc` contract client trips on a generic map).
   const kill = async (pid: Pid): Promise<void> => {
-    await (active.rpc as KillRpc).surface.process.kill({ pid, signal: "TERM" });
+    await active.procedures.process.kill({ pid, signal: "TERM" });
   };
   // #endregion
 

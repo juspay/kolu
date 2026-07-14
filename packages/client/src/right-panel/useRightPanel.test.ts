@@ -20,9 +20,9 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../wire", () => ({
-  // `reportToServer` writes via `activePadiRpc.surface.chrome.setRightPanel`
+  // `reportToServer` writes via `activePadiRpc.chrome.setRightPanel`
   // (the active host's padi client) — the per-terminal collapsed/tab report path.
-  activePadiRpc: { surface: { chrome: { setRightPanel: h.setRightPanel } } },
+  activePadiRpc: { chrome: { setRightPanel: h.setRightPanel } },
   updatePreferences: h.updatePreferences,
   preferences: () => h.prefs,
 }));

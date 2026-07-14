@@ -96,7 +96,14 @@ export const mockPadiMap = {
   entry: (host: HostKey) => {
     const k = encodeHostKey(host);
     const cell = { use: () => instrumentedSub(k) };
-    const collection = { use: () => instrumentedSub(k) };
+    // The `terminals` collection also exposes the un-enrolled keys-stream ref
+    // `createHostWire` now reaches (`entry.collections.terminals.unenrolledKeys`,
+    // fed to `unenrolledStreamCall`) — a no-op async iterable, like the old
+    // `mockPadiRpcOf`'s `terminals.keys` stub it replaces.
+    const collection = {
+      use: () => instrumentedSub(k),
+      unenrolledKeys: () => emptyAsyncIterable(),
+    };
     return {
       cells: { session: cell, activityFeed: cell },
       collections: { terminals: collection, daemonStatus: collection },
@@ -119,23 +126,18 @@ export const mockPadiMap = {
 export const mockGroundedActiveHost = (active: Accessor<HostKey>) => () =>
   groundActiveHost(active(), mockPadiMap.entries.use().keys());
 
-/** The `padiRpcOf(host)` stub the per-host tests share — a partial padi RPC whose
- *  wired members are `surface.chrome.setActive` (where `createViewState`'s
- *  `writeActive` reports the active tile) and `surface.terminals.keys` (the keys
- *  stream `createHostWire` opens — a no-op async iterable that completes at once).
- *  Pass the per-test `setActive` spy; the shape lives HERE so a `padiRpcOf` contract
- *  change lands once, not in every `vi.mock` factory. (`activePadiRpc` is NOT shared
- *  — its wired surface members genuinely differ per test, so each factory stubs its
- *  own.) */
+/** The `padiRpcOf(host)` stub the per-host tests share — now the entry's BOUND
+ *  PROCEDURES face (`padiRpcOf = padiMap.entry(host).procedures`), so its one wired
+ *  member is `chrome.setActive` (where `createViewState`'s `writeActive` reports the
+ *  active tile) — no `.surface` prefix, and no `terminals.keys` (the un-enrolled keys
+ *  stream moved onto the entry's collections face, stubbed in {@link mockPadiMap}'s
+ *  `entry().collections.terminals.unenrolledKeys`). Pass the per-test `setActive`
+ *  spy; the shape lives HERE so a `padiRpcOf` contract change lands once, not in
+ *  every `vi.mock` factory. (`activePadiRpc` is NOT shared — its wired procedure
+ *  members genuinely differ per test, so each factory stubs its own.) */
 export const mockPadiRpcOf =
   (setActive: (...args: never[]) => unknown) => () => ({
-    surface: {
-      chrome: { setActive },
-      // A no-op keys stream — an async iterable that completes at once (yields no
-      // ids). `createHostWire` opens it via `unenrolledStreamCall`; this fixture
-      // pins the subscription's retention lifecycle, not the ids it would carry.
-      terminals: { keys: () => emptyAsyncIterable() },
-    },
+    chrome: { setActive },
   });
 
 /** An async iterable that completes immediately (yields nothing) — the mock

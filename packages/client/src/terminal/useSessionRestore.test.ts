@@ -38,7 +38,7 @@ const rpc = vi.hoisted(() => ({
 // here — e.g. `HostDaemonInventorySchema` — stays present; override only `activePadiRpc`.
 // Keep the REAL (browser-safe) `@kolu/padi/surface` — its schemas
 // (`HostDaemonInventorySchema`, …) must stay present; the RPC double moved to
-// `../wire`'s `activePadiRpc` (production now calls `activePadiRpc.surface.*`).
+// `../wire`'s `activePadiRpc` (production now calls `activePadiRpc.*`).
 vi.mock("../wire", async () => {
   // W7: the restore latch is owned by the per-host `scopedByEntry` owner, which
   // reads `padiMap`. Stand up the shared mock map (single static local member —
@@ -54,16 +54,14 @@ vi.mock("../wire", async () => {
     // pinned to the static local host (`beforeEach` adds LOCAL_HOST to membership).
     groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
     activePadiRpc: {
-      surface: {
-        session: {
-          restore: rpc.restore,
-          import: rpc.import,
-          forfeit: rpc.forfeit,
-        },
-        lifecycle: {
-          create: rpc.create,
-          sendInput: rpc.sendInput,
-        },
+      session: {
+        restore: rpc.restore,
+        import: rpc.import,
+        forfeit: rpc.forfeit,
+      },
+      lifecycle: {
+        create: rpc.create,
+        sendInput: rpc.sendInput,
       },
     },
     // Per-host latch keying (shape B). These tests are single-host — a stable local

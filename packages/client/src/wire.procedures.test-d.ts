@@ -1,0 +1,51 @@
+/**
+ * TYPE-LEVEL pin (SRT-PR2) — the map entry's bound `procedures` face is
+ * DECLARATION-TYPED, not `unknown`. This is the compile-time dual of the runtime
+ * `procedureCastGuard.test.ts`: the guard proves kolu no longer CASTS a declared
+ * procedure client; this proves it no longer NEEDS to, because `padiMap`'s entry
+ * `procedures` (reached via `activePadiRpc` / `padiRpcOf`) carries the padi
+ * declaration's types straight through.
+ *
+ * `tsc` GREEN over this file ⇒ every access below resolves against `padiSurface`'s
+ * declared procedures. Were `entry.procedures` still `unknown` (the pre-PR2 raw
+ * `.rpc`), `activePadiRpc.lifecycle` would be `unknown` and every line here would be
+ * a compile error — so the file compiling IS the assertion.
+ *
+ * House style mirrors `kaval/canvasModeResolver.test-d.ts`: bare typed
+ * declarations plus inline `// @ts-expect-error`.
+ */
+
+import type { StreamingProcedure } from "@kolu/surface/client";
+import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
+import { activePadiRpc, activePadiStreams, padiRpcOf } from "./wire";
+
+// A no-input / no-output declared procedure (`lifecycle.killAll: {}`) is a typed
+// `() => Promise<void>` — NOT `unknown`. Assigning it to the concrete function type
+// only compiles if `procedures` is declaration-typed.
+const _killAll: () => Promise<void> = activePadiRpc.lifecycle.killAll;
+void _killAll;
+
+// A declared OUTPUT flows through: `screen.text` declares `output: z.string()`, so
+// its bound return is `Promise<string>` — proved by assigning a `Promise<string>` to
+// its `ReturnType`.
+const _textOut: ReturnType<typeof activePadiRpc.screen.text> =
+  Promise.resolve("");
+void _textOut;
+
+// `padiRpcOf(host)` (the fixed-host face) is the SAME declaration-typed procedures.
+const _perHostKillAll: () => Promise<void> =
+  padiRpcOf(LOCAL_HOST).lifecycle.killAll;
+void _perHostKillAll;
+
+// NEGATIVE: `activePadiRpc` is the BOUND PROCEDURES face — it is NOT the raw oRPC
+// client, so it carries no `.surface` escape a consumer could cast a procedure
+// through. (Reserved procs + the link-root escape hatch live on `.rpc`, elsewhere.)
+// @ts-expect-error — the procedures face has no `.surface`.
+void activePadiRpc.surface;
+
+// The deliberately UN-ENROLLED stream ref is a typed `StreamingProcedure`, not
+// `unknown`: `unknown` is not assignable to a function type, so this only compiles
+// because `.unenrolled` carries the declaration's stream shape.
+const _attach: StreamingProcedure<{ id: string }, unknown> =
+  activePadiStreams.terminalAttach.unenrolled;
+void _attach;

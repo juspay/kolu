@@ -68,7 +68,7 @@ export default function App() {
   // notes.upsert / notes.delete are bound; only `notes.create` (an
   // imperative procedure, not a collection verb) goes through `app.rpc`.
   const handleCreate = async () => {
-    const note = await app.rpc.surface.notes.create({ title: "Untitled" });
+    const note = await app.procedures.notes.create({ title: "Untitled" });
     setSelectedId(note.id);
   };
 

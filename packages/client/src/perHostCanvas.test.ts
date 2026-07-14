@@ -77,17 +77,15 @@ vi.mock("./wire", async () => {
     // `createViewState`'s `writeActive` reports the active tile here.
     padiRpcOf: mockPadiRpcOf(rpcSpy.setActive),
     activePadiRpc: {
-      surface: {
-        chrome: { setActive: rpcSpy.setActive },
-        session: {
-          restore: vi.fn(async () => {}),
-          forfeit: vi.fn(async () => {}),
-          import: vi.fn(async () => {}),
-        },
-        lifecycle: {
-          create: vi.fn(async () => {}),
-          sendInput: vi.fn(async () => {}),
-        },
+      chrome: { setActive: rpcSpy.setActive },
+      session: {
+        restore: vi.fn(async () => {}),
+        forfeit: vi.fn(async () => {}),
+        import: vi.fn(async () => {}),
+      },
+      lifecycle: {
+        create: vi.fn(async () => {}),
+        sendInput: vi.fn(async () => {}),
       },
     },
     // The per-tab active host — flips on a switch; drives the per-host keying in

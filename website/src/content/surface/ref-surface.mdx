@@ -150,7 +150,12 @@ otherwise thread at every hook.
 | collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
 | stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
-| procedure | `.rpc.surface.<ns>.<verb>(input)` | the typed result |
+| procedure | `.procedures.<ns>.<verb>(input, { signal? })` | the typed result (`Promise<O>`) — bound and typed from the declaration, no cast of the raw `.rpc` |
+
+Every declared procedure is bound at `.procedures.<ns>.<verb>` and typed from its
+declaration — the typed dual of the reactive `.use()` primitives. `.rpc` remains for
+the two framework-**reserved** procedures (`system.live` / `system.identity`, never in
+`spec.procedures`) and the link-root escape hatch; a declared procedure never needs it.
 
 A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
@@ -225,4 +230,5 @@ UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
 - **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry plugin re-invokes the source on each reconnect and a delta-first frame would silently lose state.
 - **`patch` is a cross-runtime contract.** A cell's `patch(current, p)` runs on both the server and the client. Treat any change to it as a wire-format change and redeploy both sides together.
 - **A raw stream joins health through `client.rawStream` / `client.enroll`** so it can't escape `health()`. `unenrolledStreamCall` (`@kolu/surface/client`) carries the reconnect context for non-descriptor shapes.
+- **`.use()` is the default; the un-enrolled ref is a deliberate carve-out.** A stream's `.use()` and a collection's `.use()` drive the subscription AND enrol its `pending`/`error` into `health()` — the transport gate sees them. For the narrow class whose transient re-subscribe is normal and self-healing and so must NOT flicker that gate — a terminal re-attach ([#1591](https://github.com/juspay/kolu/issues/1591)), a change-pulse that drives a requery — reach the raw ref instead: `.streams.X.unenrolled` (a `StreamingProcedure`) or `.collections.X.unenrolledKeys` (the raw keys `StreamingProcedure`), passed to `unenrolledStreamCall`. It is typed from the declaration (no cast) and named so the health carve-out is legible at the call site — not a casual bypass of `.use()`.
 - **The 2-file invariant.** Adding a member is one spec entry plus one wiring entry. If the count creeps up, something is wrong.

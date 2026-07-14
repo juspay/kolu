@@ -56,7 +56,7 @@ import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
-import { activePadiRpc, preferences } from "../wire";
+import { activePadiRpc, activePadiStreams, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -215,7 +215,7 @@ const Terminal: Component<{
     // window). Armed BEFORE the resize so the repaint can't slip in first.
     activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
     try {
-      await activePadiRpc.surface.lifecycle.resize({
+      await activePadiRpc.lifecycle.resize({
         id: props.terminalId,
         cols,
         rows,
@@ -376,7 +376,7 @@ const Terminal: Component<{
     // (below); self-manages the near-top trigger and the reset/resize races.
     backfill = createBackfillController(term, {
       fetch: (before, max, epoch) =>
-        activePadiRpc.surface.screen.history({
+        activePadiRpc.screen.history({
           id: props.terminalId,
           before,
           max,
@@ -427,7 +427,7 @@ const Terminal: Component<{
     consumeReattachingStream(
       () =>
         unenrolledStreamCall(
-          activePadiRpc.surface.terminalAttach.get,
+          activePadiStreams.terminalAttach.unenrolled,
           { id: props.terminalId },
           { signal, onRetry: resetForFreshSnapshot },
         ),
@@ -521,10 +521,10 @@ const Terminal: Component<{
         terminalId: props.terminalId,
         name,
         base64,
-        scratchWrite: (args) => activePadiRpc.surface.scratch.write(args),
+        scratchWrite: (args) => activePadiRpc.scratch.write(args),
         isActive: () =>
           activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
-        sendInput: (args) => activePadiRpc.surface.lifecycle.sendInput(args),
+        sendInput: (args) => activePadiRpc.lifecycle.sendInput(args),
         wrapPath: wrapBracketedPaste,
       });
     }
@@ -738,7 +738,7 @@ const Terminal: Component<{
         // desktop, where nothing is ever armed).
         onData={(data) => {
           if (isTerminalQueryResponse(data)) return;
-          void activePadiRpc.surface.lifecycle.sendInput({
+          void activePadiRpc.lifecycle.sendInput({
             id: props.terminalId,
             data: applyStickyModifiers(data),
           });

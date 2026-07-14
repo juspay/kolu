@@ -42,21 +42,28 @@ export type { EntryState };
 
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
- *  (`.cells`/`.collections`/`.streams`/`.events`). */
+ *  (`.cells`/`.collections`/`.streams`/`.events`/`.procedures`). */
 export interface Entry<ES extends SurfaceSpec, Failure = unknown>
   extends Pick<
     SurfaceClient<ES>,
-    "cells" | "collections" | "streams" | "events"
+    "cells" | "collections" | "streams" | "events" | "procedures"
   > {
-  /** The entry surface's PROCEDURE client — for imperative point-calls
-   *  (`entry(k).rpc.surface.<ns>.<verb>(input)`, the lifecycle/chrome/fs/git/… procs).
-   *  The per-key link folds `{ mapKey }` into every call, so the consumer never passes
-   *  the key. It is the per-key `SurfaceClient`'s `rpc` — typed as the map's `Rpc`
-   *  (default `unknown` for the generic map, since the entry's link is untyped here); a
-   *  consumer that knows its entry contract casts it (e.g. a `padiRpcOf` helper) or reads
-   *  it through the concrete contract. Kept as `SurfaceClient<ES>["rpc"]` rather than a
-   *  `ContractRouterClient<Surface<ES>["contract"]>` expansion, which is a TS2590
-   *  "union too complex" under a generic `ES`. */
+  /** The entry surface's declared PROCEDURES, bound and typed from the entry spec
+   *  — `entry(k).procedures.<ns>.<verb>(input)`. The per-key link folds `{ mapKey }`
+   *  into every call, so the consumer never passes the key. Inherited verbatim from
+   *  the base `SurfaceClient<ES>` (the `procedures` in the `Pick` above); this is a
+   *  NARROW mapped type over the entry's `spec.procedures`, so it types WITHOUT the
+   *  TS2590 "union too complex" the full `rpc` contract-client union trips under a
+   *  generic `ES` — which is exactly why the declared procedures moved off the raw
+   *  `.rpc` and onto this typed face (no consumer casts a procedure client any more).
+   *
+   *  The raw oRPC PROCEDURE client — for the RESERVED framework procedures
+   *  (`system.live` / `system.identity`, contract-only) and the link-root escape
+   *  hatch. Typed as the base `SurfaceClient`'s `rpc` — `unknown` for the generic
+   *  map, since the entry's link is untyped here; a consumer that must reach a
+   *  reserved proc reads it through the concrete contract. Kept as
+   *  `SurfaceClient<ES>["rpc"]` rather than a `ContractRouterClient<...>` expansion,
+   *  which is a TS2590 "union too complex" under a generic `ES`. */
   readonly rpc: SurfaceClient<ES>["rpc"];
   /** The clock-translation lens — reproject a far-end (remote-host) timestamp into THIS
    *  process's local clock using the entry's measured `clockOffset`. The ONE generic
@@ -286,7 +293,9 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
   entryFor: (key: K) => Entry<ES, Failure>,
   keyAccessor: Accessor<K>,
 ): Entry<ES, Failure> {
-  const primProxy = (prim: "cells" | "collections" | "streams" | "events") =>
+  const primProxy = (
+    prim: "cells" | "collections" | "streams" | "events" | "procedures",
+  ) =>
     new Proxy(
       {},
       {
@@ -345,6 +354,11 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
     collections: primProxy("collections"),
     streams: primProxy("streams"),
     events: primProxy("events"),
+    // Procedures are two-level imperative point-calls (`procedures.<ns>.<verb>(input)`)
+    // — `primProxy`'s non-`use` branch reads the CURRENT key at call time, so a call
+    // through `useEntry` routes to the active host, exactly like `rpcDelegate` does
+    // for the raw `.rpc`.
+    procedures: primProxy("procedures"),
     rpc: rpcDelegate(entryFor, keyAccessor),
     clock: makeEntryClock(() => entryFor(keyAccessor()).state()),
     state: () => entryFor(keyAccessor()).state(),
@@ -556,9 +570,11 @@ export function connectSurfaceMap<
       collections: c.collections,
       streams: c.streams,
       events: c.events,
-      // The per-key client's procedure client — its key-injecting link folds `{ mapKey }`
-      // into every call. Typed loosely off the untyped link (`c.rpc` is `unknown`), so
-      // cast to the entry-contract client `Entry.rpc` names.
+      // The per-key client's bound, declaration-typed procedures — its key-injecting
+      // link folds `{ mapKey }` into every call, so the consumer never passes the key.
+      procedures: c.procedures,
+      // The raw oRPC procedure client — reserved procs + link-root escape hatch. Typed
+      // loosely off the untyped link (`c.rpc` is `unknown`), so cast to `Entry.rpc`.
       rpc: c.rpc as Entry<ES, Failure>["rpc"],
       clock: makeEntryClock(() => foldState(key)),
       state: () => foldState(key),

@@ -13,7 +13,7 @@
  * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
  * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
  * DELETED at W1.R7; terminal/git mutations now go through
- * `activePadiRpc.surface.*` (padiSurface). None of these are on `app.rpc`.
+ * `activePadiRpc.*` (padiSurface procedures). None of these are on `app.rpc`.
  *
  * The `preferences` accessor below collapses what used to be a hand-rolled
  * `usePreferences` module into a module-level subscription — every consumer reads
@@ -23,11 +23,8 @@
  * `preferences` below); they are no longer defined in this module.
  */
 
-import type { padiSurface } from "@kolu/padi/surface";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
 import {
   decodeHostKey,
@@ -191,25 +188,22 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
     ),
 });
 
-/** A FIXED-host PROCEDURE client, typed as the concrete padi contract client (the
- *  generic map types `entry(k).rpc` as `unknown`, so the one concrete cast lives HERE).
- *  For a caller that must reach a SPECIFIC host rather than whichever is active — the
- *  real consumer is the per-host scope (`hostScope/createViewState`'s `writeActive`
- *  reports to `padiRpcOf(host)` for its OWN scope's host, which persists across
- *  switch-away). Every call site that instead wants "whatever host is active" uses
- *  `activePadiRpc` below, which fuses this with `activeHost()` so it never has to be
- *  spelled out. */
-type PadiRpc = ContractRouterClient<
-  typeof padiSurface.contract,
-  ClientRetryPluginContext
->;
-export const padiRpcOf = (host: HostKey): PadiRpc =>
-  padiMap.entry(host).rpc as PadiRpc;
+/** A FIXED-host PROCEDURE client — the entry's bound, declaration-typed procedures
+ *  (`padiRpcOf(host).<ns>.<verb>(input)`). Typed straight from `padiSurface`'s
+ *  declaration by the map's `entry(host).procedures` face — no cast: the bound
+ *  `procedures` map is a narrow type that dodges the TS2590 the raw-`.rpc` contract
+ *  client used to force a `PadiRpc` cast for. For a caller that must reach a SPECIFIC
+ *  host rather than whichever is active — the real consumer is the per-host scope
+ *  (`hostScope/createViewState`'s `writeActive` reports to `padiRpcOf(host)` for its
+ *  OWN scope's host, which persists across switch-away). Every call site that instead
+ *  wants "whatever host is active" uses `activePadiRpc` below, which fuses this with
+ *  `activeHost()` so it never has to be spelled out. */
+export const padiRpcOf = (host: HostKey) => padiMap.entry(host).procedures;
 
 /** Convenience alias — the FULL combined link. `client.server.info(...)` /
  *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
  *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
- *  mutations go through `activePadiRpc.surface.*`);
+ *  mutations go through `activePadiRpc.*`);
  *  `client.surface.kolu.preferences.patch(...)` /
  *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
  *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
@@ -357,7 +351,8 @@ const hostScoped = createRoot(() => {
     preferences,
     requestActivateOnJoin: setPendingJoin,
     hostKeys,
-    rpc: active.rpc,
+    procedures: active.procedures,
+    streams: active.streams,
   };
 });
 
@@ -392,14 +387,24 @@ export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
   createMemo(() => groundActiveHost(activeHost(), hostKeys())),
 );
 
-/** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
+/** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).procedures`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
- *  lens already re-keys on switch; its `rpc` reads the CURRENT key per call, so this
- *  single client always routes to whichever host is active). Every lifecycle / chrome
- *  / screen / fs / git / session procedure call site should read
- *  `activePadiRpc.surface.<ns>.<verb>(...)` instead of re-deriving the host by hand via
+ *  lens already re-keys on switch; its `procedures` face reads the CURRENT key per
+ *  call, so this single client always routes to whichever host is active). Every
+ *  lifecycle / chrome / screen / fs / git / session procedure call site should read
+ *  `activePadiRpc.<ns>.<verb>(...)` instead of re-deriving the host by hand via
  *  `padiRpcOf(activeHost())`. */
-export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
+export const activePadiRpc = hostScoped.procedures;
+
+/** The FUSED active-host STREAM face — `padiMap.useEntry(activeHost).streams`,
+ *  built once inside `hostScoped` (re-keys on switch like `activePadiRpc`). The
+ *  home for the DELIBERATELY UN-ENROLLED stream reaches (`.streams.<key>.unenrolled`
+ *  → `unenrolledStreamCall`): the terminal re-attach (#1591) and the code tab's
+ *  change pulses, whose transient re-subscribes must NOT flicker padi's `health()`
+ *  gate, so they take the raw ref rather than the enrolling `.use()`. Every OTHER
+ *  (enrolled) per-host stream rides `activeScope().wire` / `entry.streams.<key>.use`;
+ *  this accessor is only the carve-out reach. */
+export const activePadiStreams = hostScoped.streams;
 
 /** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
  *  before its first frame. Drives the connect overlay's copying/building narration. Floored

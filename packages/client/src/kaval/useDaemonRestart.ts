@@ -59,7 +59,7 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
   try {
-    await activePadiRpc.surface.lifecycle.recycleKaval();
+    await activePadiRpc.lifecycle.recycleKaval();
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });

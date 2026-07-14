@@ -110,7 +110,7 @@ export function createViewState(host: HostKey): HostViewState {
     // than a stale restore with no trace. No toast — this fires on every tile
     // activation, and a background bookkeeping report is not a user-facing action.
     void padiRpcOf(host)
-      .surface.chrome.setActive({ id })
+      .chrome.setActive({ id })
       .catch((err: Error) => {
         console.error(
           `hostScope: failed to report active terminal ${id} to ${encoded}: ${err.message}`,
