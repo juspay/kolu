@@ -32,31 +32,17 @@
  * (the same heuristic `ui/standingSubscriptionOwnership.test.ts` uses).
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { listGuardSourceFiles } from "../architectureGuardSources.testlib";
 
 const CANVAS = dirname(fileURLToPath(import.meta.url)); // packages/client/src/canvas
 const CLIENT_SRC = dirname(CANVAS); // packages/client/src
 
 /** The canvas domain: the whole `canvas/` subtree + the view-state facade. */
 const DOMAIN = [CANVAS, join(CLIENT_SRC, "useViewState.ts")];
-
-/** Every non-test `.ts`/`.tsx` source file under a domain target (a dir or a file). */
-function listSourceFiles(target: string): string[] {
-  const st = statSync(target);
-  if (!st.isDirectory()) {
-    if (!/\.tsx?$/.test(target) || /\.test(-d)?\.tsx?$/.test(target)) return [];
-    return [target];
-  }
-  const out: string[] = [];
-  for (const name of readdirSync(target)) {
-    if (name === "node_modules") continue;
-    out.push(...listSourceFiles(join(target, name)));
-  }
-  return out;
-}
 
 /** A MODULE-SCOPE (column-0) reactive STATE constructor — `createSignal`,
  *  `createStore`, or `createMemo`, in either the single (`const x = createMemo(`)
@@ -87,7 +73,7 @@ function markedAbove(lines: string[], i: number): boolean {
 function findModuleScopeState(): string[] {
   const violations: string[] = [];
   for (const target of DOMAIN) {
-    for (const file of listSourceFiles(target)) {
+    for (const file of listGuardSourceFiles(target)) {
       const lines = readFileSync(file, "utf8").split("\n");
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];

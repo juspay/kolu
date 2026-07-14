@@ -9,7 +9,7 @@
  * `@kolu/surface-app` dependency.
  *
  * The result — `app.cells.load`, `app.cells.memory`, `app.collections.processes`,
- * `app.rpc.surface.process.kill` — is the exact shape `directLink` gave us
+ * `app.procedures.process.kill` — is the exact shape `directLink` gave us
  * in-process (`inproc.ts`); only the transport changed.
  */
 

@@ -5,7 +5,7 @@
  *   - `app.cells.load.use()`        → the load-average header
  *   - `app.cells.memory.use()`      → the memory bar
  *   - `app.collections.processes.use()` → the process table (snapshot-then-delta)
- *   - `app.rpc.surface.process.kill(...)` → the one mutation
+ *   - `app.procedures.process.kill(...)` → the one mutation
  */
 
 import { createMemo, For, Show } from "solid-js";
@@ -30,7 +30,7 @@ export default function App() {
   );
 
   const kill = async (pid: Pid): Promise<void> => {
-    await app.rpc.surface.process.kill({ pid, signal: "TERM" });
+    await app.procedures.process.kill({ pid, signal: "TERM" });
   };
   // #endregion
 

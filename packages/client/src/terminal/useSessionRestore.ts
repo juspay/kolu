@@ -231,7 +231,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       //
       // `resumeIds` is the per-terminal opt-in the restore card builds off its
       // global toggle: the SET of ids to resume (empty when the toggle is off).
-      await activePadiRpc.surface.session.restore({
+      await activePadiRpc.session.restore({
         resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
       });
       setSavedSession(null);
@@ -272,7 +272,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     if (!session) return;
     // Optimistic dismissal: the card is gone the moment the user commits.
     setSavedSession(null);
-    await activePadiRpc.surface.session.forfeit({}).catch((err: Error) => {
+    await activePadiRpc.session.forfeit({}).catch((err: Error) => {
       // Surface the failure and restore the card so the user can retry —
       // a caught error must not collapse silently to the empty state.
       setSavedSession(session);

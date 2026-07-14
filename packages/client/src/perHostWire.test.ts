@@ -24,19 +24,19 @@ import { batch, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The `./wire` mock stands up the mock `padiMap` (with the instrumented `entry`)
-// the real owner reads, the `padiRpcOf` stub `createHostWire`'s keys stream opens,
-// and the per-tab `activeHost` signal that drives per-host keying.
+// the real owner reads — its `entry().collections.terminals.unenrolledKeys` is the
+// keys stream `createHostWire` opens — and the per-tab `activeHost` signal that
+// drives per-host keying.
 const bag = vi.hoisted(() => ({
   activeHost: (() => ({ kind: "local" })) as () => HostKey,
 }));
 
 vi.mock("./wire", async () => {
-  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
+  const { mockPadiMap, mockGroundedActiveHost } = await import(
     "./hostScope/mockHostMap.testlib"
   );
   return {
     padiMap: mockPadiMap,
-    padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
     activeHost: () => bag.activeHost(),
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),

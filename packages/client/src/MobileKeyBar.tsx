@@ -100,7 +100,7 @@ const MobileKeyBar: Component = () => {
     const id = store.focusedId();
     if (!id) return;
     tick();
-    void activePadiRpc.surface.lifecycle.sendInput({
+    void activePadiRpc.lifecycle.sendInput({
       id,
       data: applyStickyModifiers(data),
     });

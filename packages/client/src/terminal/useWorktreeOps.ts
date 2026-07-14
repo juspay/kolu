@@ -25,7 +25,7 @@ export function useWorktreeOps(deps: {
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await activePadiRpc.surface.git.worktreeCreate({
+      const result = await activePadiRpc.git.worktreeCreate({
         repoPath,
         name,
       });
@@ -45,7 +45,7 @@ export function useWorktreeOps(deps: {
       // signal (OSC 133;A prompt mark) — a contract change deliberately
       // deferred out of phase 2 scope.
       if (initialCommand !== undefined) {
-        await activePadiRpc.surface.lifecycle
+        await activePadiRpc.lifecycle
           .sendInput({
             id: newTerminalId,
             data: `${initialCommand}\r`,
@@ -93,7 +93,7 @@ export function useWorktreeOps(deps: {
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {
-        await activePadiRpc.surface.git.worktreeRemove({
+        await activePadiRpc.git.worktreeRemove({
           worktreePath,
         });
         toast.success("Worktree removed", { id: tid });

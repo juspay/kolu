@@ -33,12 +33,11 @@ const bag = vi.hoisted(() => ({
 }));
 
 vi.mock("../wire", async () => {
-  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
+  const { mockPadiMap, mockGroundedActiveHost } = await import(
     "./mockHostMap.testlib"
   );
   return {
     padiMap: mockPadiMap,
-    padiRpcOf: mockPadiRpcOf(vi.fn(async () => {})),
     activeHost: () => bag.activeHost(),
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
   };
