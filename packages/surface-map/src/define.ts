@@ -58,6 +58,18 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  source — one writer publishes membership + status together). `clockOffset`
  *  is the serving process's own-clock offset at hello (one named writer, P3).
  *
+ *  `membershipId` (PR3) is an opaque, never-reused identity stamped by
+ *  `serveSurfaceMap` on every ADD — a fresh `crypto.randomUUID()` when a key
+ *  ENTERS membership, dropped when it leaves, and never reused across a
+ *  map-server restart (the id map is in-process, so a fresh server mints fresh
+ *  ids by construction). It rides EVERY arm so a client can key every cached
+ *  owner on `{encodedKey, membershipId}`: a same-key remove/re-add mints a NEW
+ *  id, and an authority restart mints new ids for every member, so a stale
+ *  subscription can never resurrect against a fresh session — the rebuild
+ *  happens by construction, not by a hand-rolled generation rearm. Membership is
+ *  time: a key that leaves and returns is a *new member* even when its spelling
+ *  is unchanged, and this id is that time made a fact.
+ *
  *  `Failure` is the DOMAIN FAILURE VALUE carried on the `failed` arm — a whole,
  *  schema-validated domain value (padi's `PadiEntryFailure`: a discriminated
  *  union over a structural `cause`, its human `reason`, and any typed per-cause
@@ -70,9 +82,9 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  `unknown` so generic library code carries the value opaquely; a domain
  *  narrows it at its own map. */
 export type EntryStatus<Failure = unknown> =
-  | { kind: "warming" }
-  | { kind: "connected"; clockOffset: number }
-  | { kind: "failed"; failure: Failure };
+  | { kind: "warming"; membershipId: string }
+  | { kind: "connected"; membershipId: string; clockOffset: number }
+  | { kind: "failed"; membershipId: string; failure: Failure };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
@@ -91,14 +103,24 @@ export type EntryState<Failure = unknown> =
  *  union, its `reason`, and any typed per-cause sidecar — padi's `running`/
  *  `expected` skew pair — are all validated by the domain schema itself, not
  *  waved through as unknown extras). A generic package can't know the domain's
- *  schema, so this is a FUNCTION of it rather than a module const. */
+ *  schema, so this is a FUNCTION of it rather than a module const. Every arm also
+ *  carries `membershipId: z.string()` (PR3) — the opaque per-add identity, on the
+ *  wire so the client keys owners on `{encodedKey, membershipId}`. */
 export function entryStatusSchema<Failure>(
   failureSchema: ZodType<Failure>,
 ): ZodType<EntryStatus<Failure>> {
   return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("warming") }),
-    z.object({ kind: z.literal("connected"), clockOffset: z.number() }),
-    z.object({ kind: z.literal("failed"), failure: failureSchema }),
+    z.object({ kind: z.literal("warming"), membershipId: z.string() }),
+    z.object({
+      kind: z.literal("connected"),
+      membershipId: z.string(),
+      clockOffset: z.number(),
+    }),
+    z.object({
+      kind: z.literal("failed"),
+      membershipId: z.string(),
+      failure: failureSchema,
+    }),
   ]) as unknown as ZodType<EntryStatus<Failure>>;
 }
 
