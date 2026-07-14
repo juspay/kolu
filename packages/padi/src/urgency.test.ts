@@ -67,7 +67,12 @@ function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
     foreground: null,
   };
   return composeTerminalMetadata(
-    { state: "sleeping", location: LOCAL_LOCATION, lastActivityAt: 0, sleptAt: 0 },
+    {
+      state: "sleeping",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 0,
+      sleptAt: 0,
+    },
     snapshot,
   );
 }
