@@ -70,8 +70,8 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
   // The raw, contract-declared RPCs — the ONLY procedures that need `t`'s builder.
   // The input omits `surface` (hand-merged below), which `t.router`'s type demands
   // as a required contract key; the runtime adapts a partial object fine (it only
-  // builds the namespaces present), so cast the input past that one type check.
-  // biome-ignore lint/suspicious/noExplicitAny: deliberately partial input — `surface` is hand-merged after, but `t.router`'s type demands it; the runtime builds only the namespaces given.
+  // builds the namespaces present), so the input is cast past that one type check
+  // at the closing brace.
   const raw = t.router({
     server: {
       // Per-host BRANDING the shell needs synchronously at boot (document title,
