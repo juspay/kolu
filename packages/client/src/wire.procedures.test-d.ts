@@ -12,20 +12,15 @@
  * a compile error — so the file compiling IS the assertion.
  *
  * House style mirrors `kaval/canvasModeResolver.test-d.ts`: bare typed
- * declarations plus inline `// @ts-expect-error`.
+ * declarations plus inline `// @ts-expect-error`; exact (invariant) output
+ * equality uses vitest's `expectTypeOf().toEqualTypeOf()` (tsc-native — it errors
+ * under `tsc --noEmit`, so it needs no vitest run).
  */
 
 import type { StreamingProcedure } from "@kolu/surface/client";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
+import { expectTypeOf } from "vitest";
 import { activePadiRpc, activePadiStreams, padiMap } from "./wire";
-
-// Exact (invariant) type equality — a widen (to `Promise<unknown>`/`Promise<any>`)
-// OR narrow on either side flips it, so it pins precision an assignment can't.
-type Equals<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-    ? true
-    : false;
-type Assert<_T extends true> = never;
 
 // A no-input / no-output declared procedure (`lifecycle.killAll: {}`) is a typed
 // `() => Promise<void>` — NOT `unknown`. Assigning it to the concrete function type
@@ -34,11 +29,11 @@ const _killAll: () => Promise<void> = activePadiRpc.lifecycle.killAll;
 void _killAll;
 
 // A declared OUTPUT flows through: `screen.text` declares `output: z.string()`, so
-// its bound return is EXACTLY `Promise<string>`. An invariant `Equals` (not a mere
-// assignment, which `Promise<unknown>` would also satisfy) pins that precision.
-type _textOut = Assert<
-  Equals<ReturnType<typeof activePadiRpc.screen.text>, Promise<string>>
->;
+// its bound return is EXACTLY `Promise<string>`. `toEqualTypeOf` is invariant (not a
+// mere assignment, which `Promise<unknown>` would also satisfy), pinning that precision.
+expectTypeOf<ReturnType<typeof activePadiRpc.screen.text>>().toEqualTypeOf<
+  Promise<string>
+>();
 
 // `padiMap.entry(host).procedures` (the fixed-host face `createViewState` reaches)
 // is the SAME declaration-typed procedures.

@@ -53,7 +53,7 @@ const CONTRACT_CLIENT_COPY_RE = /ContractRouterClient<\s*typeof\s/;
  *  number. (A line-split scan silently misses those, the exact hole the removed
  *  alias was formatted into.) */
 function scan(text: string, re: RegExp, label: string): string[] {
-  const g = new RegExp(re.source, `${re.flags.replace(/g/g, "")}g`);
+  const g = new RegExp(re.source, "g");
   const hits: string[] = [];
   for (let m = g.exec(text); m !== null; m = g.exec(text)) {
     const line = text.slice(0, m.index).split("\n").length;

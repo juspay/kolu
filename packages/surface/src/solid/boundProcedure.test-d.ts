@@ -32,16 +32,15 @@
 
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
+import { expectTypeOf } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
 import type { BoundProcedure } from "./surfaceClient";
 
-// Exact (invariant) type equality — a widen OR narrow on either side flips it.
-type Equals<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-    ? true
-    : false;
-type Assert<_T extends true> = never;
+// Exact (invariant) equality is vitest's `expectTypeOf().toEqualTypeOf()` and
+// assignability its `toMatchTypeOf()` — both tsc-native (they error under
+// `tsc --noEmit`, so this file needs no vitest run), replacing a hand-rolled
+// `Equals`/`Assert` pair.
 
 // A FIXED concrete spec touching all four arms. `defineSurface` runs its
 // `ProcedureContract` derivation over these to produce `fixture.contract`.
@@ -86,68 +85,36 @@ type BoundHasInput<F extends (...args: any) => any> = [
   : true;
 
 // ── Per-arm assertions: BoundProcedure agrees with ProcedureContract ─────
+// Each arm: the resolved OUTPUT (Awaited return) and the INPUT-presence bit agree
+// between the two derivations.
 
-type _both = [
-  // output axis
-  Assert<
-    Equals<
-      Awaited<ReturnType<BoundProcedure<Procs["both"]>>>,
-      Awaited<ReturnType<WireProcs["both"]>>
-    >
-  >,
-  // input axis
-  Assert<
-    Equals<
-      BoundHasInput<BoundProcedure<Procs["both"]>>,
-      WireHasInput<WireProcs["both"]>
-    >
-  >,
-];
+expectTypeOf<
+  Awaited<ReturnType<BoundProcedure<Procs["both"]>>>
+>().toEqualTypeOf<Awaited<ReturnType<WireProcs["both"]>>>();
+expectTypeOf<BoundHasInput<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
+  WireHasInput<WireProcs["both"]>
+>();
 
-type _inputOnly = [
-  Assert<
-    Equals<
-      Awaited<ReturnType<BoundProcedure<Procs["inputOnly"]>>>,
-      Awaited<ReturnType<WireProcs["inputOnly"]>>
-    >
-  >,
-  Assert<
-    Equals<
-      BoundHasInput<BoundProcedure<Procs["inputOnly"]>>,
-      WireHasInput<WireProcs["inputOnly"]>
-    >
-  >,
-];
+expectTypeOf<
+  Awaited<ReturnType<BoundProcedure<Procs["inputOnly"]>>>
+>().toEqualTypeOf<Awaited<ReturnType<WireProcs["inputOnly"]>>>();
+expectTypeOf<BoundHasInput<BoundProcedure<Procs["inputOnly"]>>>().toEqualTypeOf<
+  WireHasInput<WireProcs["inputOnly"]>
+>();
 
-type _outputOnly = [
-  Assert<
-    Equals<
-      Awaited<ReturnType<BoundProcedure<Procs["outputOnly"]>>>,
-      Awaited<ReturnType<WireProcs["outputOnly"]>>
-    >
-  >,
-  Assert<
-    Equals<
-      BoundHasInput<BoundProcedure<Procs["outputOnly"]>>,
-      WireHasInput<WireProcs["outputOnly"]>
-    >
-  >,
-];
+expectTypeOf<
+  Awaited<ReturnType<BoundProcedure<Procs["outputOnly"]>>>
+>().toEqualTypeOf<Awaited<ReturnType<WireProcs["outputOnly"]>>>();
+expectTypeOf<
+  BoundHasInput<BoundProcedure<Procs["outputOnly"]>>
+>().toEqualTypeOf<WireHasInput<WireProcs["outputOnly"]>>();
 
-type _neither = [
-  Assert<
-    Equals<
-      Awaited<ReturnType<BoundProcedure<Procs["neither"]>>>,
-      Awaited<ReturnType<WireProcs["neither"]>>
-    >
-  >,
-  Assert<
-    Equals<
-      BoundHasInput<BoundProcedure<Procs["neither"]>>,
-      WireHasInput<WireProcs["neither"]>
-    >
-  >,
-];
+expectTypeOf<
+  Awaited<ReturnType<BoundProcedure<Procs["neither"]>>>
+>().toEqualTypeOf<Awaited<ReturnType<WireProcs["neither"]>>>();
+expectTypeOf<BoundHasInput<BoundProcedure<Procs["neither"]>>>().toEqualTypeOf<
+  WireHasInput<WireProcs["neither"]>
+>();
 
 // ── Input arm uses z.INPUT, result arm uses z.OUTPUT (not the parsed input) ─
 //
@@ -182,26 +149,13 @@ type Divergent = NonNullable<(typeof divergent.spec)["procedures"]>["ns"];
 type DefaultedInput = Parameters<BoundProcedure<Divergent["defaulted"]>>[0];
 // The wire ACCEPTS `{ pid }` (signal filled by the default) — so it must be
 // assignable to the bound input. With the output type it would be REQUIRED and
-// this would be `false`.
-type _defaultedAcceptsPidOnly = Assert<
-  { pid: 1 } extends DefaultedInput ? true : false
->;
+// this assignability would fail.
+expectTypeOf<{ pid: 1 }>().toMatchTypeOf<DefaultedInput>();
 
 type TransformedInput = Parameters<BoundProcedure<Divergent["transformed"]>>[0];
 // The RAW input is `string`; the transformed `number` is the OUTPUT, which must
 // NOT be what the callable accepts.
-type _transformedInputIsRaw = Assert<Equals<TransformedInput, string>>;
-type _transformedResult = Assert<
-  Equals<Awaited<ReturnType<BoundProcedure<Divergent["transformed"]>>>, number>
->;
-
-// Reference the assertion tuples so they are not unused.
-export type _BoundProcedureContractDriftCatch = [
-  _both,
-  _inputOnly,
-  _outputOnly,
-  _neither,
-  _defaultedAcceptsPidOnly,
-  _transformedInputIsRaw,
-  _transformedResult,
-];
+expectTypeOf<TransformedInput>().toEqualTypeOf<string>();
+expectTypeOf<
+  Awaited<ReturnType<BoundProcedure<Divergent["transformed"]>>>
+>().toEqualTypeOf<number>();
