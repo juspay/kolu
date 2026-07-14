@@ -236,8 +236,32 @@ const Terminal: Component<{
     // `step_definitions/file_ref_link_steps.ts`, and friends read
     // `container.__xterm` to drive xterm's public API (buffer reads,
     // cell-to-pixel math). Removing this silently breaks every cucumber test
-    // that touches terminal contents. Cleared in onCleanup.
+    // that touches terminal contents. Cleared in the teardown below.
     (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = term;
+
+    // Consumer teardown registered HERE, inside onReady — NOT at the component
+    // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
+    // body-registered `onCleanup` lands FIRST on the shared owner and runs LAST
+    // under SolidJS LIFO — after the kit's `terminal.dispose()` / webgl-unload,
+    // and (since `cleanNode` has no per-entry try/catch) skipped entirely if
+    // either throws. Registered from inside `onReady` it lands AFTER the kit's
+    // disposal registrations, so LIFO runs it FIRST: the stream aborted, the
+    // refs/diagnostics deregistered, backfill disposed, and the `__xterm` #606
+    // bridge cleared BEFORE the terminal is disposed — the old single-function
+    // order (`Terminal.tsx`'s pre-cut cleanup), restored across the boundary.
+    onCleanup(() => {
+      streamAbort?.abort();
+      unregisterTerminalRefs(props.terminalId);
+      activity.forget(props.terminalId);
+      disposeDiagnostics?.();
+      disposeDiagnostics = null;
+      linkProviderDisposable?.dispose();
+      linkProviderDisposable = null;
+      backfill?.dispose();
+      backfill = null;
+      (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
+      setHandle(null);
+    });
 
     // Linkify `path:line[:col][-end]` references in terminal output. The link
     // provider reads repoRoot from the terminal store at click time (not at
@@ -589,26 +613,14 @@ const Terminal: Component<{
     });
   };
 
-  // Policy teardown. The kit (<Xterm>) owns disposing the terminal + addons and
-  // the WebGL context; here we release only THIS component's retained references
-  // and kolu-side registrations, so no closure keeps the xterm graph reachable
-  // (#606). Registered synchronously in the body so it fires even if the owner is
-  // disposed during <Xterm>'s font await.
+  // The #606 mount/cleanup audit counter, registered in the body so it fires
+  // even if the owner is disposed during <Xterm>'s font await (before onReady
+  // ran — in which case there is nothing to tear down). The consumer teardown
+  // that must run BEFORE the kit disposes the terminal lives in an onCleanup
+  // inside onReady (see there), so SolidJS LIFO orders it before the kit's
+  // terminal.dispose() rather than after it.
   onCleanup(() => {
     lifecycleCounters.cleanups++;
-    streamAbort?.abort();
-    unregisterTerminalRefs(props.terminalId);
-    activity.forget(props.terminalId);
-    disposeDiagnostics?.();
-    disposeDiagnostics = null;
-    linkProviderDisposable?.dispose();
-    linkProviderDisposable = null;
-    backfill?.dispose();
-    backfill = null;
-    const h = handle();
-    if (h)
-      (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
-    setHandle(null);
   });
 
   // Auto-focus when this terminal becomes visible (display:none → visible) — only

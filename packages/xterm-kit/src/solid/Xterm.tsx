@@ -218,15 +218,17 @@ export const Xterm: Component<
         recovery,
         refit,
       };
-      own.onReady(handle);
-
-      // Initial fit — after onReady, so the consumer's onResize is wired first.
-      // If xterm's default grid already matched the fit target, onResize won't
-      // fire, so publish the current grid manually too.
+      // Initial fit BEFORE onReady, so the initial resize RPC (grid → PTY) fires
+      // before the consumer's onReady subscribes anything that depends on the
+      // grid (e.g. an attach stream) — the pre-cut "size before stream" order.
+      // onResize is already wired above; if xterm's default grid already matched
+      // the fit target, onResize won't fire, so publish the current grid manually.
       if (own.visible) {
         c.addons.fit.fit();
         own.onResize({ cols: term.cols, rows: term.rows });
       }
+
+      own.onReady(handle);
     },
   );
 
