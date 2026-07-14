@@ -11,6 +11,7 @@ import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
 import Phase from "../../components/Phase.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import stack from "../../diagrams/chat-native-agents-stack.svg?raw";
 import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
@@ -279,6 +280,8 @@ export const PESU = [
 ### B0 — the round trip
 
 <Phase id="B0" name="the bridge daemon — a chat-driven coordinator over the installed app" status="next" />
+
+*Implemented as `packages/pesu` in <PrLink pr={1810} /> (draft — CI-class green; the live round trip is the morning acceptance, once the webhook URL and secrets are placed).*
 
 **What you see:** in the dedicated kolu channel, **"@kolu ‹ask›"** talks to the
 coordinator — your message lands in its terminal prefixed with your name; the answer
