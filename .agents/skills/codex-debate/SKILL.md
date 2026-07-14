@@ -230,8 +230,11 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
      message; **verify and record the SHA**. A **dispute-only / no-change** round has
      nothing to commit — note it and skip (don't force an empty commit). If a commit you
      expected fails, treat the round as **incomplete**, not consensus. Never push or merge.
-   - **Consensus test:** if codex's verdict is `approved: true` → go to step 4; else ping
-     codex for round N+1 and end your turn.
+   - **Consensus test:** if codex's verdict is `approved: true` → write a brief final
+     `section-NNN-2-claude.md` acknowledging agreement (no open findings — this keeps the
+     codex+author pair present for **every** round, which step 4's fail-loud assembly
+     requires) and go to step 4. Else write your dispositions (above), ping codex for round
+     N+1, and end your turn.
    - **Resolved-and-deferred (NOT a deadlock exit).** A finding that is a downstream /
      ship-phase / process gate (a companion repo pinning this repo's final HEAD, a
      CI/release step, a cross-repo PR) can't be satisfied mid-review — show codex it's
