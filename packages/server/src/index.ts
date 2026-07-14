@@ -503,11 +503,13 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   // truth): a finer arm-local detail pairs with the transport `reason`; a transient
   // `disconnected` with no detail keeps the entry warming (`null`, the single-meaning
   // absent); and a terminal give-up (`state.phase === "failed"`) that carries no finer
-  // detail — the LOCAL arm, whose `entryFailedDetail()` is always null — is floored to
-  // `link-failed` rather than yielding `null` into `serveHostMap`'s fail-loud
-  // `UnclassifiedHostFailureError` seam. So a genuinely-failed entry always classifies.
+  // detail is classified off the ARM via `session.provisions` — a non-provisioning
+  // (LOCAL) give-up is `local-start-failed` (its own named producer, distinct from the
+  // remote arm's `link-failed`), a provisioning (remote) one is `link-failed` — rather
+  // than yielding `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError`
+  // seam. So a genuinely-failed entry always classifies.
   failureOf: (_host, session, state): PadiEntryFailure | null =>
-    padiFailureOf(session.entryFailedDetail(), state),
+    padiFailureOf(session.provisions, session.entryFailedDetail(), state),
 });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own

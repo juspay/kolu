@@ -54,25 +54,31 @@ export type PadiEntryFailedDetail =
  *    / the remote arm's own `link-failed`) is paired with the transport `reason` and
  *    published verbatim.
  *  - No finer `detail` (`null`) but the session has TERMINALLY given up
- *    (`state.phase === "failed"`) is the LOCAL arm's `local-start-failed`: this branch
- *    is reached ONLY by the local arm, because the REMOTE arm always carries a
- *    `link-failed` detail on a terminal give-up (its convergence machine sets it), so
- *    a null detail on a `failed` phase is uniquely "the padi couldn't start on this
- *    machine". It is a DISTINCT producer from a remote `link-failed` (a local spawn/
- *    connect failure, not a network reach) with a distinct remedy, so it gets its own
- *    named arm rather than collapsing into `link-failed` (which would be `"other"`
- *    wearing a better name). Either way the local arm classifies rather than yielding
- *    `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError` seam.
+ *    (`state.phase === "failed"`) is classified off the ARM directly, via
+ *    `provisions` (the runtime twin of the session's `Prov` — `false` for the local
+ *    endpoint, `true` for a provisioning ssh arm): a NON-provisioning (local) give-up
+ *    is `local-start-failed` (the padi couldn't start on this machine — a distinct
+ *    producer from a remote reach, with a distinct remedy, so it gets its own named
+ *    arm rather than collapsing into `link-failed`, which would be `"other"` wearing a
+ *    better name); a provisioning (remote) give-up is `link-failed`. The remote arm
+ *    normally rides the `detail` branch above (its convergence machine sets a
+ *    `link-failed` detail), so this remote fallback only fires if a remote path ever
+ *    reaches a terminal `failed` WITHOUT that detail — and it still classifies
+ *    correctly off the arm rather than mislabeling it local. Either way a terminal
+ *    give-up classifies rather than yielding `null` into `serveHostMap`'s fail-loud
+ *    `UnclassifiedHostFailureError` seam.
  *  - No finer `detail` and merely `disconnected` (retrying) → `null`: keep-warming,
  *    the single-meaning absent (PR4). */
 export function padiFailureOf(
+  provisions: boolean,
   detail: PadiEntryFailedDetail | null,
   state: DownSessionState,
 ): PadiEntryFailure | null {
   if (detail !== null) return { ...detail, reason: state.error };
-  return state.phase === "failed"
-    ? { cause: "local-start-failed", reason: state.error }
-    : null;
+  if (state.phase !== "failed") return null;
+  return provisions
+    ? { cause: "link-failed", reason: state.error }
+    : { cause: "local-start-failed", reason: state.error };
 }
 
 /** A bound padi, LOCAL or REMOTE — a daemon session over the padi surface, its

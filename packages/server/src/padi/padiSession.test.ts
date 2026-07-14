@@ -35,16 +35,27 @@ const disconnected = (
   sinceMs: 0,
 });
 
+// `provisions`: false = the LOCAL endpoint arm (no nix-copy), true = a provisioning
+// ssh arm. It's the runtime twin of the session's `Prov` and the discriminant
+// `padiFailureOf` uses to name a no-detail terminal give-up.
+const LOCAL = false;
+const REMOTE = true;
+
 describe("padiFailureOf — detail + transport state → published PadiEntryFailure", () => {
   it("pairs a finer arm-local detail with the transport reason", () => {
     expect(
-      padiFailureOf({ cause: "unconverged" }, failed("drain never took")),
+      padiFailureOf(
+        REMOTE,
+        { cause: "unconverged" },
+        failed("drain never took"),
+      ),
     ).toEqual({ cause: "unconverged", reason: "drain never took" });
   });
 
   it("carries the typed skew pair through the contract-skew arm", () => {
     expect(
       padiFailureOf(
+        REMOTE,
         { cause: "contract-skew-refused", running: "9.0", expected: "9.1" },
         disconnected("binder older than running padi", "remote"),
       ),
@@ -57,22 +68,39 @@ describe("padiFailureOf — detail + transport state → published PadiEntryFail
   });
 
   it("keeps a transient disconnected with no detail WARMING (single-meaning null)", () => {
-    expect(padiFailureOf(null, disconnected("link blip"))).toBeNull();
+    expect(padiFailureOf(LOCAL, null, disconnected("link blip"))).toBeNull();
+    expect(padiFailureOf(REMOTE, null, disconnected("link blip"))).toBeNull();
   });
 
   // F1: the LOCAL arm's `entryFailedDetail()` is ALWAYS null, but it can still reach a
   // terminal `failed` (repeated bounded give-ups: a spawn-error / wedged handshake that
   // never respawns). A null detail on a terminal give-up must NOT ride into the map's
-  // `UnclassifiedHostFailureError` seam. This branch is UNIQUELY the local arm — a
-  // remote terminal give-up always carries a `link-failed` detail — so it classifies as
-  // `local-start-failed` (a distinct producer: the padi couldn't start on this machine),
-  // never collapsed into the remote `link-failed`.
-  it("classifies a terminal give-up with no detail as local-start-failed (the LOCAL arm)", () => {
+  // `UnclassifiedHostFailureError` seam. Classified off the ARM (`provisions`): a
+  // non-provisioning give-up is `local-start-failed` (a distinct producer: the padi
+  // couldn't start on this machine), never collapsed into the remote `link-failed`.
+  it("classifies a LOCAL (non-provisioning) terminal give-up with no detail as local-start-failed", () => {
     expect(
-      padiFailureOf(null, failed("gave up after 8 consecutive failures")),
+      padiFailureOf(
+        LOCAL,
+        null,
+        failed("gave up after 8 consecutive failures"),
+      ),
     ).toEqual({
       cause: "local-start-failed",
       reason: "gave up after 8 consecutive failures",
+    });
+  });
+
+  // The remote arm normally rides the detail branch (its convergence sets a `link-failed`
+  // detail). This pins the fallback: if a remote path ever reaches a terminal give-up
+  // WITHOUT that detail, it still classifies correctly off the arm — `link-failed`, never
+  // mislabeled `local-start-failed`.
+  it("classifies a REMOTE (provisioning) terminal give-up with no detail as link-failed", () => {
+    expect(
+      padiFailureOf(REMOTE, null, failed("ssh gave up after 5 dials")),
+    ).toEqual({
+      cause: "link-failed",
+      reason: "ssh gave up after 5 dials",
     });
   });
 });
