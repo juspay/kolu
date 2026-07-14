@@ -855,4 +855,28 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       }),
     ).toThrow(/declared as BOTH a cell and a collection/);
   });
+
+  it("a member named like an Object.prototype key (toString) does NOT falsely collide", () => {
+    // Member names are arbitrary Record keys; a cell named `toString` must not read
+    // as already-registered off the sibling dictionary's prototype (nor leak the
+    // inherited function to `$`). Boots clean and `$.toString()` reads the real cell.
+    const surface = defineSurface({
+      cells: {
+        toString: { schema: z.number(), default: 7, verbs: ["get"] },
+        mirror: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { ctx } = implementSurface(surface, {
+      cells: {
+        toString: { store: inMemoryStore(7) },
+        mirror: derived.cell(($) => $.toString()),
+      },
+    });
+    expect(ctx.cells.mirror.get()).toBe(7);
+  });
 });

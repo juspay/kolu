@@ -1648,8 +1648,14 @@ function walkSurface<const S extends SurfaceSpec>(
   // the value lands (so only accepted writes fire), and the wrapped collection
   // publishers call it on every key change — a missed poke is unwritable by
   // construction, not a rider held by pinning tests.
-  const siblingSources: SiblingSourcesRuntime = {};
-  const siblingChange: Record<string, () => void> = {};
+  // NULL-prototype dictionaries: member names are arbitrary `Record<string, …>`
+  // keys, so a cell legitimately named `toString` / `constructor` / `valueOf` must
+  // not collide with an inherited `Object.prototype` property — that would make the
+  // duplicate-key guard below fire falsely, and would leak an inherited function as
+  // a "source" to the `$` Proxy (`sources[name]`). A null prototype means a lookup
+  // is truthy ONLY for a genuinely registered member.
+  const siblingSources: SiblingSourcesRuntime = Object.create(null);
+  const siblingChange: Record<string, () => void> = Object.create(null);
   // A cell/collection registers its live read + change fan-out here. Subscribers
   // are held per key; `subscribe` returns an unsubscribe the compute cell runs on
   // dispose. `engineTracked` marks a DERIVED member (its `read` is a reactor-made
