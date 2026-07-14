@@ -227,13 +227,16 @@ the MVP clears the selection before each prepend.</span></span></span></li>
 <p>Three boundary decisions, stated as verdicts:</p>
 <ul>
 <li>
-<p><strong>A leaf, not electricity — but a <em>fail-loud</em> leaf.</strong> The client module
-lives at <code>packages/client/src/terminal/scrollbackBackfill.ts</code>, a sibling of
-<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/xtermInternals.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/xtermInternals.ts</a>. It hides no
-transport, no reconnect, no persistence — a bounded algorithm over xterm’s
-buffer, so it earns no <code>@kolu/*</code> package. But it inverts its sibling’s
-philosophy: <code>xtermInternals.ts</code> degrades to a no-op when a private symbol
-is missing, which is right for cosmetic reads — and <strong>wrong here</strong>, because
+<p><strong>A leaf, not electricity — but a <em>fail-loud</em> leaf.</strong> It hides no transport,
+no reconnect, no persistence — a bounded algorithm over xterm’s buffer, so on
+its own it earned no package. It has since graduated into
+<a href="xterm-kit"><code>@kolu/xterm-kit</code></a> — not as electricity in its own right, but as
+one part of the accumulated xterm machinery that package owns — where it lives
+at <code>packages/xterm-kit/src/scrollbackBackfill.ts</code> (the <code>/backfill</code> entry, which
+constructs the <code>@xterm/xterm</code> scratch), a sibling of the pinned-internals door
+<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/internals.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/internals.ts</a>. It inverts that sibling’s
+philosophy: <code>internals.ts</code> degrades to a no-op when a private symbol is
+missing, which is right for cosmetic reads — and <strong>wrong here</strong>, because
 a silent partial prepend corrupts a terminal. The prototype demonstrated
 the failure live: without the guard, a splice past <code>maxLength</code> silently
 trims the oldest rows while the register arithmetic still assumes they
@@ -299,7 +302,9 @@ rather than scattered through the codebase.</p>
 <p><strong>One PR</strong>, five steps — the work threads existing seams (attach, the
 terminal module, kaval’s verbs) and nothing here can ship usefully alone:</p>
 <ol>
-<li><strong>The module</strong> — <code>packages/client/src/terminal/scrollbackBackfill.ts</code>
+<li><strong>The module</strong> — <code>scrollbackBackfill.ts</code> (shipped under
+<code>packages/client/src/terminal/</code>; later graduated verbatim into
+<code>packages/xterm-kit/src/</code> — see <a href="xterm-kit">xterm-kit</a>)
 exporting <code>prependScrollback(term, rawChunk, servedRows): PrependResult</code> — a
 discriminated <code>{ kind: &quot;inserted&quot;; rows } | { kind: &quot;skipped&quot; }</code>, so the
 caller can never conflate “consumed, inserted <em>M</em> rows” with “not consumed”

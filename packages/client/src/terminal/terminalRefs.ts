@@ -11,8 +11,10 @@
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
-import type { ScrollLockEvent } from "../scrollLock";
-import type { RenderRecoveryProbes } from "./renderRecovery";
+import type {
+  RenderRecoveryProbes,
+  ScrollLockEvent,
+} from "@kolu/xterm-kit/solid";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
  *  handles above, these accessors may return null even during the terminal's

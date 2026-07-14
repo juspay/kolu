@@ -11,7 +11,7 @@
  *  (the fixed point xterm subtracts via `getBoundingClientRect().left`). */
 
 import { describe, expect, it } from "vitest";
-import { unscaleEventPoint } from "./xtermInternals";
+import { unscaleEventPoint } from "./internals";
 
 const rect = (left: number, top: number, width: number, height: number) => ({
   left,

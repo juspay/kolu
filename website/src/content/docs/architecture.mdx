@@ -404,6 +404,10 @@ _out_. The map, grouped:
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
   `surface-daemon` (the durable-daemon spine), and its supervisor half.
+- **Terminal machinery** — `xterm-kit` hides xterm.js's hazards (the pinned
+  `_core` internals, in-place scrollback surgery, scroll-lock write buffering,
+  mirror anchoring) behind a runtime-neutral core plus a `/solid` adapter, with
+  the client and kaval as two consumers from day one.
 - **Agent & forge integrations** — one leaf each for `claude-code`, `codex`,
   `grok`, `opencode`, plus the agent-agnostic `anyagent` contract; `github` behind
   the forge-agnostic `anyforge` kernel; and `git` for pure git operations.
