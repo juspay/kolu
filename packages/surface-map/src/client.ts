@@ -539,17 +539,20 @@ export function connectSurfaceMap<
       ?.membershipId;
   };
 
-  // The opaque re-key identity composite — `enc` + NUL + `membershipId` (NUL can't
-  // occur in a wire string, so the two fields can't alias). It NO LONGER keys the
-  // client cache (that is now the nested `clients` map below, keyed structurally by
-  // enc then id): it only builds the string `reKeyIdentity` a keyed root diffs to
-  // decide when to rebuild its sub, and is NEVER re-parsed. An empty id is the PENDING
-  // slot (no status frame yet / a non-reactive pure-lens caller).
-  const KEY_SEP = "\u0000";
+  // The opaque re-key identity composite — an INJECTIVE `[enc, membershipId]` pairing.
+  // It NO LONGER keys the client cache (that is now the nested `clients` map below, keyed
+  // structurally by enc then id): it only builds the string `reKeyIdentity` a keyed root
+  // diffs to decide when to rebuild its sub, and is NEVER re-parsed. A `null` id is the
+  // PENDING slot (no status frame yet / a non-reactive pure-lens caller). `JSON.stringify`
+  // of the 2-tuple is injective in both fields (JSON quoting length-delimits each string),
+  // so it CANNOT alias — a naive `${enc}<sep>${id}` join with ANY fixed separator would
+  // collide whenever a schema-valid `enc`/`id` contains that separator byte (`KeyCodec.encode`
+  // and the opaque `membershipId` contract forbid no byte, NUL included), wrongly suppressing
+  // a keyed-root rebuild and retaining another entry's subscription.
   const clientCacheKey = (
     enc: string,
     membershipId: string | undefined,
-  ): string => `${enc}${KEY_SEP}${membershipId ?? ""}`;
+  ): string => JSON.stringify([enc, membershipId ?? null]);
 
   // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by
   // `{encodedKey, membershipId}` (PR3) — NEVER the enc alone. The identity pair is held

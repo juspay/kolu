@@ -193,6 +193,7 @@ interface MapRegistry<K> {
 ```
 
 - The registry is the **one writer of membership**; `entries` is that truth published; status is derived from each resolved session's state.
+- **A departure and a same-key re-add are separate, non-coalesced transitions.** When a key leaves and its spelling returns, the registry must publish the removal and the re-add as two distinct membership events (the returning member carries a fresh `membershipId`), never fold them into one coalesced upsert. A coalesced re-add would let a client-side adapter retain the departed member's old `membershipId` and, with it, the stale per-key subscription — defeating the `{encodedKey, membershipId}` rebuild. `serveSurfaceMap` delivers them non-coalesced; a hand-rolled `MapRegistry` must too.
 - A call carries its key in every frame: an unknown key is a **typed rejection** (unary) or an **immediate typed end** (stream). A key that leaves membership mid-stream ends its subs with a typed `{ reason: "removed" }` **before** the session is destroyed — so no socket-error frame follows a typed end.
 - `resolve` returns `EntrySession` (`{ link, state }`) or `EntryFault` (`{ failure }`, a schema-valid domain value); `members()` and `has()` answer from one consistent snapshot. The connection state's `failed` arm **requires** a domain `failure` — "failed with no failure" is unconstructible at the type, not caught by a runtime throw; the serving adapter (`serveHostMap`) fails loud at its own classification seam rather than falling back to a framework `"other"` cause.
 
@@ -229,7 +230,7 @@ independent decodes of the same logical key.
 ## Typed sub ends and the clock seam
 
 - **`entry(key).rpc`** is the entry surface's procedure client; the key-injecting link folds `{ mapKey }` into every call. Typed `SurfaceClient<ES>["rpc"]` (`unknown` at the generic map — a consumer casts it once) to sidestep the "union too complex" a generic expansion trips. An absent-key call is a **typed rejection** (`MAP_KEY_UNKNOWN`), the one-shot twin of a sub's typed stream-end.
-- **`entry(key).clock.toLocal(remoteMs)`** reprojects a host-stamped timestamp into the local clock via the entry's measured offset: `remoteMs − offset`. It returns **`null`** (never a silent identity) when the entry has no offset yet (warming/failed/not-a-member); the `number | null` type forces the caller to render a pending "—" rather than fall back to the raw remote value. It reads only `.kind`, never `.failure`, and folds the membership collection so it re-answers as the entry connects.
+- **`entry(key).clock.toLocal(remoteMs)`** reprojects a host-stamped timestamp into the local clock via the entry's measured offset: `remoteMs − offset`. It returns **`null`** (never a silent identity) whenever the entry has no measured offset — `warming`/`failed`/`not-a-member`, AND a `connected` entry whose `clockOffset` is still `null` (link live, offset not yet probed); the `number | null` type forces the caller to render a pending "—" rather than fall back to the raw remote value. It reads only `.kind`, never `.failure`, and folds the membership collection so it re-answers as the entry connects.
 
 <Aside type="caution" title="No status renders green over a dead transport">
   A server-published `connected` is only as trustworthy as your link to the

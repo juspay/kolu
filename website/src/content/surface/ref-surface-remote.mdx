@@ -86,8 +86,9 @@ neither writes — though the close reason and log still name the verb.
 once per host and evicted on **either** removal or retirement (both drop live membership).
 There is no `offsetOf` option: `makeSession` measures the far-end clock offset off the
 framework-reserved `system.clockNow` at admit and carries it on the session's own
-`connected` state, which `serveHostMap` reads directly (offset-at-hello — the entry reads
-`connecting` until the first probe stamps it).
+`connected` state, which `serveHostMap` reads directly. Readiness is link-liveness: the
+entry is `connected` the moment its link is live, carrying `clockOffset: null` through
+(honest not-yet-measured) until the first probe stamps it — never demoted to `connecting`.
 `failureOf(host, session, state)` is **required and total**: it returns `null` for a
 transient down state (keep the entry warming — a single-meaning null, a classification
 verdict, never a fabrication) and a schema-valid domain `Failure` for a standing one. A
@@ -123,8 +124,8 @@ a fresh timer. The **`connected`** arm alone additionally carries `clockOffset: 
 — the far-end host's wall-clock offset (ms) vs the serving process, measured off the
 framework-reserved `system.clockNow` at admit (RTT-compensated; see
 `measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped
-once the probe lands — `null` means *not yet measured*, so `serveHostMap` reads it as still
-`connecting` (a `0` placeholder would be a lie on a skewed host). This is where the
+once the probe lands — `null` means *not yet measured*. Readiness is link-liveness, so
+`serveHostMap` keeps the entry `connected` with a `null` offset (never demoted to `connecting`; a `0` placeholder would be a lie on a skewed host). This is where the
 `clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
 the session's own state, no longer an injected `offsetOf`. `disconnected` adds `error` +
 `cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`

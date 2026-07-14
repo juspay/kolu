@@ -78,8 +78,10 @@ const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
  *     carries `clockOffset` — the far-end host's wall-clock offset (ms) vs THIS
  *     process, measured off the framework-reserved `system.clockNow` at the admit
  *     handshake (see {@link measureSurfaceClockOffset}) — `null` until that first probe stamps
- *     it (offset-at-hello is the contract; a keyed `SurfaceMap` reads a null offset
- *     as still `connecting`, never a `0` placeholder).
+ *     it (offset-at-hello is the contract). Readiness is LINK-liveness: a connected
+ *     session STAYS `connected` with `clockOffset: null` (honest single-meaning
+ *     not-yet-measured; the reader renders "—"), never demoted to `connecting` and
+ *     never a `0` placeholder — the offset is a separate fact riding this arm.
  *   - `disconnected` — `error` + `cause` are REQUIRED, never nullable: a down link
  *     ALWAYS has a real reason, so a consumer needs no `?? "disconnected"`
  *     invented-text fallback. `cause` is `"network"` (unreachable; retries forever)
@@ -402,6 +404,16 @@ export function makeSession<
   // connect critical path — it retries loudly on its own timer until it lands or the
   // session drops, never silently stranding a null offset with no signal.
   const clockProbeRetryMs = 10_000;
+  // A hard DEADLINE on a single `system.clockNow` probe. Without it, a clock RPC that
+  // never settles (a half-open transport that answers nothing, a server wedged only on
+  // this member) would reach neither `.then` nor `.catch` — so it would emit no
+  // diagnostic, schedule no cadence retry, and strand the connected frame at
+  // `clockOffset: null` FOREVER, silently defeating the loud-retry promise. Bounding the
+  // probe turns "never settles" into a timeout rejection that flows through the SAME
+  // catch → loud-line → cadence-retry path a normal failure takes. Shorter than the
+  // connect watchdog (this is a periodic probe on an already-live link, not the dial
+  // critical path) and comfortably under the retry cadence so a hung probe can't stack.
+  const clockProbeTimeoutMs = 8_000;
   // The runtime twin of `Prov` (erased at runtime, so this is the only witness
   // left standing at construction time). This is no GUESS from the initial state's
   // incidental value: `MakeSessionOptions.initialConnection`'s TYPE
@@ -557,6 +569,31 @@ export function makeSession<
           ),
         );
       }, connectTimeoutMs);
+      p.then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      );
+    });
+
+  /** Bound a single `system.clockNow` probe by {@link clockProbeTimeoutMs}. Mirrors
+   *  {@link withHandshakeTimeout}: a probe that never settles rejects on the deadline so
+   *  `pollClockNow`'s catch runs (loud line + cadence retry) instead of hanging silent.
+   *  Clears its own timer on settle. */
+  const withClockProbeDeadline = <T>(p: Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `system.clockNow probe exceeded ${clockProbeTimeoutMs}ms deadline (transport up, clock RPC never settled)`,
+          ),
+        );
+      }, clockProbeTimeoutMs);
       p.then(
         (v) => {
           clearTimeout(timer);
@@ -1052,7 +1089,7 @@ export function makeSession<
     // a fresh admit (or a manual re-poll) supersedes a stale one rather than racing it.
     clearClockProbeTimer();
     const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
-    measureSurfaceClockOffset(client)
+    withClockProbeDeadline(measureSurfaceClockOffset(client))
       .then((clockOffset) => {
         // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
         // now-dead link landing after a reconnect) — mirrors `pollIdentity`'s epoch
@@ -1073,6 +1110,12 @@ export function makeSession<
         // success path carries. Without it, a slow probe from a now-dead link rejecting
         // AFTER a reconnect would log a spurious failure against the live dial's session.
         if (destroyed || epoch !== dialEpoch) return;
+        // Re-check the LIVE phase before speaking (the success path guards the same way):
+        // a link can drop between the probe firing and its rejection landing WITHOUT a
+        // redial (epoch unbumped), and a "staying connected, retrying" line against a
+        // now-`disconnected` session would lie. A fresh `enterConnected` re-fires the probe,
+        // so returning here strands nothing.
+        if (stateCell.current().phase !== "connected") return;
         // No offset this cycle — the link STAYS `connected` (readiness is link-liveness,
         // not clock-measured) with an honest `clockOffset: null` (never fabricate a 0; the
         // reader renders "—"). But a probe failure is neither swallowed nor allowed to

@@ -504,8 +504,10 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
   // The clock offset is no longer injected: `makeSession` measures it off the
   // framework-reserved `system.clockNow` at admit and carries it on each session's
-  // own `connected` state, which `serveHostMap` reads directly (offset-at-hello — the
-  // entry reads `connecting` until the first probe stamps it).
+  // own `connected` state, which `serveHostMap` reads directly. Readiness is
+  // LINK-liveness: the entry is `connected` the moment its link is live and carries
+  // `clockOffset: null` through until the first probe stamps it — never demoted to
+  // `connecting`.
   // D1 + D2: classify a DOWN session into the schema-valid `PadiEntryFailure` —
   // padi's own knowledge (`session.entryFailedDetail()`, derived from
   // `convergence()`/the drv-resolution fault, both arm-local), never guessed

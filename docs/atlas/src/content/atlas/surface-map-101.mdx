@@ -36,7 +36,7 @@ The map publishes a single collection: `entries: Collection<Key, EntryStatus<Fai
 
 ```ts
 | { kind: "warming" }                          // in motion — coming up, or coming back on its own
-| { kind: "connected"; clockOffset: number }   // live; the offset is THIS entry's clock seam
+| { kind: "connected"; clockOffset: number | null } // live (link-liveness); offset null = not-yet-measured
 | { kind: "failed"; failure: Failure }         // NOT proceeding without intervention
 ```
 
