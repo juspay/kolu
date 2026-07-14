@@ -246,14 +246,15 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
    "$REPO" diff --stat <merge-base>`, and a per-round summary. Then, unless `--no-comment`
    and when a PR exists (the number resolved in step 1), **post the PR comment**: a small
    header (consensus badge · round count · effort · base) followed by **this run's**
-   section files. **Enumerate the actual files, and fail loud on a gap** — list the
-   zero-padded `$REPO/.codex-debate/section-*-1-codex.md` in sorted order, and for each
-   round require **both** its codex section and its matching `section-*-2-claude.md`; if
-   either is missing (or there are zero codex sections), the audit trail is incomplete —
-   **stop and report it, don't post a partial comment** (a silently truncated record is
-   the failure the file-transport exists to prevent). Only once every ordered pair
-   validates, `cat` them in order into the comment body and post from the target repo:
-   `(cd "$REPO" && gh pr comment <pr> -F <file>)`. The per-round commits sit on the local
+   section files. **Derive the round count `N` independently and fail loud on any gap** —
+   take `N` from the highest run `verdict-NNN.json` (never from whichever section files
+   happen to exist, or a *missing* codex/author section would vanish and still post a
+   truncated trail), then require a **contiguous `001..N`** with **all three** files per
+   round (`verdict-NNN.json`, `section-NNN-1-codex.md`, `section-NNN-2-claude.md`). If any
+   is missing, the audit trail is incomplete — **stop and report it, don't post a partial
+   comment** (a silently truncated record is the failure the file-transport exists to
+   prevent). Only once every round validates, `cat` the section pairs in order into the
+   comment body and post from the target repo: `(cd "$REPO" && gh pr comment <pr> -F <file>)`. The per-round commits sit on the local
    branch for the human to review and push/merge; the skill never pushes or merges.
 
 ### codex's verdict schema (`verdict-NNN.json`)

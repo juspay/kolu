@@ -168,24 +168,24 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
 
    ```bash
    workDir="$repoPath/.codex-debate"
-   # Enumerate the actual zero-padded codex sections (section-001-1-codex.md, …) and
-   # pair each with its author file — do NOT reconstruct round numbers with `seq -w`
-   # (its width tracks the largest arg, so 1..2 emits `1 2`, not `001 002`).
-   mapfile -t codex_sections < <(ls "$workDir"/section-*-1-codex.md 2>/dev/null | sort)
-   rounds=${#codex_sections[@]}
-   # Fail loud on an incomplete trail — a consensus comment must be the WHOLE record,
-   # never a silently truncated one. Require ≥1 codex section AND the author file for
-   # every round; if any is missing, stop and report an incomplete debate (don't post).
-   [ "$rounds" -ge 1 ] || { echo "codex debate: no section files — cannot assemble comment" >&2; exit 1; }
-   for cf in "${codex_sections[@]}"; do
-     af="${cf/-1-codex.md/-2-claude.md}"
-     [ -f "$af" ] || { echo "codex debate: missing author section $af — incomplete trail, not posting" >&2; exit 1; }
+   # Derive the expected round count N INDEPENDENTLY, from the highest run verdict
+   # (each round writes verdict-NNN.json; the final, approved one is the last). Do NOT
+   # infer the round set from whichever section files happen to exist — a missing codex
+   # OR author section for a real round would then vanish silently and still publish a
+   # truncated trail. With N fixed, require a contiguous 001..N with BOTH section files.
+   last=$(ls "$workDir"/verdict-[0-9]*.json 2>/dev/null | sort | tail -1)
+   [ -n "$last" ] || { echo "codex debate: no verdict files — cannot assemble comment" >&2; exit 1; }
+   N=$(basename "$last" .json); N=$((10#${N#verdict-}))   # e.g. verdict-004.json -> 4
+   for n in $(seq -f '%03g' 1 "$N"); do
+     for f in "$workDir/verdict-$n.json" "$workDir/section-$n-1-codex.md" "$workDir/section-$n-2-claude.md"; do
+       [ -f "$f" ] || { echo "codex debate: missing $f for round $n — incomplete trail, not posting" >&2; exit 1; }
+     done
    done
    {
-     printf '## Codex ⇄ Claude debate\n\n✅ Consensus in %s round(s) · reviewer effort: xhigh\n' "$rounds"
-     for cf in "${codex_sections[@]}"; do
-       af="${cf/-1-codex.md/-2-claude.md}"
-       printf '\n'; cat "$cf"; printf '\n'; printf '\n'; cat "$af"; printf '\n'
+     printf '## Codex ⇄ Claude debate\n\n✅ Consensus in %s round(s) · reviewer effort: xhigh\n' "$N"
+     for n in $(seq -f '%03g' 1 "$N"); do
+       printf '\n'; cat "$workDir/section-$n-1-codex.md"; printf '\n'
+       printf '\n'; cat "$workDir/section-$n-2-claude.md"; printf '\n'
      done
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```
