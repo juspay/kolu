@@ -604,15 +604,6 @@ async function newScenarioPage(
   chrome: "app" | "browser",
   vp: { width: number; height: number } = X11_VIEWPORT,
   touchViewport: { width: number; height: number } = PHONE_VIEWPORT,
-  /** `@touch-desktop`: a coarse-primary pointer that CAN hover, at desktop
-   *  width — the one quadrant where kolu both mounts the spatial canvas
-   *  (`isDesktop`, since `handheld = (pointer:coarse) and (hover:none)` is false)
-   *  AND wires the touch tap (`isTouch = (pointer:coarse)`). The client keys its
-   *  layout on pointer+hover, so this needs BOTH `hasTouch` (for touchscreen.tap)
-   *  AND the pointer/hover media pinned coarse+hover — pinned together via CDP
-   *  below, since Playwright's `emulateMedia` can't set pointer/hover. The
-   *  desktop viewport is untouched. */
-  touchDesktop = false,
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -658,11 +649,13 @@ async function newScenarioPage(
             ? EVIDENCE_VIEWPORT
             : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
-      // @touch-desktop: touch input at the (untouched) desktop viewport — no
-      // `isMobile`, so the mobile device profile / drawer layout stays off. The
-      // coarse+hover media the layout keys on is pinned via CDP after the page
-      // exists (below), so the spatial canvas mounts AND the touch tap wires.
-      ...(touchDesktop && { hasTouch: true }),
+      // @touch-desktop deliberately does NOT set `hasTouch`: Chromium's touch
+      // emulation forces `(hover: none)`, which CDP `setEmulatedMedia(hover:
+      // hover)` cannot override — so `hasTouch` and the coarse-primary-HOVER
+      // quadrant are mutually exclusive. Instead the desktop viewport stays put,
+      // the coarse+hover media is pinned via CDP (below), and the tap is driven
+      // by a synthetic `pointerType:"touch"` PointerEvent (no touch emulation
+      // needed — see `file_ref_link_steps.ts`).
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
       // clipboard-write: lets tests place images in the clipboard for paste testing.
@@ -1159,13 +1152,7 @@ Before(async function (this: KoluWorld, scenario) {
   const vp = rec?.viewport ?? X11_VIEWPORT;
 
   this.browser = browser;
-  const created = await newScenarioPage(
-    isMobile,
-    chrome,
-    vp,
-    touchViewport,
-    isTouchDesktop,
-  );
+  const created = await newScenarioPage(isMobile, chrome, vp, touchViewport);
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.

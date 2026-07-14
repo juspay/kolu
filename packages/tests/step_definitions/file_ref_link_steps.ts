@@ -230,7 +230,55 @@ When(
     // cell under both divisors (see findRefFontMetricPoint's doc), so this guards
     // the path, it does not disprove the old divisor.
     const point = await resolveRefPoint(this, refText, findRefFontMetricPoint);
-    await this.page.touchscreen.tap(point.x, point.y);
+    // @touch-desktop carries no `hasTouch` (Chromium touch emulation forces
+    // `(hover:none)` and collapses the coarse-primary-HOVER quadrant), so
+    // `page.touchscreen.tap` isn't available — drive the tap with a synthetic
+    // pointer event. Match the field shape Chromium synthesizes when it
+    // TRANSLATES a real touch into a pointer event, so `wireTouchTaps` sees an
+    // indistinguishable tap: a primary touch pointer, button 0, buttons 1→0
+    // across down/up, bubbling + composed, with contact geometry + pressure.
+    // Only the browser's touch→pointer translation is bypassed; the
+    // divisor-authority resolution (`cellAtPoint`) under test runs for real.
+    await this.page.evaluate(
+      ({ x, y, sel }) => {
+        const screen = document
+          .querySelector(sel)
+          ?.querySelector(".xterm-screen") as HTMLElement | null;
+        if (!screen) throw new Error("no .xterm-screen for the synthetic tap");
+        const base = {
+          pointerId: 1,
+          pointerType: "touch",
+          isPrimary: true,
+          clientX: x,
+          clientY: y,
+          screenX: x,
+          screenY: y,
+          width: 20,
+          height: 20,
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          view: window,
+        };
+        screen.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            ...base,
+            button: 0,
+            buttons: 1,
+            pressure: 0.5,
+          }),
+        );
+        screen.dispatchEvent(
+          new PointerEvent("pointerup", {
+            ...base,
+            button: 0,
+            buttons: 0,
+            pressure: 0,
+          }),
+        );
+      },
+      { x: point.x, y: point.y, sel: ACTIVE_TERMINAL },
+    );
     await this.waitForFrame();
   },
 );
