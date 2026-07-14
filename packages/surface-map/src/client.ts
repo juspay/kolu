@@ -49,11 +49,10 @@ export type { EntryState };
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
  *  (`.cells`/`.collections`/`.streams`/`.events`). */
-export interface Entry<ES extends SurfaceSpec, Failure = unknown>
-  extends Pick<
-    SurfaceClient<ES>,
-    "cells" | "collections" | "streams" | "events"
-  > {
+export interface Entry<ES extends SurfaceSpec, Failure = unknown> extends Pick<
+  SurfaceClient<ES>,
+  "cells" | "collections" | "streams" | "events"
+> {
   /** The entry surface's PROCEDURE client — for imperative point-calls
    *  (`entry(k).rpc.surface.<ns>.<verb>(input)`, the lifecycle/chrome/fs/git/… procs).
    *  The per-key link folds `{ mapKey }` into every call, so the consumer never passes
@@ -534,11 +533,12 @@ export function connectSurfaceMap<
       ?.membershipId;
   };
 
-  // The per-key client's cache key — `enc` + NUL + `membershipId` (NUL can't occur
-  // in a wire string, so the two fields can't alias). An empty id is the PENDING
-  // slot (no status frame yet / a non-reactive pure-lens caller): it routes
-  // identically — the wire folds the key by `enc`, never the membershipId — and is
-  // superseded (and evicted) the moment a real id lands.
+  // The opaque re-key identity composite — `enc` + NUL + `membershipId` (NUL can't
+  // occur in a wire string, so the two fields can't alias). It NO LONGER keys the
+  // client cache (that is now the nested `clients` map below, keyed structurally by
+  // enc then id): it only builds the string `reKeyIdentity` a keyed root diffs to
+  // decide when to rebuild its sub, and is NEVER re-parsed. An empty id is the PENDING
+  // slot (no status frame yet / a non-reactive pure-lens caller).
   const KEY_SEP = "\u0000";
   const clientCacheKey = (
     enc: string,
@@ -546,29 +546,34 @@ export function connectSurfaceMap<
   ): string => `${enc}${KEY_SEP}${membershipId ?? ""}`;
 
   // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by
-  // `{encodedKey, membershipId}` (PR3) — NEVER the enc alone. A same-key remove/re-add
-  // mints a NEW id server-side, and an authority restart mints new ids for every
-  // member, so either way this cache MISSES and builds a FRESH client (fresh dedup
-  // cache → fresh subscriptions) rather than resurrecting the stale one — the rebuild
-  // kolu's hand-rolled `createRejoinKeyedSub` used to force, now by construction. The
-  // enc (not the raw `K`) is the string half because a JS `Map`/`===` compares objects
-  // by reference, so two logically-equal `HostKey`s from independent decodes would
-  // otherwise never dedup to one client.
-  const encOfCacheKey = (ck: string): string =>
-    ck.slice(0, ck.indexOf(KEY_SEP));
-  const clients = new Map<string, SurfaceClient<ES>>();
+  // `{encodedKey, membershipId}` (PR3) — NEVER the enc alone. The identity pair is held
+  // STRUCTURALLY as a nested `Map<enc, Map<membershipId, client>>` (`'' = pending`), so
+  // enc-departure pruning and same-enc eviction are map operations, not substring
+  // surgery on a delimited key. A same-key remove/re-add mints a NEW id server-side, and
+  // an authority restart mints new ids for every member, so either way this cache MISSES
+  // and builds a FRESH client (fresh dedup cache → fresh subscriptions) rather than
+  // resurrecting the stale one — the rebuild kolu's hand-rolled `createRejoinKeyedSub`
+  // used to force, now by construction. The enc (not the raw `K`) is the outer string
+  // key because a JS `Map`/`===` compares objects by reference, so two logically-equal
+  // `HostKey`s from independent decodes would otherwise never dedup to one client.
+  const clients = new Map<string, Map<string, SurfaceClient<ES>>>();
   const clientFor = (
     key: K,
     membershipId: string | undefined,
   ): SurfaceClient<ES> => {
     const enc = map.codec.encode(key);
-    const ck = clientCacheKey(enc, membershipId);
-    let c = clients.get(ck);
+    const id = membershipId ?? "";
+    let inner = clients.get(enc);
+    if (inner === undefined) {
+      inner = new Map<string, SurfaceClient<ES>>();
+      clients.set(enc, inner);
+    }
+    let c = inner.get(id);
     if (!c) {
       c = build(() =>
         buildSurfaceClient(map.entry, keyInjectingLink(baseLink, enc), live),
       ) as SurfaceClient<ES>;
-      clients.set(ck, c);
+      inner.set(id, c);
       // A REAL id supersedes every prior client for THIS enc — the `#pending` slot AND
       // any older-id client left by a re-add / authority restart — so dispose them the
       // instant the authoritative client is built (the keyed root has already re-keyed its
@@ -577,10 +582,10 @@ export function connectSurfaceMap<
       // what lets the departed-membership effect below read only the KEYSET, never opening
       // a per-key status sub for every member just to notice an id changed.
       if (membershipId !== undefined) {
-        for (const other of [...clients.keys()]) {
-          if (other !== ck && encOfCacheKey(other) === enc) {
-            clients.get(other)?.dispose();
-            clients.delete(other);
+        for (const [otherId, otherClient] of [...inner]) {
+          if (otherId !== id) {
+            otherClient.dispose();
+            inner.delete(otherId);
           }
         }
       }
@@ -607,10 +612,10 @@ export function connectSurfaceMap<
     createEffect(() => {
       const members = rawEntries.use().keys();
       const present = new Set(members);
-      for (const ck of [...clients.keys()]) {
-        if (!present.has(encOfCacheKey(ck))) {
-          clients.get(ck)?.dispose();
-          clients.delete(ck);
+      for (const enc of [...clients.keys()]) {
+        if (!present.has(enc)) {
+          for (const c of clients.get(enc)?.values() ?? []) c.dispose();
+          clients.delete(enc);
         }
       }
       for (const enc of prevMembers) {
@@ -703,7 +708,8 @@ export function connectSurfaceMap<
 
   const dispose = () => {
     entriesClient.dispose();
-    for (const c of clients.values()) c.dispose();
+    for (const inner of clients.values())
+      for (const c of inner.values()) c.dispose();
     clients.clear();
   };
 
