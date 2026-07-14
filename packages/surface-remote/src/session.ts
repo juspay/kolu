@@ -43,7 +43,7 @@ import {
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
 import { monotonicNow } from "@kolu/surface/time";
-import { clockOffsetFrom, probeSurfaceClockNow } from "@kolu/surface/clock-now";
+import { measureSurfaceClockOffset } from "@kolu/surface/clock-now";
 import {
   probeSurfaceIdentity,
   type ServedIdentity,
@@ -77,7 +77,7 @@ const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
  *     FIELDS at all (there is nothing to report). The `connected` arm ALONE also
  *     carries `clockOffset` — the far-end host's wall-clock offset (ms) vs THIS
  *     process, measured off the framework-reserved `system.clockNow` at the admit
- *     handshake (see {@link clockOffsetFrom}) — `null` until that first probe stamps
+ *     handshake (see {@link measureSurfaceClockOffset}) — `null` until that first probe stamps
  *     it (offset-at-hello is the contract; a keyed `SurfaceMap` reads a null offset
  *     as still `connecting`, never a `0` placeholder).
  *   - `disconnected` — `error` + `cause` are REQUIRED, never nullable: a down link
@@ -1029,8 +1029,8 @@ export function makeSession<
     // the offset now rides the session's OWN connected state, so a keyed `SurfaceMap`
     // reads it there with no injected `offsetOf`.
     const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
-    probeSurfaceClockNow(client)
-      .then(({ epochMs }) => {
+    measureSurfaceClockOffset(client)
+      .then((clockOffset) => {
         // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
         // now-dead link landing after a reconnect) — mirrors `pollIdentity`'s epoch
         // guard. The `connected` guard covers a terminal `failed` (no redial, so no
@@ -1040,7 +1040,7 @@ export function makeSession<
         if (cur.phase !== "connected") return;
         stateCell.set({
           phase: "connected",
-          clockOffset: clockOffsetFrom(epochMs, Date.now()),
+          clockOffset,
           log: cur.log,
           sinceMs: since(),
         } as SessionState<Prov>);

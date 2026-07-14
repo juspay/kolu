@@ -9,12 +9,12 @@
  *      rather than colliding with it;
  *   4. an app that tries to claim `system.clockNow` itself gets a loud boot-time
  *      collision (reserved verbs can't be silently clobbered);
- *   5. `clockOffsetFrom` is `remoteEpochMs − localEpochMs`.
+ *   5. `measureSurfaceClockOffset` returns the RTT-compensated far-end offset.
  */
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { clockOffsetFrom, probeSurfaceClockNow } from "./clockNow";
+import { measureSurfaceClockOffset, probeSurfaceClockNow } from "./clockNow";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
 import { implementSurface, inMemoryStore } from "./server";
@@ -90,14 +90,13 @@ describe("framework-reserved system.clockNow probe", () => {
   });
 });
 
-describe("clockOffsetFrom", () => {
-  it("is remoteEpochMs − localEpochMs (so remoteMs − offset maps to local)", () => {
-    // A remote clock 5s ahead of ours → +5000 offset; remoteMs − offset = localMs.
-    expect(clockOffsetFrom(1_000_500, 1_000_000)).toBe(500);
-    expect(clockOffsetFrom(1_000_000, 1_000_500)).toBe(-500);
-    const remote = 1_700_000_005_000;
-    const local = 1_700_000_000_000;
-    const offset = clockOffsetFrom(remote, local);
-    expect(remote - offset).toBe(local);
+describe("measureSurfaceClockOffset", () => {
+  it("yields ~0 against a local server (same wall clock, RTT-compensated)", async () => {
+    // The in-memory server answers with THIS process's own `Date.now()`, so the
+    // measured offset must be ~0 — the RTT-midpoint sampling keeps it from being
+    // biased by the round-trip latency.
+    const client = makeClient(buildSurface());
+    const offset = await measureSurfaceClockOffset(client);
+    expect(Math.abs(offset)).toBeLessThan(100);
   });
 });

@@ -69,16 +69,22 @@ export function probeSurfaceClockNow(client: unknown): Promise<ServedClockNow> {
   ]({});
 }
 
-/** The far-end host's wall-clock offset (ms) vs THIS process, from one `clockNow`
- *  reading: `remoteEpochMs − localEpochMs` sampled at the same instant. The SAME sign
- *  convention `measureClockOffset` used — `remoteMs − offset` maps a remote-clock
- *  timestamp to this process's local clock — so a keyed `SurfaceMap`'s
- *  `EntryClock.toLocal` needs no change. A LOCAL host (same wall clock) yields ~0
- *  honestly; offset-at-hello IS the contract (re-measured on each admit, no continuous
- *  drift correction). */
-export function clockOffsetFrom(
-  remoteEpochMs: number,
-  localEpochMs: number,
-): number {
-  return remoteEpochMs - localEpochMs;
+/** Measure the far-end host's wall-clock offset (ms) vs THIS process off one
+ *  `system.clockNow` round-trip, RTT-compensated. Samples `sentMs` BEFORE the probe,
+ *  computes `rtt` after it resolves, and returns
+ *  `round(remoteEpochMs − (sentMs + rtt/2))` — the local sample is placed at the
+ *  round-trip's MIDPOINT (the best single-probe estimate of when the server read its
+ *  clock), so the offset is not biased by the one-way latency the way a post-await
+ *  `Date.now()` would be. Same sign convention the old `measureClockOffset` used:
+ *  `remoteMs − offset` maps a remote-clock timestamp to this process's local clock, so
+ *  a keyed `SurfaceMap`'s `EntryClock.toLocal` needs no change. A LOCAL host (same wall
+ *  clock) yields ~0 honestly; offset-at-hello IS the contract (re-measured on each
+ *  admit, no continuous drift correction). */
+export async function measureSurfaceClockOffset(
+  client: unknown,
+): Promise<number> {
+  const sentMs = Date.now();
+  const { epochMs } = await probeSurfaceClockNow(client);
+  const rtt = Date.now() - sentMs;
+  return Math.round(epochMs - (sentMs + rtt / 2));
 }
