@@ -14,12 +14,15 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
+import { activeScope } from "../hostScope/hostScopes";
 import { daemonConnected } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
+import { useAdoptNewSplit } from "./useAdoptNewSplit";
 import { useSessionRestore } from "./useSessionRestore";
+import { useSubPanel } from "./useSubPanel";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalExits } from "./useTerminalExits";
@@ -88,9 +91,15 @@ export function useTerminals() {
 
   // Keep exactly one exit subscription per live terminal (top-level and sub),
   // keyed to the server list so kills/exits dispose it. See useTerminalExits.
+  // `allTerminalIds` is the ONE memoized projection of the list ids — also fed to
+  // the reconcile + adopt hooks below (not re-mapped per hook). `parentOf` is the
+  // ONE live parentId reader both hooks share, and `activeHostKey` the ONE
+  // host-scope key both host-scope their snapshot on.
   const allTerminalIds = createMemo(
     () => store.listSub()?.map((t) => t.id) ?? [],
   );
+  const parentOf = (id: TerminalId) => store.getMetadata(id)?.parentId ?? null;
+  const activeHostKey = () => encodeHostKey(activeHost());
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
   // The FULL terminal-removal cleanup, driven off the LIST (not the raceable
@@ -101,16 +110,46 @@ export function useTerminals() {
   // useTerminalStore's factory can't reach crud without a require cycle. See
   // useActiveReconcile.
   useActiveReconcile({
-    rawList: () => store.listSub()?.map((t) => t.id) ?? [],
-    parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
+    rawList: allTerminalIds,
+    parentOf,
     // Host-scope the reconcile: a switch replaces the whole list, and the baseline
     // must reset rather than evict the departed host's tiles (no wrong-host writes).
-    activeHostKey: () => encodeHostKey(activeHost()),
+    activeHostKey,
     evictDeparted: crud.evictDeparted,
     // Only react to a departure when the daemon is genuinely connected — during a
     // supervised recycle/restart the drain empties the list and restore undoes it,
     // so the client is not the lifecycle authority (see useActiveReconcile).
     isDaemonConnected: daemonConnected,
+  });
+
+  // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)
+  // behave like a manual one: expand the parent's panel and — unless a live split
+  // is already active — select the new tab. Reacts to the arrival on the list, so
+  // no actor has to reach into the browser's sub-panel state. Host-scoped and
+  // gated on the restore seed so it never fights hydration. See useAdoptNewSplit.
+  //
+  // Installed BEFORE useSessionRestore so adopt observes the pre-seed phase on the
+  // seed-boundary flush. On the flush where the last terminal's metadata arrives,
+  // hydration flips the restore latch to `seeded` (a plain non-reactive write) and
+  // seeds each panel in the SAME batch; an adopt run that sampled the just-flipped
+  // `seeded` for a sub first entering the snapshot on that flush would false-adopt
+  // it (re-opening a restored-collapsed panel, persisting the wrong state). Adopt
+  // runs first for TWO independent reasons: it is created first (creation order),
+  // AND its effect is memo-backed (`on(snapshot)`) while hydration is a plain
+  // effect — SolidJS schedules a memo-backed effect ahead of a plain one. So it
+  // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
+  // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
+  const subPanel = useSubPanel();
+  useAdoptNewSplit({
+    rawList: allTerminalIds,
+    parentOf,
+    activeHostKey,
+    restorePhase: () => activeScope()?.restore.phase ?? "pending",
+    ports: {
+      expandPanel: subPanel.expandPanel,
+      activeSubTab: (parentId) => subPanel.getSubPanel(parentId).activeSubTab,
+      setActiveSubTab: subPanel.setActiveSubTab,
+    },
   });
 
   const session = useSessionRestore({ store });
