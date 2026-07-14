@@ -7,9 +7,11 @@
  *  it — so index `i` named a DIFFERENT terminal across two ticks. A terminal sitting
  *  in `awaiting_user` (e.g. `nixos-config` on zest) whose index-peer on the prior
  *  list was `thinking` read as a fresh entry into the notify class and re-fired.
- *  The fix keys the diff by `TerminalId`, so only a terminal we were ALREADY
- *  tracking last tick can transition — a first-sighting has no prior state and is
- *  skipped. These tests fail on the positional diff and pass on the keyed one. */
+ *  The fix keys the diff by `TerminalId` and scopes it to the active host, so only
+ *  a terminal we were ALREADY tracking last tick on the same host can transition —
+ *  a first-sighting (host switch, late metadata, or a session-imported id shared
+ *  across hosts) has no prior state and is skipped. These tests fail on the
+ *  positional diff and pass on the keyed, host-scoped one. */
 
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
@@ -46,9 +48,13 @@ const fired = vi.mocked(fireActivityAlert);
  *  `createRoot`; a signal/store write made after mount flushes on the next tick). */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-type AgentState = "thinking" | "awaiting_user" | "waiting";
+type AgentState = "thinking" | "awaiting_user";
 const meta = (state: AgentState): TerminalMetadata =>
   ({ state: "active", agent: { state } }) as unknown as TerminalMetadata;
+/** A live terminal with NO detected agent — a plain shell, or an agent not yet
+ *  detected. `activeArm(...)?.agent?.state` yields `undefined` for it. */
+const shell = (): TerminalMetadata =>
+  ({ state: "active" }) as unknown as TerminalMetadata;
 
 /** Stand up the hook over a reactive terminal list + a `createStore`-backed
  *  metadata map (mirroring the app's fine-grained per-key metadata reactivity), and
@@ -80,7 +86,7 @@ function harness() {
     dispose();
     window.__koluSimulateAlert = priorSimulate;
   });
-  return { setIds, setStore, dispose };
+  return { setIds, setStore };
 }
 
 beforeEach(() => {
@@ -125,7 +131,7 @@ describe("useTerminalAlerts — agent-state transition diff", () => {
     // `awaiting_user`. Membership (`has(id)`) distinguishes this from a first
     // sighting, so it must fire — `undefined` prev is not a first-sighting skip.
     const { setStore, setIds } = harness();
-    setStore({ a1: { state: "active" } as unknown as TerminalMetadata });
+    setStore({ a1: shell() });
     setIds([T("a1")]);
     await tick();
 
@@ -159,7 +165,7 @@ describe("useTerminalAlerts — agent-state transition diff", () => {
     // makes every terminal a first sighting regardless of id collision.
     const { setStore, setIds } = harness();
     // Host B (local): the shared id `dup` is a plain shell (agent not detected).
-    setStore({ dup: { state: "active" } as unknown as TerminalMetadata });
+    setStore({ dup: shell() });
     setIds([T("dup")]);
     await tick();
 
