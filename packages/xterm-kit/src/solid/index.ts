@@ -21,4 +21,18 @@ export type { RenderRecovery, RenderRecoveryProbes } from "./renderRecovery";
 
 // The mobile touch surface xterm 6.0 ships none of.
 export { enableSoftKeyboardInput } from "./softKeyboardInput";
+export { wireTouchScroll, wireTouchTaps } from "./touch";
+export type { TouchScrollTarget } from "./touch";
 export { isCoarsePointer } from "./pointer";
+
+// Owner-correct async construction + disposal of an xterm terminal.
+export { createXtermLifecycle } from "./xtermLifecycle";
+export type { XtermCore, XtermLifecycleOptions } from "./xtermLifecycle";
+
+// Single-owner WebGL addon lifetime + context-loss recovery.
+export { attachWebGL } from "./webgl";
+export type { WebglHandle, WebglLifecycleHooks } from "./webgl";
+
+// The component: the whole hazard set as one JSX element.
+export { Xterm } from "./Xterm";
+export type { ScrollLock, XtermHandle } from "./Xterm";
