@@ -248,7 +248,7 @@ describe("SurfaceRuntime supervision — done / close", () => {
     });
     const { done } = superviseTerminalSource(runtime, {
       done: Promise.resolve(), // the pump ended (session destroyed)
-      abort: () => {},
+      close: async () => {},
     });
     await expect(done).resolves.toBeUndefined();
     await runtime.close();
@@ -260,7 +260,7 @@ describe("SurfaceRuntime supervision — done / close", () => {
     });
     const { done, close } = superviseTerminalSource(runtime, {
       done: Promise.reject(new Error("pump boom")),
-      abort: () => {},
+      close: async () => {},
     });
     await expect(done).rejects.toThrow("pump boom");
     await close();
@@ -280,7 +280,7 @@ describe("SurfaceRuntime supervision — done / close", () => {
     // Terminal parks forever — only the runtime's owned fault can settle `done`.
     const { done } = superviseTerminalSource(runtime, {
       done: new Promise<void>(() => {}),
-      abort: () => {},
+      close: async () => {},
     });
     await expect(done).rejects.toThrow("connector boom");
   });
@@ -305,11 +305,12 @@ describe("SurfaceRuntime supervision — done / close", () => {
     await tick();
     const { done, close } = superviseTerminalSource(runtime, {
       done: terminalDone,
-      // The pump settles via its abort (the real pump's per-key pumps settle on
-      // signal.reason); model that: abort resolves the terminal.
-      abort: () => {
+      // The pump's atomic teardown verb: the real pump's per-key pumps settle on
+      // signal.reason; model that: close aborts AND awaits the terminal settle.
+      close: async () => {
         terminalAborted = true;
         resolveTerminal();
+        await terminalDone;
       },
     });
     await close();

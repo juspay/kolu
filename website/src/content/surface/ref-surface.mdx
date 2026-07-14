@@ -129,16 +129,18 @@ wire matcher, not just `directLink`). A member-name collision between base and
 extension **fails loud** — the check is on the flat, per-name wire namespace across
 **all** kinds, so a base cell and an ext procedure of the same name collide too.
 
-Supervision follows the terminal-source doctrine directly: the base is the
+Supervision routes through **`superviseTerminalSource`**: the base is the
 **terminal** driver (its mirror pump ends when the remote session is destroyed, the
 composite's resolving edge), the local `ext` is **passive** (only its fault settles
 `done` before close). `close` tears the base down **fully first** — `base.close()`
 awaited to completion (it aborts the base's pump *and* releases the base runtime's
-own sources) — then releases the local runtime. The related combinator
+own sources) — then releases the local runtime. The combinator
 **`superviseTerminalSource(runtime, terminal)`** pairs a passive owned `runtime`
-with a **terminal** driver whose `abort` is a sync signal; it is the framework home
-for the terminal-source teardown `reServeSurface` used to
-hand-roll.
+with a **terminal** driver whose `close: () => Promise<void>` is the atomic teardown
+verb (tear down *and* settle); it is the framework home for the terminal-source
+teardown `reServeSurface` used to hand-roll, and the seam both `reServeSurface` (a
+sync-abort pump wrapped as one `close`) and `extendSurface` (a full re-served base
+runtime) route through.
 
 ## The reactor (reactive bridge, phase 0)
 

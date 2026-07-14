@@ -538,7 +538,13 @@ export function reServeSurface<S extends SurfaceSpec>(
   // pumps settle via signal.reason — #1719), then releases the runtime.
   const { done, close } = superviseTerminalSource(runtime, {
     done: pumpDone,
-    abort: () => pumpAbort.abort(),
+    // The pump's atomic teardown verb: abort THIS pump (without destroying the
+    // caller-owned session), then await its settle (its per-key pumps settle via
+    // signal.reason — #1719) before the combinator releases the runtime.
+    close: async () => {
+      pumpAbort.abort();
+      await pumpDone.catch(() => {});
+    },
   });
 
   return { surface, router, done, close };

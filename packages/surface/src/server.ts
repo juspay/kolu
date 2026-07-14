@@ -1547,14 +1547,18 @@ function superviseSurface(sources: SurfaceSource[]): {
  *    pre-empt the pump); only its REJECTION — an owned fault — faults the composite
  *    before close.
  *
- *  `close` aborts the terminal FIRST (#1719: its detached per-key pumps settle via
- *  `signal.reason`), awaits its settle, then releases the runtime — the same
- *  abort-then-observe order {@link superviseSurface} uses, applied across the
+ *  `close` closes the terminal FIRST (#1719: its detached per-key pumps settle via
+ *  `signal.reason`), awaits that teardown, then releases the runtime — the same
+ *  close-then-observe order {@link superviseSurface} uses, applied across the
  *  runtime boundary that hides the runtime's own sources (so it can't be expressed
- *  as one more `SurfaceSource`). Idempotent; always resolves. */
+ *  as one more `SurfaceSource`). The terminal's `close` is the ATOMIC teardown verb
+ *  (tear the terminal down AND settle), so a terminal whose teardown is itself
+ *  ASYNCHRONOUS — a full re-served runtime whose `close()` aborts its pump AND
+ *  releases its own sources — fits the same socket, not only a sync-abort driver.
+ *  Idempotent; always resolves. */
 export function superviseTerminalSource(
   runtime: { done: Promise<void>; close: () => Promise<void> },
-  terminal: { done: Promise<void>; abort: () => void },
+  terminal: { done: Promise<void>; close: () => Promise<void> },
 ): { done: Promise<void>; close: () => Promise<void> } {
   const done = new Promise<void>((resolve, reject) => {
     terminal.done.then(resolve, reject);
@@ -1566,8 +1570,7 @@ export function superviseTerminalSource(
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      terminal.abort();
-      await terminal.done.catch(() => {});
+      await terminal.close();
       await runtime.close();
     })();
     return closing;
@@ -2407,14 +2410,14 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
  *  fragment carries no matcher meta of its own, so binding against the combined
  *  contract is load-bearing, not decorative — pinned by a matcher-tree test).
  *
- *  Supervision follows the terminal-source doctrine directly: the base is the
+ *  Supervision routes through {@link superviseTerminalSource}: the base is the
  *  TERMINAL driver (its mirror pump ends when the remote session is destroyed, the
  *  composite's resolving edge), the local `ext` is PASSIVE (only its fault settles
  *  `done` before close). `close` tears the base down FULLY FIRST — `base.close()`,
  *  awaited to completion (it aborts the base's pump AND releases the base runtime's
- *  own sources) — then releases the local runtime. It is NOT routed through
- *  {@link superviseTerminalSource}, whose terminal is a sync-abort *signal*: the
- *  base here is a full runtime whose async `close()` must be awaited, not `void`ed. */
+ *  own sources) — then releases the local runtime. The combinator's terminal
+ *  contract is the ATOMIC `close: () => Promise<void>` teardown verb, so the base's
+ *  async full-runtime `close()` fits it directly — no hand-rolled done/close fold. */
 export function extendSurface<
   Base extends SurfaceSpec,
   Ext extends SurfaceSpec,
@@ -2449,27 +2452,17 @@ export function extendSurface<
     surface: { ...extNs, ...baseNs },
   }) as unknown;
 
-  // Supervise directly: the base (a re-served mirror) is the TERMINAL driver — its
-  // `done` resolves when the remote session ends (the composite's resolving edge) —
-  // and the local `ext` is PASSIVE, so only its FAULT settles `done` before close.
-  // `close` tears the base down FULLY FIRST (`base.close()` aborts its pump AND
-  // releases its own runtime — awaited, never a fire-and-forget `void`, so no
-  // premature resolve and no floated teardown), then releases the local runtime.
-  // (Not via `superviseTerminalSource`: that seam's terminal is a sync-abort driver,
-  // but the base here is a full runtime whose `close()` must be awaited to completion.)
-  const done = new Promise<void>((resolve, reject) => {
-    base.done.then(resolve, reject);
-    ext.done.catch(reject);
+  // Supervise through the framework's terminal-source combinator: the base (a
+  // re-served mirror) is the TERMINAL driver — its `done` resolves when the remote
+  // session ends (the composite's resolving edge) — and the local `ext` is PASSIVE,
+  // so only its FAULT settles `done` before close. `close` tears the base down FULLY
+  // FIRST (`base.close()` aborts its pump AND releases its own runtime, awaited to
+  // completion), then releases the local runtime — the base's async `close()` is the
+  // combinator's atomic terminal teardown verb, no hand-rolled done/close fold here.
+  const { done, close } = superviseTerminalSource(ext, {
+    done: base.done,
+    close: base.close,
   });
-  done.catch(() => {});
-  let closing: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    closing ??= (async () => {
-      await base.close();
-      await ext.close();
-    })();
-    return closing;
-  };
 
   return { surface: combined, router, done, close };
 }
