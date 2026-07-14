@@ -64,13 +64,15 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
   ws: PartySocket;
   echo: ProcessIdEcho;
   /** The reactive surface client. `.cells` / `.collections` / `.streams` are
-   *  fully typed off `S`; `.rpc` (the raw link, for imperative procedures) is
-   *  `unknown` — the same deliberate choice kolu's own combined client makes,
-   *  because the fully-expanded oRPC link type is too complex to represent
-   *  generically (TS2590). A consumer that calls procedures on it casts `.rpc`
-   *  to its CONCRETE contract once at the wire boundary:
-   *  `client.rpc as ContractRouterClient<typeof mySurface.contract>` — sound,
-   *  since the runtime `.rpc` IS that link. */
+   *  fully typed off `S`; declared imperative procedures ride the bound
+   *  `client.procedures.<ns>.<verb>(input)` face — typed straight from `S`, no cast.
+   *  `.rpc` (the raw link) is `unknown` — the same deliberate choice kolu's own
+   *  combined client makes, because the fully-expanded oRPC link type is too complex
+   *  to represent generically (TS2590) — and is reserved for the framework procedures
+   *  (`system.live` / `system.identity`) and the link-root escape hatch. A consumer
+   *  that must reach one of THOSE casts `.rpc` to its CONCRETE contract once at the
+   *  wire boundary: `client.rpc as ContractRouterClient<typeof mySurface.contract>`
+   *  — sound, since the runtime `.rpc` IS that link. */
   client: SurfaceClient<S>;
   /** Reactive transport status — `connecting` / `live` / `reconnecting` / `down`
    *  — derived from the socket's own open/close (no identity probe). Render it so

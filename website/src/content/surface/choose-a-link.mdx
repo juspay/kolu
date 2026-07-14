@@ -58,7 +58,7 @@ moves to the browser by changing only the link:
 
 <Snippet src="packages/surface/example/snippets/links.ts" region="swap" />
 
-Everything downstream — `app.cells.load.use(...)`, `app.rpc.surface.proc.kill(...)`
+Everything downstream — `app.cells.load.use(...)`, `app.procedures.proc.kill(...)`
 — is byte-identical. That is the point of the link abstraction: choose the
 nearest transport now, and let the surface follow the code out to a socket or a
 fleet later.

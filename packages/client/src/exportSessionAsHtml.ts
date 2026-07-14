@@ -50,18 +50,15 @@ export async function exportSessionAsHtml(
   try {
     if (multiple) {
       const exports = await Promise.all(
-        modes.map((mode) =>
-          activePadiRpc.surface.transcript.exportHtml({ id, mode }),
-        ),
+        modes.map((mode) => activePadiRpc.transcript.exportHtml({ id, mode })),
       );
       for (const { html, filename } of exports) downloadExport(html, filename);
       toast.success("Session files exported", { id: loadingId });
     } else {
-      const { html, filename } =
-        await activePadiRpc.surface.transcript.exportHtml({
-          id,
-          mode: first,
-        });
+      const { html, filename } = await activePadiRpc.transcript.exportHtml({
+        id,
+        mode: first,
+      });
       openExport(html, filename);
       toast.success(`${MODE_LABEL[first]} exported`, { id: loadingId });
     }

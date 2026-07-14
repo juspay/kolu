@@ -4,8 +4,9 @@
  * Walks `surface.descriptors` once and pre-binds each Cell/Collection/Stream/Event
  * to its typed oRPC procedure refs, exposing a `.use(policy)` hook per
  * primitive that drops `source` / `mutate` / `valueSource` / `keyToInput`
- * from the per-call args. Imperative procedures stay accessible via
- * `client.rpc.<ns>.<verb>(...)`.
+ * from the per-call args. Declared imperative procedures are bound and typed at
+ * `client.procedures.<ns>.<verb>(...)`; `client.rpc` remains for the reserved
+ * framework procedures (`system.*`) and the link-root escape hatch.
  *
  * Type narrowing for `useCell` (server- vs local-authority discriminator)
  * is preserved across the bind: the bound `.use()` accepts the same
@@ -14,6 +15,7 @@
 
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import type { z, ZodType } from "zod";
 import {
   type Accessor,
   createMemo,
@@ -29,7 +31,9 @@ import type {
   CellIsMutable,
   CellSpec,
   CollectionSpec,
+  CollectionVerbsOf,
   EventSpec,
+  ProcedureSpec,
   StreamSpec,
   Surface,
   SurfaceSpec,
@@ -214,6 +218,27 @@ export interface BoundCollection<K, T> {
   delete(key: K): Promise<void>;
 }
 
+/** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
+ *  `unenrolledStreamCall(client.collections.<key>.unenrolledKeys, undefined,
+ *  { signal })`.
+ *
+ *  `.use()` is the DEFAULT: it opens the keys stream (plus a value stream per
+ *  key) and enrols them into `client.health()`. Reach for `.unenrolledKeys` ONLY
+ *  when the key list must be watched OUTSIDE the health fact — the #1591 carve-out
+ *  where the keys stream drives a retained per-host view and its re-subscribe must
+ *  not flicker the gate; the raw list is then fed back as the explicit `keys`
+ *  accessor of a `.use({ keys })` so the per-key value subs still enrol. Typed
+ *  from the declaration — no cast.
+ *
+ *  STRUCTURALLY PRESENT only when the collection actually declares the `keys`
+ *  verb (see {@link BoundCollectionsFor}): a collection whose `verbs` omit `keys`
+ *  has NO keys stream on the wire, so exposing `unenrolledKeys` would type a
+ *  callable that resolves to `undefined` at runtime — the collection dual of
+ *  {@link CellIsMutable} gating `.set`/`.patch`. */
+export interface UnenrolledKeys<K> {
+  readonly unenrolledKeys: StreamingProcedure<undefined, K[]>;
+}
+
 /** A READ-ONLY bound collection — the mutation verbs (`upsert`/`delete`) are
  *  STRUCTURALLY ABSENT, both at the top level and on the `.use()` result. A consumer of
  *  a server-authored, one-writer collection (a surface-map `entries` membership
@@ -233,6 +258,19 @@ export interface BoundStream<I, T> {
     inputFn: () => I | null,
     opts?: ReactiveSubscriptionOptions,
   ): Subscription<T>;
+  /** The raw streaming-procedure ref for a DELIBERATELY UN-ENROLLED reach —
+   *  `unenrolledStreamCall(client.streams.<key>.unenrolled, input, { signal })`.
+   *
+   *  `.use()` is the DEFAULT: it drives the stream AND enrols its `pending`/`error`
+   *  into `client.health()`, so the transport-health gate sees it. Reach for
+   *  `.unenrolled` ONLY for the narrow carve-out class that must NOT flicker that
+   *  gate — a stream whose transient re-subscribe is normal and self-healing (a
+   *  terminal re-attach, #1591; a change-pulse that drives a requery) and so must
+   *  stay OUT of the health fact. The `unenrolled` name (matched by
+   *  `unenrolledStreamCall`) keeps that health carve-out legible at the call site;
+   *  it is not a casual bypass of `.use()`. Typed from the declaration — no cast,
+   *  no full-contract client copy. */
+  readonly unenrolled: StreamingProcedure<I, T>;
 }
 
 export interface BoundEvent<I, T> {
@@ -242,6 +280,65 @@ export interface BoundEvent<I, T> {
     opts: UseEventOptions,
   ): void;
 }
+
+/** The per-call options a bound procedure accepts as its optional second argument.
+ *  Just an abort `signal` (the code-tab git/fs reads pass `{ signal }`): a declared
+ *  procedure is a UNARY call, so the retry-plugin `context` — a streaming concern
+ *  (`STREAM_RETRY`) — has no procedure-side meaning and is deliberately NOT exposed
+ *  here; a caller who needs the raw callable's full option set reaches `.rpc`. */
+export interface BoundProcedureOptions {
+  signal?: AbortSignal;
+}
+
+/** A bound imperative procedure — a declaration-typed callable at
+ *  `client.procedures.<ns>.<verb>(input, options?)`. It IS the underlying oRPC
+ *  procedure call at the wire path `surface.<ns>.<verb>`, re-exposed off the
+ *  `surface` prefix so the bound face is symmetric with `cells`/`collections`/
+ *  `streams`/`events`. Input/output are inferred from the {@link ProcedureSpec}
+ *  schemas — absent `input` ⇒ input-less, absent `output` ⇒ `Promise<void>` — the
+ *  exact arms the contract derivation (`ProcedureContract`) uses, so the bound
+ *  signature and the wire shape can't drift. The optional second arg mirrors the
+ *  oRPC client's `{ signal? }` (see {@link BoundProcedureOptions}). Deliberately a
+ *  NARROW mapped type (not oRPC's full `ContractRouterClient` union): recovering the
+ *  callable shape by hand is what lets a generically-`unknown` map-entry `.rpc` gain
+ *  a typed procedure face WITHOUT tripping the TS2590 "union too complex" that the
+ *  wide client type does under a generic entry spec.
+ *
+ *  The input arm uses `z.input<Schema>` (the ACCEPTED wire type), NOT the parsed
+ *  output: a schema with a `.default()` / `.transform()` makes those keys optional
+ *  on the wire, so the callable must accept the raw input — inferring the output
+ *  would wrongly REQUIRE a defaulted key the server fills in. The result arm uses
+ *  `z.output<Schema>` (the parsed value the wire returns). This matches oRPC's
+ *  `.input(schema)` client, which accepts `z.input` and resolves `z.output`. */
+export type BoundProcedure<
+  // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.
+  S extends ProcedureSpec<any, any>,
+> = S extends {
+  input: infer In extends ZodType;
+  output: infer Out extends ZodType;
+}
+  ? (
+      input: z.input<In>,
+      options?: BoundProcedureOptions,
+    ) => Promise<z.output<Out>>
+  : S extends { input: infer In extends ZodType }
+    ? (input: z.input<In>, options?: BoundProcedureOptions) => Promise<void>
+    : S extends { output: infer Out extends ZodType }
+      ? (
+          input?: undefined,
+          options?: BoundProcedureOptions,
+        ) => Promise<z.output<Out>>
+      : (input?: undefined, options?: BoundProcedureOptions) => Promise<void>;
+
+type BoundProceduresFor<S extends SurfaceSpec> = {
+  [NS in keyof S["procedures"] & string]: {
+    // `SurfaceSpec.procedures` already pins each member to a `ProcedureSpec`, so it
+    // satisfies `BoundProcedure`'s constraint directly — no guard/`any` needed here.
+    [V in keyof NonNullable<S["procedures"]>[NS] & string]: BoundProcedure<
+      NonNullable<S["procedures"]>[NS][V]
+    >;
+  };
+};
 
 /** Options for `client.rawStream` — the structural raw-stream path. */
 export interface RawStreamOptions<O> {
@@ -286,7 +383,12 @@ type BoundCollectionsFor<S extends SurfaceSpec> = {
   [K in keyof S["collections"] & string]: NonNullable<
     S["collections"]
   >[K] extends CollectionSpec<infer K2, infer T>
-    ? BoundCollection<K2, T>
+    ? // `unenrolledKeys` is added ONLY when `keys` is a declared verb — the raw ref
+      // has nothing to point at otherwise (the contract router binds no keys stream),
+      // so a keys-less collection must not type an `undefined`-resolving callable.
+      "keys" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
+      ? BoundCollection<K2, T> & UnenrolledKeys<K2>
+      : BoundCollection<K2, T>
     : never;
 };
 
@@ -307,9 +409,11 @@ type BoundEventsFor<S extends SurfaceSpec> = {
 };
 
 export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
-  /** The typed oRPC client — the link this bundle was built over. Use it for
-   *  imperative procedures (`client.rpc.surface.notes.create(...)`) and for
-   *  any verb the bound `.use()` shape can't model.
+  /** The typed oRPC client — the link this bundle was built over. Reserved for
+   *  the RESERVED framework procedures (`system.live` / `system.identity`,
+   *  contract-only) and the link-root escape hatch. DECLARED imperative procedures
+   *  ride the bound `.procedures.<ns>.<verb>(input)` face below (typed straight from
+   *  the spec, no cast) — reach `.rpc` only for a member the bound shape can't model.
    *
    *  Typing note: `Rpc` is inferred from the link passed in rather than
    *  computed from `S`, because TS's union-resolution budget can't expand
@@ -322,6 +426,15 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
   readonly collections: BoundCollectionsFor<S>;
   readonly streams: BoundStreamsFor<S>;
   readonly events: BoundEventsFor<S>;
+  /** The declared imperative procedures, bound to the link and typed from the
+   *  declaration — `client.procedures.<ns>.<verb>(input)`. The typed dual of the
+   *  reactive `.use()` primitives for the surface's non-descriptor RPCs: a
+   *  consumer reaches a declared procedure here WITHOUT casting the raw `.rpc`
+   *  client or copying its callable shape. Reserved framework procedures
+   *  (`system.live` / `system.identity`) are contract-only — never in
+   *  `spec.procedures` — so they do NOT appear here; reach them (and the
+   *  link-root escape hatch) through `.rpc`. */
+  readonly procedures: BoundProceduresFor<S>;
   /** The subscription-health FACT — the `system.live` twin (`./health`). Reads
    *  every enrolled subscription's self-clearing `error()`/`pending()` plus the
    *  transport `live`, so a consumer reads ONE fact instead of hand-folding the
@@ -736,7 +849,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     if (disposeRoot) standingRoots.push(disposeRoot);
   }
 
-  const collections: Record<string, BoundCollection<unknown, unknown>> = {};
+  // The runtime object ALWAYS carries the `unenrolledKeys` lazy getter; the public
+  // `BoundCollectionsFor` mapped type then narrows it OUT for a keys-less collection
+  // (the getter is harmless there — nothing typed reaches it). So the local record
+  // includes `UnenrolledKeys`, and the final `as BoundCollectionsFor<S>` gates it.
+  const collections: Record<
+    string,
+    BoundCollection<unknown, unknown> & UnenrolledKeys<unknown>
+  > = {};
   for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (link as any).surface[key];
@@ -890,6 +1010,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       },
       upsert,
       delete: del,
+      // The raw keys-stream ref for the deliberately un-enrolled reach (see
+      // BoundCollection docs) — the SAME `ns.keys` the enrolled `.use()` opens,
+      // exposed for the #1591 carve-out to pass to `unenrolledStreamCall`. A LAZY
+      // getter, like the `.use()`/`upsert` closures' own `ns` deref — so a partial
+      // mock link (no `ns`) is tolerated until the ref is reached, never at build.
+      get unenrolledKeys() {
+        return ns.keys;
+      },
     };
   }
 
@@ -909,6 +1037,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
         registry.enroll(key, sub);
         return sub;
       },
+      // The raw ref for the deliberately un-enrolled reach (see BoundStream docs) —
+      // the SAME `ns.get` the enrolled `.use()` drives, exposed for a carve-out
+      // consumer to pass to `unenrolledStreamCall` without a cast. A LAZY getter,
+      // like `.use()`'s own `ns.get` deref — so a partial mock link (no `ns`) is
+      // tolerated until the ref is actually reached, never at build.
+      get unenrolled() {
+        return ns.get;
+      },
     };
   }
 
@@ -927,6 +1063,22 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
           eventOpts,
         ),
     };
+  }
+
+  // The bound imperative procedures — the typed dual of the reactive primitives.
+  // Each declared `procedures.<ns>.<verb>` IS the oRPC callable already sitting at
+  // `link.surface.<ns>.<verb>`; we re-expose it off the `surface` prefix so a
+  // consumer calls `client.procedures.<ns>.<verb>(input)` with the declaration's
+  // types and never casts the raw `.rpc`. Pure structural walk-by-string, like the
+  // primitive binds above — no `.use()` wrapper (a procedure is a one-shot call,
+  // not a subscription), so nothing to enrol into `health()`.
+  const procedures: Record<string, Record<string, unknown>> = {};
+  for (const [ns, verbs] of Object.entries(spec.procedures ?? {})) {
+    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
+    const nsLink = (link as any).surface[ns];
+    const bound: Record<string, unknown> = {};
+    for (const verb of Object.keys(verbs)) bound[verb] = nsLink[verb];
+    procedures[ns] = bound;
   }
 
   // The STRUCTURAL raw-stream path (Leak A). A raw `unenrolledStreamCall` owns its
@@ -995,6 +1147,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     collections: collections as BoundCollectionsFor<S>,
     streams: streams as BoundStreamsFor<S>,
     events: events as BoundEventsFor<S>,
+    procedures: procedures as BoundProceduresFor<S>,
     health: registry.health,
     enroll: registry.enroll,
     rawStream,

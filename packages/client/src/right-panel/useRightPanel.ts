@@ -188,7 +188,7 @@ function ensureState(id: TerminalId): void {
 function reportToServer(id: TerminalId): void {
   const s = perTerminal[id];
   if (!s) return;
-  void activePadiRpc.surface.chrome
+  void activePadiRpc.chrome
     .setRightPanel({
       id,
       collapsed: s.collapsed,

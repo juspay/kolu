@@ -16,7 +16,7 @@ export function persistCanvasLayout(
   id: TerminalId,
   layout: CanvasLayout,
 ): void {
-  void activePadiRpc.surface.chrome
+  void activePadiRpc.chrome
     .setCanvasLayout({ id, layout })
     .catch((err: Error) =>
       toast.error(`Failed to save canvas layout: ${err.message}`),

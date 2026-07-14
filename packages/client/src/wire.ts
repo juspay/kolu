@@ -13,7 +13,7 @@
  * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
  * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
  * DELETED at W1.R7; terminal/git mutations now go through
- * `activePadiRpc.surface.*` (padiSurface). None of these are on `app.rpc`.
+ * `activePadiRpc.*` (padiSurface procedures). None of these are on `app.rpc`.
  *
  * The `preferences` accessor below collapses what used to be a hand-rolled
  * `usePreferences` module into a module-level subscription — every consumer reads
@@ -23,11 +23,8 @@
  * `preferences` below); they are no longer defined in this module.
  */
 
-import type { padiSurface } from "@kolu/padi/surface";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
 import {
   decodeHostKey,
@@ -191,25 +188,10 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
     ),
 });
 
-/** A FIXED-host PROCEDURE client, typed as the concrete padi contract client (the
- *  generic map types `entry(k).rpc` as `unknown`, so the one concrete cast lives HERE).
- *  For a caller that must reach a SPECIFIC host rather than whichever is active — the
- *  real consumer is the per-host scope (`hostScope/createViewState`'s `writeActive`
- *  reports to `padiRpcOf(host)` for its OWN scope's host, which persists across
- *  switch-away). Every call site that instead wants "whatever host is active" uses
- *  `activePadiRpc` below, which fuses this with `activeHost()` so it never has to be
- *  spelled out. */
-type PadiRpc = ContractRouterClient<
-  typeof padiSurface.contract,
-  ClientRetryPluginContext
->;
-export const padiRpcOf = (host: HostKey): PadiRpc =>
-  padiMap.entry(host).rpc as PadiRpc;
-
 /** Convenience alias — the FULL combined link. `client.server.info(...)` /
  *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
  *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
- *  mutations go through `activePadiRpc.surface.*`);
+ *  mutations go through `activePadiRpc.*`);
  *  `client.surface.kolu.preferences.patch(...)` /
  *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
  *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
@@ -357,7 +339,8 @@ const hostScoped = createRoot(() => {
     preferences,
     requestActivateOnJoin: setPendingJoin,
     hostKeys,
-    rpc: active.rpc,
+    procedures: active.procedures,
+    streams: active.streams,
   };
 });
 
@@ -380,7 +363,7 @@ export const hostKeys = hostScoped.hostKeys;
  *  and why `null` — not a local substitute). Feeding THIS, not raw `activeHost`, to
  *  `scopedByEntry` makes "kolu hands the per-host world an ungrounded active host"
  *  unconstructible; `activeHost` itself stays the non-null intent every other readout
- *  (`useEntry`, `foldState`, `padiRpcOf`) keys on.
+ *  (`useEntry`, `foldState`, `padiMap.entry`) keys on.
  *
  *  A `createMemo` (the repo's multi-consumer-derivation rule): `scopedByEntry` reads it from
  *  several reactive contexts (`activeScope`, each per-key `isActive`, `activated`), and
@@ -392,14 +375,24 @@ export const groundedActiveHost: Accessor<HostKey | null> = createRoot(() =>
   createMemo(() => groundActiveHost(activeHost(), hostKeys())),
 );
 
-/** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).rpc`,
+/** The FUSED active-host procedure client — `padiMap.useEntry(activeHost).procedures`,
  *  built once inside the app-scope `hostScoped` owner above (the `useEntry` reactive
- *  lens already re-keys on switch; its `rpc` reads the CURRENT key per call, so this
- *  single client always routes to whichever host is active). Every lifecycle / chrome
- *  / screen / fs / git / session procedure call site should read
- *  `activePadiRpc.surface.<ns>.<verb>(...)` instead of re-deriving the host by hand via
- *  `padiRpcOf(activeHost())`. */
-export const activePadiRpc: PadiRpc = hostScoped.rpc as PadiRpc;
+ *  lens already re-keys on switch; its `procedures` face reads the CURRENT key per
+ *  call, so this single client always routes to whichever host is active). Every
+ *  lifecycle / chrome / screen / fs / git / session procedure call site should read
+ *  `activePadiRpc.<ns>.<verb>(...)` instead of re-deriving the host by hand via
+ *  `padiMap.entry(activeHost()).procedures`. */
+export const activePadiRpc = hostScoped.procedures;
+
+/** The FUSED active-host STREAM face — `padiMap.useEntry(activeHost).streams`,
+ *  built once inside `hostScoped` (re-keys on switch like `activePadiRpc`). The
+ *  home for the DELIBERATELY UN-ENROLLED stream reaches (`.streams.<key>.unenrolled`
+ *  → `unenrolledStreamCall`): the terminal re-attach (#1591) and the code tab's
+ *  change pulses, whose transient re-subscribes must NOT flicker padi's `health()`
+ *  gate, so they take the raw ref rather than the enrolling `.use()`. Every OTHER
+ *  (enrolled) per-host stream rides `activeScope().wire` / `entry.streams.<key>.use`;
+ *  this accessor is only the carve-out reach. */
+export const activePadiStreams = hostScoped.streams;
 
 /** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
  *  before its first frame. Drives the connect overlay's copying/building narration. Floored
@@ -414,7 +407,7 @@ export const connectionInfo = (): ConnectionInfo | undefined =>
 // savedSessionSub / terminalListSub — WINDOW the active host's RETAINED wire
 // subscriptions (`activeScope().wire`, W9). They live in `./hostScope/activeWire.ts`,
 // NOT here: they depend on `activeScope` (`./hostScope/hostScopes`), which depends on
-// THIS module (`padiMap`/`activeHost`/`padiRpcOf`), so defining them here would close a
+// THIS module (`padiMap`/`activeHost`), so defining them here would close a
 // `wire → hostScopes → wire` import cycle (`biome`'s `noImportCycles`). That leaf module
 // imports both and is imported by neither, keeping the graph acyclic. Consumers import
 // those facades from `./hostScope/activeWire`, not from here.

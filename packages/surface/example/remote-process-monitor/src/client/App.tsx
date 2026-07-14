@@ -124,7 +124,7 @@ export default function App() {
 
   const killProcess = async (pid: number, signal: "TERM" | "KILL") => {
     try {
-      await app.rpc.surface.process.kill({ pid, signal });
+      await app.procedures.process.kill({ pid, signal });
     } catch (err) {
       console.error(`kill ${pid} ${signal} failed`, err);
     }

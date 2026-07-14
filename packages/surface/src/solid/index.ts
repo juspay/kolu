@@ -93,6 +93,8 @@ export {
   type BoundCellOptions,
   type BoundCollection,
   type BoundEvent,
+  type BoundProcedure,
+  type BoundProcedureOptions,
   type BoundStream,
   buildSurfaceClient,
   type ReadOnlyBoundCollection,
