@@ -158,11 +158,12 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
   be the cwd** (a cross-repo run — e.g. `/be-review` reviewing a companion drishti PR
   while the session is rooted in a kolu worktree). Default: the cwd worktree root. This
   is `$REPO` below, and **every** operation is rooted in it — `git -C "$REPO"`, the
-  `$REPO/.codex-debate/` scratch, `gh -C "$REPO"` / the PR lookup, and the split's
-  `codex --cd "$REPO"`. Get it right before dispatch: a wrong `$REPO` reviews and commits
-  the wrong tree (the exact cross-repo failure `/be-review` guards against).
-- **`<pr-number>`** — a PR to debate: `gh -C "$REPO" pr checkout <n>` and default the base
-  to its base branch. Omitted → debate `$REPO`'s current branch change.
+  `$REPO/.codex-debate/` scratch, all `gh` (from a subshell `cd "$REPO"` — `gh` has **no**
+  `-C` flag; run it as `(cd "$REPO" && gh …)`), and the split's `codex --cd "$REPO"`. Get
+  it right before dispatch: a wrong `$REPO` reviews and commits the wrong tree (the exact
+  cross-repo failure `/be-review` guards against).
+- **`<pr-number>`** — a PR to debate: `(cd "$REPO" && gh pr checkout <n>)` and default the
+  base to its base branch. Omitted → debate `$REPO`'s current branch change.
 - **`--base <branch>`** — ref to diff against, always a **remote-tracking ref** (e.g.
   `origin/master`, used as-is, never the stale local `master`). Default:
   `origin/<PR base>` for a PR, else the repo default (`git symbolic-ref --short
@@ -184,10 +185,11 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
 
 1. **Resolve context.** Confirm you're in a kolu terminal. Resolve **`$REPO`** (from
    `--repo`, else the cwd worktree root) and **root every command in it** — `git -C
-   "$REPO"`, `gh -C "$REPO"`, the `$REPO/.codex-debate/` scratch, and the split's `--cd
-   "$REPO"`. `git -C "$REPO" fetch origin`; resolve `base`; `gh -C "$REPO" pr checkout`
-   if a PR number was given. **Discover the PR** even when no number was passed: `gh -C
-   "$REPO" pr view --json number,baseRefName` on the current branch — distinguish "no PR"
+   "$REPO"`, all `gh` from a subshell `(cd "$REPO" && gh …)` (**`gh` has no `-C` flag**),
+   the `$REPO/.codex-debate/` scratch, and the split's `--cd "$REPO"`. `git -C "$REPO"
+   fetch origin`; resolve `base`; `(cd "$REPO" && gh pr checkout <n>)` if a PR number was
+   given. **Discover the PR** even when no number was passed: `(cd "$REPO" && gh pr view
+   --json number,baseRefName)` on the current branch — distinguish "no PR"
    (skip posting) from a command error (report it), and carry the resolved number into
    step 4. **Merge-base guard:** if `git -C "$REPO" merge-base <base> HEAD` fails, abort
    up front — say which base failed and how to fix it, stop. **Reviewable check:** proceed
@@ -240,15 +242,19 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
      even after you re-ask (broken/wedged session), tear down, report it as an
      **infrastructure failure** (not consensus), tell the user to fix codex, and stop.
 4. **Present & post.** Tear down the split. On **consensus**, report the round count, the
-   reviewer **effort**, `git log --oneline <merge-base>..HEAD` + `git diff --stat
-   <merge-base>`, and a per-round summary. Then, unless `--no-comment` and when a PR
-   exists (the number resolved in step 1), **post the PR comment**: a small header
-   (consensus badge · round count · effort · base) followed by **this run's** section
-   files — enumerate them explicitly for rounds `001..NNN` (`section-NNN-1-codex.md`
-   then `section-NNN-2-claude.md`), not a blind glob — `cat`-ed in order, a
-   **deterministic concat** of the same files you and codex used, `gh pr comment <pr> -F
-   <file>`. The per-round commits sit on the local branch for the human to review and
-   push/merge; the skill never pushes or merges.
+   reviewer **effort**, `git -C "$REPO" log --oneline <merge-base>..HEAD` + `git -C
+   "$REPO" diff --stat <merge-base>`, and a per-round summary. Then, unless `--no-comment`
+   and when a PR exists (the number resolved in step 1), **post the PR comment**: a small
+   header (consensus badge · round count · effort · base) followed by **this run's**
+   section files. **Enumerate the actual files, and fail loud on a gap** — list the
+   zero-padded `$REPO/.codex-debate/section-*-1-codex.md` in sorted order, and for each
+   round require **both** its codex section and its matching `section-*-2-claude.md`; if
+   either is missing (or there are zero codex sections), the audit trail is incomplete —
+   **stop and report it, don't post a partial comment** (a silently truncated record is
+   the failure the file-transport exists to prevent). Only once every ordered pair
+   validates, `cat` them in order into the comment body and post from the target repo:
+   `(cd "$REPO" && gh pr comment <pr> -F <file>)`. The per-round commits sit on the local
+   branch for the human to review and push/merge; the skill never pushes or merges.
 
 ### codex's verdict schema (`verdict-NNN.json`)
 

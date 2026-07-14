@@ -171,15 +171,21 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
    # Enumerate the actual zero-padded codex sections (section-001-1-codex.md, …) and
    # pair each with its author file — do NOT reconstruct round numbers with `seq -w`
    # (its width tracks the largest arg, so 1..2 emits `1 2`, not `001 002`).
-   codex_sections=$(ls "$workDir"/section-*-1-codex.md 2>/dev/null | sort)
-   rounds=$(printf '%s\n' "$codex_sections" | grep -c . )
+   mapfile -t codex_sections < <(ls "$workDir"/section-*-1-codex.md 2>/dev/null | sort)
+   rounds=${#codex_sections[@]}
+   # Fail loud on an incomplete trail — a consensus comment must be the WHOLE record,
+   # never a silently truncated one. Require ≥1 codex section AND the author file for
+   # every round; if any is missing, stop and report an incomplete debate (don't post).
+   [ "$rounds" -ge 1 ] || { echo "codex debate: no section files — cannot assemble comment" >&2; exit 1; }
+   for cf in "${codex_sections[@]}"; do
+     af="${cf/-1-codex.md/-2-claude.md}"
+     [ -f "$af" ] || { echo "codex debate: missing author section $af — incomplete trail, not posting" >&2; exit 1; }
+   done
    {
      printf '## Codex ⇄ Claude debate\n\n✅ Consensus in %s round(s) · reviewer effort: xhigh\n' "$rounds"
-     printf '%s\n' "$codex_sections" | while read -r cf; do
-       [ -n "$cf" ] || continue
-       af="${cf/-1-codex.md/-2-claude.md}"   # the matching author file
-       printf '\n'; cat "$cf"; printf '\n'
-       [ -f "$af" ] && { printf '\n'; cat "$af"; printf '\n'; }
+     for cf in "${codex_sections[@]}"; do
+       af="${cf/-1-codex.md/-2-claude.md}"
+       printf '\n'; cat "$cf"; printf '\n'; printf '\n'; cat "$af"; printf '\n'
      done
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```
