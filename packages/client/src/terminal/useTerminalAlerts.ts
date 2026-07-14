@@ -52,10 +52,15 @@ export function useTerminalAlerts(deps: {
   // index-peer on the prior list was `thinking` read as a fresh entry into the
   // notify class and re-fired on every switch back. A `Map<TerminalId, state>` diff
   // pairs each terminal with its OWN previous state, so a reshuffled list can't
-  // manufacture a transition. A first-sighting id (host switch, late metadata) has
-  // no entry in `prevStates`, so its `prev` is undefined and `checkAgentFinished`
-  // skips it — the only terminals that can "transition" are ones we were already
-  // tracking last tick, on the same host.
+  // manufacture a transition. Gate on `prevStates.has(id)` (membership), not
+  // `prev !== undefined` (value): a first-sighting id (host switch, late metadata)
+  // is ABSENT from `prevStates`, so we skip it — the only terminals that can
+  // "transition" are ones we were already tracking last tick, on the same host.
+  // Splitting membership from value (the same shape `useActiveReconcile` uses)
+  // keeps `undefined` from doing two jobs: a terminal we tracked last tick whose
+  // agent state was undefined *then* is distinguished from a first sighting, so an
+  // agent that appears and jumps straight into the notify class still fires
+  // (`checkAgentFinished` treats an undefined `prev` as non-notify).
   createEffect(
     on(
       () =>
@@ -70,8 +75,8 @@ export function useTerminalAlerts(deps: {
       (states, prevStates) => {
         if (!prevStates) return;
         for (const [id, next] of states) {
-          const prev = prevStates.get(id);
-          if (prev !== undefined) checkAgentFinished(id, prev, next);
+          if (prevStates.has(id))
+            checkAgentFinished(id, prevStates.get(id), next);
         }
       },
     ),

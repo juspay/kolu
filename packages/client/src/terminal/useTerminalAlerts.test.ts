@@ -110,6 +110,23 @@ describe("useTerminalAlerts — agent-state transition diff", () => {
     expect(fired).not.toHaveBeenCalled();
   });
 
+  it("fires when a tracked terminal's agent appears already in the notify class", async () => {
+    // A terminal we were ALREADY tracking last tick with no agent state (plain
+    // shell / agent not yet detected) whose agent this tick appears straight in
+    // `awaiting_user`. Membership (`has(id)`) distinguishes this from a first
+    // sighting, so it must fire — `undefined` prev is not a first-sighting skip.
+    const { setStore, setIds } = harness();
+    setStore({ a1: { state: "active" } as unknown as TerminalMetadata });
+    setIds([T("a1")]);
+    await tick();
+
+    setStore("a1", meta("awaiting_user"));
+    await tick();
+
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(fired.mock.calls[0]?.[1]).toBe(T("a1"));
+  });
+
   it("does NOT re-fire an awaiting terminal when a sibling above it is removed (index shift)", async () => {
     const { setStore, setIds } = harness();
     // `keep` is already awaiting at mount; `del` sits above it.
