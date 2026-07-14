@@ -69,6 +69,23 @@ export function deadTransportError(
   return new ORPCError(code, { message });
 }
 
+/** Recognize the permanently-dead transport shapes {@link deadTransportError}
+ *  mints — the RECOGNITION twin of that factory, colocated with the codes so the
+ *  "which codes mean the transport itself died" knowledge lives in ONE place, next
+ *  to the factory and the retry fence it stays in lockstep with. A re-serve relay
+ *  uses it to tell a middle-hop transport death (translate to the retryable relay
+ *  end) from an application `ORPCError` the agent raised (surface unchanged). Add a
+ *  transport link with a new dead code here (beside `deadTransportError`) and every
+ *  recognizer — not just the denylist fence — picks it up, closing the silent-drift
+ *  gap an ad-hoc code list at the relay would otherwise open. */
+export function isDeadTransportError(error: unknown): boolean {
+  return (
+    error instanceof ORPCError &&
+    (error.code === SURFACE_STDIO_TRANSPORT_CLOSED ||
+      error.code === SURFACE_TRANSPORT_RETIRED)
+  );
+}
+
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application

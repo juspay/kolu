@@ -45,9 +45,8 @@
  */
 
 import {
+  isDeadTransportError,
   SURFACE_RELAY_TRANSPORT_LOST,
-  SURFACE_STDIO_TRANSPORT_CLOSED,
-  SURFACE_TRANSPORT_RETIRED,
 } from "@kolu/surface/client";
 import type { UpstreamSource } from "@kolu/surface/project";
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
@@ -289,14 +288,13 @@ export class RelayTransportLostError extends ORPCError<
  *  a non-`ORPCError` (a raw transport/network reject the client never turned into an
  *  application error). */
 function isMiddleHopTransportLoss(err: unknown): boolean {
+  // An already-named relay end (a nested re-serve), or a permanently-dead transport
+  // code the link rejects with (recognized by `@kolu/surface`'s `isDeadTransportError`,
+  // the single home for that code set). A non-`ORPCError` is a raw transport/network
+  // reject the client never turned into an application error — also transport-level.
   if (err instanceof RelayTransportLostError) return true;
-  if (err instanceof ORPCError) {
-    return (
-      err.code === SURFACE_STDIO_TRANSPORT_CLOSED ||
-      err.code === SURFACE_TRANSPORT_RETIRED
-    );
-  }
-  return true;
+  if (!(err instanceof ORPCError)) return true;
+  return isDeadTransportError(err);
 }
 
 /**

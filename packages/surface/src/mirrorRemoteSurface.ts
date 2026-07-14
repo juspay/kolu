@@ -433,11 +433,11 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
     for (const key of Object.keys(spec.collections ?? {})) {
       const colSink = collSinks?.[key];
       if (!colSink) continue;
-      const entry = ns[key];
       // `key` comes from `Object.keys(spec.collections)`, so — the loop only runs
       // when `spec.collections` is present — the spec for this key is present too.
       const collSpec = spec.collections?.[key] as CollectionSpec;
       if (collectionHasDeltas(collSpec)) {
+        const entry = ns[key];
         // Delta protocol: one stream carries snapshot-then-deltas for the whole
         // collection. SUPPLYING a sink means the caller expects that stream, never a
         // silent fall back to the per-key path. This structural check catches a
