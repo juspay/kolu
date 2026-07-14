@@ -47,15 +47,32 @@ export interface BuildAppRouterDeps {
   reconnectHost: (host: HostKey) => void;
 }
 
-/** Assemble the full host router from the surface router + the two raw RPCs.
- *  Called from `index.ts`'s async boot once the padi binding is up. */
+/** Assemble the full host router from the surface router + the raw RPCs.
+ *  Called from `index.ts`'s async boot once the padi binding is up.
+ *
+ *  Build order is load-bearing. Only the RAW non-surface RPCs (`server` /
+ *  `daemon` / `hosts`, all declared in the base `contract`) go through the
+ *  contract builder `t = implement(contract)`. The SURFACE siblings —
+ *  `kolu` + `surfaceApp` from the runtime and the re-served `padi` from the map
+ *  — are ALREADY FINAL routers, so the assembled `deps.surfaceRouter.surface` is
+ *  HAND-MERGED onto the result rather than re-passed through `t.router({...})`.
+ *
+ *  Why not through `t.router(...)`: oRPC's `implement(contract).router(obj)`
+ *  ADAPTS `obj` against the contract and SILENTLY DROPS any key the contract
+ *  doesn't declare — and the base `contract` is padi-LESS (the widened
+ *  `servedContract` was retired at SRT-PR1). Spreading `surface: { …, padi }`
+ *  through `t.router(...)` therefore drops every `/surface/padi/*` route from the
+ *  wire matcher (a 404 the `directLink`-based `padiBinding` test can't see —
+ *  directLink navigates structurally, not through the RPCHandler matcher). The
+ *  plan's contract is "routing by the assembled object", so we merge the final
+ *  routers directly. Pinned by the matcher-tree assertion in `router.test.ts`. */
 export function buildAppRouter(deps: BuildAppRouterDeps) {
-  return t.router({
-    // The surface router is assembled DYNAMICALLY — the kolu+surfaceApp fragment
-    // spliced with the re-served padi sub-router — a shape oRPC's typed builder
-    // can't verify statically, though the runtime shape matches `servedContract`.
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic surface-router splice; runtime shape is a valid router (proved by the padiBinding integration test dialing /surface/padi/*).
-    ...(deps.surfaceRouter as any),
+  // The raw, contract-declared RPCs — the ONLY procedures that need `t`'s builder.
+  // The input omits `surface` (hand-merged below), which `t.router`'s type demands
+  // as a required contract key; the runtime adapts a partial object fine (it only
+  // builds the namespaces present), so cast the input past that one type check.
+  // biome-ignore lint/suspicious/noExplicitAny: deliberately partial input — `surface` is hand-merged after, but `t.router`'s type demands it; the runtime builds only the namespaces given.
+  const raw = t.router({
     server: {
       // Per-host BRANDING the shell needs synchronously at boot (document title,
       // watermark, PWA theme color). The restart axis (`processId`) and the build
@@ -97,5 +114,14 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
         deps.reconnectHost(input.host);
       }),
     },
-  });
+    // biome-ignore lint/suspicious/noExplicitAny: see the comment above `raw` — partial input, `surface` hand-merged after.
+  } as any);
+  // Hand-merge the assembled surface (kolu + surfaceApp + padi, all FINAL
+  // routers) — NOT through `t.router(...)`, which would drop the padi routes the
+  // padi-less contract doesn't declare (see the doc above).
+  return {
+    ...(raw as Record<string, unknown>),
+    surface: (deps.surfaceRouter as { surface: unknown }).surface,
+    // biome-ignore lint/suspicious/noExplicitAny: the assembled router mixes `t`'s built raw namespaces with final surface routers; runtime shape is a valid top-level router (RPCHandler consumes it via its own `as any`).
+  } as any;
 }
