@@ -33,6 +33,12 @@
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import {
+  CLOCK_NOW_NAMESPACE,
+  CLOCK_NOW_VERB,
+  clockNowContractEntry,
+  type ReservedClockNowContract,
+} from "./clockNow";
+import {
   IDENTITY_NAMESPACE,
   IDENTITY_VERB,
   identityContractEntry,
@@ -342,15 +348,17 @@ function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
 type EmptyObj = NonNullable<unknown>;
 
 /** Wire shape for `defineSurface(spec).contract`: every entry lives
- *  under one `surface` namespace. The reserved `system.live` liveness proc and the
- *  reserved `system.identity` proc (`./liveness`, `./identity`) are intersected in
- *  so both are present on every surface contract — the type counterpart to the two
- *  runtime `claim`s in `defineSurface`. They share the `system` namespace, so the
- *  intersection folds to `system: { live, identity }`. */
+ *  under one `surface` namespace. The reserved `system.live` liveness proc, the
+ *  reserved `system.identity` proc, and the reserved `system.clockNow` proc
+ *  (`./liveness`, `./identity`, `./clockNow`) are intersected in so all three are
+ *  present on every surface contract — the type counterpart to the three runtime
+ *  `claim`s in `defineSurface`. They share the `system` namespace, so the
+ *  intersection folds to `system: { live, identity, clockNow }`. */
 export type SurfaceContractFor<S extends SurfaceSpec> = {
   surface: SurfaceInnerContract<S> &
     ReservedLivenessContract &
-    ReservedIdentityContract;
+    ReservedIdentityContract &
+    ReservedClockNowContract;
 };
 
 type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
@@ -856,6 +864,12 @@ export function defineSurface<const S extends SurfaceSpec>(
   // from the server's baked build info. Shares the `system` namespace with `live`
   // (claim merges the namespace, rejecting only a duplicate `identity` verb).
   claim(IDENTITY_NAMESPACE, { [IDENTITY_VERB]: identityContractEntry() });
+  // Reserve the framework clock verb on EVERY surface (see ./clockNow), the clock
+  // twin of `live`/`identity`: contract-only, auto-answered by `implementSurface`
+  // with the server's own wall clock. Shares the `system` namespace with `live` /
+  // `identity` (claim merges the namespace, rejecting only a duplicate `clockNow`
+  // verb), so a consumer can measure the far-end clock offset at admit.
+  claim(CLOCK_NOW_NAMESPACE, { [CLOCK_NOW_VERB]: clockNowContractEntry() });
 
   // Descriptor handles for the manual escape hatch.
   const descriptors = {

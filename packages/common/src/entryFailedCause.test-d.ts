@@ -12,20 +12,31 @@
  *  - {@link PadiEntryStatus}'s `contract-skew-refused` failure arm carries the typed
  *    `running`/`expected` version pair; every OTHER cause does not (unrepresentable
  *    to invent a version pair for e.g. `"link-failed"`).
+ *  - `membershipId` is a BRANDED `MembershipId` (PR3), NOT a bare `string`: an empty
+ *    `""` or a client-fabricated literal is a COMPILE ERROR (the `@ts-expect-error`
+ *    below), so an opaque never-reused identity cannot be spelled by a consumer — it
+ *    is minted only by `serveSurfaceMap` or the wire schema parse. Fixtures mint one
+ *    through the sanctioned `testMembershipId()` helper, never a literal.
  */
 
 import type { EntryStatus } from "@kolu/surface-map";
+import { testMembershipId } from "@kolu/surface-map/testing";
 import type { PadiEntryFailure, PadiEntryStatus } from "./surfacesWithPadi.ts";
 
 // A BARE `EntryStatus` (default `Failure = unknown`): the `failed` arm carries an
 // opaque `failure`, so an unnarrowed consumer compiles with no domain knowledge.
-const bare: EntryStatus = { kind: "failed", failure: { anything: "at-all" } };
+const bare: EntryStatus = {
+  kind: "failed",
+  membershipId: testMembershipId(),
+  failure: { anything: "at-all" },
+};
 void bare;
 
 // `padiHostMap`'s narrowed status: the `failed` arm's `failure` must be a valid
 // `PadiEntryFailure` (a schema-valid domain value), narrowed on `cause`.
 const padiFailed: EntryStatus<PadiEntryFailure> = {
   kind: "failed",
+  membershipId: testMembershipId(),
   failure: {
     cause: "contract-skew-refused",
     reason: "remote padi contract skew",
@@ -35,6 +46,7 @@ void padiFailed;
 
 const padiFailedInvalid: EntryStatus<PadiEntryFailure> = {
   kind: "failed",
+  membershipId: testMembershipId(),
   failure: {
     // @ts-expect-error — an arbitrary string is not a member of the failure's
     // `cause` discriminant; if this line ever compiles, the narrowing
@@ -48,6 +60,7 @@ void padiFailedInvalid;
 // D2: the typed version pair rides ONLY the `contract-skew-refused` failure arm.
 const skewed: PadiEntryStatus = {
   kind: "failed",
+  membershipId: testMembershipId(),
   failure: {
     cause: "contract-skew-refused",
     reason: "padi contract skew",
@@ -59,6 +72,7 @@ void skewed;
 
 const linkFailed: PadiEntryStatus = {
   kind: "failed",
+  membershipId: testMembershipId(),
   failure: {
     cause: "link-failed",
     reason: "host unreachable",
@@ -70,3 +84,16 @@ const linkFailed: PadiEntryStatus = {
   },
 };
 void linkFailed;
+
+// PR3: `membershipId` is a BRANDED `MembershipId`, so a bare string — the empty
+// `""` fixtures used to spell, or any client-fabricated literal — is a COMPILE
+// ERROR. If this line ever compiles, the brand has regressed to a raw `string` and
+// an opaque never-reused identity is spellable again (the P4 gap srid caught).
+const fabricatedMembership: EntryStatus = {
+  kind: "warming",
+  // @ts-expect-error — a bare `string` is not assignable to the branded
+  // `MembershipId`; only `serveSurfaceMap`'s mint / the wire parse / the
+  // `testMembershipId()` helper can produce one.
+  membershipId: "",
+};
+void fabricatedMembership;

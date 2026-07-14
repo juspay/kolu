@@ -39,10 +39,11 @@ it retries, `failed` only on a standing fault — never as a fleet-wide crash.
 
 <Aside type="tip" title="The warm-pool helpers do this for you">
   For a production fan-out, `@kolu/surface-remote`'s `buildRemotePool` keys one
-  `{ session, handler }` per host and `serveHostMap(map, pool, { linkFor, offsetOf, failureOf })`
-  adapts the pool straight into a served map — folding each host's measured clock
-  offset. `failureOf` is the required, total classifier: `null` keeps a transient down
-  entry warming, a schema-valid domain failure marks a standing one. This guide builds
+  `{ session, handler }` per host and `serveHostMap(map, pool, { linkFor, failureOf })`
+  adapts the pool straight into a served map. The clock offset needs no option: `makeSession`
+  measures it off the framework-reserved `system.clockNow` at admit and carries it on the
+  session's own `connected` arm. `failureOf` is the required, total classifier: `null` keeps a
+  transient down entry warming, a schema-valid domain failure marks a standing one. This guide builds
   the registry by hand to show the seam; the helpers are
   in the [@kolu/surface-remote reference](/surface/ref-surface-remote).
 </Aside>

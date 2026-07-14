@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./channel-names": "./src/channelNames.ts",
+    "./clock-now": "./src/clockNow.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./heartbeat": "./src/heartbeat.ts",

@@ -52,7 +52,6 @@ your sink until the link dies.
 | `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
 | `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns a supervised `{ surface, router, done, close }` (the `router` is the FINAL top-level router) |
 | `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next(signal?)` blocks until a fresh client (post-reconnect), or wakes early on `signal` abort — the raw-loop primitive under the pump |
-| `measureClockOffset(client, log?)` | `.` | sample the bound process's wall-clock offset (ms), RTT-halved; call once at hello. A probe failure is rethrown, never faked |
 
 `pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
 `reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent.
@@ -72,7 +71,7 @@ end-to-end. Holding open a byte stream is a compile error.
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`retire`/`reconnect`/`recheckAll` + per-host socket eviction |
-| `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (folding `clockOffset()`) into an entry status |
+| `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (reading the `clockOffset` the session's own `connected` arm carries) into an entry status |
 
 `buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
 returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` share the
@@ -83,8 +82,13 @@ own) that does **not** persist, so a membership store re-seeds the host next boo
 each verb labels its own WebSocket close reason and log line (`host removed` vs
 `host retired`). A pool with no `persist` hook makes them behave the same on disk —
 neither writes — though the close reason and log still name the verb.
-`serveHostMap` takes `{ linkFor, offsetOf, failureOf }`; `linkFor(host, session)` is built
+`serveHostMap` takes `{ linkFor, failureOf }`; `linkFor(host, session)` is built
 once per host and evicted on **either** removal or retirement (both drop live membership).
+There is no `offsetOf` option: `makeSession` measures the far-end clock offset off the
+framework-reserved `system.clockNow` at admit and carries it on the session's own
+`connected` state, which `serveHostMap` reads directly. Readiness is link-liveness: the
+entry is `connected` the moment its link is live, carrying `clockOffset: null` through
+(honest not-yet-measured) until the first probe stamps it — never demoted to `connecting`.
 `failureOf(host, session, state)` is **required and total**: it returns `null` for a
 transient down state (keep the entry warming — a single-meaning null, a classification
 verdict, never a fabrication) and a schema-valid domain `Failure` for a standing one. A
@@ -116,10 +120,24 @@ of the CURRENT episode in milliseconds — a **duration** on the server's single
 (never a foreign epoch the browser would subtract), which the browser extends smoothly
 with its own ticker. Both `log` and `sinceMs` are scoped to the current dial-to-up
 episode and RESET on a down→up crossing, so a reconnect never shows a stale tail under
-a fresh timer. `disconnected` adds `error` + `cause` (`"network"` unreachable /
-`"remote"` refused); `failed` is terminal with `cause` pinned to the `"remote"` literal
-(a network fault never gives up, so `failed` + `network` is unrepresentable). There is
-no separate `progressLines` / `remoteProgressLines` — provenance is the `source` field.
+a fresh timer. The **`connected`** arm alone additionally carries `clockOffset: number | null`
+— the far-end host's wall-clock offset (ms) vs the serving process, measured off the
+framework-reserved `system.clockNow` at admit (RTT-compensated; see
+`measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped
+once the probe lands — `null` means *not yet measured*. Readiness is link-liveness, so
+`serveHostMap` keeps the entry `connected` with a `null` offset (never demoted to `connecting`; a `0` placeholder would be a lie on a skewed host). This is where the
+`clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
+the session's own state, no longer an injected `offsetOf`. A clock probe that fails is
+never swallowed: it stays `connected` with a `null` offset, re-attempts on a fixed cadence,
+and surfaces the failure on the session's diagnostic `onLog(line, severity)` sink —
+classified `error` for a genuine failure (the wedged-clock deadline, a transport fault) and
+`info` for the expected-absent case (an agent dial whose client carries no reserved
+`system.clockNow`). `onLog`'s `severity` is optional and defaults to `info`, so a one-argument
+sink stays valid. `disconnected` adds `error` +
+`cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`
+pinned to the `"remote"` literal (a network fault never gives up, so `failed` + `network` is
+unrepresentable). There is no separate `progressLines` / `remoteProgressLines` — provenance
+is the `source` field.
 
 | Export | Subpath | Role |
 | --- | --- | --- |

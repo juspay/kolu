@@ -35,13 +35,13 @@ import type { RemotePool } from "./hostFanout";
 import type { DownSessionState, Session, SessionState } from "./session";
 
 /** The session role this adapter needs — just {@link Session}. The clock offset is
- *  NO LONGER a type BOUND on the session (`& { clockOffset() }`): that bound locked
- *  out any consumer whose session lacks the method, forcing drishti to hand-clone the
- *  whole registry (~90 lines) + a second `projectState`. It is now an INJECTED
- *  capability — `ServeHostMapOptions.offsetOf` — so a session that measures an offset
- *  passes its measurer and one that doesn't passes `() => 0`, and both reuse this one
- *  adapter. `Prov = string` (the phase-vocabulary TOP) so every session — a `never`
- *  endpoint, an ssh arm, any connector — is assignable by `Prov`-covariance. */
+ *  NOT a type BOUND on the session, NOR an injected `offsetOf` option: it now rides
+ *  the session's OWN `connected` {@link SessionState} arm (`makeSession` measures it
+ *  off the framework-reserved `system.clockNow` at admit — see
+ *  `@kolu/surface/clock-now`), so this adapter reads it straight off the cached state
+ *  with nothing to inject and no consumer left to hand-clone the registry.
+ *  `Prov = string` (the phase-vocabulary TOP) so every session — a `never` endpoint,
+ *  an ssh arm, any connector — is assignable by `Prov`-covariance. */
 type MappableSession = Session<SurfaceClientLike, string>;
 
 /** Thrown (PR4) when `resolve` is asked for a member that has NO session — `has(k)`
@@ -90,18 +90,21 @@ export class UnclassifiedHostFailureError extends Error {
 type RawConnectionState =
   | { kind: "copying" }
   | { kind: "connecting" }
-  | { kind: "connected"; clockOffset: number }
+  | { kind: "connected"; clockOffset: number | null }
   | { kind: "disconnected" }
   | { kind: "failed" };
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
- *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset: until the admit
- *  handshake has stamped one, the entry honestly reads as still `connecting`
- *  (offset-at-hello is the contract — a `0` placeholder would be a lie). */
+ *  `ConnectionInfo`). Readiness is LINK liveness, NOT clock-measured: a connected
+ *  session projects to `connected` REGARDLESS of whether the clock offset has landed.
+ *  The offset is a SEPARATE fact riding the session's own `connected` arm
+ *  (`makeSession` stamps it off the reserved `system.clockNow` at admit): `null` is a
+ *  legal, single-meaning "not-yet-measured" value carried THROUGH on the connected arm
+ *  — it does NOT demote the entry to `connecting` (that was the old, wrongly-coupled
+ *  behaviour). A number is the measured offset; the reader renders "—" for null. */
 export function projectState<Prov extends string>(
   s: SessionState<Prov> | undefined,
-  clockOffset: number | null,
 ): RawConnectionState {
   if (s === undefined) return { kind: "connecting" };
   if (s.phase === "disconnected" || s.phase === "failed") {
@@ -112,10 +115,28 @@ export function projectState<Prov extends string>(
     // `SessionState` itself there.
     return s.phase === "failed" ? { kind: "failed" } : { kind: "disconnected" };
   }
-  if (s.phase === "connected")
-    return clockOffset === null
-      ? { kind: "connecting" }
-      : { kind: "connected", clockOffset };
+  if (s.phase === "connected") {
+    // A generic `Prov` defeats TS's discriminated-union narrowing (`Prov` could be
+    // `"connected"`, so the union's first arm structurally admits a `{ phase: "connected" }`
+    // that carries NO `clockOffset`), so read `clockOffset` off the connected shape
+    // explicitly. `makeSession` ALWAYS stamps the field on a connected frame (`null` at
+    // connect, a number once the probe lands). Readiness is LINK liveness: a connected
+    // session is `connected` either way — `null` (honest not-yet-measured) is carried
+    // THROUGH, not demoted to `connecting`. A MISSING (`undefined`) offset is the
+    // type-only illegal inhabitant no producer of ours constructs — FAIL LOUD rather
+    // than silently degrade it (the funnel `fire()` rethrows this out-of-band as the
+    // invariant it is), so a future producer that forgets to stamp the field is caught.
+    const clockOffset = (s as Extract<SessionState, { phase: "connected" }>)
+      .clockOffset;
+    if (clockOffset === undefined) {
+      throw new Error(
+        "[serveHostMap] connected SessionState carries no clockOffset — makeSession must " +
+          "stamp it (null at connect, a number once the system.clockNow probe lands). A " +
+          "missing field is a producer defect; failing loud rather than degrading it.",
+      );
+    }
+    return { kind: "connected", clockOffset };
+  }
   if (s.phase === "connecting") return { kind: "connecting" };
   // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
   // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
@@ -130,17 +151,6 @@ export interface ServeHostMapOptions<K, S, Failure = unknown> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
-  /** The session's measured clock offset (remote-host ↔ serving-process, stamped at
-   *  the admit handshake), folded into the `connected` `EntryStatus`. INJECTED — not
-   *  a type bound on the session — so a consumer whose session measures one passes
-   *  its measurer (`(s) => s.clockOffset()`) and one that doesn't passes `() => 0`;
-   *  either way this ONE adapter serves both (the bound it replaces is exactly why
-   *  drishti used to hand-clone the registry). REQUIRED, no silent default: a consumer
-   *  must DECLARE its offset story — a forgotten `offsetOf` is a compile error, never a
-   *  silent forever-`connecting`. `null` means "not yet stamped" → the entry reads
-   *  `connecting` until it is (offset-at-hello is the contract; a `0` placeholder for a
-   *  session that genuinely can't measure is that session's OWN honest declaration). */
-  offsetOf: (session: S) => number | null;
   /** Classify a DOWN session into the map's schema-valid domain `failure` — this
    *  adapter is transport-only (it projects a bare {@link DownSessionState}, which
    *  carries only the transport-axis `cause`, "network" vs "remote"); a domain
@@ -304,9 +314,8 @@ export function serveHostMap<
         // unclassified producer appeared, a defect to classify then.
         throw new UnclassifiedHostSessionError(enc);
       }
-      const offset = opts.offsetOf(session);
       const raw = latestState.get(enc);
-      const projected = projectState(raw, offset);
+      const projected = projectState(raw);
       // Classify a DOWN state into the map's schema-valid domain `failure` via the
       // REQUIRED, TOTAL `failureOf` (PR4). `raw` is always defined and genuinely
       // down here (the only way `projectState` returns "disconnected"/"failed"), so
@@ -318,6 +327,25 @@ export function serveHostMap<
         // `as { error }`) so the injected classifier AND the seam throw read `error`
         // off the narrowed shape the type author intended.
         const down = raw as DownSessionState;
+        // BELT — symmetric with the connected-arm `clockOffset` guard in
+        // `projectState`: the erased `SessionState<string>` seam this map serves over
+        // (`Prov = string`, the phase top) structurally admits a down frame MISSING its
+        // REQUIRED `error` (under a `string` Prov the union's first arm widens `phase` to
+        // `string`, so `{ phase: "disconnected" }` sans `error`/`cause` type-checks). No
+        // producer of ours constructs one — `makeSession` ALWAYS stamps `error`+`cause`
+        // on a down frame — but a future producer that forgot would otherwise reach the
+        // injected `failureOf` reading `undefined`; on a `disconnected` frame `padiFailureOf`
+        // returns `null` without touching `error` and the map would publish the malformed
+        // frame SILENTLY as warming. Fail LOUD here instead (the sanctioned pattern, not a
+        // silent degrade), so the down seam is as fail-loud as the connected one.
+        if (typeof down.error !== "string") {
+          throw new Error(
+            `[serveHostMap] down SessionState for host "${enc}" carries no \`error\` — a ` +
+              "down frame (disconnected/failed) MUST carry a real transport error " +
+              "(makeSession always stamps error+cause). A missing field is a producer " +
+              "defect; failing loud rather than publishing a malformed down state as warming.",
+          );
+        }
         const failure = opts.failureOf(k, session, down);
         if (projected.kind === "failed") {
           // A terminal `failed` session that yields NO domain failure is a producer

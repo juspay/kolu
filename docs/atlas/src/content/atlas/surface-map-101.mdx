@@ -35,10 +35,12 @@ The map publishes a single collection: `entries: Collection<Key, EntryStatus<Fai
 **The status sum is small and honest.** `EntryStatus<Failure>` has exactly three arms:
 
 ```ts
-| { kind: "warming" }                          // in motion — coming up, or coming back on its own
-| { kind: "connected"; clockOffset: number }   // live; the offset is THIS entry's clock seam
-| { kind: "failed"; failure: Failure }         // NOT proceeding without intervention
+| { kind: "warming"; membershipId: string }                          // in motion — coming up, or coming back on its own
+| { kind: "connected"; membershipId: string; clockOffset: number | null } // live (link-liveness); offset null = not-yet-measured
+| { kind: "failed"; membershipId: string; failure: Failure }         // NOT proceeding without intervention
 ```
+
+Every arm carries a `membershipId` — an opaque, never-reused identity stamped when the key is added. A same-key remove/re-add mints a *new* one, so a client keys owners on `{key, membershipId}` and never mistakes a fresh occupant for the old one.
 
 The arm meanings are a **projection contract**, not vibes: `warming` = the system is doing something and will resolve on its own (first provision *and* a transient reconnect-backoff both land here); `failed` = it will *not* resolve without someone acting (a terminal give-up, or a *standing refuse* like "another kolu owns this host's padi").<Footnote>Both halves of that contract were paid for in blood the week this shipped. First a retriable reconnect window rendered as a steady red "failed" chip (indistinguishable from dead — the architecture review's one confirmed defect); the fix over-corrected, and standing refuses got masked as an eternal "Connecting…" spinner. The settled contract discriminates the session's down state by its **domain cause**: a specific cause (cross-supervisor, contract-skew) is a standing condition → `failed` + an actionable card; no specific cause is a transient drop → `warming`. The invariant "every refuse verdict carries a specific cause" is pinned at the session layer so the discrimination can't rot.</Footnote>
 
@@ -46,7 +48,7 @@ The arm meanings are a **projection contract**, not vibes: `warming` = the syste
 
 ## Reading one entry: `entry(key)` and `useEntry`
 
-`entry(key)` is a **total lens** — ask about any key, get an honest answer (`not-a-member` included). `useEntry(keyAccessor)` is its Solid form: hand it a *reactive* key (kolu hands it `activeHost`) and every read re-keys when the key changes. This is the load-bearing consumer pattern in kolu — every per-host fact the UI shows (daemon status, identity, the canvas's connection state) reads through `useEntry(activeHost)`, which is what makes "switch the chip, every readout follows" true by wiring rather than by discipline.
+`entry(key)` is a **total lens** — ask about any key, get an honest answer (`not-a-member` included). `useEntry(keyAccessor)` is its Solid form: hand it a *reactive* key (kolu hands it `activeHost`) and every read re-keys when the key changes — *and* on a same-key membership replacement (the `membershipId` above changes), so a remove/re-add under the same key rebuilds the subscription rather than silently retaining the departed owner's. This is the load-bearing consumer pattern in kolu — every per-host fact the UI shows (daemon status, identity, the canvas's connection state) reads through `useEntry(activeHost)`, which is what makes "switch the chip, every readout follows" true by wiring rather than by discipline.
 
 Underneath sits the **keyed subscription cache**: one singleton slot per `(procedure, stable-input-hash)`, so ten components reading the same host's daemon status share one wire subscription; the last listener's disposal evicts the slot; and a slot's lifetime is tied to the key's **membership** — remove the host and its subscriptions end with a *typed* end (`{reason: "removed"}`), not an error toast.<Footnote>The teardown invariant survives from the old note because it's timeless: *a disposed subscription cannot report anything.* Its modern regression was subtle — a leak fix routed reads through a shared root but left one path that could subscribe **ownerless**, resurrecting undisposable subscriptions; the fix pins every read under a real owner (`runUnderOwner`), and the "unknown daemon dialog" bug it caused is why the pin exists.</Footnote>
 

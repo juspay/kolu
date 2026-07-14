@@ -26,9 +26,22 @@ import {
   type Subscription,
   type SurfaceClient,
 } from "@kolu/surface/solid";
-import { type Accessor, createEffect, getOwner, runWithOwner } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  getOwner,
+  runWithOwner,
+  untrack,
+} from "solid-js";
 import type { z } from "zod";
-import type { EntryState, EntryStatus, KeyCodec, SurfaceMap } from "./define";
+import type {
+  EntryState,
+  EntryStatus,
+  KeyCodec,
+  MembershipId,
+  SurfaceMap,
+} from "./define";
+import { PENDING_MEMBERSHIP_ID } from "./define";
 import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
@@ -80,10 +93,12 @@ export interface Entry<ES extends SurfaceSpec, Failure = unknown>
 export interface EntryClock {
   /** A remote-host epoch-ms → this process's LOCAL-clock epoch-ms, via the entry's
    *  offset-at-hello `clockOffset`. Returns `null` when the entry has no offset yet
-   *  (`warming` / `failed` / `not-a-member`) — the caller MUST handle it (render a
-   *  pending "—"), NEVER falling back to the raw remote value (that is the silent
-   *  foreign-clock identity this lens exists to prevent). Read inside a reactive scope:
-   *  it folds the membership collection, so it re-answers as the entry connects. */
+   *  (`warming` / `failed` / `not-a-member`, OR `connected` with a not-yet-measured
+   *  `clockOffset: null` — readiness is link-liveness, so an entry is connected before
+   *  the probe lands) — the caller MUST handle it (render a pending "—"), NEVER falling
+   *  back to the raw remote value (that is the silent foreign-clock identity this lens
+   *  exists to prevent). Read inside a reactive scope: it folds the membership
+   *  collection, so it re-answers as the entry's offset lands. */
   toLocal(remoteMs: number): number | null;
 }
 
@@ -101,7 +116,11 @@ export function floorOnLiveness<Failure = unknown>(
   status: EntryState<Failure>,
   live: boolean,
 ): EntryState<Failure> {
-  if (status.kind === "connected" && !live) return { kind: "warming" };
+  // Downgrade the CLAIM (connected → warming) but carry the entry's opaque
+  // `membershipId` through untouched — the floor is about liveness, not identity, so
+  // the demoted `warming` is still the SAME membership, keyed the same way (PR3).
+  if (status.kind === "connected" && !live)
+    return { kind: "warming", membershipId: status.membershipId };
   return status;
 }
 
@@ -134,13 +153,16 @@ function floorEntrySubscription<Failure = unknown>(
 /** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
  *  `clockOffset = remoteEpoch − localEpoch` (same instant), so a remote-clock timestamp
  *  maps to this process's local clock by subtracting it. No `connected` status ⇒ no
- *  measured offset ⇒ `null` (never a silent identity). Failure-agnostic: it only ever
- *  reads `.kind`, never `.failure`, so it takes no `Failure` type param of its own. */
+ *  measured offset ⇒ `null` (never a silent identity). A `connected` status whose
+ *  `clockOffset` is `null` (not-yet-measured — readiness is link-liveness, so the
+ *  entry is connected before the probe lands) ALSO yields `null`: no reprojection yet,
+ *  the reader renders "—". Failure-agnostic: it only ever reads `.kind`, never
+ *  `.failure`, so it takes no `Failure` type param of its own. */
 function makeEntryClock(getState: () => EntryState): EntryClock {
   return {
     toLocal(remoteMs: number): number | null {
       const s = getState();
-      if (s.kind !== "connected") return null;
+      if (s.kind !== "connected" || s.clockOffset === null) return null;
       return remoteMs - s.clockOffset;
     },
   };
@@ -286,12 +308,15 @@ function reactiveDelegate<R extends object>(current: Accessor<R>): R {
 }
 
 /** Build the reactive `Entry<ES>` `useEntry` returns: each bound-primitive
- *  `.use()` runs inside a keyed root over the accessor (so its subscriptions
- *  re-key on switch); imperative collection members (`upsert`/`delete`) delegate
- *  to the current key. */
+ *  `.use()` runs inside a keyed root over `reKeyIdentity` — the `{enc, membershipId}`
+ *  identity — so its subscriptions re-key on an active-key SWITCH *and* on a same-key
+ *  re-add / authority restart (a new membershipId), the two paths PR3 makes rebuild by
+ *  construction. Imperative collection members (`upsert`/`delete`) and procedures
+ *  delegate to the current key (one-shot — no membership-fresh client needed). */
 function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
   entryFor: (key: K) => Entry<ES, Failure>,
   keyAccessor: Accessor<K>,
+  reKeyIdentity: (key: K) => string,
 ): Entry<ES, Failure> {
   const primProxy = (prim: "cells" | "collections" | "streams" | "events") =>
     new Proxy(
@@ -309,11 +334,19 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
                 // reach this branch and be mis-wrapped in a keyed root.
                 if (verb === "use") {
                   return (...args: unknown[]) => {
-                    const current = createKeyedRoot(keyAccessor, (key) => {
-                      // biome-ignore lint/suspicious/noExplicitAny: dynamic member/verb walk over the bound subtree
-                      const node = (entryFor(key) as any)[prim][member];
-                      return node.use(...args) as object;
-                    });
+                    const current = createKeyedRoot(
+                      // The keyed root re-keys on the {enc, membershipId} identity: an
+                      // active-key switch changes `enc`, a re-add/restart changes the id —
+                      // either disposes the old sub and opens a fresh one (over the fresh
+                      // per-key client `entryFor` selects for the current id).
+                      () => reKeyIdentity(keyAccessor()),
+                      () => {
+                        const key = untrack(keyAccessor);
+                        // biome-ignore lint/suspicious/noExplicitAny: dynamic member/verb walk over the bound subtree
+                        const node = (entryFor(key) as any)[prim][member];
+                        return node.use(...args) as object;
+                      },
+                    );
                     // Events' `.use()` returns void — keep the keyed root live
                     // (and re-keying) even when the caller never reads a result.
                     if (prim === "events") {
@@ -402,9 +435,15 @@ function faceDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
  *  link), so a per-key chip floors its status on real transport liveness.
  *
  *  `transport` is either a BRANDED `LiveSignalHandle` (a websocket's watchdog live — for
- *  a combined socket, pass the WHOLE handle + `siblingKey` to slice the map's sibling),
- *  or a bare in-process `directLink` (constant-`true`). A bare half-open wire link THROWS
- *  — a raw `{ live: () => true }` over a dead transport is unspellable (#1564). */
+ *  a combined socket, the map's sibling is sliced by `map.name` from the WHOLE handle), or
+ *  a bare in-process `directLink` (constant-`true`). A bare half-open wire link THROWS — a
+ *  raw `{ live: () => true }` over a dead transport is unspellable (#1564).
+ *
+ *  The transport-slice key is `map.name` (PR3): a map DECLARED with a mount name (kolu's
+ *  `"padi"`, drishti's `"hosts"`) is sliced from the combined transport by that name, so
+ *  the connection site passes NO stringly sibling key — the key derives from the
+ *  declaration. A nameless map (the in-process harness) is served at the transport root
+ *  and is not sliced. */
 export function connectSurfaceMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
@@ -412,7 +451,6 @@ export function connectSurfaceMap<
 >(
   map: SurfaceMap<KS, ES, Failure>,
   transport: unknown,
-  siblingKey?: string,
 ): SurfaceMapClient<KS, ES, Failure> {
   type K = z.infer<KS>;
 
@@ -420,10 +458,10 @@ export function connectSurfaceMap<
   // `LiveSignalHandle` yields its watchdog `live` + link; a bare half-open wire link
   // THROWS; an in-process `directLink` yields constant-`true`. For framework composition
   // over a SIBLING of a combined transport (kolu's `padi` sibling of `conn.transport`),
-  // pass the whole branded handle + `siblingKey`: the sibling is sliced from the resolved
+  // pass the whole branded handle: the sibling is sliced by `map.name` from the resolved
   // link AFTER the guard, so it inherits the PARENT's watchdog `live` by construction —
   // there is no bare slice paired with a fabricated accessor.
-  // connectSurfaceMap OWNS the slicing (via `siblingKey`), so `transport` must be the
+  // connectSurfaceMap OWNS the slicing (by `map.name`), so `transport` must be the
   // BRANDED parent handle (a `LiveSignalHandle`, whose watchdog `live` the sliced sibling
   // inherits) or an in-process `directLink` (sound constant-`true`). A RAW PRE-SLICED wire
   // link — `scopeSibling(conn.link, "padi")` — or any other unbranded wire link is a
@@ -436,14 +474,17 @@ export function connectSurfaceMap<
   if (!isLiveSignalHandle(transport) && !isDirectLink(transport)) {
     throw new Error(
       "connectSurfaceMap: pass the BRANDED parent transport handle (e.g. `conn.transport` " +
-        "from connectSurfaces) + a siblingKey — or an in-process `directLink`. A pre-sliced " +
+        "from connectSurfaces) — or an in-process `directLink`. A pre-sliced " +
         "or bare wire link cannot carry the half-open watchdog live; its by-exclusion " +
         "constant-`true` liveness would floor a green chip over a dead transport (#1564 / #1580).",
     );
   }
   const { link: fullLink, live } = resolveTransport(transport);
+  // The transport-slice key derives from the map DECLARATION (`map.name`), never a
+  // caller-passed string (PR3). A named map is a sibling of the combined transport and is
+  // sliced by that name; a nameless map is served at the root and is not sliced.
   const baseLink =
-    siblingKey !== undefined ? scopeSibling(fullLink, siblingKey) : fullLink;
+    map.name !== undefined ? scopeSibling(fullLink, map.name) : fullLink;
 
   // Capture the STABLE client owner: per-key clients' dedup caches must be
   // client-lifetime, never the transient `.use()`/mapArray owner that first
@@ -514,43 +555,118 @@ export function connectSurfaceMap<
     },
   };
 
-  // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by the key's
-  // CANONICAL STRING (never the raw `K` — a JS `Map`/`===` compares objects by
-  // reference, so two logically-equal `HostKey` objects from independent decodes
-  // would otherwise never dedup to the same cached client).
-  const clients = new Map<string, SurfaceClient<ES>>();
-  const clientFor = (key: K): SurfaceClient<ES> => {
+  // The published `membershipId` for a key, read off the membership collection
+  // (PR3). TRACKED when read inside a reactive scope (the re-key driver in
+  // `makeReactiveEntry`); `undefined` before the first status frame lands, or for a
+  // key that is not a member. Callers that must stay non-reactive (`entry`'s pure
+  // lens) read it through `untrack`.
+  const membershipIdOf = (key: K): MembershipId | undefined => {
     const enc = map.codec.encode(key);
-    let c = clients.get(enc);
+    const view = rawEntries.use();
+    if (!view.keys().includes(enc)) return undefined;
+    return (view.byKey(enc)?.() as EntryStatus<Failure> | undefined)
+      ?.membershipId;
+  };
+
+  // The opaque re-key identity composite — an INJECTIVE `[enc, membershipId]` pairing.
+  // It NO LONGER keys the client cache (that is now the nested `clients` map below, keyed
+  // structurally by enc then id): it only builds the string `reKeyIdentity` a keyed root
+  // diffs to decide when to rebuild its sub, and is NEVER re-parsed. A `null` id is the
+  // PENDING slot (no status frame yet / a non-reactive pure-lens caller). `JSON.stringify`
+  // of the 2-tuple is injective in both fields (JSON quoting length-delimits each string),
+  // so it CANNOT alias — a naive `${enc}<sep>${id}` join with ANY fixed separator would
+  // collide whenever a schema-valid `enc`/`id` contains that separator byte (`KeyCodec.encode`
+  // and the opaque `membershipId` contract forbid no byte, NUL included), wrongly suppressing
+  // a keyed-root rebuild and retaining another entry's subscription.
+  const clientCacheKey = (
+    enc: string,
+    membershipId: MembershipId | undefined,
+  ): string => JSON.stringify([enc, membershipId ?? null]);
+
+  // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by
+  // `{encodedKey, membershipId}` (PR3) — NEVER the enc alone. The identity pair is held
+  // STRUCTURALLY as a nested `Map<enc, Map<membershipId, client>>` (`PENDING_MEMBERSHIP_ID`
+  // slots the not-yet-known id), so enc-departure pruning and same-enc eviction are map
+  // operations, not substring
+  // surgery on a delimited key. A same-key remove/re-add mints a NEW id server-side, and
+  // an authority restart mints new ids for every member, so either way this cache MISSES
+  // and builds a FRESH client (fresh dedup cache → fresh subscriptions) rather than
+  // resurrecting the stale one — the rebuild kolu's hand-rolled `createRejoinKeyedSub`
+  // used to force, now by construction. The enc (not the raw `K`) is the outer string
+  // key because a JS `Map`/`===` compares objects by reference, so two logically-equal
+  // `HostKey`s from independent decodes would otherwise never dedup to one client.
+  const clients = new Map<string, Map<string, SurfaceClient<ES>>>();
+  const clientFor = (
+    key: K,
+    membershipId: MembershipId | undefined,
+  ): SurfaceClient<ES> => {
+    const enc = map.codec.encode(key);
+    const id = membershipId ?? PENDING_MEMBERSHIP_ID;
+    let inner = clients.get(enc);
+    if (inner === undefined) {
+      inner = new Map<string, SurfaceClient<ES>>();
+      clients.set(enc, inner);
+    }
+    let c = inner.get(id);
     if (!c) {
       c = build(() =>
         buildSurfaceClient(map.entry, keyInjectingLink(baseLink, enc), live),
       ) as SurfaceClient<ES>;
-      clients.set(enc, c);
+      inner.set(id, c);
+      // A REAL id supersedes every prior client for THIS enc — the `#pending` slot AND
+      // any older-id client left by a re-add / authority restart — so dispose them the
+      // instant the authoritative client is built (the keyed root has already re-keyed its
+      // sub onto this one). A PENDING build (undefined id) supersedes nothing: it must
+      // never kill the authoritative real-id client. Reaping a superseded-id client HERE is
+      // what lets the departed-membership effect below read only the KEYSET, never opening
+      // a per-key status sub for every member just to notice an id changed.
+      //
+      // Disposing the pending client does NOT strand a RETAINED `entry(key)` consumer
+      // (`createHostWire`, `watchByEntry`) that opened `.use()` subs on it during the
+      // pre-frame gap: `SurfaceClient.dispose()` tears down only the client's build-time
+      // `liveWhen` standing roots, never a consumer-owned `.use()` subscription (that
+      // rides the CONSUMER's reactive owner and its subs route by enc, identical to the
+      // real-id client). The `mapHarness` "RETAINED entry() sub … survives a concurrent
+      // useEntry pending→real re-key" test pins exactly that.
+      if (membershipId !== undefined) {
+        for (const [otherId, otherClient] of [...inner]) {
+          if (otherId !== id) {
+            otherClient.dispose();
+            inner.delete(otherId);
+          }
+        }
+      }
     }
     return c;
   };
 
-  // Prune a DEPARTED host's cached per-key client (+ its canonicalized key reference)
-  // — the client-side twin of the server's `reServeEviction.pruneToMembers`. A key
-  // that LEAVES membership has had its subs typed-ended by the server, so disposing
-  // its cached client is safe cleanup; the next entry(key)/useEntry rebuilds one on
-  // demand, and a re-add mints a fresh canonical reference. Tracks the PREVIOUS
-  // member set (not merely "not a member"), so an `entry(key)` lens a consumer holds
-  // for a never-member key is never touched — only a host that WAS a member and then
-  // left. Runs in the client owner (client-lifetime, like the caches). Compares the
-  // RAW encoded strings (never a decoded `K`) — string equality is exact,
-  // side-stepping the object-identity trap `K` itself would set.
+  // Prune cached per-key clients whose ENC has DEPARTED membership (PR3) — the
+  // client-side twin of the server's `reServeEviction.pruneToMembers`. A key that leaves
+  // membership has had its subs typed-ended by the server, so disposing every cached
+  // client under that enc (across all its membershipIds) is safe cleanup; the next
+  // entry(key)/useEntry rebuilds on demand. SUPERSEDED-id cleanup for a STILL-present enc
+  // (a re-add without an intervening departure, an authority restart) is NOT done here —
+  // `clientFor`'s real-id eviction above reaps it — so this effect reads only the KEYSET
+  // (`keys()`), never per-key `byKey`, and therefore does NOT eagerly open a status sub
+  // for every member (which would change laziness and light every member's stream). The
+  // `keyCache` (the per-enc canonical reference for `<For>` stability) is likewise pruned
+  // on enc departure ONLY: a re-add reuses the same wire spelling and keeps the same row
+  // reference, so it is deliberately NOT tied to the membershipId. Runs in the client
+  // owner (client-lifetime, like the caches); compares RAW encoded strings, side-stepping
+  // the object-identity trap `K` itself would set.
   build(() => {
     let prevMembers: string[] = [];
     createEffect(() => {
       const members = rawEntries.use().keys();
-      for (const enc of prevMembers) {
-        if (!members.includes(enc)) {
-          clients.get(enc)?.dispose();
+      const present = new Set(members);
+      for (const enc of [...clients.keys()]) {
+        if (!present.has(enc)) {
+          for (const c of clients.get(enc)?.values() ?? []) c.dispose();
           clients.delete(enc);
-          keyCache.delete(enc);
         }
+      }
+      for (const enc of prevMembers) {
+        if (!present.has(enc)) keyCache.delete(enc);
       }
       prevMembers = members;
     });
@@ -568,11 +684,32 @@ export function connectSurfaceMap<
     // a dead transport (#1568 — the per-key chip that paints `state()` inherits the floor
     // for free). An in-process `directLink` can't half-open so its `live()` is a constant
     // true and never floors. This is the flooring `hostChipTone`'s docstring asserts, in code.
-    return floorOnLiveness(v ?? { kind: "warming" }, live());
+    //
+    // The pre-frame synthesized warming carries `PENDING_MEMBERSHIP_ID` (PR3): the id
+    // rides ON the status, so a member seen in the keyset before its first status frame
+    // has none yet. It is DISPLAY-ONLY, never used for keying — the per-key client keys
+    // off `membershipIdOf` (the RAW status, `undefined` here), not this value — and no
+    // consumer reads `membershipId` off `state()`; it is the arm's required field filled
+    // with the ONE sanctioned pending marker (never a bare literal — `""` and any
+    // fabricated id are now type errors), replaced by the real id on the next frame.
+    return floorOnLiveness(
+      v ?? { kind: "warming", membershipId: PENDING_MEMBERSHIP_ID },
+      live(),
+    );
   };
 
   const entry = (key: K): Entry<ES, Failure> => {
-    const c = clientFor(key);
+    // Key the per-key client on the CURRENT {enc, membershipId} (PR3). Read the id only
+    // inside a reactive owner — the `useEntry` / reactive-`.use()` path, whose keyed root
+    // (`reKeyIdentity`) drives the rebuild on a re-add/restart — and read it UNTRACKED, so
+    // this build adds no second dependency to the sub's owner (the keyed identity is the
+    // one tracked read). A non-reactive pure-lens caller (an imperative procedure
+    // point-call) stays owner-free and total: `undefined` selects the `#pending` client,
+    // which routes identically since the wire folds the key by `enc`, never the id.
+    const membershipId = getOwner()
+      ? untrack(() => membershipIdOf(key))
+      : undefined;
+    const c = clientFor(key, membershipId);
     return {
       cells: c.cells,
       collections: c.collections,
@@ -605,12 +742,27 @@ export function connectSurfaceMap<
     // one reference per encoded string map-wide, so the read below is a no-op read,
     // never a key change.
     const stableKey = () => canonicalizeKey(keyAccessor());
-    return makeReactiveEntry(entry, stableKey);
+    // The re-key identity the keyed root switches on: the per-key client's
+    // `{enc, membershipId}` cache key. Reads `membershipIdOf` TRACKED (this runs inside
+    // the keyed root's key accessor, a tracking scope), so the root re-keys on an
+    // active-key switch (enc changes) AND on a same-key re-add / authority restart (the
+    // published id changes) — the two rebuild paths PR3 guarantees.
+    //
+    // A sub opened BEFORE its first membership frame keys on the `#pending` id, then
+    // re-keys once when the real id lands — one extra subscribe+teardown at cold start.
+    // That is on-screen-neutral (the cell reads warming throughout the gap either way) and
+    // the price of a single, uniform rule that also rebuilds correctly on remove/re-add;
+    // keying it away would take a generation counter whose bookkeeping fights the
+    // departed-membership prune for no user-visible gain.
+    const reKeyIdentity = (key: K): string =>
+      clientCacheKey(map.codec.encode(key), membershipIdOf(key));
+    return makeReactiveEntry(entry, stableKey, reKeyIdentity);
   };
 
   const dispose = () => {
     entriesClient.dispose();
-    for (const c of clients.values()) c.dispose();
+    for (const inner of clients.values())
+      for (const c of inner.values()) c.dispose();
     clients.clear();
   };
 

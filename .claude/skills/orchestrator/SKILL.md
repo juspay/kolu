@@ -35,7 +35,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
   an explicit coordinator ruling recorded in the brief, never a silent default.
 - A dispatch has landed only when you observe it at the recipient — through whatever record its runtime exposes — never because the send succeeded or a snapshot suggested it.
 - Briefs make LOADING the kolu skill for reports part of the brief itself — never a hand-transcribed protocol, never a parenthetical "two-step send" reminder: neither survives an implementer's long-context run, and a finished report once sat unsent on the input line until the human noticed. The skill's submit loop is the contract: each report submits with its own Enter keystroke and is snapshot-verified as landed.
-- Every brief routes every question — interview questions included — to the coordinator's terminal via the kolu skill, blocking on the reply. An interactive question dialog opened in the agent's own PTY is a brief defect: it sits unanswered unless someone happens to look — two /be interviews once sat blocked in their own terminals until the human noticed.
+- Every brief routes every question — interview questions included — to the coordinator's terminal via the kolu skill, blocking on the reply. An interactive question dialog opened in the agent's own PTY is a brief defect: it sits unanswered unless someone happens to look — two /be interviews once sat blocked in their own terminals until the human noticed. Prescribing the route is NOT enough — the brief must NAME-BAN the AskUserQuestion tool (and any own-PTY question dialog) for the agent explicitly: an agent running /be reaches for AskUserQuestion by reflex during its interview because that IS /be's interview step, and a brief that only says "route questions to me" loses to the tool being right there. State it as: AskUserQuestion is banned for you; every question, /be interview included, is a file + one-line pointer to the coordinator, blocking on reply.
 - A brief that authorizes dev-server or evidence work quotes the recorded-PIDs-only teardown rule verbatim: teardown kills only the exact PIDs recorded at spawn; pattern kills are banned; strays are reported, never hunted. The skill's own ban did not survive contact — an agent hand-rolled an equivalent `ps|grep` and killed production.
 
 ## Answering agents
@@ -63,8 +63,8 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
   CONTINUOUSLY up to date with master: whenever master moves, merge
   origin/master into `atlas` promptly (never rebase, never force) — staleness
   is a defect, not a review-time chore. After its PR merges, the branch is deleted and the next atlas task
-  cuts it anew. Batch atlas work there; the PR is opened when the human says
-  they are ready to merge, and the human merges. The atlas PR follows
+  cuts it anew. Batch atlas work there; the PR is opened IMMEDIATELY
+  when the branch is cut (draft), and the human merges when ready. The atlas PR follows
   /forge-pr, and its title/body are RE-WRITTEN after every push — the PR
   always describes its current full contents, never just its first commit. Atlas edits never ride a
   feature branch, a scratch worktree, or another PR's branch.

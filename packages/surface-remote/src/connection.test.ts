@@ -66,16 +66,10 @@ describe("connection cell", () => {
     expect(connectionCell.verbs).not.toContain("set");
   });
 
-  it("mirrors the session sum: the up phases carry only `log` + `sinceMs`, the down phases require error+cause", () => {
-    // UP arms (incl. the ssh connector's `probing` opening phase) — parse with only
-    // `log` + `sinceMs`, no error fields.
-    for (const phase of [
-      "probing",
-      "copying",
-      "building",
-      "connecting",
-      "connected",
-    ]) {
+  it("mirrors the session sum: the up phases carry only `log` + `sinceMs` (connected also `clockOffset`), the down phases require error+cause", () => {
+    // UP arms except `connected` (incl. the ssh connector's `probing` opening phase)
+    // — parse with only `log` + `sinceMs`, no error fields.
+    for (const phase of ["probing", "copying", "building", "connecting"]) {
       expect(
         ConnectionInfoSchema.parse({ phase, log: [], sinceMs: 0 }),
       ).toEqual({
@@ -84,6 +78,28 @@ describe("connection cell", () => {
         sinceMs: 0,
       });
     }
+    // `connected` ALSO carries `clockOffset` (the admit `system.clockNow` reading),
+    // nullable until measured — a required field, so a connected value without it is
+    // rejected.
+    expect(
+      ConnectionInfoSchema.parse({
+        phase: "connected",
+        clockOffset: null,
+        log: [],
+        sinceMs: 0,
+      }),
+    ).toEqual({ phase: "connected", clockOffset: null, log: [], sinceMs: 0 });
+    expect(
+      ConnectionInfoSchema.parse({
+        phase: "connected",
+        clockOffset: 42,
+        log: [],
+        sinceMs: 0,
+      }),
+    ).toMatchObject({ phase: "connected", clockOffset: 42 });
+    expect(() =>
+      ConnectionInfoSchema.parse({ phase: "connected", log: [], sinceMs: 0 }),
+    ).toThrow();
     // `disconnected` requires error + cause (network | remote); `failed` pins cause
     // to the `"remote"` literal — a `failed`+`network` value is rejected.
     expect(() =>
