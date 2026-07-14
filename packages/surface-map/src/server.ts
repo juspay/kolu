@@ -543,21 +543,21 @@ export function serveSurfaceMap<
     channel<EntryStatus<Failure>>(collectionKeyChannel("entries", encoded));
 
   const entriesDeps: CollectionHandlerDeps<string, EntryStatus<Failure>> = {
-    readAll: () => {
-      const ks = members();
-      // Belt: prune a departed member's id before the snapshot, so a fresh
-      // subscriber's first frame carries no stale id and the map stays bounded.
-      pruneDepartedIds(ks.map((k) => map.codec.encode(k)));
-      return new Map(
-        ks.map(
+    // The snapshot is built ONLY from the current `members()`, so a departed id in
+    // `membershipIds` can never enter it; and the republish subscription below prunes on
+    // EVERY membership change (CLAUSE 1 fires synchronously after a departure), so the id
+    // map is already bounded to current members by the time any `readAll` runs. No belt
+    // prune needed here.
+    readAll: () =>
+      new Map(
+        members().map(
           (k) =>
             [map.codec.encode(k), statusOf(k)] as [
               string,
               EntryStatus<Failure>,
             ],
         ),
-      );
-    },
+      ),
     readOne: (encoded) => {
       const k = decodeCanonicalWireKey(encoded);
       return has(k) ? statusOf(k) : undefined;

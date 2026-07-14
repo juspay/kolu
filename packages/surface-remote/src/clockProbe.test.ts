@@ -13,11 +13,7 @@
  * the in-flight request and leaves no active timer behind.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ClosedInfo,
-  Connection,
-  Connector,
-} from "./session";
+import type { ClosedInfo, Connection, Connector } from "./session";
 import { makeSession } from "./session";
 
 /** A minimal client shaped like a surface client: it answers the reserved

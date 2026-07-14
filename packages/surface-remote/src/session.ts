@@ -1124,6 +1124,15 @@ export function makeSession<
       }
       clockProbeAbort = null;
     };
+    // The stale-probe guard shared by all three settle sites (success / failure / retry
+    // tick): a probe result — or a scheduled retry — is stale if the session was destroyed,
+    // its dial was SUPERSEDED (epoch bumped by a reconnect), or the link is no longer
+    // `connected` (a drop without a redial). Speaking or rescheduling on a stale probe would
+    // write against a dead dial or lie about a now-disconnected session.
+    const probeStale = (probeEpoch: number): boolean =>
+      destroyed ||
+      probeEpoch !== dialEpoch ||
+      stateCell.current().phase !== "connected";
     new Promise<number>((resolve, reject) => {
       clockProbeDeadlineTimer = setTimeout(() => {
         clockProbeDeadlineTimer = null;
@@ -1141,9 +1150,8 @@ export function makeSession<
         // now-dead link landing after a reconnect) — mirrors `pollIdentity`'s epoch
         // guard. The `connected` guard covers a terminal `failed` (no redial, so no
         // epoch bump): a non-connected frame has no `clockOffset` to write.
-        if (destroyed || epoch !== dialEpoch) return;
+        if (probeStale(epoch)) return;
         const cur = stateCell.current();
-        if (cur.phase !== "connected") return;
         stateCell.set({
           phase: "connected",
           clockOffset,
@@ -1153,55 +1161,54 @@ export function makeSession<
       })
       .catch((err) => {
         settleClockProbe();
-        // Drop a rejection from a SUPERSEDED / destroyed dial — the same epoch guard the
-        // success path carries. Without it, a slow probe from a now-dead link rejecting
-        // AFTER a reconnect would log a spurious failure against the live dial's session.
-        if (destroyed || epoch !== dialEpoch) return;
-        // Re-check the LIVE phase before speaking (the success path guards the same way):
-        // a link can drop between the probe firing and its rejection landing WITHOUT a
-        // redial (epoch unbumped), and a "staying connected, retrying" line against a
-        // now-`disconnected` session would lie. A fresh `enterConnected` re-fires the probe,
-        // so returning here strands nothing.
-        if (stateCell.current().phase !== "connected") return;
+        // Drop a rejection from a SUPERSEDED / destroyed / now-disconnected dial (the same
+        // guard the success path carries): a slow probe rejecting after a reconnect, or a
+        // link that dropped without a redial, must not log a spurious failure against the
+        // live session. A fresh `enterConnected` re-fires the probe, so returning strands
+        // nothing.
+        if (probeStale(epoch)) return;
         // No offset this cycle — the link STAYS `connected` (readiness is link-liveness,
         // not clock-measured) with an honest `clockOffset: null` (never fabricate a 0; the
-        // reader renders "—"). But a probe failure is neither swallowed nor allowed to
-        // strand a null offset forever with no signal: it is (1) surfaced on the
-        // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, at the classified
-        // `severity` the padi binders route to `log.error`/`log.info`; stderr when no sink
-        // is wired), naming the host and the failure, and (2) RE-ATTEMPTED on
-        // `clockProbeRetryMs` cadence while the session stays connected, until it lands or
-        // the link drops. It is deliberately NOT pushed onto the state `log` overlay tail
-        // (`localProgress`): a clock probe legitimately rejects with "no such member" on a
-        // dial whose client carries no reserved `system.clockNow` (an agent dial via
-        // `dialAgentOnce`), and that structural non-failure must not paint the user-facing
-        // connect overlay.
+        // reader renders "—"). It is deliberately NOT pushed onto the state `log` overlay
+        // tail (`localProgress`) — a structural absence must not paint the connect overlay.
         //
-        // SEVERITY (`.agency/code-police.md`: genuine failed I/O at `error`, expected-
-        // absent at `info`): the EXPECTED-ABSENT case is exactly that missing-member dial —
+        // EXPECTED-ABSENT vs GENUINE FAILURE (`.agency/code-police.md`: genuine failed I/O
+        // at `error`, expected-absent at `info`). EXPECTED-ABSENT is the missing-member dial:
         // its client has no `system.clockNow`, so the call rejects with an oRPC `NOT_FOUND`
-        // (member absent server-side) or a `TypeError` (the proxy route is `undefined`);
-        // that is the "tool not installed" analogue → `info`. EVERYTHING else — the deadline
-        // timeout (a wedged clock RPC), a transport fault, an unexpected server error — is
-        // genuine failed I/O → `error`, so an error-filtered operator sees a clock that
-        // never lands. On the padi bindings `system.clockNow` is framework-reserved and
-        // always present, so no rejection there is expected-absent: every one is `error`.
+        // (member absent server-side) or a `TypeError` (the proxy route is `undefined`) — the
+        // "tool not installed" analogue. That condition is PERMANENT on this dial (the member
+        // will never appear), so retrying it every cadence forever is pure waste: emit ONCE at
+        // `info`, leave the honest `null` standing, and STOP. A fresh `enterConnected` on the
+        // next reconnect re-fires the probe, so a later upgrade is still picked up. EVERYTHING
+        // else — the deadline timeout (a wedged clock RPC), a transport fault, an unexpected
+        // server error — is a GENUINE, plausibly-transient failure → `error` (an error-filtered
+        // operator sees a clock that never lands) AND retried on `clockProbeRetryMs` cadence
+        // while connected, until it lands or the link drops. On the padi bindings
+        // `system.clockNow` is framework-reserved and always present, so every rejection there
+        // is genuine.
         const expectedAbsent =
           (err instanceof ORPCError && err.code === "NOT_FOUND") ||
           (err instanceof TypeError && /is not a function/.test(err.message));
         const reason = err instanceof Error ? err.message : String(err);
+        if (expectedAbsent) {
+          emit(
+            `[${label}] clock offset probe: reserved system.clockNow absent on this dial ` +
+              `(staying connected, offset unmeasured, not retrying — a reconnect re-probes): ${reason}`,
+            "info",
+          );
+          return;
+        }
         emit(
           `[${label}] clock offset probe failed (staying connected, offset unmeasured; ` +
             `retrying in ${clockProbeRetryMs}ms): ${reason}`,
-          expectedAbsent ? "info" : "error",
+          "error",
         );
-        // Retry on cadence. Guard the callback the same way the probe body is guarded —
-        // a later dial or a dropped link cancels this chain (the epoch/phase re-check),
-        // and `destroy()` clears the timer outright.
+        // Retry on cadence for a genuine transient failure. Guard the callback the same way
+        // the probe body is — a later dial or a dropped link cancels this chain, and
+        // `destroy()` clears the timer outright.
         clockProbeTimer = setTimeout(() => {
           clockProbeTimer = null;
-          if (destroyed || epoch !== dialEpoch) return;
-          if (stateCell.current().phase !== "connected") return;
+          if (probeStale(epoch)) return;
           pollClockNow(client);
         }, clockProbeRetryMs);
       });
