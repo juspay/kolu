@@ -78,6 +78,12 @@ describe("makeRelativizer", () => {
     if (!fn) throw new Error("expected transform");
     expect(fn("/a/b/c/y.ts")).toBe("./y.ts");
   });
+
+  it("handles long runs of slashes without regex backtracking", () => {
+    const fn = makeRelativizer(`/proj${"/".repeat(10_000)}`);
+    if (!fn) throw new Error("expected transform");
+    expect(fn(`/proj/${"/".repeat(10_000)}file.ts`)).toBe("./file.ts");
+  });
 });
 
 describe("transformStrings", () => {

@@ -489,13 +489,13 @@ export function createSessionWatcher(
    *  remainder. */
   function scanTasksIncremental(filePath: string) {
     try {
-      const size = fs.statSync(filePath).size;
-      if (taskScanOffset >= size) return;
       const fd = fs.openSync(filePath, "r");
-      const prevOffset = taskScanOffset;
-      let carried = taskScanRemainder;
-      let changed = false;
       try {
+        const size = fs.fstatSync(fd).size;
+        if (taskScanOffset >= size) return;
+        const prevOffset = taskScanOffset;
+        let carried = taskScanRemainder;
+        let changed = false;
         let offset = taskScanOffset;
         while (offset < size) {
           const toRead = Math.min(TASK_SCAN_CHUNK_BYTES, size - offset);
@@ -513,22 +513,22 @@ export function createSessionWatcher(
           }
           offset += toRead;
         }
+        taskScanRemainder = carried;
+        taskScanOffset = size;
+        if (changed) {
+          const progress = deriveTaskProgress(taskMap);
+          plog.debug(
+            {
+              tasks: taskMap.size,
+              progress,
+              bytesScanned: size - prevOffset,
+              from: prevOffset,
+            },
+            "task progress updated",
+          );
+        }
       } finally {
         fs.closeSync(fd);
-      }
-      taskScanRemainder = carried;
-      taskScanOffset = size;
-      if (changed) {
-        const progress = deriveTaskProgress(taskMap);
-        plog.debug(
-          {
-            tasks: taskMap.size,
-            progress,
-            bytesScanned: size - prevOffset,
-            from: prevOffset,
-          },
-          "task progress updated",
-        );
       }
     } catch (err) {
       plog.error({ err, filePath, taskScanOffset }, "task scan failed");

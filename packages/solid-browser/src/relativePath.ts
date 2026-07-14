@@ -27,7 +27,9 @@ export function resolveRelativePath(
   // Root-absolute "/x" resolves from the root; everything else from the source
   // document's own directory.
   const baseDir = trimmed.startsWith("/") ? "" : posixDir(fromPath);
-  return normalizeRepoPath(baseDir, trimmed.replace(/^\/+/, ""));
+  let pathStart = 0;
+  while (trimmed[pathStart] === "/") pathStart++;
+  return normalizeRepoPath(baseDir, trimmed.slice(pathStart));
 }
 
 /** Resolve a link `href` to a document path. Strips a trailing

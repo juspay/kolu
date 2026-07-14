@@ -120,13 +120,19 @@ export function injectShellCommit(html: string, commit: string): string {
   // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
   // match `<header>` and inject at the wrong spot, defeating the fail-loud
   // contract for a shell that has no real `<head>`.
-  const head = /<head(?:\s[^>]*)?>/i.exec(html);
+  const head = /<head(?:\s|>)/i.exec(html);
   if (!head) {
     throw new Error(
       "injectShellCommit: the HTML template has no <head> — the shell would carry no build identity",
     );
   }
-  const at = head.index + head[0].length;
+  const close = html.indexOf(">", head.index);
+  if (close === -1) {
+    throw new Error(
+      "injectShellCommit: the HTML template has an unterminated <head> tag",
+    );
+  }
+  const at = close + 1;
   return html.slice(0, at) + shellCommitScript(commit) + html.slice(at);
 }
 
