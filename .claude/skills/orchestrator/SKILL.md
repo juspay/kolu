@@ -63,8 +63,8 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
   CONTINUOUSLY up to date with master: whenever master moves, merge
   origin/master into `atlas` promptly (never rebase, never force) — staleness
   is a defect, not a review-time chore. After its PR merges, the branch is deleted and the next atlas task
-  cuts it anew. Batch atlas work there; the PR is opened when the human says
-  they are ready to merge, and the human merges. The atlas PR follows
+  cuts it anew. Batch atlas work there; the PR is opened IMMEDIATELY
+  when the branch is cut (draft), and the human merges when ready. The atlas PR follows
   /forge-pr, and its title/body are RE-WRITTEN after every push — the PR
   always describes its current full contents, never just its first commit. Atlas edits never ride a
   feature branch, a scratch worktree, or another PR's branch.
