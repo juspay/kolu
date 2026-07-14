@@ -128,7 +128,9 @@ cells: {
 },
 ```
 
-`recomputeUrgency`'s body survives with its parameter becoming the map. Deleted: `publishUrgency`, its rider, the `dropSnapshot` refold, the prose invariant — a registry writer can no longer forget urgency because the edge is tracked, not conventional. If the firehose fold ever measures hot, `batch()` around commitSnapshot's burst is the one-line lever.
+`recomputeUrgency`'s body survives with its parameter becoming the map. Deleted: `publishUrgency`, its rider, the `dropSnapshot` refold, the prose invariant — a registry writer can no longer forget urgency because the edge is tracked, not conventional.
+
+**Honest cost — a REGRESSION, not a hypothetical (SR7, <PrLink pr={1823} />):** reading `$.terminals()` folds the **composed** collection, so every firehose poke re-composes *every* live terminal (`registryMap(composePadiTerminal)` — object-spreads for active, `SleepingTerminalSchema.parse` for sleeping/parked) even though one terminal changed. That is O(M) composes per write → **O(M²) compose per ~150 ms firehose cycle**, where pre-SR7 `recomputeUrgency()` folded the raw registry (`terminalEntries()`) at O(M) *field reads*, zero composition. (M is real: ~16 live terminals on a busy dev host.) The in-scope mitigations are both worse trades — folding the raw registry re-couples `recomputeUrgency` to the global registry the migration just decoupled, and memoizing `composePadiTerminal` is a new caching layer bigger than SR7 — so the fix is the *designed* one: **SR8's keyed reconciler (`derived.collection`) re-composes only the changed key.** SR8 carries this as a [named obligation](surface-runtime-boundary.html) and is its proving case; `batch()` around a burst does NOT address it (it coalesces *frequency*, not the per-recompute compose cost).
 
 ### 2. drishti alerts — hysteresis scan, durability chosen in the signature
 
