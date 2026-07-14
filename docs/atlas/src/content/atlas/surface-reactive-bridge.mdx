@@ -111,13 +111,13 @@ batch(() => {
 });  // one frame → one recompute per derivation
 ```
 
-Not carded: the keyed machinery — `reactiveFamily` *(phase 3)* and `signalMap` *(phase 4)* — arrives with its phases, introduced there. Client-side, the one new symbol stays `Subscription.updated` (the change-iff-fired edge; see the worked alerts example).
+Not carded: the keyed machinery — `reactiveFamily` *(SR9)* and `signalMap` *(SR10)* — arrives with its phases, introduced there. Client-side, the one new symbol stays `Subscription.updated` (the change-iff-fired edge; see the worked alerts example).
 
 ## The worked examples
 
 The review artifact: real befores at master, the after as it would read.
 
-### 1. padi urgency
+### SR7 · worked example 1 — padi urgency
 
 **Before:** `recomputeUrgency` (`urgency.ts:23-38`) is refolded by `publishUrgency` (`metadata.ts:110-112`) as a rider inside every `publishComposedTerminal` (`:97-105`) on the ~150 ms agent firehose, plus a separate removal-path refold (`dropSnapshot`, `:129-132`), held together by a prose invariant (`metadata.ts:93-96`). **After**, in servePadi.ts:
 
@@ -150,7 +150,7 @@ const alerts = client.cells.alerts.use();
 wireSubscriptionUpdated(alerts.sub, () => playRaiseSound());  // fires iff spec-equals said "changed"
 ```
 
-### 3. A sampler — padi processMemory
+### SR8 · worked example 3 — a sampler (padi processMemory)
 
 **Before:** `startPadiMemorySampler` (`memorySampler.ts`) hand-rolls the T+0 fire, the 5s `setInterval(...).unref()`, and the `inFlight` non-overlap guard; `samplePadiMemoryOnce` publishes via `padiSurfaceCtx.cells.processMemory.set`. **After:**
 
@@ -170,7 +170,7 @@ cells: {
 
 The bridge owns: the T+0 seed read whose **first failure propagates** (never a fabricated default), the inFlight guard, later-read log-skip-continue. kolu-server's fused cadence (interval + `onState` force-resample, `index.ts:807`) is two more plain lines inside `install` — no cadence micro-API. `hostInventory.ts` falls to the identical pattern.
 
-### 4. The serveHostMap keyed family
+### SR9 · worked example 4 — the serveHostMap keyed family
 
 **Before** (`serveHostMap.ts:145-206`): hand-held `latestState`/`stateSubs`/`links` Maps, attach/detach/reconcile, the `fire` fan-out, the per-member catch (`:168-182`); drishti carries a drifted clone (`hostMapRegistry.ts`, clockOffset hardcoded `0`). **After:**
 
@@ -236,17 +236,17 @@ A name survives only where its promise cannot be expressed by composition:
 - **`combineCells` → dissolves entirely** — multiple `$` reads; likewise the whole queued tail (deriveCollection, scanCollection, mergeSources, filters/gates) dissolves into `computed` composition, including private intermediate nodes the combinator taxonomy structurally could not express.
 - The adapters collapse to **one `source(...)`** with two argument shapes (push install; poll `{read, install}`), promises intact (T+0 seed, first-read-propagates, no private dedup). The keyed reconciler becomes *the collection wire adapter* (diff by `CollectionSpec.equals` → wrapped publishers) — wire semantics, living in the adapter. Event names (`gateEvent`, `deriveEvent`+SKIP) are **not minted** — no consumer exists; `derived.event` gets minted if one materializes.
 
-Net public vocabulary: **seven orthogonal symbols** — `source` · `scan` · `computed` (graph), `derived.cell` · `derived.collection` (wire), `$` · `batch` (glue) — plus the phase-3/4 keyed machinery (`reactiveFamily`, `signalMap`); versus the algebra's 7–8 names with 6 queued.
+Net public vocabulary: **seven orthogonal symbols** — `source` · `scan` · `computed` (graph), `derived.cell` · `derived.collection` (wire), `$` · `batch` (glue) — plus SR9/SR10's keyed machinery (`reactiveFamily`, `signalMap`); versus the algebra's 7–8 names with 6 queued.
 
-## Migration — phase 0 IS the W5 slice
+## SR7–SR10 — migration (phase 0 shipped as the W5 slice)
 
-*Sequencing superseded (2026-07-13): the phase labels below are no longer the campaign's numbering — phases 1–4 land as PRs 7–10 of [the merged plan of record](surface-runtime-boundary.html), which carries the one sequenced PR list (kernel first). This section survives as the technical content of those PRs; the plan note says the same on its side.*
+*Sequencing superseded (2026-07-13): the phase labels below are no longer the campaign's numbering — phases 1–4 land as SR7–SR10 of [the merged plan of record](surface-runtime-boundary.html), which carries the one sequenced PR list (kernel first). This section survives as the technical content of those PRs; the plan note says the same on its side.*
 
 - **Phase 0 — shipped as [W5's framework slice](padi.html#w5)** (<PrLink pr={1759} />, merged 2026-07-11). `reactor.ts` exporting `derived.cell` + `scan` + `source` with the error wrapper and the stopped-latch→health flip; boot narrowing (derived member: no ctx entry, no write verbs); the engine's deep import lint-banned. Zero runtime surgery — derived cells ride the existing cell connect seam (`server.ts:1120`, `:1490-1494`). First consumer: drishti alerts (worked example 2), the paired drishti PR per `.claude/rules/surface.md` ([srid/drishti#93](https://github.com/srid/drishti/pull/93), merged 2026-07-11 — the `alerts` cell ships).
 - **Phase 1 — the `$` read face + first sibling derivation.** Post-equals mirror pokes on both cell write paths, version-pokes on the wrapped collection publishers; `batch`; export `computed`. Consumer: padi urgency (worked example 1) — deletes `publishUrgency`, both riders, and the prose invariant.
 - **Phase 2 — `derived.collection` + the collection connect seam,** the keyed-reconciler diff, and `source`'s poll argument shape. Consumers: padi memorySampler + hostInventory + kolu-server processMemory; drishti's three keyed poll-reconciles (`main.ts:262-330`) — the most-repeated hand-roll in both trees dies here.
 - **Phase 3 — `reactiveFamily` + `derived.registry`.** The serveHostMap reshape (worked example 4); drishti deletes its clone.
-- **Phase 4 — the padi registry as `signalMap` (open question 9).** With it, all five `metadata.ts` publish seams collapse into `terminals: derived.collection(...)` and convention-published members end in padi; without it, only downstream derivations ride the graph. Padi's call, taken with phases 1–3 as evidence — its own adjudicated step.
+- **SR10 — the padi registry as `signalMap` (open question 9).** With it, all five `metadata.ts` publish seams collapse into `terminals: derived.collection(...)` and convention-published members end in padi; without it, only downstream derivations ride the graph. Padi's call, taken with SR7–SR9 as evidence — its own adjudicated step.
 
 The campaign-1 hand-roll deletions land across these phases (urgency riders P1; samplers ×3 and drishti reconciles ×3 P2; serveHostMap plumbing + clone P3; metadata seams ×5 P4); the algebra's would-have-been machinery — the second coalescer, the hand boot cycle walk, the cadence helper, `combineCells` — costs zero by never existing. During migration the two idioms coexist safely (hand publishes and derived members write through the same seams); each phase converts whole members, never half of one.
 
@@ -273,7 +273,7 @@ The campaign-1 hand-roll deletions land across these phases (urgency riders P1; 
 6. **scan durability migration:** `initial(stored)` is caller-owned; a versioned-migration seam waits for a second durable consumer.
 7. **The composed resolve's home** (serveHostMap reshape): surface-remote shared with drishti, or drishti imports only the projection — the electricity ruling.
 8. **activityFeed:** fix the mutating read (`activity.ts:50-57`) now; `trackRecent*` migrates to a scan whenever next touched — churn timing only.
-9. **Phase 4:** does padi's terminal-registry become a `signalMap`? With it, all five convention-publish seams die; without it, they persist. Padi's call, on phases 1–3 as evidence.
+9. **SR10:** does padi's terminal-registry become a `signalMap`? With it, all five convention-publish seams die; without it, they persist. Padi's call, on SR7–SR9 as evidence.
 10. **Cross-surface zip stays client-side as law** (no transactional frame across channels). Concretely: you want a badge that says "zest's CPU is higher than the local host's, *right now*." The two facts live in two different hosts' surfaces and arrive over two connections with different delays — there is no "right now" the wire can promise: by the time both values are in one place, either may be stale relative to the other. The law says: pair them in the browser (Solid), where they at least share one render moment, and label the result as approximate — or, when both facts live in ONE server process, derive the pair *there* as a single member (one process = one frame, honestly simultaneous). Reconfirm that law, or leave the door open for the framework to ship an explicit "eventually-consistent pair" member type if a real feature ever needs it?
 
 ## Appendix — the reflex→surface mapping, exhaustively
