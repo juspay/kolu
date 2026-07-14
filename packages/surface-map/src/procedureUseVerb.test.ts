@@ -62,6 +62,10 @@ function buildLicenseEntryLink() {
   return directLink<typeof licenseSurface.contract>(router as never);
 }
 
+/** The map + registry + wire link. The CLIENT is built INSIDE each test's
+ *  `createRoot` (below), never here: `connectSurfaceMap` installs a
+ *  membership-pruning `createEffect` at construction, so building it outside an
+ *  owner would leak a never-disposed computation into later tests. */
 function setup() {
   const map = defineSurfaceMap({
     key: HostKeySchema,
@@ -73,26 +77,32 @@ function setup() {
   const served = serveSurfaceMap(map, reg.registry);
   // biome-ignore lint/suspicious/noExplicitAny: served router is a runtime-valid oRPC router; the client re-types via map.entry.
   const mapLink = directLink<AnyContractRouter>(served.router as any);
-  const client = connectSurfaceMap(map, mapLink);
-  return { client, reg };
+  return { map, mapLink, reg };
 }
 
 const A = HostKeySchema.parse("a");
 
 describe("procedure verb named `use` routes as an imperative call, not a reactive hook", () => {
   it("entry(key).procedures.<ns>.use(input) calls the procedure (pure lens)", async () => {
-    const { client, reg } = setup();
-    reg.addSession(A, buildLicenseEntryLink(), connected(0));
-    await settle();
-    const result = await client.entry(A).procedures.license.use({ seat: "s1" });
-    expect(result).toEqual({ granted: true, seat: "s1" });
-  });
-
-  it("useEntry(...).procedures.<ns>.use(input) calls the procedure too (the fix)", async () => {
-    const { client, reg } = setup();
+    const { map, mapLink, reg } = setup();
     reg.addSession(A, buildLicenseEntryLink(), connected(0));
     await settle();
     await createRoot(async (dispose) => {
+      const client = connectSurfaceMap(map, mapLink);
+      const result = await client
+        .entry(A)
+        .procedures.license.use({ seat: "s1" });
+      expect(result).toEqual({ granted: true, seat: "s1" });
+      dispose();
+    });
+  });
+
+  it("useEntry(...).procedures.<ns>.use(input) calls the procedure too (the fix)", async () => {
+    const { map, mapLink, reg } = setup();
+    reg.addSession(A, buildLicenseEntryLink(), connected(0));
+    await settle();
+    await createRoot(async (dispose) => {
+      const client = connectSurfaceMap(map, mapLink);
       const view = client.useEntry(() => A);
       // Before the fix this hit the `verb === "use"` reactive-hook branch and
       // returned a `reactiveDelegate` proxy wrapping a keyed root — NOT the

@@ -19,6 +19,14 @@ import type { StreamingProcedure } from "@kolu/surface/client";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { activePadiRpc, activePadiStreams, padiRpcOf } from "./wire";
 
+// Exact (invariant) type equality — a widen (to `Promise<unknown>`/`Promise<any>`)
+// OR narrow on either side flips it, so it pins precision an assignment can't.
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
+type Assert<_T extends true> = never;
+
 // A no-input / no-output declared procedure (`lifecycle.killAll: {}`) is a typed
 // `() => Promise<void>` — NOT `unknown`. Assigning it to the concrete function type
 // only compiles if `procedures` is declaration-typed.
@@ -26,11 +34,11 @@ const _killAll: () => Promise<void> = activePadiRpc.lifecycle.killAll;
 void _killAll;
 
 // A declared OUTPUT flows through: `screen.text` declares `output: z.string()`, so
-// its bound return is `Promise<string>` — proved by assigning a `Promise<string>` to
-// its `ReturnType`.
-const _textOut: ReturnType<typeof activePadiRpc.screen.text> =
-  Promise.resolve("");
-void _textOut;
+// its bound return is EXACTLY `Promise<string>`. An invariant `Equals` (not a mere
+// assignment, which `Promise<unknown>` would also satisfy) pins that precision.
+type _textOut = Assert<
+  Equals<ReturnType<typeof activePadiRpc.screen.text>, Promise<string>>
+>;
 
 // `padiRpcOf(host)` (the fixed-host face) is the SAME declaration-typed procedures.
 const _perHostKillAll: () => Promise<void> =

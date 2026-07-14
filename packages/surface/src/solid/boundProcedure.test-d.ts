@@ -149,10 +149,59 @@ type _neither = [
   >,
 ];
 
+// ── Input arm uses z.INPUT, result arm uses z.OUTPUT (not the parsed input) ─
+//
+// A `.default()` makes a key OPTIONAL on the wire but REQUIRED after parse; a
+// `.transform()` changes the type across the parse. The bound INPUT must be the
+// accepted-on-the-wire shape (`z.input`), and the bound RESULT the parsed shape
+// (`z.output`). Inferring the ZodType's first generic param (its OUTPUT) for the
+// input — the pre-fix bug — would wrongly REQUIRE a defaulted key / demand the
+// transformed type as input. These specs have DIVERGENT input/output, so they fail
+// unless `BoundProcedure` splits the two directions.
+const divergent = defineSurface({
+  procedures: {
+    ns: {
+      // input `{ pid; signal? }` (signal defaulted) → output `{ pid; signal }`.
+      defaulted: {
+        input: z.object({
+          pid: z.number(),
+          signal: z.enum(["TERM", "KILL"]).default("TERM"),
+        }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      // input `string` (raw) → output `number` (transformed length).
+      transformed: {
+        input: z.string().transform((s) => s.length),
+        output: z.number(),
+      },
+    },
+  },
+});
+type Divergent = NonNullable<(typeof divergent.spec)["procedures"]>["ns"];
+
+type DefaultedInput = Parameters<BoundProcedure<Divergent["defaulted"]>>[0];
+// The wire ACCEPTS `{ pid }` (signal filled by the default) — so it must be
+// assignable to the bound input. With the output type it would be REQUIRED and
+// this would be `false`.
+type _defaultedAcceptsPidOnly = Assert<
+  { pid: 1 } extends DefaultedInput ? true : false
+>;
+
+type TransformedInput = Parameters<BoundProcedure<Divergent["transformed"]>>[0];
+// The RAW input is `string`; the transformed `number` is the OUTPUT, which must
+// NOT be what the callable accepts.
+type _transformedInputIsRaw = Assert<Equals<TransformedInput, string>>;
+type _transformedResult = Assert<
+  Equals<Awaited<ReturnType<BoundProcedure<Divergent["transformed"]>>>, number>
+>;
+
 // Reference the assertion tuples so they are not unused.
 export type _BoundProcedureContractDriftCatch = [
   _both,
   _inputOnly,
   _outputOnly,
   _neither,
+  _defaultedAcceptsPidOnly,
+  _transformedInputIsRaw,
+  _transformedResult,
 ];

@@ -65,8 +65,9 @@ export default function App() {
   );
 
   // ── Mutations ──────────────────────────────────────────────────────
-  // notes.upsert / notes.delete are bound; only `notes.create` (an
-  // imperative procedure, not a collection verb) goes through `app.rpc`.
+  // notes.upsert / notes.delete are bound; `notes.create` (an imperative
+  // procedure, not a collection verb) rides the bound `app.procedures.<ns>.<verb>`
+  // face — typed from the declaration, no `app.rpc` cast.
   const handleCreate = async () => {
     const note = await app.procedures.notes.create({ title: "Untitled" });
     setSelectedId(note.id);

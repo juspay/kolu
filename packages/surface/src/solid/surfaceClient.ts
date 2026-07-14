@@ -15,7 +15,7 @@
 
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import type { ZodType } from "zod";
+import type { z, ZodType } from "zod";
 import {
   type Accessor,
   createMemo,
@@ -31,6 +31,7 @@ import type {
   CellIsMutable,
   CellSpec,
   CollectionSpec,
+  CollectionVerbsOf,
   EventSpec,
   ProcedureSpec,
   StreamSpec,
@@ -215,17 +216,26 @@ export interface BoundCollection<K, T> {
    *  lifecycle — call from command handlers, route loaders, anywhere. */
   upsert(key: K, value: T): Promise<void>;
   delete(key: K): Promise<void>;
-  /** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
-   *  `unenrolledStreamCall(client.collections.<key>.unenrolledKeys, undefined,
-   *  { signal })`.
-   *
-   *  `.use()` is the DEFAULT: it opens the keys stream (plus a value stream per
-   *  key) and enrols them into `client.health()`. Reach for `.unenrolledKeys` ONLY
-   *  when the key list must be watched OUTSIDE the health fact — the #1591 carve-out
-   *  where the keys stream drives a retained per-host view and its re-subscribe must
-   *  not flicker the gate; the raw list is then fed back as the explicit `keys`
-   *  accessor of a `.use({ keys })` so the per-key value subs still enrol. Typed
-   *  from the declaration — no cast. */
+}
+
+/** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
+ *  `unenrolledStreamCall(client.collections.<key>.unenrolledKeys, undefined,
+ *  { signal })`.
+ *
+ *  `.use()` is the DEFAULT: it opens the keys stream (plus a value stream per
+ *  key) and enrols them into `client.health()`. Reach for `.unenrolledKeys` ONLY
+ *  when the key list must be watched OUTSIDE the health fact — the #1591 carve-out
+ *  where the keys stream drives a retained per-host view and its re-subscribe must
+ *  not flicker the gate; the raw list is then fed back as the explicit `keys`
+ *  accessor of a `.use({ keys })` so the per-key value subs still enrol. Typed
+ *  from the declaration — no cast.
+ *
+ *  STRUCTURALLY PRESENT only when the collection actually declares the `keys`
+ *  verb (see {@link BoundCollectionsFor}): a collection whose `verbs` omit `keys`
+ *  has NO keys stream on the wire, so exposing `unenrolledKeys` would type a
+ *  callable that resolves to `undefined` at runtime — the collection dual of
+ *  {@link CellIsMutable} gating `.set`/`.patch`. */
+export interface UnenrolledKeys<K> {
   readonly unenrolledKeys: StreamingProcedure<undefined, K[]>;
 }
 
@@ -288,23 +298,36 @@ export interface BoundProcedureOptions {
  *  schemas — absent `input` ⇒ input-less, absent `output` ⇒ `Promise<void>` — the
  *  exact arms the contract derivation (`ProcedureContract`) uses, so the bound
  *  signature and the wire shape can't drift. The optional second arg mirrors the
- *  oRPC client's `{ signal?, context? }`. Deliberately a NARROW mapped type (not
- *  oRPC's full `ContractRouterClient` union): recovering the callable shape by hand
- *  is what lets a generically-`unknown` map-entry `.rpc` gain a typed procedure
- *  face WITHOUT tripping the TS2590 "union too complex" that the wide client type
- *  does under a generic entry spec. */
+ *  oRPC client's `{ signal? }` (see {@link BoundProcedureOptions}). Deliberately a
+ *  NARROW mapped type (not oRPC's full `ContractRouterClient` union): recovering the
+ *  callable shape by hand is what lets a generically-`unknown` map-entry `.rpc` gain
+ *  a typed procedure face WITHOUT tripping the TS2590 "union too complex" that the
+ *  wide client type does under a generic entry spec.
+ *
+ *  The input arm uses `z.input<Schema>` (the ACCEPTED wire type), NOT the parsed
+ *  output: a schema with a `.default()` / `.transform()` makes those keys optional
+ *  on the wire, so the callable must accept the raw input — inferring the output
+ *  would wrongly REQUIRE a defaulted key the server fills in. The result arm uses
+ *  `z.output<Schema>` (the parsed value the wire returns). This matches oRPC's
+ *  `.input(schema)` client, which accepts `z.input` and resolves `z.output`. */
 export type BoundProcedure<
   // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.
   S extends ProcedureSpec<any, any>,
 > = S extends {
-  input: ZodType<infer I>;
-  output: ZodType<infer O>;
+  input: infer In extends ZodType;
+  output: infer Out extends ZodType;
 }
-  ? (input: I, options?: BoundProcedureOptions) => Promise<O>
-  : S extends { input: ZodType<infer I> }
-    ? (input: I, options?: BoundProcedureOptions) => Promise<void>
-    : S extends { output: ZodType<infer O> }
-      ? (input?: undefined, options?: BoundProcedureOptions) => Promise<O>
+  ? (
+      input: z.input<In>,
+      options?: BoundProcedureOptions,
+    ) => Promise<z.output<Out>>
+  : S extends { input: infer In extends ZodType }
+    ? (input: z.input<In>, options?: BoundProcedureOptions) => Promise<void>
+    : S extends { output: infer Out extends ZodType }
+      ? (
+          input?: undefined,
+          options?: BoundProcedureOptions,
+        ) => Promise<z.output<Out>>
       : (input?: undefined, options?: BoundProcedureOptions) => Promise<void>;
 
 type BoundProceduresFor<S extends SurfaceSpec> = {
@@ -360,7 +383,12 @@ type BoundCollectionsFor<S extends SurfaceSpec> = {
   [K in keyof S["collections"] & string]: NonNullable<
     S["collections"]
   >[K] extends CollectionSpec<infer K2, infer T>
-    ? BoundCollection<K2, T>
+    ? // `unenrolledKeys` is added ONLY when `keys` is a declared verb — the raw ref
+      // has nothing to point at otherwise (the contract router binds no keys stream),
+      // so a keys-less collection must not type an `undefined`-resolving callable.
+      "keys" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
+      ? BoundCollection<K2, T> & UnenrolledKeys<K2>
+      : BoundCollection<K2, T>
     : never;
 };
 
@@ -381,9 +409,11 @@ type BoundEventsFor<S extends SurfaceSpec> = {
 };
 
 export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
-  /** The typed oRPC client — the link this bundle was built over. Use it for
-   *  imperative procedures (`client.rpc.surface.notes.create(...)`) and for
-   *  any verb the bound `.use()` shape can't model.
+  /** The typed oRPC client — the link this bundle was built over. Reserved for
+   *  the RESERVED framework procedures (`system.live` / `system.identity`,
+   *  contract-only) and the link-root escape hatch. DECLARED imperative procedures
+   *  ride the bound `.procedures.<ns>.<verb>(input)` face below (typed straight from
+   *  the spec, no cast) — reach `.rpc` only for a member the bound shape can't model.
    *
    *  Typing note: `Rpc` is inferred from the link passed in rather than
    *  computed from `S`, because TS's union-resolution budget can't expand
@@ -819,7 +849,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     if (disposeRoot) standingRoots.push(disposeRoot);
   }
 
-  const collections: Record<string, BoundCollection<unknown, unknown>> = {};
+  // The runtime object ALWAYS carries the `unenrolledKeys` lazy getter; the public
+  // `BoundCollectionsFor` mapped type then narrows it OUT for a keys-less collection
+  // (the getter is harmless there — nothing typed reaches it). So the local record
+  // includes `UnenrolledKeys`, and the final `as BoundCollectionsFor<S>` gates it.
+  const collections: Record<
+    string,
+    BoundCollection<unknown, unknown> & UnenrolledKeys<unknown>
+  > = {};
   for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (link as any).surface[key];
