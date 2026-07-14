@@ -606,9 +606,12 @@ filed when PR 1 ships so the symptom is on record before its fix.</li>
 <p>Its gate is the <code>@touch-desktop</code> tap-under-zoom e2e (that the extracted touch tap
 still lands on the visually-tapped cell, at normal scale and under zoom) plus the
 123 client terminal unit tests staying green UNMODIFIED — the behavior-neutral
-proof. WebGL context-loss recovery and owner-correct async dispose keep their
-existing unit coverage (<code>webgl.ts</code>’s self-heal, the lifecycle’s owner-capture);
-they are not re-proven by a new e2e scenario here.</p>
+proof for the policy surrounding the split. WebGL context-loss recovery
+(<code>webgl.ts</code>’s self-heal) and owner-correct async dispose (the lifecycle’s
+owner-capture-before-await + LIFO cleanup) carry <strong>no</strong> dedicated unit test —
+they are preserved as behavior-identical extracted logic, held to correctness by
+review + typecheck and the leak-invariant argument spelled out in this note, not
+by an automated scenario.</p>
 <p>Risks (PR 1 unless noted):</p>
 <table>
 <thead>

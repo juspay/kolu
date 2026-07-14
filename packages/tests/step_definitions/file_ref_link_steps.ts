@@ -221,11 +221,14 @@ When(
 When(
   "I tap the terminal file-ref link {string} at its font-metric visual centre",
   async function (this: KoluWorld, refText: string) {
-    // Tap where xterm actually RENDERS the glyph (the font-metric cell centre),
-    // not the rect.width/cols centre — so the tap exercises the single divisor
-    // authority (cellAtPoint) under whatever zoom is live. Under a zoomed tile a
-    // hand-rolled parallel `rect.width/cols` divisor could resolve this pixel to
-    // the wrong cell; routing through xterm's authority resolves it correctly.
+    // Tap where xterm actually RENDERS the glyph (the font-metric cell centre)
+    // under whatever zoom is live, and assert the ref resolves. This is an
+    // end-to-end regression guard that the EXTRACTED touch tap path still routes
+    // a visual tap through xterm's single divisor authority (cellAtPoint) to the
+    // right cell, at normal scale and under zoom. It is NOT a discriminator
+    // against the deleted `rect.width / cols`: a centre tap resolves to the same
+    // cell under both divisors (see findRefFontMetricPoint's doc), so this guards
+    // the path, it does not disprove the old divisor.
     const point = await resolveRefPoint(this, refText, findRefFontMetricPoint);
     await this.page.touchscreen.tap(point.x, point.y);
     await this.waitForFrame();

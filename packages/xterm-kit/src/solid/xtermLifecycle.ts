@@ -79,16 +79,22 @@ export function createXtermLifecycle(
 
   void (async () => {
     try {
-      // fontFamily is static (the awaited face); read it eagerly for the load.
-      await document.fonts.load(
-        `1em ${getOptions().terminalOptions.fontFamily}`,
-      );
+      // Capture the face we AWAIT and pin it into construction below, so xterm is
+      // never built with a font we didn't wait for (kolu's fontFamily is static,
+      // but a mid-await change must not slip an un-awaited face past the measure).
+      const awaitedFontFamily = getOptions().terminalOptions.fontFamily;
+      await document.fonts.load(`1em ${awaitedFontFamily}`);
       if (disposed) return;
       const container = getContainer();
       runWithOwner(owner, () => {
         // Re-read here (post-await) so reactive theme/fontSize are current, not
-        // the value they held when the component body called us.
-        const term = new XTerm(getOptions().terminalOptions);
+        // the value they held when the component body called us — but force the
+        // awaited fontFamily, the one face document.fonts.load() actually waited
+        // on, so measurement never falls back to an un-loaded face.
+        const term = new XTerm({
+          ...getOptions().terminalOptions,
+          fontFamily: awaitedFontFamily,
+        });
         terminal = term;
 
         const fit = new FitAddon();
