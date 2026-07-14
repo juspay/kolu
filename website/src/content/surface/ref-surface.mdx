@@ -119,18 +119,25 @@ surface — parent-owned additions stay causally separate from mirroring
 (post-commit observation, no second mirror). Both arguments are the structural
 **`ServedSurface<S>`** — `{ surface, router, done, close }` (a `reServeSurface`
 result satisfies it directly; a local `implementSurface` runtime does once its
-`surface` descriptor is carried alongside). The result serves **every** base +
-extension member **flat** under one `surface` namespace, at byte-identical paths
-(both already-built router fragments are re-adapted through the combined
-contract's matcher, so the routes survive the wire matcher, not just
-`directLink`). A member-name collision between base and extension fails loud.
+`surface` descriptor is carried alongside). It returns
+**`ExtendedSurface<Base, Ext>`** — the same supervision contract over the merged
+surface `Surface<ComposedSurfaceSpec<Base, Ext>>` (a flat per-kind merge of the two
+specs). The result serves **every** base + extension member **flat** under one
+`surface` namespace, at byte-identical paths (both already-built router fragments
+are re-adapted through the combined contract's matcher, so the routes survive the
+wire matcher, not just `directLink`). A member-name collision between base and
+extension **fails loud** — the check is on the flat, per-name wire namespace across
+**all** kinds, so a base cell and an ext procedure of the same name collide too.
 
-Supervision routes through **`superviseTerminalSource(runtime, terminal)`** — the
-combinator that pairs a passive owned `runtime` with a **terminal** driver (a
-re-serve pump that ends on its own when the remote session is destroyed, the
-composite's resolving edge). `close` aborts the terminal first (its detached work
-settles on its signal), awaits its settle, then releases the runtime. It is the
-framework home for the terminal-source teardown `reServeSurface` used to
+Supervision follows the terminal-source doctrine directly: the base is the
+**terminal** driver (its mirror pump ends when the remote session is destroyed, the
+composite's resolving edge), the local `ext` is **passive** (only its fault settles
+`done` before close). `close` tears the base down **fully first** — `base.close()`
+awaited to completion (it aborts the base's pump *and* releases the base runtime's
+own sources) — then releases the local runtime. The related combinator
+**`superviseTerminalSource(runtime, terminal)`** pairs a passive owned `runtime`
+with a **terminal** driver whose `abort` is a sync signal; it is the framework home
+for the terminal-source teardown `reServeSurface` used to
 hand-roll.
 
 ## The reactor (reactive bridge, phase 0)

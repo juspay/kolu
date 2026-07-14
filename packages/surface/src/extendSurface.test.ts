@@ -183,6 +183,29 @@ describe("extendSurface", () => {
           }),
         },
       ),
-    ).toThrow(/both declare cells member "status"/);
+    ).toThrow(/both serve member "status"/);
+  });
+
+  it("fails loud on a CROSS-KIND name collision (base cell vs ext procedure namespace)", () => {
+    // The flat wire namespace is per-NAME across all kinds: a base cell `status` and
+    // an ext procedure namespace `status` have disjoint verbs, so they escape the
+    // per-kind spec guard AND defineSurface's per-(name,verb) claim — the guarded
+    // splice is what stops the shallow spread from silently dropping one side.
+    const clashingProc = defineSurface({
+      procedures: {
+        status: { refresh: { output: z.object({ ok: z.boolean() }) } },
+      },
+    });
+    expect(() =>
+      extendSurface(
+        { surface: baseSurface, ...buildBase() },
+        {
+          surface: clashingProc,
+          ...implementSurface(clashingProc, {
+            procedures: { status: { refresh: () => ({ ok: true }) } },
+          }),
+        },
+      ),
+    ).toThrow(/both serve member "status"/);
   });
 });

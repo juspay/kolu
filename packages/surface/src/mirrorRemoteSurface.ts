@@ -685,9 +685,12 @@ async function mirrorCollectionDeltas<K, V>(opts: {
           present.add(k);
           opts.onUpsert(k, v);
         }
+        // `onRemove` fires only for a key we actually hold — a remove of an absent
+        // key (a stale/duplicate delta after an internal stream retry re-leads with a
+        // snapshot) is a true no-op, never a spurious departure re-emitted to the
+        // sink. Matches the per-key path's `if (next.has(key)) continue` discipline.
         for (const k of msg.removes) {
-          present.delete(k);
-          opts.onRemove(k);
+          if (present.delete(k)) opts.onRemove(k);
         }
       }
     } catch (sinkErr) {
