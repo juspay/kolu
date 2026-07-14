@@ -11,12 +11,7 @@
 
 import { directLink } from "@kolu/surface/links/direct";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { implement } from "@kolu/surface/peer-server";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { createLiveSignal, type WatchableSocket } from "@kolu/surface/solid";
 import {
   type AgentClient,
@@ -137,8 +132,7 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
   });
 
   const processes = new Map<Pid, Proc>();
-  const fragment = implementSurface(entry, {
-    channel: inMemoryChannelByName(),
+  const runtime = implementSurface(entry, {
     cells: { load: { store: inMemoryStore(DEFAULT_LOAD) } },
     collections: {
       processes: {
@@ -164,7 +158,7 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     },
   });
 
-  // Fold the agent's frames into the local fragment; the first `load` frame is
+  // Fold the agent's frames into the local runtime; the first `load` frame is
   // the handshake that flips the session to `connected`.
   let firstLoad = true;
   void pumpRemoteSurface({
@@ -179,21 +173,22 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
               firstLoad = false;
               session.markConnected();
             }
-            fragment.ctx.cells.load.set(v);
+            runtime.ctx.cells.load.set(v);
           },
         },
         collections: {
           processes: {
-            upsert: (k, v) => fragment.ctx.collections.processes.upsert(k, v),
-            remove: (k) => fragment.ctx.collections.processes.remove(k),
+            upsert: (k, v) => runtime.ctx.collections.processes.upsert(k, v),
+            remove: (k) => runtime.ctx.collections.processes.remove(k),
           },
         },
       };
     },
   });
 
-  const router = implement(entry.contract).router({ ...fragment.router });
-  const link = directLink<typeof entry.contract>(router);
+  // `.router` is already the FINAL flattened router — no re-finalize via oRPC.
+  const router = runtime.router;
+  const link = directLink<typeof entry.contract>(router as never);
 
   let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
   const unsub = session.onState((s) => {
@@ -313,17 +308,16 @@ export function ownedState(ws: WatchableSocket) {
 }
 
 // #region rpc
-// `entry.rpc` is typed `unknown` on a generic map — a `ContractRouterClient` over
-// an abstract entry spec would overflow TS's union budget. The consumer casts it
-// ONCE to its own surface's procedure shape.
-type KillRpc = {
-  surface: { proc: { kill: (i: { pid: number }) => Promise<{ ok: boolean }> } };
-};
+// Every declared procedure rides `entry.procedures.<ns>.<verb>`, bound and typed
+// straight from the declaration — NO cast. (The narrow `procedures` map dodges the
+// TS2590 union-budget overflow the full `entry.rpc` contract client trips on a
+// generic map; `entry.rpc` stays `unknown` there, for the reserved `system.*` procs
+// + the escape hatch only.) The key-injecting link folds `{ mapKey }` into every
+// call, so the caller never passes the key.
 const kill = (
   active: Entry<typeof entry.spec>,
   pid: number,
-): Promise<{ ok: boolean }> =>
-  (active.rpc as KillRpc).surface.proc.kill({ pid });
+): Promise<{ ok: boolean }> => active.procedures.proc.kill({ pid });
 // #endregion rpc
 
 // #region entrystatus

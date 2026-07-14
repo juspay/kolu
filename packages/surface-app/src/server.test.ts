@@ -13,7 +13,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
+import { implementSurfaces } from "@kolu/surface/server";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -297,7 +297,7 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     const connect = vi.spyOn(server.cells.buildInfo, "connect");
     const { router, ctx } = implementSurfaces(
       { surfaceApp: surfaceAppSurface },
-      { channel: inMemoryChannelByName() },
+      {},
       { surfaceApp: server },
     );
 
@@ -324,7 +324,7 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     // can't collide on the wire. We assert both ctxs wire independently.
     const { ctx } = implementSurfaces(
       { a: surfaceAppSurface, b: surfaceAppSurface },
-      { channel: inMemoryChannelByName() },
+      {},
       {
         a: surfaceAppServer({ commit: "aaa1111", processId: "pa" }),
         b: surfaceAppServer({ commit: "bbb2222", processId: "pb" }),

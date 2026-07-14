@@ -15,9 +15,10 @@ socket consumer would hold.
 
 ## Build an in-process client
 
-Implement the surface, flatten the fragment, and wrap it in `directLink`. Pass
-it bare — `directLink` is the one link `surfaceClient` accepts without a watchdog,
-because its transport is always-live.
+Implement the surface and wrap its ready `.router` in `directLink` —
+`implementSurface` returns a FINAL top-level router, so there is no fragment to
+flatten. Pass it bare — `directLink` is the one link `surfaceClient` accepts
+without a watchdog, because its transport is always-live.
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="client" />
 

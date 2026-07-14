@@ -10,7 +10,7 @@
  * gone) composed with `reServeFor`'s build-on-cache-miss (`if (r === undefined) build`).
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pruneToMembers } from "./reServeEviction.ts";
 
 // `index.ts` keys its real `reServes` cache by the pool's canonical STRING
@@ -27,10 +27,14 @@ describe("pruneToMembers", () => {
 
     // `remote:zest` is still a pool member; `remote:bogus` has been removed.
     const members = new Set(["remote:zest"]);
-    pruneToMembers(cache, (h) => members.has(h));
+    const onEvict = vi.fn();
+    pruneToMembers(cache, (h) => members.has(h), onEvict);
 
     expect(cache.has("remote:bogus")).toBe(false); // the departed host's mirror is evicted…
     expect(cache.get("remote:zest")).toBe("zest-mirror"); // …the surviving member's mirror is untouched.
+    // Cleanup fires exactly once, for the dropped entry, carrying its value.
+    expect(onEvict).toHaveBeenCalledTimes(1);
+    expect(onEvict).toHaveBeenCalledWith("bogus-mirror");
   });
 
   it("re-add after eviction is a cache MISS — the corpse can never be re-handed out", () => {
@@ -43,9 +47,11 @@ describe("pruneToMembers", () => {
     ]);
 
     // Host leaves the pool → eviction runs with `guest` no longer a member.
-    pruneToMembers(cache, () => false);
+    const onEvict = vi.fn();
+    pruneToMembers(cache, () => false, onEvict);
 
     expect(cache.get("remote:guest")).toBeUndefined(); // MISS ⇒ the re-add would build a fresh mirror.
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith("mirror-over-sessionA"); // the corpse was closed on its way out.
   });
 
   it("no-op when every cached host is still a member (steady state)", () => {
@@ -54,8 +60,24 @@ describe("pruneToMembers", () => {
       ["remote:zest", "zest-mirror"],
     ]);
 
-    pruneToMembers(cache, () => true);
+    const onEvict = vi.fn();
+    pruneToMembers(cache, () => true, onEvict);
 
     expect(cache.size).toBe(2); // nobody left the pool, nothing evicted.
+    expect(onEvict).not.toHaveBeenCalled(); // …and no cleanup fired.
+  });
+
+  it("cleanup is TOTAL — it fires for a removed entry whose value is `undefined`", () => {
+    // The generic `V` is unrestricted, so a `Map<K, undefined>` entry is valid; the
+    // prune must still call `onEvict` for it (a `cache.get(host) !== undefined`
+    // guard would wrongly skip it, since a missing key and an `undefined` value are
+    // indistinguishable through `get`).
+    const cache = new Map<string, undefined>([["remote:ghost", undefined]]);
+    const onEvict = vi.fn();
+
+    pruneToMembers(cache, () => false, onEvict);
+
+    expect(cache.has("remote:ghost")).toBe(false);
+    expect(onEvict).toHaveBeenCalledExactlyOnceWith(undefined);
   });
 });

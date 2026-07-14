@@ -23,7 +23,7 @@ import {
   type CellStore,
   type Channel,
   cellHandlers,
-  implementSurface,
+  implementSurfaceOnPublisher,
 } from "./server";
 
 /** In-memory cell store + channel pair for handler-level tests. */
@@ -242,16 +242,21 @@ describe("implementSurface: ctx.cells.<key>.set respects equals + onWrite", () =
     const publishSpy = vi.spyOn(bus, "publish");
     const onWrite = vi.fn();
 
-    const { ctx } = implementSurface(surface, {
-      channel: <T>(_name: string) => bus as unknown as Channel<T>,
-      cells: {
-        c: {
-          store,
-          equals: (a, b) => a.n === b.n,
-          onWrite,
+    // A caller-owned channel factory (via the OnPublisher constructor) so the
+    // test can observe the internal publish on the same `bus` it spies.
+    const { ctx } = implementSurfaceOnPublisher(
+      surface,
+      {
+        cells: {
+          c: {
+            store,
+            equals: (a, b) => a.n === b.n,
+            onWrite,
+          },
         },
       },
-    });
+      <T>(_name: string) => bus as unknown as Channel<T>,
+    );
 
     // No-op write — dedup'd, onWrite not invoked
     ctx.cells.c.set({ n: 0 });

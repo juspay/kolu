@@ -28,7 +28,7 @@ import {
 import {
   type Channel,
   collectionHandlers,
-  implementSurface,
+  implementSurfaceOnPublisher,
   inMemoryChannel,
 } from "./server";
 import { foldCollectionDeltas } from "./solid/useCollection";
@@ -74,20 +74,23 @@ function buildDeltasFragment() {
     }
     return c as Channel<T>;
   };
-  const fragment = implementSurface(surface, {
-    channel,
-    collections: {
-      items: {
-        readAll: () => items,
-        upsert: (k, v) => {
-          items.set(k, v);
-        },
-        remove: (k) => {
-          items.delete(k);
+  const fragment = implementSurfaceOnPublisher(
+    surface,
+    {
+      collections: {
+        items: {
+          readAll: () => items,
+          upsert: (k, v) => {
+            items.set(k, v);
+          },
+          remove: (k) => {
+            items.delete(k);
+          },
         },
       },
     },
-  });
+    channel,
+  );
   return { fragment, channel };
 }
 

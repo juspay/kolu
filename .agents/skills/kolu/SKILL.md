@@ -78,18 +78,24 @@ done-signal section), then submit as its own command. `send "$id" "text" --key
 Enter` in one call is a **hard error** for exactly this reason — the trap is
 unspellable, not merely discouraged.
 
-> **⚠️ LARGE pastes don't submit — a known-open limitation ([#1702](https://github.com/juspay/kolu/issues/1702)).**
-> The three-step flow above is verified for **normal-size** prompts. A **large**
-> paste (multi-KB — enough that Claude Code folds it into a `[Pasted text +N
-> lines]` / "paste again to expand" placeholder) does **NOT** reliably submit:
+> **⚠️ MULTI-LINE pastes don't submit — a known-open limitation ([#1702](https://github.com/juspay/kolu/issues/1702)).**
+> The three-step flow above is verified for a **short** prompt (a line or two). The fold
+> that breaks submission is triggered by **line count, not byte size**: Claude Code folds a
+> paste into a `[Pasted text +N lines]` / "paste again to expand" placeholder once it spans
+> more than a handful of lines — which happens **well under 1 KB** (observed folding at
+> ~900 bytes / ~a dozen lines, so "multi-KB" badly understates it). Treat *any* multi-line
+> message — a status report, a ruling, a review verdict — as fold-prone, not just a big
+> brief. A folded paste does **NOT** reliably submit:
 > even after `wait --until idle` fires (idle proves Claude finished *folding* the
 > paste, not that a following Enter submits it), the Enter leaves the paste
 > **staged** — and the Enter *write itself* can stall against the placeholder
 > state (the bounded write deadline turns that stall into a loud failure instead
-> of a >30s hang, but it still doesn't submit). **Workaround for a big brief:**
-> write it to a file and send a **short** prompt that points the agent at it —
-> `kaval-tui send "$id" "read /tmp/brief.md and carry it out"` then the three-step
-> submit above. A short prompt submits cleanly; the agent reads the file itself.
+> of a >30s hang, but it still doesn't submit). **Workaround for any multi-line message
+> (a brief, a report, a ruling):** write it to a file and send a **short** prompt that
+> points the agent at it — `kaval-tui send "$id" "read /tmp/brief.md and carry it out"`
+> then the three-step submit above. A short prompt submits cleanly; the agent reads the
+> file itself. Reach for the file-pointer by default the moment a message runs past a
+> couple of lines — don't wait to get bitten by a fold-and-resend cycle first.
 
 > **Step 2 fires cleanly only when the agent is AT THE PROMPT** (awaiting input —
 > the normal case for dispatching a new prompt: `idle:300` fires in a fraction of
@@ -202,7 +208,7 @@ it with `padi-tui create` instead of raw `kaval-tui create`:
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
 padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>
-# e.g. `-- claude --permission-mode auto` — prints the new terminal's id; padi owns it
+# e.g. `-- claude --dangerously-skip-permissions` — prints the new terminal's id; padi owns it
 ```
 
 - **Never hardcode the agent CLI.** `<agent>` defaults to the same agent *you*
@@ -218,12 +224,15 @@ padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-f
   its own `send --key Enter`. Drive every boot step by `snapshot`, never by
   sleeping and hoping.
 - **Set the permission mode AT LAUNCH, then verify it from the footer.** An
-  agent that will run unattended goes in **auto mode**, and the mode is a launch
-  flag, not an interactive chore: `-- claude --permission-mode auto` (Claude
-  Code; other agent CLIs have their own equivalents). Snapshot the footer and
-  confirm it reads `auto mode on` before dispatching. Interactive cycling
-  (`send --key Shift-Tab`, re-snapshot after each press) is the fallback for an
-  agent that is already running — never the provisioning path.
+  agent that will run unattended launches with **bypass permissions**, and the
+  mode is a launch flag, not an interactive chore:
+  `-- claude --dangerously-skip-permissions` (Claude Code; other agent CLIs
+  have their own equivalents). Snapshot the footer and confirm it reads
+  `bypass permissions on` before dispatching — auto mode still stops to ask on
+  some tool calls, and an unattended agent's question in its own PTY sits
+  unanswered. Interactive cycling (`send --key Shift-Tab`, re-snapshot after
+  each press) is the fallback for an agent that is already running — never the
+  provisioning path.
 - **Restarting the agent CLI in place:** text typed at a *running* agent becomes
   a prompt (your relaunch command line gets answered, not executed), and `C-c`
   doesn't reliably quit the TUI — send the agent's quit command (`/exit` in

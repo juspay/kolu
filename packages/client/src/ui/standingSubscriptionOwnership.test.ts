@@ -20,30 +20,13 @@
  * instead of silently freezing at "unknown" for a whole session.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { listGuardSourceFiles } from "../architectureGuardSources.testlib";
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-/** Every non-test `.ts`/`.tsx` source file under `packages/client/src`. */
-function listSourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    if (name === "node_modules") continue;
-    const full = join(dir, name);
-    const st = statSync(full);
-    if (st.isDirectory()) {
-      out.push(...listSourceFiles(full));
-      continue;
-    }
-    if (!/\.tsx?$/.test(name)) continue;
-    if (/\.test(-d)?\.tsx?$/.test(name)) continue; // tests, incl. type-only .test-d.ts
-    out.push(full);
-  }
-  return out;
-}
 
 /** A surface `.use()` call site the base client's ref-counted cache dedups — a cell,
  *  a whole collection, a stream, an event, or the map's `entries` collection. */
@@ -76,7 +59,7 @@ const STATEMENT_WINDOW = 600;
  *  inside a function/component, which has its own reactive owner already). */
 function findUnownedStandingSubscriptions(): string[] {
   const violations: string[] = [];
-  for (const file of listSourceFiles(SRC_ROOT)) {
+  for (const file of listGuardSourceFiles(SRC_ROOT)) {
     const text = stripComments(readFileSync(file, "utf8"));
     const topLevelConst = /^const\s+\w+\s*=\s*/gm;
     const starts: number[] = [];

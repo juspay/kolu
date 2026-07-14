@@ -14,7 +14,7 @@ import { connectSurface } from "@kolu/surface-app/solid";
 import { router } from "./serve";
 import { surface } from "./surface";
 
-const link = directLink<typeof surface.contract>(router);
+const link = directLink<typeof surface.contract>(router as never);
 
 const nodeId = "node-1";
 const docId = "doc-1";
@@ -29,7 +29,7 @@ const load = app.cells.load.use({ authority: "server" }); // Accessor<Load>
 const procs = app.collections.processes.use(); // .byKey(id) / .keys()
 const log = app.streams.nodeLog.use(() => nodeId, { onError }); // .pending() / .error()
 app.events.autosave.use(() => docId, handler, { onError }); // returns nothing
-await app.rpc.surface.proc.kill({ pid });
+await app.procedures.proc.kill({ pid }); // bound + typed from the declaration
 // #endregion solid
 
 const url = "wss://example.test/rpc/ws";

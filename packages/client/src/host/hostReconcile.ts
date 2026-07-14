@@ -31,7 +31,7 @@ export type HostReconcileAction =
  *
  *  DEPARTED BOUNCE (RS4 #4) — when the ACTIVE host leaves membership (the user ✕'d their own
  *  guest chip, or the server auto-retired it on re-serve-pump death), nothing else re-keys
- *  `useEntry(activeHost)` and the tab is stranded on a dead host (every `padiRpcOf(activeHost())`
+ *  `useEntry(activeHost)` and the tab is stranded on a dead host (every `activePadiRpc`
  *  throws `MAP_KEY_UNKNOWN`, canvas frozen, no chip lit) — fall back to the unremovable local
  *  default. No-op when membership hasn't snapshotted yet (empty `keys` — the warming window, so
  *  a not-yet-arrived host isn't read as departed), the active host is the local default

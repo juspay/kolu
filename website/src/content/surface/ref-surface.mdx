@@ -52,15 +52,27 @@ To key several standalone surfaces under one namespace over one transport, use
 
 ## Serving a surface
 
-`implementSurface(surface, deps)` wires every handler and returns a router
-fragment plus a `ctx` for typed mutations. Persistence and pub/sub are supplied
-as dependencies.
+`implementSurface(surface, deps)` wires every handler and returns a supervised
+**`SurfaceRuntime`** — `{ router, ctx, done, close }`. Persistence and pub/sub
+are supplied as dependencies.
 
 <Snippet src="packages/surface/example/snippets/serve.ts" region="implement" />
 
+- **`router`** — the **FINAL** top-level oRPC router. Hand it straight to a
+  transport (`RPCHandler`, `serveOverStdio`, `directLink`) or spread its
+  `.surface` beside your own raw namespaces — no consumer re-finalizes the
+  surface via `implement(contract).router(…)`.
+- **`ctx`** — the typed cells/collections/events mutation map.
+- **`done`** — a `Promise<void>` that **rejects on an owned runtime fault** (a
+  cell connector rejecting) and resolves after a clean `close()`. A serving site
+  MUST observe it and route it into its existing failure policy.
+- **`close()`** — releases every owned source (cell-connector disposers, the
+  reactor/derived subscriptions they return). Idempotent; aborts each source
+  first, then awaits its settle, then runs its disposer.
+
 Dependency shapes, per member:
 
-- `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`.
+- `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. A `connect(cell, { signal })` async source-republish receives an abort signal and MAY return a `Disposer`; it is an owned source of the runtime (its rejection reaches `done`, `close()` aborts + disposes it).
 - `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
 - `streams: { <k>: { source } }` — or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
 - `procedures: { <ns>: { <verb>: async ({ input, ctx, signal }) => … } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single.
@@ -75,18 +87,20 @@ Stores and channels:
 | `inMemoryChannelByName()` | `@kolu/surface/server` | the `channel` factory form |
 | `publisherChannel<T>(publisher, name)` | `@kolu/surface/server` | `@orpc/experimental-publisher` adapter |
 
-`implementSurfaces(surfaces, framework, deps)` serves N surfaces over one
-transport, keyed the same as the map.
+### On a shared publisher — a distinct constructor, not a flag
 
-<Aside type="caution" title="Flatten before you serve">
-  `implementSurface` returns a router **fragment** shaped `{ surface: … }`.
-  Passing it straight to a transport double-prefixes the matcher tree
-  (`/surface/surface/…`) and every request 404s. Wrap it once:
+The ordinary `implementSurface(surface, deps)` owns an internal
+`inMemoryChannelByName()` — self-contained in-process channels. A consumer that
+must serve on a **shared, caller-owned publisher** (whose cross-channel
+microtask order is load-bearing, and whose teardown the caller owns) reaches for
+**`implementSurfaceOnPublisher(surface, deps, channel)`** instead — a distinct
+ownership promise, never a mode flag. The runtime's `close()` releases only what
+it minted, never the shared publisher.
 
-  <Snippet src="packages/surface/example/snippets/serve.ts" region="flatten" />
-
-  (`implement` is re-exported from `@kolu/surface/peer-server`.)
-</Aside>
+`implementSurfaces(surfaces, base, deps)` serves N surfaces over one transport,
+keyed the same as the map, and likewise returns a supervised `SurfacesRuntime`.
+Its shared-publisher twin is **`implementSurfacesOnPublisher(surfaces, base, deps)`**,
+where `base` carries the `channel` factory.
 
 ## The reactor (reactive bridge, phase 0)
 
@@ -136,7 +150,12 @@ otherwise thread at every hook.
 | collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
 | stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
-| procedure | `.rpc.surface.<ns>.<verb>(input)` | the typed result |
+| procedure | `.procedures.<ns>.<verb>(input, { signal? })` | the typed result (`Promise<O>`) — bound and typed from the declaration, no cast of the raw `.rpc` |
+
+Every declared procedure is bound at `.procedures.<ns>.<verb>` and typed from its
+declaration — the typed dual of the reactive `.use()` primitives. `.rpc` remains for
+the two framework-**reserved** procedures (`system.live` / `system.identity`, never in
+`spec.procedures`) and the link-root escape hatch; a declared procedure never needs it.
 
 A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
@@ -211,4 +230,5 @@ UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
 - **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry plugin re-invokes the source on each reconnect and a delta-first frame would silently lose state.
 - **`patch` is a cross-runtime contract.** A cell's `patch(current, p)` runs on both the server and the client. Treat any change to it as a wire-format change and redeploy both sides together.
 - **A raw stream joins health through `client.rawStream` / `client.enroll`** so it can't escape `health()`. `unenrolledStreamCall` (`@kolu/surface/client`) carries the reconnect context for non-descriptor shapes.
+- **`.use()` is the default; the un-enrolled ref is a deliberate carve-out.** A stream's `.use()` and a collection's `.use()` drive the subscription AND enrol its `pending`/`error` into `health()` — the transport gate sees them. For the narrow class whose transient re-subscribe is normal and self-healing and so must NOT flicker that gate — a terminal re-attach ([#1591](https://github.com/juspay/kolu/issues/1591)), a change-pulse that drives a requery — reach the raw ref instead: `.streams.X.unenrolled` (a `StreamingProcedure`) or `.collections.X.unenrolledKeys` (the raw keys `StreamingProcedure`), passed to `unenrolledStreamCall`. It is typed from the declaration (no cast) and named so the health carve-out is legible at the call site — not a casual bypass of `.use()`.
 - **The 2-file invariant.** Adding a member is one spec entry plus one wiring entry. If the count creeps up, something is wrong.

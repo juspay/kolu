@@ -211,8 +211,7 @@ const App: Component = () => {
   // guard persists across invocations.
   const runImportSession = createImportSessionAction({
     pick: importSession,
-    runImport: ({ session }) =>
-      activePadiRpc.surface.session.import({ session }),
+    runImport: ({ session }) => activePadiRpc.session.import({ session }),
   });
 
   const commands = createCommands({

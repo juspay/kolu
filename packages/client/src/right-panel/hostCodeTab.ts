@@ -63,7 +63,7 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activeHost, activePadiRpc, padiMap } from "../wire";
+import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { useRightPanel } from "./useRightPanel";
 
@@ -119,7 +119,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
     return createPolledQuery({
       ...config,
       ...authorities,
-      pulseProc: () => activePadiRpc.surface.subscribeRepoChange.get,
+      pulseProc: () => activePadiStreams.subscribeRepoChange.unenrolled,
       pulseInput: (i) => ({ repoPath: i.repoPath }),
     });
   }
@@ -131,7 +131,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
       const p = shownRepoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
+    query: (i, signal) => activePadiRpc.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
@@ -143,7 +143,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
       const p = shownRepoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
+    query: (i, signal) => activePadiRpc.git.getStatus(i, { signal }),
     onError: (err) => {
       if (err instanceof ORPCError && err.code === "PRECONDITION_FAILED")
         return;
@@ -160,7 +160,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
       const m = codeDiffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    query: (i, signal) => activePadiRpc.surface.git.getStatus(i, { signal }),
+    query: (i, signal) => activePadiRpc.git.getStatus(i, { signal }),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
@@ -170,7 +170,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
       const p = shownRepoPath();
       return p && codeView() === "browse" ? { repoPath: p } : null;
     },
-    query: (i, signal) => activePadiRpc.surface.fs.listAll(i, { signal }),
+    query: (i, signal) => activePadiRpc.fs.listAll(i, { signal }),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
   });
 
@@ -186,7 +186,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    query: (i, signal) => activePadiRpc.surface.git.getDiff(i, { signal }),
+    query: (i, signal) => activePadiRpc.git.getDiff(i, { signal }),
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
 
@@ -209,11 +209,11 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
         ? { terminalId: tid, repoPath: p, filePath: s }
         : null;
     },
-    pulseProc: () => activePadiRpc.surface.subscribeFileChange.get,
+    pulseProc: () => activePadiStreams.subscribeFileChange.unenrolled,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: async (i, signal): Promise<BrowseFileContent> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const previewTag = await activePadiRpc.surface.fs.filePreviewTag(
+        const previewTag = await activePadiRpc.fs.filePreviewTag(
           { repoPath: i.repoPath, filePath: i.filePath },
           { signal },
         );
@@ -225,7 +225,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
           url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
         };
       }
-      const { content, truncated } = await activePadiRpc.surface.fs.readFile(
+      const { content, truncated } = await activePadiRpc.fs.readFile(
         { repoPath: i.repoPath, filePath: i.filePath },
         { signal },
       );

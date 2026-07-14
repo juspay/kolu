@@ -21,12 +21,11 @@
  * membership stream.
  */
 
-import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
-import { implementSurface, inMemoryChannelByName } from "./server";
+import { implementSurface } from "./server";
 
 const surface = defineSurface({
   collections: {
@@ -52,14 +51,6 @@ function serveRegistryBacked(
 ) {
   const registry = new Map<number, { name: string }>(preload);
   const { router, ctx } = implementSurface(surface, {
-    // Canonical name-keyed in-process channels: the SAME `Channel` instance per
-    // name across every call, so the per-key `get` bus and the `keys` bus each
-    // bind name→instance. A bare `inMemoryChannel()` factory hands out a FRESH
-    // channel per lookup, silently severing per-key publishers from subscribers
-    // (the keys stream happens to survive it because `keysBus` is captured once,
-    // but the `get` value path would be wired to a different bus than the
-    // publisher — exactly the footgun `inMemoryPublisher`'s doc warns about).
-    channel: inMemoryChannelByName(),
     collections: {
       items: {
         readAll: () => registry,
@@ -68,9 +59,8 @@ function serveRegistryBacked(
       },
     },
   });
-  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — the implementSurface router's Lazy<Router> spread isn't accepted by directLink's input type; the runtime shape is valid.
-  const wrapped = implement(surface.contract).router({ ...router }) as any;
-  const client = directLink<typeof surface.contract>(wrapped);
+  const wrapped = router;
+  const client = directLink<typeof surface.contract>(wrapped as never);
   return {
     registry,
     client,

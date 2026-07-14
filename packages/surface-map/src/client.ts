@@ -42,21 +42,28 @@ export type { EntryState };
 
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
- *  (`.cells`/`.collections`/`.streams`/`.events`). */
+ *  (`.cells`/`.collections`/`.streams`/`.events`/`.procedures`). */
 export interface Entry<ES extends SurfaceSpec, Failure = unknown>
   extends Pick<
     SurfaceClient<ES>,
     "cells" | "collections" | "streams" | "events"
   > {
-  /** The entry surface's PROCEDURE client — for imperative point-calls
-   *  (`entry(k).rpc.surface.<ns>.<verb>(input)`, the lifecycle/chrome/fs/git/… procs).
-   *  The per-key link folds `{ mapKey }` into every call, so the consumer never passes
-   *  the key. It is the per-key `SurfaceClient`'s `rpc` — typed as the map's `Rpc`
-   *  (default `unknown` for the generic map, since the entry's link is untyped here); a
-   *  consumer that knows its entry contract casts it (e.g. a `padiRpcOf` helper) or reads
-   *  it through the concrete contract. Kept as `SurfaceClient<ES>["rpc"]` rather than a
-   *  `ContractRouterClient<Surface<ES>["contract"]>` expansion, which is a TS2590
-   *  "union too complex" under a generic `ES`. */
+  /** The entry surface's declared PROCEDURES, bound and typed from the entry spec
+   *  — `entry(k).procedures.<ns>.<verb>(input)`. The per-key link folds `{ mapKey }`
+   *  into every call, so the consumer never passes the key. A NARROW mapped type over
+   *  the entry's `spec.procedures`, so it types WITHOUT the TS2590 "union too complex"
+   *  the full `rpc` contract-client union trips under a generic `ES` — which is exactly
+   *  why the declared procedures moved off the raw `.rpc` onto this typed face (no
+   *  consumer casts a procedure client any more). */
+  readonly procedures: SurfaceClient<ES>["procedures"];
+  /** The raw oRPC LINK/router client (`rpc.surface.<ns>.<verb>`) — for the RESERVED
+   *  framework procedures (`system.live` / `system.identity`, contract-only) and the
+   *  link-root escape hatch, NOT the declared procedures (those ride `procedures`
+   *  above). Typed as the base `SurfaceClient`'s `rpc` — `unknown` for the generic
+   *  map, since the entry's link is untyped here; a consumer that must reach a
+   *  reserved proc reads it through its own concrete contract. Kept as
+   *  `SurfaceClient<ES>["rpc"]` rather than a `ContractRouterClient<...>` expansion,
+   *  which is a TS2590 "union too complex" under a generic `ES`. */
   readonly rpc: SurfaceClient<ES>["rpc"];
   /** The clock-translation lens — reproject a far-end (remote-host) timestamp into THIS
    *  process's local clock using the entry's measured `clockOffset`. The ONE generic
@@ -295,6 +302,11 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
             {},
             {
               get(_t2, verb: string) {
+                // `use` is the reactive-hook verb for these descriptor primitives
+                // (cells/collections/streams/events) — it is ALWAYS the subscription
+                // hook here. Imperative procedures do NOT ride this proxy (they route
+                // through `faceDelegate`), so a procedure legally named `use` can never
+                // reach this branch and be mis-wrapped in a keyed root.
                 if (verb === "use") {
                   return (...args: unknown[]) => {
                     const current = createKeyedRoot(keyAccessor, (key) => {
@@ -345,25 +357,35 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
     collections: primProxy("collections"),
     streams: primProxy("streams"),
     events: primProxy("events"),
-    rpc: rpcDelegate(entryFor, keyAccessor),
+    // Procedures and the raw `.rpc` are BOTH current-key imperative point-calls
+    // (`procedures.<ns>.<verb>(input)` / `rpc.surface.<ns>.<verb>(input)`) — the same
+    // arbitrary-depth path-walk that reads the active key per call. They route through
+    // the SAME `faceDelegate`, differing only in WHICH entry face they walk, so a
+    // procedure's second-level verb (including one named `use`) is a plain call, never
+    // an interception — the mis-route the old shared proxy had to guard is unspellable.
+    procedures: faceDelegate(entryFor, keyAccessor, (e) => e.procedures),
+    rpc: faceDelegate(entryFor, keyAccessor, (e) => e.rpc),
     clock: makeEntryClock(() => entryFor(keyAccessor()).state()),
     state: () => entryFor(keyAccessor()).state(),
   } as unknown as Entry<ES, Failure>;
 }
 
-/** A path-walking proxy over an entry's `rpc` that reads the CURRENT key per call — so a
- *  procedure point-call through `useEntry` routes to the active host at call time (rare:
- *  procedures usually use the pure `entry()`, but this keeps `Entry.rpc` total). */
-function rpcDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
+/** A path-walking proxy over a chosen entry FACE (`e.procedures` or `e.rpc`) that reads
+ *  the CURRENT key per call — so an imperative point-call through `useEntry` routes to
+ *  the active host at call time. The `face` selector is the ONLY axis of variation
+ *  between the two imperative subtrees; both are the same arbitrary-depth walk (rare for
+ *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total). */
+function faceDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
   entryFor: (key: K) => Entry<ES, Failure>,
   keyAccessor: Accessor<K>,
+  face: (entry: Entry<ES, Failure>) => unknown,
 ): unknown {
   const walk = (path: string[]): unknown =>
     new Proxy(() => {}, {
       get: (_t, prop) => walk([...path, prop as string]),
       apply: (_t, _this, args) => {
-        // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's rpc by the accumulated path
-        let node: any = entryFor(keyAccessor()).rpc;
+        // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's face by the accumulated path
+        let node: any = face(entryFor(keyAccessor()));
         for (const p of path) node = node[p];
         return node(...args);
       },
@@ -556,9 +578,11 @@ export function connectSurfaceMap<
       collections: c.collections,
       streams: c.streams,
       events: c.events,
-      // The per-key client's procedure client — its key-injecting link folds `{ mapKey }`
-      // into every call. Typed loosely off the untyped link (`c.rpc` is `unknown`), so
-      // cast to the entry-contract client `Entry.rpc` names.
+      // The per-key client's bound, declaration-typed procedures — its key-injecting
+      // link folds `{ mapKey }` into every call, so the consumer never passes the key.
+      procedures: c.procedures,
+      // The raw oRPC procedure client — reserved procs + link-root escape hatch. Typed
+      // loosely off the untyped link (`c.rpc` is `unknown`), so cast to `Entry.rpc`.
       rpc: c.rpc as Entry<ES, Failure>["rpc"],
       clock: makeEntryClock(() => foldState(key)),
       state: () => foldState(key),

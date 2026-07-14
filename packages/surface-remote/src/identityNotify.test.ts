@@ -21,12 +21,7 @@ import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
-import { implement } from "@orpc/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { provisionAgent } from "./nixCopy";
@@ -46,11 +41,9 @@ type SurfaceContract = typeof surface.contract;
 function healthyChild() {
   const pair = createLoopbackPair();
   const { router } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: { v: { store: inMemoryStore({ n: 0 }) } },
   });
-  const wrapped = implement(surface.contract).router({ ...router } as never);
-  void serveOverStdio({ router: wrapped as never, transport: pair.server });
+  void serveOverStdio({ router: router as never, transport: pair.server });
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;

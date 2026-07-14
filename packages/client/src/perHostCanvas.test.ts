@@ -67,27 +67,25 @@ const bag = vi.hoisted(() => ({
 // codec, from the shared `mockHostMap` testlib. `loadHost` drives membership via
 // its `addHost`; `beforeEach` empties it via `resetHosts`.
 vi.mock("./wire", async () => {
-  const { mockPadiMap, mockPadiRpcOf, mockGroundedActiveHost } = await import(
+  const { mockPadiMap, mockGroundedActiveHost } = await import(
     "./hostScope/mockHostMap.testlib"
   );
   return {
     padiMap: mockPadiMap,
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
-    // `createViewState`'s `writeActive` reports the active tile here.
-    padiRpcOf: mockPadiRpcOf(rpcSpy.setActive),
+    // `createViewState`'s `writeActive` reports the active tile through the shared
+    // map's `entry().procedures.chrome.setActive` (a benign no-op in the testlib).
     activePadiRpc: {
-      surface: {
-        chrome: { setActive: rpcSpy.setActive },
-        session: {
-          restore: vi.fn(async () => {}),
-          forfeit: vi.fn(async () => {}),
-          import: vi.fn(async () => {}),
-        },
-        lifecycle: {
-          create: vi.fn(async () => {}),
-          sendInput: vi.fn(async () => {}),
-        },
+      chrome: { setActive: rpcSpy.setActive },
+      session: {
+        restore: vi.fn(async () => {}),
+        forfeit: vi.fn(async () => {}),
+        import: vi.fn(async () => {}),
+      },
+      lifecycle: {
+        create: vi.fn(async () => {}),
+        sendInput: vi.fn(async () => {}),
       },
     },
     // The per-tab active host — flips on a switch; drives the per-host keying in

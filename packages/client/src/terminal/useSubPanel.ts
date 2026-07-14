@@ -43,7 +43,7 @@ function ensureState(parentId: TerminalId): SubPanelState {
 function reportToServer(parentId: TerminalId) {
   const s = state[parentId];
   if (!s) return;
-  void activePadiRpc.surface.chrome
+  void activePadiRpc.chrome
     .setSubPanel({
       id: parentId,
       collapsed: s.collapsed,

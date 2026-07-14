@@ -21,7 +21,6 @@ import { directLink } from "@kolu/surface/links/direct";
 import {
   implementSurface,
   inMemoryChannel,
-  inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -58,7 +57,6 @@ function buildSurface() {
   const tickBus = inMemoryChannel<number>();
 
   const { router } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: { count: { store: countStore } },
     streams: {
       ticks: {
@@ -86,7 +84,7 @@ function buildSurface() {
     },
   });
 
-  const client = directLink<typeof surface.contract>(router);
+  const client = directLink<typeof surface.contract>(router as never);
   return { surface, client };
 }
 
@@ -432,7 +430,6 @@ function buildEdgeSurface() {
 
   const rows = new Map<number, { v: string }>([[42, { v: "answer" }]]);
   const { router } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     collections: {
       rows: {
         readAll: () => rows,
@@ -452,7 +449,7 @@ function buildEdgeSurface() {
     },
   });
 
-  const client = directLink<typeof surface.contract>(router);
+  const client = directLink<typeof surface.contract>(router as never);
   return { surface, client };
 }
 
