@@ -52,8 +52,8 @@ a commit SHA must never be posted while that SHA is local-only — if a later st
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
 (`--no-comment`); be-review captures each comment body (the lens skill returns one
-ready; the codex body it assembles from the `section-*.md` files `/codex-debate` left
-in `.codex-debate/` — step 2), pushes once at the end, and only then posts the lens comment, the codex
+ready; the codex body it assembles as a compact commit table from the debate's own
+commits — step 2), pushes once at the end, and only then posts the lens comment, the codex
 comment, and its own police summary. No PR comment can reference a local-only
 commit.
 
@@ -138,7 +138,9 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
      on). Never report "lens consensus" for an `unresolved` run.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
 
-2. **codex** — invoke `/codex-debate` (Skill tool) as `review --repo "$repoPath"
+2. **codex** — **capture `CODEX_START=$(git -C "$repoPath" rev-parse HEAD)` first** (so
+   you can scope the debate's own commits for the comment table below), then invoke
+   `/codex-debate` (Skill tool) as `review --repo "$repoPath"
    --base MB`, **`--no-comment`** (so it doesn't advertise its local-only round commits
    before be-review's final push — you post the codex comment after the push),
    **`--effort xhigh`** (the gauntlet's deep review), and thread both **`--context`**
@@ -162,31 +164,24 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
    live codex split, debates to consensus, and **commits each round locally itself**
    (never pushing). Follow its event-driven loop to completion; there is **no background
    `Workflow` to await** and no `commentHeader`/`workDir` return — the per-round trail is
-   the `section-*.md` files it leaves in `.codex-debate/`. On **consensus**, assemble the
-   codex comment to post after the final push, from **this run's** section files —
-   capture it now so a later step can't disturb the scratch:
+   the debate's **commits**. On **consensus**, assemble the **compact** codex comment to
+   post after the final push — a header plus a one-row-per-round commit table (the detail
+   is in the commit messages, not the comment). Capture the codex debate's commit range
+   now (its rounds are the commits added between the SHA before this step and HEAD):
 
    ```bash
    workDir="$repoPath/.codex-debate"
-   # Derive the expected round count N INDEPENDENTLY, from the highest run verdict
-   # (each round writes verdict-NNN.json; the final, approved one is the last). Do NOT
-   # infer the round set from whichever section files happen to exist — a missing codex
-   # OR author section for a real round would then vanish silently and still publish a
-   # truncated trail. With N fixed, require a contiguous 001..N with BOTH section files.
-   last=$(ls "$workDir"/verdict-[0-9]*.json 2>/dev/null | sort | tail -1)
-   [ -n "$last" ] || { echo "codex debate: no verdict files — cannot assemble comment" >&2; exit 1; }
-   N=$(basename "$last" .json); N=$((10#${N#verdict-}))   # e.g. verdict-004.json -> 4
-   for n in $(seq -f '%03g' 1 "$N"); do
-     for f in "$workDir/verdict-$n.json" "$workDir/section-$n-1-codex.md" "$workDir/section-$n-2-claude.md"; do
-       [ -f "$f" ] || { echo "codex debate: missing $f for round $n — incomplete trail, not posting" >&2; exit 1; }
-     done
-   done
+   # $CODEX_START = the SHA captured just BEFORE invoking /codex-debate this step.
+   rounds=$(git -C "$repoPath" rev-list --count "$CODEX_START"..HEAD)
+   [ "$rounds" -ge 1 ] || { echo "codex debate: no debate commits — nothing to post" >&2; }
    {
-     printf '## Codex ⇄ Claude debate\n\n✅ Consensus in %s round(s) · reviewer effort: xhigh\n' "$N"
-     for n in $(seq -f '%03g' 1 "$N"); do
-       printf '\n'; cat "$workDir/section-$n-1-codex.md"; printf '\n'
-       printf '\n'; cat "$workDir/section-$n-2-claude.md"; printf '\n'
-     done
+     printf '## Codex ⇄ Claude debate\n\n'
+     printf '✅ Consensus in %s round(s) · reviewer effort: xhigh\n\n' "$rounds"
+     printf '| Round | Commit | Summary |\n|---|---|---|\n'
+     git -C "$repoPath" log --reverse --format='%h	%s' "$CODEX_START"..HEAD \
+       | nl -w1 -s'	' | while IFS=$'\t' read -r n sha subj; do
+           printf '| %s | `%s` | %s |\n' "$n" "$sha" "$subj"
+         done
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```
 
@@ -256,7 +251,7 @@ When you do post, post **one comment per track that produced a body** — skip a
 track `--tracks` excluded, and skip a track that ran but yielded no postable
 comment (lens on `merge-base-error`, codex on persistent `reviewer-error`): the
 lens body and the codex body verbatim (`gh pr comment -F` — the codex body is the
-`$workDir/comment.md` you assembled in step 2 from the `section-*.md` files), and the police summary (the
+`$workDir/comment.md` you assembled in step 2 as a compact commit table), and the police summary (the
 `## [👮 Code-police](https://agency.srid.ca/)` comment described in Report).
 
 ## Report

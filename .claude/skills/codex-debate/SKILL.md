@@ -215,14 +215,14 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
      N>1:** you still have your prior review in context — read the author's dispositions
      at `section-(N-1)-2-claude.md`, **close out the findings on the table** (verify a
      fix → `resolved`, or answer a dispute → concede or hold firm), and raise a new
-     finding only for a regression this round introduced. Then **write** `verdict-NNN.json`
-     + `section-NNN-1-codex.md`, print the marker, and **ping you**.
+     finding only for a regression this round introduced. Then **write** `verdict-NNN.json`,
+     print the marker, and **ping you**.
    - **Your turn** (woken by the ping): read `verdict-NNN.json` (re-ask on
      missing/malformed). For each **open** finding, **fix** it or **dispute** it —
      weighing `--context`/`--rationale`. Write your dispositions to
      `section-NNN-2-claude.md` (one entry per finding, a clear **fixed / disputed /
-     partial** marker + reasoning — this file is your memory, codex's next-round
-     rebuttal, and part of the PR comment).
+     partial** marker + reasoning — your memory and **codex's next-round rebuttal**; codex
+     reads it at the top of round N+1).
    - **Commit the round safely** (unless `--no-commit`): the clean-tree precondition
      (step 1) guarantees the round's edits are the only uncommitted changes, so
      `git -C "$REPO" add -- <the exact paths you edited>` (never `git add -A`/`.`) stages
@@ -230,11 +230,8 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
      message; **verify and record the SHA**. A **dispute-only / no-change** round has
      nothing to commit — note it and skip (don't force an empty commit). If a commit you
      expected fails, treat the round as **incomplete**, not consensus. Never push or merge.
-   - **Consensus test:** if codex's verdict is `approved: true` → write a brief final
-     `section-NNN-2-claude.md` acknowledging agreement (no open findings — this keeps the
-     codex+author pair present for **every** round, which step 4's fail-loud assembly
-     requires) and go to step 4. Else write your dispositions (above), ping codex for round
-     N+1, and end your turn.
+   - **Consensus test:** if codex's verdict is `approved: true` → go to step 4. Else (you
+     wrote your dispositions above) ping codex for round N+1 and end your turn.
    - **Resolved-and-deferred (NOT a deadlock exit).** A finding that is a downstream /
      ship-phase / process gate (a companion repo pinning this repo's final HEAD, a
      CI/release step, a cross-repo PR) can't be satisfied mid-review — show codex it's
@@ -245,20 +242,21 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
      even after you re-ask (broken/wedged session), tear down, report it as an
      **infrastructure failure** (not consensus), tell the user to fix codex, and stop.
 4. **Present & post.** Tear down the split. On **consensus**, report the round count, the
-   reviewer **effort**, `git -C "$REPO" log --oneline <merge-base>..HEAD` + `git -C
-   "$REPO" diff --stat <merge-base>`, and a per-round summary. Then, unless `--no-comment`
-   and when a PR exists (the number resolved in step 1), **post the PR comment**: a small
-   header (consensus badge · round count · effort · base) followed by **this run's**
-   section files. **Derive the round count `N` independently and fail loud on any gap** —
-   take `N` from the highest run `verdict-NNN.json` (never from whichever section files
-   happen to exist, or a *missing* codex/author section would vanish and still post a
-   truncated trail), then require a **contiguous `001..N`** with **all three** files per
-   round (`verdict-NNN.json`, `section-NNN-1-codex.md`, `section-NNN-2-claude.md`). If any
-   is missing, the audit trail is incomplete — **stop and report it, don't post a partial
-   comment** (a silently truncated record is the failure the file-transport exists to
-   prevent). Only once every round validates, `cat` the section pairs in order into the
-   comment body and post from the target repo: `(cd "$REPO" && gh pr comment <pr> -F <file>)`. The per-round commits sit on the local
-   branch for the human to review and push/merge; the skill never pushes or merges.
+   reviewer **effort**, and `git -C "$REPO" log --oneline <merge-base>..HEAD` in chat.
+   Then, unless `--no-comment` and when a PR exists (the number resolved in step 1),
+   **post a COMPACT PR comment** — the per-round detail lives in the commit messages, so
+   the comment is just a pointer:
+   - a one-line header — `## Codex ⇄ Claude debate` then `✅ Consensus in N rounds ·
+     reviewer effort: <effort> · base: <base>`;
+   - a **single table of the debate commits** (`git -C "$REPO" log --oneline
+     <merge-base>..HEAD`), one row per round: `| Round | Commit | Summary |` with the short
+     SHA and the commit subject.
+
+   That's the whole comment — a short header and one commit table, nothing more. **Do not**
+   inline the per-round codex verdicts or your dispositions; they are in the commits (and
+   the gitignored `.codex-debate/` scratch) for anyone who wants the detail. Post from the
+   target repo: `(cd "$REPO" && gh pr comment <pr> -F <file>)`. The per-round commits sit
+   on the local branch for the human to review and push/merge; the skill never pushes or merges.
 
 ### codex's verdict schema (`verdict-NNN.json`)
 
@@ -349,10 +347,11 @@ half-debate as an agreed answer.
 All debate state is ephemeral, under the gitignored per-worktree `.codex-debate/`, and
 **cleared at the start of each run** (step 1): `ask-*.md` (round instructions you write
 for codex), `verdict-NNN.json` / `answer-verdict-N.json` (codex's structured verdict you
-parse), `section-NNN-1-codex.md` (codex's readable review) and `section-NNN-2-claude.md`
-(your dispositions) — the two that compose the PR comment — and `answer-claude-N.md` /
-`answer-codex-N.md` / `candidate.md` / `answer-<slug>.md` for answer mode. There are
-**no** workflow or `codex exec` scripts; the engine is this protocol plus the
+parse), `section-NNN-2-claude.md` (your per-round dispositions — your memory and codex's
+next-round rebuttal), and `answer-claude-N.md` / `answer-codex-N.md` / `candidate.md` /
+`answer-<slug>.md` for answer mode. **None of this feeds the PR comment** — that is a
+compact commit table (step 4); the debate's per-round detail lives in the commit messages.
+There are **no** workflow or `codex exec` scripts; the engine is this protocol plus the
 [/kolu skill](../kolu/SKILL.md).
 
 This skill is generated from `agents/.apm/skills/codex-debate/`; edit the source there
