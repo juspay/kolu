@@ -294,7 +294,7 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
   keyAccessor: Accessor<K>,
 ): Entry<ES, Failure> {
   const primProxy = (
-    prim: "cells" | "collections" | "streams" | "events" | "procedures",
+    prim: "cells" | "collections" | "streams" | "events",
   ) =>
     new Proxy(
       {},
@@ -304,16 +304,12 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
             {},
             {
               get(_t2, verb: string) {
-                // `use` is the reactive-hook verb ONLY for the descriptor primitives
-                // (cells/collections/streams/events). `procedures` has NO `.use()`
-                // hook — its second level is a user-named procedure VERB, and a
-                // procedure legally named `use` (`procedures: { <ns>: { use: {...} } }`)
-                // must fall through to the imperative point-call below, never be
-                // intercepted as a subscription. Without this gate, `useEntry(...)
-                // .procedures.<ns>.use(input)` would wrap the one-shot call in a keyed
-                // root instead of calling it — a silent divergence from the pure
-                // `entry(key).procedures` path.
-                if (prim !== "procedures" && verb === "use") {
+                // `use` is the reactive-hook verb for these descriptor primitives
+                // (cells/collections/streams/events) — it is ALWAYS the subscription
+                // hook here. Imperative procedures do NOT ride this proxy (they route
+                // through `faceDelegate`), so a procedure legally named `use` can never
+                // reach this branch and be mis-wrapped in a keyed root.
+                if (verb === "use") {
                   return (...args: unknown[]) => {
                     const current = createKeyedRoot(keyAccessor, (key) => {
                       // biome-ignore lint/suspicious/noExplicitAny: dynamic member/verb walk over the bound subtree
@@ -363,30 +359,35 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
     collections: primProxy("collections"),
     streams: primProxy("streams"),
     events: primProxy("events"),
-    // Procedures are two-level imperative point-calls (`procedures.<ns>.<verb>(input)`)
-    // — `primProxy`'s non-`use` branch reads the CURRENT key at call time, so a call
-    // through `useEntry` routes to the active host, exactly like `rpcDelegate` does
-    // for the raw `.rpc`.
-    procedures: primProxy("procedures"),
-    rpc: rpcDelegate(entryFor, keyAccessor),
+    // Procedures and the raw `.rpc` are BOTH current-key imperative point-calls
+    // (`procedures.<ns>.<verb>(input)` / `rpc.surface.<ns>.<verb>(input)`) — the same
+    // arbitrary-depth path-walk that reads the active key per call. They route through
+    // the SAME `faceDelegate`, differing only in WHICH entry face they walk, so a
+    // procedure's second-level verb (including one named `use`) is a plain call, never
+    // an interception — the mis-route the old shared proxy had to guard is unspellable.
+    procedures: faceDelegate(entryFor, keyAccessor, (e) => e.procedures),
+    rpc: faceDelegate(entryFor, keyAccessor, (e) => e.rpc),
     clock: makeEntryClock(() => entryFor(keyAccessor()).state()),
     state: () => entryFor(keyAccessor()).state(),
   } as unknown as Entry<ES, Failure>;
 }
 
-/** A path-walking proxy over an entry's `rpc` that reads the CURRENT key per call — so a
- *  procedure point-call through `useEntry` routes to the active host at call time (rare:
- *  procedures usually use the pure `entry()`, but this keeps `Entry.rpc` total). */
-function rpcDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
+/** A path-walking proxy over a chosen entry FACE (`e.procedures` or `e.rpc`) that reads
+ *  the CURRENT key per call — so an imperative point-call through `useEntry` routes to
+ *  the active host at call time. The `face` selector is the ONLY axis of variation
+ *  between the two imperative subtrees; both are the same arbitrary-depth walk (rare for
+ *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total). */
+function faceDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
   entryFor: (key: K) => Entry<ES, Failure>,
   keyAccessor: Accessor<K>,
+  face: (entry: Entry<ES, Failure>) => unknown,
 ): unknown {
   const walk = (path: string[]): unknown =>
     new Proxy(() => {}, {
       get: (_t, prop) => walk([...path, prop as string]),
       apply: (_t, _this, args) => {
-        // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's rpc by the accumulated path
-        let node: any = entryFor(keyAccessor()).rpc;
+        // biome-ignore lint/suspicious/noExplicitAny: walk the current entry's face by the accumulated path
+        let node: any = face(entryFor(keyAccessor()));
         for (const p of path) node = node[p];
         return node(...args);
       },
