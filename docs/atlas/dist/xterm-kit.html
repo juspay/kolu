@@ -2,7 +2,8 @@
   <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">xterm-kit — Graduating Kolu&#39;s xterm Machinery</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>implemented</span><span class="meta-sep">·</span><time datetime="2026-07-13T00:00:00.000Z">JUL 13, 2026</time></div><p class="note-sub">Plan of record for a core + /solid package that owns xterm&#39;s hazards — pinned internals with two failure philosophies, buffer surgery, the hardened write path, mirror anchoring, and the SolidJS adapter — with kaval and the client as two consumers from day one.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-a-consumer-gets" data-astro-cid-rda6bqd5>What a consumer gets</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-package-boundary" data-astro-cid-rda6bqd5>The package boundary</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-name--decided-koluxterm-kit" data-astro-cid-rda6bqd5>The name — decided: @kolu/xterm-kit</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-public-api" data-astro-cid-rda6bqd5>The public API</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#core--koluxterm-kit-and-internals" data-astro-cid-rda6bqd5>Core — @kolu/xterm-kit and /internals</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#solid--the-browser-adapter" data-astro-cid-rda6bqd5>/solid — the browser adapter</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#mobile--the-touch-half-of-the-adapter" data-astro-cid-rda6bqd5>Mobile — the touch half of the adapter</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#deliberately-not-exported" data-astro-cid-rda6bqd5>Deliberately not exported</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-migration--two-prs" data-astro-cid-rda6bqd5>The migration — two PRs</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pr-1--graduate-the-volatility-behavior-neutral" data-astro-cid-rda6bqd5>PR 1 — graduate the volatility (behavior-neutral)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#pr-2--the-xterm-wrapper--the-divisor-fix-e2e-gated-immediate-fast-follow" data-astro-cid-rda6bqd5>PR 2 — the &lt;Xterm&gt; wrapper + the divisor fix (e2e-gated, immediate fast-follow)</a></li></ul></li></ul></nav></header><div class="prose"><p>Ratified by srid (2026-07-13) as the next refactor task: graduate kolu’s xterm
 machinery into its own workspace package. Shipped as two PRs on evidence class
 (see the migration): the behavior-neutral graduation in <a href="https://github.com/juspay/kolu/pull/1795" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1795</a> (PR
-1), the <code>&lt;Xterm&gt;</code> wrapper + touch-divisor fix in the e2e-gated PR 2 fast-follow.
+1), the <code>&lt;Xterm&gt;</code> wrapper + touch-divisor unification in the e2e-gated
+<a href="https://github.com/juspay/kolu/pull/1808" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1808</a> (PR 2).
 The <a href="electricity.html">electricity ledger</a>
 has carried this as its one not-yet-built row since the framework audit, under
 the working name <code>@kolu/solid-xterm</code> — and that name turned out to be the plan’s
@@ -44,19 +45,21 @@ are unchanged; only claims that didn’t survive contact with the code are.</p><
 <p>The “user” of this feature is a developer embedding a terminal. Both consumers
 get the same promise: <strong>the hazards are owned by the package</strong>, and the consumer
 writes only its own policy — which bytes, when, for whom.</p>
-<p>A SolidJS app renders a live terminal in one component (the <code>&lt;Xterm&gt;</code> wrapper is
-<strong>PR 2 target API</strong> — it does not ship in PR 1, which graduates the primitives it
-will compose):</p>
+<p>A SolidJS app renders a live terminal in one component (the <code>&lt;Xterm&gt;</code> wrapper
+shipped in PR 2, <a href="https://github.com/juspay/kolu/pull/1808" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1808</a>, composing the primitives PR 1 graduated):</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="tsx"><code><span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { Xterm, </span><span style="color:#D73A49">type</span><span style="color:#24292E"> XtermHandle } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "@kolu/xterm-kit/solid"</span><span style="color:#24292E">;</span></span>
 <span class="line"><span style="color:#D73A49">import</span><span style="color:#032F62"> "@xterm/xterm/css/xterm.css"</span><span style="color:#24292E">;</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#24292E">&#x3C;</span><span style="color:#005CC5">Xterm</span></span>
 <span class="line"><span style="color:#6F42C1">  theme</span><span style="color:#D73A49">=</span><span style="color:#24292E">{dracula}                 </span><span style="color:#6A737D">// reactive — live re-theme, texture atlas cleared</span></span>
 <span class="line"><span style="color:#6F42C1">  fontSize</span><span style="color:#D73A49">=</span><span style="color:#24292E">{</span><span style="color:#005CC5">14</span><span style="color:#24292E">}                   </span><span style="color:#6A737D">// reactive — refit + atlas clear</span></span>
+<span class="line"><span style="color:#6F42C1">  fontFamily</span><span style="color:#D73A49">=</span><span style="color:#032F62">"MonoLisa"</span><span style="color:#6A737D">           // the face awaited before construction</span></span>
 <span class="line"><span style="color:#6F42C1">  visible</span><span style="color:#D73A49">=</span><span style="color:#24292E">{props.visible}         </span><span style="color:#6A737D">// fit gate: hidden panes wait at 80×24</span></span>
 <span class="line"><span style="color:#6F42C1">  webgl</span><span style="color:#D73A49">=</span><span style="color:#24292E">{() </span><span style="color:#D73A49">=></span><span style="color:#6F42C1"> underBudget</span><span style="color:#24292E">()}     </span><span style="color:#6A737D">// renderer gate — an accessor, never a snapshot</span></span>
+<span class="line"><span style="color:#6F42C1">  scrollLockEnabled</span><span style="color:#D73A49">=</span><span style="color:#24292E">{() </span><span style="color:#D73A49">=></span><span style="color:#005CC5"> true</span><span style="color:#24292E">}  </span><span style="color:#6A737D">// scroll-lock gate — an accessor (e.g. a pref)</span></span>
 <span class="line"><span style="color:#6F42C1">  onData</span><span style="color:#D73A49">=</span><span style="color:#24292E">{(</span><span style="color:#E36209">bytes</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> pty.</span><span style="color:#6F42C1">write</span><span style="color:#24292E">(bytes)}                    </span><span style="color:#6A737D">// keystrokes out</span></span>
 <span class="line"><span style="color:#6F42C1">  onResize</span><span style="color:#D73A49">=</span><span style="color:#24292E">{({ </span><span style="color:#E36209">cols</span><span style="color:#24292E">, </span><span style="color:#E36209">rows</span><span style="color:#24292E"> }) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> pty.</span><span style="color:#6F42C1">resize</span><span style="color:#24292E">(cols, rows)}   </span><span style="color:#6A737D">// grid → PTY</span></span>
+<span class="line"><span style="color:#6F42C1">  onTap</span><span style="color:#D73A49">=</span><span style="color:#24292E">{(</span><span style="color:#E36209">x</span><span style="color:#24292E">, </span><span style="color:#E36209">y</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#005CC5"> false</span><span style="color:#24292E">}         </span><span style="color:#6A737D">// touch: what a tap MEANS is the consumer's</span></span>
 <span class="line"><span style="color:#6F42C1">  onReady</span><span style="color:#D73A49">=</span><span style="color:#24292E">{(</span><span style="color:#E36209">h</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> XtermHandle</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> pty.</span><span style="color:#6F42C1">onData</span><span style="color:#24292E">((</span><span style="color:#E36209">c</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> h.</span><span style="color:#6F42C1">write</span><span style="color:#24292E">(c))} </span><span style="color:#6A737D">// bytes in</span></span>
 <span class="line"><span style="color:#24292E">/></span></span></code></pre>
 <p>Behind that hello-world, the package owns the hazards kolu paid to learn:</p>
@@ -68,9 +71,9 @@ whole xterm graphs per mode toggle.<span class="fn" data-fn data-astro-cid-2yjzt
 ~900 KB of <code>InputHandler</code> + <code>BufferLine</code>s per orphaned instance, found by
 heap-snapshot retainer walks (190+ retained <code>xterm Terminal</code> trees). The fix
 is structural — capture the owner before the <code>await</code>, re-enter it with
-<code>runWithOwner</code>, register teardown synchronously at component-body top, and
-bail on a <code>disposed</code> flag after every await
-(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L405-L449" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:405-449</a>).</span></span></span></li>
+<code>runWithOwner</code>, register teardown synchronously before the async body, and
+bail on a <code>disposed</code> flag after the await
+(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/xtermLifecycle.ts#L50-L108" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/xtermLifecycle.ts:50-108</a>).</span></span></span></li>
 <li><strong>WebGL context-loss recovery and deterministic release.</strong> The addon is
 single-owner, self-heals on <code>webglcontextlost</code>, and explicitly fires
 <code>WEBGL_lose_context.loseContext()</code> on unload — without that, detached
@@ -79,7 +82,7 @@ evicts <em>live</em> ones.<span class="fn" data-fn data-astro-cid-2yjzt2l5><butt
 focus changes created contexts faster than GC released them, flickering
 every tile (#575, #591, the #1399 budget). The <em>mechanism</em> — accessor-gated
 load/unload with in-microtask release — is the package’s
-(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L205-L270" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:205-270</a>);
+(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/webgl.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/webgl.ts</a>);
 the <em>policy</em> of which panes deserve a context stays the consumer’s.</span></span></span></li>
 <li><strong>Version-pinned internals with tripwire tests.</strong> Every reach into xterm’s
 private <code>_core.*</code> is confined to the package, typed structurally, and pinned
@@ -233,7 +236,7 @@ controller is the proof the line already holds: its inputs are
 the boundary even though the controller drives kolu’s wire.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Terminal.tsx
 keeps the wire knowledge: it discriminates <code>frame.kind === &quot;snapshot&quot;</code>, checks
 for the leading <code>TERMINAL_RESET</code>, and calls the controller with plain values
-(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L849-L930" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:849-930</a>). The
+(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L410-L440" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:410-440</a>). The
 seam bytes themselves are minted by the controller
 (<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/scrollbackBackfill.ts#L309-L351" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/scrollbackBackfill.ts:309-351</a>);
 the consumer only concatenates.</span></span></span></p>
@@ -385,12 +388,12 @@ would (<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/sr
 </tbody>
 </table>
 <h3 id="solid--the-browser-adapter"><code>/solid</code> — the browser adapter</h3>
-<p>The first three below are <strong>PR 2 target API</strong> (the <code>&lt;Xterm&gt;</code> component and its
-lifecycle/WebGL primitives); the rest ship in PR 1:</p>
+<p>The first three below shipped in PR 2 (the <code>&lt;Xterm&gt;</code> component and its
+lifecycle/WebGL primitives); the rest in PR 1:</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="tsx"><code><span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> {</span></span>
-<span class="line"><span style="color:#24292E">  Xterm,                </span><span style="color:#6A737D">// PR 2 — the component: lifecycle + addons + WebGL + fit, in JSX form</span></span>
-<span class="line"><span style="color:#24292E">  createXtermLifecycle, </span><span style="color:#6A737D">// PR 2 — the primitive under it, for a non-JSX composition</span></span>
-<span class="line"><span style="color:#24292E">  attachWebGL,          </span><span style="color:#6A737D">// PR 2 — single-owner WebglAddon lifetime + context-loss recovery</span></span>
+<span class="line"><span style="color:#24292E">  Xterm,                </span><span style="color:#6A737D">// the component: lifecycle + addons + WebGL + fit, in JSX form (PR 2)</span></span>
+<span class="line"><span style="color:#24292E">  createXtermLifecycle, </span><span style="color:#6A737D">// the primitive under it, for a non-JSX composition (PR 2)</span></span>
+<span class="line"><span style="color:#24292E">  attachWebGL,          </span><span style="color:#6A737D">// single-owner WebglAddon lifetime + context-loss recovery (PR 2)</span></span>
 <span class="line"><span style="color:#24292E">  createRenderRecovery, </span><span style="color:#6A737D">// forced sync repaint when the rAF paint loop parks</span></span>
 <span class="line"><span style="color:#24292E">  wireScrollIntent,     </span><span style="color:#6A737D">// DOM wheel/pointer wiring for the core scroll lock</span></span>
 <span class="line"><span style="color:#24292E">  createScrollLock,     </span><span style="color:#6A737D">// freeze-while-reading latch; buffered writes keep their callbacks</span></span>
@@ -454,38 +457,58 @@ a tap-sized movement threshold so scrolls never summon the keyboard, and
 the rule that on touch the keyboard rises <em>only</em> from an explicit tap —
 never from a tile switch or reveal (<code>focusOnSelection</code> is a deliberate
 no-op on touch).<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>All shipped behavior: the focus-is-a-no-op rule
-(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L272-L279" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:272-279</a>)
+(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L169-L176" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:169-176</a>)
 and the tap surface
-(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx#L576-L669" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx:576-669</a> —
-the contenteditable input via <code>softKeyboardInput.ts</code>, the
-<code>TAP_THRESHOLD_PX</code> discrimination, the pointerup gesture window). That is
+(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/touch.ts#L38-L75" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/touch.ts:38-75</a> —
+the <code>TAP_THRESHOLD_PX</code> discrimination and the pointerup gesture window; the
+contenteditable input via
+<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/softKeyboardInput.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/softKeyboardInput.ts</a>). That is
 volatility, not product choice — which is why it’s owned, not
 hook-provided.</span></span></span> The one <em>domain</em> decision in the gesture — what a
 tap on content means (kolu: follow a <code>path:line</code> ref into the Code tab,
 else focus-to-type) — is the <code>onTap</code> hook, threaded through <code>&lt;Xterm&gt;</code> as a
 prop.</li>
-<li><strong>The touch divisor is a hand-rolled parallel of a fact xterm already owns —
-the follow-up deletes it; this PR keeps its fence.</strong> One invariant —
-pointer→cell under a CSS transform — is computed today by <strong>two separate
-divisors</strong>: xterm’s hit-test path (its font-metric cell mapping, the authority
-that actually places the glyphs, corrected on the <em>input</em> by
-<code>unscaleEventPoint</code>), and the tap path’s <code>fileRefAtPoint</code>, which derives its
-OWN cell size from the post-transform rect (<code>rect.width / cols</code>). These agree
-only when xterm’s internal cell equals <code>rect.width / cols</code> — which nothing
-guarantees: font-metric rounding, sub-pixel, or screen padding can make a tap
-near a cell boundary resolve to a <em>different</em> cell under zoom. So the
-rect-derived divisor is a hand-rolled parallel of the existing source of
-truth, and collapsing the two is a <strong>behavior change, not a move</strong>. The
-<code>/solid</code>-component follow-up (PR 2 below) deletes the rect divisor and routes
-the tap through xterm’s mapping; its done-criterion is <em>correctness</em>, not
-equivalence to today — a tap resolves to the cell the user visually tapped, at
-normal scale AND under zoom, proven by standard-suite browser e2e (it may well
-be a bug fix: today’s taps can already mis-target under zoom where the cells
-diverge). Until that PR both divisors stay, and the mirrored <em>“keep both in
-step”</em> warnings at both sites<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/Terminal.tsx" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/Terminal.tsx</a>
-and <a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/internals.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/internals.ts</a> carry the paired
-warning — the load-bearing fence while two divisors coexist.</span></span></span> are
-the fence that keeps them from drifting.</li>
+<li><strong>The touch divisor was a hand-rolled parallel of a fact xterm already owns —
+PR 2 (<a href="https://github.com/juspay/kolu/pull/1808" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1808</a>) deleted it.</strong> One invariant — pointer→cell under a
+CSS transform — used to be computed by <strong>two separate divisors</strong>: xterm’s
+hit-test path (its font-metric cell mapping, the authority that actually places
+the glyphs, corrected on the <em>input</em> by <code>unscaleEventPoint</code>), and the tap path’s
+<code>fileRefAtPoint</code>, which derived its OWN cell size from the post-transform rect
+(<code>rect.width / cols</code>). They agreed only when xterm’s internal cell equalled
+<code>rect.width / cols</code> — which nothing guarantees: font-metric rounding, sub-pixel,
+or screen padding can make a tap near a cell boundary resolve to a <em>different</em>
+cell under zoom. So the rect-derived divisor was a hand-rolled parallel of the
+existing source of truth. PR 2 added <code>cellAtPoint</code> to <code>/internals</code> (the single
+pointer→cell authority, a cosmetic read that degrades to null) and routes the
+tap through it, <strong>deleting</strong> the rect divisor and the mirrored <em>“keep both in
+step”</em> fence warnings that guarded the pair.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The tap resolver now lives
+in <code>Terminal.tsx</code>’s <code>onTap</code> (via <code>cellAtPoint</code>), and <code>internals.ts</code> records the
+history in past tense — the single divisor is <code>unscaleEventPoint</code> +
+<code>getCoords</code>, shared by selection, hover, and the tap
+(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/internals.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/internals.ts</a>).</span></span></span> Its
+done-criterion was <em>correctness</em>, not equivalence — a tap resolves to the cell
+the user visually tapped, under a CSS transform — proven by a standard-suite
+browser e2e. No user-observed regression surfaced, so it landed as the
+reuse-the-source-of-truth dedup rather than a bug fix.</li>
+<li><strong>The e2e proves it under a transform, but NOT in the literal desktop-zoom
+quadrant — because Chromium cannot emulate that quadrant (do not re-attempt
+it).</strong> The real state the tap-under-zoom guards is a touch tap on the <em>desktop
+canvas’s zoomed tile</em>, which needs a coarse-PRIMARY pointer that can <em>hover</em>
+(<code>isTouch</code> wires the tap; <code>handheld = coarse ∧ hover:none</code> being false mounts
+the canvas). Chromium welds pointer↔hover to touch capability: <strong>coarse ⟺ touch
+⟺ <code>hover:none</code></strong>. A two-run CI oracle proved both directions — with Playwright
+<code>hasTouch</code> the media is <code>{coarse, hover:none}</code>; without it, <code>{fine, hover}</code>; and
+CDP <code>setEmulatedMedia</code>’s <code>pointer</code>/<code>hover</code> features had <em>no effect</em> (pure device
+defaults). So <code>(pointer:coarse) and (hover:hover)</code> is unconstructable, and the
+gate instead runs in the reachable <code>@mobile</code> touch config with an <strong>injected</strong>
+CSS <code>scale()</code> standing in for the tile-zoom transform. That is honest, not a
+cheat: <code>cellAtPoint</code> reads the scale off <code>getBoundingClientRect</code>/<code>offsetWidth</code>,
+so the transform’s <em>source</em> is transparent to the code under test — the exact
+tap path runs under a real CSS transform. It is corroborated by
+<code>canvas-selection.feature</code> (the <em>same</em> <code>unscaleEventPoint</code> + <code>getCoords</code>
+authority under real canvas zoom, for selection) and the <code>cellAtPoint</code> unit
+delegation pin. A future reviewer should NOT try to build the desktop-zoom
+quadrant in e2e — it is a browser-emulation limit, not a missing test.</li>
 <li><strong><code>stickyModifiers</code> stays out — the boundary test, applied honestly.</strong> It
 never touches a <code>Terminal</code>: it is an arming latch over
 <code>@kolu/terminal-protocol</code>’s control/meta byte tables, armed by kolu’s
@@ -598,9 +621,15 @@ a tap resolves to the cell the user visually tapped, at normal scale AND under
 zoom. If the e2e shows today’s taps already mis-target under zoom, an issue is
 filed when PR 1 ships so the symptom is on record before its fix.</li>
 </ul>
-<p>Its gate is that standard-suite e2e proving three things on both platforms:
-tap-under-zoom correctness, WebGL context-loss recovery, and owner-correct async
-dispose — the properties a typecheck cannot vouch for.</p>
+<p>Its gate is the <code>@touch-desktop</code> tap-under-zoom e2e (that the extracted touch tap
+still lands on the visually-tapped cell, at normal scale and under zoom) plus the
+123 client terminal unit tests staying green UNMODIFIED — the behavior-neutral
+proof for the policy surrounding the split. WebGL context-loss recovery
+(<code>webgl.ts</code>’s self-heal) and owner-correct async dispose (the lifecycle’s
+owner-capture-before-await + LIFO cleanup) carry <strong>no</strong> dedicated unit test —
+they are preserved as behavior-identical extracted logic, held to correctness by
+review + typecheck and the leak-invariant argument spelled out in this note, not
+by an automated scenario.</p>
 <p>Risks (PR 1 unless noted):</p>
 <table>
 <thead>
@@ -658,8 +687,9 @@ deliberately does not take it on.</li>
 rehearsal has been seen red then green, kaval’s suites and the client suite pass
 unmodified, the closure guard is green, and the <a href="electricity.html">electricity ledger</a>’s
 row flips from “to build” to done. <strong>Done, PR 2:</strong> <code>Terminal.tsx</code> consumes
-<code>&lt;Xterm&gt;</code>, the single-authority divisor is proven correct under zoom, and the
-webgl/dispose e2e is green on both platforms.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+<code>&lt;Xterm&gt;</code>, the touch tap routes through the single-authority divisor (guarded by
+the <code>@touch-desktop</code> tap-under-zoom e2e), and the 123 client terminal unit tests
+stay green unmodified.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
 <script>
   (function () {
     var fns = Array.prototype.slice.call(

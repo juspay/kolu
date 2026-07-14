@@ -70,11 +70,86 @@ async function findRefClickPoint(
   );
 }
 
+/** Pixel at the FONT-METRIC visual centre of a terminal file-ref's first cell —
+ *  where xterm actually renders the glyph (`_core._renderService.dimensions.css.
+ *  cell.*`, the UNtransformed cell), scaled by the tile's CSS `scale(zoom)`. This
+ *  is the cell the user visually taps. Tapping HERE and asserting the ref
+ *  resolves guards that the extracted touch tap still routes a visual tap to the
+ *  right cell through xterm's font-metric authority (`cellAtPoint`, PR-2),
+ *  including under zoom. It is NOT a discriminator against the deleted
+ *  `rect.width / cols`: a centre tap on a cell resolves to that same cell under
+ *  both divisors (their per-cell divergence is sub-pixel, and both self-correct
+ *  for zoom), so this is a regression guard, not an equivalence disproof. Null
+ *  when no marker row / cell metrics are measurable. */
+async function findRefFontMetricPoint(
+  world: KoluWorld,
+  refText: string,
+): Promise<RefClickPoint> {
+  return world.page.evaluate(
+    ({ sel, target }) => {
+      type BufferLine = { translateToString(trim?: boolean): string };
+      type XtermFontMetric = {
+        cols: number;
+        rows: number;
+        buffer: {
+          active: {
+            viewportY: number;
+            getLine(index: number): BufferLine | undefined;
+          };
+        };
+        _core?: {
+          _renderService?: {
+            dimensions?: { css?: { cell?: { width: number; height: number } } };
+          };
+        };
+      };
+      const container = document.querySelector(sel) as
+        | (HTMLElement & { __xterm?: XtermFontMetric })
+        | null;
+      const term = container?.__xterm;
+      const screen = container?.querySelector(
+        ".xterm-screen",
+      ) as HTMLElement | null;
+      const cell = term?._core?._renderService?.dimensions?.css?.cell;
+      if (!container || !term || !screen || !cell) return null;
+      const cw = cell.width;
+      const ch = cell.height;
+      if (!(cw > 0) || !(ch > 0)) return null;
+      const { active } = term.buffer;
+      const top = active.viewportY;
+      for (let row = top; row < top + term.rows; row++) {
+        const line = active.getLine(row)?.translateToString(true) ?? "";
+        const col = line.indexOf(target);
+        if (col < 0) continue;
+        const rect = screen.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        // The tile's CSS scale(zoom) = transformed rect / untransformed layout.
+        const scaleX =
+          screen.offsetWidth > 0 ? rect.width / screen.offsetWidth : 1;
+        const scaleY =
+          screen.offsetHeight > 0 ? rect.height / screen.offsetHeight : 1;
+        return {
+          x: rect.left + (col + 0.5) * cw * scaleX,
+          y: rect.top + (row - top + 0.5) * ch * scaleY,
+        };
+      }
+      return null;
+    },
+    { sel: ACTIVE_TERMINAL, target: refText },
+  );
+}
+
 /** Resolve the on-screen pixel point of a terminal file-ref, waiting for the
- *  preconditions both the mouse-click and touch-tap activation paths share. */
+ *  preconditions both the mouse-click and touch-tap activation paths share.
+ *  `findPoint` selects the geometry — the default `rect.width/cols` centre, or
+ *  the font-metric visual centre for the divisor-authority tap. */
 async function resolveRefPoint(
   world: KoluWorld,
   refText: string,
+  findPoint: (
+    world: KoluWorld,
+    refText: string,
+  ) => Promise<RefClickPoint> = findRefClickPoint,
 ): Promise<{ x: number; y: number }> {
   // The file-ref → Code-tab open path needs the terminal's git context
   // (repoRoot) resolved: Terminal.tsx's activateFileRef bails when meta.git
@@ -104,7 +179,7 @@ async function resolveRefPoint(
   // include the just-echoed text.
   await waitForBufferContains(world.page, refText);
   const point = await pollFor({
-    observe: () => findRefClickPoint(world, refText),
+    observe: () => findPoint(world, refText),
     isDone: (p) => p !== null,
     onTimeout: (last, ms) =>
       new Error(
@@ -139,6 +214,52 @@ When(
     // follows it into the Code tab instead of focusing the terminal.
     const point = await resolveRefPoint(this, refText);
     await this.page.touchscreen.tap(point.x, point.y);
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I tap the terminal file-ref link {string} at its font-metric visual centre",
+  async function (this: KoluWorld, refText: string) {
+    // A real CDP touch tap (@mobile has `hasTouch`) at where xterm RENDERS the
+    // glyph — the font-metric cell centre (css.cell × the live CSS scale), NOT
+    // `rect.width / cols`. Under an ancestor CSS `scale()` this exercises the
+    // extracted touch tap path routing a visual tap through xterm's single
+    // divisor authority (`cellAtPoint`, transform-corrected by
+    // `patchTransformAwareMouseCoords`) to the right cell. It guards the path; it
+    // is not a discriminator against the deleted `rect.width / cols` (a centre
+    // tap resolves to the same cell under both — see findRefFontMetricPoint).
+    const point = await resolveRefPoint(this, refText, findRefFontMetricPoint);
+    await this.page.touchscreen.tap(point.x, point.y);
+    await this.waitForFrame();
+  },
+);
+
+/** Apply an ancestor CSS `scale()` transform to the active terminal tile — the
+ *  reachable stand-in for the desktop canvas's `tileTransformCSS` zoom, which
+ *  needs the coarse-primary-HOVER pointer quadrant Chromium CANNOT emulate (touch
+ *  emulation welds `(hover:none)` on; without it the primary pointer is fine — a
+ *  two-run CI oracle proved both directions). `transform-origin: 0 0` matches the
+ *  canvas contract `unscaleEventPoint` inverts about; the scale lands on an
+ *  ANCESTOR of `.xterm-screen`, so its `getBoundingClientRect()` grows while
+ *  `offsetWidth` stays put — exactly the divergence the divisor authority
+ *  corrects. */
+When(
+  "I scale the active terminal tile by {float}",
+  async function (this: KoluWorld, scale: number) {
+    const applied = await this.page.evaluate(
+      ({ sel, s }) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        if (!el) return false;
+        el.style.transformOrigin = "0 0";
+        el.style.transform = `scale(${s})`;
+        // Force layout so the transformed rect is measurable before the tap.
+        void el.getBoundingClientRect();
+        return true;
+      },
+      { sel: ACTIVE_TERMINAL, s: scale },
+    );
+    if (!applied) throw new Error("no active terminal tile to scale");
     await this.waitForFrame();
   },
 );

@@ -47,13 +47,24 @@ a `_core.buffers.normal` rename touches all three in tandem.
 
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
+- `<Xterm>` — the whole hazard set as one JSX element: it composes every
+  primitive below and owns their reactive lifetime, handing the consumer a live
+  `XtermHandle` in `onReady` (inside the reactive owner) to wire its own policy —
+  the stream, keybindings, the PTY, diagnostics. Kolu's `Terminal.tsx` is
+  consumer #1.
+- `createXtermLifecycle` — owner-correct async construction + disposal: capture
+  the owner before the font `await`, bail on a `disposed` flag, re-enter with
+  `runWithOwner`, and dispose term + addons synchronously. The one home for the
+  #591/#606 leak choreography.
+- `attachWebGL` — single-owner `WebglAddon` lifetime with context-loss recovery
+  and an explicit `loseContext()` on unload; the renderer gate is an
+  `Accessor<boolean>` (budget policy stays the consumer's).
+- `wireTouchTaps` / `wireTouchScroll` — the mobile touch surface xterm 6.0 ships
+  none of: tap-vs-scroll discrimination (with the iOS soft-keyboard focus rules)
+  and the touch → scrollback bridge. What a tap *means* is the consumer's `onTap`.
 - `createScrollLock` / `wireScrollIntent` — the freeze-while-reading latch and its
   DOM wiring.
 - `createRenderRecovery` — forced synchronous repaint when the rAF paint loop
   parks under occlusion.
 - `enableSoftKeyboardInput` / `isCoarsePointer` — the touch soft-keyboard surface
   and its coarse-pointer gate.
-
-> The `<Xterm>` component and its primitives (`createXtermLifecycle`,
-> `attachWebGL`, `wireTouchTaps`/`wireTouchScroll`) arrive in the e2e-gated PR 2
-> fast-follow — see the note's migration section.
