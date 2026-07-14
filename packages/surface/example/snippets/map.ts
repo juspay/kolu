@@ -314,17 +314,16 @@ export function ownedState(ws: WatchableSocket) {
 }
 
 // #region rpc
-// `entry.rpc` is typed `unknown` on a generic map — a `ContractRouterClient` over
-// an abstract entry spec would overflow TS's union budget. The consumer casts it
-// ONCE to its own surface's procedure shape.
-type KillRpc = {
-  surface: { proc: { kill: (i: { pid: number }) => Promise<{ ok: boolean }> } };
-};
+// Every declared procedure rides `entry.procedures.<ns>.<verb>`, bound and typed
+// straight from the declaration — NO cast. (The narrow `procedures` map dodges the
+// TS2590 union-budget overflow the full `entry.rpc` contract client trips on a
+// generic map; `entry.rpc` stays `unknown` there, for the reserved `system.*` procs
+// + the escape hatch only.) The key-injecting link folds `{ mapKey }` into every
+// call, so the caller never passes the key.
 const kill = (
   active: Entry<typeof entry.spec>,
   pid: number,
-): Promise<{ ok: boolean }> =>
-  (active.rpc as KillRpc).surface.proc.kill({ pid });
+): Promise<{ ok: boolean }> => active.procedures.proc.kill({ pid });
 // #endregion rpc
 
 // #region entrystatus

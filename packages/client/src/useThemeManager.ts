@@ -34,7 +34,7 @@ function init() {
 
   // HOST-SCOPING: host-INDEPENDENT by design — a transient live-preview overlay
   // (theme is the canonical non-per-host category); writes go to the active host
-  // correctly via `activePadiRpc.surface.chrome.setTheme`.
+  // correctly via `activePadiRpc.chrome.setTheme`.
   const [previewThemeName, setPreviewThemeName] = createSignal<
     string | undefined
   >(undefined);
@@ -63,7 +63,7 @@ function init() {
   }
 
   function setThemeName(id: TerminalId, name: string) {
-    void activePadiRpc.surface.chrome
+    void activePadiRpc.chrome
       .setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),

@@ -26,7 +26,7 @@ describe("terminalKeys re-keys on host switch (re-run #5 blocker)", () => {
           zest: ["zest-1"],
         };
         // The wire's shape: `createReactiveSubscription(activeHost, (host, signal) =>
-        // unenrolledStreamCall(padiRpcOf(host).surface.terminals.keys, undefined, { signal }))`.
+        // unenrolledStreamCall(entry.collections.terminals.unenrolledKeys, undefined, { signal }))`.
         const sub = createReactiveSubscription<string, string[]>(
           host,
           (h, signal) => {

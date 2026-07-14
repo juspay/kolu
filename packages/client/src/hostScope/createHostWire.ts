@@ -57,7 +57,7 @@ import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { padiMap, padiRpcOf } from "../wire";
+import { padiMap } from "../wire";
 
 /** The map entry lens `createHostWire` opens its cells/collections through. Aliased
  *  only to NAME the retained members' result types on {@link HostWire} PORTABLY —
@@ -122,10 +122,14 @@ export function createHostWire(
   // to capture and no re-key on switch: it stays live across switch-away.
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => host,
-    (h, signal) =>
-      unenrolledStreamCall(padiRpcOf(h).surface.terminals.keys, undefined, {
-        signal,
-      }),
+    (_h, signal) =>
+      unenrolledStreamCall(
+        entry.collections.terminals.unenrolledKeys,
+        undefined,
+        {
+          signal,
+        },
+      ),
     { onError: surfaceSubError("Terminal list error") },
   );
 
