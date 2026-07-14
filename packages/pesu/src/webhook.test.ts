@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import pino, { type DestinationStream } from "pino";
 import { describe, expect, it } from "vitest";
 import {
   createWebhookApp,
@@ -8,6 +9,7 @@ import {
 } from "./webhook.ts";
 
 const SECRET = "test-signing-secret";
+const log = pino({ level: "silent" });
 
 function sign(body: string, secret = SECRET): string {
   return createHmac("sha256", secret).update(body, "utf8").digest("hex");
@@ -47,6 +49,7 @@ describe("createWebhookApp — verify, ack 200, dispatch async", () => {
   it("rejects a forged signature with 401 and never dispatches (pinned RED)", async () => {
     const seen: XyneEvent[] = [];
     const app = createWebhookApp({
+      log,
       signingSecret: SECRET,
       onEvent: (e) => void seen.push(e),
     });
@@ -63,6 +66,7 @@ describe("createWebhookApp — verify, ack 200, dispatch async", () => {
       resolveSeen = r;
     });
     const app = createWebhookApp({
+      log,
       signingSecret: SECRET,
       onEvent: (e) => resolveSeen(e),
     });
@@ -78,6 +82,7 @@ describe("createWebhookApp — verify, ack 200, dispatch async", () => {
   it("returns 400 for a signed-but-malformed body without dispatching", async () => {
     const seen: XyneEvent[] = [];
     const app = createWebhookApp({
+      log,
       signingSecret: SECRET,
       onEvent: (e) => void seen.push(e),
     });
@@ -90,6 +95,7 @@ describe("createWebhookApp — verify, ack 200, dispatch async", () => {
   it("answers 200 immediately even if the handler is slow (fire-and-forget)", async () => {
     let released = false;
     const app = createWebhookApp({
+      log,
       signingSecret: SECRET,
       onEvent: () =>
         new Promise<void>((r) =>
@@ -107,8 +113,67 @@ describe("createWebhookApp — verify, ack 200, dispatch async", () => {
   });
 
   it("serves a health probe", async () => {
-    const app = createWebhookApp({ signingSecret: SECRET, onEvent: () => {} });
+    const app = createWebhookApp({
+      log,
+      signingSecret: SECRET,
+      onEvent: () => {},
+    });
     const res = await app.fetch(new Request("http://local/health"));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("createWebhookApp — logs every delivery (nothing silent)", () => {
+  function capture() {
+    const lines: Array<Record<string, unknown>> = [];
+    const capLog = pino({ level: "debug" }, {
+      write: (s: string) => lines.push(JSON.parse(s)),
+    } as unknown as DestinationStream);
+    return { capLog, msgs: () => lines.map((l) => l.msg) };
+  }
+
+  it("logs a valid delivery: received → accepted", async () => {
+    const { capLog, msgs } = capture();
+    const app = createWebhookApp({
+      log: capLog,
+      signingSecret: SECRET,
+      onEvent: () => {},
+    });
+    const body =
+      '{"eventType":"APP_MENTIONED","payload":{"conversationId":"c1","userId":"u1"}}';
+    await post(app, body, sign(body));
+    expect(msgs()).toContain("webhook delivery received");
+    expect(msgs()).toContain("ACCEPTED delivery — handing to the engine");
+  });
+
+  it("logs a rejected (bad-signature) delivery, not just a silent 401", async () => {
+    const { capLog, msgs } = capture();
+    const app = createWebhookApp({
+      log: capLog,
+      signingSecret: SECRET,
+      onEvent: () => {},
+    });
+    await post(app, "{}", "deadbeef");
+    expect(msgs()).toContain("webhook delivery received");
+    expect(msgs()).toContain(
+      "REJECTED (401): invalid or missing X-Xyne-Signature",
+    );
+  });
+
+  it("logs a request to the wrong path (a mis-registered webhook URL)", async () => {
+    const { capLog, msgs } = capture();
+    const app = createWebhookApp({
+      log: capLog,
+      signingSecret: SECRET,
+      onEvent: () => {},
+    });
+    await app.fetch(
+      new Request("http://local/wrong-path", { method: "POST", body: "{}" }),
+    );
+    expect(
+      msgs().some(
+        (m) => typeof m === "string" && m.startsWith("404 unmatched route"),
+      ),
+    ).toBe(true);
   });
 });

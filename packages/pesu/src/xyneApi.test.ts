@@ -1,9 +1,11 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import pino from "pino";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createXyneApi, MESSAGE_CAP, splitMessage } from "./xyneApi.ts";
 
 const JWT = "fake.jwt.token";
+const log = pino({ level: "silent" });
 
 // ── A FAKE Xyne server, stood up in-test — no real XS, no secrets ────────────
 interface FakeState {
@@ -75,7 +77,7 @@ afterAll(async () => {
 
 describe("createXyneApi against a fake Xyne", () => {
   it("posts a message and returns its id, with a Bearer token", async () => {
-    const api = createXyneApi({ baseUrl, jwtToken: JWT });
+    const api = createXyneApi({ log, baseUrl, jwtToken: JWT });
     const { messageId } = await api.postMessage({
       conversationId: "c1",
       content: "hello",
@@ -85,7 +87,7 @@ describe("createXyneApi against a fake Xyne", () => {
   });
 
   it("updates a posted message in place (the growing-reply UX)", async () => {
-    const api = createXyneApi({ baseUrl, jwtToken: JWT });
+    const api = createXyneApi({ log, baseUrl, jwtToken: JWT });
     const { messageId } = await api.postMessage({
       conversationId: "c1",
       content: "…",
@@ -95,7 +97,7 @@ describe("createXyneApi against a fake Xyne", () => {
   });
 
   it("sends typing on/off via agentProgress", async () => {
-    const api = createXyneApi({ baseUrl, jwtToken: JWT });
+    const api = createXyneApi({ log, baseUrl, jwtToken: JWT });
     await api.agentProgress({ conversationId: "c1", inProgress: true });
     await api.agentProgress({ conversationId: "c1", inProgress: false });
     expect(state.progress.slice(-2)).toEqual([
@@ -105,7 +107,7 @@ describe("createXyneApi against a fake Xyne", () => {
   });
 
   it("resolves + caches user/info (a bare record and a {user} envelope)", async () => {
-    const api = createXyneApi({ baseUrl, jwtToken: JWT });
+    const api = createXyneApi({ log, baseUrl, jwtToken: JWT });
     const before = state.authHeaders.length;
     const srid = await api.getUserInfo("u-srid");
     expect(srid).toEqual({ name: "Sridhar", email: "srid@srid.ca" });
@@ -118,6 +120,7 @@ describe("createXyneApi against a fake Xyne", () => {
 
   it("throws loudly on a non-2xx response (never a silent swallow)", async () => {
     const api = createXyneApi({
+      log,
       baseUrl: "http://127.0.0.1:1/",
       jwtToken: JWT,
     });

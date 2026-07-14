@@ -12,7 +12,9 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
+import { logger as honoLogger } from "hono/logger";
 import { z } from "zod";
+import type { Logger } from "./log.ts";
 
 /** The signature header XS sends: HMAC-SHA256 (hex) of the raw JSON body with the
  *  app signing secret. */
@@ -59,40 +61,94 @@ export interface WebhookDeps {
   readonly onEvent: (event: XyneEvent) => void | Promise<void>;
   /** The webhook path. Default `/webhook`. */
   readonly path?: string;
-  /** Diagnostic sink (never the secret). */
-  readonly log?: (line: string) => void;
+  /** The pino logger — REQUIRED (never the secret). Logging the inbound edge is
+   *  the whole point; a missing logger would mean a silently deaf webhook. */
+  readonly log: Logger;
 }
 
 /** Build the Hono app for the receiver. Kept transport-blind (no `serve`) so a
- *  test can hit `app.fetch(req)` directly and `bin.ts` owns the node adapter. */
+ *  test can hit `app.fetch(req)` directly and `bin.ts` owns the node adapter.
+ *
+ *  Logging is deliberately total: an access line for EVERY request (Hono's
+ *  `logger` middleware), a semantic line for every delivery and every decision
+ *  (received → verified → accepted / rejected), a `notFound` line for a request
+ *  to the wrong path (so a mis-registered webhook URL is visible, not a silent
+ *  404), and an `onError` line for any thrown error (never swallowed). */
 export function createWebhookApp(deps: WebhookDeps): Hono {
   const app = new Hono();
   const path = deps.path ?? "/webhook";
+  const log = deps.log;
+
+  // Access log for every request: `<-- POST /webhook` then `--> POST /webhook 200 3ms`.
+  app.use(
+    "*",
+    honoLogger((message, ...rest) => log.info({ rest }, message.trim())),
+  );
 
   app.post(path, async (c) => {
     const raw = await c.req.text();
     const sig = c.req.header(SIGNATURE_HEADER);
+    log.info(
+      { bytes: raw.length, signature: sig ? "present" : "MISSING" },
+      "webhook delivery received",
+    );
     if (!verifySignature(raw, sig, deps.signingSecret)) {
-      deps.log?.("rejected a delivery with an invalid or missing signature");
+      log.warn(
+        { bytes: raw.length },
+        "REJECTED (401): invalid or missing X-Xyne-Signature",
+      );
       return c.text("invalid signature", 401);
     }
     let event: XyneEvent;
     try {
       event = XyneEventSchema.parse(JSON.parse(raw));
-    } catch {
-      deps.log?.("rejected a signed delivery whose body was not a valid event");
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, head: raw.slice(0, 120) },
+        "REJECTED (400): signed body is not a valid event",
+      );
       return c.text("bad request", 400);
     }
+    log.info(
+      {
+        eventType: event.eventType,
+        conversationId: event.payload.conversationId,
+        userId: event.payload.userId,
+      },
+      "ACCEPTED delivery — handing to the engine",
+    );
     // Verified — ACK now, work later. The turn (or decline) runs off the
-    // response path; a rejection is logged, never thrown at XS.
+    // response path; a rejection is logged (with its stack), never thrown at XS.
     void Promise.resolve(deps.onEvent(event)).catch((err: unknown) => {
-      deps.log?.(`event handler failed: ${(err as Error).message}`);
+      log.error(
+        { err: (err as Error).stack ?? (err as Error).message },
+        "event handler threw",
+      );
     });
     return c.text("ok", 200);
   });
 
   // A liveness probe for the funnel / systemd — no auth, no side effects.
   app.get("/health", (c) => c.text("ok", 200));
+
+  // A request to any other route is almost always a mis-registered webhook URL
+  // (wrong path) or a probe — surface it loudly rather than a silent 404.
+  app.notFound((c) => {
+    log.warn(
+      { method: c.req.method, path: new URL(c.req.url).pathname },
+      `404 unmatched route (the webhook is POST ${path})`,
+    );
+    return c.text("not found", 404);
+  });
+
+  // Any error escaping a handler is logged, never swallowed into a bare 500.
+  app.onError((err, c) => {
+    log.error(
+      { err: err.stack ?? err.message },
+      "unhandled error in the webhook app",
+    );
+    return c.text("internal error", 500);
+  });
 
   return app;
 }

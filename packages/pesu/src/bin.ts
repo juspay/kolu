@@ -15,6 +15,7 @@ import { attribute } from "./attribution.ts";
 import { isOperatorEmail, loadConfig } from "./config.ts";
 import { type CoordinatorDriver, KavalPadiCoordinator } from "./coordinator.ts";
 import { Inbox } from "./inbox.ts";
+import { createLogger, type Logger } from "./log.ts";
 import { createWebhookApp, type XyneEvent } from "./webhook.ts";
 import { createXyneApi, splitMessage, type XyneApi } from "./xyneApi.ts";
 
@@ -66,7 +67,9 @@ export interface EngineDeps {
   /** Injectable clock for the cadence throttle (tests). Default `Date.now`. */
   readonly now?: () => number;
   readonly minUpdateIntervalMs?: number;
-  readonly log?: (line: string) => void;
+  /** The pino logger — REQUIRED. Every decision (ignore / decline / relay) and
+   *  every turn boundary is logged. */
+  readonly log: Logger;
 }
 
 export interface Engine {
@@ -78,7 +81,7 @@ export interface Engine {
 export function createEngine(deps: EngineDeps): Engine {
   const now = deps.now ?? Date.now;
   const minInterval = deps.minUpdateIntervalMs ?? MIN_UPDATE_INTERVAL_MS;
-  const log = deps.log ?? (() => {});
+  const log = deps.log;
 
   /** Post the reply once, then update it in place as it grows — one thread
    *  message (or several, if it crosses the 40k cap). Every write is serialized
@@ -106,6 +109,10 @@ export function createEngine(deps: EngineDeps): Engine {
             content: body,
           });
           messageIds.push(messageId);
+          log.info(
+            { conversationId, messageId, chunk: i },
+            "posted thread message",
+          );
         }
       }
     }
@@ -122,11 +129,15 @@ export function createEngine(deps: EngineDeps): Engine {
           await doSync(getContent());
         })
         .catch((err: unknown) =>
-          log(`thread sync failed: ${(err as Error).message}`),
+          log.error(
+            { conversationId, err: (err as Error).message },
+            "thread sync failed",
+          ),
         );
       return chain;
     }
 
+    log.info({ conversationId }, "turn start — driving the coordinator");
     await deps.xyne.agentProgress({ conversationId, inProgress: true });
     try {
       // Post the (placeholder) message once so the thread shows a growing reply.
@@ -141,9 +152,14 @@ export function createEngine(deps: EngineDeps): Engine {
           final.length > 0 ? final : "(the coordinator produced no reply)",
         true,
       );
+      log.info({ conversationId, chars: final.length }, "turn done");
     } catch (err) {
       // A fault is a VISIBLE reply, never silence — the fail-loud doctrine at the
       // chat boundary. Keep whatever reply had already streamed, append the fault.
+      log.error(
+        { conversationId, err: (err as Error).message },
+        "turn FAULT — posting a visible fault reply",
+      );
       const fault = `⚠️ ${(err as Error).message}`;
       await enqueueSync(
         () => (latestReply.length > 0 ? `${latestReply}\n\n${fault}` : fault),
@@ -153,7 +169,10 @@ export function createEngine(deps: EngineDeps): Engine {
       await deps.xyne
         .agentProgress({ conversationId, inProgress: false })
         .catch((err: unknown) => {
-          log(`clearing typing indicator failed: ${(err as Error).message}`);
+          log.error(
+            { conversationId, err: (err as Error).message },
+            "clearing typing indicator failed",
+          );
         });
     }
   }
@@ -161,28 +180,55 @@ export function createEngine(deps: EngineDeps): Engine {
   return {
     async handleEvent(event) {
       if (!RELAYABLE_EVENTS.has(event.eventType)) {
-        log(`ignoring ${event.eventType}`);
+        log.info(
+          { eventType: event.eventType },
+          "ignoring non-relayable event",
+        );
         return;
       }
       const msg = extractMessage(event.payload);
       if (msg === null) {
-        log(`ignoring ${event.eventType} with no conversationId`);
+        log.warn(
+          { eventType: event.eventType },
+          "ignoring event with no conversationId in payload",
+        );
         return;
       }
       const info = msg.userId
         ? await deps.xyne.getUserInfo(msg.userId)
         : { name: null, email: null };
       const name = msg.senderName ?? info.name ?? "someone";
+      log.info(
+        {
+          conversationId: msg.conversationId,
+          userId: msg.userId,
+          email: info.email,
+          name,
+        },
+        "resolved sender",
+      );
       if (!isOperatorEmail(deps.operatorEmails, info.email)) {
         // A non-operator gets a visible decline, never a relayed turn, never silence.
+        log.warn(
+          { conversationId: msg.conversationId, email: info.email, name },
+          "DECLINED — sender not on the operator allowlist",
+        );
         await deps.xyne.postMessage({
           conversationId: msg.conversationId,
           content: declineLine(name),
         });
-        log(`declined a non-operator message from ${name}`);
         return;
       }
       // Operator — queue the turn on the write floor (one in flight, FIFO).
+      log.info(
+        {
+          conversationId: msg.conversationId,
+          name,
+          depth: deps.inbox.depth,
+          text: msg.text.slice(0, 80),
+        },
+        "RELAYING — queued on the inbox",
+      );
       deps.inbox.enqueue(() =>
         relayTurn(msg.conversationId, attribute(name, msg.text)),
       );
@@ -191,18 +237,34 @@ export function createEngine(deps: EngineDeps): Engine {
 }
 
 async function main(): Promise<void> {
+  const log = createLogger();
+
+  // Nothing escapes unlogged: a stray rejection or throw anywhere in the daemon
+  // lands here loudly instead of dying silently.
+  process.on("unhandledRejection", (reason) => {
+    log.error(
+      {
+        err:
+          reason instanceof Error
+            ? (reason.stack ?? reason.message)
+            : String(reason),
+      },
+      "unhandledRejection",
+    );
+  });
+  process.on("uncaughtException", (err) => {
+    log.error({ err: err.stack ?? err.message }, "uncaughtException");
+  });
+
   const config = loadConfig();
-  const log = (line: string): void => {
-    // eslint-disable-next-line no-console -- a daemon's operational log; never a secret.
-    console.log(`[pesu] ${line}`);
-  };
 
   const xyne = createXyneApi({
     baseUrl: config.xyneBaseUrl,
     jwtToken: config.jwtToken,
+    log,
   });
   const inbox = new Inbox((err) =>
-    log(`turn failed at the inbox: ${(err as Error).message}`),
+    log.error({ err: (err as Error).message }, "turn failed at the inbox"),
   );
   const driver = new KavalPadiCoordinator({
     coordinatorTitle: config.coordinatorTitle,
@@ -225,8 +287,14 @@ async function main(): Promise<void> {
   serve(
     { fetch: app.fetch, hostname: "127.0.0.1", port: config.port },
     (info) => {
-      log(
-        `listening on 127.0.0.1:${info.port} — coordinator title ${JSON.stringify(config.coordinatorTitle)}, ${config.operatorEmails.length} operator(s) allowed`,
+      log.info(
+        {
+          port: info.port,
+          coordinatorTitle: config.coordinatorTitle,
+          operators: config.operatorEmails.length,
+          xyneBaseUrl: config.xyneBaseUrl,
+        },
+        `pesu listening on 127.0.0.1:${info.port}`,
       );
     },
   );
@@ -235,6 +303,8 @@ async function main(): Promise<void> {
 // Run only when invoked as the entry point (not when imported by a test).
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err: unknown) => {
+    // Boot failed before the logger could take over (e.g. a missing env var) —
+    // write directly to stderr so the fatal reason is never lost.
     // eslint-disable-next-line no-console -- fatal boot error to stderr.
     console.error(`[pesu] fatal: ${(err as Error).message}`);
     process.exit(1);

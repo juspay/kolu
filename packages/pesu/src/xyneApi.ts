@@ -17,6 +17,7 @@
  */
 
 import { stripTrailingSlashes } from "./config.ts";
+import type { Logger } from "./log.ts";
 
 /** The subset of the app API pesu drives. An interface so the engine can be
  *  tested against a fake without a network. */
@@ -74,6 +75,9 @@ export interface XyneApiConfig {
   readonly jwtToken: string;
   /** Injectable for tests; defaults to global `fetch`. */
   readonly fetch?: typeof fetch;
+  /** The pino logger — REQUIRED. Every outbound call is logged (debug) and every
+   *  failure (error). NEVER receives the bearer token. */
+  readonly log: Logger;
 }
 
 function pickString(obj: unknown, ...keys: string[]): string | null {
@@ -97,18 +101,38 @@ export function createXyneApi(cfg: XyneApiConfig): XyneApi {
   >();
 
   async function post(path: string, body: unknown): Promise<unknown> {
-    const res = await doFetch(`${base}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.jwtToken}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const started = performance.now();
+    let res: Awaited<ReturnType<typeof doFetch>>;
+    try {
+      res = await doFetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${cfg.jwtToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      // A transport failure (DNS, refused, TLS) never reaches XS — log it loudly.
+      cfg.log.error(
+        { path, err: (err as Error).message },
+        `XS POST ${path} — request failed to send`,
+      );
+      throw err;
+    }
     const raw = await res.text();
+    const ms = Math.round(performance.now() - started);
     if (!res.ok) {
+      cfg.log.error(
+        { path, status: res.status, ms, body: raw.slice(0, 300) },
+        `XS POST ${path} → ${res.status}`,
+      );
       throw new Error(`XS ${path} → ${res.status}: ${raw.slice(0, 300)}`);
     }
+    cfg.log.debug(
+      { path, status: res.status, ms },
+      `XS POST ${path} → ${res.status}`,
+    );
     try {
       return raw.length > 0 ? JSON.parse(raw) : {};
     } catch {
@@ -144,19 +168,44 @@ export function createXyneApi(cfg: XyneApiConfig): XyneApi {
 
     async getUserInfo(userId) {
       const cached = userCache.get(userId);
-      if (cached !== undefined) return cached;
-      const res = await doFetch(
-        `${base}/api/apps/user/info?userId=${encodeURIComponent(userId)}`,
-        { headers: { Authorization: `Bearer ${cfg.jwtToken}` } },
-      );
+      if (cached !== undefined) {
+        cfg.log.debug({ userId }, "user/info — cache hit");
+        return cached;
+      }
+      const path = "/api/apps/user/info";
+      let res: Awaited<ReturnType<typeof doFetch>>;
+      try {
+        res = await doFetch(
+          `${base}${path}?userId=${encodeURIComponent(userId)}`,
+          {
+            headers: { Authorization: `Bearer ${cfg.jwtToken}` },
+          },
+        );
+      } catch (err) {
+        cfg.log.error(
+          { userId, err: (err as Error).message },
+          "XS user/info — request failed to send",
+        );
+        throw err;
+      }
       const raw = await res.text();
       if (!res.ok) {
+        cfg.log.error(
+          { userId, status: res.status, body: raw.slice(0, 300) },
+          `XS user/info → ${res.status}`,
+        );
         throw new Error(`XS user/info → ${res.status}: ${raw.slice(0, 300)}`);
       }
       let parsed: unknown;
       try {
         parsed = raw.length > 0 ? JSON.parse(raw) : {};
       } catch {
+        // A 2xx with an unparseable body means no email → the caller declines.
+        // That's a real surprise worth surfacing, not swallowing.
+        cfg.log.warn(
+          { userId, head: raw.slice(0, 120) },
+          "XS user/info returned a non-JSON body",
+        );
         parsed = {};
       }
       // Accept a bare `{ name, email }` or a `{ user: { … } }` envelope.
@@ -168,6 +217,10 @@ export function createXyneApi(cfg: XyneApiConfig): XyneApi {
         name: pickString(user, "name", "displayName", "senderName"),
         email: pickString(user, "email"),
       };
+      cfg.log.debug(
+        { userId, email: info.email, hasName: info.name !== null },
+        "user/info resolved",
+      );
       userCache.set(userId, info);
       return info;
     },

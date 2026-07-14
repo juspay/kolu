@@ -1,3 +1,4 @@
+import pino from "pino";
 import { describe, expect, it, vi } from "vitest";
 import { createEngine } from "./bin.ts";
 import type { CoordinatorDriver } from "./coordinator.ts";
@@ -48,6 +49,7 @@ function fakeXyne(
 }
 
 const OPERATORS = ["srid@srid.ca"];
+const log = pino({ level: "silent" });
 const asOperator = () => ({ name: "Sridhar", email: "srid@srid.ca" });
 const asStranger = () => ({ name: "Nobody", email: "nobody@example.com" });
 
@@ -71,6 +73,7 @@ describe("engine — the decline-or-relay turn flow", () => {
       runTurn: vi.fn(async () => "unreachable"),
     };
     const engine = createEngine({
+      log,
       xyne: rec.api,
       driver,
       inbox,
@@ -101,6 +104,7 @@ describe("engine — the decline-or-relay turn flow", () => {
       },
     };
     const engine = createEngine({
+      log,
       xyne: rec.api,
       driver,
       inbox,
@@ -135,6 +139,7 @@ describe("engine — the decline-or-relay turn flow", () => {
       },
     };
     const engine = createEngine({
+      log,
       xyne: rec.api,
       driver,
       inbox,
@@ -162,6 +167,7 @@ describe("engine — the decline-or-relay turn flow", () => {
       },
     };
     const engine = createEngine({
+      log,
       xyne: rec.api,
       driver,
       inbox,
@@ -185,6 +191,7 @@ describe("engine — the decline-or-relay turn flow", () => {
     const inbox = new Inbox();
     const driver: CoordinatorDriver = { runTurn: vi.fn(async () => "x") };
     const engine = createEngine({
+      log,
       xyne: rec.api,
       driver,
       inbox,
@@ -218,6 +225,7 @@ describe("engine — the decline-or-relay turn flow", () => {
       },
     };
     const engine = createEngine({
+      log,
       xyne: rec.api,
       driver,
       inbox,

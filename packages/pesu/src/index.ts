@@ -29,6 +29,7 @@ export {
   replySince,
 } from "./coordinator.ts";
 export { Inbox, type InboxJob } from "./inbox.ts";
+export { createLogger, type Logger } from "./log.ts";
 export {
   createWebhookApp,
   SIGNATURE_HEADER,

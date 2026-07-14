@@ -43,6 +43,7 @@ import { loadGrokTranscript } from "kolu-grok";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import type { Transcript } from "kolu-transcript-core";
 import { match } from "ts-pattern";
+import type { Logger } from "./log.ts";
 
 // ── The contract: one turn on the coordinator ────────────────────────────────
 
@@ -147,7 +148,9 @@ export interface KavalPadiCoordinatorConfig {
   readonly turnTimeoutMs?: number;
   /** How often to re-read the growing reply. Default 800ms. */
   readonly pollIntervalMs?: number;
-  readonly log?: (line: string) => void;
+  /** The pino logger — REQUIRED. Every drive step (resolve → write-in → pickup →
+   *  turn end) is logged, and a mirror link error is surfaced, not swallowed. */
+  readonly log: Logger;
 }
 
 const activeAgentOf = (v: PadiTerminal): AgentInfo | null =>
@@ -172,6 +175,8 @@ async function mirrorUntil<T>(
   client: PadiClient,
   decide: (e: MirrorEvent) => T | undefined,
   timeoutMs: number,
+  log: Logger,
+  label: string,
 ): Promise<T | null> {
   const abort = new AbortController();
   let result: T | undefined;
@@ -199,8 +204,16 @@ async function mirrorUntil<T>(
       },
       { signal: abort.signal },
     ).done;
-  } catch {
-    // link error / abort — fall through to the result-or-null return.
+  } catch (err) {
+    // We abort() on a match or a timeout, so a caught error is expected once
+    // we've resolved; only an UNresolved catch is a genuine link failure worth
+    // surfacing (never a silent swallow).
+    if (result === undefined) {
+      log.warn(
+        { label, err: (err as Error).message },
+        "padi mirror closed before a match",
+      );
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -217,7 +230,8 @@ export class KavalPadiCoordinator implements CoordinatorDriver {
     const pickupTimeoutMs = this.cfg.pickupTimeoutMs ?? 30_000;
     const turnTimeoutMs = this.cfg.turnTimeoutMs ?? 600_000;
     const pollIntervalMs = this.cfg.pollIntervalMs ?? 800;
-    const log = this.cfg.log ?? (() => {});
+    const log = this.cfg.log;
+    const title = this.cfg.coordinatorTitle;
 
     const kaval = await unixSocketLink<typeof ptyHostSurface.contract>({
       socketPath: resolveKavalSocket(),
@@ -227,8 +241,12 @@ export class KavalPadiCoordinator implements CoordinatorDriver {
     try {
       // 1. Resolve the coordinator terminal by title (fresh — ids re-key).
       const { entries } = await kaval.client.surface.terminal.list({});
-      const term = pickTerminalByTitle(entries, this.cfg.coordinatorTitle);
+      const term = pickTerminalByTitle(entries, title);
       const id = term.id;
+      log.info(
+        { title, id, terminals: entries.length },
+        "resolved coordinator terminal by title",
+      );
 
       // 2. Read the coordinator's active agent + cwd, and baseline its transcript.
       const rec = await mirrorUntil(
@@ -239,14 +257,25 @@ export class KavalPadiCoordinator implements CoordinatorDriver {
           return agent === null ? undefined : { agent, cwd: cwdOf(e.value) };
         },
         pickupTimeoutMs,
+        log,
+        "read-active-agent",
       );
       if (rec === null) {
         throw new Error(
-          `coordinator terminal ${id} has no active agent session — start an agent in ${JSON.stringify(this.cfg.coordinatorTitle)} first`,
+          `coordinator terminal ${id} has no active agent session — start an agent in ${JSON.stringify(title)} first`,
         );
       }
       const baseline = assistantCount(
         loadCoordinatorTranscript(rec.agent, rec.cwd),
+      );
+      log.info(
+        {
+          id,
+          agentKind: rec.agent.kind,
+          sessionId: rec.agent.sessionId,
+          baseline,
+        },
+        "coordinator agent read; baselined transcript",
       );
 
       // 3. Attributed write-in: bracketed paste, settle, snapshot-verify, Enter.
@@ -266,14 +295,26 @@ export class KavalPadiCoordinator implements CoordinatorDriver {
         id,
         data: NAMED_KEY_BYTES.enter ?? "\r",
       });
+      log.info(
+        { id, promptChars: prompt.length },
+        "wrote prompt in and submitted",
+      );
 
       // 4. Wait for pickup (working), then the turn end (awaiting/waiting),
       //    streaming the growing reply. The mirror replays current state, so
       //    watching turn-end AFTER pickup can't miss a fast turn.
-      await mirrorUntil(
+      const pickedUp = await mirrorUntil(
         padi,
         (e) => bucketMatch(e, id, ["working"]),
         pickupTimeoutMs,
+        log,
+        "await-pickup",
+      );
+      log.info(
+        { id, pickedUp: pickedUp !== null },
+        pickedUp !== null
+          ? "coordinator picked up the prompt"
+          : "coordinator did not visibly pick up (proceeding to watch for a reply)",
       );
 
       const readReply = (): string =>
@@ -283,6 +324,8 @@ export class KavalPadiCoordinator implements CoordinatorDriver {
         padi,
         (e) => bucketMatch(e, id, ["awaiting", "waiting"]),
         turnTimeoutMs,
+        log,
+        "await-turn-end",
       ).then((r) => {
         ended = r !== null;
         return r;
@@ -300,7 +343,7 @@ export class KavalPadiCoordinator implements CoordinatorDriver {
         await sleep(pollIntervalMs);
       const finalReply = readReply();
       onGrow(finalReply);
-      log(`turn complete — ${finalReply.length} chars`);
+      log.info({ id, chars: finalReply.length }, "coordinator turn complete");
       return finalReply;
     } finally {
       kaval.dispose();
