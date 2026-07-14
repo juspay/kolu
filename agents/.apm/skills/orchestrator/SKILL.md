@@ -64,8 +64,11 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
   cuts it anew. Batch atlas work there; the PR is opened when the human says
   they are ready to merge, and the human merges. Atlas edits never ride a
   feature branch, a scratch worktree, or another PR's branch.
-- Skill edits are the exception with their own shape: a fresh branch off latest
-  master per change, PR opened immediately as draft.
+- Skill edits are NOT an exception — there are no exceptions: every
+  coordinator-authored change (atlas notes, skills, rules, docs) rides that same
+  single atlas branch/PR. The coordinator creates PRs from its own working
+  directory on the `atlas` branch ONLY; scratch worktrees and per-change
+  branches for coordinator-authored edits are banned.
 
 ## Communicating with the human
 
