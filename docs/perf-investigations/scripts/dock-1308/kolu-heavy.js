@@ -2,6 +2,8 @@
 // the wheel/zoom storm + idle resize behavior under real TUI load.
 //   node kolu-heavy.js <url> <port> <N> <opencodeBin>
 const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const CDP = require("chrome-remote-interface");
 const URL = process.argv[2], PORT = parseInt(process.argv[3] || "9500", 10);
 const N = parseInt(process.argv[4] || "20", 10);
@@ -89,13 +91,15 @@ async function storm(Input,R,x,y,modifiers,deltaY,label){
     avgFrameMs:f.length?+(f.reduce(function(a,b){return a+b;},0)/f.length).toFixed(2):null });})()`));
 
   const { data } = await Page.captureScreenshot({ format: "png" });
-  fs.writeFileSync("/tmp/kolu-heavy.png", Buffer.from(data, "base64"));
+  const screenshotDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-heavy-"));
+  const screenshotPath = path.join(screenshotDir, "screenshot.png");
+  fs.writeFileSync(screenshotPath, Buffer.from(data, "base64"), { mode: 0o600 });
 
   // Storms at the real tile count.
   const pan = await storm(Input, Runtime, 850, 520, 8, 18, "pan");
   await sleep(800);
   const zoom = await storm(Input, Runtime, 850, 520, 2, 8, "zoom");
 
-  console.log(JSON.stringify({ tiles, idle, pan, zoom }, null, 2));
+  console.log(JSON.stringify({ tiles, idle, pan, zoom, screenshotPath }, null, 2));
   await client.close();
 })().catch((e) => { console.error(String(e)); process.exit(1); });

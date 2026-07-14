@@ -873,8 +873,19 @@ export function observeWorkflowRun(
   // 1) Completed snapshot — authoritative end-state when present.
   const snapPath = path.join(workflowsDirFor(session), `${runId}.json`);
   try {
-    const mtimeMs = fs.statSync(snapPath).mtimeMs;
-    const raw = fs.readFileSync(snapPath, "utf8");
+    // This is a bounded completion record in Claude's local runtime directory,
+    // not a transcript/worktree read. Keep the synchronous projection API, but
+    // bind metadata + bytes to one descriptor so a path replacement cannot make
+    // the mtime describe a different file than the parsed snapshot.
+    const fd = fs.openSync(snapPath, "r");
+    let mtimeMs: number;
+    let raw: string;
+    try {
+      mtimeMs = fs.fstatSync(fd).mtimeMs;
+      raw = fs.readFileSync(fd, "utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
     let json: unknown;
     try {
       json = JSON.parse(raw);
@@ -891,8 +902,9 @@ export function observeWorkflowRun(
       anchorMs: mtimeMs,
       terminal,
     };
-  } catch {
-    // no snapshot yet — fall through to the live layout
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // No completion snapshot yet — fall through to the live layout.
   }
 
   // 2) Live run dir — progress while the workflow is running.
