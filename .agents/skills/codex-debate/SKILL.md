@@ -249,8 +249,9 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
    - a one-line header — `## Codex ⇄ Claude debate` then `✅ Consensus in N rounds ·
      reviewer effort: <effort> · base: <base>`;
    - a **single table of the debate commits** (`git -C "$REPO" log --oneline
-     <merge-base>..HEAD`), one row per round: `| Round | Commit | Summary |` with the short
-     SHA and the commit subject.
+     <merge-base>..HEAD`), one row per round: `| Round | Commit | Summary |` with the
+     **bare** short SHA (NOT wrapped in backticks/code — GitHub only autolinks a bare SHA
+     to its commit; a code-wrapped one renders as plain text) and the commit subject.
 
    That's the whole comment — a short header and one commit table, nothing more. **Do not**
    inline the per-round codex verdicts or your dispositions; they are in the commits (and
