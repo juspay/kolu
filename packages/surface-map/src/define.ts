@@ -354,6 +354,19 @@ export interface SurfaceMap<
    *  entries } }`. A canonical-string `mapKey` is folded into every entry-member
    *  input; `entries` is the membership collection (unfolded). */
   readonly contract: AnyContractRouter;
+  /** The `.surface` FRAGMENT of {@link contract} — `{ <member>: {...folded}, entries }`
+   *  — exposed as a first-class field so a host that mounts this map as a sibling of its
+   *  own surface (`{ surface: { ...ownSiblings, [name]: map.surfaceContract } }`) splices
+   *  a TYPED value, never reaching into `contract` with an `as any`. The folded fragment
+   *  is dynamically built, so its honest type is `AnyContractRouter` — the single
+   *  library-side cast that lets EVERY connection site stay cast-free (PR3). */
+  readonly surfaceContract: AnyContractRouter;
+  /** The map's mount NAME — the sibling key it is served under in a combined surface
+   *  (kolu's `"padi"`, drishti's `"hosts"`). When set, `connectSurfaceMap` derives the
+   *  transport-slice key FROM it, so the connection site carries no stringly sibling key
+   *  (PR3 — "the key derives from the declaration"). Omitted for a map served standalone
+   *  at the transport root (the in-process test harness), where nothing is sliced. */
+  readonly name?: string;
   /** The membership collection's spec — `Collection<string, EntryStatus<Failure>>`
    *  on the wire (see the module doc for why the collection key is always a plain
    *  string), read-only. Backs both the server's `entries` handlers and the
@@ -381,19 +394,27 @@ export function defineSurfaceMap<
   entry: Surface<ES>;
   codec: KeyCodec<z.infer<KS>>;
   failure: ZodType<Failure>;
+  /** The sibling key this map is mounted under in a combined surface (see
+   *  {@link SurfaceMap.name}). Omit for a standalone/at-root map. */
+  name?: string;
 }): SurfaceMap<KS, ES, Failure> {
-  const { key: keySchema, entry, codec, failure } = opts;
+  const { key: keySchema, entry, codec, failure, name } = opts;
   const members = foldedMembers(entry.spec);
   // Build the EntryStatus schema from the map's `failure` ONCE, then thread the SAME
   // instance to both homes that need it — the `entries.get` contract output and the
   // `entriesSpec` collection value — rather than deriving the identical schema twice.
   const statusSchema = entryStatusSchema(failure);
+  // Keep the `.surface` fragment as a named value so it backs BOTH the full `contract`
+  // and the first-class `surfaceContract` field a host splices — one dynamic fragment,
+  // one library-side cast, no `as any` at any connection site.
+  const surfaceFragment = {
+    ...members,
+    entries: entriesContract(statusSchema),
+  };
   const contract = oc.router({
-    surface: {
-      ...members,
-      entries: entriesContract(statusSchema),
-    },
+    surface: surfaceFragment,
   } as unknown as AnyContractRouter) as AnyContractRouter;
+  const surfaceContract = surfaceFragment as unknown as AnyContractRouter;
 
   const entriesSpec: CollectionSpec<string, EntryStatus<Failure>> = {
     keySchema: z.string(),
@@ -405,7 +426,9 @@ export function defineSurfaceMap<
     keySchema,
     entry,
     contract,
+    surfaceContract,
     entriesSpec,
     codec,
+    name,
   };
 }

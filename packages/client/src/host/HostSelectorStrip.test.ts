@@ -20,13 +20,19 @@ const GREEN = "bg-emerald-400";
 
 describe("HostSelectorStrip dot tone — fact-only green", () => {
   it("emits green ONLY for connected", () => {
-    expect(dotClass({ kind: "connected", clockOffset: 0 })).toBe(GREEN);
+    expect(
+      dotClass({ kind: "connected", membershipId: "", clockOffset: 0 }),
+    ).toBe(GREEN);
   });
 
   it("never emits green for a not-connected state", () => {
     const notConnected: EntryState[] = [
-      { kind: "warming" },
-      { kind: "failed", failure: { cause: "link-failed", reason: "no drv" } },
+      { kind: "warming", membershipId: "" },
+      {
+        kind: "failed",
+        membershipId: "",
+        failure: { cause: "link-failed", reason: "no drv" },
+      },
       { kind: "not-a-member" },
     ];
     for (const s of notConnected) {
@@ -36,10 +42,11 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
   });
 
   it("gives each state a distinct, honest tone", () => {
-    expect(dotClass({ kind: "warming" })).toContain("amber");
+    expect(dotClass({ kind: "warming", membershipId: "" })).toContain("amber");
     expect(
       dotClass({
         kind: "failed",
+        membershipId: "",
         failure: { cause: "link-failed", reason: "x" },
       }),
     ).toContain("red");
@@ -49,12 +56,18 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
 describe("HostSelectorStrip status title", () => {
   it("surfaces the failure reason so a dead host is legible on hover", () => {
     expect(
-      statusTitle({ kind: "failed", failure: { reason: "ssh refused" } }),
+      statusTitle({
+        kind: "failed",
+        membershipId: "",
+        failure: { reason: "ssh refused" },
+      }),
     ).toBe("failed: ssh refused");
-    expect(statusTitle({ kind: "connected", clockOffset: 3 })).toBe(
-      "connected",
+    expect(
+      statusTitle({ kind: "connected", membershipId: "", clockOffset: 3 }),
+    ).toBe("connected");
+    expect(statusTitle({ kind: "warming", membershipId: "" })).toBe(
+      "connecting…",
     );
-    expect(statusTitle({ kind: "warming" })).toBe("connecting…");
   });
 });
 

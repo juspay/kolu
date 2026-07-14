@@ -175,4 +175,10 @@ export const padiHostMap = defineSurfaceMap({
   entry: padiEntrySurface,
   codec: hostKeyCodec,
   failure: PadiEntryFailureSchema,
+  // The sibling key this map is mounted + served under (`surface.padi.*`). Declaring it
+  // HERE is the typed connection key (PR3): `connectSurfaceMap(padiHostMap, transport)`
+  // slices `padi` from the combined socket by this name, and the server splices the map
+  // under `padiHostMap.surfaceContract` — so no `"padi"` string is written at any
+  // connection site, and no `as any` reaches into the contract.
+  name: "padi",
 });

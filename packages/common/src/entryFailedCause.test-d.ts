@@ -19,13 +19,18 @@ import type { PadiEntryFailure, PadiEntryStatus } from "./surfacesWithPadi.ts";
 
 // A BARE `EntryStatus` (default `Failure = unknown`): the `failed` arm carries an
 // opaque `failure`, so an unnarrowed consumer compiles with no domain knowledge.
-const bare: EntryStatus = { kind: "failed", failure: { anything: "at-all" } };
+const bare: EntryStatus = {
+  kind: "failed",
+  membershipId: "",
+  failure: { anything: "at-all" },
+};
 void bare;
 
 // `padiHostMap`'s narrowed status: the `failed` arm's `failure` must be a valid
 // `PadiEntryFailure` (a schema-valid domain value), narrowed on `cause`.
 const padiFailed: EntryStatus<PadiEntryFailure> = {
   kind: "failed",
+  membershipId: "",
   failure: {
     cause: "contract-skew-refused",
     reason: "remote padi contract skew",
@@ -35,6 +40,7 @@ void padiFailed;
 
 const padiFailedInvalid: EntryStatus<PadiEntryFailure> = {
   kind: "failed",
+  membershipId: "",
   failure: {
     // @ts-expect-error — an arbitrary string is not a member of the failure's
     // `cause` discriminant; if this line ever compiles, the narrowing
@@ -48,6 +54,7 @@ void padiFailedInvalid;
 // D2: the typed version pair rides ONLY the `contract-skew-refused` failure arm.
 const skewed: PadiEntryStatus = {
   kind: "failed",
+  membershipId: "",
   failure: {
     cause: "contract-skew-refused",
     reason: "padi contract skew",
@@ -59,6 +66,7 @@ void skewed;
 
 const linkFailed: PadiEntryStatus = {
   kind: "failed",
+  membershipId: "",
   failure: {
     cause: "link-failed",
     reason: "host unreachable",

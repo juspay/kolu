@@ -16,23 +16,31 @@ subpaths: the contract, the server, and the client.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, and a `failure` schema for the domain failure value; returns a `SurfaceMap` |
+| `defineSurfaceMap({ key, entry, codec, failure, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, and an optional mount `name`; returns a `SurfaceMap` |
 | `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ router, dispose }` |
-| `connectSurfaceMap(map, transport, siblingKey?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
+| `connectSurfaceMap(map, transport)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
 
 `defineSurfaceMap`'s `key` schema need not be a branded string — its `z.infer` is
 `Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
 object). Its `failure` schema is required and fixes the domain failure value; `Failure`
-is **inferred** from it (no explicit type args). The `SurfaceMap` carries
-`{ keySchema, entry, contract, entriesSpec, codec }`; `entriesSpec` is the
-membership collection's wire spec, always string-keyed. The domain failure schema is
-the `failure` argument itself — it is embedded in `entriesSpec.schema` and the
-`entries.get` contract output, so there is no separate `failureSchema` field.
+is **inferred** from it (no explicit type args). The optional **`name`** is the sibling
+key the map is mounted under in a combined surface (kolu's `"padi"`, drishti's
+`"hosts"`); it drives the client's transport slice (below) so no stringly key is written
+at any connection site. The `SurfaceMap` carries
+`{ keySchema, entry, contract, surfaceContract, entriesSpec, codec, name }`;
+`surfaceContract` is the `.surface` fragment of `contract`, exposed as a first-class
+field so a host splices a **typed** value (`{ surface: { …, [name]: map.surfaceContract } }`)
+with no `as any`. `entriesSpec` is the membership collection's wire spec, always
+string-keyed. The domain failure schema is the `failure` argument itself — embedded in
+`entriesSpec.schema` and the `entries.get` contract output, so there is no separate
+`failureSchema` field.
 
 `connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
-`conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws.
-When `siblingKey` is given, the map slices the scoped sibling *after* the
-half-open guard, so the scope inherits the parent's watchdog by construction.
+`conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws. The
+transport-slice key derives from **`map.name`**: a named map is sliced from the combined
+handle by that name *after* the half-open guard (so the scope inherits the parent's
+watchdog by construction), and a nameless map is served at the transport root and not
+sliced. There is no `siblingKey` argument — the key comes from the declaration.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="define" />
 
@@ -48,7 +56,7 @@ lenses onto an entry.
 | `live` | `Accessor<boolean>` — resolved transport liveness for the membership strip |
 | `codec` | `KeyCodec<Key>` — the one key-identity authority; `encode`/`decode` the canonical wire string |
 | `entry(key)` | `Entry<ES>` — the pure point lens (no owner, no I/O, total) |
-| `useEntry(keyAccessor)` | `Entry<ES>` — the Solid lens; re-keys on key change; throws ownerless |
+| `useEntry(keyAccessor)` | `Entry<ES>` — the Solid lens; re-keys on key change **and on a same-key membership re-add** (a new `membershipId`); throws ownerless |
 | `dispose()` | tear down |
 
 An `Entry<ES>` carries `cells` / `collections` / `streams` / `events` (the same
@@ -159,6 +167,7 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
 
 - **Absence from `entries` is "not a member".** There is no `absent` arm — a collection already expresses absence by not carrying the key. Client reads stay total via an explicit `{ kind: "not-a-member" }` value; the wire never carries it.
+- **Every arm carries a `membershipId`.** `serveSurfaceMap` stamps an opaque, never-reused `crypto.randomUUID()` when a key **enters** membership, drops it when the key leaves, and publishes it on the `warming` / `connected` / `failed` arms alike. The client keys every cached per-key owner on `{encodedKey, membershipId}`, so a same-key remove/re-add (a new id) and an authority restart (fresh ids for every member — the id map is per-server-instance, never reused across a restart) rebuild subscriptions **by construction** — no hand-rolled generation rearm. It is framework identity, not something a display consumer reads (they switch on `kind`, read `failure`/`clockOffset`).
 - **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` → `warming`; `connected` → `connected`; a `disconnected` carrying a standing domain failure, or a terminal `failed`, → `failed`; a plain transient `disconnected` (no specific failure) → `warming`. `warming` means in motion (self-heals — an unreachable box retrying at backoff is warming, not failed); `failed` means it needs intervention.
 - **`Failure` is a type parameter.** It defaults to `unknown` and is inferred from the map's `failure` schema; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map so `.failure` narrows there. The package carries the discriminant, never the enumeration.
 - **The `failed` arm carries a schema-valid domain `failure` value**, validated by the map's own `failure` schema — not a loose object. padi's `PadiEntryFailure` is a `z.discriminatedUnion` over a structural `cause`, each arm carrying its human `reason` (and the `contract-skew-refused` arm additionally a typed `running`/`expected` version pair), so a consumer reads `state.failure.cause` / `state.failure.reason` (and `.running`/`.expected` on the skew arm) with full narrowing.

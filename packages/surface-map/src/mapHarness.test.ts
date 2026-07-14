@@ -420,20 +420,21 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(9) the { live } override is unspellable — the 3rd arg is a siblingKey string, not a raw liveness accessor", () => {
+  it("(9) the { live } override is unspellable — there is NO 3rd arg; liveness rides only the branded transport", () => {
     const map = buildTestMap({
       key: HostKeySchema,
       entry: entrySurface,
       codec: identityCodec,
     });
     // Liveness comes ONLY from a branded LiveSignalHandle (its watchdog `live`) or a
-    // constant-true in-process directLink; a raw accessor over a bare link (the #1564
-    // green-over-dead lie) cannot be SPELLED — the 3rd arg is a siblingKey string.
+    // constant-true in-process directLink. PR3 removed the `siblingKey` param (the slice
+    // key derives from `map.name` now), so there is no 3rd argument at all — a raw
+    // liveness accessor (the #1564 green-over-dead lie) has nowhere to go.
     const bad = () =>
       connectSurfaceMap(
         map,
         {} as unknown,
-        // @ts-expect-error — `{ live }` is not assignable to `siblingKey?: string`.
+        // @ts-expect-error — connectSurfaceMap takes exactly 2 args; there is no 3rd seam.
         { live: () => true },
       );
     expect(bad).toBeDefined();

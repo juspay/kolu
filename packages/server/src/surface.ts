@@ -86,8 +86,12 @@ const servedContract = oc.router({
   ...contract,
   surface: {
     ...composeSurfaceContracts(surfacesWithPadi).surface,
-    // biome-ignore lint/suspicious/noExplicitAny: padiHostMap.contract is AnyContractRouter; its `.surface` is the folded map fragment.
-    padi: (padiHostMap.contract as any).surface,
+    // Overwrite the plain `padi` sibling with the keyed MAP's folded surface fragment.
+    // The value is the map's TYPED `surfaceContract` field — no `as any` reaching into
+    // `.contract` (PR3); the map owns the single library-side cast, so this connection
+    // site stays cast-free. (`padi` is the surface NAMESPACE the composed contract
+    // already declares, matched to `padiHostMap.name`.)
+    padi: padiHostMap.surfaceContract,
   },
 });
 

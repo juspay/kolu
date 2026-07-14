@@ -401,9 +401,15 @@ function rpcDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
  *  link), so a per-key chip floors its status on real transport liveness.
  *
  *  `transport` is either a BRANDED `LiveSignalHandle` (a websocket's watchdog live — for
- *  a combined socket, pass the WHOLE handle + `siblingKey` to slice the map's sibling),
- *  or a bare in-process `directLink` (constant-`true`). A bare half-open wire link THROWS
- *  — a raw `{ live: () => true }` over a dead transport is unspellable (#1564). */
+ *  a combined socket, the map's sibling is sliced by `map.name` from the WHOLE handle), or
+ *  a bare in-process `directLink` (constant-`true`). A bare half-open wire link THROWS — a
+ *  raw `{ live: () => true }` over a dead transport is unspellable (#1564).
+ *
+ *  The transport-slice key is `map.name` (PR3): a map DECLARED with a mount name (kolu's
+ *  `"padi"`, drishti's `"hosts"`) is sliced from the combined transport by that name, so
+ *  the connection site passes NO stringly sibling key — the key derives from the
+ *  declaration. A nameless map (the in-process harness) is served at the transport root
+ *  and is not sliced. */
 export function connectSurfaceMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
@@ -411,7 +417,6 @@ export function connectSurfaceMap<
 >(
   map: SurfaceMap<KS, ES, Failure>,
   transport: unknown,
-  siblingKey?: string,
 ): SurfaceMapClient<KS, ES, Failure> {
   type K = z.infer<KS>;
 
@@ -422,7 +427,7 @@ export function connectSurfaceMap<
   // pass the whole branded handle + `siblingKey`: the sibling is sliced from the resolved
   // link AFTER the guard, so it inherits the PARENT's watchdog `live` by construction —
   // there is no bare slice paired with a fabricated accessor.
-  // connectSurfaceMap OWNS the slicing (via `siblingKey`), so `transport` must be the
+  // connectSurfaceMap OWNS the slicing (by `map.name`), so `transport` must be the
   // BRANDED parent handle (a `LiveSignalHandle`, whose watchdog `live` the sliced sibling
   // inherits) or an in-process `directLink` (sound constant-`true`). A RAW PRE-SLICED wire
   // link — `scopeSibling(conn.link, "padi")` — or any other unbranded wire link is a
@@ -435,14 +440,17 @@ export function connectSurfaceMap<
   if (!isLiveSignalHandle(transport) && !isDirectLink(transport)) {
     throw new Error(
       "connectSurfaceMap: pass the BRANDED parent transport handle (e.g. `conn.transport` " +
-        "from connectSurfaces) + a siblingKey — or an in-process `directLink`. A pre-sliced " +
+        "from connectSurfaces) — or an in-process `directLink`. A pre-sliced " +
         "or bare wire link cannot carry the half-open watchdog live; its by-exclusion " +
         "constant-`true` liveness would floor a green chip over a dead transport (#1564 / #1580).",
     );
   }
   const { link: fullLink, live } = resolveTransport(transport);
+  // The transport-slice key derives from the map DECLARATION (`map.name`), never a
+  // caller-passed string (PR3). A named map is a sibling of the combined transport and is
+  // sliced by that name; a nameless map is served at the root and is not sliced.
   const baseLink =
-    siblingKey !== undefined ? scopeSibling(fullLink, siblingKey) : fullLink;
+    map.name !== undefined ? scopeSibling(fullLink, map.name) : fullLink;
 
   // Capture the STABLE client owner: per-key clients' dedup caches must be
   // client-lifetime, never the transient `.use()`/mapArray owner that first

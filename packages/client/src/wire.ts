@@ -56,7 +56,6 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { floorConnectionInfo } from "./host/connectionFloor.ts";
-import { createRejoinKeyedSub } from "./host/connectionRearm.ts";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
@@ -150,12 +149,13 @@ export const surfaceApp = clients.surfaceApp;
 // ── The padi MAP — a keyed map of remote surfaces: ONE entry surface (`padiSurface`)
 //    served N times, keyed by host. `padi` is no longer a single client — every host's
 //    padi rides `padiMap.entry(host)` (a pure point lens) or `padiMap.useEntry(activeHost)`
-//    (a reactive lens that re-keys on switch). The map is dialled over the `padi` SIBLING
-//    of `conn`'s BRANDED transport handle: `connectSurfaceMap` slices `padi` from it and
-//    recovers the parent `connectSurfaces` watchdog `live` by construction (the handle is
-//    unforgeable), so every chip floors on the real socket — there is no raw `{ live }`
-//    seam to pass a green-over-dead accessor through.
-export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, "padi");
+//    (a reactive lens that re-keys on switch). The map is dialled over `conn`'s BRANDED
+//    transport handle: `connectSurfaceMap` slices the sibling BY `padiHostMap.name`
+//    ("padi", declared on the map — PR3, no stringly key here) and recovers the parent
+//    `connectSurfaces` watchdog `live` by construction (the handle is unforgeable), so
+//    every chip floors on the real socket — there is no raw `{ live }` seam to pass a
+//    green-over-dead accessor through.
+export const padiMap = connectSurfaceMap(padiHostMap, conn.transport);
 
 /** The ONE membership-error handler for `padiMap.entries` — shared by BOTH whole-collection
  *  consumers (this module's reconcile sub + `HostSelectorStrip`'s strip) so a membership-stream
@@ -233,17 +233,17 @@ export const client = link;
 // view-selection state downstream of this module; see its header. What STAYS in this
 // app-lifetime `createRoot` is the state that is NOT per-host-retained:
 //   - `preferences` — HOST-INDEPENDENT (no host to capture);
-//   - `members` — the ONE `entries` membership authority (shared by the connection re-arm,
-//     the reconcile below, and HostSelectorStrip via the base-client ref-count);
-//   - `connection` — the ACTIVE host's link-health cell (W6), via `createRejoinKeyedSub`,
+//   - `members` — the ONE `entries` membership authority (shared by the reconcile below and
+//     HostSelectorStrip via the base-client ref-count);
+//   - `connection` — the ACTIVE host's link-health cell (W6), via `useEntry(activeHost)`,
 //     deliberately kept ACTIVE-HOST ONLY, not retained: a background host's connect
 //     narration is not something to hold warm;
 //   - the host-membership reconcile + `rpc` (`active.rpc` off `useEntry(activeHost)`, a
 //     point client that re-keys freely).
 //
-// `connection` (via `createRejoinKeyedSub`) and `rpc` (via `useEntry(activeHost)`) are
-// deliberately ACTIVE-HOST-ONLY — cheap to re-open, and `connection` must re-key on switch to
-// narrate the newly-active host. A single `createRoot` at module init is their app-lifetime
+// `connection` and `rpc` (both off `useEntry(activeHost)`) are deliberately ACTIVE-HOST-ONLY
+// — cheap to re-open, and the keyed lens re-keys on switch (to narrate the newly-active host)
+// AND on a same-key re-add (a new `membershipId`). A single `createRoot` at module init is their app-lifetime
 // owner — never disposed.
 const hostScoped = createRoot(() => {
   const active = padiMap.useEntry(activeHost);
@@ -277,21 +277,16 @@ const hostScoped = createRoot(() => {
   // cold remote provision narrates its real phase instead of a mute "Connecting…".
   // Deliberately ACTIVE-HOST-ONLY (not retained per host in `createHostWire`): a background
   // host's connect-phase narration is not a fact to hold warm — only the host you are
-  // looking at needs its overlay live. Re-keys with the entry on host switch AND on a
-  // membership RE-JOIN (d1): the server ends the per-entry connection stream TYPED when the
-  // host flaps out of membership (a re-add mints a fresh session; the captured forward
-  // correctly orphans), and `useEntry` does not re-key on a same-key re-join — so without
-  // this the cell would strand at its last phase over a live transport. `createRejoinKeyedSub`
-  // rebuilds a fresh subscription on re-join.
-  const connection = createRejoinKeyedSub<ConnectionInfo>(
-    activeHost,
-    () => members.keys(),
-    (host) =>
-      padiMap.entry(host).cells.connection.use({
-        onError: (err: Error) =>
-          toast.error(`Connection subscription error: ${err.message}`),
-      }).value,
-  );
+  // looking at needs its overlay live. `useEntry` re-keys the subscription on a host switch
+  // AND on a same-key membership RE-JOIN: the server ends the per-entry connection stream
+  // TYPED when the host flaps out of membership (a re-add mints a fresh session; the
+  // captured forward correctly orphans), and the entry's opaque `membershipId` changes on
+  // that re-add, so the keyed lens disposes the stranded stream and opens a fresh one BY
+  // CONSTRUCTION (PR3 — this is what retired the hand-rolled `createRejoinKeyedSub` rearm).
+  const connection = padiMap.useEntry(activeHost).cells.connection.use({
+    onError: (err: Error) =>
+      toast.error(`Connection subscription error: ${err.message}`),
+  }).value;
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader

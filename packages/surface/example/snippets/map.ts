@@ -328,9 +328,11 @@ const kill = (
 
 // #region entrystatus
 type EntryStatus<Failure = unknown> =
-  | { kind: "warming" }
-  | { kind: "connected"; clockOffset: number } // the serving process's own-clock offset
-  | { kind: "failed"; failure: Failure }; // the schema-valid domain failure value
+  // `membershipId`: opaque, never-reused per-add identity — clients key cached owners on
+  // `{encodedKey, membershipId}`, so a same-key re-add / authority restart rebuilds.
+  | { kind: "warming"; membershipId: string }
+  | { kind: "connected"; membershipId: string; clockOffset: number } // own-clock offset
+  | { kind: "failed"; membershipId: string; failure: Failure }; // schema-valid domain failure
 // #endregion entrystatus
 
 // Grounding: the shape shown above is mutually assignable to the real exported
