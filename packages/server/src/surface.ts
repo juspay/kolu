@@ -61,7 +61,11 @@ import {
   type koluSurface,
   surfaces,
 } from "kolu-common/surface";
-import { padiHostMap, surfacesWithPadi } from "kolu-common/surfacesWithPadi";
+import {
+  PADI_SURFACE_NAME,
+  padiHostMap,
+  surfacesWithPadi,
+} from "kolu-common/surfacesWithPadi";
 import {
   serverCommit,
   serverProcessId,
@@ -102,9 +106,9 @@ const servedContract = oc.router({
     // Overwrite the plain `padi` sibling with the keyed MAP's folded surface fragment.
     // The value is the map's TYPED `surfaceContract` field — no `as any` reaching into
     // `.contract` (PR3); the map owns the single library-side cast, so this connection
-    // site stays cast-free. (`padi` is the surface NAMESPACE the composed contract
-    // already declares, matched to `padiHostMap.name`.)
-    padi: padiHostMap.surfaceContract,
+    // site stays cast-free. The key is {@link PADI_SURFACE_NAME}, the SAME const the map's
+    // `name` and every other mount reference.
+    [PADI_SURFACE_NAME]: padiHostMap.surfaceContract,
   },
 });
 

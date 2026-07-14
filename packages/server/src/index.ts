@@ -56,6 +56,7 @@ import {
   type HostKey,
   HostKeySchema,
   LOCAL_HOST,
+  PADI_SURFACE_NAME,
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
@@ -532,7 +533,7 @@ const padiMap = serveHostMap(padiHostMap, pool, {
 const surfaceRouter = {
   surface: {
     ...koluSurfaceRouter.surface,
-    padi: padiMap.router.surface,
+    [PADI_SURFACE_NAME]: padiMap.router.surface,
   },
 };
 

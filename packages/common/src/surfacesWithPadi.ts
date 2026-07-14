@@ -51,9 +51,15 @@ export type {
   ConnectPhase,
 } from "@kolu/surface-remote/connection";
 
+/** The single sibling key the padi map is mounted, composed, and served under
+ *  (`surface.padi.*`). Single-sourced so the composed contract, the map's own `name`,
+ *  and both server splice sites reference ONE literal — change it here and every mount
+ *  moves together (no "keep the string in sync" convention across files). */
+export const PADI_SURFACE_NAME = "padi" as const;
+
 export const surfacesWithPadi = {
   ...surfaces,
-  padi: padiSurface,
+  [PADI_SURFACE_NAME]: padiSurface,
 } as const;
 
 /** `HostKey`'s string codec, for `defineSurfaceMap` — a discriminated-sum OBJECT is
@@ -175,10 +181,10 @@ export const padiHostMap = defineSurfaceMap({
   entry: padiEntrySurface,
   codec: hostKeyCodec,
   failure: PadiEntryFailureSchema,
-  // The sibling key this map is mounted + served under (`surface.padi.*`). Declaring it
-  // HERE is the typed connection key (PR3): `connectSurfaceMap(padiHostMap, transport)`
-  // slices `padi` from the combined socket by this name, and the server splices the map
-  // under `padiHostMap.surfaceContract` — so no `"padi"` string is written at any
-  // connection site, and no `as any` reaches into the contract.
-  name: "padi",
+  // The sibling key this map is mounted + served under (`surface.padi.*`), single-sourced
+  // through {@link PADI_SURFACE_NAME} (PR3): `connectSurfaceMap(padiHostMap, transport)`
+  // slices this name from the combined socket, and both server splice sites mount under
+  // the SAME const — so the mount name lives in ONE place, not a "keep three literals in
+  // sync" convention, and no `as any` reaches into the contract.
+  name: PADI_SURFACE_NAME,
 });
