@@ -35,7 +35,7 @@ Almost nothing visible — deliberately. This is a pure consolidation, and its i
 
 The structural verdict: none of these needs a new package. Each move completes a receptacle that already owns the volatility, and each is proven by what it lets a consumer *delete*.
 
-### A runtime you can serve — SR1
+### SR1 — A runtime you can serve
 
 `implementSurface` still returns an intermediate fragment — `{ router: { surface: … }, ctx }` — and every consumer must know the one correct oRPC finalization step.<Footnote>The fragment return: <Cite file="packages/surface/src/server.ts" lines="1958-1962" rev="2b83737fd8f3" />. The three re-learnings: kolu finalizes via `implement(servedContract)` in <Cite file="packages/server/src/surface.ts" lines="85-99" rev="2b83737fd8f3" />; drishti wraps the fragment in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/agent/src/main.ts" lines="404-409" />; odu does it twice, in <Cite repo="juspay/odu" rev="c3f24013daae" file="src/runner/runner.ts" lines="339" /> and <Cite repo="juspay/odu" rev="c3f24013daae" file="src/coordinator/run.ts" lines="469" />. Odu already reaches `implementSurface`, so its finalization is down to one line per site — but it is still a caller obligation the framework should own.</Footnote> The runtime becomes a directly servable, supervised resource:
 
@@ -51,11 +51,11 @@ interface SurfaceRuntime<S extends SurfaceSpec> {
 
 Async cell connectors receive an abort signal and return a disposer; reactor subscriptions, map subscriptions, and re-served pumps all join `done` and `close`. A `close` that ignores today's `cell.connect`, reactor, or `reServeSurface.done` would be ceremonial and is not acceptable. The ordinary constructor owns `inMemoryChannelByName()` internally; kolu's shared publisher stays a distinct, explicit constructor (`implementSurfaceOnPublisher`) because its cross-channel microtask order is load-bearing — two ownership promises, not an override knob.
 
-### Procedures join the typed dual — SR2
+### SR2 — Procedures join the typed dual
 
 Cells, collections, streams, and events receive bound client capabilities; procedures alone remain behind raw `rpc`, so every consumer casts.<Footnote>The asymmetry: <Cite file="packages/surface/src/solid/surfaceClient.ts" lines="309-324" rev="2b83737fd8f3" /> — four bound member kinds plus a generic `rpc` field. Kolu recovers `PadiRpc` with a cast in <Cite file="packages/client/src/wire.ts" lines="202-207" rev="2b83737fd8f3" /> (a second cast at line 402); drishti casts `HostRpc` and `AdminScopedRpc` slices in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/wire.ts" lines="124-155" />.</Footnote> Every declared procedure appears at `client.procedures.<namespace>.<verb>` and on a map entry; the casts and their copied callable shapes delete.
 
-### Membership is time, and time is a fact — SR3
+### SR3 — Membership is time, and time is a fact
 
 A key that leaves and returns is a *new member* even when its spelling is unchanged. `serveSurfaceMap` stamps `crypto.randomUUID()` as an opaque `membershipId` on every add — never reused across map-server restart, published on every status arm — and clients key every cached owner on `{encodedKey, membershipId}`, so same-key remove/re-add and authority restart rebuild subscriptions by construction:
 
@@ -73,7 +73,7 @@ Two riders land here because they touch the same admit/connection seam:
 - **The typed connection key.** Kolu reconnects its map by the string `"padi"` and drishti by `"hosts"` — a stringly sibling key at every connection site.<Footnote>Kolu: <Cite file="packages/client/src/wire.ts" lines="158" rev="2b83737fd8f3" />; drishti: <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/wire.ts" lines="97" />. The server-side dual — the widened `as any` contract splice — is kolu's <Cite file="packages/server/src/surface.ts" lines="85-99" rev="2b83737fd8f3" /> plus the router splice in <Cite file="packages/server/src/index.ts" lines="484-516" rev="2b83737fd8f3" />, repeated by drishti in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/server/admin-router.ts" lines="187-208" />. This was the deferred suite package's one real client-side move; it lands here as a typed key derived from the declaration, without the package.</Footnote>
 - **`clockNow` as a framework-reserved member.** `makeSession` measures the clock offset at admit automatically (the reserved-member pattern `system.identity` already shipped), the `offsetOf` injection point ceases to be a caller obligation, and drishti's `offsetOf: () => 0` stub deletes. It rides the membership PR because both rework the same admit seam.
 
-### Failure is domain data, never fabricated — SR4
+### SR4 — Failure is domain data, never fabricated
 
 The map's TypeScript cause narrows while its wire schema accepts any string, and the server fills an absent cause with `"other"`.<Footnote>The narrowing: <Cite file="packages/surface-map/src/define.ts" lines="70-73" rev="2b83737fd8f3" /> against the loose wire arm at <Cite file="packages/surface-map/src/define.ts" lines="94-102" rev="2b83737fd8f3" /> (`cause: z.string()` at line 100). The fabrications: <Cite file="packages/surface-map/src/server.ts" lines="200" rev="2b83737fd8f3" /> and <Cite file="packages/surface-map/src/server.ts" lines="301" rev="2b83737fd8f3" />.</Footnote> `SurfaceMap` takes a real failure schema, and `failureOf` is required and total:
 
@@ -98,7 +98,7 @@ serveHostMap(padiHostMap, pool, {
 
 The migration starts from Padi's real producers — contract skew, cross-supervisor, the two drv failures, unconverged, link failure, and the structural cases currently collapsed into `other` — and gives every structural producer a named arm. `failureOf` is total but not exhaustively non-null: its `null` is a single-meaning "keep warming" verdict for a transient drop (never a fabricated cause), while an *unclassifiable* terminal failure throws — neither Padi nor the framework may publish a renamed catch-all. A schema validates this value; it never derives one.
 
-### One protocol across the wire — SR5
+### SR5 — One protocol across the wire
 
 A collection should stay one protocol when it crosses a network. Drishti's process fact is both a Surface collection and a second snapshot/delta stream *because* the remote mirror fans collections into `keys` plus one `get` stream per key.<Footnote>The fan-out: <Cite file="packages/surface/src/mirrorRemoteSurface.ts" lines="415-443" rev="2b83737fd8f3" /> — and the sweep confirms no collection-level `deltas` verb is consumed anywhere yet. Drishti's resulting dual: the collection and the parallel `processesSnapshot` stream declared together in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/common/src/surface.ts" lines="259-291" />, the extra stream implemented in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/agent/src/main.ts" lines="252-262" />, the parent reducer in <Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/server/router.ts" lines="409-434" />.</Footnote> `mirrorRemoteSurface` selects a collection's declared `deltas` verb and folds the initial snapshot plus batches into its existing sink; `reServeSurface` inherits that path and returns a normal supervised `SurfaceRuntime`; relay loss crosses oRPC as a named retryable transport end.
 
@@ -106,7 +106,7 @@ Parent-owned additions remain causally separate from mirroring: `extendSurface(m
 
 This PR reworks the re-serve internals, so two standing cleanups in them ride along as side effects: the opaque-client navigation casts in `reServeSurface.ts` collapse into one typed helper with one justification, and the hand-rolled additive in-memory collection shape gets a single implementation.
 
-### Adopt before you mint — SR6
+### SR6 — Adopt before you mint
 
 Some cleanup is adoption rather than invention, and it needs no new framework API. One-shot reads keep the existing non-empty first-frame contract (`firstFrameOrThrow`) instead of open-coding iterator advancement; socket acceptance, connection presentation, attention, and combined health all have existing primitives consumers should reach before the framework grows another concept.<Footnote>`firstFrameOrThrow`: <Cite file="packages/surface/src/firstFrame.ts" lines="42-48" rev="2b83737fd8f3" />. The primitives to adopt: `acceptSurfaceSocket` in <Cite file="packages/surface-app/src/server.ts" lines="597-640" rev="2b83737fd8f3" />, `presentingDown` in <Cite file="packages/surface-app/src/solid/index.ts" lines="674-677" rev="2b83737fd8f3" />, `setAttention` in <Cite file="packages/surface-app/src/solid/index.ts" lines="584-602" rev="2b83737fd8f3" />; drishti already computes combined health from its two siblings via `surfaceClientsHealth` (<Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/App.tsx" lines="461-466" />).</Footnote> This is consumer-side and may ride SR1–SR5's branches rather than ship alone.
 
