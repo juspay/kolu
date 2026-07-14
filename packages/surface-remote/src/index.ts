@@ -86,6 +86,8 @@ export {
   type MembershipPool,
   type ServeHostMapOptions,
   serveHostMap,
+  UnclassifiedHostFailureError,
+  UnclassifiedHostSessionError,
 } from "./serveHostMap";
 export {
   type Admit,
@@ -97,6 +99,10 @@ export {
   type Connection,
   type Connector,
   type DestroyableSession,
+  // The DOWN arms (`disconnected`/`failed`) of `SessionState` — already the declared
+  // param type of `ServeHostMapOptions.failureOf`, so a consumer implementing that
+  // classifier can name what it receives.
+  type DownSessionState,
   type MakeSessionOptions,
   makeSession,
   type Session,

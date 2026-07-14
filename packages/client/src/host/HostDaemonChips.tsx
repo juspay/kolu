@@ -25,7 +25,7 @@ import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type {
-  PadiEntryStatus,
+  PadiEntryFailure,
   SkewVersionPair,
 } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
@@ -70,10 +70,18 @@ function entryAsPadiLink(state: EntryState): PadiLink | undefined {
 }
 
 function skewPairFor(host: HostKey): SkewVersionPair | undefined {
-  const state = padiMap.entry(host).state() as PadiEntryStatus;
-  if (state.kind !== "failed" || state.cause !== "contract-skew-refused")
+  // The failed arm carries the schema-valid `PadiEntryFailure`, whose skew arm
+  // types `running`/`expected` directly (both OPTIONAL — the binder may omit them).
+  // `SkewVersionPair` is now the honestly-optional schema-derived type, so the
+  // returned pair needs NO `as SkewVersionPair` cast — the type stops lying about
+  // possibly-undefined fields being present.
+  const state = padiMap.entry(host).state();
+  if (
+    state.kind !== "failed" ||
+    state.failure.cause !== "contract-skew-refused"
+  )
     return undefined;
-  const { running, expected } = state as SkewVersionPair;
+  const { running, expected } = state.failure;
   return { running, expected };
 }
 
@@ -85,11 +93,11 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
  *  static and interactive marks. */
 function useHostPadi(host: HostKey): {
   live: () => boolean;
-  entry: () => EntryState;
+  entry: () => EntryState<PadiEntryFailure>;
   link: () => PadiLink | undefined;
 } {
   const live = daemonTransportLive;
-  const entry = (): EntryState => padiMap.entry(host).state();
+  const entry = (): EntryState<PadiEntryFailure> => padiMap.entry(host).state();
   const link = (): PadiLink | undefined =>
     live() ? entryAsPadiLink(entry()) : undefined;
   return { live, entry, link };

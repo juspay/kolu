@@ -25,7 +25,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import { hostMap } from "../common/map";
+import { type HostFailure, hostMap } from "../common/map";
 import { buildHostBinding, type HostBinding } from "./hosts";
 
 const HOSTS = (process.env.HOST ?? "localhost")
@@ -54,7 +54,7 @@ for (const b of bindings.values()) {
   });
 }
 
-const registry: MapRegistry<string, "copying", string> = {
+const registry: MapRegistry<string, "copying", HostFailure> = {
   members: () => [...bindings.keys()],
   subscribe: (onChange) => {
     changeCbs.add(onChange);
@@ -63,7 +63,8 @@ const registry: MapRegistry<string, "copying", string> = {
   has: (k) => bindings.has(k),
   resolve: (k) => {
     const b = bindings.get(k);
-    if (b === undefined) return { kind: "fault", failed: `unknown host: ${k}` };
+    if (b === undefined)
+      return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
     return { kind: "session", link: b.link, state: b.state() };
   },
 };

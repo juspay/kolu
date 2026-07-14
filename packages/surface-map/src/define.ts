@@ -58,48 +58,49 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  source — one writer publishes membership + status together). `clockOffset`
  *  is the serving process's own-clock offset at hello (one named writer, P3).
  *
- *  `Cause` is the FAILURE-CAUSE discriminant carried on the `failed` arm — generic
- *  (option 2 of the W4 types decision), defaulting to `= string` so every EXISTING
- *  consumer that reads `.cause` as a bare string keeps compiling untouched. A
- *  domain (padi: `EntryFailedCause`) instantiates `EntryStatus<PadiCause>` at ITS
- *  OWN map so `.cause` narrows there — `@kolu/surface-map` itself stays
- *  volatility-neutral (dependency-arrow-out): it carries the discriminant, it
- *  never enumerates what a domain's causes ARE. `reason` stays a human string,
- *  NEVER parsed for control flow; `kind` stays the outer discriminant, `cause` is
- *  a sibling field on the SAME `failed` arm (not a second `kind`). */
-export type EntryStatus<Cause extends string = string> =
+ *  `Failure` is the DOMAIN FAILURE VALUE carried on the `failed` arm — a whole,
+ *  schema-validated domain value (padi's `PadiEntryFailure`: a discriminated
+ *  union over a structural `cause`, its human `reason`, and any typed per-cause
+ *  sidecar), NOT a bare string cause. `@kolu/surface-map` itself stays
+ *  volatility-neutral (dependency-arrow-out): it carries the value and validates
+ *  it against the map's OWN `failure` schema, but never enumerates what a
+ *  domain's failures ARE. The failed arm can NEVER be entered without such a
+ *  value — the framework has no fabricated fallback cause (PR4), so "failed with
+ *  an invented reason" is unrepresentable, not merely discouraged. Defaults to
+ *  `unknown` so generic library code carries the value opaquely; a domain
+ *  narrows it at its own map. */
+export type EntryStatus<Failure = unknown> =
   | { kind: "warming" }
   | { kind: "connected"; clockOffset: number }
-  | { kind: "failed"; reason: string; cause: Cause };
+  | { kind: "failed"; failure: Failure };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
  *  lives HERE (the contract module, solid-free), not in the client, so a NODE consumer that
  *  re-exports it type-only through `index.ts` never drags the Solid/DOM client into its
  *  typecheck (surface-remote would otherwise fail on onWake's `window`/`document`). */
-export type EntryState<Cause extends string = string> =
-  | EntryStatus<Cause>
+export type EntryState<Failure = unknown> =
+  | EntryStatus<Failure>
   | { kind: "not-a-member" };
 
-/** The wire/zod schema for {@link EntryStatus}. Backs both the `entries`
- *  collection contract and the client-side bound collection value. The `failed`
- *  arm is a LOOSE object (`z.looseObject`, zod v4): `cause` is validated as a bare
- *  `z.string()` (this generic package can't know a domain's narrower `Cause`
- *  literal union at the schema level — only at the TS type level, via the `Cause`
- *  type param above), and any EXTRA domain fields a producer attaches (padi's D2
- *  typed `running`/`expected` version pair on the `contract-skew-refused` cause)
- *  ride through untouched rather than being stripped by zod's default
- *  strip-unknown-keys behavior — a `strict`/plain `z.object` here would silently
- *  drop them on the wire. */
-export const entryStatusSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("warming") }),
-  z.object({ kind: z.literal("connected"), clockOffset: z.number() }),
-  z.looseObject({
-    kind: z.literal("failed"),
-    reason: z.string(),
-    cause: z.string(),
-  }),
-]) satisfies ZodType<EntryStatus>;
+/** The wire/zod schema for {@link EntryStatus}, built from the map's OWN domain
+ *  `failure` schema. Backs both the `entries` collection contract and the
+ *  client-side bound collection value. The `failed` arm carries `failure:
+ *  <the map's domain schema>` — so the domain value is VALIDATED on the wire
+ *  (PR4: the old loose `cause: z.string()` is gone; a domain's structural cause
+ *  union, its `reason`, and any typed per-cause sidecar — padi's `running`/
+ *  `expected` skew pair — are all validated by the domain schema itself, not
+ *  waved through as unknown extras). A generic package can't know the domain's
+ *  schema, so this is a FUNCTION of it rather than a module const. */
+export function entryStatusSchema<Failure>(
+  failureSchema: ZodType<Failure>,
+): ZodType<EntryStatus<Failure>> {
+  return z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("warming") }),
+    z.object({ kind: z.literal("connected"), clockOffset: z.number() }),
+    z.object({ kind: z.literal("failed"), failure: failureSchema }),
+  ]) as unknown as ZodType<EntryStatus<Failure>>;
+}
 
 // ── Key-fold contract builders (mirror @kolu/surface/define, +mapKey) ───
 //
@@ -269,13 +270,16 @@ function foldedMembers(
  *  IS the map key). Its wire key is ALWAYS `z.string()` (the canonical encoded
  *  form; see the module doc) — the client reads it (`keys`/`get`) and decodes
  *  through {@link KeyCodec}; the server is the sole writer (membership is
- *  published, not mutated over the wire). */
-function entriesContract(): Record<string, unknown> {
+ *  published, not mutated over the wire). Takes the ALREADY-built
+ *  {@link entryStatusSchema} (derived ONCE in {@link defineSurfaceMap}) as the
+ *  per-entry `get` output, so the same instance backs both this contract and
+ *  `entriesSpec.schema` rather than being computed twice. */
+function entriesContract(statusSchema: ZodType): Record<string, unknown> {
   return {
     keys: oc.output(eventIterator(z.array(z.string()))),
     get: oc
       .input(z.object({ key: z.string() }))
-      .output(eventIterator(entryStatusSchema)),
+      .output(eventIterator(statusSchema)),
   };
 }
 
@@ -316,7 +320,7 @@ export interface KeyCodec<K> {
 export interface SurfaceMap<
   KS extends ZodType,
   ES extends SurfaceSpec = SurfaceSpec,
-  Cause extends string = string,
+  Failure = unknown,
 > {
   /** The key schema — `keySchema.parse` (paired with `codec.decode`) is the sole
    *  producer of a validated key from a wire string. */
@@ -328,48 +332,58 @@ export interface SurfaceMap<
    *  entries } }`. A canonical-string `mapKey` is folded into every entry-member
    *  input; `entries` is the membership collection (unfolded). */
   readonly contract: AnyContractRouter;
-  /** The membership collection's spec — `Collection<string, EntryStatus<Cause>>`
+  /** The membership collection's spec — `Collection<string, EntryStatus<Failure>>`
    *  on the wire (see the module doc for why the collection key is always a plain
    *  string), read-only. Backs both the server's `entries` handlers and the
    *  client's bound collection; both decode through {@link codec} at their own
    *  API boundary. */
-  readonly entriesSpec: CollectionSpec<string, EntryStatus<Cause>>;
+  readonly entriesSpec: CollectionSpec<string, EntryStatus<Failure>>;
   /** The string <-> key codec — see {@link KeyCodec}. */
   readonly codec: KeyCodec<z.infer<KS>>;
 }
 
-/** Build a `SurfaceMap` from a key schema, an entry surface, and the key's
- *  string codec (required — see {@link KeyCodec}; a plain-string `K` passes the
- *  identity pair). `Cause` (the failure-cause discriminant, see {@link EntryStatus})
- *  defaults to `string` — an unnarrowed call site is unaffected; a domain map
- *  (padi) instantiates `defineSurfaceMap<KS, ES, PadiEntryFailedCause>(...)`
- *  explicitly (nothing in the runtime args lets it be inferred). */
+/** Build a `SurfaceMap` from a key schema, an entry surface, the key's string
+ *  codec (required — see {@link KeyCodec}; a plain-string `K` passes the identity
+ *  pair), and — REQUIRED (PR4) — the domain `failure` schema that validates the
+ *  value on a failed entry. `Failure` is INFERRED from the `failure` schema, so a
+ *  domain map needs no explicit type argument: `defineSurfaceMap({ key, codec,
+ *  entry, failure: PadiEntryFailureSchema })` gives back a
+ *  `SurfaceMap<…, PadiEntryFailure>` whose `failed` arm can only carry a
+ *  schema-valid `PadiEntryFailure`. */
 export function defineSurfaceMap<
   KS extends ZodType,
   const ES extends SurfaceSpec,
-  Cause extends string = string,
->(
-  keySchema: KS,
-  entry: Surface<ES>,
-  codec: KeyCodec<z.infer<KS>>,
-): SurfaceMap<KS, ES, Cause> {
+  Failure,
+>(opts: {
+  key: KS;
+  entry: Surface<ES>;
+  codec: KeyCodec<z.infer<KS>>;
+  failure: ZodType<Failure>;
+}): SurfaceMap<KS, ES, Failure> {
+  const { key: keySchema, entry, codec, failure } = opts;
   const members = foldedMembers(entry.spec);
+  // Build the EntryStatus schema from the map's `failure` ONCE, then thread the SAME
+  // instance to both homes that need it — the `entries.get` contract output and the
+  // `entriesSpec` collection value — rather than deriving the identical schema twice.
+  const statusSchema = entryStatusSchema(failure);
   const contract = oc.router({
     surface: {
       ...members,
-      entries: entriesContract(),
+      entries: entriesContract(statusSchema),
     },
   } as unknown as AnyContractRouter) as AnyContractRouter;
 
-  const entriesSpec: CollectionSpec<string, EntryStatus<Cause>> = {
+  const entriesSpec: CollectionSpec<string, EntryStatus<Failure>> = {
     keySchema: z.string(),
-    // `entryStatusSchema` validates `cause` as a bare `z.string()` (see its own
-    // doc) — sound for ANY `Cause extends string` instantiation at RUNTIME (every
-    // real `Cause` value IS a string), so this is a widen-then-narrow cast, not an
-    // unsound one: the schema over-accepts at the wire, `Cause` narrows the TS view.
-    schema: entryStatusSchema as unknown as ZodType<EntryStatus<Cause>>,
+    schema: statusSchema,
     verbs: ["keys", "get"],
   };
 
-  return { keySchema, entry, contract, entriesSpec, codec };
+  return {
+    keySchema,
+    entry,
+    contract,
+    entriesSpec,
+    codec,
+  };
 }

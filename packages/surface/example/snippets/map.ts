@@ -76,13 +76,23 @@ const DEFAULT_LOAD: SF["cells"]["load"]["Value"] = { avg: [0, 0, 0] };
 const HostKeySchema = z.string();
 const identityCodec: KeyCodec<string> = { encode: (k) => k, decode: (s) => s };
 
-const hostMap = defineSurfaceMap(HostKeySchema, entry, identityCodec);
+// The domain failure schema validates the value a failed entry publishes — a
+// failed member cannot exist without one (there is no fabricated fallback cause).
+const hostFailureSchema = z.object({ reason: z.string() });
+type HostFailure = z.infer<typeof hostFailureSchema>;
+
+const hostMap = defineSurfaceMap({
+  key: HostKeySchema,
+  entry,
+  codec: identityCodec,
+  failure: hostFailureSchema,
+});
 // #endregion define
 
 // ── One binding per host: dial over ssh, mirror inward, re-serve a link ──
 interface HostBinding {
   link: unknown;
-  state(): EntryConnectionState<"copying">;
+  state(): EntryConnectionState<"copying", HostFailure>;
   onStateChange(cb: () => void): () => void;
   destroy(): void;
 }
@@ -93,7 +103,7 @@ interface HostBinding {
 // `copying` bucket; the fine phase rides the per-host `connection` cell.
 function projectState(
   s: SessionState<SshProv>,
-): EntryConnectionState<"copying"> {
+): EntryConnectionState<"copying", HostFailure> {
   switch (s.phase) {
     case "probing":
     case "copying":
@@ -104,9 +114,11 @@ function projectState(
     case "connected":
       return { kind: "connected", clockOffset: 0 };
     case "disconnected":
-      return { kind: "disconnected", reason: s.error };
+      // Transient (no domain failure) → projects to `warming`, self-heals.
+      return { kind: "disconnected" };
     case "failed":
-      return { kind: "failed", reason: s.error };
+      // A terminal give-up carries the schema-valid domain failure it publishes.
+      return { kind: "failed", failure: { reason: s.error } };
   }
 }
 
@@ -213,17 +225,19 @@ export function serveMap(hosts: string[], agentDrv: string) {
   // #region registry
   // The hand-built MapRegistry is the ONE writer of membership; `resolve(host)`
   // hands the map each host's link + projected connection state.
-  const registry: MapRegistry<string, "copying", string> = {
+  const registry: MapRegistry<string, "copying", HostFailure> = {
     members: () => [...bindings.keys()],
     subscribe: (onChange) => {
       changeCbs.add(onChange);
       return () => changeCbs.delete(onChange);
     },
     has: (k) => bindings.has(k),
-    resolve: (k): EntrySession<"copying"> | EntryFault => {
+    resolve: (
+      k,
+    ): EntrySession<"copying", HostFailure> | EntryFault<HostFailure> => {
       const b = bindings.get(k);
       if (b === undefined)
-        return { kind: "fault", failed: `unknown host: ${k}` };
+        return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
       return { kind: "session", link: b.link, state: b.state() };
     },
   };
@@ -313,10 +327,10 @@ const kill = (
 // #endregion rpc
 
 // #region entrystatus
-type EntryStatus<Cause extends string = string> =
+type EntryStatus<Failure = unknown> =
   | { kind: "warming" }
   | { kind: "connected"; clockOffset: number } // the serving process's own-clock offset
-  | { kind: "failed"; reason: string; cause: Cause };
+  | { kind: "failed"; failure: Failure }; // the schema-valid domain failure value
 // #endregion entrystatus
 
 // Grounding: the shape shown above is mutually assignable to the real exported

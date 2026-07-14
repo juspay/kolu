@@ -86,13 +86,17 @@ const padiHostMap = defineSurfaceMap({
 });
 
 serveHostMap(padiHostMap, pool, {
-  failureOf(host, session, downState): PadiEntryFailure {
-    return classifyPadiFailure(host, session, downState); // exhaustive
+  // A verdict, not a fabrication: a schema-valid failure, or `null` = "this down
+  // state is not a standing failure — keep the entry warming" (a live host's normal
+  // reconnect window). A terminal give-up that yields `null` is a classification
+  // defect and fails loud (`UnclassifiedHostFailureError`), never a bucketed catch-all.
+  failureOf(host, session, downState): PadiEntryFailure | null {
+    return classifyPadiFailure(host, session, downState);
   },
 });
 ```
 
-The migration starts from Padi's real producers — contract skew, cross-supervisor, the two drv failures, unconverged, link failure, and the structural cases currently collapsed into `other` — and gives every structural producer a named arm. An unclassified producer throws; neither Padi nor the framework may publish a renamed catch-all. A schema validates this value; it never derives one.
+The migration starts from Padi's real producers — contract skew, cross-supervisor, the two drv failures, unconverged, link failure, and the structural cases currently collapsed into `other` — and gives every structural producer a named arm. `failureOf` is total but not exhaustively non-null: its `null` is a single-meaning "keep warming" verdict for a transient drop (never a fabricated cause), while an *unclassifiable* terminal failure throws — neither Padi nor the framework may publish a renamed catch-all. A schema validates this value; it never derives one.
 
 ### One protocol across the wire — PR 5
 
