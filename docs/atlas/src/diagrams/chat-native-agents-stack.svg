@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 612" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="kolu in one picture, drawn as three bands with two different relationships rather than a rigid dependency tower. On top, XS — the chat app: an independent app that already runs without kolu and owns chat, presence, identity and login, and who-may-write. It integrates kolu through one seam: observe (read) plus act (write). In the middle, kolu — the terminal/file foundation: kaval owns each live terminal and serializes writes, pulam watches every terminal as read-only awareness, and @kolu/surface is the typed wire over any transport. kolu runs headlessly on any machine and is model-agnostic across claude, codex, and opencode. At the bottom, any machine kolu runs on: your laptop, a server, or a remote sandbox — an Incus cluster owned by another team, naturally supported because a remote host is just another place to dial the surface. The top relationship is integration; the bottom relationship is execution; chat, presence, and login live in XS.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 612" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="kolu in one picture, drawn as three bands with two different relationships rather than a rigid dependency tower. On top, XS — the chat app: an independent app that already runs without kolu and owns chat, presence, identity and login, and who-may-write. It integrates kolu through one seam: observe (read) plus act (write). In the middle, kolu — the terminal/file foundation: kaval owns each live terminal and serializes writes, padi watches every terminal as read-only awareness, and @kolu/surface is the typed wire over any transport. kolu runs headlessly on any machine and is model-agnostic across claude, codex, and opencode. At the bottom, any machine kolu runs on: your laptop, a server, or a remote sandbox — an Incus cluster owned by another team, naturally supported because a remote host is just another place to dial the surface. The top relationship is integration; the bottom relationship is execution; chat, presence, and login live in XS.">
   <defs>
     <marker id="st-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10z" fill="#475569"/>
@@ -59,16 +59,16 @@
   <text class="leaf-s" x="191" y="382" text-anchor="middle">serializes writes &#183; last wins</text>
 
   <rect class="blue-leaf" x="294" y="300" width="186" height="106" rx="7"/>
-  <text class="leaf-t" x="387" y="324" text-anchor="middle">pulam</text>
+  <text class="leaf-t" x="387" y="324" text-anchor="middle">padi</text>
   <text class="leaf-s" x="387" y="344" text-anchor="middle">watches every terminal</text>
-  <text class="leaf-s" x="387" y="361" text-anchor="middle">read-only awareness:</text>
+  <text class="leaf-s" x="387" y="361" text-anchor="middle">agent sensors + sessions:</text>
   <text class="leaf-s" x="387" y="378" text-anchor="middle">a &#8220;who needs me&#8221; board</text>
 
   <rect class="blue-leaf" x="490" y="300" width="172" height="106" rx="7"/>
   <text class="leaf-t" x="576" y="324" text-anchor="middle">@kolu/surface</text>
   <text class="leaf-s" x="576" y="344" text-anchor="middle">the typed wire</text>
   <text class="leaf-s" x="576" y="361" text-anchor="middle">over any transport:</text>
-  <text class="leaf-s st-mono" x="576" y="378" text-anchor="middle" font-size="10px">socket &#183; ssh &#183; Incus</text>
+  <text class="leaf-s st-mono" x="576" y="378" text-anchor="middle" font-size="10px">socket &#183; ssh &#183; remote hosts</text>
 
   <!-- arrow kolu -> machine (execution) -->
   <path class="edge" d="M380 428 L380 470" marker-end="url(#st-arrow)"/>
