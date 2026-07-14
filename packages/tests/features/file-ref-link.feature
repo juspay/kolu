@@ -35,6 +35,43 @@ Feature: File-ref autolinking in terminal
     And xterm's helper textarea should not have been focused by tapping the link
     And there should be no page errors
 
+  @mobile
+  Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)
+    # PR-2 divisor unification — the regression guard for the extracted touch tap
+    # UNDER a CSS transform. FIDELITY CAVEAT, stated plainly: the real kolu state
+    # this guards is a touch tap on the DESKTOP canvas's zoomed tile — which needs
+    # a coarse-PRIMARY pointer that CAN hover. Chromium CANNOT emulate that
+    # quadrant: touch emulation welds `(hover:none)` on, and without touch the
+    # primary pointer is `fine` — a two-run CI oracle proved BOTH directions
+    # (with hasTouch → {coarse:true, hover:false}; without → {coarse:false,
+    # hover:true}; CDP `setEmulatedMedia` pointer/hover features had NO effect).
+    # So `(pointer:coarse) and (hover:hover)` is unreachable, and this runs in the
+    # reachable @mobile touch config with an INJECTED CSS `scale()` as the
+    # stand-in for the tile-zoom transform. `cellAtPoint` reads the transform off
+    # `getBoundingClientRect`/`offsetWidth` (corrected once by
+    # `patchTransformAwareMouseCoords`), so the transform's SOURCE (injected vs
+    # canvas zoom) is transparent to the code under test — this exercises the
+    # exact tap path (`wireTouchTaps` → `cellAtPoint`) under a real CSS transform.
+    # Corroborated by `canvas-selection.feature` (the SAME authority under real
+    # canvas zoom, for selection) and the `cellAtPoint` unit delegation pin in
+    # `internals.test.ts`. It guards the path; it does NOT disprove the deleted
+    # `rect.width/cols` (a centre tap resolves identically under both — sub-pixel).
+    When I run "git init /tmp/kolu-file-ref-scale && cd /tmp/kolu-file-ref-scale"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > scale.txt"
+    And I run "echo 'open scale.txt:3 to inspect'"
+    # Inject the ancestor CSS scale (the reachable stand-in for canvas zoom), then
+    # tap the glyph's now-magnified visual centre — it must still resolve to the
+    # ref (drawer opens; a mis-resolved tap would land on plain content and focus
+    # the keyboard instead).
+    And I scale the active terminal tile by 1.6
+    And I arm the soft-keyboard focus probe
+    And I watch for the right-panel drawer to open
+    And I tap the terminal file-ref link "scale.txt:3" at its font-metric visual centre
+    Then the right-panel drawer should have opened
+    And xterm's helper textarea should not have been focused by tapping the link
+    And there should be no page errors
+
   Scenario: Clicking a line-range file-ref opens the file
     When I run "git init /tmp/kolu-file-ref-861-range && cd /tmp/kolu-file-ref-861-range"
     And I run "git commit --allow-empty -m init"

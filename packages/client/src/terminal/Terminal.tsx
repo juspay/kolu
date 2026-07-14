@@ -1,30 +1,26 @@
 /**
- * Terminal component — owns xterm.js lifecycle, oRPC streaming, and resize fitting.
+ * Terminal component — kolu's POLICY half over `<Xterm>` (@kolu/xterm-kit/solid).
  *
- * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here
- * reactively via a fontSize signal.
+ * The xterm hazards (owner-correct async construction + disposal, WebGL context
+ * lifetime, the scroll lock + its DOM wiring, render recovery, the touch surface)
+ * live in `<Xterm>`. This component wires only "which bytes, when, for whom":
+ * the attach stream + backfill, keybindings, the PTY, diagnostics, focus policy,
+ * paste/drop, and the touch-tap → file-ref decision — all in `onReady`, inside
+ * the component's reactive owner so cleanups run.
+ *
+ * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here reactively
+ * via a fontSize signal, passed to <Xterm> as the fontSize prop.
  */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
-import { FitAddon } from "@xterm/addon-fit";
-import { ImageAddon } from "@xterm/addon-image";
-import { SearchAddon } from "@xterm/addon-search";
-import { SerializeAddon } from "@xterm/addon-serialize";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
+import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
 import {
   type Component,
   createEffect,
   createSignal,
-  getOwner,
   on,
   onCleanup,
-  onMount,
-  runWithOwner,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -39,6 +35,13 @@ import {
   isTerminalQueryResponse,
   wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
+import { createSnapshotBoundary } from "@kolu/xterm-kit";
+import {
+  type BackfillController,
+  createBackfillController,
+} from "@kolu/xterm-kit/backfill";
+import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
+import { Xterm, type XtermHandle } from "@kolu/xterm-kit/solid";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
@@ -51,12 +54,6 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
-import {
-  createRenderRecovery,
-  createScrollLock,
-  enableSoftKeyboardInput,
-  wireScrollIntent,
-} from "@kolu/xterm-kit/solid";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import { activePadiRpc, preferences } from "../wire";
@@ -68,11 +65,6 @@ import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
-import { createSnapshotBoundary } from "@kolu/xterm-kit";
-import {
-  type BackfillController,
-  createBackfillController,
-} from "@kolu/xterm-kit/backfill";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { useTerminalActivity } from "./useTerminalActivity";
@@ -83,10 +75,6 @@ import {
   trackDispose,
   trackLoseContextCalled,
 } from "./webglTracker";
-import {
-  patchTransformAwareMouseCoords,
-  readBufferBytes,
-} from "@kolu/xterm-kit/internals";
 
 /** Module-level counters for the #606 disposal audit. Exposed to window
  *  via `debug/consoleHooks.ts`. `mounts` increments once per component
@@ -132,22 +120,17 @@ const Terminal: Component<{
   isSub?: boolean;
 }> = (props) => {
   lifecycleCounters.mounts++;
-  let containerRef!: HTMLDivElement;
-  let terminal: XTerm | null = null;
-  let fitAddon: FitAddon | null = null;
+  // Policy refs, set in onReady and nulled in onCleanup so this component's
+  // closures don't retain the xterm graph after disposal (the #606 leak — the
+  // kit disposes the terminal itself; we release only our own references).
   let linkProviderDisposable: { dispose(): void } | null = null;
   let backfill: BackfillController | null = null;
-  const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
-  const scrollLock = createScrollLock(() => preferences().scrollLock);
+  let streamAbort: AbortController | null = null;
+  let disposeDiagnostics: (() => void) | null = null;
+  let webglTrackerId: number | null = null;
+  const [handle, setHandle] = createSignal<XtermHandle | null>(null);
   const terminalStore = useTerminalStore();
   const activity = useTerminalActivity();
-  let fitRaf = 0;
-
-  /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
-  function debouncedFit() {
-    cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(() => fitAddon?.fit());
-  }
 
   // Gate zoom on `focused`, not `visible`: in canvas mode every tile is
   // `visible` (so inactive xterms stay sized), so a `visible` gate let every
@@ -160,37 +143,16 @@ const Terminal: Component<{
   const isFocused = () => props.focused === true;
   const fontSize = createZoom(props.terminalId, isFocused);
 
-  let streamAbort: AbortController | null = null;
-  let webgl: WebglAddon | null = null;
-  let webglCanvas: HTMLCanvasElement | null = null;
-  let webglTrackerId: number | null = null;
-  let disposeDiagnostics: (() => void) | null = null;
-  /** True once this component's reactive owner has been disposed. Set by the
-   *  synchronously-registered `onCleanup` below. The async `onMount` body
-   *  checks this after each `await` and bails rather than creating xterm /
-   *  WebGL state that no cleanup path can reach — the root of the #591
-   *  orphan-canvas leak (SolidJS `onCleanup` registered inside a disposed
-   *  owner is a silent no-op, so onCleanup inside the async body would not
-   *  run when an `<Show>` toggle disposes the owner during a mode switch). */
-  let disposed = false;
-  const [hasWebgl, setHasWebgl] = createSignal(false);
-
-  /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
-  function clearTextureAtlas() {
-    webgl?.clearTextureAtlas();
-  }
-
   /** Capability: a terminal may hold a WebGL context only when it's both
    *  rendering (`visible`) and within the WebGL budget — the most-recently-active
    *  tiles that fit under WEBGL_CONTEXT_CAP, each tile costing main pane + active
    *  split (`store.holdsWebgl`; see webglBudget.ts, #1399). Budgeting by recency
    *  rather than the single focused tile keeps WebGL on both sides of an A↔B
    *  switch, so the ~7.7% font reflow on focus swap is gone. Terminals outside
-   *  the budget fall back to xterm's built-in DOM renderer via
-   *  `WebglAddon.dispose()`. The `visible` guard keeps mobile (one visible tile)
-   *  and collapsed splits off WebGL regardless of recency. Distinct from
-   *  `isFocused` (zoom + `data-focused`): a budgeted tile holds WebGL even when
-   *  it isn't the focused one. */
+   *  the budget fall back to xterm's built-in DOM renderer. The `visible` guard
+   *  keeps mobile (one visible tile) and collapsed splits off WebGL regardless of
+   *  recency. Distinct from `isFocused` (zoom + `data-focused`): a budgeted tile
+   *  holds WebGL even when it isn't the focused one. */
   const canUseWebgl = () =>
     props.visible && terminalStore.holdsWebgl(props.terminalId);
   /** Dispatch on user renderer policy:
@@ -204,80 +166,13 @@ const Terminal: Component<{
       .with("dom", () => false)
       .exhaustive();
 
-  function loadWebgl() {
-    if (!terminal || webgl) return;
-    try {
-      // Single owner of WebglAddon lifetime — any future construction-time
-      // flag (e.g. preserveDrawingBuffer for screenshots, #574) must be
-      // routed through this effect, not a parallel dispose/reconstruct path.
-      const w = new WebglAddon();
-      w.onContextLoss(() => unloadWebgl());
-      terminal.loadAddon(w);
-      webgl = w;
-      // Capture the canvas the addon just appended so we can explicitly
-      // release its GPU context on unload — see unloadWebgl.
-      //
-      // xterm's WebglRenderer constructor appends the LinkRenderLayer's 2D
-      // canvas (`class="xterm-link-layer"`) to `.xterm-screen` before it
-      // appends its own WebGL canvas (which has no class). A bare
-      // `querySelector(".xterm-screen canvas")` returns the first match in
-      // document order — the link layer — whose `getContext("webgl2")`
-      // returns null, silently short-circuiting the `loseContext()` chain in
-      // `unloadWebgl()`. Diagnosed via #595's `webglTracker`:
-      // `contextsLost` stayed at 0 despite `loseContext-called` events
-      // firing for every disposed canvas (#591). Exclude the link layer
-      // explicitly so we grab the real WebGL canvas.
-      webglCanvas =
-        terminal.element?.querySelector<HTMLCanvasElement>(
-          ".xterm-screen canvas:not(.xterm-link-layer)",
-        ) ?? null;
-      // Register for lifecycle observation (#591 debug). No-op if no canvas.
-      if (webglCanvas)
-        webglTrackerId = trackCreate(props.terminalId, webglCanvas);
-      setHasWebgl(true);
-    } catch {
-      // WebGL unavailable — xterm's DOM renderer is the fallback
-    }
-  }
-
-  function unloadWebgl() {
-    const w = webgl;
-    if (!w) return;
-    // Null out first: `loseContext()` below fires `webglcontextlost`
-    // synchronously, which re-enters this function via the addon's
-    // `onContextLoss` listener. The guard above short-circuits the reentry.
-    webgl = null;
-    setHasWebgl(false);
-    // Explicitly release the GPU context. xterm's dispose() removes the
-    // canvas from the DOM but does NOT call WEBGL_lose_context.loseContext(),
-    // so Chrome keeps the context alive on the detached canvas until GC.
-    // Rapid focus changes create contexts faster than GC runs and overflow
-    // Chrome's ~16-context-per-tab budget, at which point Chrome starts
-    // evicting live contexts — including the focused tile's — producing a
-    // flicker across every tile. loseContext() releases GPU memory in the
-    // current microtask, keeping the live set within the WebGL budget — the
-    // recently-active tiles that fit under WEBGL_CONTEXT_CAP, each costing main
-    // pane + active split (see webglBudget.ts, #1399).
-    if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
-    webglCanvas
-      ?.getContext("webgl2")
-      ?.getExtension("WEBGL_lose_context")
-      ?.loseContext();
-    webglCanvas = null;
-    w.dispose();
-    if (webglTrackerId !== null) {
-      trackDispose(webglTrackerId);
-      webglTrackerId = null;
-    }
-  }
-
   // Selection-driven focus. Desktop raises the keyboard when a tile becomes
   // active/visible; on touch that's intrusive — the soft keyboard should only
-  // rise from an explicit tap (the wrapper-click and pointerup handlers in
-  // onMount), never as a side-effect of switching/revealing a tile. So this is
-  // a no-op on touch. Real taps still call terminal.focus() directly.
+  // rise from an explicit tap (<Xterm>'s tap surface), never as a side-effect of
+  // switching/revealing a tile. So this is a no-op on touch. Real taps still
+  // call terminal.focus() directly.
   function focusOnSelection() {
-    if (!isTouch()) terminal?.focus();
+    if (!isTouch()) handle()?.terminal?.focus();
   }
 
   // Open a `path:line` reference in the Code tab. Shared by the hover link
@@ -290,88 +185,28 @@ const Terminal: Component<{
     openInCodeTab({ ref, repoRoot, cwd: meta?.cwd, targetMode: "browse" });
   }
 
-  // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
-  // Only auto-focus if this terminal should have focus (focused prop is true or unset).
-  // defer: true skips the initial run (onMount handles first fit + focus).
-  createEffect(
-    on(
-      () => props.visible,
-      (visible) => {
-        if (!visible || !terminal) return;
-        scrollLock.reset();
-        terminal.scrollToBottom();
-        debouncedFit();
-        if (props.focused !== false) focusOnSelection();
-      },
-      { defer: true },
-    ),
-  );
+  // The touch-tap → file-ref decision (policy): resolve the tapped cell through
+  // xterm's single pointer→cell authority (cellAtPoint, /internals — the divisor
+  // selection/hover share), hit-test the link parser, and follow a hit. Returns
+  // true if the tap was consumed (so <Xterm> doesn't summon the soft keyboard).
+  const onTap = (clientX: number, clientY: number): boolean => {
+    const term = handle()?.terminal;
+    if (!term) return false;
+    const cell = cellAtPoint(term, clientX, clientY);
+    if (!cell) return false;
+    const bufferLine = term.buffer.active.viewportY + cell.row;
+    const ref = fileRefAtCell(term, cell.col, bufferLine);
+    if (ref) {
+      activateFileRef(ref);
+      return true;
+    }
+    return false;
+  };
 
-  // Restore focus from two trigger sources, one guard. The `focused` prop
-  // transitioning to true (e.g. a sub-panel toggle) grabs focus; and the host
-  // bumping `refocusNonce` re-fires this effect WITHOUT a `focused` transition.
-  // The re-grab still requires `props.focused` (only the focus-owning pane
-  // responds) — it's the *edge-less re-fire* that's new: a sibling sub-tab close
-  // moves focus to the (about-to-be-removed) close button without changing this
-  // pane's `focused`, so the nonce is what repairs it before the browser's
-  // non-deterministic focus-after-removal lands (the linux flake this fixes).
-  // `on` over the array re-runs when either element changes.
-  createEffect(
-    on(
-      () => [props.focused, props.refocusNonce] as const,
-      () => {
-        if (props.focused && props.visible && terminal) focusOnSelection();
-      },
-      { defer: true },
-    ),
-  );
-
-  // Reconcile this terminal's WebGL context against `shouldUseWebgl()`: load
-  // when it enters the budget (recently-active tile or its active split),
-  // unload when it leaves — the live set stays under WEBGL_CONTEXT_CAP (see
-  // webglBudget.ts, #1399).
-  // defer: true — onMount handles the initial load before xterm is constructed.
-  createEffect(
-    on(
-      shouldUseWebgl,
-      (should) => {
-        if (!terminal) return;
-        if (should) loadWebgl();
-        else unloadWebgl();
-      },
-      { defer: true },
-    ),
-  );
-
-  // Refocus terminal when search bar closes — only if this terminal should have focus.
-  createEffect(
-    on(
-      () => props.searchOpen,
-      (open) => {
-        if (!open && props.visible && props.focused !== false && terminal)
-          focusOnSelection();
-      },
-      { defer: true },
-    ),
-  );
-
-  // Apply theme changes at runtime — xterm.js supports live theme switching.
-  createEffect(
-    on(
-      () => props.theme,
-      (theme) => {
-        if (!terminal) return;
-        terminal.options.theme = theme;
-        clearTextureAtlas();
-      },
-      { defer: true },
-    ),
-  );
-
-  /** Resize the server-side PTY so node-pty matches the xterm grid. */
-  async function publishDimensions() {
-    if (!terminal) return;
-    const { cols, rows } = terminal;
+  /** Resize the server-side PTY so node-pty matches the xterm grid. Driven by
+   *  <Xterm>'s onResize (term.onResize + the post-fit initial publish). */
+  async function publishDimensions(size: { cols: number; rows: number }) {
+    const { cols, rows } = size;
     if (cols <= 0 || rows <= 0) return;
     // A PTY resize makes the shell REPAINT (SIGWINCH) — a genuine delta on the
     // attach stream, but not real activity. Suppress the live-activity ping for
@@ -390,778 +225,447 @@ const Terminal: Component<{
     }
   }
 
-  // Apply font-size changes reactively (initial value handled by XTerm constructor)
+  // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
+  // owner, so every listener / disposable registered here is cleaned up on
+  // disposal alongside the terminal the kit owns.
+  const onReady = (h: XtermHandle) => {
+    setHandle(h);
+    const term = h.terminal;
+
+    // Kolu-owned bridge consumed by e2e step definitions — `support/buffer.ts`,
+    // `step_definitions/file_ref_link_steps.ts`, and friends read
+    // `container.__xterm` to drive xterm's public API (buffer reads,
+    // cell-to-pixel math). Removing this silently breaks every cucumber test
+    // that touches terminal contents. Cleared in the teardown below.
+    (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = term;
+
+    // Consumer teardown registered HERE, inside onReady — NOT at the component
+    // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
+    // body-registered `onCleanup` lands FIRST on the shared owner and runs LAST
+    // under SolidJS LIFO — after the kit's `terminal.dispose()` / webgl-unload,
+    // and (since `cleanNode` has no per-entry try/catch) skipped entirely if
+    // either throws. Registered from inside `onReady` it lands AFTER the kit's
+    // disposal registrations, so LIFO runs it FIRST: the stream aborted, the
+    // refs/diagnostics deregistered, backfill disposed, and the `__xterm` #606
+    // bridge cleared BEFORE the terminal is disposed — the old single-function
+    // order (`Terminal.tsx`'s pre-cut cleanup), restored across the boundary.
+    onCleanup(() => {
+      streamAbort?.abort();
+      unregisterTerminalRefs(props.terminalId);
+      activity.forget(props.terminalId);
+      disposeDiagnostics?.();
+      disposeDiagnostics = null;
+      linkProviderDisposable?.dispose();
+      linkProviderDisposable = null;
+      backfill?.dispose();
+      backfill = null;
+      (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = undefined;
+      setHandle(null);
+    });
+
+    // Linkify `path:line[:col][-end]` references in terminal output. The link
+    // provider reads repoRoot from the terminal store at click time (not at
+    // mount) so a cwd change keeps subsequent clicks anchored to the new repo.
+    linkProviderDisposable = term.registerLinkProvider(
+      createFileRefLinkProvider(term, { onActivate: activateFileRef }),
+    );
+    term.loadAddon(new ClipboardAddon(undefined, new SafeClipboardProvider()));
+
+    // Production path for handlers that need live xterm/addon refs (e.g.
+    // export-as-PDF reads the serialize addon; diagnostics read the probes).
+    registerTerminalRefs(props.terminalId, {
+      xterm: term,
+      serialize: h.addons.serialize,
+      probes: {
+        webglAtlas: () => h.webgl.textureAtlasSize(),
+        bufferBytes: () => readBufferBytes(term),
+        scrollLockEvents: () => h.scrollLock.events(),
+        ...h.recovery.probes,
+      },
+    });
+    // Diagnostics subscribes to hasWebgl via accessor — keeps it the single
+    // source of truth, no imperative updater to forget.
+    disposeDiagnostics = registerDiagnostics(props.terminalId, {
+      xterm: term,
+      renderer: () => (h.webgl.hasWebgl() ? "webgl" : "dom"),
+      scrollLock: {
+        locked: h.scrollLock.isLocked,
+        pendingChunks: h.scrollLock.pendingChunks,
+        lastEvent: h.scrollLock.lastEvent,
+      },
+    });
+
+    // xterm.js has attachCustomKeyEventHandler for intercepting keys.
+    // Return false to prevent xterm from handling the key.
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      // Shift+PageUp / Shift+PageDown are the ONLY chords this xterm build turns
+      // into a viewport scroll (KeyboardResultType.PAGE_UP / PAGE_DOWN →
+      // scrollLines). Shift+Home/End emit escape SEQUENCES, not scrolls — arming
+      // on them would leave a stale intent that an unrelated programmatic
+      // off-bottom scroll could latch onto within the window (#1272). So arm
+      // only on the keys that actually scroll; the resulting synchronous
+      // onScroll must read as user intent or the latch suppresses it. The key
+      // still falls through to xterm below.
+      if (
+        e.type === "keydown" &&
+        e.shiftKey &&
+        (e.key === "PageUp" || e.key === "PageDown")
+      ) {
+        h.scrollLock.armUserScrollIntent("keyboard");
+      }
+
+      // Let Cmd+key pass through to browser (except copy/paste without Shift)
+      if (e.metaKey) {
+        const key = e.key.toLowerCase();
+        if ((key === "c" || key === "v") && !e.shiftKey) return true;
+        return false;
+      }
+
+      // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
+      // paste listener uploads images; xterm's own paste handler covers text.
+      if (e.ctrlKey && e.key === "v") return false;
+
+      // Ctrl+Shift+C — Linux/Windows terminal copy chord. Without preventDefault,
+      // Chromium hijacks the chord to open DevTools' Inspect Element picker.
+      // xterm's selection isn't reflected in the textarea either, so we copy via
+      // getSelection() ourselves. Must come before the matchesAnyShortcut check
+      // below, since copySelection is registered there for ShortcutsHelp
+      // visibility but dispatched here.
+      if (matchesKeybind(e, ACTIONS.copySelection.keybind)) {
+        e.preventDefault();
+        const selection = term.getSelection();
+        if (selection)
+          writeTextToClipboard(selection)
+            .then(() => toast.success("Copied selection to clipboard"))
+            .catch((err: Error) => {
+              console.error("Failed to copy selection:", err);
+              toast.error(`Failed to copy selection: ${err.message}`);
+            });
+        return false;
+      }
+
+      // Let any registered app shortcut bubble through to the capture-phase dispatcher
+      if (matchesAnyShortcut(e)) return false;
+
+      return true;
+    });
+
+    // Track user-initiated focus for "remember last focused" in sub-panel
+    if (props.onFocus && term.textarea) {
+      makeEventListener(term.textarea, "focus", props.onFocus);
+    }
+
+    // On tab re-show, re-fit, clear the atlas, flush a lock engaged while hidden
+    // (#1272), and force a sync repaint of a possibly parked-rAF frame.
+    refitOnTabVisible(
+      () => {
+        h.refit();
+        h.webgl.clearTextureAtlas();
+        h.scrollLock.handleTabVisible();
+        h.recovery.recover();
+      },
+      () => props.visible,
+    );
+
+    streamAbort = new AbortController();
+    const signal = streamAbort.signal;
+
+    // Scrollback backfill: attach paints only the recent screenful; as the user
+    // scrolls up, fetch older chunks from kaval and prepend them into this
+    // terminal's own scrollback. Seeded from the attach snapshot's `topLine`
+    // (below); self-manages the near-top trigger and the reset/resize races.
+    backfill = createBackfillController(term, {
+      fetch: (before, max, epoch) =>
+        activePadiRpc.surface.screen.history({
+          id: props.terminalId,
+          before,
+          max,
+          epoch,
+        }),
+      // A killed terminal's NOT_FOUND is swallowed inside the controller; any
+      // OTHER backfill fetch fault (transport, schema, server) surfaces here
+      // rather than silently leaving a scrollback hole. A later scroll retries.
+      onError: (err) =>
+        toast.error(
+          `Failed to load older scrollback: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    });
+
+    // The attach stream's FIRST yield is a serialized screen snapshot
+    // (scrollback), not live output — see `terminal.attach` in router.ts.
+    // Lighting the live dot for it would mean a quiet terminal with scrollback
+    // flashes "live" for ~1s on every mount, mode remount, or reconnect retry —
+    // the indicator lying exactly when a glance across the workspace relies on
+    // it. The snapshot boundary swallows that one frame's `noteOutput`, then
+    // every later chunk is a genuine PTY delta. It re-arms in `onRetry` because a
+    // transparent re-subscribe replays a fresh snapshot first too. The snapshot
+    // is still WRITTEN to xterm; only the activity ping is suppressed.
+    const snapshotBoundary = createSnapshotBoundary();
+    // Reset xterm + the scroll lock and re-arm the snapshot boundary so the NEXT
+    // stream's first frame (a fresh snapshot) replaces stale bytes without
+    // double-painting. Shared by the inner `onRetry` (a transparent STREAM_RETRY
+    // re-subscribe on a transport blip) and the outer re-attach (a mid-chain padi
+    // death STREAM_RETRY won't retry — done-criterion (c)).
+    const resetForFreshSnapshot = () => {
+      handle()?.terminal?.reset();
+      h.scrollLock.reset();
+      snapshotBoundary.armSnapshot();
+      // Forget the backfill cursor: the next frame is a fresh snapshot that
+      // re-seeds it (below). Fetching against the old cursor would splice onto
+      // the terminal we just reset.
+      backfill?.reset();
+    };
+    // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
+    // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
+    // OWN concern — surfaced in-pane (a reset + visible retry on `onRetry`, the
+    // snapshot re-armed), not folded into padi's fleet/host `health()` gate. A
+    // single terminal's re-attach (overflow re-attach #1591, PTY exit) must never
+    // flicker the global connection-health indicator. So it deliberately uses
+    // `unenrolledStreamCall` (`@kolu/surface/client`) — the bare, un-enrolled
+    // call — rather than `padi.rawStream`'s structural health enrolment, and the
+    // `unenrolled-` name makes that a visible decision at the call site.
+    consumeReattachingStream(
+      () =>
+        unenrolledStreamCall(
+          activePadiRpc.surface.terminalAttach.get,
+          { id: props.terminalId },
+          { signal, onRetry: resetForFreshSnapshot },
+        ),
+      (frame) => {
+        // A `snapshot` frame begins a fresh snapshot (initial attach or a
+        // MID-STREAM overflow re-attach). Consume it as one indivisible act:
+        // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously
+        // RIGHT HERE — before the bytes are written or scroll-lock-buffered — so
+        // an in-flight fetch's continuation can't splice across the RIS this frame
+        // carries onto the reset buffer. It returns a committer that SEEDS only
+        // once the snapshot has PARSED into the buffer (run from the write callback
+        // below): parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
+        // climbs from 0 through the near-top trigger band, and a cursor seeded up
+        // front would let one of those fire an unsolicited fetch onto a
+        // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM, so no
+        // fetch fires until a real user scroll-up. The committer rides the write
+        // callback, which scroll-lock preserves across a buffered flush — so the
+        // seed can't be lost while the user is scrolled up.
+        const commitSeed =
+          frame.kind === "snapshot"
+            ? backfill?.consumeSnapshotFrame(
+                frame.topLine,
+                frame.reflowEpoch,
+                // An overflow re-attach snapshot's data LEADS with a RIS
+                // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
+                // controller's esc handler pauses on THIS frame's own leading RIS
+                // too, so the controller must know it's coming: the seam captures
+                // the committer's baseline one generation-bump BEFORE that RIS and
+                // PREDICTS it, so the frame's own reset doesn't read as an
+                // invalidation that revokes this frame's re-seed — otherwise
+                // backfill pauses forever after a re-attach (F11).
+                frame.data.startsWith(TERMINAL_RESET),
+              )
+            : undefined;
+        // A consumed snapshot frame carries its OWN seed seam (with a per-frame
+        // token) so the controller captures its committer baseline at the
+        // snapshot's byte position, not at receipt — the F11 fix under scroll
+        // lock, where a foreign RIS buffered ahead of this snapshot would
+        // otherwise steal its seed. The controller mints the seam bytes
+        // (`commitSeed.seam`); prepended ONLY when a controller actually consumed
+        // the frame, so the seam and the controller's pending-seed FIFO stay 1:1.
+        const data = commitSeed
+          ? `${commitSeed.seam}${frame.data}`
+          : frame.data;
+        if (handle()) {
+          // Every chunk AFTER the snapshot boundary is live output — light the
+          // terminal's live-activity dot (dock + title), even when scroll-locked
+          // (the bytes still arrived; the user just isn't at the bottom). The
+          // store debounces back to static after a quiet gap.
+          if (snapshotBoundary.isLiveDelta()) {
+            activity.noteOutput(props.terminalId);
+          }
+          // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
+          // `term.write` returns immediately and parses the chunk asynchronously
+          // (off a setTimeout), so noteData() run here synchronously would arm a
+          // 250ms timer against data not yet in the buffer. Passing noteData as
+          // xterm's write callback arms it when the chunk has actually landed in
+          // the buffer and a paint should follow. scroll-lock buffers a chunk ->
+          // no paint -> the callback isn't invoked NOW; it is stashed WITH the
+          // chunk, and flush() fires every buffered chunk's callback once the
+          // buffered write parses on unlock — so the snapshot re-seed committer
+          // that rides this callback survives the lock instead of being dropped.
+          h.write(data, () => {
+            h.recovery.noteData();
+            // Seed the backfill cursor now that this snapshot has landed in the
+            // buffer (see the note above the write) — undefined, hence a no-op,
+            // for a plain delta frame, which carries no `topLine`.
+            commitSeed?.commit();
+          });
+        }
+      },
+      resetForFreshSnapshot,
+      signal,
+      "Terminal attach",
+    );
+
+    // Initial focus, mirroring the old post-fit focus on first mount.
+    if (props.visible && props.focused !== false) focusOnSelection();
+
+    // Bridge browser clipboard images → PTY. Capture phase fires before xterm's
+    // own paste handler on the textarea, letting us intercept images while text
+    // paste falls through to xterm. Uses the native paste event (not
+    // navigator.clipboard.read) so no explicit clipboard-read permission is
+    // needed. Write decoded bytes into the terminal's on-disk scratch dir, then
+    // bracketed-paste the returned path into the PTY. `sendInput` quiet-drops on
+    // a terminal that is no longer active, so `deliverScratchPaste` re-checks
+    // liveness between the write and the send and throws otherwise — the caller's
+    // catch turns that into a toast.error instead of a silent drop.
+    async function writeScratchAndPaste(name: string, base64: string) {
+      await deliverScratchPaste({
+        terminalId: props.terminalId,
+        name,
+        base64,
+        scratchWrite: (args) => activePadiRpc.surface.scratch.write(args),
+        isActive: () =>
+          activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
+        sendInput: (args) => activePadiRpc.surface.lifecycle.sendInput(args),
+        wrapPath: wrapBracketedPaste,
+      });
+    }
+
+    async function uploadPastedImage(file: File) {
+      const reason = sizeRejectionFor("clipboard image", file.size);
+      if (reason !== null) {
+        toast.error(reason);
+        return;
+      }
+      try {
+        const base64 = bufferToBase64(await file.arrayBuffer());
+        await writeScratchAndPaste("image.png", base64);
+      } catch (err) {
+        toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
+      }
+    }
+
+    makeEventListener(
+      h.container,
+      "paste",
+      (e: ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        const imageItem = Array.from(items).find((i) =>
+          i.type.startsWith("image/"),
+        );
+        const file = imageItem?.getAsFile();
+        if (!file) return; // No image — let xterm handle text paste
+
+        // Must stop propagation synchronously before the async upload, otherwise
+        // xterm's paste handler would paste the image as garbled text.
+        e.stopPropagation();
+        e.preventDefault();
+        void uploadPastedImage(file);
+      },
+      { capture: true },
+    );
+
+    // Drag-and-drop file upload. Files dropped on the terminal are uploaded to
+    // the server, which saves them under the terminal's clipboard directory and
+    // bracketed-pastes the path into the PTY — the same shape as Ctrl+V image
+    // paste, just sourced from DataTransfer instead of ClipboardData.
+    async function uploadDroppedFile(file: File) {
+      const reason = rejectionFor(file.name, file.size);
+      if (reason !== null) {
+        toast.error(reason);
+        return;
+      }
+      try {
+        const base64 = bufferToBase64(await file.arrayBuffer());
+        await writeScratchAndPaste(file.name, base64);
+      } catch (err) {
+        toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
+      }
+    }
+
+    makeEventListener(h.container, "dragover", (e: DragEvent) => {
+      // Only react when the drag carries files — text/HTML drags belong to the
+      // browser / xterm.
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      (h.container as HTMLElement).dataset.dropTarget = "";
+    });
+    makeEventListener(h.container, "dragleave", (e: DragEvent) => {
+      // dragleave fires when the cursor crosses any child element boundary too;
+      // gate on relatedTarget leaving the container so the highlight doesn't
+      // flicker mid-drag.
+      const next = e.relatedTarget as Node | null;
+      if (next && h.container.contains(next)) return;
+      delete (h.container as HTMLElement).dataset.dropTarget;
+    });
+    makeEventListener(h.container, "drop", (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      // Prevent browser navigation (default action when dropping a file onto a
+      // page). Must come after the guard: only cancel drops we actually handle so
+      // text/HTML drags fall through unimpeded.
+      e.preventDefault();
+      delete (h.container as HTMLElement).dataset.dropTarget;
+      for (const file of files) {
+        void uploadDroppedFile(file);
+      }
+    });
+  };
+
+  // The #606 mount/cleanup audit counter, registered in the body so it fires
+  // even if the owner is disposed during <Xterm>'s font await (before onReady
+  // ran — in which case there is nothing to tear down). The consumer teardown
+  // that must run BEFORE the kit disposes the terminal lives in an onCleanup
+  // inside onReady (see there), so SolidJS LIFO orders it before the kit's
+  // terminal.dispose() rather than after it.
+  onCleanup(() => {
+    lifecycleCounters.cleanups++;
+  });
+
+  // Auto-focus when this terminal becomes visible (display:none → visible) — only
+  // if it should have focus. The re-fit / scroll-to-bottom on visible is owned by
+  // <Xterm>; this is the focus half. defer: true — onReady handles first focus.
   createEffect(
     on(
-      fontSize,
-      (size) => {
-        if (!terminal) return;
-        terminal.options.fontSize = size;
-        debouncedFit();
-        clearTextureAtlas();
+      () => props.visible,
+      (visible) => {
+        if (!visible) return;
+        if (props.focused !== false) focusOnSelection();
       },
       { defer: true },
     ),
   );
 
-  // Cleanup registered SYNCHRONOUSLY at component body top — NOT inside the
-  // async `onMount` below. If the reactive owner disposes during `onMount`'s
-  // `await document.fonts.load(...)` (e.g. an `<Show>` toggle swapping a tile
-  // in or out), any `onCleanup` registered after the await is a silent no-op
-  // — the owner's cleanup list was already iterated at disposal.
-  // The `disposed` flag is the bail signal for the async body below. Without
-  // this, each mode-toggle race leaks a Terminal component instance
-  // (orphan xterm + WebGL canvas + scrollback buffer) — the residual #591
-  // leak after PRs #578/#596.
-  onCleanup(() => {
-    lifecycleCounters.cleanups++;
-    disposed = true;
-    streamAbort?.abort();
-    cancelAnimationFrame(fitRaf);
-    unregisterTerminalRefs(props.terminalId);
-    activity.forget(props.terminalId);
-    disposeDiagnostics?.();
-    disposeDiagnostics = null;
-    unloadWebgl();
-    linkProviderDisposable?.dispose();
-    linkProviderDisposable = null;
-    backfill?.dispose();
-    backfill = null;
-    terminal?.dispose();
-    terminal = null;
-    // Null out the other addon slots on this component's Context. xterm
-    // addons hold `_terminal` back-pointers; until their Context slot is
-    // cleared, the captured closures (e.g. `onClick={() => terminal?.focus()}`
-    // on the container div, whose closure shares this Context) keep the
-    // whole xterm graph reachable — verified via heap-snapshot BFS-from-root
-    // for issue #606. `terminal = null` above only clears one of those slots.
-    fitAddon = null;
-    setSearchAddon(null);
-    // Break the containerRef → __xterm → xterm Terminal bridge. The
-    // containerRef DIV may be retained by SolidJS closures (verified via
-    // heap-snapshot retainer walk: `context containerRef` and `context _el$2`
-    // across disposed Terminal instances). As long as the DIV is alive and
-    // carries `__xterm`, the entire xterm graph (InputHandler, CoreBrowserTerminal,
-    // BufferLines, ~900 KB per instance) stays reachable. Clearing the property
-    // makes xterm GC-eligible even if the DIV can't be collected yet.
-    const el = containerRef as
-      | (HTMLDivElement & { __xterm?: XTerm })
-      | undefined;
-    if (el) el.__xterm = undefined;
-  });
+  // Restore focus from two trigger sources, one guard. The `focused` prop
+  // transitioning to true (e.g. a sub-panel toggle) grabs focus; and the host
+  // bumping `refocusNonce` re-fires this effect WITHOUT a `focused` transition.
+  // The re-grab still requires `props.focused` (only the focus-owning pane
+  // responds) — it's the *edge-less re-fire* that's new: a sibling sub-tab close
+  // moves focus to the (about-to-be-removed) close button without changing this
+  // pane's `focused`, so the nonce is what repairs it before the browser's
+  // non-deterministic focus-after-removal lands (the linux flake this fixes).
+  createEffect(
+    on(
+      () => [props.focused, props.refocusNonce] as const,
+      () => {
+        if (props.focused && props.visible) focusOnSelection();
+      },
+      { defer: true },
+    ),
+  );
 
-  onMount(() => {
-    // `onMount` expects a void-returning callback. The body has a single
-    // `await` on `document.fonts.load(...)` before switching to synchronous
-    // setup inside `runWithOwner`. Wrap the async portion in a `void` IIFE
-    // with a top-level try/catch so rejections surface to the console instead
-    // of disappearing into the unhandled-rejection stream — the concern
-    // `noMisusedPromises` was flagging.
-    //
-    // Capture the component's reactive owner BEFORE the await. SolidJS's
-    // global `Owner` is lost across any `await` boundary, so every primitive
-    // called after the await (`createResizeObserver`, `makeEventListener`,
-    // `createEffect`, and any `onCleanup` inside `@solid-primitives/*`) would
-    // register its cleanup on a null owner — a silent no-op. That's why the
-    // ResizeObserver callback + event listeners + their `containerRef`
-    // closures were leaking 190+ `xterm Terminal` trees across mode toggles
-    // (verified via heap-snapshot retainer walk: `context observer` ×205 →
-    // ResizeObserver → `__xterm` on container div → entire xterm graph).
-    // `runWithOwner` re-enters the captured owner for the post-await body so
-    // library-internal `onCleanup` calls land on the right cleanup list.
-    const owner = getOwner();
-    void (async () => {
-      try {
-        // Wait for the terminal font to load before measuring cell dimensions.
-        // Without this, the first terminal may mount before the font is available,
-        // causing xterm to measure with the fallback monospace font — wrong metrics.
-        await document.fonts.load(`1em ${FONT_FAMILY}`);
-        if (disposed) return;
-        runWithOwner(owner, () => {
-          const term = new XTerm({
-            fontFamily: FONT_FAMILY,
-            theme: props.theme,
-            fontSize: fontSize(),
-            scrollback: DEFAULT_SCROLLBACK,
-            cursorBlink: true,
-            // Keep a solid block cursor even when xterm thinks we're unfocused.
-            // The default 'outline' is a hollow box that is effectively invisible
-            // at phone DPI, and xterm's WebGL renderer flips to the inactive style
-            // whenever `document.hasFocus()` is false — unreliable on iOS Safari
-            // with the soft keyboard up (CoreBrowserService.ts:55).
-            cursorInactiveStyle: "block",
-            // Reflow the cursor's own wrapped line when the grid narrows.
-            // xterm defaults this off ("the shell will redraw it"), but kolu
-            // refits constantly — canvas tiles, zoom, window resize, split
-            // panes — and a long URL printed without a trailing newline sits
-            // on the cursor line. Without this, _reflowSmaller skips that line
-            // yet still trims every row to the new width, so the URL's overflow
-            // is truncated instead of rewrapped and a clicked web-link opens a
-            // clipped address. Turning it on rewraps the line contents (cursor
-            // position is unchanged), keeping wrapped links intact across fits.
-            reflowCursorLine: true,
-            // Required by SerializeAddon and ImageAddon for buffer access
-            allowProposedApi: true,
-          });
-          terminal = term;
-
-          fitAddon = new FitAddon();
-          term.loadAddon(fitAddon);
-          term.loadAddon(new WebLinksAddon());
-          // Linkify `path:line[:col][-end]` references in terminal
-          // output. The link provider reads repoRoot from the
-          // terminal store at click time (not at mount) so a cwd
-          // change keeps subsequent clicks anchored to the new repo.
-          linkProviderDisposable = term.registerLinkProvider(
-            createFileRefLinkProvider(term, { onActivate: activateFileRef }),
-          );
-          const search = new SearchAddon();
-          term.loadAddon(search);
-          setSearchAddon(search);
-          term.loadAddon(
-            new ClipboardAddon(undefined, new SafeClipboardProvider()),
-          );
-          term.loadAddon(new Unicode11Addon());
-          term.unicode.activeVersion = "11";
-          term.loadAddon(new ImageAddon());
-          const serializeAddon = new SerializeAddon();
-          term.loadAddon(serializeAddon);
-
-          // Scrollback backfill: attach paints only the recent screenful; as the
-          // user scrolls up, fetch older chunks from kaval and prepend them into
-          // this terminal's own scrollback. Seeded from the attach snapshot's
-          // `topLine` (below); self-manages the near-top trigger and the
-          // reset/resize races.
-          backfill = createBackfillController(term, {
-            fetch: (before, max, epoch) =>
-              activePadiRpc.surface.screen.history({
-                id: props.terminalId,
-                before,
-                max,
-                epoch,
-              }),
-            // A killed terminal's NOT_FOUND is swallowed inside the controller; any
-            // OTHER backfill fetch fault (transport, schema, server) surfaces here
-            // rather than silently leaving a scrollback hole. A later scroll retries.
-            onError: (err) =>
-              toast.error(
-                `Failed to load older scrollback: ${err instanceof Error ? err.message : String(err)}`,
-              ),
-          });
-
-          term.open(containerRef);
-          // Canvas tiles render xterm inside a CSS `scale(zoom)` transform
-          // (`tileTransformCSS`); teach xterm's mouse hit-testing to inverse it
-          // so text selection, link hover, and TUI mouse reporting land on the
-          // cell under the pointer at any zoom (#1400). Must follow `open()` —
-          // that's when `_core._mouseCoordsService` is constructed. Strict
-          // no-op for untransformed terminals (split / sub-panels, zoom = 1).
-          patchTransformAwareMouseCoords(term);
-          // Click-to-focus on the host div's own padding only. xterm's own
-          // click handler already focuses canvas clicks on desktop, and on
-          // touch the .xterm-screen pointerup handler below owns that path
-          // (with the iOS gesture-window care a bare click can't replicate).
-          // Scoping to `e.target === containerRef` fires solely for clicks that
-          // landed on the wrapper padding — the one region nothing else covers
-          // — so a tap on the terminal body doesn't double-focus. Attach via
-          // addEventListener (not JSX onClick) so the host div stays free of
-          // interactive props that would force a11y roles.
-          containerRef.addEventListener("click", (e) => {
-            if (e.target === containerRef) term.focus();
-          });
-          // Touch: give the soft keyboard a contenteditable `.xterm-screen`
-          // input surface (xterm's hidden helper textarea triggers iOS
-          // spell-check underlines). Extracted to `softKeyboardInput.ts` so the
-          // xterm shadow-DOM knowledge and the `isTouch()` guard live in one
-          // testable place; returns the prepared screen (null on desktop) onto
-          // which the tap-routing gestures below wire link-activation vs. focus.
-          const screen = enableSoftKeyboardInput(term);
-          if (screen) {
-            // iOS Safari rejects the soft keyboard when focus shuffles
-            // mid-gesture from the contenteditable above to xterm's
-            // opacity-0 helper textarea — which is exactly what happens
-            // when the wrapper-click handler (line 500) fires
-            // term.focus() right after the browser auto-focuses
-            // .xterm-screen on pointerdown. preventDefault on pointerdown
-            // blocks the contenteditable auto-focus.
-            //
-            // Defer the focus call to pointerup, gated on a tap-sized
-            // movement threshold: taps summon the keyboard, touch-scrolls
-            // don't. pointerup still fires inside the user-gesture window
-            // iOS requires for programmatic focus, and the call sees the
-            // same "single focus event, no shuffle" iOS heuristic the
-            // pointerdown variant did. Threshold is generous enough to
-            // tolerate finger jitter on a real tap but tighter than the
-            // ~1-cell-height step the scroll handler at line 716 reads as
-            // "scroll started".
-            const TAP_THRESHOLD_PX = 10;
-            const isTap = (dx: number, dy: number) =>
-              Math.hypot(dx, dy) <= TAP_THRESHOLD_PX;
-            let activeTap: {
-              pointerId: number;
-              startX: number;
-              startY: number;
-            } | null = null;
-            // Map a tap point to the `path:line` reference under it, if any.
-            // Reads the screen's `getBoundingClientRect()` to convert the
-            // viewport pixel into a (col, buffer-line) cell — both axes plus
-            // the rect offsets, since a tap is 2D (the touch-scroll handler
-            // below needs only `clientHeight`, one dimension, so the two
-            // don't share a geometry helper). Then hit-tests the link parser.
-            //
-            // Why this is transform-correct without an `unscaleEventPoint`-style
-            // correction (cf. `xtermInternals.ts`): kolu OWNS this touch divisor
-            // and derives the cell size from the POST-transform rect
-            // (`rect.width / cols`), so under a zoomed canvas tile the divisor
-            // already grows with the rect and the pixel lands on the right cell
-            // by construction. xterm OWNS its own internal divisor (the
-            // UNtransformed CSS cell size) and so its path must instead
-            // inverse-scale the INPUT point via `unscaleEventPoint`. Same
-            // pointer→cell invariant, two separately-owned divisors — do not
-            // merge them; keep both in step if you touch one.
-            const fileRefAtPoint = (
-              clientX: number,
-              clientY: number,
-            ): LineRef | null => {
-              if (!terminal) return null;
-              const rect = screen.getBoundingClientRect();
-              const cellW = rect.width / terminal.cols;
-              const cellH = rect.height / terminal.rows;
-              if (
-                !Number.isFinite(cellW) ||
-                cellW <= 0 ||
-                !Number.isFinite(cellH) ||
-                cellH <= 0
-              )
-                return null;
-              const col = Math.floor((clientX - rect.left) / cellW);
-              const row = Math.floor((clientY - rect.top) / cellH);
-              const bufferLine = terminal.buffer.active.viewportY + row;
-              return fileRefAtCell(terminal, col, bufferLine);
-            };
-            makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
-              e.preventDefault();
-              activeTap = {
-                pointerId: e.pointerId,
-                startX: e.clientX,
-                startY: e.clientY,
-              };
-            });
-            makeEventListener(screen, "pointerup", (e: PointerEvent) => {
-              if (activeTap === null || e.pointerId !== activeTap.pointerId)
-                return;
-              const { startX, startY } = activeTap;
-              activeTap = null;
-              if (!isTap(e.clientX - startX, e.clientY - startY)) return;
-              // What the tap does decides whether the keyboard rises: a tap on
-              // a `path:line` reference follows the link into the Code tab
-              // (xterm's own link activation is mouse/hover-only and never
-              // fires for touch), a tap on plain content focuses to type.
-              // Only the latter summons the soft keyboard.
-              const ref = fileRefAtPoint(e.clientX, e.clientY);
-              if (ref) {
-                activateFileRef(ref);
-                return;
-              }
-              term.focus();
-            });
-            makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
-              if (activeTap?.pointerId === e.pointerId) activeTap = null;
-            });
-          }
-          // Kolu-owned bridge consumed by e2e step definitions —
-          // `support/buffer.ts`, `step_definitions/file_ref_link_steps.ts`,
-          // and friends read `container.__xterm` to drive xterm's
-          // public API (buffer reads, cell-to-pixel math). Removing
-          // this assignment silently breaks every cucumber test that
-          // touches terminal contents.
-          (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
-          // Force a synchronous repaint when xterm's rAF-driven paint loop
-          // stalls under window occlusion (the real freeze — see renderRecovery
-          // for the full story). Gated on `visible` so hidden tiles don't draw.
-          const recovery = createRenderRecovery(term, () => props.visible);
-          // The DOM signal that an occluded window is back in front: app-switch
-          // return fires `focus` (not `visibilitychange`, which only covers a
-          // real tab switch — handled in refitOnTabVisible below). The forced
-          // paint is synchronous, so it doesn't wait for Chromium to resume
-          // producing frames. Kept here (DOM-adjacent) so renderRecovery stays
-          // DOM-free and node-testable, mirroring scrollLock/scrollLockWiring.
-          makeEventListener(window, "focus", () => recovery.recover());
-          // Production path for handlers that need live xterm/addon refs
-          // (e.g. export-as-PDF reads serializeAddon).
-          registerTerminalRefs(props.terminalId, {
-            xterm: term,
-            serialize: serializeAddon,
-            probes: {
-              webglAtlas: () => {
-                const a = webgl?.textureAtlas;
-                return a ? { w: a.width, h: a.height } : null;
-              },
-              bufferBytes: () => readBufferBytes(term),
-              scrollLockEvents: () => scrollLock.events(),
-              ...recovery.probes,
-            },
-          });
-          // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
-          // the single source of truth, no imperative updater to forget.
-          disposeDiagnostics = registerDiagnostics(props.terminalId, {
-            xterm: term,
-            renderer: () => (hasWebgl() ? "webgl" : "dom"),
-            scrollLock: {
-              locked: scrollLock.isLocked,
-              pendingChunks: scrollLock.pendingChunks,
-              lastEvent: scrollLock.lastEvent,
-            },
-          });
-
-          scrollLock.attachToTerminal(term);
-
-          // Wheel + pointer-held scroll inputs arm the scroll-lock latch
-          // (#1272). Their source strings and capture/hold/release rules live
-          // in scrollLockWiring (DOM-adjacent), keeping the state machine
-          // DOM-free. The keyboard, touch, and SearchBar arms stay at their
-          // call sites below because they interleave with non-scroll logic.
-          wireScrollIntent(containerRef, scrollLock);
-
-          if (shouldUseWebgl()) loadWebgl();
-
-          // xterm.js has attachCustomKeyEventHandler for intercepting keys.
-          // Return false to prevent xterm from handling the key.
-          term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-            // Shift+PageUp / Shift+PageDown are the ONLY chords this xterm
-            // build turns into a viewport scroll (KeyboardResultType.PAGE_UP /
-            // PAGE_DOWN → scrollLines). Shift+Home/End emit escape SEQUENCES,
-            // not scrolls — arming on them would leave a stale intent that an
-            // unrelated programmatic off-bottom scroll could latch onto within
-            // the window (#1272). So arm only on the keys that actually scroll;
-            // the resulting synchronous onScroll must read as user intent or
-            // the latch suppresses it. TerminalSnapshot only; the key still falls
-            // through to xterm below.
-            if (
-              e.type === "keydown" &&
-              e.shiftKey &&
-              (e.key === "PageUp" || e.key === "PageDown")
-            ) {
-              scrollLock.armUserScrollIntent("keyboard");
-            }
-
-            // Let Cmd+key pass through to browser (except copy/paste without Shift)
-            if (e.metaKey) {
-              const key = e.key.toLowerCase();
-              if ((key === "c" || key === "v") && !e.shiftKey) return true;
-              return false;
-            }
-
-            // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
-            // paste listener uploads images; xterm's own paste handler covers text.
-            if (e.ctrlKey && e.key === "v") return false;
-
-            // Ctrl+Shift+C — Linux/Windows terminal copy chord. Without
-            // preventDefault, Chromium hijacks the chord to open DevTools'
-            // Inspect Element picker. xterm's selection isn't reflected in
-            // the textarea either, so we copy via getSelection() ourselves.
-            // Must come before the matchesAnyShortcut check below, since
-            // copySelection is registered there for ShortcutsHelp visibility
-            // but dispatched here.
-            if (matchesKeybind(e, ACTIONS.copySelection.keybind)) {
-              e.preventDefault();
-              const selection = term.getSelection();
-              if (selection)
-                writeTextToClipboard(selection)
-                  .then(() => toast.success("Copied selection to clipboard"))
-                  .catch((err: Error) => {
-                    console.error("Failed to copy selection:", err);
-                    toast.error(`Failed to copy selection: ${err.message}`);
-                  });
-              return false;
-            }
-
-            // Let any registered app shortcut bubble through to the capture-phase dispatcher
-            if (matchesAnyShortcut(e)) return false;
-
-            return true;
-          });
-
-          // Attach the resize listener before any initial sizing so the very
-          // first fit()/resize() publishes and pings the PTY through the same
-          // code path as every subsequent resize.
-          term.onResize(() => void publishDimensions());
-
-          // FitAddon.fit() only works when the container has real pixel
-          // dimensions. Hidden terminals live inside a display:none ancestor
-          // (see `hidden` classList on the wrapper below), so we can't measure
-          // them — they wait at xterm's 80×24 default until they become visible,
-          // at which point the visibility effect below calls debouncedFit().
-          if (props.visible) {
-            fitAddon.fit();
-            if (props.focused !== false) focusOnSelection();
-          }
-
-          // Track user-initiated focus for "remember last focused" in sub-panel
-          if (props.onFocus && term.textarea) {
-            makeEventListener(term.textarea, "focus", props.onFocus);
-          }
-
-          streamAbort = new AbortController();
-          const signal = streamAbort.signal;
-
-          // The attach stream's FIRST yield is a serialized screen snapshot
-          // (scrollback), not live output — see `terminal.attach` in router.ts.
-          // Lighting the live dot for it would mean a quiet terminal with
-          // scrollback flashes "live" for ~1s on every mount, mode remount, or
-          // reconnect retry — the indicator lying exactly when a glance across
-          // the workspace relies on it. The snapshot boundary swallows that one
-          // frame's `noteOutput`, then every later chunk is a genuine PTY delta.
-          // It re-arms in `onRetry` because a transparent re-subscribe replays a
-          // fresh snapshot first too. The snapshot is still WRITTEN to xterm;
-          // only the activity ping is suppressed.
-          const snapshotBoundary = createSnapshotBoundary();
-          // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
-          // (`padiSurface.streams.terminalAttach`), but its health is the
-          // terminal's OWN concern — surfaced in-pane (a reset + visible retry on
-          // `onRetry`, the snapshot re-armed), not folded into padi's fleet/host
-          // `health()` gate. A single terminal's re-attach (overflow re-attach
-          // #1591, PTY exit) must never flicker the global connection-health
-          // indicator. So it deliberately uses `unenrolledStreamCall`
-          // (`@kolu/surface/client`) — the bare, un-enrolled call — rather than
-          // `padi.rawStream`'s structural health enrolment, and the `unenrolled-`
-          // name makes that a visible decision at the call site, not a forgotten
-          // enrol.
-          // Reset xterm + the scroll lock and re-arm the snapshot boundary so the
-          // NEXT stream's first frame (a fresh snapshot) replaces stale bytes
-          // without double-painting. Shared by the inner `onRetry` (a transparent
-          // STREAM_RETRY re-subscribe on a transport blip) and the outer re-attach
-          // (a mid-chain padi death STREAM_RETRY won't retry — done-criterion (c)).
-          const resetForFreshSnapshot = () => {
-            terminal?.reset();
-            scrollLock.reset();
-            snapshotBoundary.armSnapshot();
-            // Forget the backfill cursor: the next frame is a fresh snapshot that
-            // re-seeds it (below). Fetching against the old cursor would splice
-            // onto the terminal we just reset.
-            backfill?.reset();
-          };
-          consumeReattachingStream(
-            () =>
-              unenrolledStreamCall(
-                activePadiRpc.surface.terminalAttach.get,
-                { id: props.terminalId },
-                { signal, onRetry: resetForFreshSnapshot },
-              ),
-            (frame) => {
-              // A `snapshot` frame begins a fresh snapshot (initial attach or a
-              // MID-STREAM overflow re-attach). Consume it as one indivisible act:
-              // `consumeSnapshotFrame` INVALIDATES the backfill controller
-              // synchronously RIGHT HERE — before the bytes are written or
-              // scroll-lock-buffered — so an in-flight fetch's continuation can't
-              // splice across the RIS this frame carries onto the reset buffer.
-              // It returns a committer that SEEDS only once the snapshot has
-              // PARSED into the buffer (run from the write callback below): parsing
-              // a ~1000-line snapshot itself emits `onScroll` as `ydisp` climbs
-              // from 0 through the near-top trigger band, and a cursor seeded up
-              // front would let one of those fire an unsolicited fetch onto a
-              // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM,
-              // so no fetch fires until a real user scroll-up. The committer rides
-              // the write callback, which scroll-lock preserves across a buffered
-              // flush — so the seed can't be lost while the user is scrolled up.
-              const commitSeed =
-                frame.kind === "snapshot"
-                  ? backfill?.consumeSnapshotFrame(
-                      frame.topLine,
-                      frame.reflowEpoch,
-                      // An overflow re-attach snapshot's data LEADS with a RIS
-                      // (`TERMINAL_RESET + snapshot`); the initial attach does
-                      // not. The controller's esc handler pauses on THIS frame's
-                      // own leading RIS too, so the controller must know it's
-                      // coming: the seam captures the committer's baseline one
-                      // generation-bump BEFORE that RIS and PREDICTS it, so the
-                      // frame's own reset doesn't read as an invalidation that
-                      // revokes this frame's re-seed — otherwise backfill pauses
-                      // forever after a re-attach (F11).
-                      frame.data.startsWith(TERMINAL_RESET),
-                    )
-                  : undefined;
-              // A consumed snapshot frame carries its OWN seed seam (with a
-              // per-frame token) so the controller captures its committer baseline
-              // at the snapshot's byte position, not at receipt — the F11 fix
-              // under scroll lock, where a foreign RIS buffered ahead of this
-              // snapshot would otherwise steal its seed. The controller mints the
-              // seam bytes (`commitSeed.seam`); prepended ONLY when a controller
-              // actually consumed the frame, so the seam and the controller's
-              // pending-seed FIFO stay 1:1.
-              const data = commitSeed
-                ? `${commitSeed.seam}${frame.data}`
-                : frame.data;
-              if (terminal) {
-                // Every chunk AFTER the snapshot boundary is live output — light
-                // the terminal's live-activity dot (dock + title), even when
-                // scroll-locked (the bytes still arrived; the user just isn't at
-                // the bottom). The store debounces back to static after a quiet
-                // gap.
-                if (snapshotBoundary.isLiveDelta()) {
-                  activity.noteOutput(props.terminalId);
-                }
-                // Key the render-stall watchdog to xterm's PARSE, not stream
-                // receipt: `term.write` returns immediately and parses the
-                // chunk asynchronously (off a setTimeout), so noteData() run
-                // here synchronously would arm a 250ms timer against data not
-                // yet in the buffer. Passing noteData as xterm's write callback
-                // arms it when the chunk has actually landed in the buffer and
-                // a paint should follow — so paintIsBehind() reflects buffer
-                // state, not in-flight data. A parked-rAF freeze on a real
-                // write then gets a forced sync paint even if the user never
-                // returns focus. scroll-lock buffers a chunk -> no paint -> the
-                // callback isn't invoked NOW; it is stashed WITH the chunk, and
-                // flush() fires every buffered chunk's callback once the buffered
-                // write parses on unlock (a user scroll / tab-visible / window-
-                // focus flush, each of which also forces a repaint via recover())
-                // — so the snapshot re-seed committer that rides this callback
-                // survives the lock instead of being dropped.
-                scrollLock.writeData(terminal, data, () => {
-                  recovery.noteData();
-                  // Seed the backfill cursor now that this snapshot has landed in
-                  // the buffer (see the note above the write) — undefined, hence a
-                  // no-op, for a plain delta frame, which carries no `topLine`.
-                  commitSeed?.commit();
-                });
-              }
-            },
-            resetForFreshSnapshot,
-            signal,
-            "Terminal attach",
-          );
-
-          // fit() above only fires onResize when the grid actually changes.
-          // If xterm's default 80×24 already matched the fit target, the listener
-          // didn't run — publish manually so the PTY matches. Hidden terminals
-          // stay at 80×24 until they become visible; the visibility effect below
-          // runs debouncedFit() and publishes then.
-          if (props.visible) void publishDimensions();
-
-          // Filter terminal query responses from onData before sending to PTY.
-          // The server's headless xterm already answers these; duplicates arriving
-          // late over the network get printed as visible garbage. See
-          // @kolu/terminal-protocol (responseFilter) for the exact classes suppressed.
-          term.onData((data: string) => {
-            if (isTerminalQueryResponse(data)) return;
-            // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
-            // keystroke (no-op on desktop, where nothing is ever armed).
-            void activePadiRpc.surface.lifecycle.sendInput({
-              id: props.terminalId,
-              data: applyStickyModifiers(data),
-            });
-          });
-
-          createResizeObserver(
-            () => containerRef,
-            () => {
-              // Skip fitting when hidden — display:none triggers a 0x0 resize that would
-              // cause a server-side PTY resize, producing shell output and false activity.
-              if (props.visible) debouncedFit();
-            },
-          );
-
-          refitOnTabVisible(
-            () => {
-              debouncedFit();
-              clearTextureAtlas();
-              // A lock engaged while the tab was hidden must not greet the
-              // returning user as a frozen terminal (#1272) — flush and
-              // rejoin the bottom, like switching back to a terminal does.
-              scrollLock.handleTabVisible();
-              // Returning via a real tab switch (document.hidden→visible) can
-              // also leave a parked-rAF stale frame; force a sync repaint. The
-              // window-focus path inside recovery covers app-switch occlusion,
-              // which never trips visibilitychange.
-              recovery.recover();
-            },
-            () => props.visible,
-          );
-          // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
-          makeEventListener(containerRef, "contextmenu", (e: Event) =>
-            e.preventDefault(),
-          );
-
-          // Touch-scroll the scrollback. xterm.js 6.0.0 declares
-          // IViewport.handleTouchStart/Move types but Viewport.ts has zero
-          // touch wiring, and the WebGL canvas eats touch events on the way
-          // to the parent .xterm-viewport — so swipes inside the terminal
-          // do nothing on mobile until we bridge them ourselves.
-          //
-          // Single-variable state machine: touchAnchorY is the Y baseline
-          // that line conversion is measured from. null when idle, a number
-          // while a swipe is in progress. On every emitted line the anchor
-          // advances by exactly the consumed pixels, so the sub-line residue
-          // lives implicitly in (currentY - touchAnchorY) on the next move
-          // — no separate accumulator to keep in sync.
-          //
-          // scrollLock picks up the resulting term.onScroll for free, so
-          // freezing live output while the user reads scrollback works
-          // without any extra wiring.
-          let touchAnchorY: number | null = null;
-          makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
-            // Multi-touch (pinch-zoom) passes through to the browser
-            const first = e.touches[0];
-            if (e.touches.length !== 1 || first === undefined) return;
-            touchAnchorY = first.clientY;
-          });
-          makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
-            // Multi-touch interrupts a swipe — drop the anchor so the next
-            // single-finger move starts a fresh gesture instead of resuming
-            // from a stale (possibly far-away) reference point.
-            if (e.touches.length !== 1) {
-              touchAnchorY = null;
-              return;
-            }
-            if (touchAnchorY === null || !terminal) return;
-            const screen = terminal.element?.querySelector(
-              ".xterm-screen",
-            ) as HTMLElement | null;
-            if (!screen) return;
-            const cellHeight = screen.clientHeight / terminal.rows;
-            // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
-            // a bare `<= 0` check would miss — NaN poisons the anchor.
-            if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
-            const first = e.touches[0];
-            if (first === undefined) return;
-            const lines = Math.trunc(
-              (first.clientY - touchAnchorY) / cellHeight,
-            );
-            if (lines === 0) return;
-            // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N).
-            // Arm intent FIRST: scrollLines fires onScroll synchronously, and
-            // the scroll-lock latch only engages for user-made scrolls (#1272).
-            scrollLock.armUserScrollIntent("touch");
-            terminal.scrollLines(-lines);
-            touchAnchorY += lines * cellHeight;
-          });
-          makeEventListener(containerRef, "touchend", () => {
-            touchAnchorY = null;
-          });
-
-          // Bridge browser clipboard images → PTY. Capture phase fires before
-          // xterm's own paste handler on the textarea, letting us intercept
-          // images while text paste falls through to xterm. Uses the native
-          // paste event (not navigator.clipboard.read) so no explicit
-          // clipboard-read permission is needed.
-          // Write decoded bytes into the terminal's on-disk scratch dir, then
-          // bracketed-paste the returned path into the PTY — the client-side
-          // recomposition of the old server `pasteImage`/`uploadFile` handlers
-          // (`scratch.write` + `lifecycle.sendInput`). The size gate stays a
-          // client precheck on each caller (below), matching the old
-          // BAD_REQUEST behavior. `sendInput` quiet-drops on a terminal that
-          // is no longer active, so `deliverScratchPaste` re-checks liveness
-          // between the write and the send and throws otherwise — the caller's
-          // catch turns that into a toast.error instead of a silent drop.
-          async function writeScratchAndPaste(name: string, base64: string) {
-            await deliverScratchPaste({
-              terminalId: props.terminalId,
-              name,
-              base64,
-              scratchWrite: (args) => activePadiRpc.surface.scratch.write(args),
-              isActive: () =>
-                activeArm(terminalStore.getMetadata(props.terminalId)) !==
-                undefined,
-              sendInput: (args) =>
-                activePadiRpc.surface.lifecycle.sendInput(args),
-              wrapPath: wrapBracketedPaste,
-            });
-          }
-
-          async function uploadPastedImage(file: File) {
-            const reason = sizeRejectionFor("clipboard image", file.size);
-            if (reason !== null) {
-              toast.error(reason);
-              return;
-            }
-            try {
-              const base64 = bufferToBase64(await file.arrayBuffer());
-              await writeScratchAndPaste("image.png", base64);
-            } catch (err) {
-              toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
-            }
-          }
-
-          makeEventListener(
-            containerRef,
-            "paste",
-            (e: ClipboardEvent) => {
-              const items = e.clipboardData?.items;
-              if (!items) return;
-
-              const imageItem = Array.from(items).find((i) =>
-                i.type.startsWith("image/"),
-              );
-              const file = imageItem?.getAsFile();
-              if (!file) return; // No image — let xterm handle text paste
-
-              // Must stop propagation synchronously before the async upload,
-              // otherwise xterm's paste handler would paste the image as garbled text.
-              e.stopPropagation();
-              e.preventDefault();
-              void uploadPastedImage(file);
-            },
-            { capture: true },
-          );
-
-          // Drag-and-drop file upload. Files dropped on the terminal are
-          // uploaded to the server, which saves them under the terminal's
-          // clipboard directory and bracketed-pastes the path into the PTY
-          // — the same shape as Ctrl+V image paste, just sourced from
-          // DataTransfer instead of ClipboardData.
-          async function uploadDroppedFile(file: File) {
-            const reason = rejectionFor(file.name, file.size);
-            if (reason !== null) {
-              toast.error(reason);
-              return;
-            }
-            try {
-              const base64 = bufferToBase64(await file.arrayBuffer());
-              await writeScratchAndPaste(file.name, base64);
-            } catch (err) {
-              toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
-            }
-          }
-
-          makeEventListener(containerRef, "dragover", (e: DragEvent) => {
-            // Only react when the drag carries files — text/HTML drags
-            // belong to the browser / xterm.
-            if (!e.dataTransfer?.types.includes("Files")) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "copy";
-            containerRef.dataset.dropTarget = "";
-          });
-          makeEventListener(containerRef, "dragleave", (e: DragEvent) => {
-            // dragleave fires when the cursor crosses any child element
-            // boundary too; gate on relatedTarget leaving the container so
-            // the highlight doesn't flicker mid-drag.
-            const next = e.relatedTarget as Node | null;
-            if (next && containerRef.contains(next)) return;
-            delete containerRef.dataset.dropTarget;
-          });
-          makeEventListener(containerRef, "drop", (e: DragEvent) => {
-            const files = e.dataTransfer?.files;
-            if (!files || files.length === 0) return;
-            // Prevent browser navigation (default action when dropping a file
-            // onto a page). Must come after the guard: only cancel drops we
-            // actually handle so text/HTML drags fall through unimpeded.
-            e.preventDefault();
-            delete containerRef.dataset.dropTarget;
-            for (const file of files) {
-              void uploadDroppedFile(file);
-            }
-          });
-
-          // Cleanup is registered synchronously near the top of the component body
-          // (see comment there). It references `terminal`, `webgl`, and the local
-          // refs via closure, and handles null state if this onMount body never ran
-          // to completion.
-        });
-      } catch (err) {
-        console.error("Terminal onMount failed:", err);
-      }
-    })();
-  });
+  // Refocus terminal when search bar closes — only if this terminal should have focus.
+  createEffect(
+    on(
+      () => props.searchOpen,
+      (open) => {
+        if (!open && props.visible && props.focused !== false)
+          focusOnSelection();
+      },
+      { defer: true },
+    ),
+  );
 
   return (
     // Marks the terminal subtree as Cmd/Ctrl+F's focus scope: while focus is
@@ -1174,43 +678,99 @@ const Terminal: Component<{
       classList={{ hidden: !props.visible }}
       {...TERMINAL_SEARCH_ATTR_PROP}
     >
-      <Show when={searchAddon()}>
+      <Show when={handle()?.addons.search}>
         {(addon) => (
           <SearchBar
             searchAddon={addon()}
             open={props.searchOpen}
             onClose={() => props.onSearchOpenChange(false)}
-            // A search jump scrolls the viewport to the match — user intent,
-            // so the scroll-lock latch may engage and hold output while the
-            // user inspects it (#1272).
-            onNavigate={() => scrollLock.armUserScrollIntent("search")}
+            // A search jump scrolls the viewport to the match — user intent, so
+            // the scroll-lock latch may engage and hold output while the user
+            // inspects it (#1272).
+            onNavigate={() =>
+              handle()?.scrollLock.armUserScrollIntent("search")
+            }
           />
         )}
       </Show>
       <ScrollToBottom
-        visible={scrollLock.isLocked()}
-        active={scrollLock.hasNewOutput()}
+        visible={handle()?.scrollLock.isLocked() ?? false}
+        active={handle()?.scrollLock.hasNewOutput() ?? false}
         onClick={() => {
-          if (terminal) scrollLock.scrollToBottom(terminal);
+          const h = handle();
+          if (h) h.scrollLock.scrollToBottom(h.terminal);
           // focusOnSelection is a no-op on touch: tapping the scroll-to-bottom
-          // FAB to catch up on output must not summon the soft keyboard (only
-          // an explicit tap on the terminal does). Desktop still refocuses so
-          // the user can keep typing.
+          // FAB to catch up on output must not summon the soft keyboard (only an
+          // explicit tap on the terminal does). Desktop still refocuses so the
+          // user can keep typing.
           focusOnSelection();
         }}
       />
-      <div
-        ref={containerRef}
-        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile.
-        // data-[drop-target]: inset ring while a file drag is hovering — set/cleared by the
-        // dragover/drop/dragleave listeners in onMount.
+      <Xterm
+        theme={props.theme}
+        fontSize={fontSize()}
+        visible={props.visible}
+        webgl={shouldUseWebgl}
+        scrollLockEnabled={() => preferences().scrollLock}
+        fontFamily={FONT_FAMILY}
+        terminalOptions={{
+          scrollback: DEFAULT_SCROLLBACK,
+          cursorBlink: true,
+          // Keep a solid block cursor even when xterm thinks we're unfocused.
+          // The default 'outline' is a hollow box effectively invisible at phone
+          // DPI, and xterm's WebGL renderer flips to the inactive style whenever
+          // `document.hasFocus()` is false — unreliable on iOS Safari with the
+          // soft keyboard up (CoreBrowserService.ts:55).
+          cursorInactiveStyle: "block",
+          // Reflow the cursor's own wrapped line when the grid narrows. xterm
+          // defaults this off ("the shell will redraw it"), but kolu refits
+          // constantly — a long URL printed without a trailing newline sits on
+          // the cursor line, and without this its overflow is truncated instead
+          // of rewrapped, so a clicked web-link opens a clipped address.
+          reflowCursorLine: true,
+          // Required by SerializeAddon and ImageAddon for buffer access.
+          allowProposedApi: true,
+        }}
+        // Filter terminal query responses from onData before sending to PTY. The
+        // server's headless xterm already answers these; duplicates arriving late
+        // over the network get printed as visible garbage. Fold any sticky
+        // Ctrl/Alt armed on the mobile key bar into the keystroke (no-op on
+        // desktop, where nothing is ever armed).
+        onData={(data) => {
+          if (isTerminalQueryResponse(data)) return;
+          void activePadiRpc.surface.lifecycle.sendInput({
+            id: props.terminalId,
+            data: applyStickyModifiers(data),
+          });
+        }}
+        onResize={(size) => void publishDimensions(size)}
+        onReady={onReady}
+        onTap={onTap}
+        webglHooks={{
+          onCanvas: (c) => {
+            webglTrackerId = trackCreate(props.terminalId, c);
+          },
+          onBeforeRelease: () => {
+            if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
+          },
+          onDispose: () => {
+            if (webglTrackerId !== null) {
+              trackDispose(webglTrackerId);
+              webglTrackerId = null;
+            }
+          },
+        }}
+        // touch-manipulation: eliminate 300ms tap delay and prevent
+        // double-tap-to-zoom on mobile. data-[drop-target]: inset ring while a
+        // file drag is hovering — set/cleared by the dragover/drop/dragleave
+        // listeners in onReady.
         class="w-full h-full overflow-hidden touch-manipulation data-[drop-target]:outline data-[drop-target]:outline-2 data-[drop-target]:-outline-offset-2 data-[drop-target]:outline-sky-400/70"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
         data-focused={isFocused() ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
-        data-renderer={hasWebgl() ? "webgl" : "dom"}
+        data-renderer={(handle()?.webgl.hasWebgl() ?? false) ? "webgl" : "dom"}
       />
     </div>
   );

@@ -17,7 +17,8 @@ import arch from "../../diagrams/xterm-kit-architecture.svg?raw";
 Ratified by srid (2026-07-13) as the next refactor task: graduate kolu's xterm
 machinery into its own workspace package. Shipped as two PRs on evidence class
 (see the migration): the behavior-neutral graduation in <PrLink pr={1795} /> (PR
-1), the `<Xterm>` wrapper + touch-divisor fix in the e2e-gated PR 2 fast-follow.
+1), the `<Xterm>` wrapper + touch-divisor unification in the e2e-gated
+<PrLink pr={1808} /> (PR 2).
 The [electricity ledger](electricity.html)
 has carried this as its one not-yet-built row since the framework audit, under
 the working name `@kolu/solid-xterm` — and that name turned out to be the plan's
@@ -66,9 +67,8 @@ The "user" of this feature is a developer embedding a terminal. Both consumers
 get the same promise: **the hazards are owned by the package**, and the consumer
 writes only its own policy — which bytes, when, for whom.
 
-A SolidJS app renders a live terminal in one component (the `<Xterm>` wrapper is
-**PR 2 target API** — it does not ship in PR 1, which graduates the primitives it
-will compose):
+A SolidJS app renders a live terminal in one component (the `<Xterm>` wrapper
+shipped in PR 2, <PrLink pr={1808} />, composing the primitives PR 1 graduated):
 
 ```tsx
 import { Xterm, type XtermHandle } from "@kolu/xterm-kit/solid";
@@ -77,10 +77,13 @@ import "@xterm/xterm/css/xterm.css";
 <Xterm
   theme={dracula}                 // reactive — live re-theme, texture atlas cleared
   fontSize={14}                   // reactive — refit + atlas clear
+  fontFamily="MonoLisa"           // the face awaited before construction
   visible={props.visible}         // fit gate: hidden panes wait at 80×24
   webgl={() => underBudget()}     // renderer gate — an accessor, never a snapshot
+  scrollLockEnabled={() => true}  // scroll-lock gate — an accessor (e.g. a pref)
   onData={(bytes) => pty.write(bytes)}                    // keystrokes out
   onResize={({ cols, rows }) => pty.resize(cols, rows)}   // grid → PTY
+  onTap={(x, y) => false}         // touch: what a tap MEANS is the consumer's
   onReady={(h: XtermHandle) => pty.onData((c) => h.write(c))} // bytes in
 />
 ```
@@ -94,9 +97,9 @@ Behind that hello-world, the package owns the hazards kolu paid to learn:
   ~900&nbsp;KB of `InputHandler` + `BufferLine`s per orphaned instance, found by
   heap-snapshot retainer walks (190+ retained `xterm Terminal` trees). The fix
   is structural — capture the owner before the `await`, re-enter it with
-  `runWithOwner`, register teardown synchronously at component-body top, and
-  bail on a `disposed` flag after every await
-  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="405-449" />).</Footnote>
+  `runWithOwner`, register teardown synchronously before the async body, and
+  bail on a `disposed` flag after the await
+  (<Cite file="packages/xterm-kit/src/solid/xtermLifecycle.ts" lines="50-108" />).</Footnote>
 - **WebGL context-loss recovery and deterministic release.** The addon is
   single-owner, self-heals on `webglcontextlost`, and explicitly fires
   `WEBGL_lose_context.loseContext()` on unload — without that, detached
@@ -105,7 +108,7 @@ Behind that hello-world, the package owns the hazards kolu paid to learn:
   focus changes created contexts faster than GC released them, flickering
   every tile (#575, #591, the #1399 budget). The *mechanism* — accessor-gated
   load/unload with in-microtask release — is the package's
-  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="205-270" />);
+  (<Cite file="packages/xterm-kit/src/solid/webgl.ts" />);
   the *policy* of which panes deserve a context stays the consumer's.</Footnote>
 - **Version-pinned internals with tripwire tests.** Every reach into xterm's
   private `_core.*` is confined to the package, typed structurally, and pinned
@@ -150,7 +153,7 @@ controller is the proof the line already holds: its inputs are
 the boundary even though the controller drives kolu's wire.<Footnote>Terminal.tsx
 keeps the wire knowledge: it discriminates `frame.kind === "snapshot"`, checks
 for the leading `TERMINAL_RESET`, and calls the controller with plain values
-(<Cite file="packages/client/src/terminal/Terminal.tsx" lines="849-930" />). The
+(<Cite file="packages/client/src/terminal/Terminal.tsx" lines="410-440" />). The
 seam bytes themselves are minted by the controller
 (<Cite file="packages/xterm-kit/src/scrollbackBackfill.ts" lines="309-351" />);
 the consumer only concatenates.</Footnote>
@@ -298,14 +301,14 @@ The two internals philosophies are not an implementation detail — they are the
 
 ### `/solid` — the browser adapter
 
-The first three below are **PR 2 target API** (the `<Xterm>` component and its
-lifecycle/WebGL primitives); the rest ship in PR 1:
+The first three below shipped in PR 2 (the `<Xterm>` component and its
+lifecycle/WebGL primitives); the rest in PR 1:
 
 ```tsx
 import {
-  Xterm,                // PR 2 — the component: lifecycle + addons + WebGL + fit, in JSX form
-  createXtermLifecycle, // PR 2 — the primitive under it, for a non-JSX composition
-  attachWebGL,          // PR 2 — single-owner WebglAddon lifetime + context-loss recovery
+  Xterm,                // the component: lifecycle + addons + WebGL + fit, in JSX form (PR 2)
+  createXtermLifecycle, // the primitive under it, for a non-JSX composition (PR 2)
+  attachWebGL,          // single-owner WebglAddon lifetime + context-loss recovery (PR 2)
   createRenderRecovery, // forced sync repaint when the rAF paint loop parks
   wireScrollIntent,     // DOM wheel/pointer wiring for the core scroll lock
   createScrollLock,     // freeze-while-reading latch; buffered writes keep their callbacks
@@ -375,38 +378,58 @@ import {
   the rule that on touch the keyboard rises *only* from an explicit tap —
   never from a tile switch or reveal (`focusOnSelection` is a deliberate
   no-op on touch).<Footnote>All shipped behavior: the focus-is-a-no-op rule
-  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="272-279" />)
+  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="169-176" />)
   and the tap surface
-  (<Cite file="packages/client/src/terminal/Terminal.tsx" lines="576-669" /> —
-  the contenteditable input via `softKeyboardInput.ts`, the
-  `TAP_THRESHOLD_PX` discrimination, the pointerup gesture window). That is
+  (<Cite file="packages/xterm-kit/src/solid/touch.ts" lines="38-75" /> —
+  the `TAP_THRESHOLD_PX` discrimination and the pointerup gesture window; the
+  contenteditable input via
+  <Cite file="packages/xterm-kit/src/solid/softKeyboardInput.ts" />). That is
   volatility, not product choice — which is why it's owned, not
   hook-provided.</Footnote> The one *domain* decision in the gesture — what a
   tap on content means (kolu: follow a `path:line` ref into the Code tab,
   else focus-to-type) — is the `onTap` hook, threaded through `<Xterm>` as a
   prop.
-- **The touch divisor is a hand-rolled parallel of a fact xterm already owns —
-  the follow-up deletes it; this PR keeps its fence.** One invariant —
-  pointer→cell under a CSS transform — is computed today by **two separate
-  divisors**: xterm's hit-test path (its font-metric cell mapping, the authority
-  that actually places the glyphs, corrected on the *input* by
-  `unscaleEventPoint`), and the tap path's `fileRefAtPoint`, which derives its
-  OWN cell size from the post-transform rect (`rect.width / cols`). These agree
-  only when xterm's internal cell equals `rect.width / cols` — which nothing
-  guarantees: font-metric rounding, sub-pixel, or screen padding can make a tap
-  near a cell boundary resolve to a *different* cell under zoom. So the
-  rect-derived divisor is a hand-rolled parallel of the existing source of
-  truth, and collapsing the two is a **behavior change, not a move**. The
-  `/solid`-component follow-up (PR 2 below) deletes the rect divisor and routes
-  the tap through xterm's mapping; its done-criterion is *correctness*, not
-  equivalence to today — a tap resolves to the cell the user visually tapped, at
-  normal scale AND under zoom, proven by standard-suite browser e2e (it may well
-  be a bug fix: today's taps can already mis-target under zoom where the cells
-  diverge). Until that PR both divisors stay, and the mirrored *"keep both in
-  step"* warnings at both sites<Footnote><Cite file="packages/client/src/terminal/Terminal.tsx" />
-  and <Cite file="packages/xterm-kit/src/internals.ts" /> carry the paired
-  warning — the load-bearing fence while two divisors coexist.</Footnote> are
-  the fence that keeps them from drifting.
+- **The touch divisor was a hand-rolled parallel of a fact xterm already owns —
+  PR 2 (<PrLink pr={1808} />) deleted it.** One invariant — pointer→cell under a
+  CSS transform — used to be computed by **two separate divisors**: xterm's
+  hit-test path (its font-metric cell mapping, the authority that actually places
+  the glyphs, corrected on the *input* by `unscaleEventPoint`), and the tap path's
+  `fileRefAtPoint`, which derived its OWN cell size from the post-transform rect
+  (`rect.width / cols`). They agreed only when xterm's internal cell equalled
+  `rect.width / cols` — which nothing guarantees: font-metric rounding, sub-pixel,
+  or screen padding can make a tap near a cell boundary resolve to a *different*
+  cell under zoom. So the rect-derived divisor was a hand-rolled parallel of the
+  existing source of truth. PR 2 added `cellAtPoint` to `/internals` (the single
+  pointer→cell authority, a cosmetic read that degrades to null) and routes the
+  tap through it, **deleting** the rect divisor and the mirrored *"keep both in
+  step"* fence warnings that guarded the pair.<Footnote>The tap resolver now lives
+  in `Terminal.tsx`'s `onTap` (via `cellAtPoint`), and `internals.ts` records the
+  history in past tense — the single divisor is `unscaleEventPoint` +
+  `getCoords`, shared by selection, hover, and the tap
+  (<Cite file="packages/xterm-kit/src/internals.ts" />).</Footnote> Its
+  done-criterion was *correctness*, not equivalence — a tap resolves to the cell
+  the user visually tapped, under a CSS transform — proven by a standard-suite
+  browser e2e. No user-observed regression surfaced, so it landed as the
+  reuse-the-source-of-truth dedup rather than a bug fix.
+- **The e2e proves it under a transform, but NOT in the literal desktop-zoom
+  quadrant — because Chromium cannot emulate that quadrant (do not re-attempt
+  it).** The real state the tap-under-zoom guards is a touch tap on the *desktop
+  canvas's zoomed tile*, which needs a coarse-PRIMARY pointer that can *hover*
+  (`isTouch` wires the tap; `handheld = coarse ∧ hover:none` being false mounts
+  the canvas). Chromium welds pointer↔hover to touch capability: **coarse ⟺ touch
+  ⟺ `hover:none`**. A two-run CI oracle proved both directions — with Playwright
+  `hasTouch` the media is `{coarse, hover:none}`; without it, `{fine, hover}`; and
+  CDP `setEmulatedMedia`'s `pointer`/`hover` features had *no effect* (pure device
+  defaults). So `(pointer:coarse) and (hover:hover)` is unconstructable, and the
+  gate instead runs in the reachable `@mobile` touch config with an **injected**
+  CSS `scale()` standing in for the tile-zoom transform. That is honest, not a
+  cheat: `cellAtPoint` reads the scale off `getBoundingClientRect`/`offsetWidth`,
+  so the transform's *source* is transparent to the code under test — the exact
+  tap path runs under a real CSS transform. It is corroborated by
+  `canvas-selection.feature` (the *same* `unscaleEventPoint` + `getCoords`
+  authority under real canvas zoom, for selection) and the `cellAtPoint` unit
+  delegation pin. A future reviewer should NOT try to build the desktop-zoom
+  quadrant in e2e — it is a browser-emulation limit, not a missing test.
 - **`stickyModifiers` stays out — the boundary test, applied honestly.** It
   never touches a `Terminal`: it is an arming latch over
   `@kolu/terminal-protocol`'s control/meta byte tables, armed by kolu's
@@ -527,9 +550,15 @@ lanes — no special infrastructure).
   zoom. If the e2e shows today's taps already mis-target under zoom, an issue is
   filed when PR 1 ships so the symptom is on record before its fix.
 
-Its gate is that standard-suite e2e proving three things on both platforms:
-tap-under-zoom correctness, WebGL context-loss recovery, and owner-correct async
-dispose — the properties a typecheck cannot vouch for.
+Its gate is the `@touch-desktop` tap-under-zoom e2e (that the extracted touch tap
+still lands on the visually-tapped cell, at normal scale and under zoom) plus the
+123 client terminal unit tests staying green UNMODIFIED — the behavior-neutral
+proof for the policy surrounding the split. WebGL context-loss recovery
+(`webgl.ts`'s self-heal) and owner-correct async dispose (the lifecycle's
+owner-capture-before-await + LIFO cleanup) carry **no** dedicated unit test —
+they are preserved as behavior-identical extracted logic, held to correctness by
+review + typecheck and the leak-invariant argument spelled out in this note, not
+by an automated scenario.
 
 Risks (PR 1 unless noted):
 
@@ -557,5 +586,6 @@ Two operational notes, for scope honesty:
 rehearsal has been seen red then green, kaval's suites and the client suite pass
 unmodified, the closure guard is green, and the [electricity ledger](electricity.html)'s
 row flips from "to build" to done. **Done, PR 2:** `Terminal.tsx` consumes
-`<Xterm>`, the single-authority divisor is proven correct under zoom, and the
-webgl/dispose e2e is green on both platforms.
+`<Xterm>`, the touch tap routes through the single-authority divisor (guarded by
+the `@touch-desktop` tap-under-zoom e2e), and the 123 client terminal unit tests
+stay green unmodified.
