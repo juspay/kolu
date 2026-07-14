@@ -116,13 +116,21 @@ export function useTerminals() {
     isDaemonConnected: daemonConnected,
   });
 
-  const session = useSessionRestore({ store });
-
   // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)
-  // behave like a manual one: expand the parent's panel and — unless a split is
-  // already active — select the new tab. Reacts to the arrival on the list, so no
-  // actor has to reach into the browser's sub-panel state. Host-scoped and gated
-  // on the restore seed so it never fights hydration. See useAdoptNewSplit.
+  // behave like a manual one: expand the parent's panel and — unless a live split
+  // is already active — select the new tab. Reacts to the arrival on the list, so
+  // no actor has to reach into the browser's sub-panel state. Host-scoped and
+  // gated on the restore seed so it never fights hydration. See useAdoptNewSplit.
+  //
+  // Installed BEFORE useSessionRestore — the ordering is load-bearing. On the
+  // flush where the last terminal's metadata arrives, hydration flips the restore
+  // latch to `seeded` (a plain non-reactive write) and seeds each panel in the
+  // SAME batch. SolidJS runs same-batch effects in creation order, so an adopt
+  // effect created AFTER hydration would sample the just-flipped `seeded` for a
+  // sub that first entered the snapshot on that very flush and false-adopt it
+  // (re-opening a restored-collapsed panel and persisting the wrong state).
+  // Created FIRST, adopt runs before markSeeded, samples the pre-flip `decided`,
+  // records the sub into its baseline, and skips — hydration then owns the seed.
   const subPanel = useSubPanel();
   useAdoptNewSplit({
     rawList: () => store.listSub()?.map((t) => t.id) ?? [],
@@ -135,6 +143,8 @@ export function useTerminals() {
       setActiveSubTab: subPanel.setActiveSubTab,
     },
   });
+
+  const session = useSessionRestore({ store });
 
   const worktree = useWorktreeOps({
     store,

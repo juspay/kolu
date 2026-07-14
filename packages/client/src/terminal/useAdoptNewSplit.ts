@@ -11,8 +11,13 @@
  *  the list, so a split from ANY actor behaves like a manual one.
  *
  *  Expand-but-don't-steal: a new split ALWAYS expands the parent's panel (like a
- *  manual create), but becomes the ACTIVE tab only when the parent has none —
- *  an arrival never yanks the view off a split you're already working in.
+ *  manual create), but becomes the ACTIVE tab only when the parent has no LIVE
+ *  active split — an arrival never yanks the view off a split you're already
+ *  working in. "Live" is load-bearing: `activeSubTab` is NOT cleared when a
+ *  parent's last split departs (the reconcile only collapses the panel), so a
+ *  stale tab can dangle at a gone sub; a non-null-only guard would then open the
+ *  arrival BEHIND that dead tab and never paint it — the very bug this hook
+ *  fixes. So the guard tests membership in the parent's current live subs.
  *
  *  Adopt only in a LIVE, seeded session. During initial load / restore /
  *  supervised recycle the host is not `seeded` and `useSessionRestore` owns the
@@ -35,9 +40,11 @@ import { sameParentSnapshot } from "./useActiveReconcile";
 export interface SplitAdoptPorts {
   /** Expand the parent's sub-panel (idempotent) — always run on a new split. */
   expandPanel: (parentId: TerminalId) => void;
-  /** The parent's current active sub-tab (`null` when none is selected). */
+  /** The parent's current active sub-tab (`null` when none is selected; may be
+   *  STALE — pointing at a departed sub — since the reconcile doesn't clear it). */
   activeSubTab: (parentId: TerminalId) => TerminalId | null;
-  /** Select a sub-tab — run only when the parent has no active tab (don't steal). */
+  /** Select a sub-tab — run only when the parent has no LIVE active split (don't
+   *  steal from a split you're in, but a stale tab is not an active split). */
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId) => void;
 }
 
@@ -100,9 +107,14 @@ export function useAdoptNewSplit(deps: {
         seen.add(subId); // record even when not seeded — keeps the baseline honest
         if (!seeded) continue; // load/restore/recycle → hydration owns the tabs
         deps.ports.expandPanel(parentId);
-        if (deps.ports.activeSubTab(parentId) === null) {
-          deps.ports.setActiveSubTab(parentId, subId);
-        }
+        // Don't-steal, but only from a LIVE split: adopt through a `null` OR a
+        // STALE active tab (one no longer among this parent's live subs — left
+        // dangling when the parent's last split was closed). `snap.map` is the
+        // live sub→parent set, so membership is the liveness test.
+        const active = deps.ports.activeSubTab(parentId);
+        const activeIsLiveSub =
+          active !== null && snap.map.get(active) === parentId;
+        if (!activeIsLiveSub) deps.ports.setActiveSubTab(parentId, subId);
       }
     }),
   );

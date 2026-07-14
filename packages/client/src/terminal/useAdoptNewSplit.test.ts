@@ -144,6 +144,30 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     h.dispose();
   });
 
+  it("(b2) don't-steal is LIVE-only — a new split IS selected when the active tab is stale (departed sub)", async () => {
+    // P once had split S1 (so activeSubTab still points at S1) but S1 was closed —
+    // the reconcile collapsed the panel and left activeSubTab dangling at the gone
+    // S1. S1 is NOT among P's current subs.
+    const h = setupAdopt({
+      rawIds: [T("P")],
+      parents: { P: null },
+      activeSubTab: { P: T("S1") }, // stale — S1 already departed
+    });
+    await tick();
+
+    // A fresh split S2 arrives via padi-tui. A non-null-only guard would skip
+    // selecting (activeSubTab === S1 !== null) and open S2 behind the dead tab;
+    // the liveness guard sees S1 is not a live sub of P and selects S2.
+    batch(() => {
+      h.setParents({ P: null, S2: T("P") });
+      h.setRawIds([T("P"), T("S2")]);
+    });
+
+    expect(h.calls.expandPanel).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
+    h.dispose();
+  });
+
   it("(d) a top-level arrival is ignored — only splits (parentId) are adopted", async () => {
     const h = setupAdopt({ rawIds: [T("P")], parents: { P: null } });
     await tick();
