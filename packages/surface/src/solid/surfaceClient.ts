@@ -271,13 +271,13 @@ export interface BoundEvent<I, T> {
   ): void;
 }
 
-/** The per-call options an oRPC client procedure accepts as its optional second
- *  argument — an abort `signal` and the retry-plugin `context`. Threaded so a
- *  bound procedure call can pass `{ signal }` (the code-tab git/fs reads do), just
- *  like the raw oRPC callable it wraps. */
+/** The per-call options a bound procedure accepts as its optional second argument.
+ *  Just an abort `signal` (the code-tab git/fs reads pass `{ signal }`): a declared
+ *  procedure is a UNARY call, so the retry-plugin `context` — a streaming concern
+ *  (`STREAM_RETRY`) — has no procedure-side meaning and is deliberately NOT exposed
+ *  here; a caller who needs the raw callable's full option set reaches `.rpc`. */
 export interface BoundProcedureOptions {
   signal?: AbortSignal;
-  context?: ClientRetryPluginContext;
 }
 
 /** A bound imperative procedure — a declaration-typed callable at

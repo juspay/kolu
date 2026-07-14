@@ -44,7 +44,7 @@ lenses onto an entry.
 
 | Member | Returns |
 | --- | --- |
-| `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; upsert/delete only |
+| `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; **read-only** (the map server is the sole writer — no client `upsert`/`delete`) |
 | `live` | `Accessor<boolean>` — resolved transport liveness for the membership strip |
 | `codec` | `KeyCodec<Key>` — the one key-identity authority; `encode`/`decode` the canonical wire string |
 | `entry(key)` | `Entry<ES>` — the pure point lens (no owner, no I/O, total) |

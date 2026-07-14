@@ -46,22 +46,22 @@ export type { EntryState };
 export interface Entry<ES extends SurfaceSpec, Failure = unknown>
   extends Pick<
     SurfaceClient<ES>,
-    "cells" | "collections" | "streams" | "events" | "procedures"
+    "cells" | "collections" | "streams" | "events"
   > {
   /** The entry surface's declared PROCEDURES, bound and typed from the entry spec
    *  — `entry(k).procedures.<ns>.<verb>(input)`. The per-key link folds `{ mapKey }`
-   *  into every call, so the consumer never passes the key. Inherited verbatim from
-   *  the base `SurfaceClient<ES>` (the `procedures` in the `Pick` above); this is a
-   *  NARROW mapped type over the entry's `spec.procedures`, so it types WITHOUT the
-   *  TS2590 "union too complex" the full `rpc` contract-client union trips under a
-   *  generic `ES` — which is exactly why the declared procedures moved off the raw
-   *  `.rpc` and onto this typed face (no consumer casts a procedure client any more).
-   *
-   *  The raw oRPC PROCEDURE client — for the RESERVED framework procedures
-   *  (`system.live` / `system.identity`, contract-only) and the link-root escape
-   *  hatch. Typed as the base `SurfaceClient`'s `rpc` — `unknown` for the generic
+   *  into every call, so the consumer never passes the key. A NARROW mapped type over
+   *  the entry's `spec.procedures`, so it types WITHOUT the TS2590 "union too complex"
+   *  the full `rpc` contract-client union trips under a generic `ES` — which is exactly
+   *  why the declared procedures moved off the raw `.rpc` onto this typed face (no
+   *  consumer casts a procedure client any more). */
+  readonly procedures: SurfaceClient<ES>["procedures"];
+  /** The raw oRPC LINK/router client (`rpc.surface.<ns>.<verb>`) — for the RESERVED
+   *  framework procedures (`system.live` / `system.identity`, contract-only) and the
+   *  link-root escape hatch, NOT the declared procedures (those ride `procedures`
+   *  above). Typed as the base `SurfaceClient`'s `rpc` — `unknown` for the generic
    *  map, since the entry's link is untyped here; a consumer that must reach a
-   *  reserved proc reads it through the concrete contract. Kept as
+   *  reserved proc reads it through its own concrete contract. Kept as
    *  `SurfaceClient<ES>["rpc"]` rather than a `ContractRouterClient<...>` expansion,
    *  which is a TS2590 "union too complex" under a generic `ES`. */
   readonly rpc: SurfaceClient<ES>["rpc"];
@@ -304,7 +304,16 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
             {},
             {
               get(_t2, verb: string) {
-                if (verb === "use") {
+                // `use` is the reactive-hook verb ONLY for the descriptor primitives
+                // (cells/collections/streams/events). `procedures` has NO `.use()`
+                // hook — its second level is a user-named procedure VERB, and a
+                // procedure legally named `use` (`procedures: { <ns>: { use: {...} } }`)
+                // must fall through to the imperative point-call below, never be
+                // intercepted as a subscription. Without this gate, `useEntry(...)
+                // .procedures.<ns>.use(input)` would wrap the one-shot call in a keyed
+                // root instead of calling it — a silent divergence from the pure
+                // `entry(key).procedures` path.
+                if (prim !== "procedures" && verb === "use") {
                   return (...args: unknown[]) => {
                     const current = createKeyedRoot(keyAccessor, (key) => {
                       // biome-ignore lint/suspicious/noExplicitAny: dynamic member/verb walk over the bound subtree
