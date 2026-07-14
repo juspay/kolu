@@ -196,8 +196,40 @@ export function serveHostMap<
   const links = new Map<string, unknown>();
   const changeListeners = new Set<() => void>();
 
+  // The ONE funnel every republish emission passes through — BOTH a per-member
+  // `onState` transition (`attach`, below) and a membership change (`offMembership`,
+  // below) drive it. `l()` is `serveSurfaceMap`'s republish over EVERY member (resolve
+  // → projectState → failureOf → belt), so any throw that escapes it is an INVARIANT /
+  // producer defect (`UnclassifiedHostFailureError`, `UnclassifiedHostSessionError`,
+  // the #1716 belt), never a recoverable per-member condition. The guard lives HERE, at
+  // the shared funnel, NOT at one caller — otherwise the identical defect has two fates:
+  // the `onState` path caught-and-crashed, the membership path escaping SYNCHRONOUSLY
+  // out of `pool.subscribe`'s callback the moment an unrelated host is added/removed.
+  // Catching per-listener means (1) one member's defect can't abort the remaining
+  // listeners, and (2) it can't tear down whichever caller drove this fire (the
+  // `onState` consume loop — freezing that member while a sibling advances, the
+  // green-chip-frozen divergence). It must still FAIL LOUD, not degrade to
+  // stale-but-healthy (a `console.error` no server watches is the exact silent fallback
+  // the design philosophy forbids), so we RETHROW out-of-band on the next microtask: the
+  // sync loop finishes the frame, the invariant crashes the process (uncaught) right
+  // after. (A CLIENT-initiated read/forward — the map's `readAll`/`readOne`/
+  // `makeStreamHandler` calls into `resolve` — is NOT routed through here; its throw
+  // surfaces as a loud client-facing stream error, the loud thing appropriate to a
+  // caller that CAN receive one.)
   const fire = (): void => {
-    for (const l of [...changeListeners]) l();
+    for (const l of [...changeListeners]) {
+      try {
+        l();
+      } catch (err) {
+        queueMicrotask(() => {
+          throw new Error(
+            "[serveHostMap] entries republish threw — an invariant/producer defect; " +
+              "failing loud rather than degrading to a stale status stream",
+            { cause: err },
+          );
+        });
+      }
+    }
   };
   const members = (): K[] => pool.hosts().map((h) => decode(h));
   const has = (k: K): boolean => pool.has(encode(k));
@@ -212,37 +244,11 @@ export function serveHostMap<
     const session = pool.getSession(enc);
     if (session === undefined) return;
     const off = session.onState((s) => {
-      // Cache the frame FIRST — the republish below must never lose it (d3).
+      // Cache the frame FIRST — the republish `fire()` drives must never lose it (d3).
+      // `fire()` itself owns the fail-loud guard (it is the shared funnel both this
+      // `onState` path and the membership path drive), so this consumer just fires.
       latestState.set(enc, s);
-      try {
-        fire();
-      } catch (err) {
-        // d3 — `fire()` drives the map's republish over EVERY member (resolve →
-        // projectState → linkFor → belt). Every throw that can escape it is an
-        // INVARIANT / producer defect, never a recoverable per-member condition: an
-        // unclassified terminal failure (`UnclassifiedHostFailureError`), a member with
-        // no session (`UnclassifiedHostSessionError`), or a non-provisioning session that
-        // reached "copying" (the belt). Two things must both hold, and they are
-        // compatible. (1) The throw must NOT propagate synchronously out of THIS `onState`
-        // consumer: that would tear down its consume loop mid-fire — the WRONG member for a
-        // sibling's defect — freezing this member's `EntryStatus` while the sibling
-        // connection-cell consumer advances (the green-chip-frozen / "Building forever"
-        // divergence). So we catch, letting this frame's loop finish with `latestState`
-        // already updated. (2) The defect must still FAIL LOUD — a `console.error` a server
-        // never watches, while health and publication continue, is the exact
-        // silently-degrading fallback the design philosophy forbids. So we RETHROW
-        // out-of-band on the next microtask: the invariant crashes the process (uncaught)
-        // instead of collapsing to stale-but-healthy. The two are not in tension — the
-        // synchronous loop survives the frame; the crash lands right after it.
-        queueMicrotask(() => {
-          throw new Error(
-            `[serveHostMap] entries republish threw for member ${enc} — an ` +
-              "invariant/producer defect; failing loud rather than degrading to a stale " +
-              "status stream",
-            { cause: err },
-          );
-        });
-      }
+      fire();
     });
     stateSubs.set(enc, off);
   };

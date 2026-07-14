@@ -17,7 +17,12 @@ import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildRemotePool } from "./hostFanout";
-import { projectState, serveHostMap } from "./serveHostMap";
+import {
+  projectState,
+  serveHostMap,
+  UnclassifiedHostFailureError,
+  UnclassifiedHostSessionError,
+} from "./serveHostMap";
 import type { DownSessionState, Session, SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
@@ -304,5 +309,70 @@ describe("serveHostMap — entries authority", () => {
     pf.add("a", fakeSession(st("connected"), 0));
     expect((await keysIter.next()).value).toEqual(["a"]);
     served.dispose();
+  });
+});
+
+describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () => {
+  it("throws UnclassifiedHostSessionError for a member with no session (the has()/getSession() race)", async () => {
+    // A pool that reports a member but hands back no session — the unreachable-in-
+    // steady-state race. A STATIC pool (subscribe never fires) so no background
+    // republish runs; the throw surfaces through the client's `entries.get` read.
+    const ghostPool = {
+      hosts: () => ["ghost"],
+      has: () => true,
+      getSession: () => undefined,
+      subscribe: () => () => {},
+    } as unknown as ReturnType<typeof fakePool>["pool"];
+    const served = serveHostMap(map, ghostPool, {
+      linkFor: () => ({ surface: {} }),
+      offsetOf: () => 0,
+      failureOf: classify,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    const iter = await entriesGet(link, "ghost");
+    await expect(iter.next()).rejects.toThrow(UnclassifiedHostSessionError);
+    served.dispose();
+  });
+
+  it("fails loud (out-of-band crash) when failureOf returns null for a terminal failed session", async () => {
+    // A `failureOf` that declines to classify a terminal give-up is a producer defect:
+    // the `failed` arm cannot exist without a schema-valid failure, so the republish
+    // rethrows out-of-band (queueMicrotask) to crash the process rather than degrade to
+    // a stale status. Detach vitest's own `uncaughtException` handlers for the window and
+    // COLLECT every uncaught throw ourselves (one `add` drives two republishes — the
+    // `onState` seed and the membership fire — so more than one crash queues), then
+    // assert at least one is `UnclassifiedHostFailureError`. Collecting (not `once`)
+    // keeps a second queued throw from leaking to vitest as a spurious suite failure.
+    const priorHandlers = process.listeners("uncaughtException");
+    for (const h of priorHandlers)
+      process.removeListener("uncaughtException", h);
+    const uncaught: unknown[] = [];
+    const collect = (err: unknown): void => {
+      uncaught.push(err);
+    };
+    process.on("uncaughtException", collect);
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      offsetOf: (s) => s.clockOffset(),
+      failureOf: () => null, // declines to classify — the producer defect
+    });
+    try {
+      pf.add("boom", fakeSession(st("failed", "gave up for good"), 0));
+      served.dispose();
+      // Drain the queued microtask rethrows (and any macrotask straggler) before asserting.
+      await new Promise((r) => setTimeout(r, 0));
+      // The funnel rethrows a WRAPPER `Error` carrying the original as its `cause`.
+      expect(
+        uncaught.some(
+          (e) =>
+            e instanceof Error &&
+            e.cause instanceof UnclassifiedHostFailureError,
+        ),
+      ).toBe(true);
+    } finally {
+      process.removeListener("uncaughtException", collect);
+      for (const h of priorHandlers) process.on("uncaughtException", h);
+    }
   });
 });
