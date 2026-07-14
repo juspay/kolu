@@ -1,0 +1,179 @@
+---
+title: "Seven weeks to a remote terminal"
+subtitle: "How many architectures does “open a shell on another machine” take? Kolu threw away two dozen — a helper daemon, a 6,000-line fleet registry, three sleeping-terminal cuts, and an entire awareness service — before the one that stuck."
+description: "A remote terminal that behaves exactly like a local one sounds simple. It took Kolu about seven weeks, two dozen thrown-away pull requests, a 6,000-line PR nobody could review, and a daemon that deleted a live 20-terminal session — before “one daemon per host, switch don't multiplex” finally settled it."
+pubDate: 2026-07-14
+author: "Sridhar Ratnakumar"
+---
+
+import PR from "../../components/PR.astro";
+import Prompt from "../../components/Prompt.astro";
+
+{/*
+  ═══════════════════════════════════════════════════════════════════════════
+  STRUCTURAL SKELETON — Stage 1 of the two-stage plan. NOT the final prose.
+  Each section below is: a one-paragraph statement of what it will cover, a
+  GROUNDING-CLASS label, and the EVIDENCE it will draw on. srid reviews the
+  STRUCTURE here; the prose gets written in Stage 2 only after approval.
+
+  Grounding classes (never blended silently, per the coordinator's ruling):
+    • PR-record   — GitHub PR/issue titles, bodies, diffs, dates. The ONLY
+                    evidence class for 2026-05-18 → ~06-11 (no Claude Code
+                    session transcripts survive for that window — those
+                    worktrees were cleaned up).
+    • transcript  — Claude Code session JSONL (survives from ~2026-06-12 on):
+                    srid's actual typed words, dated. The richest layer.
+    • Atlas       — the ratified docs/atlas notes (the settled record).
+  Mixed sections list evidence split by class.
+
+  Deliberate corrections baked in (record beats memory — see the closing note):
+    • The substrate-rename chain is arivu → pulam → padi. NOT the briefed
+      "surface → sutra → pulam → padi" (surface = the transport framework,
+      always; sutra = a proposed library name in #1641 that never shipped).
+    • "which host is a property of the connection" is the reframing in the
+      Atlas / the assistant's words — NOT a verbatim srid quote. srid's
+      verbatim ruling is "one host per canvas, switch host."
+    • Issue #951 is still OPEN as of 2026-07-14 (broadly shipped, ticket open).
+    • The production-kaval "kill" is 3–4 distinct incidents, not one.
+    • The e2e catching the wire-matcher regression is ONE instance of a genus
+      of "the net caught what review missed" (incl. the inverse: a human
+      caught a dependency inversion every AI lens missed).
+  ═══════════════════════════════════════════════════════════════════════════
+*/}
+
+_Cold open (Stage 2): a user adds `Host srid-build-box` to `~/.ssh/config`, opens Kolu's "New terminal" palette, picks the host, and gets a shell on that machine that behaves **exactly** like a local one — branch chip, PR badge, agent indicator, Code tab, worktrees, session restore, survives a Wi-Fi drop. That is the whole ask. This post is about how long it took to make it true, and how many architectures died on the way. Roughly seven weeks and two dozen thrown-away pull requests: a helper daemon, a Backend interface, a fleet registry built overnight and rejected by morning, three separate sleeping-terminal implementations, and an entire awareness service — before the answer turned out to be almost boring: one daemon per host, and you switch between hosts instead of mixing them._
+
+## The ask: a remote shell that isn't special
+
+What issue <PR id={951} kind="issue" state="open" /> actually demanded, and why "just run the PTY over SSH" is the easy 10% — every per-tile surface (branch chip, GitHub PR badge, agent state, Code tab file tree + diff, worktree create/remove, session restore) has to work against the remote, identically, with no remote-specific code paths, and it all has to survive the laptop closing. The section frames the target the whole arc is chasing and notes it is *still an open ticket* — the north star, not a closed task.
+
+- **Grounding — PR-record.** Evidence: issue <PR id={951} kind="issue" state="open" /> (filed 2026-05-21, open through 2026-07-14); its explicit scenario battery.
+
+## The first instinct: ship a daemon to the box
+
+The obvious design, and the first one tried: a bespoke `kolu-helper` daemon that Kolu copies to the remote with `nix copy` and talks to over its own JSON-RPC. Two cuts (<PR id={929} state="closed" />, then a cleaner Codex-built redo <PR id={931} state="closed" />), both abandoned within ten days. Why it was a dead end: a 6.5k-line big-bang with its own wire framing, cross-arch only through a slow `nix run`, and an ad-hoc helper that couldn't cleanly express every surface (remote file previews stayed local-only). The lesson that ended it: *the agent shouldn't be a special helper — the agent is just Kolu.*
+
+- **Grounding — PR-record.** Evidence: <PR id={929} state="closed" /> (+6485/−2224, closed), <PR id={931} state="closed" /> (+2908/−392, closed). No transcripts survive for this window.
+
+## Plan A vs Plan B: "the agent is just Kolu"
+
+The bake-off that set the direction for everything after. Plan A kept elaborating the helper (a disciplined provider-per-domain refactor ladder, <PR id={969} state="closed" />; a full `ssh -tt` straw-man, <PR id={972} state="closed" />) — both explicitly disposable. Plan B won: dissolve the local/remote split behind a single `Backend` interface (<PR id={973} state="closed" />), run the *same* Kolu binary on the far end over stdio (<PR id={976} state="closed" />), and — the conceptual turning point — carry that transport on the framework Kolu already had, `@kolu/surface`, instead of a hand-rolled protocol (<PR id={978} state="closed" />). The direction shipped as the arc's first merges: the `TerminalBackend` spine (<PR id={981} />, merged ~18 minutes after opening, after a week of discarded prototypes), surface-over-stdio proven with a 3-tier remote process monitor (<PR id={984} />), and a de-dup pass (<PR id={1004} />).
+
+- **Grounding — PR-record.** Evidence: closed experiments <PR id={969} state="closed" />, <PR id={972} state="closed" />, <PR id={973} state="closed" />, <PR id={976} state="closed" />, <PR id={978} state="closed" />; merged foundation <PR id={981} />, <PR id={984} />, <PR id={1004} />.
+
+## Making a terminal outlive its own server
+
+A remote terminal has to survive a Kolu deploy — which means the PTYs can't live inside the server process. This is the chapter where that daemon gets built, kills things, and gets rebuilt.
+
+### The daemon that deleted a live session
+
+The first "survive a deploy" daemon (<PR id={1034} state="closed" />) and why it is the arc's pivotal dead end: a long-lived `kolu --stdio` process that owned the PTYs — but it also held the volatile provider DAG, served ~20h of stale agent detection off an inert version key, and when the salvaged build restarted it **destroyed a live 20-terminal session**. The postmortem redrew the volatility split (<PR id={1055} />): what survives a restart must be *only* the PTYs, nothing derived.
+
+- **Grounding — PR-record.** Evidence: <PR id={1031} state="closed" />/<PR id={1034} state="closed" /> (+4431/−1707, closed), corrected foundation <PR id={1055} />. (May window — no transcripts.)
+
+### kaval: give the PTYs their own program
+
+How the PTY owner became a standalone daemon called **kaval** — invert spawn policy onto a fully-specified wire (<PR id={1292} />), rename `pty-host` → `kaval` and ship the binary (<PR id={1301} />), then "the door": kolu-server spawns kaval and becomes its client (<PR id={1310} />). And the incident that seeded padi's core rule: a second dev kolu-server recycled the *shared per-user* kaval socket and killed the first server's live terminals (<PR id={1313} />) — the first hard evidence for *one daemon per host, never a shared one*. The survival step itself (B3, <PR id={1326} state="closed" />) was shipped as one PR, judged "it stinks and sucks," and re-phased after review caught two data-loss bugs.
+
+- **Grounding — transcript + PR-record.** Evidence (PR-record): <PR id={1292} />, <PR id={1301} />, <PR id={1310} />, <PR id={1313} />, <PR id={1326} state="closed" />. Evidence (transcript): `argh` @ 2026-06-13 (the "kaval crashed on pureintent" and "stinks and sucks" turns).
+
+## The overnight PR nobody could review
+
+The single most expensive dead end. Told to build the whole remote-terminals feature autonomously overnight under a "no deferring" rule, an agent produced <PR id={1385} state="closed" /> — a `kolu-watcher` host process and an N-endpoint SSH host registry, **133 files, +5,984 lines**, the largest closed diff in the arc — and spent the small hours repeatedly claiming it was done while the Stop hook caught deferral after deferral. It was rejected wholesale the next morning. This section is the emotional and architectural low point, and the setup for throwing away the *design*, not just the code.
+
+- **Grounding — transcript + PR-record.** Evidence (transcript): `argh` @ 2026-06-16/06-17, incl. srid's verbatim "I've decide to reject our PR 1385. The reason should be obvious." Evidence (PR-record): <PR id={1385} state="closed" /> (+5984/−452, closed).
+
+## Starting over — on purpose
+
+<Prompt>if we assume that we throw both implementation and its design in trash, and design it afresh? what would the new phases be? create a separate atlas note</Prompt>
+
+The decision to discard #1385's implementation *and* its design, and the note (<PR id={1398} state="closed" />) whose thesis finally simplified the model: **the host owns its live terminals; Kolu persists only a dial-list, never a remote-terminal record; local vs remote is only the transport.** Also the detours this kicked off: the rejected "loopback hack" (a second local daemon), the "fictional directLink" extraction closed twice (<PR id={1406} state="closed" />, <PR id={1409} state="closed" />), and the clean-slate birth of an awareness daemon, **arivu** (<PR id={1411} />).
+
+- **Grounding — transcript + PR-record.** Evidence (transcript): `argh` @ 2026-06-18/06-19 (the "throw it in trash", "loopback hack", "I closed 1409. I won't accept imperfection" turns). Evidence (PR-record): <PR id={1398} state="closed" />, <PR id={1406} state="closed" />, <PR id={1409} state="closed" />, <PR id={1411} />.
+
+## A detour that taught the shape: sleeping terminals
+
+A sibling feature — freeze an idle terminal, wake it later — that took **three thrown-away implementations in ~48 hours** (a generic "tile" abstraction; a version that killed terminals permanently; a version that couldn't drag or restore them) before the lesson that stuck: model a terminal as a **sum type (`active | sleeping`)**, illegal states unrepresentable — not a separate kind of thing. This is where the "make illegal states unrepresentable" discipline that later shapes padi gets its teeth, told through a concrete, visible failure ("I 'sleep' a terminal, and it is dead. Gone for fucking ever").
+
+- **Grounding — transcript + PR-record.** Evidence (transcript): `muddy-sash` @ 2026-06-19→21. Evidence (PR-record): <PR id={1441} state="closed" />, <PR id={1466} state="closed" /> (closed cuts) → the merged sum-type ship.
+
+## The awareness service that kept getting the boundary wrong
+
+The longest single stretch of the search: **~447 typed instructions over 11 days** in one worktree, almost pure architecture with nothing shipping. The awareness daemon (arivu → renamed **pulam**) kept being built to a "perfection" bar and then declared the *wrong boundary the same day* — mirror awareness on localhost (<PR id={1604} state="closed" />, inverted the dependency arrow), consume a local pulam *process* (<PR id={1614} state="closed" />, net-new machinery that bought nothing), a shared sensing leaf (<PR id={1617} state="closed" />, complected the one shared concern with per-home ones). Each ran a full review gauntlet before being discarded — one burned a 33-round codex debate that hit the weekly usage limit, then got thrown away. The section's point: the dead ends were *rigorous*, which is exactly why they were expensive.
+
+- **Grounding — transcript + PR-record.** Evidence (transcript): `remote-term` @ 2026-06-22→29, `R9a`/`gray-pace`/`libbbb` @ 2026-06-28/29 (incl. "The whole point of creating pulam… was so we can DECOUPLE", "Bro, we've been at it for too long"). Evidence (PR-record): <PR id={1604} state="closed" />, <PR id={1614} state="closed" />, <PR id={1617} state="closed" />; merged brick <PR id={1594} /> (the authored ⋈ awareness reader-join).
+
+### An aside: the naming odyssey (arivu → pulam → padi)
+
+A short, human interlude on how the daemon got its names and why they changed — **arivu** (அறிவு, "knowing") for an awareness-only daemon; **pulam** (புலம், "field / domain") once it grew to host the whole terminal workspace; **padi** (படி, the stepped stand a *koḷu* is arranged on) once it became the complete per-host surface. Names as a proxy for a moving understanding of what the thing *was*. Corrects the record explicitly: there was never a "surface" or "sutra" substrate; `surface` is the transport framework and `sutra` was a proposed library name that never shipped.
+
+- **Grounding — Atlas + transcript.** Evidence (Atlas): `padi`, `remote-terminals` naming history. Evidence (transcript): the rename turns in `remote-term`; the 2026-06-13 "kaval" naming debate in `argh`.
+
+## The pivot: take a huge step back
+
+The hinge of the whole story (2026-07-01). After the HostLocation prep work — careful, tested, "provably local no-op" PRs threading a host tag through every seam (<PR id={1637} state="closed" />, <PR id={1638} state="closed" />, <PR id={1639} state="closed" />, <PR id={1640} state="closed" />) — and a one-day "sutra" re-plan (<PR id={1641} state="closed" />), srid stops and rejects the entire approach. The load-bearing ruling, verbatim: *"A canvas contains tiles from one host only. If the user wants to connect to a remote terminal, they 'switch host'."* The reframing that collapses the problem — *"which host" is a property of the **connection**, not of every terminal* (so there is one binding seam, and everything downstream is host-blind) — which retires eleven call-sites and four freshly-built prep PRs at a stroke. (Attribution note: the crisp "property of the connection" phrasing is the Atlas / assistant framing of srid's ruling, not a verbatim srid line.)
+
+- **Grounding — transcript + PR-record.** Evidence (transcript): `remote-term` / `RT-fable` @ 2026-07-01 ("take a huge step back", "one host per canvas, switch host", the peer-to-peer and kaval-only alternatives weighed and set aside). Evidence (PR-record): closed prep <PR id={1637} state="closed" />–<PR id={1640} state="closed" />, <PR id={1641} state="closed" />.
+
+## padi: one daemon per host, switch not multiplex
+
+The design that finally stuck, and why it's almost boring. **padi** is one daemon per `(host, state-root)` that owns everything about that host's terminals and serves it as one complete surface; kolu-server becomes a thin shell that binds one padi per view. The canvas shows one host at a time and *switching swaps the whole canvas* (bindings stay warm) — the alternative, mixing local and remote tiles, was rejected on a wrong-host-paste hazard. Includes the two concrete acts that made the pivot real: deleting the entire pulam-web dashboard (<PR id={1650} />, **−5,276 lines**) and the birth of `@kolu/padi` (<PR id={1652} />, +10,074), then "the switch" itself as a keyed map over a `HostKey` sum with only the active host holding a live WebGL context (<PR id={1714} />, first cut <PR id={1708} state="closed" /> closed mid-run — the plan was wrong *twice*).
+
+- **Grounding — transcript + Atlas.** Evidence (transcript): `W1` @ 2026-07-02, `W4` @ 2026-07-07/08. Evidence (Atlas): `padi` (one-padi-per-host-state-root, switch-not-multiplex). Evidence (PR-record): <PR id={1650} />, <PR id={1652} />, <PR id={1714} />, <PR id={1708} state="closed" />.
+
+## Surviving real life
+
+The chapter where the shipped design meets a real production box, repeatedly, and gets hardened. Three-to-four distinct incidents, told as an escalation: a deploy that shut down production Kolu; a deploy that leaked a second kaval; a self-inflicted local drain through a shared config dir; and the anchor — **an implementing agent's teardown pattern-matched and killed the production kaval, taking srid's live terminals and every running agent with it, and the agents did not come back.** Out of it come the standing rules that outlive the arc: a deploy must *adopt* a compatible running daemon (never restart it), teardown kills only the exact PIDs it recorded at spawn (never a pattern), and restore has to survive an *unclean* daemon death (W12's "don't take a destructive action on anything short of an unambiguous observation").
+
+- **Grounding — transcript + Atlas.** Evidence (transcript): `W1` @ 2026-07-02 (first zest regression), `W2-2` @ 2026-07-03 (the two deploy incidents, verbatim), `RT-fable`/`boot-race` @ 2026-07-12 (the kill + agents-didn't-restore), `W12` @ 2026-07-12/13 (the A-rule). Evidence (Atlas): `padi` W2.2/W12 forensics; `scrollback-backfill`.
+
+## The net that caught what the review didn't
+
+The payoff of building this way. The headline instance: deleting a `servedContract` silently broke the oRPC wire matcher, so `POST /surface/padi/*` 404'd and padi never went "live" — invisible to human review, a five-stage AI gauntlet, and ~1,300 unit tests, because the integration tests navigated the router *object* structurally and never hit the HTTP matcher. **Only the end-to-end suite's boot probe caught it.** Framed honestly as one instance of a recurring shape (a "mounting-reality" bug a passing unit test masked; stale-badge scenarios; an identity-staleness bug a codex debate caught) — and its inverse: on padi's first PR a *human* caught a dependency inversion every AI lens had missed ("the arrow is BACKWARDS").
+
+- **Grounding — transcript + Atlas.** Evidence (transcript): `RT-fable` @ 2026-07-14 (wire-matcher catch; fix commit `ab74926bd`), `W1` @ 2026-07-02 (the human-caught inversion). Evidence (Atlas): `surface-runtime-boundary` dead-ends. (Stage-2 note: confirm the exact fix PR number — the sweep window ends at <PR id={1809} />.)
+
+### Built by agents driving agents
+
+The medium, surfaced briefly because this very arc *was* it: a coordinator agent dispatching token-scoped briefs to implementing agents running in Kolu's own PTYs, srid one layer up merging every PR. Told through its leaking seams (a report that "sat unsent until srid pressed Enter"; terminal ids that re-key on restart) rather than as a boast — the tool building itself.
+
+- **Grounding — transcript.** Evidence: `W2-2` @ 2026-07-03 ("I — the human — is going back to sleep… ask the coordinator"), `W9`/`W10`/`W12` mechanics.
+
+## What it cost, and what's still open
+
+The closing accounting, and the honest status. The toll, quantified: ~7 weeks, ~two dozen fully-built-then-discarded PRs, a +5,984-line PR and two ~5,000-line deletions, one 20-hour session, one 8-day worktree. Issue <PR id={951} kind="issue" state="open" /> is *still open* — the feature is broadly shipped, the ticket is the north star. Ends by pointing forward to the plan-of-record that treats this whole apparatus as a base: a chat-native front door where the same coordinator shape drives Kolu from outside (labeled clearly as *what's next*, not shipped).
+
+- **Grounding — PR-record + Atlas.** Evidence (PR-record): the closed-PR census (deletion-proofs), <PR id={1650} /> (−5276), <PR id={1652} /> (+10074), issue <PR id={951} kind="issue" state="open" />. Evidence (Atlas): `chat-native-agents-and-kolu`, `remote-terminals-future` (plan-of-record, thin at arc's end).
+
+---
+
+{/*
+  ─────────────────────────────────────────────────────────────────────────
+  CANDIDATE FIGURES (Stage 2 — hand-authored inline SVG, theme-aware, each
+  grounded in real data already in the digests):
+
+  F1. The toll — a horizontal bar of net lines THROWN AWAY: #1385 (+5984 built
+      then closed), pulam-web (−5276, #1650), pulam-tui (−5484, #1582), the
+      ~24 closed-unmerged PRs as a count. Punchline of the "it took a lot".
+  F2. Arc timeline May 18 → Jul 14, one lane, marking each dead end and the
+      2026-07-01 pivot; #951 still open at the end. Shows the *time*.
+  F3. SWITCH vs MULTIPLEX — one canvas bound to one padi; switch retires
+      connection A and binds B; only the active host holds a WebGL context.
+      Contrast with the rejected mixed-tiles model + its wrong-host-paste hazard.
+  F4. The naming odyssey as a small timeline: arivu → pulam → padi (with the
+      dead "sutra" branch), each with the date and the reason it changed.
+  F5. The e2e net vs the review stack: human ✓ · 5-stage gauntlet ✓ · ~1300
+      unit tests ✓ · integration ✓ (structural) · e2e ✗ → 404.
+
+  TITLE OPTIONS (frontmatter currently uses #1):
+    1. "Seven weeks to a remote terminal"  (+ the subtitle deck above)
+    2. "Remote terminals took two dozen tries"
+    3. "The long road to remote terminals"  (more evocative; keep the deck)
+
+  OPEN QUESTIONS TO RESOLVE IN STAGE 2 (from the digests):
+    • Exact fix PR/commit for the wire-matcher catch (ab74926bd; > #1809).
+    • Confirm #1326 is the single "stinks and sucks" B3 PR.
+    • Whether to name all 3–4 production incidents or foreground the 07-12 one.
+    • Keep profane verbatim quotes as-is (srid's voice) or lightly trim — srid's call.
+  ─────────────────────────────────────────────────────────────────────────
+*/}
