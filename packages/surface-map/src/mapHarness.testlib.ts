@@ -7,6 +7,7 @@
  * never ships and never runs as a suite of its own.
  */
 
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
 import {
@@ -64,6 +65,17 @@ export const testFailureSchema = z.object({
   reason: z.string(),
 });
 export type TestFailure = z.infer<typeof testFailureSchema>;
+
+/** Build a test map — `failure` is the one field every test map shares
+ *  ({@link testFailureSchema}), defaulted here so a future required `defineSurfaceMap`
+ *  field is a ONE-line change rather than editing every call site (PR4's own `failure`
+ *  addition was exactly that pain). Callers pass the per-map `key`/`entry`/`codec`. */
+export function buildTestMap<
+  KS extends z.ZodType,
+  const ES extends SurfaceSpec,
+>(opts: { key: KS; entry: Surface<ES>; codec: KeyCodec<z.infer<KS>> }) {
+  return defineSurfaceMap({ ...opts, failure: testFailureSchema });
+}
 
 export const settle = async (): Promise<void> => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
@@ -193,11 +205,10 @@ export function makeRegistry() {
 }
 
 export function setup() {
-  const map = defineSurfaceMap({
+  const map = buildTestMap({
     key: HostKeySchema,
     entry: entrySurface,
     codec: identityCodec,
-    failure: testFailureSchema,
   });
   const reg = makeRegistry();
   const served = serveSurfaceMap(map, reg.registry);

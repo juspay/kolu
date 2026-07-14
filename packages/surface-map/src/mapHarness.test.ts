@@ -22,10 +22,11 @@ import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
-import { defineSurfaceMap, type EntryStatus, type KeyCodec } from "./define";
+import type { EntryStatus, KeyCodec } from "./define";
 import {
   A,
   B,
+  buildTestMap,
   C,
   connected,
   D,
@@ -40,7 +41,6 @@ import {
   settle,
   setup,
   type TestFailure,
-  testFailureSchema,
 } from "./mapHarness.testlib";
 import {
   type EntryConnectionState,
@@ -353,11 +353,10 @@ describe("surface-map mock-entry e2e harness", () => {
     // — a delta member whose upstream REJECTS on the pool's destroy→delete→notify order —
     // additionally needs hostFanout reordered to delete→notify→destroy; tracked separately.)
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: HostKeySchema,
         entry: entrySurface,
         codec: identityCodec,
-        failure: testFailureSchema,
       });
       // A link whose `urgency.get` DIAL is slow — resolved by hand, modelling a member
       // still provisioning when the host is removed.
@@ -419,11 +418,10 @@ describe("surface-map mock-entry e2e harness", () => {
   });
 
   it("(9) the { live } override is unspellable — the 3rd arg is a siblingKey string, not a raw liveness accessor", () => {
-    const map = defineSurfaceMap({
+    const map = buildTestMap({
       key: HostKeySchema,
       entry: entrySurface,
       codec: identityCodec,
-      failure: testFailureSchema,
     });
     // Liveness comes ONLY from a branded LiveSignalHandle (its watchdog `live`) or a
     // constant-true in-process directLink; a raw accessor over a bare link (the #1564
@@ -474,11 +472,10 @@ describe("surface-map mock-entry e2e harness", () => {
     // captured-session dial rejects into a TYPED END, never a raw stub error, even though
     // `has()` is true again from the re-add. (With the old `has()`-gate it would `throw e`.)
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: HostKeySchema,
         entry: entrySurface,
         codec: identityCodec,
-        failure: testFailureSchema,
       });
       let rejectDial!: (e: Error) => void;
       const slowRejectingLink = {
@@ -549,11 +546,10 @@ describe("surface-map mock-entry e2e harness", () => {
   });
 
   it("(12) connectSurfaceMap REJECTS a raw pre-sliced / unbranded wire link — no green-over-dead door", () => {
-    const map = defineSurfaceMap({
+    const map = buildTestMap({
       key: HostKeySchema,
       entry: entrySurface,
       codec: identityCodec,
-      failure: testFailureSchema,
     });
     // A bare unbranded link (a pre-sliced `scopeSibling` re-wrap, or any non-directLink,
     // non-LiveSignalHandle value) would fall to `resolveTransport`'s by-exclusion
@@ -634,11 +630,10 @@ describe("surface-map mock-entry e2e harness", () => {
     //     the bare strip consumer (no handler) has nothing to drop.
     await createRoot(async (dispose) => {
       const { registry, addSession, armResolveThrow } = armableRegistry();
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: HostKeySchema,
         entry: entrySurface,
         codec: identityCodec,
-        failure: testFailureSchema,
       });
       const served = serveSurfaceMap(map, registry);
       const mapLink = directLink<AnyContractRouter>(served.router as never);
@@ -791,11 +786,10 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
 
   it("serves BOTH the cell verb (session/get) and the procedure verb (session/ping) — neither clobbered", async () => {
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: HostKeySchema,
         entry: collisionSurface,
         codec: identityCodec,
-        failure: testFailureSchema,
       });
       const reg = makeRegistry();
       const { router } = implementSurface(collisionSurface, {
@@ -865,11 +859,10 @@ function makeStreamEntry(value: number) {
 describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a non-callable proxy", () => {
   it("returns a Subscription that reads as a function, with .pending/.error intact — no boot TypeError", async () => {
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: HostKeySchema,
         entry: streamEntrySurface,
         codec: identityCodec,
-        failure: testFailureSchema,
       });
       const reg = makeRegistry();
       const served = serveSurfaceMap(map, reg.registry);
@@ -967,11 +960,10 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
 
   it("a same-key new-reference accessor write does NOT re-key the swap-root — no pending flash, no re-open", async () => {
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: ObjKeySchema,
         entry: streamEntrySurface,
         codec: objCodec,
-        failure: testFailureSchema,
       });
       const { registry, addSession } = objRegistry();
       addSession(freshA(), makeStreamEntry(9).link, connected(0));
@@ -1004,11 +996,10 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
 
   it("entries.use().keys() returns REFERENTIALLY-STABLE key objects across calls when membership is unchanged", async () => {
     await createRoot(async (dispose) => {
-      const map = defineSurfaceMap({
+      const map = buildTestMap({
         key: ObjKeySchema,
         entry: streamEntrySurface,
         codec: objCodec,
-        failure: testFailureSchema,
       });
       const { registry, addSession } = objRegistry();
       addSession(freshA(), makeStreamEntry(0).link, connected(0));
@@ -1043,11 +1034,10 @@ describe("serveSurfaceMap — the wire key must be its own canonical encoding", 
       encode: (k) => k,
       decode: (s) => s.toLowerCase() as HostKey,
     };
-    const map = defineSurfaceMap({
+    const map = buildTestMap({
       key: HostKeySchema,
       entry: entrySurface,
       codec: lenientCodec,
-      failure: testFailureSchema,
     });
     const reg = makeRegistry();
     reg.addSession(
