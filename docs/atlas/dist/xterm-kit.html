@@ -74,29 +74,34 @@ is structural — capture the owner before the <code>await</code>, re-enter it w
 <code>runWithOwner</code>, register teardown synchronously before the async body, and
 bail on a <code>disposed</code> flag after the await
 (<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/xtermLifecycle.ts#L50-L108" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/xtermLifecycle.ts:50-108</a>).</span></span></span></li>
-<li><strong>WebGL context-loss <em>and restore</em> recovery, plus deterministic release.</strong> The
-addon is single-owner, self-heals on <code>webglcontextlost</code>, explicitly fires
-<code>WEBGL_lose_context.loseContext()</code> on unload — without that, detached canvases
-hold GPU contexts until GC and Chrome’s per-tab context budget evicts <em>live</em>
-ones — and recovers from an eviction+restore by rebuilding the renderer so glyphs
-re-rasterize into a fresh atlas.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Chrome allows ~16 WebGL contexts per
-tab; rapid focus changes created contexts faster than GC released them,
-flickering every tile (#575, #591, the #1399 budget). A <em>separate</em>, longstanding
-gap surfaced later: when Chrome evicts a live context and later restores it, the
-glyph-atlas GPU texture dies with the context while xterm keeps drawing to its
-now-stale coordinates — <strong>botched glyphs</strong> that clear only on re-rasterization
-(selecting text, or a reload). The kit now opts the canvas into restore
-(<code>preventDefault</code> on loss, as the WebGL spec requires) and does a FULL renderer
-re-init on <code>webglcontextrestored</code>; <code>clearTextureAtlas()</code> alone can’t fix it — the
-atlas texture <em>object</em> itself died with the context. This gap was <strong>not</strong>
-introduced by the graduation: it was reproduced deterministically, traced to the
-xterm/addon layer (commit-independent), and confirmed by field history — Linux
-always showed it sporadically, macOS clustered under load, with no Chrome change —
-so the behavior-neutral claims for <a href="https://github.com/juspay/kolu/pull/1795" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1795</a> / <a href="https://github.com/juspay/kolu/pull/1808" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1808</a>
-hold. The restore recovery + its regression pin land in <a href="https://github.com/juspay/kolu/pull/1824" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1824</a>.
-Mechanism in the package
-(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/webgl.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/webgl.ts</a>); the <em>policy</em> of which
-panes deserve a context stays the consumer’s.</span></span></span></li>
+<li><strong>WebGL context-loss recovery and deterministic release.</strong> The addon is
+single-owner, self-heals on <code>webglcontextlost</code>, and explicitly fires
+<code>WEBGL_lose_context.loseContext()</code> on unload — without that, detached
+canvases hold GPU contexts until GC and Chrome’s per-tab context budget
+evicts <em>live</em> ones.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Chrome allows ~16 WebGL contexts per tab; rapid
+focus changes created contexts faster than GC released them, flickering
+every tile (#575, #591, the #1399 budget). The <em>mechanism</em> — accessor-gated
+load/unload with in-microtask release — is the package’s
+(<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/webgl.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/webgl.ts</a>);
+the <em>policy</em> of which panes deserve a context stays the consumer’s.</span></span></span>
+A mid-2026 corrupted-glyph investigation confirmed this boundary is sound and
+correctly library-owned.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A corrupted-glyph symptom — box-drawing worst,
+clearing on selection or reload — reported under a busy split + maximized
+workspace was investigated here. <strong>Verdict: not a #1795/#1808 regression</strong> —
+diff-falsified (no dropped atlas-clear, logic-identical context-loss path, the
+<code>@xterm/*</code> versions <code>pnpm.overrides</code>-pinned repo-wide so no skew) and confirmed
+by field history (Linux always sporadic, macOS clustered under load, no Chrome
+change); those PRs’ behavior-neutral claims hold. <strong>And the pinned
+<code>@xterm/addon-webgl@0.20.0-beta.224</code> already owns context loss AND restore
+in-renderer</strong> — byte-verified against the installed lib: <code>webglcontextlost</code> →
+<code>preventDefault()</code> + a 3s timeout that fires <code>onContextLoss</code>; <code>webglcontextrestored</code>
+→ <code>removeTerminalFromCache()</code> + <code>_initializeWebGLState()</code> + redraw (a full renderer
+rebuild against the live context, the atlas included). So a <em>kit-level</em> restore
+re-init would DUPLICATE that library boundary, not fill a gap — a first attempt
+that added exactly that was reverted after the byte-check (reproduce-on-software-GL
+had produced a false positive: SwiftShader doesn’t visually recover from a synthetic
+loss+restore even though the addon’s handler runs). The real mechanism behind the
+reported symptom remains under investigation, on a real-GPU venue.</span></span></span></li>
 <li><strong>Version-pinned internals with tripwire tests.</strong> Every reach into xterm’s
 private <code>_core.*</code> is confined to the package, typed structurally, and pinned
 by contract tests that turn an xterm bump into red CI instead of silent
@@ -406,7 +411,7 @@ lifecycle/WebGL primitives); the rest in PR 1:</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="tsx"><code><span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> {</span></span>
 <span class="line"><span style="color:#24292E">  Xterm,                </span><span style="color:#6A737D">// the component: lifecycle + addons + WebGL + fit, in JSX form (PR 2)</span></span>
 <span class="line"><span style="color:#24292E">  createXtermLifecycle, </span><span style="color:#6A737D">// the primitive under it, for a non-JSX composition (PR 2)</span></span>
-<span class="line"><span style="color:#24292E">  attachWebGL,          </span><span style="color:#6A737D">// single-owner WebglAddon lifetime + context-loss/restore recovery (PR 2)</span></span>
+<span class="line"><span style="color:#24292E">  attachWebGL,          </span><span style="color:#6A737D">// single-owner WebglAddon lifetime + context-loss recovery (PR 2)</span></span>
 <span class="line"><span style="color:#24292E">  createRenderRecovery, </span><span style="color:#6A737D">// forced sync repaint when the rAF paint loop parks</span></span>
 <span class="line"><span style="color:#24292E">  wireScrollIntent,     </span><span style="color:#6A737D">// DOM wheel/pointer wiring for the core scroll lock</span></span>
 <span class="line"><span style="color:#24292E">  createScrollLock,     </span><span style="color:#6A737D">// freeze-while-reading latch; buffered writes keep their callbacks</span></span>
@@ -438,10 +443,9 @@ choreography once, for any consumer whose composition the component doesn’t
 fit.</li>
 <li><strong><code>attachWebGL(terminal, should: Accessor&lt;boolean&gt;)</code></strong> exists because the
 addon’s lifetime has exactly one safe shape: single owner, self-heal on
-context loss, full renderer re-init on context <em>restore</em> (rebuilding the atlas
-the eviction destroyed), explicit <code>loseContext()</code> on unload. The gate is an
-accessor by type — budget <em>policy</em> (kolu’s recency budget, a preference toggle,
-always-on) stays whatever the consumer computes.</li>
+context loss, explicit <code>loseContext()</code> on unload. The gate is an accessor by
+type — budget <em>policy</em> (kolu’s recency budget, a preference toggle, always-on)
+stays whatever the consumer computes.</li>
 <li><strong><code>createRenderRecovery(term, visible)</code></strong> exists because Chromium parks the
 rAF loop under window occlusion and xterm’s paint silently freezes: it
 forces a synchronous repaint when buffered data outruns the last paint,

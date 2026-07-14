@@ -100,29 +100,34 @@ Behind that hello-world, the package owns the hazards kolu paid to learn:
   `runWithOwner`, register teardown synchronously before the async body, and
   bail on a `disposed` flag after the await
   (<Cite file="packages/xterm-kit/src/solid/xtermLifecycle.ts" lines="50-108" />).</Footnote>
-- **WebGL context-loss *and restore* recovery, plus deterministic release.** The
-  addon is single-owner, self-heals on `webglcontextlost`, explicitly fires
-  `WEBGL_lose_context.loseContext()` on unload — without that, detached canvases
-  hold GPU contexts until GC and Chrome's per-tab context budget evicts *live*
-  ones — and recovers from an eviction+restore by rebuilding the renderer so glyphs
-  re-rasterize into a fresh atlas.<Footnote>Chrome allows ~16 WebGL contexts per
-  tab; rapid focus changes created contexts faster than GC released them,
-  flickering every tile (#575, #591, the #1399 budget). A *separate*, longstanding
-  gap surfaced later: when Chrome evicts a live context and later restores it, the
-  glyph-atlas GPU texture dies with the context while xterm keeps drawing to its
-  now-stale coordinates — **botched glyphs** that clear only on re-rasterization
-  (selecting text, or a reload). The kit now opts the canvas into restore
-  (`preventDefault` on loss, as the WebGL spec requires) and does a FULL renderer
-  re-init on `webglcontextrestored`; `clearTextureAtlas()` alone can't fix it — the
-  atlas texture *object* itself died with the context. This gap was **not**
-  introduced by the graduation: it was reproduced deterministically, traced to the
-  xterm/addon layer (commit-independent), and confirmed by field history — Linux
-  always showed it sporadically, macOS clustered under load, with no Chrome change —
-  so the behavior-neutral claims for <PrLink pr={1795} /> / <PrLink pr={1808} />
-  hold. The restore recovery + its regression pin land in <PrLink pr={1824} />.
-  Mechanism in the package
-  (<Cite file="packages/xterm-kit/src/solid/webgl.ts" />); the *policy* of which
-  panes deserve a context stays the consumer's.</Footnote>
+- **WebGL context-loss recovery and deterministic release.** The addon is
+  single-owner, self-heals on `webglcontextlost`, and explicitly fires
+  `WEBGL_lose_context.loseContext()` on unload — without that, detached
+  canvases hold GPU contexts until GC and Chrome's per-tab context budget
+  evicts *live* ones.<Footnote>Chrome allows ~16 WebGL contexts per tab; rapid
+  focus changes created contexts faster than GC released them, flickering
+  every tile (#575, #591, the #1399 budget). The *mechanism* — accessor-gated
+  load/unload with in-microtask release — is the package's
+  (<Cite file="packages/xterm-kit/src/solid/webgl.ts" />);
+  the *policy* of which panes deserve a context stays the consumer's.</Footnote>
+  A mid-2026 corrupted-glyph investigation confirmed this boundary is sound and
+  correctly library-owned.<Footnote>A corrupted-glyph symptom — box-drawing worst,
+  clearing on selection or reload — reported under a busy split + maximized
+  workspace was investigated here. **Verdict: not a #1795/#1808 regression** —
+  diff-falsified (no dropped atlas-clear, logic-identical context-loss path, the
+  `@xterm/*` versions `pnpm.overrides`-pinned repo-wide so no skew) and confirmed
+  by field history (Linux always sporadic, macOS clustered under load, no Chrome
+  change); those PRs' behavior-neutral claims hold. **And the pinned
+  `@xterm/addon-webgl@0.20.0-beta.224` already owns context loss AND restore
+  in-renderer** — byte-verified against the installed lib: `webglcontextlost` →
+  `preventDefault()` + a 3s timeout that fires `onContextLoss`; `webglcontextrestored`
+  → `removeTerminalFromCache()` + `_initializeWebGLState()` + redraw (a full renderer
+  rebuild against the live context, the atlas included). So a *kit-level* restore
+  re-init would DUPLICATE that library boundary, not fill a gap — a first attempt
+  that added exactly that was reverted after the byte-check (reproduce-on-software-GL
+  had produced a false positive: SwiftShader doesn't visually recover from a synthetic
+  loss+restore even though the addon's handler runs). The real mechanism behind the
+  reported symptom remains under investigation, on a real-GPU venue.</Footnote>
 - **Version-pinned internals with tripwire tests.** Every reach into xterm's
   private `_core.*` is confined to the package, typed structurally, and pinned
   by contract tests that turn an xterm bump into red CI instead of silent
@@ -321,7 +326,7 @@ lifecycle/WebGL primitives); the rest in PR 1:
 import {
   Xterm,                // the component: lifecycle + addons + WebGL + fit, in JSX form (PR 2)
   createXtermLifecycle, // the primitive under it, for a non-JSX composition (PR 2)
-  attachWebGL,          // single-owner WebglAddon lifetime + context-loss/restore recovery (PR 2)
+  attachWebGL,          // single-owner WebglAddon lifetime + context-loss recovery (PR 2)
   createRenderRecovery, // forced sync repaint when the rAF paint loop parks
   wireScrollIntent,     // DOM wheel/pointer wiring for the core scroll lock
   createScrollLock,     // freeze-while-reading latch; buffered writes keep their callbacks
@@ -355,10 +360,9 @@ import {
   fit.
 - **`attachWebGL(terminal, should: Accessor<boolean>)`** exists because the
   addon's lifetime has exactly one safe shape: single owner, self-heal on
-  context loss, full renderer re-init on context *restore* (rebuilding the atlas
-  the eviction destroyed), explicit `loseContext()` on unload. The gate is an
-  accessor by type — budget *policy* (kolu's recency budget, a preference toggle,
-  always-on) stays whatever the consumer computes.
+  context loss, explicit `loseContext()` on unload. The gate is an accessor by
+  type — budget *policy* (kolu's recency budget, a preference toggle, always-on)
+  stays whatever the consumer computes.
 - **`createRenderRecovery(term, visible)`** exists because Chromium parks the
   rAF loop under window occlusion and xterm's paint silently freezes: it
   forces a synchronous repaint when buffered data outruns the last paint,

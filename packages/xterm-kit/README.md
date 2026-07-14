@@ -56,10 +56,9 @@ a `_core.buffers.normal` rename touches all three in tandem.
   the owner before the font `await`, bail on a `disposed` flag, re-enter with
   `runWithOwner`, and dispose term + addons synchronously. The one home for the
   #591/#606 leak choreography.
-- `attachWebGL` — single-owner `WebglAddon` lifetime with context-loss recovery,
-  a full renderer re-init on context *restore* (so glyphs re-rasterize into a fresh
-  atlas after a Chrome eviction), and an explicit `loseContext()` on unload; the
-  renderer gate is an `Accessor<boolean>` (budget policy stays the consumer's).
+- `attachWebGL` — single-owner `WebglAddon` lifetime with context-loss recovery
+  and an explicit `loseContext()` on unload; the renderer gate is an
+  `Accessor<boolean>` (budget policy stays the consumer's).
 - `wireTouchTaps` / `wireTouchScroll` — the mobile touch surface xterm 6.0 ships
   none of: tap-vs-scroll discrimination (with the iOS soft-keyboard focus rules)
   and the touch → scrollback bridge. What a tap *means* is the consumer's `onTap`.
