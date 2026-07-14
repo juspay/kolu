@@ -35,6 +35,36 @@ Feature: File-ref autolinking in terminal
     And xterm's helper textarea should not have been focused by tapping the link
     And there should be no page errors
 
+  @touch-desktop
+  Scenario: A touch tap resolves to the visually-tapped cell in a zoomed canvas tile
+    # PR-2 divisor unification. A coarse-primary pointer that CAN hover, at
+    # desktop width (a touchscreen device that hovers), is the ONE config where
+    # kolu both mounts the spatial pan/zoom canvas (desktop layout) AND wires the
+    # touch tap (coarse pointer) — exactly where a pointer→cell divisor under a
+    # zoomed tile matters. The tap routes through xterm's own font-metric
+    # authority (cellAtPoint, /internals), the divisor selection/hover use, not a
+    # hand-rolled rect.width/cols. This proves a tap on the ref's RENDERED glyph
+    # opens that ref, at normal scale AND after zooming the tile in — the
+    # correctness criterion (the two divisors agree only when the screen's layout
+    # width equals cols×cssCellWidth, which a zoomed tile need not).
+    When I run "git init /tmp/kolu-file-ref-zoom && cd /tmp/kolu-file-ref-zoom"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > zoom.txt"
+    And I run "echo 'open zoom.txt:3 to inspect'"
+    # Normal scale: a tap on the glyph's visual centre opens the ref.
+    And I tap the terminal file-ref link "zoom.txt:3" at its font-metric visual centre
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the selected file should show content "gamma"
+    # Under zoom: collapse, zoom the tile in, tap the (now-magnified) glyph's
+    # visual centre — it must still resolve to the same ref.
+    When I collapse the right panel
+    And I zoom the canvas in
+    And I tap the terminal file-ref link "zoom.txt:3" at its font-metric visual centre
+    Then the right panel should be visible
+    And the selected file should show content "gamma"
+    And there should be no page errors
+
   Scenario: Clicking a line-range file-ref opens the file
     When I run "git init /tmp/kolu-file-ref-861-range && cd /tmp/kolu-file-ref-861-range"
     And I run "git commit --allow-empty -m init"

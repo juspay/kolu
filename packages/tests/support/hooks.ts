@@ -604,6 +604,15 @@ async function newScenarioPage(
   chrome: "app" | "browser",
   vp: { width: number; height: number } = X11_VIEWPORT,
   touchViewport: { width: number; height: number } = PHONE_VIEWPORT,
+  /** `@touch-desktop`: a coarse-primary pointer that CAN hover, at desktop
+   *  width — the one quadrant where kolu both mounts the spatial canvas
+   *  (`isDesktop`, since `handheld = (pointer:coarse) and (hover:none)` is false)
+   *  AND wires the touch tap (`isTouch = (pointer:coarse)`). The client keys its
+   *  layout on pointer+hover, so this needs BOTH `hasTouch` (for touchscreen.tap)
+   *  AND the pointer/hover media pinned coarse+hover — pinned together via CDP
+   *  below, since Playwright's `emulateMedia` can't set pointer/hover. The
+   *  desktop viewport is untouched. */
+  touchDesktop = false,
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -649,6 +658,11 @@ async function newScenarioPage(
             ? EVIDENCE_VIEWPORT
             : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
+      // @touch-desktop: touch input at the (untouched) desktop viewport — no
+      // `isMobile`, so the mobile device profile / drawer layout stays off. The
+      // coarse+hover media the layout keys on is pinned via CDP after the page
+      // exists (below), so the spatial canvas mounts AND the touch tap wires.
+      ...(touchDesktop && { hasTouch: true }),
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
       // clipboard-write: lets tests place images in the clipboard for paste testing.
@@ -665,6 +679,21 @@ async function newScenarioPage(
     });
     previousContext = context;
     const page = await context.newPage();
+    // @touch-desktop: pin the pointer/hover media the client's `layoutMode` keys
+    // on — a coarse PRIMARY pointer that CAN hover, so `handheld` (coarse AND
+    // hover:none) is false and the desktop spatial canvas mounts, while
+    // `isTouch` (coarse) still wires the touch tap. Playwright's `emulateMedia`
+    // can't set pointer/hover, so use CDP. Bundled with `hasTouch` (above) inside
+    // the one `@touch-desktop` switch — never exposed separately.
+    if (touchDesktop) {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [
+          { name: "pointer", value: "coarse" },
+          { name: "hover", value: "hover" },
+        ],
+      });
+    }
     previousContext = undefined;
     return { context, page };
   });
@@ -1088,6 +1117,13 @@ Before(async function (this: KoluWorld, scenario) {
   const isMobile =
     isCompact || scenario.pickle.tags.some((t) => t.name === "@mobile");
   const touchViewport = isCompact ? COMPACT_VIEWPORT : PHONE_VIEWPORT;
+  // @touch-desktop → touch input at desktop width with a coarse+hover pointer
+  // (a touchscreen device that can hover): the only quadrant that mounts the
+  // spatial canvas AND wires the touch tap. Distinct from @mobile/@compact,
+  // which shrink the viewport into the drawer layout (no canvas).
+  const isTouchDesktop = scenario.pickle.tags.some(
+    (t) => t.name === "@touch-desktop",
+  );
 
   // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
   // browser chrome and its capture viewport — read it so the launch + grab match.
@@ -1096,7 +1132,13 @@ Before(async function (this: KoluWorld, scenario) {
   const vp = rec?.viewport ?? X11_VIEWPORT;
 
   this.browser = browser;
-  const created = await newScenarioPage(isMobile, chrome, vp, touchViewport);
+  const created = await newScenarioPage(
+    isMobile,
+    chrome,
+    vp,
+    touchViewport,
+    isTouchDesktop,
+  );
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
