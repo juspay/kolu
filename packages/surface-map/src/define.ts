@@ -50,13 +50,55 @@ import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
 
+// ── Membership identity (PR3) ───────────────────────────────────────────
+
+/** The opaque per-add membership identity — a BRANDED string, so an id can be
+ *  produced ONLY two ways: `serveSurfaceMap`'s mint (a fresh
+ *  `MembershipIdSchema.parse(crypto.randomUUID())`) and the wire schema's
+ *  `entryStatusSchema` parse (the one boundary a status is decoded through). A bare
+ *  `string` — an empty `""` or a client-fabricated value — is NOT assignable to
+ *  `MembershipId`, so the "spellable empty/fabricated id" gap is a COMPILE ERROR,
+ *  not a runtime convention (P4: the illegal value is unrepresentable). `.min(1)`
+ *  is the paired RUNTIME guard at the parse boundary; the brand is erased at
+ *  runtime (the value is the plain string), so keying/serialization are unchanged. */
+export const MembershipIdSchema = z.string().min(1).brand("MembershipId");
+export type MembershipId = z.infer<typeof MembershipIdSchema>;
+
+/** The client-only PENDING membership marker (PR3) — the single sanctioned id for
+ *  the transient pre-frame gap, where a key is seen in the membership keyset before
+ *  its first per-key status frame lands. It is minted ONCE through the schema (never
+ *  a bare literal), and is DISPLAY-ONLY: it rides the synthesized `warming` that
+ *  `foldState` returns for the gap, which no consumer reads a `membershipId` off,
+ *  and the per-key client keys off `membershipIdOf` (the RAW status, `undefined`
+ *  here) — NEVER this marker — so it can never be keyed against or collide with a
+ *  real minted id (a UUID). Replaced by the real id on the next frame. */
+export const PENDING_MEMBERSHIP_ID: MembershipId =
+  MembershipIdSchema.parse("pending");
+
 // ── Membership status ──────────────────────────────────────────────────
 
 /** The published per-entry status — the value carried by the `entries`
  *  collection. Absence from the collection is "not a member"; there is no
  *  `absent` variant (dual-authority for membership is unconstructible at the
- *  source — one writer publishes membership + status together). `clockOffset`
- *  is the serving process's own-clock offset at hello (one named writer, P3).
+ *  source — one writer publishes membership + status together). Readiness is
+ *  LINK liveness, NOT clock-measured: an entry is `connected` as soon as the link
+ *  is live. `clockOffset` is a SEPARATE fact on the connected arm — the serving
+ *  process's own-clock offset at hello (one named writer, P3) — and it is
+ *  `number | null`, where `null` has ONE meaning: not-yet-measured (the probe has
+ *  not landed; the reader renders "—"). A connected entry with `clockOffset: null`
+ *  is fully `connected`, never demoted to `warming`.
+ *
+ *  `membershipId` (PR3) is an opaque, never-reused identity stamped by
+ *  `serveSurfaceMap` on every ADD — a fresh `crypto.randomUUID()` when a key
+ *  ENTERS membership, dropped when it leaves, and never reused across a
+ *  map-server restart (the id map is in-process, so a fresh server mints fresh
+ *  ids by construction). It rides EVERY arm so a client can key every cached
+ *  owner on `{encodedKey, membershipId}`: a same-key remove/re-add mints a NEW
+ *  id, and an authority restart mints new ids for every member, so a stale
+ *  subscription can never resurrect against a fresh session — the rebuild
+ *  happens by construction, not by a hand-rolled generation rearm. Membership is
+ *  time: a key that leaves and returns is a *new member* even when its spelling
+ *  is unchanged, and this id is that time made a fact.
  *
  *  `Failure` is the DOMAIN FAILURE VALUE carried on the `failed` arm — a whole,
  *  schema-validated domain value (padi's `PadiEntryFailure`: a discriminated
@@ -70,9 +112,13 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  `unknown` so generic library code carries the value opaquely; a domain
  *  narrows it at its own map. */
 export type EntryStatus<Failure = unknown> =
-  | { kind: "warming" }
-  | { kind: "connected"; clockOffset: number }
-  | { kind: "failed"; failure: Failure };
+  | { kind: "warming"; membershipId: MembershipId }
+  | {
+      kind: "connected";
+      membershipId: MembershipId;
+      clockOffset: number | null;
+    }
+  | { kind: "failed"; membershipId: MembershipId; failure: Failure };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
@@ -91,14 +137,28 @@ export type EntryState<Failure = unknown> =
  *  union, its `reason`, and any typed per-cause sidecar — padi's `running`/
  *  `expected` skew pair — are all validated by the domain schema itself, not
  *  waved through as unknown extras). A generic package can't know the domain's
- *  schema, so this is a FUNCTION of it rather than a module const. */
+ *  schema, so this is a FUNCTION of it rather than a module const. Every arm also
+ *  carries `membershipId: MembershipIdSchema` (PR3) — the opaque per-add identity,
+ *  BRANDED here so this parse is (with `serveSurfaceMap`'s mint) one of the only two
+ *  producers of a `MembershipId`; a status decoded off the wire is branded by
+ *  construction. */
 export function entryStatusSchema<Failure>(
   failureSchema: ZodType<Failure>,
 ): ZodType<EntryStatus<Failure>> {
   return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("warming") }),
-    z.object({ kind: z.literal("connected"), clockOffset: z.number() }),
-    z.object({ kind: z.literal("failed"), failure: failureSchema }),
+    z.object({ kind: z.literal("warming"), membershipId: MembershipIdSchema }),
+    z.object({
+      kind: z.literal("connected"),
+      membershipId: MembershipIdSchema,
+      // `null` = not-yet-measured (ONE meaning); readiness is link-liveness, so a
+      // connected entry stays connected whether or not the offset has landed.
+      clockOffset: z.number().nullable(),
+    }),
+    z.object({
+      kind: z.literal("failed"),
+      membershipId: MembershipIdSchema,
+      failure: failureSchema,
+    }),
   ]) as unknown as ZodType<EntryStatus<Failure>>;
 }
 
@@ -332,6 +392,19 @@ export interface SurfaceMap<
    *  entries } }`. A canonical-string `mapKey` is folded into every entry-member
    *  input; `entries` is the membership collection (unfolded). */
   readonly contract: AnyContractRouter;
+  /** The `.surface` FRAGMENT of {@link contract} — `{ <member>: {...folded}, entries }`
+   *  — exposed as a first-class field so a host that mounts this map as a sibling of its
+   *  own surface (`{ surface: { ...ownSiblings, [name]: map.surfaceContract } }`) splices
+   *  a TYPED value, never reaching into `contract` with an `as any`. The folded fragment
+   *  is dynamically built, so its honest type is `AnyContractRouter` — the single
+   *  library-side cast that lets EVERY connection site stay cast-free (PR3). */
+  readonly surfaceContract: AnyContractRouter;
+  /** The map's mount NAME — the sibling key it is served under in a combined surface
+   *  (kolu's `"padi"`, drishti's `"hosts"`). When set, `connectSurfaceMap` derives the
+   *  transport-slice key FROM it, so the connection site carries no stringly sibling key
+   *  (PR3 — "the key derives from the declaration"). Omitted for a map served standalone
+   *  at the transport root (the in-process test harness), where nothing is sliced. */
+  readonly name?: string;
   /** The membership collection's spec — `Collection<string, EntryStatus<Failure>>`
    *  on the wire (see the module doc for why the collection key is always a plain
    *  string), read-only. Backs both the server's `entries` handlers and the
@@ -359,19 +432,27 @@ export function defineSurfaceMap<
   entry: Surface<ES>;
   codec: KeyCodec<z.infer<KS>>;
   failure: ZodType<Failure>;
+  /** The sibling key this map is mounted under in a combined surface (see
+   *  {@link SurfaceMap.name}). Omit for a standalone/at-root map. */
+  name?: string;
 }): SurfaceMap<KS, ES, Failure> {
-  const { key: keySchema, entry, codec, failure } = opts;
+  const { key: keySchema, entry, codec, failure, name } = opts;
   const members = foldedMembers(entry.spec);
   // Build the EntryStatus schema from the map's `failure` ONCE, then thread the SAME
   // instance to both homes that need it — the `entries.get` contract output and the
   // `entriesSpec` collection value — rather than deriving the identical schema twice.
   const statusSchema = entryStatusSchema(failure);
+  // Keep the `.surface` fragment as a named value so it backs BOTH the full `contract`
+  // and the first-class `surfaceContract` field a host splices — one dynamic fragment,
+  // one library-side cast, no `as any` at any connection site.
+  const surfaceFragment = {
+    ...members,
+    entries: entriesContract(statusSchema),
+  };
   const contract = oc.router({
-    surface: {
-      ...members,
-      entries: entriesContract(statusSchema),
-    },
+    surface: surfaceFragment,
   } as unknown as AnyContractRouter) as AnyContractRouter;
+  const surfaceContract = surfaceFragment as unknown as AnyContractRouter;
 
   const entriesSpec: CollectionSpec<string, EntryStatus<Failure>> = {
     keySchema: z.string(),
@@ -383,7 +464,9 @@ export function defineSurfaceMap<
     keySchema,
     entry,
     contract,
+    surfaceContract,
     entriesSpec,
     codec,
+    name,
   };
 }

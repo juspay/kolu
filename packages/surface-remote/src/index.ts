@@ -54,7 +54,6 @@ export {
   type RemotePoolControlOptions,
   type RemotePoolOptions,
 } from "./hostFanout";
-export { measureClockOffset } from "./measureClockOffset";
 export {
   type ProvisionOptions,
   type ProvisionResult,
@@ -69,10 +68,10 @@ export {
 export {
   type DeltaMembers,
   type ForwardableStream,
-  NoLiveUpstreamError,
   type RelayHoldOpenOptions,
   type RelayPolicy,
   type RelayStreamOptions,
+  RelayTransportLostError,
   relayFailThroughStream,
   relayHoldOpenStream,
   type ValueMembers,

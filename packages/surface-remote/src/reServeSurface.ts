@@ -48,13 +48,15 @@
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import {
   type CellCtxSetOpts,
   type ImplementSurfaceDeps,
   implementSurfaceOnPublisher,
   inMemoryChannelByName,
+  inMemoryCollection,
+  superviseTerminalSource,
 } from "@kolu/surface/server";
-import type { SurfaceClientLike } from "@kolu/surface/project";
 import { mirroredSurface, type WithConnection } from "./connection";
 import { seedConnectionCell } from "./connectionPipe";
 import {
@@ -62,14 +64,14 @@ import {
   observableHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
-import type { Session } from "./session";
-import type { SshProv } from "./sshConnector";
 import {
-  failThroughStreamCore,
   type ForwardableStream,
+  failThroughStreamCore,
   holdOpenStreamCore,
   type RelayPolicy,
 } from "./relayStream";
+import type { Session } from "./session";
+import type { SshProv } from "./sshConnector";
 
 /** A mirrored cell's local READ store, with the mirror-never-fabricate gate.
  *  Seeds the declared default so `get()` is a typed `T`, and flips `hasSnapshot`
@@ -143,6 +145,20 @@ type ProcedureFn = (
   input?: unknown,
   opts?: { signal?: AbortSignal },
 ) => Promise<unknown>;
+
+/** Reach one member namespace on the opaque oRPC surface client structurally —
+ *  `client.surface.<member>`. The live client is a lazy proxy with no static member
+ *  types at this seam (the precise per-member client is materialized once at the
+ *  typed sink, and re-spelling it here would overflow TS's union budget). So the
+ *  ONE structural cast lives here, with the ONE justification, instead of restated
+ *  at every relay / forward site (SR5). The caller pins the shape it expects via `T`
+ *  (a stream, a cell's verb namespace); a member the client doesn't expose reads
+ *  `undefined` and each caller fails loud on that. */
+function surfaceMember<T>(client: SurfaceClientLike, member: string): T {
+  return (client as unknown as { surface: Record<string, T> }).surface[
+    member
+  ] as T;
+}
 
 /** High-water mark for each downstream subscriber's per-cell/-collection receive
  *  queue (see the `channel` factory below). Generous enough that only a
@@ -254,11 +270,10 @@ export function reServeSurface<S extends SurfaceSpec>(
         `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
       );
     }
-    const cellNs = (
-      client as unknown as {
-        surface: Record<string, Record<string, ProcedureFn>>;
-      }
-    ).surface[key];
+    const cellNs = surfaceMember<Record<string, ProcedureFn> | undefined>(
+      client,
+      key,
+    );
     const fn = cellNs?.[verb];
     if (typeof fn !== "function") {
       throw new Error(
@@ -300,17 +315,13 @@ export function reServeSurface<S extends SurfaceSpec>(
   const collectionCaches = new Map<string, Map<unknown, unknown>>();
   const collectionsDeps: Record<string, unknown> = {};
   for (const key of Object.keys(spec.collections ?? {})) {
-    const cache = new Map<unknown, unknown>();
-    collectionCaches.set(key, cache);
-    collectionsDeps[key] = {
-      readAll: () => cache,
-      upsert: (k: unknown, v: unknown) => {
-        cache.set(k, v);
-      },
-      remove: (k: unknown) => {
-        cache.delete(k);
-      },
-    };
+    // The additive in-memory Collection shape — one framework implementation
+    // (`inMemoryCollection`) rather than the three hand-rolled lines (SR5). The
+    // sink hands the live backing Map's keys to the mirror as its carry-over
+    // (`initialKeys`), so hold the Map itself for `collectionCaches`.
+    const coll = inMemoryCollection<unknown, unknown>();
+    collectionCaches.set(key, coll.readAll());
+    collectionsDeps[key] = coll;
   }
 
   // Streams + events → per-subscriber relays, chosen by policy. `select` reaches
@@ -327,11 +338,7 @@ export function reServeSurface<S extends SurfaceSpec>(
     const select = (
       client: SurfaceClientLike,
     ): ForwardableStream<unknown, unknown> =>
-      (
-        client as unknown as {
-          surface: Record<string, ForwardableStream<unknown, unknown>>;
-        }
-      ).surface[member] as ForwardableStream<unknown, unknown>;
+      surfaceMember<ForwardableStream<unknown, unknown>>(client, member);
     // Route by policy at runtime; the two cores are the impls behind the
     // type-guarded public relays (a widened policy can't satisfy those guards
     // here — the guards are for direct callers + the contract test).
@@ -522,36 +529,23 @@ export function reServeSurface<S extends SurfaceSpec>(
     log,
   });
 
-  // Join the internal runtime's owned-fault channel into `done` WITHOUT letting
-  // its clean-close resolution pre-empt the pump's own settle: only propagate a
-  // runtime REJECTION; a runtime resolve (on `close`) is intentionally ignored so
-  // `pumpDone` remains the resolving edge. First settle wins; each source routes
-  // its own resolve/reject.
-  const done = new Promise<void>((resolve, reject) => {
-    pumpDone.then(resolve, reject);
-    runtime.done.catch(reject);
-  });
-  // `done` may reject from either arm; guard against an unhandled rejection if a
-  // consumer only observes `close()`. (Consumers that read `done` still see it.)
-  done.catch(() => {});
-
-  let closing: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    // This hand-rolls the same abort-first / await-settle / dispose teardown
-    // doctrine that `superviseSurface` (@kolu/surface/server) is the canonical
-    // combinator for. It is NOT delegated to here because the resolve edges
-    // differ: the pump's own settlement is TERMINAL (a session destroy resolves
-    // `done`), whereas `superviseSurface.done` resolves only on `close`. Unifying
-    // the two — teaching `superviseSurface` a terminal source — is deferred to PR5.
-    closing ??= (async () => {
-      // Abort FIRST (the active mirror's per-key pumps settle via signal.reason —
-      // #1719), then await the pump's own settle, then release the runtime.
+  // Supervise the internal runtime + the pump through the framework's
+  // terminal-source combinator (SR5 — the doctrine this file used to hand-roll,
+  // SR1's "deferred to PR5"). The pump is a TERMINAL source: it drives the runtime
+  // and ends on its own when the session is destroyed, so its settle is `done`'s
+  // resolving edge; an owned runtime fault (a cell connector rejecting) also
+  // reaches `done`; `close` aborts the pump FIRST (its active mirror's per-key
+  // pumps settle via signal.reason — #1719), then releases the runtime.
+  const { done, close } = superviseTerminalSource(runtime, {
+    done: pumpDone,
+    // The pump's atomic teardown verb: abort THIS pump (without destroying the
+    // caller-owned session), then await its settle (its per-key pumps settle via
+    // signal.reason — #1719) before the combinator releases the runtime.
+    close: async () => {
       pumpAbort.abort();
       await pumpDone.catch(() => {});
-      await runtime.close();
-    })();
-    return closing;
-  };
+    },
+  });
 
   return { surface, router, done, close };
 }

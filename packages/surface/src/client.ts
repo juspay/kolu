@@ -19,13 +19,29 @@
 import { ORPCError } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
-/** The retry policy shared across transports: retry transport errors,
- *  never an `ORPCError` (an application-level error the server chose to
- *  raise — retrying it just repeats the same failure). Named once here so
- *  `STREAM_RETRY` (per-call streaming context) and the stdio link's
+/** The ONE `ORPCError` code that is RETRYABLE (SR5 — "one protocol across the
+ *  wire"). A re-serving parent's fail-through relay ends its downstream with this
+ *  code when its UPSTREAM link to the agent is lost (no live upstream at subscribe,
+ *  or a mid-stream link death), so the browser's `STREAM_RETRY` re-subscribes
+ *  end-to-end and a fresh snapshot leads the new stream. It is the NAMED retryable
+ *  transport end the reServe relay produces (`RelayTransportLostError`,
+ *  `@kolu/surface-remote`), and it crosses oRPC as an `ORPCError` — code PRESERVED,
+ *  not sanitized — so the fence below can recognize it on the far side. The dual of
+ *  `deadTransportError`'s codes: those are permanently dead (never retry), this one
+ *  is a transient middle-hop drop the parent will heal. */
+export const SURFACE_RELAY_TRANSPORT_LOST = "SURFACE_RELAY_TRANSPORT_LOST";
+
+/** The retry policy shared across transports: retry transport errors, and the ONE
+ *  named RETRYABLE relay end ({@link SURFACE_RELAY_TRANSPORT_LOST} — a re-serve's
+ *  transient upstream drop), but never any OTHER `ORPCError` (an application-level
+ *  error the server chose to raise — retrying it just repeats the same failure, and
+ *  it is the non-retriable shape a permanently-dead transport rejects with). Named
+ *  once here so `STREAM_RETRY` (per-call streaming context) and the stdio link's
  *  factory-level `ClientRetryPlugin` default can't drift apart. */
 export const shouldNotRetryORPCError: ClientRetryPluginContext["shouldRetry"] =
-  ({ error }) => !(error instanceof ORPCError);
+  ({ error }) =>
+    !(error instanceof ORPCError) ||
+    error.code === SURFACE_RELAY_TRANSPORT_LOST;
 
 /** The two codes a permanently-dead transport rejects with. Distinct strings
  *  (so a consumer can tell *which* transport died) but one shape: both flow
@@ -53,6 +69,23 @@ export function deadTransportError(
   return new ORPCError(code, { message });
 }
 
+/** Recognize the permanently-dead transport shapes {@link deadTransportError}
+ *  mints — the RECOGNITION twin of that factory, colocated with the codes so the
+ *  "which codes mean the transport itself died" knowledge lives in ONE place, next
+ *  to the factory and the retry fence it stays in lockstep with. A re-serve relay
+ *  uses it to tell a middle-hop transport death (translate to the retryable relay
+ *  end) from an application `ORPCError` the agent raised (surface unchanged). Add a
+ *  transport link with a new dead code here (beside `deadTransportError`) and every
+ *  recognizer — not just the denylist fence — picks it up, closing the silent-drift
+ *  gap an ad-hoc code list at the relay would otherwise open. */
+export function isDeadTransportError(error: unknown): boolean {
+  return (
+    error instanceof ORPCError &&
+    (error.code === SURFACE_STDIO_TRANSPORT_CLOSED ||
+      error.code === SURFACE_TRANSPORT_RETIRED)
+  );
+}
+
 /** Is `reason` the ONE typed shape a closed stdio link floats — the greppable
  *  {@link deadTransportError}(`SURFACE_STDIO_TRANSPORT_CLOSED`) #1719 made the only
  *  thing crossing the stdio seam at close? Brand-checked on `ORPCError` + the exact
@@ -60,15 +93,23 @@ export function deadTransportError(
  *  errors use), and it is DELIBERATELY tight: it matches nothing but that one owned
  *  transport-closed error.
  *
- *  This is the NARROW predicate a consumer-side `unhandledRejection` boundary uses
- *  to survive the padiBinding "reconnects when padi dies" residual — an oRPC-INTERNAL
- *  intermediate promise (in `ClientPeer.request`'s streaming response handling) that
- *  is abandoned as a re-served relay's nested-generator consumer unwinds mid-subscribe
- *  and floats this typed error. kolu proved it cannot OWN that promise from any of its
- *  own layers (the ownership guarantee is oRPC's, a lower layer cannot complete it —
- *  architecture-first-principles P5), so a narrow-loud survival boundary + an upstream
- *  fix is the honest kolu-side maximum. The predicate is tight so the boundary can
- *  never mask any OTHER float: a rejection of any other shape stays fatal. */
+ *  Deliberately NARROWER than {@link isDeadTransportError}: that recognizer spans
+ *  BOTH dead-transport codes (the retired websocket too) for relay translation;
+ *  this one is the single code an abandoned stdio pull actually floats. The
+ *  difference is load-bearing — this predicate gates a consumer-side
+ *  `unhandledRejection` SURVIVAL boundary, so it must admit ONLY the identified
+ *  float and let every other shape (incl. `SURFACE_TRANSPORT_RETIRED`, an
+ *  un-analyzed float) stay fatal by the fail-fast default. Broadening it to
+ *  `isDeadTransportError` would survive a shape the mechanism was never proven
+ *  benign for.
+ *
+ *  The residual it gates: an oRPC-INTERNAL intermediate promise (in
+ *  `ClientPeer.request`'s streaming response handling) that is abandoned as a
+ *  re-served relay's nested-generator consumer unwinds mid-subscribe and floats
+ *  this typed error. kolu proved it cannot OWN that promise from any of its own
+ *  layers (the ownership guarantee is oRPC's, a lower layer cannot complete it —
+ *  architecture-first-principles P5), so a narrow-loud survival boundary + an
+ *  upstream fix is the honest kolu-side maximum. */
 export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
   return (
     reason instanceof ORPCError &&

@@ -31,7 +31,7 @@ Every surveyed product solves one slice: tmux owns persistence, mosh owns roamin
 
 ## Tier 3 — already-named, unblocked mechanics (ship when convenient)
 
-**F7 · Honest clocks (the deferred W4 piece 5)** — the named fast-follow: consume `control.core.clockNow` per bind (RTT-halved offset on the session), translate host-stamped times in the client's formatters. *Prerequisite hygiene for any cross-host feature that displays time; W5 was shaped to not need it. Size: small.*
+**F7 · Honest clocks (the deferred W4 piece 5)** — the named fast-follow. The offset half now ships: `makeSession` measures the RTT-compensated offset off the framework-reserved `system.clockNow` per bind and carries it on the session's `connected` state, folded into `EntryStatus.connected` (PR3 — the MEASUREMENT graduated to the framework-reserved `system.clockNow`; the padi-specific `control.core.clockNow` is **kept forever** as a frozen-core member, living beside the new path for old binders, never removed). What remains is translating host-stamped times through that offset in the client's formatters. *Prerequisite hygiene for any cross-host feature that displays time; W5 was shaped to not need it. Size: small.*
 
 **F8 · padi-tui --host (ledger L24)** — the CLI's remote leg, ready since W3.1. **One correction from the ground-truth pass: L24's text cites `getHostSession`, which S10 deleted** — the implementation composes `makeSession({ connectOnce: sshConnector({ binary: "padi", … }) })`. A tui is a dial; it never converges (#1313). *Size: small.*
 

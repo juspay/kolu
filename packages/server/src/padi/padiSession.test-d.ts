@@ -27,7 +27,6 @@ declare const localBase: Session<PadiSurfaceClient, never>;
 const localPadi: PadiSession<never> = asPadiSession(localBase, {
   convergence: () => null satisfies PadiConvergence | null,
   renew: () => Promise.resolve(),
-  clockOffset: () => null,
   entryFailedDetail: () => null,
 });
 

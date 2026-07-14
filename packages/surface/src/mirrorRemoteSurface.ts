@@ -48,11 +48,14 @@
 
 import type { ZodType } from "zod";
 import type {
+  CollectionDeltasMsg,
+  CollectionSpec,
   ProcedureSpec,
   Surface,
   SurfaceSpec,
   SurfaceTypes,
 } from "./define";
+import { collectionHasDeltas } from "./define";
 import type { SurfaceClientLike } from "./project";
 import { isAbortReason, iterateUntilAborted } from "./server";
 
@@ -229,6 +232,13 @@ type EntryClient = {
     input: unknown,
     opts?: { signal?: AbortSignal },
   ) => Promise<AsyncIterable<readonly unknown[]>>;
+  /** A delta-declaring collection's SINGLE batched snapshot-then-delta stream —
+   *  present iff the collection opts into the `deltas` verb. Takes no input
+   *  (`undefined`); the whole collection is one stream. */
+  deltas?: (
+    input: undefined,
+    opts?: { signal?: AbortSignal },
+  ) => Promise<AsyncIterable<CollectionDeltasMsg<unknown, unknown>>>;
 };
 
 /** Resolve the client namespace entry for a primitive a sink opted into, or
@@ -412,19 +422,63 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       );
     }
 
-    // Collections: discover keys from the `keys` stream, hold a per-key value
-    // stream open for each present key, and remove departed keys.
+    // Collections split by DECLARED protocol (SR5 — one protocol across the wire):
+    // a collection that opts into the `deltas` verb is mirrored through its SINGLE
+    // batched snapshot-then-delta stream; one WITHOUT it keeps the per-key
+    // `keys`+`get` fan-out. The choice is read from the SPEC (`collectionHasDeltas`),
+    // never probed on the link — an oRPC wire client is a lazy proxy whose every
+    // property is a truthy callable, so a `entry.deltas`-truthiness probe would route
+    // EVERY collection into a `deltas` call the server may never have registered (the
+    // same doctrine `surfaceClient`'s `.use()` and `walkSurface` decide by).
     for (const key of Object.keys(spec.collections ?? {})) {
       const colSink = collSinks?.[key];
       if (!colSink) continue;
-      const entry = requireEntry(ns, key, "collection");
+      // `key` comes from `Object.keys(spec.collections)`, so — the loop only runs
+      // when `spec.collections` is present — the spec for this key is present too.
+      const collSpec = spec.collections?.[key] as CollectionSpec;
+      if (collectionHasDeltas(collSpec)) {
+        const entry = ns[key];
+        // Delta protocol: one stream carries snapshot-then-deltas for the whole
+        // collection. SUPPLYING a sink means the caller expects that stream, never a
+        // silent fall back to the per-key path. This structural check catches a
+        // client whose namespace object literally lacks `deltas` (a plain-object /
+        // test client, or one built from a DIFFERENT surface family). A real oRPC
+        // WIRE client is a lazy proxy on which every property is a callable, so a
+        // route the server never registered can't be caught here — it surfaces
+        // instead as the subscribe rejection `mirrorCollectionDeltas` handles per the
+        // mirror's upstream-error contract (the SAME limit the per-key `requireEntry`
+        // path has). Routing is spec-driven — server and client share ONE surface
+        // spec, so a declared-deltas collection IS served with deltas; a genuine
+        // absence is a version skew, not a normal case.
+        if (!entry || typeof entry.deltas !== "function") {
+          throw new ClientSurfaceMismatchError(
+            `a sink was supplied for collection "${key}" (declares the "deltas" verb) but the client has no "deltas" verb`,
+          );
+        }
+        const deltasFn = entry.deltas;
+        starts.push(() =>
+          mirrorCollectionDeltas({
+            label: `${key} collection`,
+            log,
+            signal,
+            deltas: deltasFn(undefined, { signal }),
+            onUpsert: colSink.upsert,
+            onRemove: colSink.remove,
+            initialKeys: colSink.initialKeys,
+          }),
+        );
+        continue;
+      }
+      // Per-key protocol: discover keys from the `keys` stream, hold a per-key value
+      // stream open for each present key, and remove departed keys.
+      const perKeyEntry = requireEntry(ns, key, "collection");
       // A collection MUST expose `keys` — a `get`-only entry can't be a collection.
-      if (!entry.keys) {
+      if (!perKeyEntry.keys) {
         throw new ClientSurfaceMismatchError(
           `client entry "${key}" is missing the "keys" verb — it cannot serve the "${key}" collection`,
         );
       }
-      const keysFn = entry.keys;
+      const keysFn = perKeyEntry.keys;
       starts.push(() =>
         mirrorCollection({
           label: `${key} collection`,
@@ -432,7 +486,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
           signal,
           keys: keysFn({}, { signal }),
           get: (k, s) =>
-            entry.get({ key: k }, { signal: s }) as Promise<
+            perKeyEntry.get({ key: k }, { signal: s }) as Promise<
               AsyncIterable<unknown>
             >,
           onUpsert: colSink.upsert,
@@ -512,6 +566,20 @@ class SinkError extends Error {
   }
 }
 
+/** Seed a collection's carry-over key set from a caller-supplied `initialKeys`
+ *  sink callback. A throw here — or from the iterable it returns — is a broken
+ *  LOCAL fold (a bad sink), NOT an upstream blip, so it is tagged {@link SinkError}
+ *  and rethrown: the mirror REJECTS (fail-fast), never a silent collapse to
+ *  "nothing carried over". Named once so both collection bridges (`mirrorCollection`
+ *  and `mirrorCollectionDeltas`) share the one sink-fold contract. */
+function seedCarryOver<K>(initialKeys?: () => Iterable<K>): Set<K> {
+  try {
+    return new Set<K>(initialKeys?.() ?? []);
+  } catch (sinkErr) {
+    throw new SinkError(sinkErr);
+  }
+}
+
 /** Subscribe a single `get(input)` stream and push each frame into `onFrame`,
  *  swallowing abort-time rejections (teardown) and logging any other UPSTREAM
  *  error. The shared loop behind cell, stream, and event sinks. A throw from
@@ -563,6 +631,89 @@ async function* guardUpstream<T>(
   }
 }
 
+/** The DELTAS protocol bridge — the private engine behind a `collections` sink
+ *  for a collection that DECLARES the `deltas` verb (SR5 — one protocol across the
+ *  wire). Consumes the collection's SINGLE batched snapshot-then-delta stream and
+ *  folds each frame into the SAME `{ onUpsert, onRemove }` sink the per-key
+ *  {@link mirrorCollection} feeds — so a re-serve's fold, a fleet board, or any
+ *  consumer is oblivious to which protocol carried the collection.
+ *
+ *  - a `snapshot` frame (the first frame of every (re)subscribe) upserts every
+ *    entry, then RECONCILES: any key present before this snapshot — carried over
+ *    from a prior spawn via `initialKeys`, or held from this stream's own earlier
+ *    deltas — that the snapshot does NOT re-assert has departed, and is removed
+ *    (no ghost row; survivors are re-upserted, no empty flash). One deltas stream
+ *    yields exactly one snapshot (its first frame), so this fires once per spawn.
+ *  - a `delta` frame applies its `upserts` then its `removes` incrementally.
+ *
+ *  A throw from a sink callback (`onUpsert`/`onRemove`) or from `initialKeys` is a
+ *  broken local fold, not an upstream blip: it is wrapped in a {@link SinkError}
+ *  and rethrown so the mirror's `done` REJECTS (fail-fast), the identical contract
+ *  the per-key path holds. Upstream (stream) errors and abort are handled by
+ *  {@link guardUpstream}/{@link iterateUntilAborted} exactly as the shared
+ *  {@link subscribeStream} loop does. */
+async function mirrorCollectionDeltas<K, V>(opts: {
+  label: string;
+  log: (line: string) => void;
+  signal: AbortSignal | undefined;
+  deltas: Promise<AsyncIterable<CollectionDeltasMsg<K, V>>>;
+  onUpsert: (key: K, value: V) => void;
+  onRemove: (key: K) => void;
+  /** Keys a prior spawn left in the caller's cross-reconnect cache. The FIRST
+   *  snapshot reconciles them: any absent from it departed while the link was down
+   *  and is removed; survivors are untouched. Omit on a first connect. */
+  initialKeys?: () => Iterable<K>;
+}): Promise<void> {
+  // The keys currently mirrored — seeded with the carry-over cache so the first
+  // snapshot prunes keys that departed while the link was down (#1661 candidate 1,
+  // the deltas twin). See {@link seedCarryOver} for the sink-fold contract.
+  let present = seedCarryOver(opts.initialKeys);
+  let iterable: AsyncIterable<CollectionDeltasMsg<K, V>>;
+  try {
+    iterable = await opts.deltas;
+  } catch (err) {
+    if (isAbortReason(err, opts.signal)) return;
+    opts.log(`${opts.label}: ${(err as Error).message}`);
+    return;
+  }
+  for await (const msg of guardUpstream(
+    iterateUntilAborted(iterable, opts.signal),
+    opts.log,
+    opts.label,
+  )) {
+    // Outside the upstream guard: a throw applying the frame to the sink is the
+    // caller's broken fold, not the stream's — wrap it so the mirror rejects.
+    try {
+      if (msg.kind === "snapshot") {
+        const next = new Set<K>();
+        for (const [k, v] of msg.entries) {
+          next.add(k);
+          opts.onUpsert(k, v);
+        }
+        // Reconcile: a key present before this snapshot that it does not re-assert
+        // has departed (carry-over pruning + a mid-life resubscribe never occurs on
+        // one stream, so this is the fresh-spawn reconcile).
+        for (const k of present) if (!next.has(k)) opts.onRemove(k);
+        present = next;
+      } else {
+        for (const [k, v] of msg.upserts) {
+          present.add(k);
+          opts.onUpsert(k, v);
+        }
+        // `onRemove` fires only for a key we actually hold — a remove of an absent
+        // key (a stale/duplicate delta after an internal stream retry re-leads with a
+        // snapshot) is a true no-op, never a spurious departure re-emitted to the
+        // sink. Matches the per-key path's `if (next.has(key)) continue` discipline.
+        for (const k of msg.removes) {
+          if (present.delete(k)) opts.onRemove(k);
+        }
+      }
+    } catch (sinkErr) {
+      throw new SinkError(sinkErr);
+    }
+  }
+}
+
 /** Generic per-key `Collection<K,V>` bridge — the private engine behind a
  *  `collections` sink (formerly the public `@kolu/surface-remote`
  *  `mirrorRemoteCollection`).
@@ -595,19 +746,12 @@ async function mirrorCollection<K, V>(opts: {
   // departure sweep below — which only removes keys THIS spawn opened — can't catch
   // them). Reconciling on the fresh snapshot keeps survivors (no empty flash) and
   // drops ghosts (no stale row).
-  // `initialKeys` is a caller-supplied sink callback (part of the collections
-  // sink), so a throw here — or in the iterable it returns — is a broken local
-  // fold, NOT an upstream blip. It runs synchronously at spawn, before the
-  // `rejectSink` channel exists, so tag it as a `SinkError` and rethrow: the async
-  // `mirrorCollection` returns a rejected promise, `Promise.allSettled` in the
-  // caller sees a `SinkError`, and `done` REJECTS — the same fail-fast contract as
-  // a throwing `onUpsert`/`onRemove`, never a silent collapse to a resolved mirror.
-  let carriedOver: Set<K>;
-  try {
-    carriedOver = new Set<K>(opts.initialKeys?.() ?? []);
-  } catch (sinkErr) {
-    throw new SinkError(sinkErr);
-  }
+  // The carry-over seed runs synchronously at spawn, before the `rejectSink`
+  // channel exists; a throw is a broken local fold, so {@link seedCarryOver} tags it
+  // a `SinkError` and rethrows — the async `mirrorCollection` returns a rejected
+  // promise, `Promise.allSettled` in the caller sees it, and `done` REJECTS: the
+  // same fail-fast contract as a throwing `onUpsert`/`onRemove`.
+  const carriedOver = seedCarryOver(opts.initialKeys);
   let reconciledCarryOver = false;
   // Thread the parent signal's reason into every per-key abort (with a fallback
   // for a mid-stream key departure, when the parent has NOT aborted) so the

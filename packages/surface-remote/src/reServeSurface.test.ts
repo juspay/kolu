@@ -228,7 +228,9 @@ function makeSession() {
       };
     },
     markConnected: () => {
-      state = { ...state, phase: "connected" };
+      // The `connected` arm carries `clockOffset` (null until the admit
+      // `system.clockNow` probe stamps it); this fake never measures one.
+      state = { ...state, phase: "connected", clockOffset: null };
       fire();
     },
     destroy: () => {
