@@ -23,11 +23,11 @@ function buildRouter(): Router<any, any> {
       sys: { ping: { output: z.object({ ok: z.boolean() }) } },
     },
   });
-  const fragment = implementSurface(surface, {
+  const runtime = implementSurface(surface, {
     procedures: { sys: { ping: async () => ({ ok: true }) } },
   });
   // biome-ignore lint/suspicious/noExplicitAny: runtime.router is typed `unknown`; narrow to the `Router<any, any>` serving wants.
-  return fragment.router as Router<any, any>;
+  return runtime.router as Router<any, any>;
 }
 
 describe("serveOverStdio — settled-result contract", () => {

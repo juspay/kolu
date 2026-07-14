@@ -30,7 +30,7 @@ export async function runDaemon(controller: AbortController): Promise<never> {
   const exit = await daemonMain({
     gatePath: GATE_PATH, // the single-instance scope key
     socketPath: SOCKET_PATH, // where the surface is served
-    router, // fragment.router — already the final flattened router
+    router, // runtime.router — already the final flattened router
     lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
     log: stderrLogger(),
     signal: controller.signal,

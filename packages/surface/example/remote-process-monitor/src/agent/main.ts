@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   // Build the surface implementation. The `processes` collection's
   // `readAll` yields the current snapshot; `upsert`/`remove` are the
   // single in-process write seam (the poll loop calls
-  // `fragment.ctx.collections.processes.upsert/remove`, which mutates
+  // `runtime.ctx.collections.processes.upsert/remove`, which mutates
   // the snapshot AND publishes through the framework's keyed channels).
   // `inMemoryPublisher` is the load-bearing piece — it dedupes
   // channels by name so the framework's publish-site and subscribe-
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
   // read the current map on first subscribe, then forward every
   // delta the poll loop publishes here.
   const snapshotDeltaBus = inMemoryChannel<ProcessesSnapshotMsg>();
-  const fragment = implementSurface(surface, {
+  const runtime = implementSurface(surface, {
     cells: {
       // The agent serves the connection-FREE base surface. Link health is the
       // *parent's* observation of the parent↔agent link (lesson #6 — the agent
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
         reader.readSystem(),
         reader.readProcesses(),
       ]);
-      fragment.ctx.cells.system.set(nextSystem);
+      runtime.ctx.cells.system.set(nextSystem);
       const upserts: Array<[Pid, Process]> = [];
       const removes: Pid[] = [];
       for (const [pid, value] of nextProcesses) {
@@ -171,13 +171,13 @@ async function main(): Promise<void> {
           prev.memPct !== value.memPct ||
           prev.command !== value.command
         ) {
-          fragment.ctx.collections.processes.upsert(pid, value);
+          runtime.ctx.collections.processes.upsert(pid, value);
           upserts.push([pid, value]);
         }
       }
       for (const pid of [...processSnapshot.keys()]) {
         if (!nextProcesses.has(pid)) {
-          fragment.ctx.collections.processes.remove(pid);
+          runtime.ctx.collections.processes.remove(pid);
           removes.push(pid);
         }
       }
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
       // exactly the right shape: each core gets its own reactive
       // subscription in the browser.
       for (const [core, value] of reader.readCpuCores()) {
-        fragment.ctx.collections.cpuCores.upsert(core, value);
+        runtime.ctx.collections.cpuCores.upsert(core, value);
       }
     } catch (err) {
       log(`tick error: ${(err as Error).message}`);
@@ -212,7 +212,7 @@ async function main(): Promise<void> {
   // `implementSurface`'s `.router` is already the FINAL flattened router
   // (`/surface/...`) — no consumer re-finalizes it via oRPC `implement`.
   // It's typed `unknown`; cast at the `serveOverStdio` boundary below.
-  const router = fragment.router;
+  const router = runtime.router;
 
   log("serving surface over stdio (read=stdin, write=stdout)");
   const end = await serveOverStdio({

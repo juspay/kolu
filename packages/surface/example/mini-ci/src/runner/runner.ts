@@ -101,7 +101,7 @@ export function createRunner(
     return log;
   };
 
-  const fragment = implementSurface(surface, {
+  const runtime = implementSurface(surface, {
     cells: {
       nodes: { store: stateStore },
     },
@@ -121,7 +121,7 @@ export function createRunner(
     },
   });
 
-  const ctx = fragment.ctx;
+  const ctx = runtime.ctx;
   const children = new Map<string, ChildProcess>();
   let disposed = false;
 
@@ -259,7 +259,7 @@ export function createRunner(
     return true;
   };
 
-  const router = fragment.router;
+  const router = runtime.router;
 
   return {
     router,

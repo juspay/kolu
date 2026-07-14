@@ -80,7 +80,7 @@ export function buildRouter(opts: BuildRouterOptions) {
   // base primitives are forwarded/folded from the agent; `connection` is the
   // seeded local store the session pump writes — the agent's surface stays
   // connection-free.
-  const fragment = implementSurface(monitorSurface, {
+  const runtime = implementSurface(monitorSurface, {
     cells: {
       system: { store: systemStore },
       connection,
@@ -165,7 +165,7 @@ export function buildRouter(opts: BuildRouterOptions) {
   // path pulam-web uses). This example runs its own `bridgeAgentToParent` pump,
   // so it wires the same mapping by hand here.
   pipeSessionStateToCell(session, (info) =>
-    fragment.ctx.cells.connection.set(info),
+    runtime.ctx.cells.connection.set(info),
   );
 
   // ── Bridge remote agent surface → parent's local surface ──────────
@@ -182,11 +182,11 @@ export function buildRouter(opts: BuildRouterOptions) {
   // a dead `StdioRPCLink` rejects once its inbound stream ends (the link
   // fails fast — it does not hang), so `mirrorRemoteSurface` resolves and
   // the loop advances to the respawned client.
-  void bridgeAgentToParent(session, fragment, browserSnapshotBus);
+  void bridgeAgentToParent(session, runtime, browserSnapshotBus);
 
   // `implementSurface`'s `.router` is already the FINAL flattened router
   // (`/surface/...`) — no consumer re-finalizes it via oRPC `implement`.
-  const router = fragment.router;
+  const router = runtime.router;
   return { router, session };
 }
 

@@ -23,7 +23,7 @@ async function* source(nodeId: string): AsyncIterable<LogFrame> {
 }
 
 // #region implement
-const fragment = implementSurface(surface, {
+const runtime = implementSurface(surface, {
   cells: { load: { store: inMemoryStore(ZERO) } },
   collections: { processes: { readAll, upsert, remove } },
   streams: { nodeLog: { source } },
@@ -40,7 +40,7 @@ const fragment = implementSurface(surface, {
 
 // #region flatten
 // `.router` is already the FINAL flattened router — no re-finalize via oRPC.
-const router = fragment.router;
+const router = runtime.router;
 // #endregion flatten
 
-export { fragment, router };
+export { runtime, router };

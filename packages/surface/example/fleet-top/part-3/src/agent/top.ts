@@ -43,7 +43,7 @@ export function createTop(): Top {
   const memoryStore = inMemoryStore(DEFAULT_MEMORY);
   const processes = new Map<Pid, Process>();
 
-  const fragment = implementSurface(surface, {
+  const runtime = implementSurface(surface, {
     cells: {
       load: { store: loadStore },
       memory: { store: memoryStore },
@@ -73,7 +73,7 @@ export function createTop(): Top {
     },
   });
 
-  const ctx = fragment.ctx;
+  const ctx = runtime.ctx;
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const tick = async (): Promise<void> => {
@@ -103,7 +103,7 @@ export function createTop(): Top {
   // `implementSurface`'s `.router` is already the FINAL flattened router
   // (`/surface/…`) — no consumer re-finalizes it via oRPC `implement`.
   // It's typed `unknown`; `Top.router` is `any` at the boundary.
-  const router = fragment.router;
+  const router = runtime.router;
 
   return {
     router,

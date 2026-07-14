@@ -68,7 +68,7 @@ export function buildMirror() {
 
   // #region pump
   const source = mirroredSurface(base); // adds + reserves the `connection` cell
-  const fragment = implementSurface(source, {
+  const runtime = implementSurface(source, {
     cells: { load: { store: loadStore }, connection: seedConnectionCell() },
     collections: {
       processes: {
@@ -88,24 +88,24 @@ export function buildMirror() {
     session,
     makeSink: ({ seq: _seq }) => ({
       // built per spawn — per-client state resets
-      cells: { load: (v) => fragment.ctx.cells.load.set(v) },
+      cells: { load: (v) => runtime.ctx.cells.load.set(v) },
       collections: {
         processes: {
-          upsert: (k, v) => fragment.ctx.collections.processes.upsert(k, v),
-          remove: (k) => fragment.ctx.collections.processes.remove(k),
+          upsert: (k, v) => runtime.ctx.collections.processes.upsert(k, v),
+          remove: (k) => runtime.ctx.collections.processes.remove(k),
         },
       },
     }),
     // The parent is the sole writer of `connection`: the pump projects the
     // session's lifecycle onto it off `session.onState`.
-    connection: { set: (info) => fragment.ctx.cells.connection.set(info) },
+    connection: { set: (info) => runtime.ctx.cells.connection.set(info) },
   });
   // #endregion pump
 
   // #region reserve
   // The mirror runtime's `.router` is already the FINAL top-level router; a
   // browser consumes the local copy exactly as if the agent were in-process.
-  const router = fragment.router;
+  const router = runtime.router;
   const link = directLink<typeof source.contract>(router as never);
   // #endregion reserve
 
@@ -116,7 +116,7 @@ export function buildMirror() {
 export function mirrorEndToEnd() {
   // #region endtoend
   const src = mirroredSurface(base);
-  const fragment = implementSurface(src, {
+  const runtime = implementSurface(src, {
     cells: {
       load: { store: inMemoryStore(DEFAULT_LOAD) },
       connection: seedConnectionCell(),
@@ -134,12 +134,12 @@ export function mirrorEndToEnd() {
     source: src,
     session,
     makeSink: ({ seq: _seq }) => ({
-      cells: { load: (v) => fragment.ctx.cells.load.set(v) },
+      cells: { load: (v) => runtime.ctx.cells.load.set(v) },
       collections: { processes: { upsert: () => {}, remove: () => {} } },
     }),
   });
   // #endregion endtoend
-  return fragment;
+  return runtime;
 }
 
 // ── Gate a fleet on contract compatibility (operate-a-fleet-safely) ──────

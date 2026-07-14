@@ -48,13 +48,13 @@ const surface = defineSurface({
 
 // biome-ignore lint/suspicious/noExplicitAny: the shape `serveOverUnixSocket` accepts, mirroring its own `Router<any, any>` param.
 function buildRouter(): Router<any, any> {
-  const fragment = implementSurface(surface, {
+  const runtime = implementSurface(surface, {
     procedures: {
       math: { double: async ({ input }) => ({ y: input.x * 2 }) },
     },
   });
   // biome-ignore lint/suspicious/noExplicitAny: runtime.router is typed `unknown`; narrow to the `Router<any, any>` serving wants.
-  return fragment.router as Router<any, any>;
+  return runtime.router as Router<any, any>;
 }
 
 describe("getRuntimeSocketPath", () => {
