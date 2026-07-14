@@ -74,7 +74,7 @@ function harness() {
       activeId: () => null,
       activate: vi.fn(),
       getMetadata: (id) => store[id],
-      getSubject: () => ({ title: "t", description: "d" }) as never,
+      getSubject: () => ({ title: "t", description: "d" }),
       markUnread: vi.fn(),
       terminalIds: ids,
     });
