@@ -237,7 +237,7 @@ I want to be honest about this, because it's tempting to tell it as "the e2e net
 
 ### Built by agents driving agents
 
-I should say plainly how this got built, because it's the same shape as the thing it built. Most of these PRs weren't written by me at a keyboard. A coordinator agent handed briefs to implementing agents running in Kolu's own terminals, on real hosts, while I sat one layer up and merged. The tool built itself, through the exact remote-terminal apparatus this post is about.
+I should say plainly how this got built, because it's the same shape as the thing it built. Most of these PRs weren't written by me at a keyboard. A [coordinator agent](/agent-fleets) handed briefs to implementing agents running in Kolu's own terminals, on real hosts, while I sat one layer up and merged. The tool built itself, through the exact remote-terminal apparatus this post is about.
 
 You can see the seams if you look. A status report that "sat unsent in my terminal until srid pressed Enter manually" — the agent had typed the message but not hit return. Terminal IDs that re-key when the daemon restarts, so an agent loses track of which window is which. It's not seamless and I won't pretend it is. But the fact that a remote-terminals feature could be built by a fleet of agents living _inside_ remote terminals is the most honest demo the feature will ever get.
 
