@@ -353,6 +353,34 @@ export function computed<T>(compute: () => T): GraphNode<T> {
   return { value: engineComputed(compute), dispose: () => {} };
 }
 
+/** The connect seam's publish effect, shared by both `derived.cell` forms: an
+ *  engine effect that pushes each recompute of `read` through the member's write
+ *  gate (`set`). It carries the stateless-compute error policy in ONE home — a
+ *  throw is LOGGED and the last published value HELD (the effect returns without
+ *  setting), healing on the next good recompute, so no bridge effect body escapes
+ *  synchronously into the writer's stack. `label` names the member kind in the
+ *  log. (A SEED throw stays a boot crash — it happens at the eager `store.get()`
+ *  pull, before this effect is wired.) */
+function connectPublishEffect<T>(
+  read: () => T,
+  set: (next: T) => void,
+  label: string,
+): () => void {
+  return effect(() => {
+    let next: T;
+    try {
+      next = read();
+    } catch (err) {
+      console.error(
+        `reactor: ${label} recompute threw — holding last published value`,
+        err,
+      );
+      return;
+    }
+    set(next);
+  });
+}
+
 /** The graph-node `derived.cell(node)` — publish a pre-built graph node (a
  *  `scan`, a `computed`) as a cell. Extracted so `derived.cell` can OVERLOAD the
  *  compute-fn form beside it. */
@@ -427,19 +455,11 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
       // caught at the eager `store.get()` pull, not here.) Without this a
       // `derived.cell(computed(fn))` throw would escape synchronously into the
       // writer's stack.
-      disposeEffect = effect(() => {
-        let next: T;
-        try {
-          next = node.value.value;
-        } catch (err) {
-          console.error(
-            "reactor: derived cell recompute threw — holding last published value",
-            err,
-          );
-          return;
-        }
-        cell.set(next);
-      });
+      disposeEffect = connectPublishEffect(
+        () => node.value.value,
+        (next) => cell.set(next),
+        "derived cell",
+      );
       // Return the teardown so the runtime's `close()` disposes this
       // subscription (the reactor sub joins the runtime's ownership).
       return teardown;
@@ -572,19 +592,11 @@ function computeCell<S extends SurfaceSpec, T>(
       // corrupt accumulator to protect, so it continues.) The first run pushes
       // the seed, which the member's `equals` dedups against the identical store
       // seed — so wiring publishes nothing until the derivation genuinely moves.
-      disposeEffect = effect(() => {
-        let next: T;
-        try {
-          next = n.value;
-        } catch (err) {
-          console.error(
-            "reactor: derived compute cell recompute threw — holding last published value",
-            err,
-          );
-          return;
-        }
-        cell.set(next);
-      });
+      disposeEffect = connectPublishEffect(
+        () => n.value,
+        (next) => cell.set(next),
+        "derived compute cell",
+      );
       return teardown;
     },
     dispose: teardown,

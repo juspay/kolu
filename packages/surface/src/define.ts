@@ -866,6 +866,21 @@ export function defineSurface<const S extends SurfaceSpec>(
   for (const [key, s] of Object.entries(spec.collections ?? {})) {
     claim(key, collectionContractEntries(s));
   }
+  // The `$` sibling-read face is one FLAT namespace over cells AND collections, so
+  // a name that is BOTH is ambiguous — `$.<name>()`'s two accessors intersect to
+  // the cell arm while the runtime would return the collection map. That is a
+  // static property of the spec, so reject it HERE, at definition, for every
+  // consumer (a contract-only client as much as a server), not just when a server
+  // implements the surface. (`Object.hasOwn`, so a member legitimately named
+  // `toString`/`constructor` isn't mistaken for an inherited key.)
+  const collectionsSpec = spec.collections ?? {};
+  for (const key of Object.keys(spec.cells ?? {})) {
+    if (Object.hasOwn(collectionsSpec, key)) {
+      throw new Error(
+        `defineSurface: "${key}" is declared as BOTH a cell and a collection — member names must be disjoint (the $ sibling-read face is one flat namespace, and the two accessors would collide).`,
+      );
+    }
+  }
   for (const [key, s] of Object.entries(spec.streams ?? {})) {
     claim(key, streamContractEntries(s));
   }

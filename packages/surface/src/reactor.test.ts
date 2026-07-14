@@ -833,24 +833,17 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     errSpy.mockRestore();
   });
 
-  it("fail-fast: a cell and a collection sharing a key crashes the boot walk", () => {
-    const surface = defineSurface({
-      cells: { same: { schema: z.number(), default: 0, verbs: ["get"] } },
-      // disjoint wire verbs, so the existing duplicate-verb guard can't mask it —
-      // the $-face key collision is what must fail.
-      collections: {
-        same: { keySchema: z.string(), schema: z.number(), verbs: ["keys"] },
-      },
-    });
+  it("fail-fast: a cell and a collection sharing a key is rejected at defineSurface", () => {
+    // The $-face flat-namespace invariant is a static property of the spec, so it
+    // is caught at DEFINITION (for every consumer, server or contract-only client)
+    // — not deferred to the boot walk. Disjoint wire verbs (cell `get`, collection
+    // `keys`), so the existing duplicate-verb guard can't mask it — the key
+    // collision itself is what must fail.
     expect(() =>
-      implementSurface(surface, {
-        cells: { same: { store: inMemoryStore(0) } },
+      defineSurface({
+        cells: { same: { schema: z.number(), default: 0, verbs: ["get"] } },
         collections: {
-          same: {
-            readAll: () => new Map<string, number>(),
-            upsert: () => {},
-            remove: () => {},
-          },
+          same: { keySchema: z.string(), schema: z.number(), verbs: ["keys"] },
         },
       }),
     ).toThrow(/declared as BOTH a cell and a collection/);
