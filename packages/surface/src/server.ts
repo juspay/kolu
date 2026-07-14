@@ -1507,6 +1507,50 @@ function superviseSurface(sources: SurfaceSource[]): {
   return { done, close };
 }
 
+/** Compose a passive owned RUNTIME with a TERMINAL source into one supervised
+ *  `{ done, close }` — the re-serve/extend seam SR5 needed, and the framework home
+ *  for the terminal-source doctrine `reServeSurface` used to hand-roll (SR1 left it
+ *  "deferred to PR5").
+ *
+ *  The two settle differently, which is the whole point:
+ *
+ *  - the TERMINAL source (the re-serve pump) DRIVES the runtime and ENDS ON ITS
+ *    OWN (the mirrored session was destroyed), so its settlement is the RESOLVING
+ *    edge of the composite `done` — a clean terminal end resolves it, a mirror
+ *    fault rejects it;
+ *  - the RUNTIME's own owned sources (cell connectors) resolve only on `close`, so
+ *    a runtime `done` RESOLUTION is not a terminal edge (propagating it would
+ *    pre-empt the pump); only its REJECTION — an owned fault — faults the composite
+ *    before close.
+ *
+ *  `close` aborts the terminal FIRST (#1719: its detached per-key pumps settle via
+ *  `signal.reason`), awaits its settle, then releases the runtime — the same
+ *  abort-then-observe order {@link superviseSurface} uses, applied across the
+ *  runtime boundary that hides the runtime's own sources (so it can't be expressed
+ *  as one more `SurfaceSource`). Idempotent; always resolves. */
+export function superviseTerminalSource(
+  runtime: { done: Promise<void>; close: () => Promise<void> },
+  terminal: { done: Promise<void>; abort: () => void },
+): { done: Promise<void>; close: () => Promise<void> } {
+  const done = new Promise<void>((resolve, reject) => {
+    terminal.done.then(resolve, reject);
+    runtime.done.catch(reject);
+  });
+  // `done` may reject from either arm; guard against an unhandled rejection when a
+  // consumer observes only `close()`. (A consumer that reads `done` still sees it.)
+  done.catch(() => {});
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      terminal.abort();
+      await terminal.done.catch(() => {});
+      await runtime.close();
+    })();
+    return closing;
+  };
+  return { done, close };
+}
+
 /** The supervision contract shared by every servable surface runtime — one
  *  axis (router + ctx + done + close) parameterized over its ctx shape, so the
  *  singular and plural runtimes below differ only in `Ctx`, never in the

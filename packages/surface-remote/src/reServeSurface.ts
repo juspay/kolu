@@ -53,6 +53,7 @@ import {
   type ImplementSurfaceDeps,
   implementSurfaceOnPublisher,
   inMemoryChannelByName,
+  superviseTerminalSource,
 } from "@kolu/surface/server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { mirroredSurface, type WithConnection } from "./connection";
@@ -522,36 +523,17 @@ export function reServeSurface<S extends SurfaceSpec>(
     log,
   });
 
-  // Join the internal runtime's owned-fault channel into `done` WITHOUT letting
-  // its clean-close resolution pre-empt the pump's own settle: only propagate a
-  // runtime REJECTION; a runtime resolve (on `close`) is intentionally ignored so
-  // `pumpDone` remains the resolving edge. First settle wins; each source routes
-  // its own resolve/reject.
-  const done = new Promise<void>((resolve, reject) => {
-    pumpDone.then(resolve, reject);
-    runtime.done.catch(reject);
+  // Supervise the internal runtime + the pump through the framework's
+  // terminal-source combinator (SR5 — the doctrine this file used to hand-roll,
+  // SR1's "deferred to PR5"). The pump is a TERMINAL source: it drives the runtime
+  // and ends on its own when the session is destroyed, so its settle is `done`'s
+  // resolving edge; an owned runtime fault (a cell connector rejecting) also
+  // reaches `done`; `close` aborts the pump FIRST (its active mirror's per-key
+  // pumps settle via signal.reason — #1719), then releases the runtime.
+  const { done, close } = superviseTerminalSource(runtime, {
+    done: pumpDone,
+    abort: () => pumpAbort.abort(),
   });
-  // `done` may reject from either arm; guard against an unhandled rejection if a
-  // consumer only observes `close()`. (Consumers that read `done` still see it.)
-  done.catch(() => {});
-
-  let closing: Promise<void> | undefined;
-  const close = (): Promise<void> => {
-    // This hand-rolls the same abort-first / await-settle / dispose teardown
-    // doctrine that `superviseSurface` (@kolu/surface/server) is the canonical
-    // combinator for. It is NOT delegated to here because the resolve edges
-    // differ: the pump's own settlement is TERMINAL (a session destroy resolves
-    // `done`), whereas `superviseSurface.done` resolves only on `close`. Unifying
-    // the two — teaching `superviseSurface` a terminal source — is deferred to PR5.
-    closing ??= (async () => {
-      // Abort FIRST (the active mirror's per-key pumps settle via signal.reason —
-      // #1719), then await the pump's own settle, then release the runtime.
-      pumpAbort.abort();
-      await pumpDone.catch(() => {});
-      await runtime.close();
-    })();
-    return closing;
-  };
 
   return { surface, router, done, close };
 }
