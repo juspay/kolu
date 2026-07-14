@@ -51,13 +51,14 @@ function listSourceFiles(dir: string): string[] {
  *  (reserved procs, the link-root escape hatch) carries no `as`, so it is allowed. */
 const RPC_CAST_RE = /\.rpc\s+as\s+\w/;
 
-/** A type alias that COPIES a declared surface's callable client shape —
- *  `ContractRouterClient<typeof <ident>Surface.contract>`. The root combined
- *  `contract` (the link-root escape hatch) is not a `<...>Surface.contract`, so
- *  typing the full link stays allowed; only per-surface procedure-shape copies are
- *  the defect. */
-const CONTRACT_CLIENT_COPY_RE =
-  /ContractRouterClient<\s*typeof\s+\w*[Ss]urface\.contract/;
+/** ANY contract-wide client-shape copy — `ContractRouterClient<typeof …>`.
+ *  Minting the oRPC client type for a concrete contract copies its whole callable
+ *  shape (procedures included), which is exactly what the bound `procedures` /
+ *  `entry.procedures` face makes unnecessary — so re-minting one here is the defect,
+ *  whether it names a `…Surface.contract` or a bare `…Contract`. The full combined
+ *  link (`client`/`link`) is typed via `connectSurfaces`' generics, not a hand-rolled
+ *  `ContractRouterClient<typeof …>` alias, so nothing legitimate trips this. */
+const CONTRACT_CLIENT_COPY_RE = /ContractRouterClient<\s*typeof\s/;
 
 function findViolations(): string[] {
   const violations: string[] = [];
