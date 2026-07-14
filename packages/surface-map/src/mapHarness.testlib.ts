@@ -7,6 +7,7 @@
  * never ships and never runs as a suite of its own.
  */
 
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
 import {
@@ -54,6 +55,27 @@ export const identityCodec: KeyCodec<HostKey> = {
   encode: (k) => k,
   decode: (s) => s as HostKey,
 };
+
+// ── The harness's DOMAIN failure schema (PR4) ────────────────────────────────
+// A minimal `{ cause, reason }` — the real padi map carries a richer discriminated
+// union (`PadiEntryFailureSchema`); the framework only needs SOME schema-valid
+// domain value on the `failed` arm, so this is the smallest one that exercises it.
+export const testFailureSchema = z.object({
+  cause: z.string(),
+  reason: z.string(),
+});
+export type TestFailure = z.infer<typeof testFailureSchema>;
+
+/** Build a test map — `failure` is the one field every test map shares
+ *  ({@link testFailureSchema}), defaulted here so a future required `defineSurfaceMap`
+ *  field is a ONE-line change rather than editing every call site (PR4's own `failure`
+ *  addition was exactly that pain). Callers pass the per-map `key`/`entry`/`codec`. */
+export function buildTestMap<
+  KS extends z.ZodType,
+  const ES extends SurfaceSpec,
+>(opts: { key: KS; entry: Surface<ES>; codec: KeyCodec<z.infer<KS>> }) {
+  return defineSurfaceMap({ ...opts, failure: testFailureSchema });
+}
 
 export const settle = async (): Promise<void> => {
   for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
@@ -118,13 +140,16 @@ export function makeEntry(urgency: {
 export function makeRegistry() {
   const entries = new Map<
     HostKey,
-    { session: EntrySession | null; fault?: string }
+    {
+      session: EntrySession<"copying", TestFailure> | null;
+      fault?: TestFailure;
+    }
   >();
   const listeners = new Set<() => void>();
   const fire = () => {
     for (const l of [...listeners]) l();
   };
-  const registry: MapRegistry<HostKey> = {
+  const registry: MapRegistry<HostKey, "copying", TestFailure> = {
     members: () => [...entries.keys()],
     has: (k) => entries.has(k),
     subscribe: (cb) => {
@@ -135,22 +160,32 @@ export function makeRegistry() {
     },
     resolve: (k) => {
       const e = entries.get(k);
-      if (!e) return { kind: "fault", failed: "unknown key" };
-      if (e.fault !== undefined) return { kind: "fault", failed: e.fault };
-      return e.session as EntrySession;
+      if (!e)
+        return {
+          kind: "fault",
+          failure: { cause: "unknown", reason: "unknown key" },
+        };
+      if (e.fault !== undefined) return { kind: "fault", failure: e.fault };
+      return e.session as EntrySession<"copying", TestFailure>;
     },
   };
   return {
     registry,
-    addSession(k: HostKey, link: unknown, state: EntryConnectionState) {
+    addSession(
+      k: HostKey,
+      link: unknown,
+      state: EntryConnectionState<"copying", TestFailure>,
+    ) {
       entries.set(k, { session: { kind: "session", link, state } });
       fire();
     },
-    addFault(k: HostKey, reason: string) {
-      entries.set(k, { session: null, fault: reason });
+    // PR4: a structural fault carries a schema-valid domain `failure` (the mock's
+    // stand-in for the real classifier), never a fabricated catch-all.
+    addFault(k: HostKey, failure: TestFailure) {
+      entries.set(k, { session: null, fault: failure });
       fire();
     },
-    setState(k: HostKey, state: EntryConnectionState) {
+    setState(k: HostKey, state: EntryConnectionState<"copying", TestFailure>) {
       const e = entries.get(k);
       if (e?.session) {
         entries.set(k, {
@@ -170,7 +205,11 @@ export function makeRegistry() {
 }
 
 export function setup() {
-  const map = defineSurfaceMap(HostKeySchema, entrySurface, identityCodec);
+  const map = buildTestMap({
+    key: HostKeySchema,
+    entry: entrySurface,
+    codec: identityCodec,
+  });
   const reg = makeRegistry();
   const served = serveSurfaceMap(map, reg.registry);
   // biome-ignore lint/suspicious/noExplicitAny: served router is a runtime-valid oRPC router; the client re-types via map.entry.
@@ -184,7 +223,29 @@ export const B = HostKeySchema.parse("b");
 export const C = HostKeySchema.parse("c");
 export const D = HostKeySchema.parse("d");
 
-export const connected = (clockOffset: number): EntryConnectionState => ({
+export const connected = (
+  clockOffset: number,
+): EntryConnectionState<"copying", TestFailure> => ({
   kind: "connected",
   clockOffset,
 });
+
+/** A terminal `failed` connection state carrying a domain `failure` (PR4) — the
+ *  arm REQUIRES it, so this helper cannot construct the illegal failed-without-
+ *  failure state (see `entryConnectionState.test-d.ts`). */
+export const failed = (
+  failure: TestFailure,
+): EntryConnectionState<"copying", TestFailure> => ({
+  kind: "failed",
+  failure,
+});
+
+/** A `disconnected` connection state — TRANSIENT when `failure` is omitted (the
+ *  classifier returned nothing → projects to warming), STANDING when supplied
+ *  (a refuse → projects to failed). */
+export const disconnected = (
+  failure?: TestFailure,
+): EntryConnectionState<"copying", TestFailure> =>
+  failure === undefined
+    ? { kind: "disconnected" }
+    : { kind: "disconnected", failure };

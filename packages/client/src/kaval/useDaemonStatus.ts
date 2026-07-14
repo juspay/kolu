@@ -25,7 +25,7 @@ import {
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
-import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
+import type { PadiEntryFailure } from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
@@ -95,14 +95,14 @@ function activeEntryConnected(): boolean {
 
 /** The ACTIVE host entry's FULL connection state — the typed discriminant
  *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
- *  {@link EntryFailedCause} and reason. `canvasModeResolver` keys its facts on this
+ *  {@link PadiEntryFailure} value. `canvasModeResolver` keys its facts on this
  *  ONE read: the `failed` arm drives both the host-down card's cause-typed copy and
  *  the `pendingTimedOut` ceiling (a REMOTE host merely still `warming` — nix-copy +
  *  build, which projects to the `warming` entry status, see `@kolu/surface-map`'s
  *  `server.ts` — must NOT be judged against the LOCAL 30s connect ceiling; only a
  *  PROVEN-`failed` entry earns the honest down/dead verdict early). A reactive
  *  accessor; read it inside a tracking scope. */
-export function activeEntryState(): EntryState<EntryFailedCause> {
+export function activeEntryState(): EntryState<PadiEntryFailure> {
   return padiMap.entry(activeHost()).state();
 }
 

@@ -36,7 +36,7 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
 /** A session's connection state — the map DERIVES {@link EntryStatus} from it (a
  *  projection, never a second writer). `copying`/`connecting` project to
  *  `warming`; `connected` carries the serving process's own-clock offset at
- *  hello; `disconnected`/`failed` project to `failed(reason)`.
+ *  hello; `disconnected`/`failed` project to `failed(failure)`.
  *
  *  `Prov` mirrors `@kolu/surface-remote/session`'s `SessionState<Prov extends
  *  string>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
@@ -75,31 +75,39 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
  *  Producer-unrepresentable + a runtime belt is the honest form for a fact a
  *  generic container's type can't carry per-key — not a type change here.
  *
- *  `Cause` mirrors {@link EntryStatus}'s own failure-cause discriminant, ONE layer
+ *  `Failure` mirrors {@link EntryStatus}'s own domain failure value, ONE layer
  *  earlier (the session's raw connection state, before {@link projectStatus}
- *  projects it onto the published `EntryStatus`). It is OPTIONAL here (unlike
- *  `EntryStatus.cause`, which is required) — a generic registry (e.g.
- *  `@kolu/surface-remote`'s `serveHostMap`, which projects a bare `SessionState`
- *  with no domain knowledge of `Cause`) may have nothing to set it to; a caller
- *  that DOES know the domain cause (padi's binders) sets it, and `projectStatus`
- *  below falls back to `"other"` when it is absent — so `EntryStatus.cause` stays
- *  honestly required (never invented text, always at least the honest catch-all). */
+ *  projects it onto the published `EntryStatus`). Its optionality is PER-ARM, and
+ *  the two down arms differ because their lifecycles do:
+ *    - `disconnected.failure` is OPTIONAL — a transient drop legitimately carries
+ *      NONE (still coming back → projects to `warming`); a standing refuse carries
+ *      one (→ `failed(failure)`). Presence IS the warming-vs-failed discriminant.
+ *    - `failed.failure` is REQUIRED — a terminal give-up is ALWAYS a real failure,
+ *      so "failed with no failure" is an illegal state made UNCONSTRUCTIBLE at the
+ *      type, not caught by a runtime throw. The optionality a transient
+ *      `disconnected` legitimately needs does NOT bleed onto `failed` (independent
+ *      union members carry their own optionality).
+ *  A generic transport-only registry (`@kolu/surface-remote`'s `serveHostMap`)
+ *  obtains the value from an injected, REQUIRED `failureOf` classifier (domain
+ *  knowledge it doesn't itself hold), and fails loud at its OWN classification
+ *  seam when a terminal `failed` session yields none — so the illegal state is
+ *  refused at the producer, never represented here. */
 export type EntryConnectionState<
   Prov extends "copying" | never = "copying",
-  Cause extends string = string,
+  Failure = unknown,
 > =
   | { kind: Prov }
   | { kind: "connecting" }
   | { kind: "connected"; clockOffset: number }
-  | { kind: "disconnected"; reason: string; cause?: Cause }
-  | { kind: "failed"; reason: string; cause?: Cause };
+  | { kind: "disconnected"; failure?: Failure }
+  | { kind: "failed"; failure: Failure };
 
 /** A resolved, serveable entry. Carries what the map needs to (a) FORWARD calls
  *  (a live entry-surface oRPC client/link to proxy to) and (b) observe status
  *  (the session's connection state). */
 export interface EntrySession<
   Prov extends "copying" | never = "copying",
-  Cause extends string = string,
+  Failure = unknown,
 > {
   /** The sum tag — switch on this, never on bare field-presence. */
   readonly kind: "session";
@@ -108,16 +116,19 @@ export interface EntrySession<
   readonly link: unknown;
   /** The session's current connection state — read fresh on each publish; the
    *  registry re-fires `subscribe` when it changes so `entries` re-projects. */
-  readonly state: EntryConnectionState<Prov, Cause>;
+  readonly state: EntryConnectionState<Prov, Failure>;
 }
 
-/** A terminal, no-session entry — a structural fault (no drv for arch, a bogus
- *  host) or the mock harness's failed member. Publishes `failed(reason)`
- *  directly. */
-export interface EntryFault {
+/** A terminal, no-session entry — a structural fault (the mock harness's failed
+ *  member) that has a domain `failure` to publish but no live session behind it.
+ *  Publishes `failed(failure)` directly. PR4: it carries the SAME schema-valid
+ *  domain `failure` as a session-backed failed entry — there is no framework
+ *  fabrication, so a registry that has no domain failure to report has no
+ *  business minting an `EntryFault` at all (it fails loud instead). */
+export interface EntryFault<Failure = unknown> {
   /** The sum tag — the discriminant `isFault` switches on. */
   readonly kind: "fault";
-  readonly failed: string;
+  readonly failure: Failure;
 }
 
 /** The membership + resolution seam. ONE writer (the pool / the harness).
@@ -129,15 +140,17 @@ export interface EntryFault {
 export interface MapRegistry<
   K,
   Prov extends "copying" | never = "copying",
-  Cause extends string = string,
+  Failure = unknown,
 > {
   members(): K[];
   subscribe(onChange: () => void): () => void;
   has(key: K): boolean;
-  resolve(key: K): EntrySession<Prov, Cause> | EntryFault;
+  resolve(key: K): EntrySession<Prov, Failure> | EntryFault<Failure>;
 }
 
-function isFault(r: EntrySession | EntryFault): r is EntryFault {
+function isFault<Failure>(
+  r: EntrySession<"copying", Failure> | EntryFault<Failure>,
+): r is EntryFault<Failure> {
   return r.kind === "fault";
 }
 
@@ -152,20 +165,18 @@ function isFault(r: EntrySession | EntryFault): r is EntryFault {
  *    - `failed`    = NOT PROCEEDING WITHOUT INTERVENTION — a STANDING refuse
  *                    (cross-supervisor / contract-skew-refused / unconverged: it will
  *                    not resolve by redialing) OR a TERMINAL give-up. Carries the
- *                    domain cause so the host-down card can say what to DO about it.
+ *                    schema-valid domain `failure` so the host-down card can say what
+ *                    to DO about it.
  *
- *  `state.cause` is OPTIONAL ({@link EntryConnectionState}'s doc) — a registry with
- *  no domain cause to set falls back to `"other"`, the ONE `Cause` member every
- *  domain instantiation is expected to carry as its catch-all (see
- *  `EntryFailedCause` in `kolu-common/surfacesWithPadi`) — so `EntryStatus.cause`
- *  stays honestly required (never invented text) without forcing every session
- *  producer to classify a cause it may not know. Extra fields `state` carries
- *  beyond `reason`/`cause` (padi's D2 typed `running`/`expected` version pair on
- *  `contract-skew-refused`) ride through via the spread — this generic layer
- *  doesn't need to know their shape to preserve them. */
-function projectStatus<Cause extends string = string>(
-  state: EntryConnectionState<"copying", Cause>,
-): EntryStatus<Cause> {
+ *  The warming-vs-failed discriminant is the PRESENCE of a domain `failure` on a
+ *  `disconnected` state (PR4) — no magic `"other"` sentinel: a transient reconnect
+ *  carries none (→ warming), a standing refuse carries one (→ failed). A terminal
+ *  `failed` state ALWAYS carries a real failure — the arm is typed to REQUIRE it,
+ *  so "failed with no failure" is unconstructible, refused loud at the producer's
+ *  classification seam (`serveHostMap`) rather than here. */
+function projectStatus<Failure>(
+  state: EntryConnectionState<"copying", Failure>,
+): EntryStatus<Failure> {
   switch (state.kind) {
     case "copying":
     case "connecting":
@@ -174,31 +185,26 @@ function projectStatus<Cause extends string = string>(
       return { kind: "connected", clockOffset: state.clockOffset };
     // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
     //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
-    //     redialing; the domain has no non-transient reason to report, so its cause
-    //     falls back to the catch-all `"other"`. This is the P4 case: a live host's
-    //     normal reconnect window must read WARMING (coming back up), never a red
-    //     "failed" chip indistinguishable from a dead host.
+    //     redialing; the classifier reported NO standing failure (absent `failure`).
+    //     This is the P4 case: a live host's normal reconnect window must read
+    //     WARMING (coming back up), never a red "failed" chip indistinguishable
+    //     from a dead host.
     //   - a STANDING degraded REFUSE — cross-supervisor / contract-skew-refused /
     //     unconverged: `session.ts`'s refuse path "holds degraded, does NOT
-    //     reconnect", and the domain classified a SPECIFIC non-transient cause. This
-    //     is NOT coming back up (redialing can't resolve a skew or a foreign
-    //     supervisor), so masking it as WARMING would hide the ONE actionable thing
-    //     the host-down card exists to say. Project it to `failed` + its cause so
-    //     the card renders (its D2 `running`/`expected` skew pair rides `...rest`).
-    // The discriminant is cause-specificity: a refuse always sets a specific cause;
-    // a transient drop always falls back to `"other"` (the local arm too). `failed`
-    // + `link-failed`/`drv-*` already ride the terminal `failed` state below.
-    case "disconnected": {
-      const { kind: _kind, cause, ...rest } = state;
-      if (cause === undefined || cause === "other") return { kind: "warming" };
-      return { kind: "failed", cause, ...rest };
-    }
+    //     reconnect", and the domain classified a SPECIFIC failure. Project it to
+    //     `failed(failure)` so the host-down card renders what to do about it.
+    // The discriminant is now the PRESENCE of a domain `failure`, not cause-
+    // specificity: a refuse carries one, a transient drop carries none.
+    case "disconnected":
+      return state.failure === undefined
+        ? { kind: "warming" }
+        : { kind: "failed", failure: state.failure };
     // A terminal give-up (the reconnect loop stopped for good) — always a red
-    // `failed` chip + the domain cause.
-    case "failed": {
-      const { kind: _kind, cause, ...rest } = state;
-      return { kind: "failed", cause: cause ?? ("other" as Cause), ...rest };
-    }
+    // `failed` chip carrying the domain failure the arm is now typed to REQUIRE
+    // (the illegal "failed with no failure" is unconstructible; the producer's
+    // classification seam in `serveHostMap` fails loud before it can arise here).
+    case "failed":
+      return { kind: "failed", failure: state.failure };
   }
 }
 
@@ -272,18 +278,17 @@ export interface ServeSurfaceMapResult {
   dispose(): void;
 }
 
-/** Serve a `SurfaceMap` over a `MapRegistry`. `Cause` is INFERRED from `map`'s own
- *  type — a domain map (`SurfaceMap<KS, ES, PadiEntryFailedCause>`) forces
- *  `registry` to resolve into that SAME narrowed `Cause`, so a registry that only
- *  ever emits the generic default can't silently serve a domain map (and vice
- *  versa). */
+/** Serve a `SurfaceMap` over a `MapRegistry`. `Failure` is INFERRED from `map`'s own
+ *  type — a domain map (`SurfaceMap<KS, ES, PadiEntryFailure>`) forces `registry` to
+ *  resolve into that SAME narrowed `Failure`, so a registry that only emits the
+ *  generic default can't silently serve a domain map (and vice versa). */
 export function serveSurfaceMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
-  Cause extends string = string,
+  Failure = unknown,
 >(
-  map: SurfaceMap<KS, ES, Cause>,
-  registry: MapRegistry<z.infer<KS>, "copying", Cause>,
+  map: SurfaceMap<KS, ES, Failure>,
+  registry: MapRegistry<z.infer<KS>, "copying", Failure>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   const keySchema = map.keySchema;
@@ -291,15 +296,16 @@ export function serveSurfaceMap<
   const resolve = (k: K) => registry.resolve(k);
   const members = () => registry.members();
 
-  // A structural fault (no session at all — an unknown host, the mock harness's
-  // failed member) has no domain cause to report; `"other"` is the ONE `Cause`
-  // member every domain instantiation is expected to carry as its catch-all (see
-  // `EntryConnectionState`'s doc on the same fallback one layer up).
-  const statusOf = (mapKey: K): EntryStatus<Cause> => {
+  // A structural fault (no live session — the mock harness's failed member)
+  // publishes the SAME schema-valid domain `failure` a session-backed failed
+  // entry does (PR4 — no `"other"` fabrication); the registry that mints the
+  // fault owns classifying it. `resolve` that cannot classify a fault has no
+  // business minting one — it fails loud instead (see `serveHostMap`).
+  const statusOf = (mapKey: K): EntryStatus<Failure> => {
     const r = resolve(mapKey);
     return isFault(r)
-      ? { kind: "failed", reason: r.failed, cause: "other" as Cause }
-      : projectStatus<Cause>(r.state);
+      ? { kind: "failed", failure: r.failure }
+      : projectStatus<Failure>(r.state);
   };
 
   // ── Forward one streaming member call, ending TYPED on membership loss ──
@@ -435,7 +441,9 @@ export function serveSurfaceMap<
       }
       const resolved = resolve(mapKey);
       if (isFault(resolved)) {
-        throw new ORPCError("MAP_ENTRY_FAILED", { message: resolved.failed });
+        throw new ORPCError("MAP_ENTRY_FAILED", {
+          message: `surface-map: entry "${map.codec.encode(mapKey)}" is failed: ${JSON.stringify(resolved.failure)}`,
+        });
       }
       const leaf = leafAt(resolved.link, path);
       return await leaf(
@@ -480,14 +488,17 @@ export function serveSurfaceMap<
   const channel = inMemoryChannelByName();
   const keysBus = channel<string[]>(collectionKeysetChannel("entries"));
   const perKeyBus = (encoded: string) =>
-    channel<EntryStatus<Cause>>(collectionKeyChannel("entries", encoded));
+    channel<EntryStatus<Failure>>(collectionKeyChannel("entries", encoded));
 
-  const entriesDeps: CollectionHandlerDeps<string, EntryStatus<Cause>> = {
+  const entriesDeps: CollectionHandlerDeps<string, EntryStatus<Failure>> = {
     readAll: () =>
       new Map(
         members().map(
           (k) =>
-            [map.codec.encode(k), statusOf(k)] as [string, EntryStatus<Cause>],
+            [map.codec.encode(k), statusOf(k)] as [
+              string,
+              EntryStatus<Failure>,
+            ],
         ),
       ),
     readOne: (encoded) => {
@@ -499,11 +510,13 @@ export function serveSurfaceMap<
     perKeyBus,
     keysBus,
   };
-  const entriesDescriptor = collection<"entries", string, EntryStatus<Cause>>({
-    name: "entries",
-    keySchema: map.entriesSpec.keySchema,
-    schema: map.entriesSpec.schema,
-  });
+  const entriesDescriptor = collection<"entries", string, EntryStatus<Failure>>(
+    {
+      name: "entries",
+      keySchema: map.entriesSpec.keySchema,
+      schema: map.entriesSpec.schema,
+    },
+  );
   const entriesHandlers = collectionHandlers(entriesDescriptor, entriesDeps);
   inner.entries = {
     keys: t.surface.entries.keys.handler(entriesHandlers.keys),
