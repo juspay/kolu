@@ -121,8 +121,13 @@ export const Xterm: Component<
     fitRaf = requestAnimationFrame(() => core?.addons.fit.fit());
   };
   // Separate rAF handle for the on-show atlas rebuild (below), so a concurrent
-  // ResizeObserver `refit()` sharing `fitRaf` can't cancel it.
+  // ResizeObserver `refit()` sharing `fitRaf` can't cancel it. The rebuild retries
+  // per frame until the tile measures non-zero (`showAttempts`, bounded by
+  // `MAX_SHOW_ATTEMPTS` ≈ 0.5s at 60fps so a genuinely 0-sized/off-screen tile can't
+  // spin) — a single frame can fire before layout has flushed.
   let showRaf = 0;
+  let showAttempts = 0;
+  const MAX_SHOW_ATTEMPTS = 30;
 
   // The constructed core (terminal + addons), built asynchronously and read by
   // the theme/fontSize/visible effects below (which run in this same owner but
@@ -275,17 +280,28 @@ export const Xterm: Component<
         // so nothing rebuilds — every glyph then draws from a wrong atlas slot
         // (whole-tile garble, cleared only by a real resize or reload). Force a
         // rebuild, mirroring `refitOnTabVisible`'s whole-tab `clearTextureAtlas` for
-        // the per-tile toggle it never covered. One post-layout frame — fit() first
-        // (handles the cols/rows-CHANGED case), then clearAtlas() (the UNCHANGED
-        // case) — so the redraw re-rasterizes at the tile's real, non-zero size, not
-        // the 0×0 it had while hidden. `clearTextureAtlas` re-warms on the live
-        // context without routing through `_refreshCharAtlas`, so it cannot hit
-        // xterm's zero-dims atlas-skip.
+        // the per-tile toggle it never covered: fit() first (handles the
+        // cols/rows-CHANGED case), then clearAtlas() (the UNCHANGED case).
+        //
+        // The rebuild MUST run at the tile's real, non-zero size: `clearTextureAtlas`
+        // re-warms on the live context, but at 0×0 it is a no-op and the whole tile
+        // stays stale (garble that only streaming heals top-down). A single rAF can
+        // still fire before the `display:none → visible` layout has flushed, so retry
+        // per frame until the tile measures non-zero, then rebuild — bounded so a
+        // genuinely 0-sized/off-screen tile can't spin.
         cancelAnimationFrame(showRaf);
-        showRaf = requestAnimationFrame(() => {
-          core?.addons.fit.fit();
-          clearAtlas?.();
-        });
+        showAttempts = 0;
+        const rebuildAtlas = () => {
+          if (!core) return;
+          const el = core.terminal.element ?? container;
+          if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
+            core.addons.fit.fit();
+            clearAtlas?.();
+          } else if (showAttempts++ < MAX_SHOW_ATTEMPTS) {
+            showRaf = requestAnimationFrame(rebuildAtlas);
+          }
+        };
+        showRaf = requestAnimationFrame(rebuildAtlas);
       },
       { defer: true },
     ),

@@ -28,3 +28,26 @@ Feature: WebGL glyph atlas rebuild on tile show
     When I arm the WebGL atlas-rebuild probe
     And I click sub-panel tab 1
     Then the shown sub-terminal's WebGL atlas is rebuilt
+
+  # The rebuild must run only AFTER layout has flushed. A rebuild forced while the tile
+  # still measures 0×0 (a single rAF that beat the display:none→visible reflow) is a
+  # NO-OP — clearTextureAtlas re-warms nothing at zero size, so the whole tile stays
+  # stale until streaming heals it top-down. The guard retries per frame until
+  # offsetWidth/Height > 0, THEN rebuilds. This forces the 0×0 window deterministically
+  # (pin the pane to zero size across the switch) and proves the rebuild is deferred
+  # until real size returns. RED on the guardless path (the single rAF fires at 0×0 →
+  # the probe trips while zero-sized), GREEN with the guard (deferred to real size).
+  Scenario: The on-show atlas rebuild waits until the tile has real size
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the "webgl" renderer button
+    Then the terminal renderer should be "webgl"
+    When I create a sub-terminal via command palette
+    And I create another sub-terminal via command palette
+    Then the sub-panel tab bar should have 2 tabs
+    When I arm the WebGL atlas-rebuild probe
+    And I force sub-terminals to zero size
+    And I click sub-panel tab 1
+    Then the WebGL atlas is not rebuilt while the tile is zero size
+    When I restore sub-terminal size
+    Then the shown sub-terminal's WebGL atlas is rebuilt

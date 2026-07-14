@@ -132,10 +132,16 @@ Behind that hello-world, the package owns the hazards kolu paid to learn:
   events that rebuild it, and on show a same-geometry `fit()` is a cols/rows no-op that
   fires no `handleResize`, so every glyph drew from a wrong slot (a window-resize
   cleared it, an un-hide did not). Fixed in `<Xterm>`'s visible effect: force
-  `clearTextureAtlas` on the per-tile show, sequenced post-layout — the per-tile twin of
-  `refitOnTabVisible`'s whole-tab clear (which never covered the `display:none`
-  toggle). `clearTextureAtlas` re-warms on the live context without routing through
-  `_refreshCharAtlas`, so it can't hit xterm's zero-dims atlas-skip.</Footnote>
+  `clearTextureAtlas` on the per-tile show — the per-tile twin of `refitOnTabVisible`'s
+  whole-tab clear (which never covered the `display:none` toggle). `clearTextureAtlas`
+  re-warms on the live context without routing through `_refreshCharAtlas`, so it can't
+  hit xterm's zero-dims atlas-skip. The rebuild MUST run at the tile's real size, though:
+  a single post-layout rAF can itself fire before the `display:none → visible` reflow has
+  flushed, where `clearTextureAtlas` at 0×0 is a no-op and the whole tile stays stale
+  until streaming heals it top-down (<PrLink pr={1824} /> shipped the single-rAF form and
+  fixed the common case; the intermittent 0×0 tail needed a follow-up). So the effect now
+  RETRIES per frame until the tile measures `offsetWidth/Height > 0`, then rebuilds —
+  bounded (~30 frames) so a genuinely 0-sized/off-screen tile can't spin.</Footnote>
 - **Version-pinned internals with tripwire tests.** Every reach into xterm's
   private `_core.*` is confined to the package, typed structurally, and pinned
   by contract tests that turn an xterm bump into red CI instead of silent

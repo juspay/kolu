@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -74,3 +75,42 @@ Then(
     );
   },
 );
+
+When("I force sub-terminals to zero size", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    // Pin every sub-terminal's xterm element to 0×0, so a tile shown while this is
+    // active measures zero — the exact "a single rAF beat the display:none→visible
+    // reflow" window the guard must survive. Removed by "I restore sub-terminal size".
+    const style = document.createElement("style");
+    style.id = "__pin-zero-size";
+    style.textContent =
+      "[data-sub-terminal] .xterm{width:0!important;height:0!important}";
+    document.head.appendChild(style);
+  });
+});
+
+Then(
+  "the WebGL atlas is not rebuilt while the tile is zero size",
+  async function (this: KoluWorld) {
+    // Give the guardless single rAF ample frames to fire (it would, at 0×0), then
+    // assert the rebuild has NOT run: the guard defers until the tile measures
+    // non-zero. RED on the guardless path (this trips while zero-sized).
+    const clears = await this.page.evaluate(async () => {
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      return (window as unknown as AtlasProbeWindow).__atlasClears ?? 0;
+    });
+    assert.strictEqual(
+      clears,
+      0,
+      `atlas was rebuilt (${clears}x) while the tile was zero-sized — the on-show rebuild fired pre-layout instead of waiting for real size`,
+    );
+  },
+);
+
+When("I restore sub-terminal size", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    document.getElementById("__pin-zero-size")?.remove();
+  });
+});
