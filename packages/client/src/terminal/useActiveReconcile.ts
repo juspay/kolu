@@ -150,10 +150,12 @@ export function createEvictionDedup(
 /** Whether two parent-snapshots are identical — same ids, same order, same
  *  parentId each. The `equals` gate on the snapshot memo below, so a metadata
  *  change that touches neither membership nor any parentId (the common case) does
- *  not wake the reconcile. Order-sensitive to match `terminalIds`. */
-function sameParentSnapshot(
-  a: Map<TerminalId, TerminalId | null>,
-  b: Map<TerminalId, TerminalId | null>,
+ *  not wake the reconcile. Order-sensitive to match `terminalIds`. Read-only
+ *  (`ReadonlyMap`) so the arrival sibling (`useAdoptNewSplit`) can reuse it with
+ *  a never-null sub-only map — a comparator this pure has one home, not two. */
+export function sameParentSnapshot(
+  a: ReadonlyMap<TerminalId, TerminalId | null>,
+  b: ReadonlyMap<TerminalId, TerminalId | null>,
 ): boolean {
   if (a.size !== b.size) return false;
   const bIter = b.entries();

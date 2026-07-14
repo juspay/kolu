@@ -14,12 +14,15 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
+import { activeScope } from "../hostScope/hostScopes";
 import { daemonConnected } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
+import { useAdoptNewSplit } from "./useAdoptNewSplit";
 import { useSessionRestore } from "./useSessionRestore";
+import { useSubPanel } from "./useSubPanel";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalExits } from "./useTerminalExits";
@@ -114,6 +117,24 @@ export function useTerminals() {
   });
 
   const session = useSessionRestore({ store });
+
+  // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)
+  // behave like a manual one: expand the parent's panel and — unless a split is
+  // already active — select the new tab. Reacts to the arrival on the list, so no
+  // actor has to reach into the browser's sub-panel state. Host-scoped and gated
+  // on the restore seed so it never fights hydration. See useAdoptNewSplit.
+  const subPanel = useSubPanel();
+  useAdoptNewSplit({
+    rawList: () => store.listSub()?.map((t) => t.id) ?? [],
+    parentOf: (id) => store.getMetadata(id)?.parentId ?? null,
+    activeHostKey: () => encodeHostKey(activeHost()),
+    restorePhase: () => activeScope()?.restore.phase ?? "pending",
+    ports: {
+      expandPanel: subPanel.expandPanel,
+      activeSubTab: (parentId) => subPanel.getSubPanel(parentId).activeSubTab,
+      setActiveSubTab: subPanel.setActiveSubTab,
+    },
+  });
 
   const worktree = useWorktreeOps({
     store,
