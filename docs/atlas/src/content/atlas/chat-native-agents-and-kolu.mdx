@@ -1,13 +1,16 @@
 ---
 title: kolu under any chat app
-description: The coding agent has moved into the chat. kolu is the open, model-agnostic terminal/file foundation any chat app integrates — running claude, codex, or opencode on infrastructure you control. XS integrates kolu; the first proof is an XS bot that runs kolu's own development inside chat, in the open.
+description: "The coding agent has moved into the chat. kolu is the open, model-agnostic terminal/file foundation any chat app integrates — and the model is a mirror of the coordinator: observe flows out raw (the who-needs-me board), act flows in through one disciplined orchestrator agent, and the same door makes the coordinator a grounded participant in the humans' own discussion. The first proof is an XS bot binding a thread to the coordinator that already runs kolu's own development."
 parents: [comparison, remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-06-25
+updated: 2026-07-13
 ---
 
 import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import Phase from "../../components/Phase.astro";
 import Svg from "../../components/Svg.astro";
 import stack from "../../diagrams/chat-native-agents-stack.svg?raw";
 import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
@@ -21,10 +24,12 @@ thing to run kolu's own development inside chat.*
 
 <Callout kind="accent" title="The short version">
 kolu is the **foundation a chat app integrates** — it runs real terminals on machines you
-control and watches what happens inside them. Any chat app can drive it: **kolu runs
-claude, codex, or opencode under any front end, on infrastructure you own.** XS — the chat
-app — integrates kolu and keeps everything social: identity, login, presence, and who may
-write. kolu authenticates nothing; the connection is the trust.
+control and watches what happens inside them. **kolu runs claude, codex, or opencode under
+any front end, on infrastructure you own.** The integration is a **mirror of the
+coordinator**: observing comes straight off the daemons (the who-needs-me board), and
+acting goes through one door — an orchestrator agent in an ordinary kolu terminal. XS —
+the chat app — keeps everything social: identity, login, presence, attribution. kolu
+authenticates nothing; the connection is the trust.
 </Callout>
 
 ## The shift: the agent moved into the chat
@@ -52,10 +57,14 @@ control, and watches what's happening inside them.** That core is three parts:
 
 - **kaval** owns each live terminal — start an agent, type into it, resize it, kill it.
   It is also the single point that *serializes* writes: when input arrives, last one wins.
-- **pulam** watches every terminal without touching them, folding the raw noise into a
-  simple, read-only board: which agent is working, which is blocked, who needs you.
+- **padi** is the per-host workspace daemon above it: its agent sensors watch every
+  terminal without touching it, folding the raw noise into a simple board — which agent
+  is working, which is asking you something, which just finished — and it owns the
+  durable session: what each terminal ran, the agent's resume identity, restore across
+  restarts and even an unclean daemon death.
 - **`@kolu/surface`** is the typed wire that carries both over any connection — a local
-  socket, ssh to another machine, or an Incus host (a sandboxed box).
+  socket, or ssh to another machine. Remote hosts are a shipped, first-class part of the
+  app: add a host and its terminals sit behind a host switcher, on desktop and mobile.
 
 <Svg svg={stack} caption="Not a rigid stack. XS is its own app and integrates kolu through one seam; kolu runs headlessly on whatever machine you point it at — your laptop, a server, or a remote sandbox. Chat, presence, and login stay in XS." />
 
@@ -102,49 +111,254 @@ hard-codes one vendor's model and hides the shell and files inside a cloud sandb
 gives up exactly the durable substance kolu keeps.
 </Callout>
 
-## The seam: observe out, act in
+## The seam: observe out raw, act through the coordinator
 
-XS integrates kolu through one seam — the same `@kolu/surface` wire kolu already has —
-split into two halves: **observe** flows out, **act** flows in. kolu authenticates
+XS integrates kolu through one seam with two deliberately asymmetric halves: **observe
+flows out raw; act flows in through one door — the coordinator.** kolu authenticates
 nothing: the connection *is* the trust — an owner-only socket locally, an ssh link to a
-remote host — so identity, login, and presence stay in XS, and kolu just serializes
-whatever its one trusted client sends.
+remote host — so identity, login, and presence stay in XS.
 
-<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out and largely ships today. ACT flows in as plain calls over the trusted connection and is mostly still to build. kaval serializes writes; XS, above, decides the floor." />
+The **coordinator** is an orchestrator agent running in an ordinary kolu terminal — the
+same shape kolu's own development runs on: one agent that provisions worker terminals,
+dispatches briefs, answers the workers' questions, and verifies their claims at the tree.
+Its behavioral contract is the `/orchestrator` skill: rulings run through the review
+lenses with named grounding, teardown kills only recorded PIDs, the human merges every
+PR. The chat bot is a **mirror of that coordinator**: it binds one thread to that one
+terminal, renders the coordinator's reports into the thread, and relays the thread's
+messages back in — attributed per XS identity — using the same drive loop the coordinator
+itself uses on workers.
 
-| Verb | Half | Reuses | Status |
-| --- | --- | --- | --- |
-| `observe` | out | pulam awareness + activity + read-only fs/git | **ships** |
-| `attach` | out | kaval's screen stream (+ a re-resolvable cursor marking where you reattached) | **ships** |
-| `getSession` | out | the saved session key + resume path — never transcript content | to build |
-| `submit` | in | `kaval.spawn` | to build |
-| `write` | in | `kaval.write` (covers the `y⏎` approve) | partial |
-| `kill` | in | `kaval.kill` | to build |
-| `resize` | in | `kaval.resize` — one terminal has one size; pairing needs it | to build |
-| `wake` / `wakeAndSend` | in | reopen a parked session, optionally inject one question (kolu stores none of it) | to build |
+<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out raw and read-only — the board straight off padi. ACT (blue) flows in through one door: the coordinator, an orchestrator agent in an ordinary kolu terminal, which drives the workers with the fleet loop. Chat never writes to a worker terminal." />
 
-On these verbs — with no new auth in kolu — XS builds the who-needs-me board (`observe`),
-pairing on one terminal (`attach` + `write` + `resize`), a forward-facing punchlist pinned
-to durable terminals, and later **review-interrogation**: reopen the exact agent that did
-the work and ask it *why* (`getSession` + `wakeAndSend`) — kolu keeps the session key and
-a resume path, the agent keeps its own transcript, and kolu never parses the bytes.
+| Surface | Half | Reuses |
+| --- | --- | --- |
+| the board | out · read-only | padi's agent sensors — which agent is working / asking you / just finished (`padi-tui wait`'s buckets), rendered into the thread on demand with no coordinator hop |
+| attention | out · read-only | per-terminal urgency through the notify seam — the bot pings the thread instead of the desktop<Footnote>Unprompted posts ride the installed app's own API: POST /api/apps/chat/postMessage with a conversationId targets a thread, authenticated by the app's bearer token — the same call pesu answers messages with, so pinging needs no extra machinery.</Footnote> |
+| deep links | out | a kolu URL to the exact terminal — depth on demand: step in, answer the interactive prompt, debug, in kolu itself |
+| the coordinator bridge | in + out | one terminal's screen and input — send a message, wait for the turn to end, read the reply: the identical agent-drives-agent loop kolu already ships |
 
-## The first proof: an XS bot
+Chat gets **no raw act verbs on workers** — that absence is the design, not a gap:
 
-`pesu` is a small XS bot that bridges one XS thread to one kolu terminal: it streams the
-terminal into the thread (`attach` + `observe`) and relays the thread's one floor-holder
-back as keystrokes (`write`). It rides XS's own identity, presence, and login, and needs
-no auth in kolu — just the connection. The bot is the near-term path; closer, native XS
-integration follows.
+- **The write floor dissolves.** "At most one writer per terminal" machinery exists only
+  if chat can touch live terminals. With one door, the floor is the coordinator's inbox:
+  thread messages queue into a conversation and are handled in turn, attributed.
+  Serialization by conversation, not by locks.
+- **Guarantees live at the knowing endpoint.** The coordinator is the one place that
+  knows campaign state — what is in flight, which merge goes first, what a change must
+  not break — so "who does what next" is decided there, never in a thread reacting to a
+  screen.
+- **Discipline is inherited, not re-implemented.** Everything the orchestrator contract
+  enforces — claims verified at the tree, grounded rulings, no pattern kills, the human
+  merging — applies to chat traffic automatically, because chat traffic *is* coordinator
+  traffic.
 
-**The milestone is concrete: run kolu's own development inside XS.** Today kolu is built by
-agents on a personal headless Linux box. The bot moves that work into an XS thread so the
-team can **watch the agents run** — observe first, not steer. Querying and writing from
-chat come once it's more than one personal host. What the bot proves is the *act-in verbs
-over the surface*, driven to a live agent — not a static view any already-shipping read
-could render.
+### The same door assists the humans' own discussion
 
-<PesuStyles />
+Because a message to the thread and a message to the coordinator are the same thing,
+the coordinator is also a **participant in the conversation between humans** — the
+teammate shape, not just command-and-control. Several people argue a design in the
+thread; the coordinator contributes exactly what its contract makes it good at: the
+claim checked against the actual tree before anyone builds on it, the ruling with its
+grounding named so the humans can audit the reasoning rather than defer to it, and the
+running record of what was decided and why. AI-assisted discussion among humans falls
+out of the coordinator pattern for free — no second bot, no separate "assistant" mode,
+one attributed inbox.
+
+## The XS apps platform, as grounded
+
+The contract pesu builds against — read from the xyne-spaces source (2026-07-13), not
+its docs, because XS has **three separate integration systems** that are easy to
+conflate: the *bot catalog* (backend-native bots, its own mention/thread semantics),
+*incoming webhooks* (URL-embedded-secret message drops), and the **apps platform** —
+installed apps with a webhook URL, a JWT token, and a signing secret. pesu is an
+installed app; only this third system applies.
+
+**What an installed app is.** Its own per-workspace user (name and avatar from the app
+record), addressable by @mention, DM-able. Created from the dashboard; the webhook URL,
+bearer token, and signing secret are per-install credentials.
+
+**Events — XS → the app's webhook URL.** One POST per event,
+`{eventType, payload, timestamp}`, fired on exactly three chat triggers:
+
+| Event | Fires when | Payload notes |
+| --- | --- | --- |
+| `APP_MENTIONED` | the app is explicitly @mentioned in a channel | `conversationId` (thread), `channelId`, `messageId`, sender `userId` + `senderName`, body as `content` (HTML) + `cleanContent` (text), attachments |
+| `DIRECT_MESSAGE` | *every* message in a 1:1 DM with the app | same shape but **no `senderName`** |
+| `USER_MENTIONED` | a human is @mentioned in a channel the app is in | observer signal; adds `mentionedUserIds` |
+
+Plain, unmentioned channel messages are **never delivered** — there is no
+follow-the-thread for apps (that behavior lives in the bot catalog only). No payload
+carries a sender email; `GET /api/apps/user/info` resolves it.
+
+**Authentication, both directions, one secret.** Deliveries carry `X-Xyne-Signature` —
+HMAC-SHA256 (hex) of the raw JSON body with the app's signing secret; there is no
+timestamp or replay scheme, so verification is a constant-time HMAC compare and replay
+is an accepted, recorded risk. The bearer token is a JWT signed HS256 *with that same
+secret*, payload `{appId, userId}`, no expiry — it lives until regenerated.
+
+**The app API — the app → XS, `Authorization: Bearer`.** All under `/api/apps`:
+
+- `POST chat/postMessage` — text, markdown, or structured content; target by
+  `channelId`/`channelName`, or by `conversationId` to reply **into a thread**; posts
+  as the app's user.
+- `POST chat/updateMessage` — edit a posted message in place (the growing-reply UX).
+- `POST chat/agentProgress` — an ephemeral typing/progress indicator.
+- `GET chat/channelHistory` · `GET chat/conversationReplies` — read back (catch-up
+  after downtime).
+- `POST channel/openDm` — open a DM with a user; `GET user/info` — id → name/email.
+
+**Operational facts.** Message content caps at 40,000 characters. Event delivery is
+fire-and-forget: no retries, failures logged server-side only — an app that was down
+missed those events (the read APIs recover). No effective rate limit is configured on
+the app API routes; cadence discipline (e.g. ≤1 `updateMessage`/s) is the app's own
+manners.
+
+## The first proof: pesu, in the kolu tree
+
+pesu integrates through XS's **apps platform** — the shape the installed "kolu" app
+already has: XS pushes **signed events** to a webhook URL pesu serves, and pesu talks
+back through XS's **app API** with a bearer token. pesu itself is a small daemon in the
+kolu source tree (`packages/pesu` — an app-tier sibling of kolu-server: it imports
+kolu's packages, nothing imports it), running beside kolu on the machine you own. Both
+directions below are grounded in the XS source.
+
+- **In — events, signed.** XS POSTs `{eventType, payload, timestamp}` to pesu's URL on
+  exactly three chat triggers: `APP_MENTIONED` (an explicit @kolu in a channel),
+  `DIRECT_MESSAGE` (every message in a 1:1 DM with the app), and `USER_MENTIONED`
+  (observer). The payload carries the thread id (`conversationId`), the channel, the
+  sender's user id, and the message body as both HTML and plain text. Every delivery is
+  authenticated by `X-Xyne-Signature` — HMAC-SHA256 of the raw body with the app's
+  signing secret — which pesu verifies with a constant-time compare before touching the
+  payload.<Footnote>Three facts to design around, from the XS source: the payload never
+  includes the sender's email (and the DM payload omits even the display name) — pesu
+  resolves people through `GET /api/apps/user/info` and caches them; delivery is
+  fire-and-forget with no retries, so pesu answers 200 immediately and works async, and
+  a delivery missed while pesu is down is lost (the read APIs — `channelHistory`,
+  `conversationReplies` — allow catch-up); and there is no replay protection on the
+  signature, an accepted risk recorded here.</Footnote>
+- **Out — the app API, one bearer token.** `POST /api/apps/chat/postMessage` posts to a
+  channel or — with `conversationId` — into a thread; `updateMessage` edits a message
+  in place; `agentProgress` shows a live typing indicator; `channelHistory` /
+  `conversationReplies` read back. This one API is *both halves of the mirror*: the
+  reply to a message and the unprompted post are the same call — **B2 ships no wire B0
+  doesn't already have**; it is a policy switch (relay the coordinator's
+  between-message turns), not new machinery.
+
+**The one honest UX gap, stated:** the apps platform delivers a channel message only on
+an explicit @mention — the follow-the-thread behavior (replying in a bot's thread
+without re-mentioning) exists only in XS's separate bot-catalog system, not for
+installed apps. B0's home is the **dedicated kolu channel** that already exists: each
+instruction there @mentions kolu (the DM path works too, ceremony-free, since events
+for it come free). Two recorded options if the per-message @mention comes to grate: an
+XS-side feature request for app thread-follow (the right fix), or a pesu-side poller
+over the dedicated channel's `channelHistory` — viable precisely because in that one
+channel *every* message is for the coordinator — not built until wanted.
+
+**Does the coordinator get chat verbs of its own?** No — the coordinator stays
+chat-unaware, which keeps the mirror agent-CLI-agnostic and the bridge passive.
+Structured output doesn't need coordinator agency either: `postMessage` takes plain
+text, markdown, and structured payloads, so rendering is pesu's concern. An MCP face
+(pesu's verbs as a `@kolu/surface`, re-exposed via `@kolu/surface-mcp`) stays a
+recorded option whose sole revival condition is a coordinator demonstrably needing to
+*initiate* a chat action the transcript mirror cannot express.
+
+Each phase is **one PR, end to end** — it ships nothing that isn't consumed within it
+(the padi plan's law, held here). Every PR below is a complete, usable product on its
+own.
+
+<PhaseTree title="ROADMAP — pesu (the XS bridge) · one end-to-end PR per phase" phases={PESU} />
+
+export const PESU = [
+  { d: 0, g: "▶", c: "next", l: "B0 · the round trip — a chat-driven coordinator", m: "ships on today's XS", h: "#b0" },
+  { d: 0, g: "○", c: "todo", l: "B1 · the board — fleet status from chat", m: "needs B0", h: "#b1" },
+  { d: 0, g: "○", c: "last", l: "B2 · the live mirror — the thread as campaign feed", m: "needs B0 · a policy switch, no new wire", h: "#b2" },
+];
+
+<a id="b0"></a>
+
+### B0 — the round trip
+
+<Phase id="B0" name="the bridge daemon — a chat-driven coordinator over the installed app" status="next" />
+
+**What you see:** in the dedicated kolu channel, **"@kolu ‹ask›"** talks to the
+coordinator — your message lands in its terminal prefixed with your name; the answer
+appears in the thread as one message that grows while it works, with a typing indicator
+during the turn. (DMing the app works identically, with no @ needed.) **B0 is
+single-operator by design:** a configured allowlist of one — srid — and a message from
+anyone else gets a one-line visible decline, never silence and never a relayed turn.
+Multi-operator attribution is already built into the write-in (every message carries its
+sender), so widening later is a config change, not a code change.
+
+**The turn, end to end:** verify `X-Xyne-Signature` (constant-time) → 200 immediately →
+enqueue on the FIFO inbox (the write floor — one turn in flight, ever) → resolve the
+coordinator terminal **by title** via the kaval client (ids re-key across kaval
+restarts; titles survive) → resolve the sender via `user/info` (cached) → attributed
+two-step write-in, snapshot-verified → `agentProgress` on → as the reply grows in the
+coordinator's transcript, read it through the **shipped loaders**
+(`kolu-claude-code` / `kolu-codex` / `kolu-grok` / `kolu-opencode`, dispatched on the
+agent kind padi publishes — the same dispatch `padi/transcript.ts` does, so B0 is
+model-agnostic on day one) → `postMessage` once, then `updateMessage` at a civil cadence
+so the thread shows one growing message → the turn-end bucket flips → final update,
+typing off. A fault posts as a visible reply — never silence. Replies split at XS's
+40,000-character message cap.
+
+**The code tree** (no transcript module — the loaders already exist):
+
+```
+packages/pesu/src/
+  bin.ts            # entry: config → webhook server + turn engine
+  config.ts         # XS base URL · listen port · coordinator title ·
+                    #   env NAMES for the signing secret + bearer token
+  webhook.ts        # the receiver: HMAC verify, event parse, immediate 200
+  xyneApi.ts        # the bearer client: postMessage · updateMessage ·
+                    #   agentProgress · user/info (+ user cache)
+  inbox.ts          # the FIFO turn queue — the write floor
+  coordinator.ts    # terminal-by-title · attributed write-in · turn-end via
+                    #   padi's buckets · reply text via the loaders
+  attribution.ts    # "from Sridhar: " prefix formatting
+```
+
+**Hard requirements, in the PR:** a **stable public URL** for the webhook — the
+recommended shape for a home-manager host: pesu binds `127.0.0.1:<port>` as a systemd
+user service, fronted by **Tailscale Funnel** (`tailscale funnel`), which gives a
+stable `https://<host>.<tailnet>.ts.net` hostname with TLS terminated by tailscaled —
+no extra daemon, survives restarts, and the hostname registered in XS never changes (a
+cloudflared *named* tunnel is the fallback if Funnel is unavailable; quick-tunnels
+rotate their hostname per run and silently orphan the registration). Secrets reach pesu
+**only as environment variables** — never the repo, the PR, logs, or an agent
+transcript; the sender allowlist rejects non-operators visibly; a forged-signature
+request is rejected (pinned by a test); a coordinator-busy message queues and answers
+in order.
+
+<a id="b1"></a>
+
+### B1 — the board
+
+<Phase id="B1" name="@kolu status — fleet status from chat" status="todo" needs={["B0"]} />
+
+**What you see:** **"@kolu status"** (or the same in the DM) answers with a table —
+every terminal, which agent is in it, and whether it is working, asking for someone, or
+just finished — read straight off padi's sensors, no coordinator hop. The glance you
+currently need the kolu canvas for, from your phone.
+
+<a id="b2"></a>
+
+### B2 — the live mirror
+
+<Phase id="B2" name="unprompted posts over the same app API — the thread becomes the campaign feed" status="todo" needs={["B0"]} />
+
+**What you see:** the thread updates **on its own**. A worker finishes and the
+coordinator's report appears; a ruling goes out and you read it as it happens; an agent
+needs a human and the thread gets pinged — each post carrying a link that opens the
+exact terminal in kolu when you want the depth. Mechanically this is B0's `postMessage`
+with a `conversationId` and the transcript relay switched on for between-message turns —
+no new wire, which is why it is the roadmap's smallest PR.
+
+The discussion-assist patterns — the coordinator contributing grounded answers to a
+debate between humans — are coordinator behavior, the `/orchestrator` skill's
+territory, and deliberately not a pesu PR.
+
+**The milestone is concrete: run kolu's own development from a thread (B0 + B1).**<PesuStyles />
 <PesuThread />
 
 *The target user story, end to end — here replaying a real merged change,
@@ -155,11 +369,11 @@ leaving chat. The first milestone lights up the **observe** half (the stream and
 evidence); attaching to test and merging from chat ride the act-in verbs that follow.*
 
 <Callout kind="accent" title="The call">
-kolu is the foundation a chat app integrates — real terminals, durable sessions, an honest
-read, and writes over a trusted connection, model-agnostic and on hosts you own. XS owns
-identity and the floor; kolu owns the substance that doesn't change. Build the foundation,
-prove it with the `pesu` bot running kolu's own development in the open, and let any chat
-app be the front door.
+kolu is the foundation a chat app integrates — real terminals, durable sessions, an
+honest read, and one disciplined door for writes: the coordinator. XS owns identity; kolu
+owns the substance; the coordinator owns the discipline — and lends it to the humans'
+own discussion. Build the bridge, prove it with the `pesu` bot running kolu's own
+development in the open, and let any chat app be the front door.
 </Callout>
 
 export const PesuStyles = () => (
@@ -226,7 +440,7 @@ export const PesuStyles = () => (
 );
 
 export const PesuThread = () => (
-  <div class="pe-frame" role="img" aria-label="An XS chat thread driven by the pesu bot, replaying real merged PR #1544. Sridhar asks the bot to make session export a lightweight chat log — a picker for Chat log, Full transcript, or Both, plain HTML with no hidden tool payloads. The bot starts claude in a kolu terminal and streams the live session: it adds the export picker dialog, single-sources the export-mode enum, renders a plain conversation ledger, and deletes about twelve hundred lines of the old Pierre and markdown renderer, then fmt and tests pass. The bot posts screenshot evidence — the rendered chat-log document with role colours and prompt-jump controls — and a link to connect to the live terminal. It reports the slash-be review gauntlet caught and fixed a stored XSS in the shared export, then posts pull request #1544 with plus 1254 and minus 2652 across 28 files and CI green on both platforms. Sridhar replies merge it, and the bot reports #1544 merged to master with the terminal parked.">
+  <div class="pe-frame" role="img" aria-label="An XS chat thread driven by the pesu bot, replaying real merged PR #1544. Sridhar asks the bot to make session export a lightweight chat log — a picker for Chat log, Full transcript, or Both, plain HTML with no hidden tool payloads. The coordinator dispatches claude in a kolu terminal and the thread streams the live session: it adds the export picker dialog, single-sources the export-mode enum, renders a plain conversation ledger, and deletes about twelve hundred lines of the old Pierre and markdown renderer, then fmt and tests pass. The bot posts screenshot evidence — the rendered chat-log document with role colours and prompt-jump controls — and a link to connect to the live terminal. It reports the slash-be review gauntlet caught and fixed a stored XSS in the shared export, then posts pull request #1544 with plus 1254 and minus 2652 across 28 files and CI green on both platforms. Sridhar replies merge it, and the bot reports #1544 merged to master with the terminal parked.">
     <div class="pe-bar">
       <span class="pe-hash">XS · #kolu-dev</span>
       <span class="pe-sub">thread — lightweight chat-log export</span>
@@ -245,7 +459,7 @@ export const PesuThread = () => (
         <span class="pe-av pe-av-b">k</span>
         <div class="pe-body">
           <div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:31</span></div>
-          <div class="pe-bub">▶ Started <b>claude</b> in <code>kolu·e7f2</code>. Streaming the live session here.</div>
+          <div class="pe-bub">▶ Coordinator dispatched <b>claude</b> in <code>kolu·e7f2</code>. Streaming the worker here.</div>
           <div class="pe-term">
             <div class="pe-term-bar"><span>kolu·e7f2 · claude</span><span class="pe-live">● live</span></div>
             <div class="pe-term-body">
