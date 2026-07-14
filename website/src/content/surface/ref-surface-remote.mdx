@@ -127,7 +127,13 @@ framework-reserved `system.clockNow` at admit (RTT-compensated; see
 once the probe lands — `null` means *not yet measured*. Readiness is link-liveness, so
 `serveHostMap` keeps the entry `connected` with a `null` offset (never demoted to `connecting`; a `0` placeholder would be a lie on a skewed host). This is where the
 `clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
-the session's own state, no longer an injected `offsetOf`. `disconnected` adds `error` +
+the session's own state, no longer an injected `offsetOf`. A clock probe that fails is
+never swallowed: it stays `connected` with a `null` offset, re-attempts on a fixed cadence,
+and surfaces the failure on the session's diagnostic `onLog(line, severity)` sink —
+classified `error` for a genuine failure (the wedged-clock deadline, a transport fault) and
+`info` for the expected-absent case (an agent dial whose client carries no reserved
+`system.clockNow`). `onLog`'s `severity` is optional and defaults to `info`, so a one-argument
+sink stays valid. `disconnected` adds `error` +
 `cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`
 pinned to the `"remote"` literal (a network fault never gives up, so `failed` + `network` is
 unrepresentable). There is no separate `progressLines` / `remoteProgressLines` — provenance

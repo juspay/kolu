@@ -42,6 +42,7 @@ import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
+import { ORPCError } from "@orpc/client";
 import { monotonicNow } from "@kolu/surface/time";
 import { measureSurfaceClockOffset } from "@kolu/surface/clock-now";
 import {
@@ -378,8 +379,16 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  unrepresentable. */
   liveness?: false | { intervalMs?: number; timeoutMs?: number };
   /** Where the session's diagnostic lines go — default `process.stderr`. An
-   *  alt-screen consumer passes its own sink so lines never corrupt the render. */
-  onLog?: (line: string) => void;
+   *  alt-screen consumer passes its own sink so lines never corrupt the render.
+   *
+   *  `severity` classifies the line so a structured sink routes it to the right log
+   *  level (`.agency/code-police.md`: genuine failed I/O logs at `error`, expected-
+   *  absent conditions at `info`) — a GENUINE failure (a wedged `system.clockNow`
+   *  probe that hit its deadline, a transport fault) is `"error"`, an expected-absent
+   *  condition (an agent dial whose client carries no reserved `system.clockNow`) is
+   *  `"info"`. It is optional and defaults to `"info"`, so a one-argument sink
+   *  (`(line) => …`) stays source-compatible. */
+  onLog?: (line: string, severity?: "info" | "error") => void;
   /** Label for diagnostic lines (`[<label>] …`) — e.g. the host. Default `session`. */
   label?: string;
 }
@@ -525,10 +534,10 @@ export function makeSession<
     sinceMs: 0,
   } as SessionState<Prov>);
 
-  const emit = (line: string): void => {
+  const emit = (line: string, severity: "info" | "error" = "info"): void => {
     if (opts.onLog) {
       try {
-        opts.onLog(line);
+        opts.onLog(line, severity);
       } catch (err) {
         // A throwing sink must not escape the diagnostic funnel and freeze the
         // session; surface the sink's own failure on stderr so it isn't swallowed.
@@ -1158,19 +1167,33 @@ export function makeSession<
         // not clock-measured) with an honest `clockOffset: null` (never fabricate a 0; the
         // reader renders "—"). But a probe failure is neither swallowed nor allowed to
         // strand a null offset forever with no signal: it is (1) surfaced on the
-        // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, which the padi
-        // binders route to their structured `log.info`; stderr when no sink is wired),
-        // naming the host and
-        // the failure, and (2) RE-ATTEMPTED on `clockProbeRetryMs` cadence while the session
-        // stays connected, until it lands or the link drops. It is deliberately NOT pushed
-        // onto the state `log` overlay tail (`localProgress`): a clock probe legitimately
-        // rejects with "no such member" on a dial whose client carries no reserved
-        // `system.clockNow` (an agent dial via `dialAgentOnce`), and that structural
-        // non-failure must not paint the user-facing connect overlay.
+        // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, at the classified
+        // `severity` the padi binders route to `log.error`/`log.info`; stderr when no sink
+        // is wired), naming the host and the failure, and (2) RE-ATTEMPTED on
+        // `clockProbeRetryMs` cadence while the session stays connected, until it lands or
+        // the link drops. It is deliberately NOT pushed onto the state `log` overlay tail
+        // (`localProgress`): a clock probe legitimately rejects with "no such member" on a
+        // dial whose client carries no reserved `system.clockNow` (an agent dial via
+        // `dialAgentOnce`), and that structural non-failure must not paint the user-facing
+        // connect overlay.
+        //
+        // SEVERITY (`.agency/code-police.md`: genuine failed I/O at `error`, expected-
+        // absent at `info`): the EXPECTED-ABSENT case is exactly that missing-member dial —
+        // its client has no `system.clockNow`, so the call rejects with an oRPC `NOT_FOUND`
+        // (member absent server-side) or a `TypeError` (the proxy route is `undefined`);
+        // that is the "tool not installed" analogue → `info`. EVERYTHING else — the deadline
+        // timeout (a wedged clock RPC), a transport fault, an unexpected server error — is
+        // genuine failed I/O → `error`, so an error-filtered operator sees a clock that
+        // never lands. On the padi bindings `system.clockNow` is framework-reserved and
+        // always present, so no rejection there is expected-absent: every one is `error`.
+        const expectedAbsent =
+          (err instanceof ORPCError && err.code === "NOT_FOUND") ||
+          (err instanceof TypeError && /is not a function/.test(err.message));
         const reason = err instanceof Error ? err.message : String(err);
         emit(
           `[${label}] clock offset probe failed (staying connected, offset unmeasured; ` +
             `retrying in ${clockProbeRetryMs}ms): ${reason}`,
+          expectedAbsent ? "info" : "error",
         );
         // Retry on cadence. Guard the callback the same way the probe body is guarded —
         // a later dial or a dropped link cancels this chain (the epoch/phase re-check),

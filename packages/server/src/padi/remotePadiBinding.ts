@@ -694,7 +694,11 @@ export function ensureRemotePadiBinding(
     // at "copying", its first provisioning phase.
     initialConnection: "probing",
     admit,
-    onLog: (line) => log.info({ host, line }, "remote padi session"),
+    onLog: (line, severity) =>
+      (severity === "error" ? log.error : log.info)(
+        { host, line },
+        "remote padi session",
+      ),
     label: `host:${host}`,
   });
 

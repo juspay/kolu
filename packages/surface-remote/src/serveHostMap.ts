@@ -327,6 +327,25 @@ export function serveHostMap<
         // `as { error }`) so the injected classifier AND the seam throw read `error`
         // off the narrowed shape the type author intended.
         const down = raw as DownSessionState;
+        // BELT — symmetric with the connected-arm `clockOffset` guard in
+        // `projectState`: the erased `SessionState<string>` seam this map serves over
+        // (`Prov = string`, the phase top) structurally admits a down frame MISSING its
+        // REQUIRED `error` (under a `string` Prov the union's first arm widens `phase` to
+        // `string`, so `{ phase: "disconnected" }` sans `error`/`cause` type-checks). No
+        // producer of ours constructs one — `makeSession` ALWAYS stamps `error`+`cause`
+        // on a down frame — but a future producer that forgot would otherwise reach the
+        // injected `failureOf` reading `undefined`; on a `disconnected` frame `padiFailureOf`
+        // returns `null` without touching `error` and the map would publish the malformed
+        // frame SILENTLY as warming. Fail LOUD here instead (the sanctioned pattern, not a
+        // silent degrade), so the down seam is as fail-loud as the connected one.
+        if (typeof down.error !== "string") {
+          throw new Error(
+            `[serveHostMap] down SessionState for host "${enc}" carries no \`error\` — a ` +
+              "down frame (disconnected/failed) MUST carry a real transport error " +
+              "(makeSession always stamps error+cause). A missing field is a producer " +
+              "defect; failing loud rather than publishing a malformed down state as warming.",
+          );
+        }
         const failure = opts.failureOf(k, session, down);
         if (projected.kind === "failed") {
           // A terminal `failed` session that yields NO domain failure is a producer
