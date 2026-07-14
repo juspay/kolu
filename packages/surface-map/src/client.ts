@@ -49,10 +49,11 @@ export type { EntryState };
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
  *  (`.cells`/`.collections`/`.streams`/`.events`). */
-export interface Entry<ES extends SurfaceSpec, Failure = unknown> extends Pick<
-  SurfaceClient<ES>,
-  "cells" | "collections" | "streams" | "events"
-> {
+export interface Entry<ES extends SurfaceSpec, Failure = unknown>
+  extends Pick<
+    SurfaceClient<ES>,
+    "cells" | "collections" | "streams" | "events"
+  > {
   /** The entry surface's PROCEDURE client — for imperative point-calls
    *  (`entry(k).rpc.surface.<ns>.<verb>(input)`, the lifecycle/chrome/fs/git/… procs).
    *  The per-key link folds `{ mapKey }` into every call, so the consumer never passes
