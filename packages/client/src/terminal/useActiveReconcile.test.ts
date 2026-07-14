@@ -89,13 +89,16 @@ describe("evictTerminal — top-level branch", () => {
 });
 
 describe("evictTerminal — sub-terminal branch", () => {
-  it("collapses the parent's panel when the last sub departs", () => {
+  it("collapses the parent's panel AND clears the active tab when the last sub departs", () => {
     const { ports, calls } = makePorts({
       getSubTerminalIds: () => [], // no siblings remain
     });
     evictTerminal(ports, T("S"), T("P"), []);
     expect(calls.collapse).toHaveBeenCalledWith(T("P"));
-    expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+    // The active tab is cleared so it can't dangle at the departed sub — the
+    // invariant "activeSubTab is null or a live sub" that lets adopt/restore
+    // trust a plain null-check.
+    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
   });
 
