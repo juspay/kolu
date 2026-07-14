@@ -240,4 +240,37 @@ describe("SurfaceRuntime supervision — done / close", () => {
     ).toThrow(/missing deps for surface "two"/);
     expect(started).toBe(false);
   });
+
+  it("MULTIPLE teardown faults during close() all surface via AggregateError, not just the first", async () => {
+    const runtime = implementSurface(twoCells, {
+      cells: {
+        a: {
+          store: inMemoryStore(0),
+          connect: (): Disposer => () => {
+            throw new Error("dispose a boom");
+          },
+        },
+        b: {
+          store: inMemoryStore(0),
+          connect: (): Disposer => () => {
+            throw new Error("dispose b boom");
+          },
+        },
+      },
+    });
+    await tick();
+    await runtime.close();
+    // Both disposers fault on close — done rejects with an AggregateError that
+    // carries BOTH reasons, so a second broken disposer is diagnosable, never
+    // silently dropped for losing the first-fault race.
+    const err = await runtime.done.then(
+      () => undefined,
+      (e) => e,
+    );
+    expect(err).toBeInstanceOf(AggregateError);
+    const msgs = (err as AggregateError).errors
+      .map((e) => (e as Error).message)
+      .sort();
+    expect(msgs).toEqual(["dispose a boom", "dispose b boom"]);
+  });
 });

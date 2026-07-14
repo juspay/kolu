@@ -223,10 +223,15 @@ export interface DerivedCellDeps<T> {
  *  Teardown: `connect` owns its own `AbortController` and RETURNS a disposer, so
  *  the {@link SurfaceRuntime}'s `close()` aborts the upstream subscription when
  *  the served surface is torn down — the derivation lives exactly as long as the
- *  runtime that owns it, not unconditionally for the process. The standalone
- *  `dispose` still lets a caller that owns its OWN teardown point (a test, a
- *  scoped adapter serving no runtime) abort the upstream explicitly; abort is
- *  idempotent, so the two paths never conflict.
+ *  runtime that owns it, not unconditionally for the process. The two teardown
+ *  paths differ in their COMPLETION guarantee: `connect`'s returned disposer
+ *  `abort()`s and then `await`s the subscription task, so it resolves only once
+ *  the upstream iterator has fully torn down (the #1719 abort-then-observe
+ *  contract the runtime's `close()` relies on). The standalone `dispose` — for a
+ *  caller that owns its OWN teardown point (a test, a scoped adapter serving no
+ *  runtime) — only `abort()`s and returns immediately, NOT awaiting the task; use
+ *  it for fire-and-forget cancellation, the returned disposer when you must know
+ *  teardown finished. Abort is idempotent, so the two never conflict.
  *
  *  Error policy: the subscribe loop routes every non-abort failure to
  *  `opts.onError` rather than rejecting (so the task always settles — that's

@@ -1447,13 +1447,19 @@ function superviseSurface(sources: SurfaceSource[]): {
     resolveDone = resolve;
     rejectDone = reject;
   });
-  // A source that faults BEFORE close reaches `done` as a rejection. `done` is a
-  // plain promise (settle-once by spec), so `close`'s later resolve/reject of the
-  // same source's settle is a harmless no-op — first settle wins, no explicit
-  // seal guard needed.
-  for (const s of sources) s.settled.catch(rejectDone);
-
   let closing: Promise<void> | undefined;
+  // A source that faults BEFORE close reaches `done` immediately as a rejection —
+  // the FIRST such fault is the root cause (`done` is settle-once by spec, so a
+  // later one is a no-op). Once `close` has begun, though, it stands down: its
+  // own barrier below is then the SOLE settler, so it can AGGREGATE every
+  // teardown fault instead of losing all but the first to this eager race. The
+  // `.catch` still runs (the rejection never floats unhandled), it just doesn't
+  // settle `done` during close.
+  for (const s of sources)
+    s.settled.catch((err) => {
+      if (!closing) rejectDone(err);
+    });
+
   const close = (): Promise<void> => {
     closing ??= (async () => {
       // Abort every source FIRST, then run each source's own
@@ -1480,11 +1486,20 @@ function superviseSurface(sources: SurfaceSource[]): {
           if (settleFault) throw settleFault.reason;
         }),
       );
-      const fault = outcomes.find(
-        (r): r is PromiseRejectedResult => r.status === "rejected",
-      );
-      if (fault) rejectDone(fault.reason);
-      else resolveDone();
+      // Surface EVERY teardown fault, not just the first: with the eager catch
+      // stood down (above), this barrier is the sole settler during close, so a
+      // second concurrently-faulting source is never silently dropped. One fault
+      // rejects with its own reason (byte-identical to a single-source fault);
+      // several aggregate so each is diagnosable.
+      const faults = outcomes
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => r.reason);
+      if (faults.length === 0) resolveDone();
+      else if (faults.length === 1) rejectDone(faults[0]);
+      else
+        rejectDone(
+          new AggregateError(faults, "surface runtime teardown faulted"),
+        );
     })();
     return closing;
   };
