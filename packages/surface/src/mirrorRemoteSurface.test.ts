@@ -385,6 +385,170 @@ describe("mirrorRemoteSurface", () => {
   });
 });
 
+// ── Declared `deltas` collection — one protocol across the wire (SR5) ──────
+//
+// A collection that DECLARES the `deltas` verb is mirrored through its SINGLE
+// batched snapshot-then-delta stream, not the per-key `keys`+`get` fan-out — the
+// same protocol the local `.use()` takes, now carried across the wire. Routing is
+// SPEC-driven (`collectionHasDeltas`), never a link probe: the fake clients below
+// make `keys`/`get` THROW to prove the mirror never reaches for them on a
+// delta-declaring collection.
+
+const deltaSurface = defineSurface({
+  collections: {
+    procs: {
+      keySchema: z.number(),
+      schema: z.object({ name: z.string() }),
+      verbs: ["keys", "get", "upsert", "delete", "deltas"],
+    },
+  },
+});
+
+describe("mirrorRemoteSurface — declared `deltas` collection (SR5)", () => {
+  it("folds the single snapshot-then-delta stream into upsert/remove (never per-key)", async () => {
+    let closeDeltas!: () => void;
+    const open = new Promise<void>((r) => {
+      closeDeltas = r;
+    });
+    const client = {
+      surface: {
+        procs: {
+          deltas: async () =>
+            (async function* () {
+              yield {
+                kind: "snapshot",
+                entries: [
+                  [1, { name: "a" }],
+                  [2, { name: "b" }],
+                ],
+              };
+              yield {
+                kind: "delta",
+                upserts: [[3, { name: "c" }]],
+                removes: [1],
+              };
+              await open;
+            })(),
+          // Spec-driven routing: a delta-declaring collection must NEVER take the
+          // per-key path, so a `keys`/`get` reach is a test failure, not a fallback.
+          keys: async () => {
+            throw new Error("keys must not be used for a deltas collection");
+          },
+          get: async () => {
+            throw new Error("get must not be used for a deltas collection");
+          },
+        },
+      },
+    };
+
+    const upserts: Array<[number, { name: string }]> = [];
+    const removes: number[] = [];
+    const { done } = mirrorRemoteSurface(deltaSurface, asClient(client), {
+      collections: {
+        procs: {
+          upsert: (k, v) => upserts.push([k, v]),
+          remove: (k) => removes.push(k),
+        },
+      },
+    });
+
+    await delay(20);
+    expect(upserts).toEqual([
+      [1, { name: "a" }],
+      [2, { name: "b" }],
+      [3, { name: "c" }],
+    ]);
+    expect(removes).toEqual([1]);
+
+    closeDeltas();
+    await done;
+  });
+
+  it("prunes a carry-over key the fresh deltas snapshot omits (cross-reconnect reconcile)", async () => {
+    // The deltas twin of the per-key reconcile test: a re-serve holds one cache
+    // across reconnects; a key that departed while the link was down is not in the
+    // new spawn's snapshot, so `initialKeys` + the first-snapshot reconcile prunes
+    // it (no ghost) while the survivor is untouched (no empty flash).
+    const cache = new Map<number, { name: string }>([
+      [1, { name: "a" }],
+      [2, { name: "b" }],
+    ]);
+    const removes: number[] = [];
+    let close!: () => void;
+    const open = new Promise<void>((r) => {
+      close = r;
+    });
+    const client = {
+      surface: {
+        procs: {
+          deltas: async () =>
+            (async function* () {
+              // Reconnect snapshot serves ONLY {1} — 2 departed while down.
+              yield { kind: "snapshot", entries: [[1, { name: "a" }]] };
+              await open;
+            })(),
+        },
+      },
+    };
+    const { done } = mirrorRemoteSurface(deltaSurface, asClient(client), {
+      collections: {
+        procs: {
+          initialKeys: () => cache.keys(),
+          upsert: (k, v) => {
+            cache.set(k, v);
+          },
+          remove: (k) => {
+            cache.delete(k);
+            removes.push(k);
+          },
+        },
+      },
+    });
+    await delay(20);
+    expect(removes).toEqual([2]); // the ghost was pruned on the fresh snapshot
+    expect([...cache.keys()]).toEqual([1]); // survivor held, no flash
+    close();
+    await done;
+  });
+
+  it("rejects when the client lacks the `deltas` verb the collection declares", async () => {
+    // A sink for a delta-declaring collection whose client has no `deltas` verb is a
+    // client/surface mismatch — fail-fast, never a silent per-key fallback.
+    const client = { surface: { procs: { keys: async () => gen([]) } } };
+    await expect(
+      mirrorRemoteSurface(deltaSurface, asClient(client), {
+        collections: { procs: { upsert: () => {}, remove: () => {} } },
+      }).done,
+    ).rejects.toThrow(/client\/surface mismatch/);
+  });
+
+  it("rejects when a deltas UPSERT sink throws — fail-fast", async () => {
+    const client = {
+      surface: {
+        procs: {
+          deltas: async () =>
+            (async function* () {
+              yield { kind: "snapshot", entries: [[1, { name: "a" }]] };
+              await delay(50);
+            })(),
+        },
+      },
+    };
+    await expect(
+      mirrorRemoteSurface(deltaSurface, asClient(client), {
+        collections: {
+          procs: {
+            upsert: () => {
+              throw new Error("deltas upsert fold blew up");
+            },
+            remove: () => {},
+          },
+        },
+      }).done,
+    ).rejects.toThrow("deltas upsert fold blew up");
+  });
+});
+
 // ── Procedures — the pull-side half of the total dual ─────────────────────
 //
 // A streaming primitive is PUSH (frames flow into a sink); a procedure is PULL

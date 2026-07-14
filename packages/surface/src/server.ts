@@ -37,6 +37,7 @@ import {
   type CollectionSpec,
   collectionHasDeltas,
   composeSurfaceContracts,
+  defineSurface,
   type EventSpec,
   type ProcedureSpec,
   resolveCellVerbs,
@@ -646,6 +647,29 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
     get: () => value,
     set: (v) => {
       value = v;
+    },
+  };
+}
+
+/** In-memory additive Collection deps — the Map-backed `{ readAll, upsert, remove }`
+ *  a collection with no persistence hands `implementSurface` (the collection twin of
+ *  {@link inMemoryStore}). `readAll` returns the LIVE backing Map (the framework
+ *  reads it for `keys` / `get` / the `deltas` snapshot); `upsert` / `remove` mutate
+ *  it. One implementation for every re-serve mirror cache and additive fold that
+ *  used to hand-roll the same three lines (SR5). */
+export function inMemoryCollection<K, V>(): {
+  readAll: () => Map<K, V>;
+  upsert: (key: K, value: V) => void;
+  remove: (key: K) => void;
+} {
+  const map = new Map<K, V>();
+  return {
+    readAll: () => map,
+    upsert: (key, value) => {
+      map.set(key, value);
+    },
+    remove: (key) => {
+      map.delete(key);
     },
   };
 }
@@ -1507,6 +1531,53 @@ function superviseSurface(sources: SurfaceSource[]): {
   return { done, close };
 }
 
+/** Compose a passive owned RUNTIME with a TERMINAL source into one supervised
+ *  `{ done, close }` — the re-serve/extend seam SR5 needed, and the framework home
+ *  for the terminal-source doctrine `reServeSurface` used to hand-roll (SR1 left it
+ *  "deferred to PR5").
+ *
+ *  The two settle differently, which is the whole point:
+ *
+ *  - the TERMINAL source (the re-serve pump) DRIVES the runtime and ENDS ON ITS
+ *    OWN (the mirrored session was destroyed), so its settlement is the RESOLVING
+ *    edge of the composite `done` — a clean terminal end resolves it, a mirror
+ *    fault rejects it;
+ *  - the RUNTIME's own owned sources (cell connectors) resolve only on `close`, so
+ *    a runtime `done` RESOLUTION is not a terminal edge (propagating it would
+ *    pre-empt the pump); only its REJECTION — an owned fault — faults the composite
+ *    before close.
+ *
+ *  `close` closes the terminal FIRST (#1719: its detached per-key pumps settle via
+ *  `signal.reason`), awaits that teardown, then releases the runtime — the same
+ *  close-then-observe order {@link superviseSurface} uses, applied across the
+ *  runtime boundary that hides the runtime's own sources (so it can't be expressed
+ *  as one more `SurfaceSource`). The terminal's `close` is the ATOMIC teardown verb
+ *  (tear the terminal down AND settle), so a terminal whose teardown is itself
+ *  ASYNCHRONOUS — a full re-served runtime whose `close()` aborts its pump AND
+ *  releases its own sources — fits the same socket, not only a sync-abort driver.
+ *  Idempotent; always resolves. */
+export function superviseTerminalSource(
+  runtime: { done: Promise<void>; close: () => Promise<void> },
+  terminal: { done: Promise<void>; close: () => Promise<void> },
+): { done: Promise<void>; close: () => Promise<void> } {
+  const done = new Promise<void>((resolve, reject) => {
+    terminal.done.then(resolve, reject);
+    runtime.done.catch(reject);
+  });
+  // `done` may reject from either arm; guard against an unhandled rejection when a
+  // consumer observes only `close()`. (A consumer that reads `done` still sees it.)
+  done.catch(() => {});
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= (async () => {
+      await terminal.close();
+      await runtime.close();
+    })();
+    return closing;
+  };
+  return { done, close };
+}
+
 /** The supervision contract shared by every servable surface runtime — one
  *  axis (router + ctx + done + close) parameterized over its ctx shape, so the
  *  singular and plural runtimes below differ only in `Ctx`, never in the
@@ -2218,6 +2289,200 @@ export function implementSurfaceOnPublisher<const S extends SurfaceSpec>(
   const sources = starts.map((start) => start());
   const { done, close } = superviseSurface(sources);
   return { router, ctx, done, close };
+}
+
+// ── extendSurface — compose a local runtime onto a re-served one ────────
+
+/** A servable surface runtime paired with its surface DESCRIPTOR — the shape
+ *  {@link extendSurface} composes. `reServeSurface`'s `ReServedSurface` (the
+ *  re-served BASE) satisfies it directly; a local `implementSurface` runtime does
+ *  once its `surface` is carried alongside (the runtime alone omits the descriptor,
+ *  which the composition needs to build the combined contract). */
+export interface ServedSurface<S extends SurfaceSpec> {
+  /** The surface this runtime serves — its descriptor, for the combined contract. */
+  readonly surface: Surface<S>;
+  /** The FINAL top-level oRPC router (built against `surface`'s contract). */
+  readonly router: unknown;
+  /** Rejects on an owned fault; the base's resolves on its terminal end. */
+  readonly done: Promise<void>;
+  /** Release this runtime's owned sources. Idempotent. */
+  close(): Promise<void>;
+}
+
+/** One KIND's member record, with an ABSENT kind (an optional-field `undefined`)
+ *  normalized to the empty object `{}` — so intersecting two of these MERGES their
+ *  members (`{status} & {history}` → `{status, history}`) and an absent side adds
+ *  nothing (`{status} & {}` → `{status}`), instead of collapsing to `never` (which
+ *  `& Record<string, never>` would). The `[T]` tuple stops a `Record | undefined`
+ *  from distributing. Empty `{}` still satisfies `SurfaceSpec`'s per-kind
+ *  `Record<string, …Spec>` constraint (vacuously — no properties to violate). */
+type Members<T> = [T] extends [undefined]
+  ? Record<never, never>
+  : NonNullable<T>;
+
+/** The spec of the surface {@link extendSurface} composes — a flat, per-kind merge
+ *  of the base and extension specs (each kind's members intersect; see
+ *  {@link Members}). A member-name collision within a kind is a runtime error,
+ *  never a silent `{...spread}` overwrite. */
+export type ComposedSurfaceSpec<
+  A extends SurfaceSpec,
+  B extends SurfaceSpec,
+> = {
+  cells: Members<A["cells"]> & Members<B["cells"]>;
+  collections: Members<A["collections"]> & Members<B["collections"]>;
+  streams: Members<A["streams"]> & Members<B["streams"]>;
+  events: Members<A["events"]> & Members<B["events"]>;
+  procedures: Members<A["procedures"]> & Members<B["procedures"]>;
+};
+
+/** The composed runtime {@link extendSurface} returns — the combined surface plus
+ *  the supervision contract. `router` serves EVERY base + extension member FLAT
+ *  under one `surface` namespace (byte-identical paths), `done` settles when the
+ *  base's terminal source ends (or either runtime faults), `close` releases both. */
+export interface ExtendedSurface<
+  Base extends SurfaceSpec,
+  Ext extends SurfaceSpec,
+> {
+  readonly surface: Surface<ComposedSurfaceSpec<Base, Ext>>;
+  readonly router: unknown;
+  readonly done: Promise<void>;
+  close(): Promise<void>;
+}
+
+const SURFACE_KINDS = [
+  "cells",
+  "collections",
+  "streams",
+  "events",
+  "procedures",
+] as const;
+
+/** Merge two surface specs FLAT, failing loud on a member-name collision. The wire
+ *  namespace is FLAT and PER-NAME: `defineSurface` folds every member — cell /
+ *  collection / stream / event / procedure — into ONE namespace keyed by member
+ *  name, so a name may be claimed by AT MOST ONE side across ALL kinds. A base cell
+ *  `foo` and an ext procedure namespace `foo` have disjoint verbs, so a per-kind
+ *  check (and `defineSurface`'s per-`(name,verb)` claim) would miss the clash while
+ *  the flat wire namespace silently drops one side's handlers — so the collision is
+ *  checked on the flat name axis the wire actually uses. Only the DECLARED (user)
+ *  members participate: framework-injected reserved members (`system`) are absent
+ *  from these specs and legitimately present in BOTH runtimes, so they are not a
+ *  collision (their handler is resolved at the router splice, base-authoritative). */
+function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
+  const flatNames = (s: SurfaceSpec): string[] =>
+    SURFACE_KINDS.flatMap((k) =>
+      Object.keys(
+        (s as Record<string, Record<string, unknown> | undefined>)[k] ?? {},
+      ),
+    );
+  const aNames = new Set(flatNames(a));
+  for (const name of flatNames(b)) {
+    if (aNames.has(name)) {
+      throw new Error(
+        `extendSurface: the base and extension both serve member "${name}" — a composed surface can't have two (the wire namespace is flat, per-name across all kinds), rename one.`,
+      );
+    }
+  }
+  const merged: Record<string, Record<string, unknown>> = {};
+  for (const kind of SURFACE_KINDS) {
+    const av = (a as Record<string, Record<string, unknown> | undefined>)[kind];
+    const bv = (b as Record<string, Record<string, unknown> | undefined>)[kind];
+    // EVERY kind is materialized (empty when both sides omit it), so the runtime
+    // spec value matches `ComposedSurfaceSpec`'s all-kinds-present type — a reader of
+    // `composed.surface.spec.<kind>` gets an object, never `undefined` behind an
+    // object type. Names are guaranteed disjoint across the two specs by the check
+    // above, so the shallow merge never overwrites.
+    merged[kind] = { ...av, ...bv };
+  }
+  return merged as SurfaceSpec;
+}
+
+/** Compose a LOCAL runtime onto a RE-SERVED one, into one served surface (SR5 —
+ *  parent-owned additions stay causally separate from mirroring). The BASE is a
+ *  re-served surface (`reServeSurface`, a mirror of a remote agent); `ext` is a
+ *  parent-LOCAL runtime (a retention ring, a derived registry) whose producers
+ *  OBSERVE the base's committed frames POST-COMMIT rather than opening a SECOND
+ *  mirror — so a parent keeps a local member (drishti's `metricHistory`) without an
+ *  inert agent-side stub on the shared surface.
+ *
+ *  The result serves EVERY base + extension member FLAT under one `surface`
+ *  namespace, at byte-identical paths — the composition is wire-matchable because
+ *  both already-built router fragments are passed THROUGH `implement(combined)`'s
+ *  `t.router({...})`, which re-adapts them against the combined contract's matcher
+ *  meta (the same splice `buildAppRouter` uses for the re-served padi sibling; a
+ *  fragment carries no matcher meta of its own, so binding against the combined
+ *  contract is load-bearing, not decorative — pinned by a matcher-tree test).
+ *
+ *  Supervision routes through {@link superviseTerminalSource}: the base is the
+ *  TERMINAL driver (its mirror pump ends when the remote session is destroyed, the
+ *  composite's resolving edge), the local `ext` is PASSIVE (only its fault settles
+ *  `done` before close). `close` tears the base down FULLY FIRST — `base.close()`,
+ *  awaited to completion (it aborts the base's pump AND releases the base runtime's
+ *  own sources) — then releases the local runtime. The combinator's terminal
+ *  contract is the ATOMIC `close: () => Promise<void>` teardown verb, so the base's
+ *  async full-runtime `close()` fits it directly — no hand-rolled done/close fold. */
+export function extendSurface<
+  Base extends SurfaceSpec,
+  Ext extends SurfaceSpec,
+>(
+  base: ServedSurface<Base>,
+  ext: ServedSurface<Ext>,
+): ExtendedSurface<Base, Ext> {
+  // The combined surface descriptor — a flat spec merge (loud on collision). The
+  // documented cast mirrors `mirroredSurface`: `defineSurface`'s const inference
+  // over the dynamic merge doesn't line up structurally with `ComposedSurfaceSpec`,
+  // but the runtime IS that surface (every base + extension member).
+  const combined = defineSurface(
+    mergeSurfaceSpecs(base.surface.spec, ext.surface.spec),
+  ) as unknown as Surface<ComposedSurfaceSpec<Base, Ext>>;
+
+  // Re-adapt BOTH already-built fragments against the combined contract's matcher
+  // meta. `implement(combined.contract).router({ surface: {...} })` attaches the
+  // wire routes a fragment carries none of its own (the `buildAppRouter` splice).
+  // biome-ignore lint/suspicious/noExplicitAny: oRPC's implement chain is too dynamic for the runtime splice; the combined contract carries the matcher meta (pinned by extendSurface.test's matcher-tree assertion).
+  const t = implement(combined.contract as any) as any;
+  const baseNs = (base.router as { surface: Record<string, unknown> }).surface;
+  const extNs = (ext.router as { surface: Record<string, unknown> }).surface;
+  // Splice the two flat surface namespaces. `mergeSurfaceSpecs` guarantees the
+  // DECLARED members are disjoint (checked on the flat per-name wire axis), so the
+  // only members present in BOTH are framework-injected reserved namespaces
+  // (`system`). Those are DEEP-merged per verb rather than overwritten wholesale:
+  // the BASE is authoritative on the reserved verbs (live/identity/clockNow — it
+  // carries the re-served agent's identity + liveness gate, whereas a local `ext`
+  // retention ring adds no gate), while any APP-OWNED verb the extension declared on
+  // the same namespace (e.g. `procedures.system.echo`, which the combined contract
+  // advertises) is PRESERVED — a shallow last-wins spread would silently drop it and
+  // 404 the advertised route. `t` is already `any`; the spliced runtime shape is a
+  // valid router re-adapted against the combined contract (pinned by the matcher test).
+  const surfaceNs: Record<string, unknown> = { ...extNs };
+  for (const [name, baseMember] of Object.entries(baseNs)) {
+    const extMember = surfaceNs[name];
+    surfaceNs[name] =
+      extMember &&
+      typeof extMember === "object" &&
+      baseMember &&
+      typeof baseMember === "object"
+        ? {
+            ...(extMember as Record<string, unknown>),
+            ...(baseMember as Record<string, unknown>),
+          }
+        : baseMember;
+  }
+  const router = t.router({ surface: surfaceNs }) as unknown;
+
+  // Supervise through the framework's terminal-source combinator: the base (a
+  // re-served mirror) is the TERMINAL driver — its `done` resolves when the remote
+  // session ends (the composite's resolving edge) — and the local `ext` is PASSIVE,
+  // so only its FAULT settles `done` before close. `close` tears the base down FULLY
+  // FIRST (`base.close()` aborts its pump AND releases its own runtime, awaited to
+  // completion), then releases the local runtime — the base's async `close()` is the
+  // combinator's atomic terminal teardown verb, no hand-rolled done/close fold here.
+  const { done, close } = superviseTerminalSource(ext, {
+    done: base.done,
+    close: base.close,
+  });
+
+  return { surface: combined, router, done, close };
 }
 
 // ── implementSurfaces — sibling surfaces over one transport ─────────────

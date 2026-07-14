@@ -54,7 +54,7 @@ your sink until the link dies.
 | `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next(signal?)` blocks until a fresh client (post-reconnect), or wakes early on `signal` abort — the raw-loop primitive under the pump |
 
 `pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
-`reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent.
+`reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent. The pump is a **terminal source** (it ends on its own when the session is destroyed): supervision routes through `@kolu/surface`'s `superviseTerminalSource(runtime, terminal)`, the framework combinator that pairs a passive runtime with a terminal driver — `reServeSurface` no longer hand-rolls the teardown.
 `makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
 every spawn, so no per-client state survives a reconnect. `onLinkDown` fires after
 holders clear — the cue to drop any per-link local fold so the next spawn rebuilds
@@ -63,8 +63,19 @@ from a fresh snapshot.
 `reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
 a `value` member (cell, collection, value pulse) is held open and **replayed**
 across an upstream drop; a `delta` member (byte or liveness stream) **fails
-through** — the drop ends the downstream stream so the client re-subscribes
-end-to-end. Holding open a byte stream is a compile error.
+through** — the drop ends the downstream stream with the **named retryable
+transport end** `RelayTransportLostError` (an `ORPCError` carrying the
+`SURFACE_RELAY_TRANSPORT_LOST` code, the one code the shared retry fence retries)
+so the client re-subscribes end-to-end and a snapshot only ever leads a fresh
+stream. A raw re-throw would cross oRPC sanitized to a non-retriable error and
+strand the downstream — this named end is what makes fail-through actually
+recover. Holding open a byte stream is a compile error.
+
+A collection that declares the `deltas` verb is mirrored through its **single**
+batched snapshot-then-delta stream (folded into the same `{ upsert, remove }`
+sink), one protocol across the wire — instead of the per-key `keys`+`get`
+fan-out, which stays for a collection without the verb. The choice is read from
+the spec, never probed on the link.
 
 ## The fleet fan-out
 
