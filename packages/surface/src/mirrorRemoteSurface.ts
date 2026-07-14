@@ -558,6 +558,20 @@ class SinkError extends Error {
   }
 }
 
+/** Seed a collection's carry-over key set from a caller-supplied `initialKeys`
+ *  sink callback. A throw here — or from the iterable it returns — is a broken
+ *  LOCAL fold (a bad sink), NOT an upstream blip, so it is tagged {@link SinkError}
+ *  and rethrown: the mirror REJECTS (fail-fast), never a silent collapse to
+ *  "nothing carried over". Named once so both collection bridges (`mirrorCollection`
+ *  and `mirrorCollectionDeltas`) share the one sink-fold contract. */
+function seedCarryOver<K>(initialKeys?: () => Iterable<K>): Set<K> {
+  try {
+    return new Set<K>(initialKeys?.() ?? []);
+  } catch (sinkErr) {
+    throw new SinkError(sinkErr);
+  }
+}
+
 /** Subscribe a single `get(input)` stream and push each frame into `onFrame`,
  *  swallowing abort-time rejections (teardown) and logging any other UPSTREAM
  *  error. The shared loop behind cell, stream, and event sinks. A throw from
@@ -644,15 +658,8 @@ async function mirrorCollectionDeltas<K, V>(opts: {
 }): Promise<void> {
   // The keys currently mirrored — seeded with the carry-over cache so the first
   // snapshot prunes keys that departed while the link was down (#1661 candidate 1,
-  // the deltas twin). `initialKeys` is a caller-supplied sink callback, so a throw
-  // here is a broken local fold: tag it a `SinkError` and reject, never a silent
-  // collapse to "nothing carried over".
-  let present: Set<K>;
-  try {
-    present = new Set<K>(opts.initialKeys?.() ?? []);
-  } catch (sinkErr) {
-    throw new SinkError(sinkErr);
-  }
+  // the deltas twin). See {@link seedCarryOver} for the sink-fold contract.
+  let present = seedCarryOver(opts.initialKeys);
   let iterable: AsyncIterable<CollectionDeltasMsg<K, V>>;
   try {
     iterable = await opts.deltas;
@@ -731,19 +738,12 @@ async function mirrorCollection<K, V>(opts: {
   // departure sweep below — which only removes keys THIS spawn opened — can't catch
   // them). Reconciling on the fresh snapshot keeps survivors (no empty flash) and
   // drops ghosts (no stale row).
-  // `initialKeys` is a caller-supplied sink callback (part of the collections
-  // sink), so a throw here — or in the iterable it returns — is a broken local
-  // fold, NOT an upstream blip. It runs synchronously at spawn, before the
-  // `rejectSink` channel exists, so tag it as a `SinkError` and rethrow: the async
-  // `mirrorCollection` returns a rejected promise, `Promise.allSettled` in the
-  // caller sees a `SinkError`, and `done` REJECTS — the same fail-fast contract as
-  // a throwing `onUpsert`/`onRemove`, never a silent collapse to a resolved mirror.
-  let carriedOver: Set<K>;
-  try {
-    carriedOver = new Set<K>(opts.initialKeys?.() ?? []);
-  } catch (sinkErr) {
-    throw new SinkError(sinkErr);
-  }
+  // The carry-over seed runs synchronously at spawn, before the `rejectSink`
+  // channel exists; a throw is a broken local fold, so {@link seedCarryOver} tags it
+  // a `SinkError` and rethrows — the async `mirrorCollection` returns a rejected
+  // promise, `Promise.allSettled` in the caller sees it, and `done` REJECTS: the
+  // same fail-fast contract as a throwing `onUpsert`/`onRemove`.
+  const carriedOver = seedCarryOver(opts.initialKeys);
   let reconciledCarryOver = false;
   // Thread the parent signal's reason into every per-key abort (with a fallback
   // for a mid-stream key departure, when the parent has NOT aborted) so the
