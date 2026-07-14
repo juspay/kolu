@@ -42,20 +42,36 @@ export function useTerminalAlerts(deps: {
   // `serviceWorker` message listener — a second listener on the same channel
   // would cross-deliver a `host` payload into a `terminal` handler.
 
-  // Reactively watch agent state for all terminals.
-  // SolidJS's on() tracks previous values natively — no manual Map needed.
+  // Reactively watch agent state for all terminals, keyed by TerminalId.
+  //
+  // The diff MUST key on identity, not list POSITION. `deps.terminalIds()` is the
+  // ACTIVE host's window (`activeWire.terminalListSub`) — a host switch swaps the
+  // whole list and even a same-host insert/remove reorders it — so a positional
+  // `prevStates[i]` vs `states[i]` diff compared two DIFFERENT terminals across a
+  // tick: an already-`awaiting_user` terminal (e.g. `nixos-config` on zest) whose
+  // index-peer on the prior list was `thinking` read as a fresh entry into the
+  // notify class and re-fired on every switch back. A `Map<TerminalId, state>` diff
+  // pairs each terminal with its OWN previous state, so a reshuffled list can't
+  // manufacture a transition. A first-sighting id (host switch, late metadata) has
+  // no entry in `prevStates`, so its `prev` is undefined and `checkAgentFinished`
+  // skips it — the only terminals that can "transition" are ones we were already
+  // tracking last tick, on the same host.
   createEffect(
     on(
       () =>
-        deps
-          .terminalIds()
-          .map((id) => activeArm(deps.getMetadata(id))?.agent?.state),
+        new Map(
+          deps
+            .terminalIds()
+            .map(
+              (id) =>
+                [id, activeArm(deps.getMetadata(id))?.agent?.state] as const,
+            ),
+        ),
       (states, prevStates) => {
-        const ids = deps.terminalIds();
         if (!prevStates) return;
-        for (const [i, id] of ids.entries()) {
-          const prev = prevStates[i];
-          if (prev !== undefined) checkAgentFinished(id, prev, states[i]);
+        for (const [id, next] of states) {
+          const prev = prevStates.get(id);
+          if (prev !== undefined) checkAgentFinished(id, prev, next);
         }
       },
     ),
