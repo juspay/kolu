@@ -103,7 +103,10 @@ A tile is a full terminal, not a preview.
 
 - **Split** a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, add tabs with
   <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Open splits show as a `▭ N`
-  chip on the dock row.
+  chip on the dock row. A split made from the shell or by an agent
+  ([`padi-tui create --parent`](/padi)) opens the same way — the pane expands and
+  the new split is selected, no click needed (unless you're already working in
+  another split of that tile, which it won't yank you off).
 - **Zoom the font** with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd>,
   persisted per terminal.
 - **WebGL rendering** (canvas fallback), clickable URLs, Unicode 11, and inline
