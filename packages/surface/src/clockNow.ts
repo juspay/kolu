@@ -55,18 +55,27 @@ export type SurfaceClockNowProbeable = {
     typeof CLOCK_NOW_NAMESPACE,
     Record<
       typeof CLOCK_NOW_VERB,
-      (input: Record<string, never>) => Promise<ServedClockNow>
+      (
+        input: Record<string, never>,
+        options?: { signal?: AbortSignal },
+      ) => Promise<ServedClockNow>
     >
   >;
 };
 
 /** The framework-reserved clock round-trip — the clock twin of
  *  {@link probeSurfaceIdentity} / {@link probeSurfaceLive}. Resolves with the server's
- *  own wall clock ({@link ServedClockNow}). Pass the thing that carries `.surface`. */
-export function probeSurfaceClockNow(client: unknown): Promise<ServedClockNow> {
+ *  own wall clock ({@link ServedClockNow}). Pass the thing that carries `.surface`; an
+ *  optional {@link AbortSignal} is forwarded to the oRPC call so a caller that gives up
+ *  on the probe (a deadline, a superseded dial, a destroyed session) CANCELS the
+ *  in-flight request rather than leaving it pending — see `makeSession`'s clock poll. */
+export function probeSurfaceClockNow(
+  client: unknown,
+  signal?: AbortSignal,
+): Promise<ServedClockNow> {
   return (client as SurfaceClockNowProbeable).surface[CLOCK_NOW_NAMESPACE][
     CLOCK_NOW_VERB
-  ]({});
+  ]({}, { signal });
 }
 
 /** Measure the far-end host's wall-clock offset (ms) vs THIS process off one
@@ -82,9 +91,10 @@ export function probeSurfaceClockNow(client: unknown): Promise<ServedClockNow> {
  *  admit, no continuous drift correction). */
 export async function measureSurfaceClockOffset(
   client: unknown,
+  signal?: AbortSignal,
 ): Promise<number> {
   const sentMs = Date.now();
-  const { epochMs } = await probeSurfaceClockNow(client);
+  const { epochMs } = await probeSurfaceClockNow(client, signal);
   const rtt = Date.now() - sentMs;
   return Math.round(epochMs - (sentMs + rtt / 2));
 }

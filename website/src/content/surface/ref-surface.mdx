@@ -48,10 +48,12 @@ all injected by `defineSurface` and auto-answered by the server — no app decla
 or implements them (see [Liveness](#liveness-and-health)). `surface.system.clockNow`
 (`@kolu/surface/clock-now`) returns the server's own wall clock (`{ epochMs }`), so
 a consumer that binds a remote surface can measure the clock offset between the two
-hosts once at admit; `probeSurfaceClockNow(client)` performs the raw round-trip and
-`measureSurfaceClockOffset(client)` returns the RTT-compensated offset
+hosts once at admit; `probeSurfaceClockNow(client, signal?)` performs the raw round-trip and
+`measureSurfaceClockOffset(client, signal?)` returns the RTT-compensated offset
 (`round(remoteEpochMs − (sentMs + rtt/2))`, sampling local time at the round-trip
-midpoint so the one-way latency does not bias the result).
+midpoint so the one-way latency does not bias the result). Both accept an optional
+`AbortSignal` that is forwarded to the oRPC call, so a caller that gives up on a probe
+(a deadline, a superseded dial, a torn-down session) cancels the in-flight request.
 
 To key several standalone surfaces under one namespace over one transport, use
 `composeSurfaceContracts({ <key>: surface })`.

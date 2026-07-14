@@ -438,6 +438,16 @@ export function makeSession<
    *  fold into that slot). Non-null only while a failed offset probe is waiting to
    *  re-attempt; cleared on success, on the next poll, and on destroy. */
   let clockProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The IN-FLIGHT clock probe's deadline timer + abort handle (distinct from the
+   *  retry timer above: this fires WHILE a probe is running, that one WHILE it waits
+   *  to re-fire). The deadline rejects a probe whose clock RPC never settles; the
+   *  controller's `signal` is threaded into `measureSurfaceClockOffset` so aborting it
+   *  CANCELS the underlying request, not merely a wrapper promise. Both are torn down
+   *  together by {@link cancelInFlightClockProbe} — so a deadline, a superseding poll,
+   *  and `destroy()` each leave NO stacked pending RPC and NO orphaned deadline timer
+   *  (the concrete leak a bare wrapper-only deadline left behind). */
+  let clockProbeDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  let clockProbeAbort: AbortController | null = null;
   /** The in-flight/current client promise (or `null` between a link death and the
    *  backoff timer firing). Each dial reassigns it, so the pump's cursor advances on
    *  identity. */
@@ -544,6 +554,22 @@ export function makeSession<
     }
   };
 
+  /** Tear down the IN-FLIGHT clock probe (if any): clear its deadline timer AND abort
+   *  its request (cancelling the underlying RPC via the threaded `signal`). Called at
+   *  the top of every fresh poll (a superseding probe must not stack behind the prior
+   *  one) and on `destroy()` (so no deadline timer outlives the session and no pending
+   *  RPC is left registered). Idempotent — safe when nothing is in flight. */
+  const cancelInFlightClockProbe = (): void => {
+    if (clockProbeDeadlineTimer !== null) {
+      clearTimeout(clockProbeDeadlineTimer);
+      clockProbeDeadlineTimer = null;
+    }
+    if (clockProbeAbort !== null) {
+      clockProbeAbort.abort();
+      clockProbeAbort = null;
+    }
+  };
+
   const armTimer = (delayMs: number, fn: () => void): void => {
     pendingTimer = setTimeout(() => {
       pendingTimer = null;
@@ -569,31 +595,6 @@ export function makeSession<
           ),
         );
       }, connectTimeoutMs);
-      p.then(
-        (v) => {
-          clearTimeout(timer);
-          resolve(v);
-        },
-        (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
-      );
-    });
-
-  /** Bound a single `system.clockNow` probe by {@link clockProbeTimeoutMs}. Mirrors
-   *  {@link withHandshakeTimeout}: a probe that never settles rejects on the deadline so
-   *  `pollClockNow`'s catch runs (loud line + cadence retry) instead of hanging silent.
-   *  Clears its own timer on settle. */
-  const withClockProbeDeadline = <T>(p: Promise<T>): Promise<T> =>
-    new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new Error(
-            `system.clockNow probe exceeded ${clockProbeTimeoutMs}ms deadline (transport up, clock RPC never settled)`,
-          ),
-        );
-      }, clockProbeTimeoutMs);
       p.then(
         (v) => {
           clearTimeout(timer);
@@ -1085,12 +1086,48 @@ export function makeSession<
     // now rides the session's OWN connected state, so a keyed `SurfaceMap` reads it there
     // with no injected `offsetOf`.
     //
-    // Only ONE poll+retry chain runs at a time — clear any pending retry before firing so
-    // a fresh admit (or a manual re-poll) supersedes a stale one rather than racing it.
+    // Only ONE poll+retry chain runs at a time — clear any pending retry AND cancel any
+    // in-flight probe before firing, so a fresh admit (or a manual re-poll) supersedes a
+    // stale one rather than racing it or stacking a second pending RPC behind it.
     clearClockProbeTimer();
+    cancelInFlightClockProbe();
     const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
-    withClockProbeDeadline(measureSurfaceClockOffset(client))
+    // Bound this probe by a hard DEADLINE and thread an abort `signal` into the RPC.
+    // Without it, a clock RPC that never settles (a half-open transport that answers
+    // nothing, a server wedged only on this member) would reach neither `.then` nor
+    // `.catch` — emitting no diagnostic, scheduling no retry, and stranding the frame at
+    // `clockOffset: null` forever. On the deadline we do BOTH: `abort()` the controller
+    // (which CANCELS the underlying request via the threaded `signal`, so no
+    // permanently-pending call is left stacked behind the retry) AND `reject` the
+    // OBSERVED promise directly (so the state machine proceeds to the catch → loud-line →
+    // cadence-retry path even if a transport ignores the signal). The two are
+    // belt-and-suspenders: abort reclaims the resource, reject guarantees the diagnostic.
+    const ac = new AbortController();
+    clockProbeAbort = ac;
+    // Clear this probe's deadline timer / abort handle once it settles (either way) —
+    // but only if it is still the CURRENT probe (a superseding poll or `destroy()` may
+    // have already swapped/aborted it, and this late settle must not clobber the new one).
+    const settleClockProbe = (): void => {
+      if (clockProbeAbort !== ac) return;
+      if (clockProbeDeadlineTimer !== null) {
+        clearTimeout(clockProbeDeadlineTimer);
+        clockProbeDeadlineTimer = null;
+      }
+      clockProbeAbort = null;
+    };
+    new Promise<number>((resolve, reject) => {
+      clockProbeDeadlineTimer = setTimeout(() => {
+        clockProbeDeadlineTimer = null;
+        const err = new Error(
+          `system.clockNow probe exceeded ${clockProbeTimeoutMs}ms deadline (transport up, clock RPC never settled)`,
+        );
+        ac.abort(err);
+        reject(err);
+      }, clockProbeTimeoutMs);
+      measureSurfaceClockOffset(client, ac.signal).then(resolve, reject);
+    })
       .then((clockOffset) => {
+        settleClockProbe();
         // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
         // now-dead link landing after a reconnect) — mirrors `pollIdentity`'s epoch
         // guard. The `connected` guard covers a terminal `failed` (no redial, so no
@@ -1106,6 +1143,7 @@ export function makeSession<
         } as SessionState<Prov>);
       })
       .catch((err) => {
+        settleClockProbe();
         // Drop a rejection from a SUPERSEDED / destroyed dial — the same epoch guard the
         // success path carries. Without it, a slow probe from a now-dead link rejecting
         // AFTER a reconnect would log a spurious failure against the live dial's session.
@@ -1119,9 +1157,10 @@ export function makeSession<
         // No offset this cycle — the link STAYS `connected` (readiness is link-liveness,
         // not clock-measured) with an honest `clockOffset: null` (never fabricate a 0; the
         // reader renders "—"). But a probe failure is neither swallowed nor allowed to
-        // strand a null offset forever with no signal: it is (1) surfaced LOUDLY on the
-        // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, e.g. the padi
-        // binder's structured `log.warn`; stderr when no sink is wired), naming the host and
+        // strand a null offset forever with no signal: it is (1) surfaced on the
+        // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, which the padi
+        // binders route to their structured `log.info`; stderr when no sink is wired),
+        // naming the host and
         // the failure, and (2) RE-ATTEMPTED on `clockProbeRetryMs` cadence while the session
         // stays connected, until it lands or the link drops. It is deliberately NOT pushed
         // onto the state `log` overlay tail (`localProgress`): a clock probe legitimately
@@ -1208,6 +1247,7 @@ export function makeSession<
       destroyed = true;
       clearTimer();
       clearClockProbeTimer();
+      cancelInFlightClockProbe();
       stopLiveness();
       current?.teardown();
       current = null;
