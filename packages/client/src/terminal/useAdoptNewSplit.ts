@@ -38,7 +38,7 @@ import { sameParentSnapshot } from "./useActiveReconcile";
  *  so the hook is a pure function of (ports, list, phase): unit-testable with
  *  plain spies, wired once in useTerminals. */
 export interface SplitAdoptPorts {
-  /** Expand the parent's sub-panel (idempotent) — always run on a new split. */
+  /** Expand the parent's sub-panel (idempotent) — run on every adopted split. */
   expandPanel: (parentId: TerminalId) => void;
   /** The parent's current active sub-tab (`null` when none is selected; may be
    *  STALE — pointing at a departed sub — since the reconcile doesn't clear it). */
