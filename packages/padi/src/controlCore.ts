@@ -1,6 +1,6 @@
 /**
  * Serving the frozen control core (`padiControlSurface`) — hello · version ·
- * drain · clock.now. Defined as pure schema shapes in W1.C; this is where W2.2
+ * drain. Defined as pure schema shapes in W1.C; this is where W2.2
  * serves them for real, beside `padiSurface` on padi's socket.
  *
  * The control core is the version-agnostic side channel: a binder dials the
@@ -63,7 +63,6 @@ export function buildControlCoreDeps(deps: {
         drain: async () => {
           await deps.onDrain();
         },
-        clockNow: () => ({ epochMs: Date.now() }),
       },
     },
   };

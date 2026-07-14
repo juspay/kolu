@@ -64,14 +64,15 @@ const classify = (
   state: DownSessionState,
 ): TestFailure | null => ({ cause: "link-failed", reason: state.error });
 
-/** Build a `SessionState` for the given `phase`. The DOWN arm
+/** Build a non-`connected` `SessionState` for the given `phase`. The DOWN arm
  *  (`disconnected`/`failed`) now REQUIRES a real `error` — the type no longer
  *  admits "down with no reason" — so this throws rather than silently defaulting
  *  one in, mirroring the production invariant at the test-helper boundary. Typed
  *  over `SshProv` so the ssh arm's provisioning phases (`copying`/`building`) are
- *  spellable here. */
+ *  spellable here. `connected` is EXCLUDED — it now carries a `clockOffset`, so it
+ *  is minted by {@link connected} below. */
 const st = (
-  phase: SessionState<SshProv>["phase"],
+  phase: Exclude<SessionState<SshProv>["phase"], "connected">,
   error?: string,
 ): SessionState<SshProv> => {
   if (phase === "disconnected" || phase === "failed") {
@@ -83,18 +84,24 @@ const st = (
   return { phase, log: [], sinceMs: 0 };
 };
 
-type FakeSession = Session & { clockOffset(): number | null };
+/** A `connected` `SessionState` carrying the measured `clockOffset` — `null` until
+ *  the admit `system.clockNow` probe stamps it. The offset now rides the connected
+ *  arm itself (no separate `clockOffset()` session method, no injected `offsetOf`);
+ *  `projectState` reads it straight off the state. */
+const connected = (clockOffset: number | null): SessionState<SshProv> => ({
+  phase: "connected",
+  log: [],
+  sinceMs: 0,
+  clockOffset,
+});
+
+type FakeSession = Session;
 
 /** `provisions` defaults `true` — the ssh arm (`Prov = SshProv`, the provisioning
  *  transport). Pass `false` to model a non-provisioning (local/endpoint) session —
  *  the runtime twin of `Prov = never`. */
-function fakeSession(
-  initial: SessionState<SshProv>,
-  offset: number | null,
-  provisions = true,
-) {
+function fakeSession(initial: SessionState<SshProv>, provisions = true) {
   let state = initial;
-  let clockOffset = offset;
   const listeners = new Set<(s: SessionState<SshProv>) => void>();
   const session = {
     onState(cb: (s: SessionState<SshProv>) => void) {
@@ -102,7 +109,6 @@ function fakeSession(
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    clockOffset: () => clockOffset,
     destroy() {},
     provisions,
   } as unknown as FakeSession;
@@ -111,9 +117,6 @@ function fakeSession(
     setState(next: SessionState<SshProv>) {
       state = next;
       for (const l of [...listeners]) l(next);
-    },
-    setOffset(o: number | null) {
-      clockOffset = o;
     },
   };
 }
@@ -161,33 +164,32 @@ async function entriesGet(
 
 describe("projectState — SessionState → EntryConnectionState", () => {
   it("maps each connection state, gating `connected` on the measured offset", () => {
-    expect(projectState(st("copying"), 5)).toEqual({ kind: "copying" });
-    expect(projectState(st("connecting"), 5)).toEqual({ kind: "connecting" });
-    expect(projectState(st("connected"), 5)).toEqual({
+    expect(projectState(st("copying"))).toEqual({ kind: "copying" });
+    expect(projectState(st("connecting"))).toEqual({ kind: "connecting" });
+    expect(projectState(connected(5))).toEqual({
       kind: "connected",
       clockOffset: 5,
     });
     // connected but no offset yet → still settling (connected REQUIRES the offset).
-    expect(projectState(st("connected"), null)).toEqual({ kind: "connecting" });
+    expect(projectState(connected(null))).toEqual({ kind: "connecting" });
     // The RAW projection is domain-agnostic: the down arms carry NEITHER a domain
     // `failure` NOR a transport `reason` (lowy-1/lowy-2). `resolve` classifies the
     // down state into the schema-valid `failure` via `failureOf`, reading the
     // transport error off the `SessionState` there — it is not threaded onto the arm.
-    expect(projectState(st("disconnected", "boom"), 5)).toEqual({
+    expect(projectState(st("disconnected", "boom"))).toEqual({
       kind: "disconnected",
     });
-    expect(projectState(st("failed", "dead"), 5)).toEqual({ kind: "failed" });
-    expect(projectState(undefined, 5)).toEqual({ kind: "connecting" });
+    expect(projectState(st("failed", "dead"))).toEqual({ kind: "failed" });
+    expect(projectState(undefined)).toEqual({ kind: "connecting" });
   });
 });
 
 describe("serveHostMap belt — a non-provisioning session can never project 'copying' (juspay/kolu#1716)", () => {
   it("RUNTIME pin: a PROVISIONING session in 'copying' projects 'copying' fine (the remote path warms-via-copy)", async () => {
     const p = fakePool();
-    p.add("remote", fakeSession(st("copying"), 0, true)); // provisions: true — legitimate
+    p.add("remote", fakeSession(st("copying"), true)); // provisions: true — legitimate
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
-      offsetOf: (s) => s.clockOffset(),
       failureOf: classify,
     });
     const iter = await entriesGet(
@@ -206,10 +208,9 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     // Force a non-provisioning session into "copying" — the endpoint arm's type
     // (`makeSession<_, never>`) makes this UNCONSTRUCTIBLE, so this models a
     // regression / a wrong widening.
-    p.add("local", fakeSession(st("copying"), 0, false));
+    p.add("local", fakeSession(st("copying"), false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
-      offsetOf: (s) => s.clockOffset(),
       failureOf: classify,
     });
     const iter = await entriesGet(
@@ -224,11 +225,10 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const p = fakePool();
     // Two independent non-provisioning members, both illegally in "copying" — the
     // old `localKey?: K` option could only ever belt ONE of these.
-    p.add("local-a", fakeSession(st("copying"), 0, false));
-    p.add("local-b", fakeSession(st("copying"), 0, false));
+    p.add("local-a", fakeSession(st("copying"), false));
+    p.add("local-b", fakeSession(st("copying"), false));
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
-      offsetOf: (s) => s.clockOffset(),
       failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(served.router as never);
@@ -267,23 +267,25 @@ describe("serveHostMap — entries authority", () => {
     const served = serveHostMap(map, pf.pool, {
       // dummy entry link — this pin exercises `entries`, not member forwarding
       linkFor: () => ({ surface: {} }),
-      offsetOf: (sess) => sess.clockOffset(),
       failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router
       served.router as any,
     );
-    const s = fakeSession(st("connecting"), 42);
+    const s = fakeSession(st("connecting"));
     pf.add("a", s);
 
     const iter = await entriesGet(link, "a");
-    expect((await iter.next()).value).toEqual({ kind: "warming" }); // connecting → warming
+    // `toMatchObject` (not `toEqual`): a published `EntryStatus` also carries the
+    // surface-map membership rider's opaque `membershipId`, orthogonal to the status
+    // this test pins — assert the status shape, ignore that field.
+    expect((await iter.next()).value).toMatchObject({ kind: "warming" }); // connecting → warming
 
     // A PURE status transition (no add/remove) must reach the entries stream.
     const pending = iter.next();
-    s.setState(st("connected"));
-    expect((await pending).value).toEqual({
+    s.setState(connected(42));
+    expect((await pending).value).toMatchObject({
       kind: "connected",
       clockOffset: 42,
     });
@@ -294,7 +296,6 @@ describe("serveHostMap — entries authority", () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
       linkFor: () => ({ surface: {} }),
-      offsetOf: (s) => s.clockOffset(),
       failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(
@@ -306,7 +307,7 @@ describe("serveHostMap — entries authority", () => {
       Symbol.asyncIterator
     ]();
     expect((await keysIter.next()).value).toEqual([]); // no members yet
-    pf.add("a", fakeSession(st("connected"), 0));
+    pf.add("a", fakeSession(connected(0)));
     expect((await keysIter.next()).value).toEqual(["a"]);
     served.dispose();
   });
@@ -325,7 +326,6 @@ describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () 
     } as unknown as ReturnType<typeof fakePool>["pool"];
     const served = serveHostMap(map, ghostPool, {
       linkFor: () => ({ surface: {} }),
-      offsetOf: () => 0,
       failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(served.router as never);
@@ -354,11 +354,10 @@ describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () 
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
       linkFor: () => ({ surface: {} }),
-      offsetOf: (s) => s.clockOffset(),
       failureOf: () => null, // declines to classify — the producer defect
     });
     try {
-      pf.add("boom", fakeSession(st("failed", "gave up for good"), 0));
+      pf.add("boom", fakeSession(st("failed", "gave up for good")));
       served.dispose();
       // Drain the queued microtask rethrows (and any macrotask straggler) before asserting.
       await new Promise((r) => setTimeout(r, 0));

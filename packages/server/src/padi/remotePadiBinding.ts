@@ -39,7 +39,6 @@ import {
   type AdmitVerdict,
   type Connector,
   makeSession,
-  measureClockOffset,
   parseDrvBySystem,
   ResolveDrvError,
   resolveSystem,
@@ -329,10 +328,6 @@ export function ensureRemotePadiBinding(
   // survived. Reset only when a matched build is adopted.
   let drainedInstance: number | null = null;
   let drainAttempts = 0;
-  // The far-end clock offset (ms), re-measured at each admit's hello round-trip
-  // (RTT-halved) — folded into the keyed map's `EntryStatus.connected`. `null` until the
-  // first admit succeeds (the entry stays warming until then).
-  let clockOffset: number | null = null;
   // D2: the running/expected padiSurface CONTRACT version pair for a STANDING
   // `skew-refused` verdict — set alongside `convergence` in the "refuse" branch below,
   // cleared alongside it on "adopt". `entryFailedDetail()` (below) attaches it as the
@@ -466,13 +461,9 @@ export function ensureRemotePadiBinding(
       throw new Error("remote padi admit: no combined client stashed");
     }
     const hello = await c.surface.control.core.hello();
-    // Sample the far-end clock offset over the same frozen control core (offset-at-hello)
-    // — refreshed every admit, so a reconnect re-measures. A probe failure is logged
-    // then rethrown — the admit-catch in `attempt()` (session.ts) turns that into an
-    // honest `disconnected` + reconnect, never a silent eternal `connecting`.
-    clockOffset = await measureClockOffset(c, (line) =>
-      log.warn({ host, line }, "remote padi clock-offset probe"),
-    );
+    // The far-end clock offset is no longer hand-measured here: `makeSession` samples
+    // it off the framework-reserved `system.clockNow` when it adopts this connection
+    // and carries it on the session's own `connected` state (a keyed map reads it there).
     const running = hello.surfaceVersion;
     const instance = hello.startedAt ?? null;
     const runningBuild = hello.buildId ?? "";
@@ -726,11 +717,6 @@ export function ensureRemotePadiBinding(
       // link is now the honest failure; a reconnect re-decides ownership from scratch.
       crossSupervisorDetail = null;
       combined = null;
-      // The clock offset was measured against THIS (now-dead) episode's padi at admit; a
-      // reconnect re-measures it. Clearing it to null keeps the offset-at-hello contract
-      // honest — `projectState` reads `connecting` (offset === null) until admit re-stamps,
-      // so a reconnect race can't fold a PRIOR episode's offset into a fresh `connected`.
-      clockOffset = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
       // next handshake); only a previously-healthy bind clears to null.
@@ -738,13 +724,11 @@ export function ensureRemotePadiBinding(
         convergence = null;
       }
       combined = null;
-      clockOffset = null; // as above — re-measured at the next admit
     }
   });
 
   return asPadiSession(base, {
     convergence: () => convergence,
-    clockOffset: () => clockOffset,
     entryFailedDetail: computeEntryFailedDetail,
     /** DRAIN the bound padi (the "restart" verb): padi persists + exits, its kaval +
      *  PTYs survive, the front's relay ends → the session reconnects and re-adopts.

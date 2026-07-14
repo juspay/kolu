@@ -42,10 +42,14 @@ The `Surface<S>` value carries `surface.contract` (the typed oRPC router that
 replaces a hand-written `oc.router`), `surface.descriptors`, and `surface.spec`.
 Read member types back with `SurfaceTypes<typeof surface.spec>`.
 
-Every surface also carries two framework-reserved procedures,
-`surface.system.live` and `surface.system.identity`, both injected by
-`defineSurface` and auto-answered by the server — no app declares or implements
-them (see [Liveness](#liveness-and-health)).
+Every surface also carries three framework-reserved procedures,
+`surface.system.live`, `surface.system.identity`, and `surface.system.clockNow`,
+all injected by `defineSurface` and auto-answered by the server — no app declares
+or implements them (see [Liveness](#liveness-and-health)). `surface.system.clockNow`
+(`@kolu/surface/clock-now`) returns the server's own wall clock (`{ epochMs }`), so
+a consumer that binds a remote surface can measure the clock offset between the two
+hosts once at admit; `probeSurfaceClockNow(client)` performs the round-trip and
+`clockOffsetFrom(remoteEpochMs, localEpochMs)` computes `remoteEpochMs − localEpochMs`.
 
 To key several standalone surfaces under one namespace over one transport, use
 `composeSurfaceContracts({ <key>: surface })`.

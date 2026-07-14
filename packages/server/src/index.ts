@@ -490,11 +490,10 @@ const reServedPadiClient = surfaceClientRef(
 const padiMap = serveHostMap(padiHostMap, pool, {
   // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
-  // The clock offset is now INJECTED (no `ClockableSession` type bound): padi's
-  // arms measure it at the admit handshake, so hand `serveHostMap` the real
-  // measurer. `null` until the first hello stamps it (offset-at-hello is the
-  // contract) → the entry reads `connecting` until then.
-  offsetOf: (s) => s.clockOffset(),
+  // The clock offset is no longer injected: `makeSession` measures it off the
+  // framework-reserved `system.clockNow` at admit and carries it on each session's
+  // own `connected` state, which `serveHostMap` reads directly (offset-at-hello — the
+  // entry reads `connecting` until the first probe stamps it).
   // D1 + D2: classify a DOWN session into the schema-valid `PadiEntryFailure` —
   // padi's own knowledge (`session.entryFailedDetail()`, derived from
   // `convergence()`/the drv-resolution fault, both arm-local), never guessed

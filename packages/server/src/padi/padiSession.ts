@@ -139,9 +139,6 @@ export function asPadiSession<Prov extends string = SshProv>(
   members: {
     convergence: () => PadiConvergence | null;
     renew: () => Promise<void>;
-    /** The far-end clock offset measured at admit/connect (ms), or `null` before the
-     *  first successful handshake. Folded into a keyed map's `EntryStatus.connected`. */
-    clockOffset: () => number | null;
     /** See {@link PadiSession.entryFailedDetail}. */
     entryFailedDetail: () => PadiEntryFailedDetail | null;
   },
@@ -152,6 +149,5 @@ export function asPadiSession<Prov extends string = SshProv>(
     entryFailedDetail: members.entryFailedDetail,
     preservation: PADI_PRESERVATION,
     renew: members.renew,
-    clockOffset: members.clockOffset,
   };
 }

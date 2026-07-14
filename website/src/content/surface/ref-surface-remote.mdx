@@ -52,7 +52,6 @@ your sink until the link dies.
 | `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
 | `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns `{ surface, router, done }` |
 | `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next()` blocks until a fresh client (post-reconnect) — the raw-loop primitive under the pump |
-| `measureClockOffset(client, log?)` | `.` | sample the bound process's wall-clock offset (ms), RTT-halved; call once at hello. A probe failure is rethrown, never faked |
 
 `pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection? }`.
 `makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
@@ -71,7 +70,7 @@ end-to-end. Holding open a byte stream is a compile error.
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`retire`/`reconnect`/`recheckAll` + per-host socket eviction |
-| `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (folding `clockOffset()`) into an entry status |
+| `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (reading the `clockOffset` the session's own `connected` arm carries) into an entry status |
 
 `buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
 returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` share the
@@ -82,8 +81,12 @@ own) that does **not** persist, so a membership store re-seeds the host next boo
 each verb labels its own WebSocket close reason and log line (`host removed` vs
 `host retired`). A pool with no `persist` hook makes them behave the same on disk —
 neither writes — though the close reason and log still name the verb.
-`serveHostMap` takes `{ linkFor, offsetOf, failureOf }`; `linkFor(host, session)` is built
+`serveHostMap` takes `{ linkFor, failureOf }`; `linkFor(host, session)` is built
 once per host and evicted on **either** removal or retirement (both drop live membership).
+There is no `offsetOf` option: `makeSession` measures the far-end clock offset off the
+framework-reserved `system.clockNow` at admit and carries it on the session's own
+`connected` state, which `serveHostMap` reads directly (offset-at-hello — the entry reads
+`connecting` until the first probe stamps it).
 `failureOf(host, session, state)` is **required and total**: it returns `null` for a
 transient down state (keep the entry warming — a single-meaning null, a classification
 verdict, never a fabrication) and a schema-valid domain `Failure` for a standing one. A

@@ -80,7 +80,6 @@ import {
   ConnectError,
   type Connector,
   makeSession,
-  measureClockOffset,
   type Session,
 } from "@kolu/surface-remote";
 import { log } from "../log.ts";
@@ -495,10 +494,6 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // the build-mismatch drain fires at most once across this binder's life (#1670).
   const buildDrainFence = createBuildDrainFence();
   const binderBuildId = currentPadiBuildId();
-  // The local padi's clock offset (ms) — measured at each connect over the frozen
-  // control core (same machine → ~0, measured honestly, not assumed). Folded into the
-  // keyed map's `EntryStatus.connected`.
-  let clockOffset: number | null = null;
 
   // SELF-CONVERGE (pre-connect): `converge` probes the running padi's control-core
   // identity, decides per `PADI_CONVERGENCE_POLICY`, and ENACTS through the endpoint
@@ -555,13 +550,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       reportAdoptionRefusal(err, opts.onAdoptionRefused);
       throw err;
     }
-    // Sample the local clock offset over the frozen control core (offset-at-connect,
-    // re-measured each dial) before handing the loop the connection. A probe failure
-    // is logged then rethrown — `attempt()` (session.ts) turns that into an honest
-    // `disconnected` + reconnect, never a silent eternal `connecting`.
-    clockOffset = await measureClockOffset(conn.client, (line) =>
-      log.warn({ line }, "local padi clock-offset probe"),
-    );
+    // The far-end clock offset is no longer hand-measured here: `makeSession` samples
+    // it off the framework-reserved `system.clockNow` at admit and carries it on the
+    // session's own `connected` state (a keyed map reads it there).
     const closed = new Promise<ClosedInfo>((resolve) => {
       currentClosed = resolve;
     });
@@ -625,7 +616,6 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     // collapses a fence-spent adopt to a bare `{kind:"adopted"}`, so local adopt-stale
     // can't be surfaced without a kit change (L23 follow-up).
     convergence: () => null,
-    clockOffset: () => clockOffset,
     // Same parity: the local arm has no drv-resolution/skew channel (no ssh, no arch
     // probe, no baked drv map) and its OWN contract-skew refusal is FATAL at boot
     // (`PadiAdoptionRefusedError`, never a live down-session to publish a cause for)

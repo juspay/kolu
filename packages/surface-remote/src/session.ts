@@ -43,6 +43,7 @@ import {
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
 import { monotonicNow } from "@kolu/surface/time";
+import { clockOffsetFrom, probeSurfaceClockNow } from "@kolu/surface/clock-now";
 import {
   probeSurfaceIdentity,
   type ServedIdentity,
@@ -73,7 +74,12 @@ const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
  *
  *   - UP (`connecting`/`connected`/a connector-declared provisioning `Prov`, e.g.
  *     the ssh connector's `"probing"`/`"copying"`/`"building"`) — no `error`/`cause`
- *     FIELDS at all (there is nothing to report).
+ *     FIELDS at all (there is nothing to report). The `connected` arm ALONE also
+ *     carries `clockOffset` — the far-end host's wall-clock offset (ms) vs THIS
+ *     process, measured off the framework-reserved `system.clockNow` at the admit
+ *     handshake (see {@link clockOffsetFrom}) — `null` until that first probe stamps
+ *     it (offset-at-hello is the contract; a keyed `SurfaceMap` reads a null offset
+ *     as still `connecting`, never a `0` placeholder).
  *   - `disconnected` — `error` + `cause` are REQUIRED, never nullable: a down link
  *     ALWAYS has a real reason, so a consumer needs no `?? "disconnected"`
  *     invented-text fallback. `cause` is `"network"` (unreachable; retries forever)
@@ -105,7 +111,8 @@ export type SessionState<Prov extends string = never> = {
    *  source both per-episode elapsed AND per-episode log scoping derive from. */
   sinceMs: number;
 } & (
-  | { phase: "connecting" | "connected" | Prov }
+  | { phase: "connecting" | Prov }
+  | { phase: "connected"; clockOffset: number | null }
   | { phase: "disconnected"; error: string; cause: "network" | "remote" }
   | { phase: "failed"; error: string; cause: "remote" }
 );
@@ -586,6 +593,11 @@ export function makeSession<
       phase,
       log: fresh ? [] : prev.log,
       sinceMs: since(),
+      // The `connected` arm ALONE carries `clockOffset`, born `null` here (offset-at-
+      // hello: the frame is honest that it hasn't measured yet) and re-stamped by
+      // `pollClockNow` once the reserved `system.clockNow` probe resolves. Other up
+      // arms have no such field.
+      ...(phase === "connected" ? { clockOffset: null } : {}),
     } as SessionState<Prov>);
   };
 
@@ -1008,6 +1020,36 @@ export function makeSession<
       });
   };
 
+  const pollClockNow = (client: Client): void => {
+    // Measure the far-end clock offset off the framework-reserved `system.clockNow`
+    // (the clock twin of the `system.identity` poll above) and stamp it onto the LIVE
+    // `connected` frame. Fired once per admit — offset-at-hello IS the contract, no
+    // continuous drift correction. This replaces the app-side hand-measurement the padi
+    // binders did (`measureClockOffset` over the padi-specific `control.core.clockNow`):
+    // the offset now rides the session's OWN connected state, so a keyed `SurfaceMap`
+    // reads it there with no injected `offsetOf`.
+    const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
+    probeSurfaceClockNow(client)
+      .then(({ epochMs }) => {
+        // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
+        // now-dead link landing after a reconnect) — mirrors `pollIdentity`'s epoch
+        // guard. The `connected` guard covers a terminal `failed` (no redial, so no
+        // epoch bump): a non-connected frame has no `clockOffset` to write.
+        if (destroyed || epoch !== dialEpoch) return;
+        const cur = stateCell.current();
+        if (cur.phase !== "connected") return;
+        stateCell.set({
+          phase: "connected",
+          clockOffset: clockOffsetFrom(epochMs, Date.now()),
+          log: cur.log,
+          sinceMs: since(),
+        } as SessionState<Prov>);
+      })
+      .catch(() => {
+        /* no offset this cycle — the frame stays `clockOffset: null`; never fabricate a 0 */
+      });
+  };
+
   /** The `connecting` → `connected` transition body — factored out so BOTH the
    *  consumer-facing {@link markConnected} (which GUARDS on the current state) and
    *  the adopt path (which has ALREADY proven the link live via the admit hello)
@@ -1026,11 +1068,17 @@ export function makeSession<
     const p = clientPromise;
     if (p !== null) {
       // Clear a stale identity so a respawned server's fresh one lands (never a
-      // stale mix from the old process); re-poll off the current client.
+      // stale mix from the old process); re-poll off the current client. The clock
+      // offset needs no separate reset — `setUp("connected")` just stamped the frame
+      // `clockOffset: null`, and `pollClockNow` re-measures it off the same client.
       cachedIdentity = null;
-      // `p` already resolved; `pollIdentity` owns its own probe-failure catch, so
-      // this catch only absorbs a `p` rejection from a torn-down-mid-microtask link.
-      p.then((client) => pollIdentity(client)).catch(() => {});
+      // `p` already resolved; `pollIdentity`/`pollClockNow` own their own probe-failure
+      // catches, so this catch only absorbs a `p` rejection from a torn-down-mid-
+      // microtask link.
+      p.then((client) => {
+        pollIdentity(client);
+        pollClockNow(client);
+      }).catch(() => {});
     }
   };
 

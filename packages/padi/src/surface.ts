@@ -1044,13 +1044,7 @@ export const PadiControlVersionSchema = z.object({
 });
 export type PadiControlVersion = z.infer<typeof PadiControlVersionSchema>;
 
-/** `clock.now` — padi's current clock, RTT-halved by the binder to measure a
- *  once-per-bind offset (owner-clock display; deliberately NOT a served ticking
- *  cell). */
-export const PadiClockNowSchema = z.object({ epochMs: z.number() });
-export type PadiClockNow = z.infer<typeof PadiClockNowSchema>;
-
-/** The frozen control-core SURFACE — hello · version · drain · clock.now.
+/** The frozen control-core SURFACE — hello · version · drain.
  *  Defined as pure schema shapes in W1.C; W2.2 serves them for real, BESIDE
  *  `padiSurface` (as the sibling surface key `control`), over padi's socket. A
  *  binder reaches it even when `padiSurface` is version-skewed — the schemas here
@@ -1080,9 +1074,6 @@ export const padiControlSurface = defineSurface({
       /** Persist state + exit; the PTYs survive in kaval, and the caller observes
        *  the socket close. Takes no input, returns nothing. */
       drain: {},
-      /** padi's current clock — the binder RTT-halves it once per bind to age
-       *  memory against the host's clock (deliberately NOT a ticking cell). */
-      clockNow: { output: PadiClockNowSchema },
     },
   },
 });

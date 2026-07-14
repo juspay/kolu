@@ -35,13 +35,13 @@ import type { RemotePool } from "./hostFanout";
 import type { DownSessionState, Session, SessionState } from "./session";
 
 /** The session role this adapter needs — just {@link Session}. The clock offset is
- *  NO LONGER a type BOUND on the session (`& { clockOffset() }`): that bound locked
- *  out any consumer whose session lacks the method, forcing drishti to hand-clone the
- *  whole registry (~90 lines) + a second `projectState`. It is now an INJECTED
- *  capability — `ServeHostMapOptions.offsetOf` — so a session that measures an offset
- *  passes its measurer and one that doesn't passes `() => 0`, and both reuse this one
- *  adapter. `Prov = string` (the phase-vocabulary TOP) so every session — a `never`
- *  endpoint, an ssh arm, any connector — is assignable by `Prov`-covariance. */
+ *  NOT a type BOUND on the session, NOR an injected `offsetOf` option: it now rides
+ *  the session's OWN `connected` {@link SessionState} arm (`makeSession` measures it
+ *  off the framework-reserved `system.clockNow` at admit — see
+ *  `@kolu/surface/clock-now`), so this adapter reads it straight off the cached state
+ *  with nothing to inject and no consumer left to hand-clone the registry.
+ *  `Prov = string` (the phase-vocabulary TOP) so every session — a `never` endpoint,
+ *  an ssh arm, any connector — is assignable by `Prov`-covariance. */
 type MappableSession = Session<SurfaceClientLike, string>;
 
 /** Thrown (PR4) when `resolve` is asked for a member that has NO session — `has(k)`
@@ -96,12 +96,13 @@ type RawConnectionState =
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
- *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset: until the admit
- *  handshake has stamped one, the entry honestly reads as still `connecting`
- *  (offset-at-hello is the contract — a `0` placeholder would be a lie). */
+ *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset, which rides the
+ *  session's OWN `connected` arm (`makeSession` stamps it off the reserved
+ *  `system.clockNow` at admit): until that probe has landed, the arm's `clockOffset`
+ *  is `null` and the entry honestly reads as still `connecting` (offset-at-hello is
+ *  the contract — a `0` placeholder would be a lie). */
 export function projectState<Prov extends string>(
   s: SessionState<Prov> | undefined,
-  clockOffset: number | null,
 ): RawConnectionState {
   if (s === undefined) return { kind: "connecting" };
   if (s.phase === "disconnected" || s.phase === "failed") {
@@ -112,10 +113,15 @@ export function projectState<Prov extends string>(
     // `SessionState` itself there.
     return s.phase === "failed" ? { kind: "failed" } : { kind: "disconnected" };
   }
-  if (s.phase === "connected")
+  if (s.phase === "connected") {
+    // A generic `Prov` defeats TS's discriminated-union narrowing (`Prov` could be
+    // `"connected"`), so read `clockOffset` off the connected shape explicitly.
+    const clockOffset = (s as Extract<SessionState, { phase: "connected" }>)
+      .clockOffset;
     return clockOffset === null
       ? { kind: "connecting" }
       : { kind: "connected", clockOffset };
+  }
   if (s.phase === "connecting") return { kind: "connecting" };
   // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
   // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
@@ -130,17 +136,6 @@ export interface ServeHostMapOptions<K, S, Failure = unknown> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
-  /** The session's measured clock offset (remote-host ↔ serving-process, stamped at
-   *  the admit handshake), folded into the `connected` `EntryStatus`. INJECTED — not
-   *  a type bound on the session — so a consumer whose session measures one passes
-   *  its measurer (`(s) => s.clockOffset()`) and one that doesn't passes `() => 0`;
-   *  either way this ONE adapter serves both (the bound it replaces is exactly why
-   *  drishti used to hand-clone the registry). REQUIRED, no silent default: a consumer
-   *  must DECLARE its offset story — a forgotten `offsetOf` is a compile error, never a
-   *  silent forever-`connecting`. `null` means "not yet stamped" → the entry reads
-   *  `connecting` until it is (offset-at-hello is the contract; a `0` placeholder for a
-   *  session that genuinely can't measure is that session's OWN honest declaration). */
-  offsetOf: (session: S) => number | null;
   /** Classify a DOWN session into the map's schema-valid domain `failure` — this
    *  adapter is transport-only (it projects a bare {@link DownSessionState}, which
    *  carries only the transport-axis `cause`, "network" vs "remote"); a domain
@@ -304,9 +299,8 @@ export function serveHostMap<
         // unclassified producer appeared, a defect to classify then.
         throw new UnclassifiedHostSessionError(enc);
       }
-      const offset = opts.offsetOf(session);
       const raw = latestState.get(enc);
-      const projected = projectState(raw, offset);
+      const projected = projectState(raw);
       // Classify a DOWN state into the map's schema-valid domain `failure` via the
       // REQUIRED, TOTAL `failureOf` (PR4). `raw` is always defined and genuinely
       // down here (the only way `projectState` returns "disconnected"/"failed"), so

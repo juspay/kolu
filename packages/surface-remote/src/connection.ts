@@ -57,8 +57,10 @@ const logSchema = z.array(LogEntrySchema).readonly();
  *  than a runtime zod throw. Discriminated on `phase`:
  *
  *   - UP (the ssh connector's `probing`/`copying`/`building` provisioning phases
- *     plus `connecting`/`connected`): carries only the `log` tail + `sinceMs`, no
- *     error FIELDS.
+ *     plus `connecting`/`connected`): carries the `log` tail + `sinceMs`, no error
+ *     FIELDS. The `connected` arm ALSO carries `clockOffset` (the far-end host's
+ *     wall-clock offset measured at admit off the reserved `system.clockNow`),
+ *     `null` until that first probe stamps it.
  *   - `disconnected`: `error` + `cause` (`network` unreachable / `remote` refused).
  *   - `failed`: terminal, `cause` is the `"remote"` literal — a `network` fault
  *     never gives up, so `failed`+`network` is unrepresentable (mirroring the pin).
@@ -74,7 +76,12 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
   upArm("copying"),
   upArm("building"),
   upArm("connecting"),
-  upArm("connected"),
+  z.object({
+    phase: z.literal("connected"),
+    clockOffset: z.number().nullable(),
+    log: logSchema,
+    sinceMs: z.number(),
+  }),
   z.object({
     phase: z.literal("disconnected"),
     error: z.string(),

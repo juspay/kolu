@@ -281,11 +281,11 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiControlSurface.spec.cells?.version.default).toEqual({
       controlCoreVersion: CONTROL_CORE_VERSION,
     });
-    // The four control verbs live under the single `control` namespace — served
+    // The three control verbs live under the single `control` namespace — served
     // for real in W2.2 (W1.C pinned their existence as schema shapes).
     expect(
       Object.keys(padiControlSurface.spec.procedures?.core ?? {}).sort(),
-    ).toEqual(["clockNow", "controlVersion", "drain", "hello"]);
+    ).toEqual(["controlVersion", "drain", "hello"]);
     // The daemon serves BOTH surfaces on one socket, keyed `padi` + `control`, so
     // a binder reaches the frozen core even when padiSurface is version-skewed.
     expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);
