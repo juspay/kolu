@@ -79,6 +79,13 @@ export function evictTerminal(
     const subs = ports.getSubTerminalIds(parentId).filter((x) => x !== id);
     if (subs.length === 0) {
       ports.subPanel.collapse(parentId);
+      // Clear the active tab too: the parent's last split is gone, so `activeSubTab`
+      // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
+      // null or a LIVE sub of this parent" global lets consumers trust a plain
+      // null-check for "no active split" instead of each re-deriving liveness —
+      // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
+      // clamp (useSessionRestore) exist only to compensate for this dangling.
+      ports.subPanel.setActiveSubTab(parentId, null);
     } else {
       if (ports.subPanel.activeSubTab(parentId) === id) {
         ports.subPanel.setActiveSubTab(parentId, subs[0] ?? null);

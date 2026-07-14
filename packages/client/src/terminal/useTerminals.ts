@@ -93,11 +93,13 @@ export function useTerminals() {
   // keyed to the server list so kills/exits dispose it. See useTerminalExits.
   // `allTerminalIds` is the ONE memoized projection of the list ids — also fed to
   // the reconcile + adopt hooks below (not re-mapped per hook). `parentOf` is the
-  // ONE live parentId reader both hooks share.
+  // ONE live parentId reader both hooks share, and `activeHostKey` the ONE
+  // host-scope key both host-scope their snapshot on.
   const allTerminalIds = createMemo(
     () => store.listSub()?.map((t) => t.id) ?? [],
   );
   const parentOf = (id: TerminalId) => store.getMetadata(id)?.parentId ?? null;
+  const activeHostKey = () => encodeHostKey(activeHost());
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
   // The FULL terminal-removal cleanup, driven off the LIST (not the raceable
@@ -112,7 +114,7 @@ export function useTerminals() {
     parentOf,
     // Host-scope the reconcile: a switch replaces the whole list, and the baseline
     // must reset rather than evict the departed host's tiles (no wrong-host writes).
-    activeHostKey: () => encodeHostKey(activeHost()),
+    activeHostKey,
     evictDeparted: crud.evictDeparted,
     // Only react to a departure when the daemon is genuinely connected — during a
     // supervised recycle/restart the drain empties the list and restore undoes it,
@@ -126,20 +128,22 @@ export function useTerminals() {
   // no actor has to reach into the browser's sub-panel state. Host-scoped and
   // gated on the restore seed so it never fights hydration. See useAdoptNewSplit.
   //
-  // Installed BEFORE useSessionRestore — the ordering is load-bearing. On the
-  // flush where the last terminal's metadata arrives, hydration flips the restore
-  // latch to `seeded` (a plain non-reactive write) and seeds each panel in the
-  // SAME batch. SolidJS runs same-batch effects in creation order, so an adopt
-  // effect created AFTER hydration would sample the just-flipped `seeded` for a
-  // sub that first entered the snapshot on that very flush and false-adopt it
-  // (re-opening a restored-collapsed panel and persisting the wrong state).
-  // Created FIRST, adopt runs before markSeeded, samples the pre-flip `decided`,
-  // records the sub into its baseline, and skips — hydration then owns the seed.
+  // Installed BEFORE useSessionRestore so adopt observes the pre-seed phase on the
+  // seed-boundary flush. On the flush where the last terminal's metadata arrives,
+  // hydration flips the restore latch to `seeded` (a plain non-reactive write) and
+  // seeds each panel in the SAME batch; an adopt run that sampled the just-flipped
+  // `seeded` for a sub first entering the snapshot on that flush would false-adopt
+  // it (re-opening a restored-collapsed panel, persisting the wrong state). Adopt
+  // runs first for TWO independent reasons: it is created first (creation order),
+  // AND its effect is memo-backed (`on(snapshot)`) while hydration is a plain
+  // effect — SolidJS schedules a memo-backed effect ahead of a plain one. So it
+  // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
+  // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
   const subPanel = useSubPanel();
   useAdoptNewSplit({
     rawList: allTerminalIds,
     parentOf,
-    activeHostKey: () => encodeHostKey(activeHost()),
+    activeHostKey,
     restorePhase: () => activeScope()?.restore.phase ?? "pending",
     ports: {
       expandPanel: subPanel.expandPanel,

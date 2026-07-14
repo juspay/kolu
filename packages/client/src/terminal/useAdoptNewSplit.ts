@@ -11,13 +11,11 @@
  *  the list, so a split from ANY actor behaves like a manual one.
  *
  *  Expand-but-don't-steal: a new split ALWAYS expands the parent's panel (like a
- *  manual create), but becomes the ACTIVE tab only when the parent has no LIVE
- *  active split — an arrival never yanks the view off a split you're already
- *  working in. "Live" is load-bearing: `activeSubTab` is NOT cleared when a
- *  parent's last split departs (the reconcile only collapses the panel), so a
- *  stale tab can dangle at a gone sub; a non-null-only guard would then open the
- *  arrival BEHIND that dead tab and never paint it — the very bug this hook
- *  fixes. So the guard tests membership in the parent's current live subs.
+ *  manual create), but becomes the ACTIVE tab only when the parent has no active
+ *  split — an arrival never yanks the view off a split you're already working in.
+ *  A plain `activeSubTab === null` check suffices because `evictTerminal` clears
+ *  the active tab when a parent's last split departs (the reconcile), so the tab
+ *  is null-or-live by invariant — never dangling at a gone sub.
  *
  *  Adopt only in a LIVE, seeded session. During initial load / restore /
  *  supervised recycle the host is not `seeded` and `useSessionRestore` owns the
@@ -40,11 +38,11 @@ import { createHostScopedParentSnapshot } from "./parentSnapshot";
 export interface SplitAdoptPorts {
   /** Expand the parent's sub-panel (idempotent) — run on every adopted split. */
   expandPanel: (parentId: TerminalId) => void;
-  /** The parent's current active sub-tab (`null` when none is selected; may be
-   *  STALE — pointing at a departed sub — since the reconcile doesn't clear it). */
+  /** The parent's current active sub-tab (`null` when none is selected). Null-or-
+   *  live by invariant — the reconcile clears it when the last split departs. */
   activeSubTab: (parentId: TerminalId) => TerminalId | null;
-  /** Select a sub-tab — run only when the parent has no LIVE active split (don't
-   *  steal from a split you're in, but a stale tab is not an active split). */
+  /** Select a sub-tab — run only when the parent has no active split (don't steal
+   *  from a split you're already working in). */
   setActiveSubTab: (parentId: TerminalId, subId: TerminalId) => void;
 }
 
@@ -97,14 +95,13 @@ export function useAdoptNewSplit(deps: {
       for (const [subId, parentId] of curr.map) {
         if (prev.map.has(subId)) continue;
         deps.ports.expandPanel(parentId);
-        // Don't-steal, but only from a LIVE split: adopt through a `null` OR a
-        // STALE active tab (one no longer among this parent's live subs — left
-        // dangling when the parent's last split was closed). `curr.map` is the
-        // live sub→parent set, so membership is the liveness test.
-        const active = deps.ports.activeSubTab(parentId);
-        const activeIsLiveSub =
-          active !== null && curr.map.get(active) === parentId;
-        if (!activeIsLiveSub) deps.ports.setActiveSubTab(parentId, subId);
+        // Don't-steal: select the arrival only when no split is currently active.
+        // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when
+        // a parent's last split departs), so a plain null-check IS the liveness
+        // test — an active tab is always a real split you're working in.
+        if (deps.ports.activeSubTab(parentId) === null) {
+          deps.ports.setActiveSubTab(parentId, subId);
+        }
       }
     }),
   );
