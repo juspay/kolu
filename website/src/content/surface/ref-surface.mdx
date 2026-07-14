@@ -90,6 +90,7 @@ Stores and channels:
 | Adapter                                | Import                 | Purpose                                |
 | -------------------------------------- | ---------------------- | -------------------------------------- |
 | `inMemoryStore<T>(initial)`            | `@kolu/surface/server` | in-memory cell store                   |
+| `inMemoryCollection<K, V>()`           | `@kolu/surface/server` | in-memory additive collection deps (`{ readAll, upsert, remove }`) |
 | `confStore<T>(conf, key)`              | `@kolu/surface/server` | conf-backed persistent cell            |
 | `inMemoryChannel<T>()`                 | `@kolu/surface/server` | single-process broadcast               |
 | `inMemoryChannelByName()`              | `@kolu/surface/server` | the `channel` factory form             |
@@ -109,6 +110,28 @@ it minted, never the shared publisher.
 keyed the same as the map, and likewise returns a supervised `SurfacesRuntime`.
 Its shared-publisher twin is **`implementSurfacesOnPublisher(surfaces, base, deps)`**,
 where `base` carries the `channel` factory.
+
+### Composing a local runtime onto a re-served one
+
+**`extendSurface(base, ext)`** composes a parent-**local** runtime (`ext`) onto a
+**re-served** base (a `reServeSurface` mirror of a remote agent) into one served
+surface — parent-owned additions stay causally separate from mirroring
+(post-commit observation, no second mirror). Both arguments are the structural
+**`ServedSurface<S>`** — `{ surface, router, done, close }` (a `reServeSurface`
+result satisfies it directly; a local `implementSurface` runtime does once its
+`surface` descriptor is carried alongside). The result serves **every** base +
+extension member **flat** under one `surface` namespace, at byte-identical paths
+(both already-built router fragments are re-adapted through the combined
+contract's matcher, so the routes survive the wire matcher, not just
+`directLink`). A member-name collision between base and extension fails loud.
+
+Supervision routes through **`superviseTerminalSource(runtime, terminal)`** — the
+combinator that pairs a passive owned `runtime` with a **terminal** driver (a
+re-serve pump that ends on its own when the remote session is destroyed, the
+composite's resolving edge). `close` aborts the terminal first (its detached work
+settles on its signal), awaits its settle, then releases the runtime. It is the
+framework home for the terminal-source teardown `reServeSurface` used to
+hand-roll.
 
 ## The reactor (reactive bridge, phase 0)
 
