@@ -15,7 +15,6 @@
 
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import type { z, ZodType } from "zod";
 import {
   type Accessor,
   createMemo,
@@ -25,11 +24,13 @@ import {
   onCleanup,
 } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
+import type { ZodType, z } from "zod";
 import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type {
   CellHasPatchVerb,
   CellIsMutable,
   CellSpec,
+  CollectionDeltasMsg,
   CollectionSpec,
   CollectionVerbsOf,
   EventSpec,
@@ -239,6 +240,33 @@ export interface UnenrolledKeys<K> {
   readonly unenrolledKeys: StreamingProcedure<undefined, K[]>;
 }
 
+/** The raw batched `deltas`-stream ref for a DELIBERATELY UN-ENROLLED reach —
+ *  `unenrolledStreamCall(client.collections.<key>.unenrolledDeltas, undefined,
+ *  { signal })`. The `deltas` twin of {@link UnenrolledKeys} (SR5), added for the
+ *  IDENTICAL reason SR2 added `unenrolledKeys`: the deliberately no-health carve-out
+ *  ([#1591](https://github.com/juspay/kolu/issues/1591)) must be expressible in the
+ *  batched deltas protocol too.
+ *
+ *  `.use()` is the DEFAULT: for a `deltas`-declaring collection it opens the ONE
+ *  coalesced snapshot-then-delta stream and enrols it into `client.health()`. Reach
+ *  for `.unenrolledDeltas` ONLY when the whole set must be watched OUTSIDE the health
+ *  fact — a per-host view whose re-subscribe must not flicker the gate, whose dead
+ *  feed surfaces via the subscription's OWN reactive `error()`. The raw
+ *  `CollectionDeltasMsg<K, T>` frames are then folded by the consumer (same protocol
+ *  the framework's `foldCollectionDeltas` uses). Typed from the declaration — no cast.
+ *
+ *  STRUCTURALLY PRESENT only when the collection actually declares the `deltas` verb
+ *  (see {@link BoundCollectionsFor}): a collection whose `verbs` omit `deltas` has NO
+ *  deltas stream on the wire, so exposing `unenrolledDeltas` would type a callable
+ *  that resolves to `undefined` at runtime — exactly as {@link UnenrolledKeys} gates
+ *  on the `keys` verb. */
+export interface UnenrolledDeltas<K, T> {
+  readonly unenrolledDeltas: StreamingProcedure<
+    undefined,
+    CollectionDeltasMsg<K, T>
+  >;
+}
+
 /** A READ-ONLY bound collection — the mutation verbs (`upsert`/`delete`) are
  *  STRUCTURALLY ABSENT, both at the top level and on the `.use()` result. A consumer of
  *  a server-authored, one-writer collection (a surface-map `entries` membership
@@ -383,12 +411,20 @@ type BoundCollectionsFor<S extends SurfaceSpec> = {
   [K in keyof S["collections"] & string]: NonNullable<
     S["collections"]
   >[K] extends CollectionSpec<infer K2, infer T>
-    ? // `unenrolledKeys` is added ONLY when `keys` is a declared verb — the raw ref
-      // has nothing to point at otherwise (the contract router binds no keys stream),
-      // so a keys-less collection must not type an `undefined`-resolving callable.
-      "keys" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
-      ? BoundCollection<K2, T> & UnenrolledKeys<K2>
-      : BoundCollection<K2, T>
+    ? // `unenrolledKeys` / `unenrolledDeltas` are each added ONLY when their verb is
+      // declared — the raw ref has nothing to point at otherwise (the contract router
+      // binds no such stream), so a collection missing the verb must not type an
+      // `undefined`-resolving callable. The two gate independently and compose (a
+      // collection may declare both, one, or neither).
+      BoundCollection<K2, T> &
+        ("keys" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
+          ? UnenrolledKeys<K2>
+          : // biome-ignore lint/complexity/noBannedTypes: the empty intersection for an absent gate.
+            {}) &
+        ("deltas" extends CollectionVerbsOf<NonNullable<S["collections"]>[K]>
+          ? UnenrolledDeltas<K2, T>
+          : // biome-ignore lint/complexity/noBannedTypes: the empty intersection for an absent gate.
+            {})
     : never;
 };
 
@@ -855,7 +891,9 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // includes `UnenrolledKeys`, and the final `as BoundCollectionsFor<S>` gates it.
   const collections: Record<
     string,
-    BoundCollection<unknown, unknown> & UnenrolledKeys<unknown>
+    BoundCollection<unknown, unknown> &
+      UnenrolledKeys<unknown> &
+      UnenrolledDeltas<unknown, unknown>
   > = {};
   for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
@@ -1018,6 +1056,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       get unenrolledKeys() {
         return ns.keys;
       },
+      // The raw batched deltas-stream ref for the deliberately un-enrolled reach (see
+      // BoundCollection docs) — the SAME `ns.deltas` the enrolled `.use()` opens for a
+      // deltas-declaring collection, exposed for the #1591 carve-out to pass to
+      // `unenrolledStreamCall`. A LAZY getter, like `unenrolledKeys` — so a partial
+      // mock link (no `ns`) is tolerated until the ref is reached, never at build.
+      get unenrolledDeltas() {
+        return ns.deltas;
+      },
     };
   }
 
@@ -1144,7 +1190,11 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   return {
     rpc: link,
     cells: cells as BoundCellsFor<S>,
-    collections: collections as BoundCollectionsFor<S>,
+    // The runtime object ALWAYS carries `unenrolledKeys` + `unenrolledDeltas`; the
+    // public `BoundCollectionsFor` mapped type narrows each OUT for a collection that
+    // doesn't declare its verb, so the concrete `& UnenrolledKeys & UnenrolledDeltas`
+    // shape needs the `unknown` bridge (the gate is per-verb, not always-both).
+    collections: collections as unknown as BoundCollectionsFor<S>,
     streams: streams as BoundStreamsFor<S>,
     events: events as BoundEventsFor<S>,
     procedures: procedures as BoundProceduresFor<S>,

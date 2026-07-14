@@ -68,10 +68,10 @@ export {
 export {
   type DeltaMembers,
   type ForwardableStream,
-  NoLiveUpstreamError,
   type RelayHoldOpenOptions,
   type RelayPolicy,
   type RelayStreamOptions,
+  RelayTransportLostError,
   relayFailThroughStream,
   relayHoldOpenStream,
   type ValueMembers,

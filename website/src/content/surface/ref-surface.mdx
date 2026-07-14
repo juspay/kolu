@@ -90,6 +90,7 @@ Stores and channels:
 | Adapter                                | Import                 | Purpose                                |
 | -------------------------------------- | ---------------------- | -------------------------------------- |
 | `inMemoryStore<T>(initial)`            | `@kolu/surface/server` | in-memory cell store                   |
+| `inMemoryCollection<K, V>()`           | `@kolu/surface/server` | in-memory additive collection deps (`{ readAll, upsert, remove }`) |
 | `confStore<T>(conf, key)`              | `@kolu/surface/server` | conf-backed persistent cell            |
 | `inMemoryChannel<T>()`                 | `@kolu/surface/server` | single-process broadcast               |
 | `inMemoryChannelByName()`              | `@kolu/surface/server` | the `channel` factory form             |
@@ -109,6 +110,37 @@ it minted, never the shared publisher.
 keyed the same as the map, and likewise returns a supervised `SurfacesRuntime`.
 Its shared-publisher twin is **`implementSurfacesOnPublisher(surfaces, base, deps)`**,
 where `base` carries the `channel` factory.
+
+### Composing a local runtime onto a re-served one
+
+**`extendSurface(base, ext)`** composes a parent-**local** runtime (`ext`) onto a
+**re-served** base (a `reServeSurface` mirror of a remote agent) into one served
+surface — parent-owned additions stay causally separate from mirroring
+(post-commit observation, no second mirror). Both arguments are the structural
+**`ServedSurface<S>`** — `{ surface, router, done, close }` (a `reServeSurface`
+result satisfies it directly; a local `implementSurface` runtime does once its
+`surface` descriptor is carried alongside). It returns
+**`ExtendedSurface<Base, Ext>`** — the same supervision contract over the merged
+surface `Surface<ComposedSurfaceSpec<Base, Ext>>` (a flat per-kind merge of the two
+specs). The result serves **every** base + extension member **flat** under one
+`surface` namespace, at byte-identical paths (both already-built router fragments
+are re-adapted through the combined contract's matcher, so the routes survive the
+wire matcher, not just `directLink`). A member-name collision between base and
+extension **fails loud** — the check is on the flat, per-name wire namespace across
+**all** kinds, so a base cell and an ext procedure of the same name collide too.
+
+Supervision routes through **`superviseTerminalSource`**: the base is the
+**terminal** driver (its mirror pump ends when the remote session is destroyed, the
+composite's resolving edge), the local `ext` is **passive** (only its fault settles
+`done` before close). `close` tears the base down **fully first** — `base.close()`
+awaited to completion (it aborts the base's pump *and* releases the base runtime's
+own sources) — then releases the local runtime. The combinator
+**`superviseTerminalSource(runtime, terminal)`** pairs a passive owned `runtime`
+with a **terminal** driver whose `close: () => Promise<void>` is the atomic teardown
+verb (tear down *and* settle); it is the framework home for the terminal-source
+teardown `reServeSurface` used to hand-roll, and the seam both `reServeSurface` (a
+sync-abort pump wrapped as one `close`) and `extendSurface` (a full re-served base
+runtime) route through.
 
 ## The reactor (reactive bridge)
 
@@ -232,6 +264,25 @@ per transport; see [How to choose a link](/surface/choose-a-link).
 Matching serve-side entry points: `serveOverStdio`, `serveOverUnixSocket`, and
 oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
 
+### The retry contract (`@kolu/surface/client`)
+
+Every framework-driven stream carries `STREAM_RETRY`, which retries transport
+errors forever (each reconnect re-invokes the source, whose first frame is a fresh
+snapshot). The single fence `shouldNotRetryORPCError` decides: retry anything that
+is **not** an `ORPCError`, plus the one **retryable** `ORPCError` code
+`SURFACE_RELAY_TRANSPORT_LOST` (a re-serve relay's middle-hop loss — see
+[`@kolu/surface-remote`](/surface/ref-surface-remote)); every other `ORPCError` is an
+application error that must **not** retry.
+
+| Export | Purpose |
+| --- | --- |
+| `STREAM_RETRY` | the per-call retry context threaded through every framework stream |
+| `shouldNotRetryORPCError` | the shared retry fence (retry non-`ORPCError` + the one retryable code) |
+| `SURFACE_RELAY_TRANSPORT_LOST` | the ONE retryable `ORPCError` code (a re-serve relay's transport loss) |
+| `SURFACE_STDIO_TRANSPORT_CLOSED` / `SURFACE_TRANSPORT_RETIRED` | the permanently-dead transport codes |
+| `deadTransportError(code, message)` | mint a non-retriable dead-transport `ORPCError` |
+| `isDeadTransportError(err)` | recognize those dead-transport codes — the recognition twin of `deadTransportError` |
+
 ## Liveness and health
 
 Liveness is on by construction. `surface.system.live` (`@kolu/surface/liveness`)
@@ -257,5 +308,5 @@ UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
 - **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry plugin re-invokes the source on each reconnect and a delta-first frame would silently lose state.
 - **`patch` is a cross-runtime contract.** A cell's `patch(current, p)` runs on both the server and the client. Treat any change to it as a wire-format change and redeploy both sides together.
 - **A raw stream joins health through `client.rawStream` / `client.enroll`** so it can't escape `health()`. `unenrolledStreamCall` (`@kolu/surface/client`) carries the reconnect context for non-descriptor shapes.
-- **`.use()` is the default; the un-enrolled ref is a deliberate carve-out.** A stream's `.use()` and a collection's `.use()` drive the subscription AND enrol its `pending`/`error` into `health()` — the transport gate sees them. For the narrow class whose transient re-subscribe is normal and self-healing and so must NOT flicker that gate — a terminal re-attach ([#1591](https://github.com/juspay/kolu/issues/1591)), a change-pulse that drives a requery — reach the raw ref instead: `.streams.X.unenrolled` (a `StreamingProcedure`) or `.collections.X.unenrolledKeys` (the raw keys `StreamingProcedure`), passed to `unenrolledStreamCall`. It is typed from the declaration (no cast) and named so the health carve-out is legible at the call site — not a casual bypass of `.use()`.
+- **`.use()` is the default; the un-enrolled ref is a deliberate carve-out.** A stream's `.use()` and a collection's `.use()` drive the subscription AND enrol its `pending`/`error` into `health()` — the transport gate sees them. For the narrow class whose transient re-subscribe is normal and self-healing and so must NOT flicker that gate — a terminal re-attach ([#1591](https://github.com/juspay/kolu/issues/1591)), a change-pulse that drives a requery — reach the raw ref instead: `.streams.X.unenrolled` (a `StreamingProcedure`), `.collections.X.unenrolledKeys` (the raw keys `StreamingProcedure`, present iff the collection declares the `keys` verb), or `.collections.X.unenrolledDeltas` (the raw batched `CollectionDeltasMsg` `StreamingProcedure`, present iff the collection declares the `deltas` verb — the deltas twin of `unenrolledKeys`), passed to `unenrolledStreamCall`. Each is typed from the declaration (no cast) and named so the health carve-out is legible at the call site — not a casual bypass of `.use()`.
 - **The 2-file invariant.** Adding a member is one spec entry plus one wiring entry. If the count creeps up, something is wrong.

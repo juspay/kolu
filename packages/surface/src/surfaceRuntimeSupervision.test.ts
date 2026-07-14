@@ -24,6 +24,7 @@ import {
   implementSurface,
   implementSurfaces,
   inMemoryStore,
+  superviseTerminalSource,
 } from "./server";
 
 const oneCell = defineSurface({
@@ -239,6 +240,86 @@ describe("SurfaceRuntime supervision — done / close", () => {
       } as any),
     ).toThrow(/missing deps for surface "two"/);
     expect(started).toBe(false);
+  });
+
+  it("superviseTerminalSource: a terminal source ending on its own resolves the composite done (SR5)", async () => {
+    const runtime = implementSurface(oneCell, {
+      cells: { c: { store: inMemoryStore(0) } },
+    });
+    const { done } = superviseTerminalSource(runtime, {
+      done: Promise.resolve(), // the pump ended (session destroyed)
+      close: async () => {},
+    });
+    await expect(done).resolves.toBeUndefined();
+    await runtime.close();
+  });
+
+  it("superviseTerminalSource: a terminal source fault rejects the composite done (SR5)", async () => {
+    const runtime = implementSurface(oneCell, {
+      cells: { c: { store: inMemoryStore(0) } },
+    });
+    const { done, close } = superviseTerminalSource(runtime, {
+      done: Promise.reject(new Error("pump boom")),
+      close: async () => {},
+    });
+    await expect(done).rejects.toThrow("pump boom");
+    await close();
+  });
+
+  it("superviseTerminalSource: an owned runtime fault faults the composite before close (SR5)", async () => {
+    const runtime = implementSurface(oneCell, {
+      cells: {
+        c: {
+          store: inMemoryStore(0),
+          connect: async () => {
+            throw new Error("connector boom");
+          },
+        },
+      },
+    });
+    // Terminal parks forever — only the runtime's owned fault can settle `done`.
+    const { done } = superviseTerminalSource(runtime, {
+      done: new Promise<void>(() => {}),
+      close: async () => {},
+    });
+    await expect(done).rejects.toThrow("connector boom");
+  });
+
+  it("superviseTerminalSource: close aborts the terminal FIRST, then releases the runtime; idempotent (SR5)", async () => {
+    let terminalAborted = false;
+    let disposeCount = 0;
+    let resolveTerminal!: () => void;
+    const terminalDone = new Promise<void>((r) => {
+      resolveTerminal = r;
+    });
+    const runtime = implementSurface(oneCell, {
+      cells: {
+        c: {
+          store: inMemoryStore(0),
+          connect: (): Disposer => () => {
+            disposeCount += 1;
+          },
+        },
+      },
+    });
+    await tick();
+    const { done, close } = superviseTerminalSource(runtime, {
+      done: terminalDone,
+      // The pump's atomic teardown verb: the real pump's per-key pumps settle on
+      // signal.reason; model that: close aborts AND awaits the terminal settle.
+      close: async () => {
+        terminalAborted = true;
+        resolveTerminal();
+        await terminalDone;
+      },
+    });
+    await close();
+    expect(terminalAborted).toBe(true);
+    expect(disposeCount).toBe(1); // the runtime was released after the terminal settled
+    await close();
+    await close();
+    expect(disposeCount).toBe(1); // idempotent
+    await expect(done).resolves.toBeUndefined();
   });
 
   it("MULTIPLE teardown faults during close() all surface via AggregateError, not just the first", async () => {

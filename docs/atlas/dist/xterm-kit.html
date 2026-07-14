@@ -83,7 +83,33 @@ focus changes created contexts faster than GC released them, flickering
 every tile (#575, #591, the #1399 budget). The <em>mechanism</em> — accessor-gated
 load/unload with in-microtask release — is the package’s
 (<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/solid/webgl.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/solid/webgl.ts</a>);
-the <em>policy</em> of which panes deserve a context stays the consumer’s.</span></span></span></li>
+the <em>policy</em> of which panes deserve a context stays the consumer’s.</span></span></span>
+A mid-2026 corrupted-glyph investigation exonerated this boundary and traced the
+real cause to a per-tile visible-transition gap, now fixed.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A corrupted-glyph symptom — box-drawing worst,
+clearing on selection or reload — reported under a busy split + maximized
+workspace was investigated here. <strong>Verdict: not a #1795/#1808 regression</strong> —
+diff-falsified (no dropped atlas-clear, logic-identical context-loss path, the
+<code>@xterm/*</code> versions <code>pnpm.overrides</code>-pinned repo-wide so no skew) and confirmed
+by field history (Linux always sporadic, macOS clustered under load, no Chrome
+change); those PRs’ behavior-neutral claims hold. <strong>And the pinned
+<code>@xterm/addon-webgl@0.20.0-beta.224</code> already owns context loss AND restore
+in-renderer</strong> — byte-verified against the installed lib: <code>webglcontextlost</code> →
+<code>preventDefault()</code> + a 3s timeout that fires <code>onContextLoss</code>; <code>webglcontextrestored</code>
+→ <code>removeTerminalFromCache()</code> + <code>_initializeWebGLState()</code> + redraw (a full renderer
+rebuild against the live context, the atlas included). So a <em>kit-level</em> restore
+re-init would DUPLICATE that library boundary, not fill a gap — a first attempt
+that added exactly that was reverted after the byte-check (reproduce-on-software-GL
+had produced a false positive: SwiftShader doesn’t visually recover from a synthetic
+loss+restore even though the addon’s handler runs). The real mechanism, then found
+on a real-GPU venue: a tile returning from <code>display:none</code> (a switch-to-tile in
+split/maximized) kept a STALE glyph atlas — while hidden it missed the resize/DPR
+events that rebuild it, and on show a same-geometry <code>fit()</code> is a cols/rows no-op that
+fires no <code>handleResize</code>, so every glyph drew from a wrong slot (a window-resize
+cleared it, an un-hide did not). Fixed in <code>&lt;Xterm&gt;</code>’s visible effect: force
+<code>clearTextureAtlas</code> on the per-tile show, sequenced post-layout — the per-tile twin of
+<code>refitOnTabVisible</code>’s whole-tab clear (which never covered the <code>display:none</code>
+toggle). <code>clearTextureAtlas</code> re-warms on the live context without routing through
+<code>_refreshCharAtlas</code>, so it can’t hit xterm’s zero-dims atlas-skip.</span></span></span></li>
 <li><strong>Version-pinned internals with tripwire tests.</strong> Every reach into xterm’s
 private <code>_core.*</code> is confined to the package, typed structurally, and pinned
 by contract tests that turn an xterm bump into red CI instead of silent
