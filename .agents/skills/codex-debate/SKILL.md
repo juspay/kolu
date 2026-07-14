@@ -1,7 +1,7 @@
 ---
 name: codex-debate
 description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex critiques the current diff and Claude (author) fixes/disputes, looping until they agree, and the trail is committed + posted to the PR. `answer` — Claude and codex each answer a freeform prompt, then cross-check until they agree, and a unified answer is returned. The debate runs over a LIVE codex session in a split terminal beside you (driven per the /kolu skill), not a headless workflow. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
-argument-hint: "review [<pr-number>] [--base <branch>] [--effort <level>] [--no-commit] [--no-comment] [--rationale <note>] [--context <note>]  |  answer [--effort <level>] -- <prompt>"
+argument-hint: "review [<pr-number>] [--repo <path>] [--base <branch>] [--effort <level>] [--no-commit] [--no-comment] [--rationale <note>] [--context <note>]  |  answer [--effort <level>] -- <prompt>"
 ---
 
 # Codex ⇄ Claude debate
@@ -39,11 +39,15 @@ reasoning effort: `codex --yolo -c model_reasoning_effort=<effort>`. `--yolo` is
 socket write; `read-only` also blocks the file write — verified). So the reviewer runs
 unsandboxed; see [the read-only note](#the-reviewer-runs---yolo--a-trusted-diff-precondition).
 
-**Record the split's id AND its stable title.** Keep both for the whole debate. Per
-/kolu, kaval **re-keys** terminal ids on a restart, so if a later `send`/`snapshot`
-fails with "no terminal matching", **re-resolve the terminal by its title** and use its
-new id in every subsequent ask (and for teardown). A long, no-cap debate can outlive a
-kaval restart.
+**Both terminal references must survive a kaval re-key — record titles for BOTH sides.**
+Per /kolu, kaval **re-keys** terminal ids on a restart, and a long, no-cap debate can
+outlive one. So keep the **split's** id *and* stable title, and also your **own**
+(author) id and title. If a `send`/`snapshot` fails with "no terminal matching",
+**re-resolve by title** (list the daemon, match the title, use the new id) for teardown
+and every later ask. And put **both your id and your title** in each ask you give codex,
+instructing it to re-resolve your title the same way before the reverse ping — otherwise
+a re-key mid-review leaves codex pinging a stale id with no way to recover, and only the
+reviewer side would be restart-safe.
 
 **Boot check.** `create` returning ≠ codex is ready: confirm the footer reads `YOLO
 mode` before dispatching (one launch may auto-update and drop to a shell — don't
@@ -61,10 +65,11 @@ reads the tree and your files itself.
 **The verdict comes back as a file, announced.** A TUI can't be forced to emit valid
 JSON, and its rendered output is lossy (it swallows code fences; long output scrolls
 off). So instruct codex to, each round, **write** its verdict to
-`.codex-debate/verdict-NNN.json`, **print** a one-line marker, and **ping your
-terminal** (the /kolu send, in reverse — you give codex your own terminal id). You then
-**read the file** — byte-exact, complete. If the file is missing or doesn't match the
-schema, **re-ask codex to rewrite it; never guess a verdict.**
+`$REPO/.codex-debate/verdict-NNN.json`, **print** a one-line marker, and **ping your
+terminal** (the /kolu send, in reverse — you give codex your own terminal id *and title*
+so it can re-resolve you across a kaval re-key). You then **read the file** — byte-exact,
+complete. If the file is missing or doesn't match the schema, **re-ask codex to rewrite
+it; never guess a verdict.**
 
 **Teardown** kills **only the split's terminal id you recorded at spawn** (re-resolved
 by title if kaval re-keyed it) — never a pattern kill (`pkill -f`, `pgrep`, `ps | grep
@@ -146,11 +151,18 @@ where relevant):**
 ## Arguments
 
 A leading `review` token is consumed by mode detection; the rest is `[<pr-number>]
-[--base <branch>] [--effort <level>] [--no-commit] [--no-comment] [--rationale <note>]
-[--context <note>]`:
+[--repo <path>] [--base <branch>] [--effort <level>] [--no-commit] [--no-comment]
+[--rationale <note>] [--context <note>]`:
 
-- **`<pr-number>`** — a PR to debate: `gh pr checkout <n>` and default the base to its
-  base branch. Omitted → debate the current branch's change.
+- **`--repo <path>`** — the **absolute path of the repo under review**, which **may not
+  be the cwd** (a cross-repo run — e.g. `/be-review` reviewing a companion drishti PR
+  while the session is rooted in a kolu worktree). Default: the cwd worktree root. This
+  is `$REPO` below, and **every** operation is rooted in it — `git -C "$REPO"`, the
+  `$REPO/.codex-debate/` scratch, `gh -C "$REPO"` / the PR lookup, and the split's
+  `codex --cd "$REPO"`. Get it right before dispatch: a wrong `$REPO` reviews and commits
+  the wrong tree (the exact cross-repo failure `/be-review` guards against).
+- **`<pr-number>`** — a PR to debate: `gh -C "$REPO" pr checkout <n>` and default the base
+  to its base branch. Omitted → debate `$REPO`'s current branch change.
 - **`--base <branch>`** — ref to diff against, always a **remote-tracking ref** (e.g.
   `origin/master`, used as-is, never the stale local `master`). Default:
   `origin/<PR base>` for a PR, else the repo default (`git symbolic-ref --short
@@ -170,17 +182,26 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
 
 ## Steps
 
-1. **Resolve context.** Confirm you're in a kolu terminal. `git fetch origin`; resolve
-   `base`; `gh pr checkout` if a PR number was given. **Discover the PR** even when no
-   number was passed: `gh pr view --json number,baseRefName` on the current branch —
-   distinguish "no PR" (skip posting) from a command error (report it), and carry the
-   resolved number into step 4. **Merge-base guard:** if `git merge-base <base> HEAD`
-   fails, abort up front — say which base failed and how to fix it, stop. **Reviewable
-   check:** proceed if the merge-base diff is non-empty **or** `git status --porcelain`
-   shows untracked paths in scope (a new-file-only change is real); else stop. Preflight
-   `codex login status` (else tell the user to `codex login`). **Prepare a clean
-   scratch:** ensure the gitignored per-worktree `.codex-debate/` exists and **remove
-   any prior run's artifacts** from it (`verdict-*`, `section-*`, `ask-*`, `answer-*`,
+1. **Resolve context.** Confirm you're in a kolu terminal. Resolve **`$REPO`** (from
+   `--repo`, else the cwd worktree root) and **root every command in it** — `git -C
+   "$REPO"`, `gh -C "$REPO"`, the `$REPO/.codex-debate/` scratch, and the split's `--cd
+   "$REPO"`. `git -C "$REPO" fetch origin`; resolve `base`; `gh -C "$REPO" pr checkout`
+   if a PR number was given. **Discover the PR** even when no number was passed: `gh -C
+   "$REPO" pr view --json number,baseRefName` on the current branch — distinguish "no PR"
+   (skip posting) from a command error (report it), and carry the resolved number into
+   step 4. **Merge-base guard:** if `git -C "$REPO" merge-base <base> HEAD` fails, abort
+   up front — say which base failed and how to fix it, stop. **Reviewable check:** proceed
+   if the merge-base diff is non-empty **or** `git -C "$REPO" status --porcelain` shows
+   untracked paths in scope (a new-file-only change is real); else stop. **Clean-tree
+   precondition for commit mode:** if committing (the default — not `--no-commit`) and
+   `git -C "$REPO" status --porcelain` shows **any** pre-existing uncommitted or staged
+   change, **fail fast** — tell the user to commit (or stash) that work first, or re-run
+   with `--no-commit`. This is what makes each round's path-only staging exact: with a
+   clean start, the only uncommitted changes are the round's own edits, so nothing
+   pre-existing (a staged entry, or another edit to a file you touch) can be swept into a
+   round commit. Preflight `codex login status` (else tell the user to `codex login`).
+   **Prepare a clean scratch:** ensure the gitignored `$REPO/.codex-debate/` exists and
+   **remove any prior run's artifacts** (`verdict-*`, `section-*`, `ask-*`, `answer-*`,
    `candidate.md`) so a shorter run can't inherit a stale file into this run's report.
 2. **Spawn the split codex** (per [the engine](#the-engine--a-live-codex-in-a-split-terminal-beside-you)); record its id **and title**.
 3. **Run the debate loop** ([core loop](#the-core-loop--a-symmetric-ping-to-consensus)), each round:
@@ -200,13 +221,13 @@ A leading `review` token is consumed by mode detection; the rest is `[<pr-number
      `section-NNN-2-claude.md` (one entry per finding, a clear **fixed / disputed /
      partial** marker + reasoning — this file is your memory, codex's next-round
      rebuttal, and part of the PR comment).
-   - **Commit the round safely** (unless `--no-commit`): stage **only the paths you
-     actually edited** for accepted fixes — never `git add -A`/`.`, and don't sweep in
-     pre-existing staged or unrelated working changes. Commit with the round's findings +
-     dispositions in the message; **verify and record the SHA**. A **dispute-only /
-     no-change** round has nothing to commit — that's fine, note it and skip (don't force
-     an empty commit). If a commit you expected fails, treat the round as
-     **incomplete**, not consensus. Never push or merge.
+   - **Commit the round safely** (unless `--no-commit`): the clean-tree precondition
+     (step 1) guarantees the round's edits are the only uncommitted changes, so
+     `git -C "$REPO" add -- <the exact paths you edited>` (never `git add -A`/`.`) stages
+     *only* this round's fixes. Commit with the round's findings + dispositions in the
+     message; **verify and record the SHA**. A **dispute-only / no-change** round has
+     nothing to commit — note it and skip (don't force an empty commit). If a commit you
+     expected fails, treat the round as **incomplete**, not consensus. Never push or merge.
    - **Consensus test:** if codex's verdict is `approved: true` → go to step 4; else ping
      codex for round N+1 and end your turn.
    - **Resolved-and-deferred (NOT a deadlock exit).** A finding that is a downstream /

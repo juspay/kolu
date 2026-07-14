@@ -138,12 +138,15 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
      on). Never report "lens consensus" for an `unresolved` run.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
 
-2. **codex** — invoke `/codex-debate` (Skill tool) as `review --base MB`,
-   **`--no-comment`** (so it doesn't advertise its local-only round commits before
-   be-review's final push — you post the codex comment after the push),
+2. **codex** — invoke `/codex-debate` (Skill tool) as `review --repo "$repoPath"
+   --base MB`, **`--no-comment`** (so it doesn't advertise its local-only round commits
+   before be-review's final push — you post the codex comment after the push),
    **`--effort xhigh`** (the gauntlet's deep review), and thread both **`--context`**
    (the task / main-agent intent, so the author reasons from what you know — not just
-   the diff) and **`--rationale`** (so codex doesn't flag deliberate decisions). **When
+   the diff) and **`--rationale`** (so codex doesn't flag deliberate decisions). Passing
+   **`--repo`** is what keeps a **cross-repo** run correct — `/codex-debate` roots all its
+   git/scratch/gh/spawn operations in that path, so a companion-repo review never
+   degrades to the cwd (the wrong-repo failure Preflight guards against). **When
    the diff makes an API-facing change to the shared surface stack**
    (`packages/surface{,-app,-remote}` per `.claude/rules/surface.md`), it trips the
    drishti companion-repo gate, satisfiable **only against the *final* post-gauntlet kolu
@@ -165,11 +168,18 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
 
    ```bash
    workDir="$repoPath/.codex-debate"
-   rounds=$(ls "$workDir"/section-*-1-codex.md 2>/dev/null | wc -l | tr -d ' ')
+   # Enumerate the actual zero-padded codex sections (section-001-1-codex.md, …) and
+   # pair each with its author file — do NOT reconstruct round numbers with `seq -w`
+   # (its width tracks the largest arg, so 1..2 emits `1 2`, not `001 002`).
+   codex_sections=$(ls "$workDir"/section-*-1-codex.md 2>/dev/null | sort)
+   rounds=$(printf '%s\n' "$codex_sections" | grep -c . )
    {
      printf '## Codex ⇄ Claude debate\n\n✅ Consensus in %s round(s) · reviewer effort: xhigh\n' "$rounds"
-     for n in $(seq -w 1 "$rounds"); do
-       for f in "$workDir"/section-"$n"-*.md; do printf '\n'; cat "$f"; printf '\n'; done
+     printf '%s\n' "$codex_sections" | while read -r cf; do
+       [ -n "$cf" ] || continue
+       af="${cf/-1-codex.md/-2-claude.md}"   # the matching author file
+       printf '\n'; cat "$cf"; printf '\n'
+       [ -f "$af" ] && { printf '\n'; cat "$af"; printf '\n'; }
      done
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```

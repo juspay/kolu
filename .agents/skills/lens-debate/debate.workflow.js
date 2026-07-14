@@ -33,7 +33,8 @@ const MODEL = 'opus'
 // the cross-repo bug: `repoPath` degrades to `.` (the cwd), the lenses review the
 // WRONG repo and the apply phase commits onto it. Parse a stringified `args`
 // defensively (empty string → {}; object used as-is; malformed JSON throws loudly,
-// fail-fast). See codex-debate/debate.workflow.js for the same fix and its evidence.
+// fail-fast). The cross-repo failure this guards against is documented in
+// be-review/SKILL.md (Preflight → "Pin repoPath").
 const a = typeof args === 'string' ? (args.trim() ? JSON.parse(args) : {}) : args || {}
 const repoPath = a.repoPath || '.'
 // The diff base. Resolved to the MERGE-BASE of (rawBase, HEAD) just below, before
