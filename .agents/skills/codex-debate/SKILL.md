@@ -1,6 +1,6 @@
 ---
 name: codex-debate
-description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. `answer` — Claude and codex each answer a freeform prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
+description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and Claude (author) fixes/disputes, looping until they agree. `answer` — Claude and codex each answer a freeform prompt, then cross-check until they agree, and a unified answer is returned. The debate runs over a LIVE codex session in a split terminal beside you (driven with `kaval-tui`/`padi-tui`), not a headless workflow. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
 argument-hint: "review [<pr-number>] [--base <branch>] [--no-commit] [--no-comment] [--rationale <note>] [--context <note>]  |  answer \"<prompt>\""
 ---
 
@@ -10,19 +10,180 @@ This skill runs an automated debate between **codex** and **Claude** that loops 
 consensus with no round cap and no deadlock exit. It has **two modes**, selected by
 an **explicit leading subcommand** — never by guessing from the argument's shape:
 
-- **`review`** — codex reviews the current diff, a Claude author fixes/disputes,
+- **`review`** — codex reviews the current diff, Claude (the author) fixes/disputes,
   round after round until they agree, and the trail is **committed + posted to the
   PR** (a mutating, outward-facing mode). This is everything from
   [Review mode](#review-mode) down.
-- **`answer`** — Claude and codex **each answer a freeform prompt in parallel**,
-  then **cross-check each other** until both agree, and a **unified answer** is
-  returned to you (read-only; plus a saved transcript). See
-  [Answer mode](#answer-mode).
+- **`answer`** — Claude and codex **each answer a freeform prompt**, then
+  **cross-check each other** until both agree, and a **unified answer** is returned
+  to you (read-only; plus a saved transcript). See [Answer mode](#answer-mode).
 
 The two modes have **different side-effect contracts** (review mutates + writes to
 the PR; answer is read-only), so the mode is chosen **explicitly**, not inferred
 from whether the argument looks like a PR number or like prose. Inferring a
 mutating action from prose shape is exactly the coupling this design avoids.
+
+## The engine — a live codex in a split terminal beside you
+
+The debate does **not** run as a headless workflow. **You**, the agent running this
+skill, drive it directly from your own turn: you spawn a **live codex session as a
+split terminal next to yourself**, and you and that codex **take turns**, handing
+off to each other until you agree. There is no `Workflow` tool, no `codex exec`, no
+subagent — you *are* one debater, and the codex in the split *is* the other. This
+means the skill runs under **any agent inside a kolu terminal** (it needs
+`$KAVAL_TERMINAL_ID` and the `kaval-tui`/`padi-tui` CLIs); outside a kolu PTY it is
+inert — say so and stop.
+
+The whole loop is built on the **[/kolu skill](../kolu/SKILL.md)** — read it; it is
+the engine you are adopting (spawn, the three-step send, the `kaval-tui wait`
+done-signal, the large-paste file rule, teardown). What follows layers the debate
+protocol on top of that drive loop.
+
+### The core loop is a SYMMETRIC, event-driven handoff — to consensus
+
+The two sides drive each other by **pinging**, not polling. **Every turn on either
+side ends by pinging the other terminal, then ending its own turn.** The incoming
+ping is what wakes you for your next turn — the exact reverse of the loop you use to
+drive codex. There is **no polling loop in either direction.**
+
+```
+you  → prompt codex (write ask file, send short pointer, Enter) → END YOUR TURN
+codex→ review, write verdict + section files, print on-screen marker → PING you → end its turn
+you  → (woken by the ping) read verdict, fix/dispute, write section, commit → PING codex → END YOUR TURN
+codex→ close out findings, rewrite verdict → PING you → end its turn
+ …   repeat until consensus (codex's verdict is `approved: true`)
+```
+
+You end your turn after each hand-off and codex's ping wakes you; codex ends its
+turn after each hand-off and your ping wakes it. **The loop terminates ONLY on
+consensus** (the preserved contract: no round cap, no deadlock exit — see
+[Runs to consensus](#runs-to-consensus)).
+
+**The ping, both directions, is the three-step submit from /kolu** — text, observe
+the settle, Enter — targeting the *other* terminal's id:
+
+```sh
+kaval-tui send "$OTHER_ID" --socket "$KAVAL_SOCKET" "VERDICT-WRITTEN <path>"
+kaval-tui wait "$OTHER_ID" --socket "$KAVAL_SOCKET" --until idle:300 --timeout 4000 || true  # busy = ok, Enter still lands
+kaval-tui send "$OTHER_ID" --socket "$KAVAL_SOCKET" --key Enter
+```
+
+You give codex **your** id (`$KAVAL_TERMINAL_ID`) and the socket in its prompt so it
+can ping you back; you keep the split's id (recorded at spawn) to ping it. codex can
+run these `kaval-tui` commands itself because it runs under `--yolo` (it has a
+shell).
+
+### The verdict is a FILE, announced by a ping — never scraped off the screen
+
+A TUI **cannot** be forced to emit schema-valid JSON, and its rendered output is
+lossy: the codex TUI **swallows the ```` ``` ```` fence markers and the code-block
+language label** when it renders, and a long, many-finding verdict **wraps and
+scrolls off the viewport** — so scraping a verdict off a snapshot silently truncates
+the published record. Instead, **codex writes its verdict to a file** and only
+*announces* it on screen. Every review round, codex does **all three, in order**:
+
+1. **writes** `.codex-debate/verdict-NNN.json` (the full structured verdict — schema
+   below) and `.codex-debate/section-NNN-1-codex.md` (its human-readable review);
+2. **prints** a one-line on-screen marker `VERDICT-WRITTEN .codex-debate/verdict-NNN.json`;
+3. **pings your terminal** with that same marker line (the three-step send above).
+
+**Your primary done-signal is the incoming ping.** You end your turn; the ping wakes
+you; you then **read the file** — byte-exact, complete, no truncation. Because codex
+writes the file and prints the marker *before* it pings, **a flubbed ping can never
+hang or corrupt the debate**: the file and the on-screen marker are the source of
+truth, and the ping is only the low-latency waker.
+
+**Fallback for a flubbed ping (bounded — never a hang).** If you are woken with no
+fresh ping, or you want insurance before trusting the hand-off, run **one bounded**
+observe + read on codex's terminal:
+
+```sh
+kaval-tui wait "$CODEX_ID" --socket "$KAVAL_SOCKET" --until match:'VERDICT-WRITTEN' --timeout 600000
+kaval-tui snapshot "$CODEX_ID" --socket "$KAVAL_SOCKET" --viewport   # confirm the marker
+```
+
+A met wait (or the marker already on screen) → read the file. A timeout → codex is
+still working or wedged: re-check, and if it produced nothing, **re-ask** (below).
+This wait is bounded by `--timeout`, so the fallback path itself can never hang.
+
+**Re-ask, never guess.** If `verdict-NNN.json` is missing, unreadable, or not
+valid against the schema, do **not** infer a verdict — send codex a short prompt to
+**rewrite just that file** and re-announce it, and wait for the fresh marker. Guessing
+a verdict (e.g. assuming consensus) is banned; the debate only advances on a verdict
+codex actually wrote.
+
+### The codex verdict schema (what codex writes to `verdict-NNN.json`)
+
+```json
+{
+  "approved": false,
+  "summary": "one-paragraph assessment of the change as it stands this round",
+  "findings": [
+    { "id": "F1", "severity": "blocking|major|minor|nit",
+      "location": "file:line", "issue": "what's wrong and why it matters",
+      "suggestion": "concrete fix or direction", "status": "open|resolved" }
+  ],
+  "responseToRebuttal": "address each of the author's disputes individually; empty on round 1"
+}
+```
+
+`approved` is `true` **only** when every finding is `resolved`, at every severity
+(minor and nit included) — that is the consensus test. `id`s are **stable across
+rounds** (`F1`, `F2`, …) so a finding tracks through the debate.
+
+### Spawning and tearing down the split
+
+Spawn codex as a split tile beside you, in the same worktree, and **record the id**:
+
+```sh
+CODEX_ID=$(padi-tui create --parent "$KAVAL_TERMINAL_ID" --json \
+  -- codex --yolo --cd "$REPO" -c model_reasoning_effort="xhigh" | jq -r .id)
+```
+
+- `--yolo` runs codex unattended (no approval dialogs would wedge the driven loop)
+  and gives it the shell it needs to write files and ping you. `-c
+  model_reasoning_effort="xhigh"` is the review depth (surfaced in the comment
+  header). `--cd "$REPO"` pins its working root to this worktree so `git diff <base>`
+  sees the right tree.
+- **`create` returning ≠ codex is ready.** Snapshot until its input box is drawn and
+  the footer reads `YOLO mode`; clear any one-time onboarding/trust dialog with its
+  own `send --key Enter` (per /kolu). Only then dispatch round 1.
+- **Warm session is NATIVE.** The split is **one persistent codex session** — it
+  carries its own prior review and reasoning across rounds by itself. There is no
+  `codex exec resume` and no session-id file: round 1 sends the full cold review
+  prompt; every later round sends a lean follow-up ("you still have your review in
+  context — close out the findings"), and codex genuinely does.
+- **Done-signal is raw quiescence.** codex is driven with `kaval-tui wait --until
+  idle:<ms>` / `--until match:…` (raw output), **not** `padi-tui wait` agent-state —
+  padi does not reliably track a codex session's agent state, so key on output bytes
+  per /kolu.
+- **Teardown kills only the split you spawned, by its recorded id:**
+
+  ```sh
+  kaval-tui kill "$CODEX_ID" --socket "$KAVAL_SOCKET"
+  ```
+
+  **Teardown law:** teardown kills only the exact id(s) recorded at spawn. **Pattern
+  kills are banned** — `pkill -f`, `pgrep`, `ps | grep | kill`, and any
+  marker/substring/socket-path matching are one banned class. If you notice a stray
+  codex you did **not** spawn, **report it** (pid + args) — never hunt it.
+
+### Delivering prompts to codex — file-pointer, always (fold-safe)
+
+A multi-line prompt pasted into a TUI **does not reliably submit** (the /kolu
+large-paste limitation: Claude Code / codex fold a paste past a handful of lines into
+a placeholder, well under 1 KB). So **every** round's instructions go in a file and
+you send codex a **short one-line pointer**:
+
+```sh
+kaval-tui send "$CODEX_ID" --socket "$KAVAL_SOCKET" "read .codex-debate/ask-NNN.md and carry it out"
+kaval-tui wait "$CODEX_ID" --socket "$KAVAL_SOCKET" --until idle:300 --timeout 8000 || true
+kaval-tui send "$CODEX_ID" --socket "$KAVAL_SOCKET" --key Enter
+```
+
+You never paste the diff or the rebuttal into the terminal: codex reads the tree
+itself (`git diff`, `git status`) and reads the author's disposition file itself —
+both named in `ask-NNN.md`.
 
 ## Mode detection (do this first)
 
@@ -43,45 +204,42 @@ Look at the **first whitespace-delimited token** of `$ARGUMENTS`:
   [<pr>] [flags]` (mutating)?" Only the safe, backward-compatible review grammar
   auto-routes; prose never silently triggers a mode.
 
-Both modes require Claude Code's **`Workflow` tool** (the engine). Under
-codex/opencode runtimes the skill is inert.
+Both modes require running **inside a kolu terminal** (they spawn and drive a split);
+if `$KAVAL_TERMINAL_ID` is unset, the skill is inert — say so and stop.
 
 <a id="review-mode"></a>
 # Review mode — Codex ⇄ Claude review debate
 
 Automate the back-and-forth you'd otherwise courier by hand: **codex** (the
-reviewer) critiques the current change, a **Claude subagent** (the author)
-fixes what it agrees with and disputes what it doesn't, codex re-reviews, and so
-on — round after round, **until they reach consensus**. codex reviews from a
-**warm session**: round 1 cold-starts the reviewer, and every later round
-*resumes that same codex session* (`codex exec resume`), so codex carries its own
-prior review and reasoning forward instead of reconstructing it from the diff +
-rebuttal each round — when Claude disputes a finding, codex argues from its
-original rationale. There is no round cap and
-no "deadlock" surrender: a debate that quits without agreement defeats the
-purpose, so the two sides keep arguing until one concedes. You stay out of the
-middle: each round lands as its own commit whose
-message carries the debate context (codex's findings + Claude's dispositions) so
-the PR history reads as the debate, and the summary is **posted to the PR** as a
-comment at the end.
+reviewer) critiques the current change, **you** (the author) fix what you agree with
+and dispute what you don't, codex re-reviews, and so on — round after round, **until
+you reach consensus**. codex reviews from its **own warm session** (the persistent
+split — it keeps its prior review in context natively), so when you dispute a
+finding it argues from its original rationale rather than reconstructing it. There is
+no round cap and no "deadlock" surrender: a debate that quits without agreement
+defeats the purpose, so the two sides keep arguing until one concedes. You stay out
+of your own way by committing each round as its own commit whose message carries the
+debate context (codex's findings + your dispositions) so the PR history reads as the
+debate, and the summary is **posted to the PR** as a comment at the end.
 
 ## Why this shape
 
-The two sides are asymmetric, and that asymmetry is the whole design:
+The two sides are asymmetric only in *role*, not in *plumbing*:
 
-- **codex** is CLI-invokable headlessly (`codex exec`, authed via ChatGPT), so it
-  runs from a shell command.
-- **Claude on a Max plan is *not* headless** — `claude -p` doesn't work with Max
-  auth. But the **Workflow tool's `agent()` spawns Claude subagents through the
-  harness**, not `claude -p`, so it works. That subagent is the author side.
+- **codex** runs as a live TUI in the split, driven by `kaval-tui`; under `--yolo` it
+  inspects the tree, writes its verdict to a file, and pings you.
+- **You** are the author — you already have edit/commit tools in your own turn, so you
+  fix and dispute directly. No subagent, no `agent()`, no headless `claude -p`.
 
-So the debate runs as a Workflow: `agent()` is Claude, a Bash-invoked
-`codex exec` is the reviewer, and the script couriers structured verdicts
-between them and decides when they agree. Both sides are forced to emit
-schema-constrained JSON, so consensus is detected in code, not by vibes.
-
-**This skill requires Claude Code's `Workflow` tool** (it is the engine). Under
-codex/opencode runtimes the skill is inert.
+The old engine (a `Workflow` script couriering schema-forced JSON between an
+`agent()` Claude and a `codex exec` reviewer) is gone. **Honest change of promise:**
+because a live TUI can't be schema-forced, consensus is no longer detected on
+guaranteed-valid JSON — it is detected on the verdict **file codex writes**, which you
+**parse and re-ask on if malformed** ([above](#the-verdict-is-a-file-announced-by-a-ping--never-scraped-off-the-screen)). And because codex now runs
+`--yolo` (so the driven loop never wedges on an approval dialog), it is **no longer
+kernel-sandboxed read-only** — its read-only behavior is now **instructed**, not
+enforced. See [Safety](#safety--notes-review-mode) for what that costs and how to
+harden if it matters.
 
 ## Arguments
 
@@ -98,475 +256,341 @@ string through unchanged). Parse:
   the repo default branch as `git symbolic-ref --short refs/remotes/origin/HEAD`
   (e.g. `origin/master`) — used **as-is**, NOT stripped to local `master` (which
   can lag the remote). Fallback `origin/master`. Step 1 runs `git fetch origin`
-  first so the ref is current. The workflow then resolves this to the **merge-base**
-  of `base` and HEAD and diffs against that, so commits `base` gained since the
-  branch forked aren't reviewed as part of this change.
-- **`--no-commit`**: don't commit per round — leave all agreed changes
-  uncommitted in the working tree for you to commit yourself. Default is to
-  **commit each round** (see below).
-- **`--no-comment`**: don't post the debate summary to the PR. By **default**, when
-  a PR exists, the debate summary IS posted as a PR comment (see step 3). Pass
-  this to suppress the outward-facing write and report in chat only.
+  first so the ref is current. You then resolve this to the **merge-base** of `base`
+  and HEAD and diff against that, so commits `base` gained since the branch forked
+  aren't reviewed as part of this change.
+- **`--no-commit`**: don't commit per round — leave all agreed changes uncommitted in
+  the working tree for the user to commit. Default is to **commit each round**.
+- **`--no-comment`**: don't post the debate summary to the PR. By **default**, when a
+  PR exists, the summary IS posted as a PR comment (step 4). Pass this to suppress the
+  outward-facing write and report in chat only.
 - **`--rationale <note>`** (optional): the author's note on **deliberate** design
   decisions. Threaded into **both** sides — codex's round-1 review prompt (so it
   doesn't flag intentional choices as defects; its warm session carries the note
-  across later rounds) and the Claude author's prompt **every round** (so it
-  *disputes*, rather than "fixes", a finding that contradicts a deliberate choice).
-  Mirrors `/lens-debate`'s `rationale`. Pull it from the PR/issue description, or the
-  caller (`/be-review`) passes the change rationale straight through.
-- **`--context <note>`** (optional): the **main-agent context** the Claude author
-  should **inherit** — what this change is FOR (its task/intent and key decisions the
-  orchestrator already holds). Injected into the author's prompt **every round** so it
-  no longer reconstructs intent from the diff alone (`agent()` is one-shot and can't
-  be resumed the way codex is, so re-injection is how it inherits at all). Given to
-  the **author only**, not codex — codex stays an independent reviewer of the code,
-  not the author's narrative. `/be-review` passes the task context through.
+  across later rounds) and your own reasoning **every round** (so you *dispute*,
+  rather than "fix", a finding that contradicts a deliberate choice). Mirrors
+  `/lens-debate`'s `rationale`. Pull it from the PR/issue description, or the caller
+  (`/be-review`) passes the change rationale straight through.
+- **`--context <note>`** (optional): the **main-agent context** — what this change is
+  FOR (its task/intent and key decisions). You already hold it (you are the author),
+  so use it to judge findings against the change's purpose. Given to **you only**, not
+  codex — codex stays an independent reviewer of the code, not the author's narrative.
 
 ## Steps
 
 ### 1. Resolve context
 
-- Determine `repoPath` (the worktree root, normally the cwd).
+- Determine `$REPO` (the worktree root, normally the cwd). Confirm `$KAVAL_TERMINAL_ID`
+  is set (else the skill is inert — stop and say so).
 - **`git fetch origin`** so remote-tracking refs are current — the base is an
   `origin/...` ref, and a stale one would diff against the wrong tree.
 - Resolve `base` per the rules above (a remote-tracking ref like `origin/master`).
 - If a PR number was given, `gh pr checkout <n>` and confirm the branch.
-- Confirm there is a non-empty diff: `git diff --stat <base>`. If empty, tell the
-  user there's nothing to review and stop.
-- **Preflight codex**: `codex login status`. If not logged in, stop and tell the
-  user to run `codex login` (suggest the `!` prefix to do it in-session).
+- **Merge-base guard.** Run `git merge-base <base> HEAD`. If it **fails**
+  (missing/typoed/stale base, or unrelated history), the diff scope can't be trusted —
+  **abort up front**, before spawning codex: tell the user which base failed and how
+  to fix it (e.g. `git fetch`, fix a typo'd/stale ref) and stop. Do not review the
+  base branch's drift as if this change made it.
+- Confirm there is a non-empty diff: `git diff --stat <merge-base>`. If empty, tell
+  the user there's nothing to review and stop.
+- **Preflight codex**: `codex login status`. If not logged in, stop and tell the user
+  to run `codex login` (suggest the `!` prefix to do it in-session).
+- `mkdir -p "$REPO/.codex-debate"` (gitignored, per-worktree scratch — so parallel
+  debates in different worktrees never collide and the scratch never shows up in the
+  diff codex reviews).
 
-### 2. Run the debate Workflow
+### 2. Spawn the split codex
 
-Invoke the **`Workflow` tool** pointing at this skill's committed script, passing
-context through `args`:
+Spawn per [Spawning the split](#spawning-and-tearing-down-the-split) and record
+`$CODEX_ID`. Snapshot until its input box is drawn and it reads `YOLO mode`; clear any
+one-time dialog. Keep `$CODEX_ID` for the whole debate (and for teardown in step 4).
 
-```
-Workflow({
-  scriptPath: ".claude/skills/codex-debate/debate.workflow.js",
-  args: {
-    repoPath: "<worktree root>",        // also the per-worktree scratch dir root
-    base: "<base branch>",
-    commit: <false only if --no-commit>,
-    skillDir: ".claude/skills/codex-debate",
-    context: "<main-agent context the author inherits; omit/'' if none>",
-    rationale: "<author's note on deliberate decisions; omit/'' if none>"
-  }
-})
-```
+### 3. The debate loop (symmetric pings, to consensus)
 
-The workflow runs in the background and notifies you when it completes. It
-alternates `codex:roundN` and `claude:roundN` agents under a **Debate** phase —
-the user can watch live via `/workflows`. Each Claude round edits the working
-tree and (unless `--no-commit`) **commits exactly that round's changed files in
-the same session** — one commit per round, with a message embedding the round's
-codex findings and Claude's dispositions — never pushing or merging. (The commit
-is no longer a separate `commit:roundN` agent: the author already has the tree
-open, so it commits its own round.)
+Run the [core loop](#the-core-loop-is-a-symmetric-event-driven-handoff--to-consensus).
+Concretely, per round `N`:
 
-Ephemeral scratch (verdicts, the debate ledger) lives under the gitignored,
-per-worktree `<repoPath>/.codex-debate/`, so **parallel debates in different
-worktrees never collide** and the scratch never shows up in the diff codex
-reviews. It returns:
+**Your hand-off to codex.** Write `.codex-debate/ask-NNN.md` with the round's
+instructions, then send codex the short pointer + three-step submit, then **end your
+turn**. The ask file instructs codex to:
 
-```
-{ status: "consensus" | "commit-incomplete" | "section-incomplete" | "reviewer-error",
-  rounds, base, finalVerdict, filesChanged, commitGaps, sectionGaps, transcript,
-  commentHeader,        // the comment's small deterministic header (badge + round count + effort + base)
-  workDir, sectionGlob } // where the per-round section files live; cat them under the header (step 3)
-```
+- Inspect the change **read-only** (do not modify/create/delete anything; run no git
+  write — add/commit/push/stash/checkout): `git diff <merge-base>` (committed +
+  unstaged) and `git status --short` (untracked files — read those too). Ignore the
+  `.codex-debate/` scratch dir if it appears.
+- **Round 1 (cold):** give ALL feedback in this pass — every issue worth raising, at
+  EVERY severity (blocking, major, minor, nit): correctness bugs, logic errors,
+  silently swallowed errors, unjustified fallbacks, security problems, clear
+  simplicity/efficiency issues. Cite `file:line`. Approving with no findings is fine
+  if the change is genuinely clean, but never stay quiet about a real issue to seem
+  agreeable. If `--rationale` was given, include it: "the author flagged these as
+  DELIBERATE decisions — do NOT raise them unless the reasoning itself is wrong."
+- **Round N>1 (follow-up):** you still have your prior review in context. Read the
+  author's dispositions at `.codex-debate/section-NNN₋₁-2-claude.md` and re-inspect
+  the current tree. **Close out the findings already on the table** — do NOT re-scan
+  the diff for new pre-existing issues you didn't raise before (that prevents
+  convergence). For each existing finding (reuse its stable id): verify the fix and
+  mark it `resolved`, or address the dispute — concede (mark `resolved`) or hold firm
+  with specific technical reasoning in `responseToRebuttal`. Raise a NEW finding ONLY
+  if this round's changes introduced it (a regression).
+- **Write, mark, ping (all three):** write `.codex-debate/verdict-NNN.json` (the
+  schema above) and `.codex-debate/section-NNN-1-codex.md` (a readable render of the
+  same verdict — summary, then each finding's id/severity/location/issue/suggestion/
+  status, then `responseToRebuttal`); print `VERDICT-WRITTEN
+  .codex-debate/verdict-NNN.json`; then **ping your terminal** (`$KAVAL_TERMINAL_ID`,
+  socket `$KAVAL_SOCKET` — both given in the ask file) with that marker line via the
+  three-step send.
 
-(each `transcript[]` round also carries a `commit` SHA when that round committed;
-`commitGaps` lists the round numbers whose author edited files but returned no
-commit SHA — empty unless `status === "commit-incomplete"`; `sectionGaps` lists the
-round numbers whose author left no disposition section file — empty unless
-`status === "section-incomplete"`.)
+**codex's hand-off back** wakes you. Read `.codex-debate/verdict-NNN.json` (re-ask on
+missing/malformed; fallback to the bounded wait+snapshot if the ping never came).
+Then, as the author:
 
-There is one more, **earlier** terminus the workflow can return **before** the
-debate loop even starts — `merge-base-error`. If `git merge-base <base> HEAD`
-fails (a missing/typoed/stale base, or unrelated history), the diff scope can't be
-trusted, so the workflow **aborts up front** rather than review the base branch's
-drift as if this change made it. It returns a **different, smaller shape** — no
-`commentHeader`, `workDir`, or `sectionGlob`, because no debate (and so no section
-files) ever ran:
+- For each **open** finding: **fix** it (edit the tree) if you agree, or **dispute**
+  it with specific reasoning if you don't. Weigh findings against `--context`/
+  `--rationale` — dispute, don't dutifully "fix", a finding that contradicts a
+  deliberate choice.
+- **Resolved-and-deferred carve-out (NOT a deadlock exit).** A finding that is *not a
+  code edit for this worktree* but a downstream / ship-phase / process gate (a
+  companion repo pinning this repo's final post-review HEAD, a CI/release step, a
+  cross-repo PR) cannot be satisfied mid-review. When you show codex a finding is such
+  a gate, ask it to mark the finding **resolved** — acknowledged and deferred to the
+  ship phase — instead of holding it open forever. This is narrow: a genuine code
+  defect you simply dislike is still argued to consensus, no exit.
+- **Write your disposition file** `.codex-debate/section-NNN-2-claude.md`: one entry
+  per finding with its stable id and a clear **fixed / disputed / partial** marker and
+  reasoning. This file does triple duty — it's your cross-round memory, the **rebuttal
+  codex reads next round**, and part of the **published comment** (step 4). Leave no
+  finding without an entry.
+- **Commit the round** (unless `--no-commit`): stage exactly this round's changed
+  files and commit with a message embedding the round's codex findings and your
+  dispositions (conventional-commit style). One commit per round; never push or merge.
+- **Consensus test:** if codex's latest verdict is `approved: true` (every finding
+  `resolved`), the debate has **converged** — go to step 4. Otherwise write
+  `ask-(N+1).md`, **ping codex**, and **end your turn**.
 
-```
-{ status: "merge-base-error", base, rounds: 0, transcript: [], finalVerdict: null,
-  note }   // human-readable: which base failed and how to fix it (e.g. `git fetch`)
-```
-The debate is recorded as small Markdown section files under `<workDir>` — **two
-per round**: `section-NNN-1-codex.md` (codex's verdict + findings) and
-`section-NNN-2-claude.md` (the author's per-finding dispositions), zero-padded so
-the `section-*.md` glob sorts in chronological order. **Each file is written by the
-party that owns its content**: a Haiku writer renders codex's small *structured*
-verdict to disk, and the **author writes its own dispositions directly** — the same
-way codex writes its verdict to a path. That author-writes-its-own-file design is
-deliberate: it keeps the author's *structured* return a **minimal ack**
-(`filesChanged`/`commitSha`/`done`), so a big multi-finding narrative can never
-overflow the structured-output encoding (the failure that used to crash the debate
-on large diffs). The author's disposition file does triple duty — it's the author's
-cross-round **memory**, the **rebuttal** codex reads next round (`codex-review.sh`
-cats it straight into codex's prompt), and the **published comment** (step 3 cats
-the section files under `commentHeader`). So the comment is still a **deterministic**
-render — a shell `cat`, never re-improvised through an agent, nothing weak ever
-retyping a large blob. codex is *not* a memory reader — it keeps its own warm
-session and only ever reads the one rebuttal file.
+Repeat until consensus. **No round cap, no deadlock exit** — see
+[Runs to consensus](#runs-to-consensus).
 
-- **consensus** — every finding codex raised is resolved (any severity — Claude
-  fixed it or codex conceded the dispute). This is the *only* way the debate ends
-  *normally*: it keeps running rounds until codex and Claude agree on every point,
-  with no round cap and no deadlock exit. (The harness's own
-  per-workflow agent backstop is the sole hard ceiling; if you ever need to stop
-  a debate by hand, interrupt it via `/workflows` or `TaskStop`.)
-- **commit-incomplete** — the debate *converged* (codex approved, nothing open),
-  but a round's author edited files yet returned **no commit SHA**, so its
-  in-session commit didn't land and the "one commit per round" contract broke for
-  the round(s) in `commitGaps`. The edits are **not lost** — they stay in the
-  working tree and the next reviewer diffs them against the base — but this is
-  **not** a clean consensus: a human must reconcile the uncommitted round(s)
-  (e.g. commit the outstanding tree) before relying on the per-round history. Do
-  **not** report it as a plain consensus (see step 3).
-- **section-incomplete** — the debate *converged*, but a round's author **skipped
-  or under-filled its disposition section file** (`section-NNN-2-claude.md` missing,
-  empty, or missing a backticked marker for an open finding, for the round(s) in
-  `sectionGaps`). That file is the hole-free trail everyone draws on —
-  the author's memory, the rebuttal codex reads next round, and part of the posted
-  comment — so a miss means the published record has a gap. The code guards against
-  feeding an empty rebuttal to codex (it warns and keeps the prior pointer), and the
-  tree edits are still present, but this is **not** a clean consensus: a human must
-  fill in the missing round(s) before trusting the per-round record. Do **not**
-  report it as a plain consensus (see step 3).
-- **merge-base-error** — an *up-front* abort, **before** any debate round runs:
-  `git merge-base <base> HEAD` failed (missing/typoed/stale base, or unrelated
-  history), so the review scope can't be trusted. The return carries a human-readable
-  `note` (which base failed, how to fix it — e.g. `git fetch`) and **none** of the
-  comment-assembly fields (`commentHeader`/`workDir`/`sectionGlob`), because no
-  section files were ever written. Report the scope failure and **skip comment
-  assembly/posting entirely** (see step 3); fix the base ref and re-run.
-- **reviewer-error** — the one *abnormal* terminus: codex itself failed to
-  produce a verdict (broken/unavailable CLI), so the workflow synthesized an
-  error verdict and aborted rather than spin forever on a dead reviewer. This is
-  **infrastructure failure, not a debate outcome** — `finalVerdict.summary`
-  carries the failure detail (including how many attempts were made). Do **not**
-  treat it as consensus (see step 3). **Transient failures are retried first:**
-  `codex-review.sh` retries the `codex exec` invocation with linear backoff
-  (default 3 attempts; tune via `CODEX_REVIEW_RETRIES` / `CODEX_REVIEW_BACKOFF`)
-  and only synthesizes the reviewer-error verdict once every attempt comes back
-  empty — so a single codex hiccup no longer sinks the round.
+**Reviewer-error (the one abnormal terminus).** If codex cannot produce a readable,
+schema-valid verdict even after you re-ask (its session is broken/unavailable/wedged),
+do **not** treat it as consensus. Tear down the split, report it as an
+**infrastructure failure** (surface what you saw on codex's terminal), tell the user
+to fix codex (e.g. `codex login`, check the CLI) and re-run, and stop. There is no
+agreement to report.
 
-### 3. Present the result
+### 4. Present the result & post the comment
 
-**First branch on `status`.** If `status === "merge-base-error"`, the workflow
-**aborted before any debate ran** — `git merge-base <base> HEAD` failed, so the
-review scope couldn't be trusted. This return has **no** `commentHeader`,
-`workDir`, or `sectionGlob` (no section files exist), so there is **nothing to
-assemble**: do **not** run the posting block below. Report the scope failure —
-surface the return's `note` (it names the failing base and the fix) — tell the
-user to repair the base ref (e.g. `git fetch`, fix a typo'd/stale ref) and re-run,
-and **skip the rest of this section**.
+Tear down the split (`kaval-tui kill "$CODEX_ID" --socket "$KAVAL_SOCKET"`). Then,
+**on consensus** (do **not** push or merge — the per-round commits sit on the local
+branch for the human):
 
-If `status === "reviewer-error"`, the debate did
-**not** reach consensus — codex never produced a real verdict. Report it as a
-**failure**, not a success: surface `finalVerdict.summary` (and the workflow log)
-so the user sees codex was broken/unavailable, and tell them to fix codex (e.g.
-`codex login`, check the CLI) and re-run. Do **not** post a consensus badge or a
-`## Codex ⇄ Claude debate` PR comment for this path — there is no agreement to
-report. Skip the rest of this section.
-
-If `status === "commit-incomplete"`, the debate converged but at least one round
-left its edits **uncommitted** (the round numbers are in `commitGaps`). Report it
-as **converged-but-not-clean**: assemble and post the comment (see the posting
-block below — `commentHeader` already shows a `⚠️` badge, not the consensus
-check), then tell the user which round(s) are uncommitted and that the outstanding
-tree must be committed before the per-round history can be trusted. Do **not** call
-it a clean consensus.
-
-If `status === "section-incomplete"`, the debate converged but at least one round's
-author **skipped or under-filled its disposition section file** (missing, empty, or
-omitting a marker for an open finding; round numbers in `sectionGaps`).
-Report it as **converged-but-not-clean**: assemble and post the comment as usual
-(the `⚠️` badge is already set), then tell the user which round(s) are missing
-their disposition record and that the per-round history has a gap a human should
-fill before trusting it. Do **not** call it a clean consensus.
-
-Otherwise (`status === "consensus"`) report in chat (do **not** push or merge —
-the per-round commits sit on the local branch for the human to review):
-
-- The outcome — **consensus** — and how many rounds it took to get there.
-- **The reviewer's reasoning effort** — sourced from the workflow's single
-  `REASONING_EFFORT` constant (`xhigh` today), which is passed down to
-  `codex-review.sh`'s `-c model_reasoning_effort` and into the comment header, so
-  the published value and the config codex actually ran at share one home. Read
-  it off the header rather than asserting it independently. State it so the depth
-  of the review is on the record.
-- `git log --oneline <base>..HEAD` (the per-round debate commits) and
-  `git diff --stat <base>` so the user sees what the debate changed.
+- The outcome — **consensus** — and how many rounds it took.
+- **The reviewer's reasoning effort** — `xhigh` (the `-c model_reasoning_effort` you
+  launched codex with). State it so the depth of the review is on the record, and put
+  it in the comment header.
+- `git log --oneline <merge-base>..HEAD` (the per-round debate commits) and
+  `git diff --stat <merge-base>` so the user sees what the debate changed.
 - A compact per-round summary — read it straight from the section files
-  (`cat <workDir>/section-*.md`: each round's codex verdict, then the author's
-  dispositions and commit SHA) so the convergence reads round by round. No need to
-  re-derive it from `transcript`; the sections already render it.
+  (`cat .codex-debate/section-*.md`: each round's codex verdict, then your
+  dispositions and commit SHA).
 - The agreed changes are committed per round on the local branch (or, under
-  `--no-commit`, uncommitted in the working tree). The user reviews, then pushes
-  / merges (or runs `/do --from post-implement`) when satisfied.
-- **Post the debate summary to the PR (default).** When a PR exists and
-  `--no-comment` was NOT passed, **assemble** the comment from the workflow's
-  return — the small `commentHeader`, then the per-round section files `cat`-ed in
-  glob order — and `gh pr comment <pr> -F <file>`:
+  `--no-commit`, uncommitted in the working tree). The user reviews, then pushes /
+  merges (or runs `/do --from post-implement`) when satisfied.
+- **Post the debate summary to the PR (default).** When a PR exists and `--no-comment`
+  was NOT passed, **assemble** the comment deterministically — a small header, then
+  the per-round section files `cat`-ed in glob order — and post it:
 
-  ```bash
-  mkdir -p "$workDir"   # reviewer-error/--no-commit runs may not have created it
+  ```sh
+  workDir="$REPO/.codex-debate"
   {
-    printf '%s\n' "$commentHeader"
+    printf '## Codex ⇄ Claude debate\n\n'
+    printf '✅ Consensus in %s round(s) · reviewer effort: xhigh · base: %s\n' "$ROUNDS" "$BASE"
     for f in "$workDir"/section-*.md; do printf '\n'; cat "$f"; printf '\n'; done
   } > "$workDir/comment.md"
   gh pr comment <pr> -F "$workDir/comment.md"
   ```
 
-  (`$workDir` is the returned `workDir`, i.e. `<repoPath>/.codex-debate`; the
-  `for`-loop guarantees a blank line between sections regardless of each file's
-  trailing newline.) The result is the `## Codex ⇄ Claude debate` header (consensus
-  badge, round count, the **reasoning-effort** note from the workflow's
-  `REASONING_EFFORT` constant) followed by the per-round breakdown of codex's
-  findings and the author's dispositions — the **same** section files the author
-  read as memory and codex read as the rebuttal. So the comment is a
-  **deterministic** shell concat of the record everyone drew on, not an
-  LLM-improvised table — nothing weak ever retypes a blob. This is an outward-facing
-  write — on by default because the whole point is to leave the review trail on the
-  PR; `--no-comment` suppresses it.
+  The section files zero-pad `NNN` so the `section-*.md` glob sorts chronologically;
+  the `for`-loop guarantees a blank line between sections regardless of trailing
+  newlines. The comment is a **deterministic** `cat` of the **same** section files you
+  read as memory and codex read as the rebuttal — never an LLM-improvised table,
+  nothing weak retyping a large blob. This is an outward-facing write, on by default
+  because the whole point is to leave the review trail on the PR; `--no-comment`
+  suppresses it.
+
+## Safety & notes (review mode)
+
+- **codex is instructed read-only — NOT kernel-enforced (a downgrade, stated
+  plainly).** The old engine ran codex under `--sandbox read-only`, so the kernel
+  blocked writes even if a prompt-injected diff tried to make it write. The live TUI
+  runs under **`--yolo`** (so the driven loop never wedges on an approval dialog),
+  which means codex is **no longer sandboxed** — its read-only behavior now rests on
+  the instruction in `ask-NNN.md`, not a kernel guard. codex reviews arbitrary diffs
+  and *could* in principle be prompt-injected into a write. The only intended writes to
+  the tree are your author edits. **If hard read-only matters for a given change, run
+  the debate in a disposable worktree.** Treat codex's read-only as **best-effort, not
+  enforced.**
+- **Warm reviewer session — native, no resume.** The split is one persistent codex
+  session; it retains its own prior review across rounds with no `codex exec resume`
+  and no session-id file. Round 1 is the full review; later rounds are lean follow-ups
+  it answers from its own context.
+- **Warm author (context, not session).** You are the author across all rounds in one
+  continuous turn-driven presence, so you keep your own memory. On top of that, each
+  round you read your prior `section-*.md` files (your dispositions and codex's
+  findings), and when the caller passes `--context`/`--rationale` you reason from the
+  change's purpose and deliberate decisions in **every** round — so you dispute a
+  finding that contradicts a deliberate choice instead of dutifully "fixing" it.
+- **Files are the payload; the screen carries only signals.** Verdicts, sections,
+  rebuttals, and prompts all move as **files** (`.codex-debate/`); the terminal
+  carries only short **signals** — the one-line `VERDICT-WRITTEN` marker and the ping.
+  This is the /kolu large-paste rule applied in both directions, and it makes silent
+  truncation of the published record **inexpressible**: nothing a debater relies on is
+  ever scraped off a lossy, scrolling screen.
+- **Commits, but never pushes or merges.** Each round is committed locally (unless
+  `--no-commit`) so the PR history reads as the debate, but the skill never pushes or
+  merges. Consensus means "both AIs agree on the committed code," not "ship it."
+- **Parallel-safe.** All scratch lives under the gitignored, per-worktree
+  `$REPO/.codex-debate/`, so debates on many worktrees run at once without clobbering
+  each other — no shared `/tmp` paths.
+- **Posts to the PR by default** (unless `--no-comment`) — the point is to leave the
+  review trail on the PR.
+- <a id="runs-to-consensus"></a>**Runs to consensus — no cap, no deadlock exit.** The
+  loop ends only when codex's verdict is `approved: true`; it does not bail at a round
+  cap or declare a "deadlock," because a debate that quits without agreement is
+  pointless. The two sides keep arguing until one concedes. The **one carve-out is
+  *not* a deadlock exit:** the [resolved-and-deferred](#3-the-debate-loop-symmetric-pings-to-consensus)
+  handling of a genuine downstream / ship-phase / process gate (which no mid-review
+  edit can satisfy) — a genuine code defect you simply dislike is still argued to
+  consensus. (This is the loop that once spun until a human killed it on a
+  `@kolu/surface` cross-repo run.) If you ever need to stop a debate by hand, interrupt
+  the turn and `kaval-tui kill "$CODEX_ID"`.
 
 <a id="answer-mode"></a>
 # Answer mode — Codex ⇄ Claude answer debate
 
-When the argument is a **freeform prompt** (not a PR number/flags), the skill
-generalizes the same debate machinery from *reviewing a diff* to *answering a
-question*. The shape is **symmetric**, not author⇄reviewer: **Claude and codex are
-two equal peers**. They each answer the prompt **independently and in parallel**,
-then **cross-check each other's answer** round after round — conceding where the
-other is right, holding firm (with evidence) where it isn't — **until both agree**.
-A final pass **synthesizes their two converged answers into one unified reply**,
-which you present to the user along with a saved transcript.
+When the subcommand is `answer`, the skill generalizes the same live-terminal debate
+from *reviewing a diff* to *answering a question*. The shape is **symmetric**, not
+author⇄reviewer: **you and codex are two equal peers**. You each answer the prompt
+**independently**, then **cross-check each other's answer** round after round —
+conceding where the other is right, holding firm (with evidence) where it isn't —
+**until both agree**. A final pass **synthesizes the two converged answers into one
+unified reply**, which you present to the user along with a saved transcript.
 
 Both peers are **codebase-aware but read-only**: each may read this repo (`git
-diff/log`, read files, grep) to ground its answer, but neither edits anything —
-codex stays under `--sandbox read-only` (kernel-enforced), and the Claude peer is
-instructed not to write. Consensus is **schema-detected in code**: each side emits
-a structured answer with an `agreesWithOther` boolean and an `objections` list, and
-the loop ends only when **both** sides report no remaining disagreement. There is
-**no round cap and no deadlock exit** — same as review mode.
+diff/log`, read files, grep) to ground its answer, but neither edits anything. This
+mode makes **no** commits and **no** PR writes. The same symmetric ping loop and the
+same file-transport apply — answers move as files, the terminal carries only the ping.
 
 ## Steps
 
 ### A1. Resolve context
 
-- Determine `repoPath` (the worktree root, normally the cwd).
+- Determine `$REPO` (the worktree root). Confirm `$KAVAL_TERMINAL_ID` is set (else
+  inert — stop and say so). `mkdir -p "$REPO/.codex-debate"`.
 - Capture the **prompt**: everything **after the `answer` subcommand token** (strip
-  surrounding quotes). If it's empty, ask the user what they want answered and stop.
-- **Preflight codex**: `codex login status`. If not logged in, stop and tell the
-  user to run `codex login` (suggest the `!` prefix to do it in-session).
-- No `git fetch` / base resolution / `gh pr checkout` here — answer mode doesn't
-  diff a branch.
+  surrounding quotes). If empty, ask the user what they want answered and stop.
+- **Preflight codex**: `codex login status`. If not logged in, stop and tell the user
+  to run `codex login`.
+- No `git fetch` / base resolution / `gh pr checkout` — answer mode doesn't diff a
+  branch.
 
-### A2. Run the answer Workflow
+### A2. Spawn the split codex and run the cross-check loop
 
-Invoke the **`Workflow` tool** pointing at this skill's committed answer script,
-passing the prompt through `args`:
+Spawn the split ([Spawning](#spawning-and-tearing-down-the-split)) and record
+`$CODEX_ID`. Because answer mode never needs codex to write the tree, its read-only
+behavior is **instructed** (the same `--yolo` engine; not kernel-enforced — see
+[safety](#answer-mode-safety--notes)); the ask file tells codex it may read the repo
+but must not modify it.
 
+- **Round 1 — independent answers.** You write your own answer to
+  `.codex-debate/answer-claude-1.md` (grounded in the repo where relevant). In
+  parallel, hand codex `ask-answer-1.md`: answer the prompt independently, ground it
+  in the repo, write `.codex-debate/answer-codex-1.md` **and** the machine record
+  `.codex-debate/answer-verdict-1.json` (schema below), print the `VERDICT-WRITTEN`
+  marker, and ping you. Neither peer has seen the other's answer yet.
+- **Rounds 2+ — cross-check.** Each peer reads the other's latest answer file and
+  either concedes (revises its own answer, recording what changed) or objects (holds
+  firm with specific reasons — cite `file:line` when the prompt is about this repo).
+  You write your updated `answer-claude-N.md`; codex writes `answer-codex-N.md` +
+  `answer-verdict-N.json` + pings. Same symmetric ping loop, to agreement.
+- **Convergence is candidate-confirmed, not just two agreeing booleans.** Because the
+  two answers evolve independently, a round where both report "I agree with the other"
+  can still be a **swap false positive** (each adopted the other's prior answer; both
+  say "agree" but their current texts differ). The sound test is to make both judge
+  **one shared text**. So when a round shows mutual agreement (both verdicts
+  `agreesWithOther: true` with no open objection), **you synthesize a single candidate
+  answer** from the two, write it to `.codex-debate/candidate.md`, and run a
+  **confirmation round**: both peers review that *identical* candidate (without
+  rewriting their own answer) and either approve it or object. If **both approve**,
+  that candidate is the converged answer. If either objects, drop the candidate and
+  resume the cross-check loop with the objection folded in. **No round cap, no deadlock
+  exit.**
+
+Answer-verdict schema (`answer-verdict-N.json`):
+
+```json
+{
+  "answer": "codex's complete, self-contained answer this round (revised on cross-check rounds)",
+  "keyPoints": ["core claims the answer rests on — what the other side must agree with"],
+  "agreesWithOther": false,
+  "objections": [ { "point": "the specific claim/gap you disagree with", "reason": "why — cite file:line for repo prompts" } ],
+  "changedMind": "what you revised this round because the other convinced you; empty on round 1 or if nothing changed"
+}
 ```
-Workflow({
-  scriptPath: ".claude/skills/codex-debate/answer.workflow.js",
-  args: {
-    repoPath: "<worktree root>",   // also the per-worktree scratch dir root
-    prompt: "<the user's freeform prompt, verbatim>",
-    skillDir: ".claude/skills/codex-debate"
-  }
-})
-```
 
-The workflow runs in the background and notifies you when it completes. It runs an
-**Answer** phase (round 1: `claude:round1` and `codex:round1` in parallel), a
-**Reconcile** phase (rounds 2+: each side cross-checks the other, in parallel,
-round after round), and a **Synthesis** phase that merges the two agreed answers.
-Watch live via `/workflows`. Ephemeral scratch (per-side answers, cross-check
-files, per-round sections, the saved transcript) lives under the gitignored,
-per-worktree `<repoPath>/.codex-debate/`, so parallel debates never collide. It
-returns:
-
-```
-{ status: "consensus" | "reviewer-error" | "agent-error" | "synthesis-error" | "no-prompt",
-  rounds, prompt, finalAnswer, transcriptPath, reasoningEffort, codexError }
-```
-
-- **consensus** — the only normal terminus: both sides agreed and then both
-  **approved the synthesized candidate** (see the convergence note), and
-  `finalAnswer` is that approved unified answer. `transcriptPath` points at the saved
-  Markdown transcript (`.codex-debate/answer-<slug>.md`).
-- **reviewer-error** — codex itself failed to produce an answer (broken/unavailable
-  CLI) after retries; `codexError` carries the failure detail. Infrastructure
-  failure, not a debate outcome.
-- **agent-error** — one side died on a terminal API error after retries.
-- **synthesis-error** — both sides DID agree, but the final synthesis pass produced
-  no answer (the synthesis agent died or returned empty). Not a successful answer —
-  report it as a failure (there is agreement on record, only the merge failed).
-- **no-prompt** — the prompt was empty (shouldn't happen if A1 guarded it).
+`agreesWithOther` counts as agreement **only** when it is `true` AND `objections` is
+empty — a stray objection can't be papered over by an over-eager boolean.
 
 ### A3. Present the result
 
-- If `status === "consensus"`: present **`finalAnswer`** to the user as the answer
-  — this is the unified reply both Claude and codex agreed on. State **how many
-  rounds** it took to converge and that **codex answered at `reasoningEffort`**
-  (read it off the return value). Point the user at the saved transcript
-  (`transcriptPath`) for the full convergence trail; optionally `cat` the
-  `.codex-debate/answer-section-*.md` files to show a compact per-round summary
-  (each side's answer, what changed, remaining objections). This mode makes **no
-  outward-facing writes** — no PR comment, no commits — it just answers.
-- If `status !== "consensus"`: report it as a **failure**, not an answer. Surface
-  `codexError` (for `reviewer-error`) or the workflow log so the user sees what
-  broke, and tell them how to fix it (e.g. `codex login`) and re-run. Do **not**
-  present a half-debate as if it were an agreed answer.
+Tear down the split (`kaval-tui kill "$CODEX_ID" --socket "$KAVAL_SOCKET"`). Then:
+
+- **On consensus** (both approved the candidate): present the **candidate** as the
+  unified answer — already signed off by both debaters. State **how many rounds** it
+  took and that **codex answered at `xhigh`**. Save the full transcript to
+  `.codex-debate/answer-<slug>.md` (the round-by-round answers, cross-checks, and the
+  confirmed candidate) and point the user at it. This mode makes **no** outward-facing
+  writes — no PR comment, no commits.
+- **On failure** (codex couldn't produce a readable/valid verdict after re-asks, or
+  synthesis/confirmation never converged): report it as a **failure**, not an answer —
+  surface what broke and how to fix it (e.g. `codex login`), and re-run. Do **not**
+  present a half-debate as an agreed answer.
 
 ## Answer-mode safety & notes
 
-- **Both peers read-only — but enforced ASYMMETRICALLY.** codex runs under
-  `--sandbox read-only` (kernel-enforced, belt-and-suspenders with the prompt text —
-  it reads arbitrary repo files and could be prompt-injected). The **Claude peer is
-  only prompt-enforced**: the harness's `agent()` exposes no sandbox/tool restriction
-  (the same is true of every Claude reviewer in `/lens-debate` and review mode), so
-  Claude's read-only behaviour rests on instruction, not a kernel guard. A
-  prompt-injected or mistaken Claude agent *could* in principle edit files or run a
-  git write — answer mode does not, and cannot here, harden against that the way it
-  does for codex. If that risk matters for a given prompt, run the debate in a
-  disposable/read-only worktree. Treat the read-only guarantee as **hard for codex,
-  best-effort for Claude.**
-- **Warm codex session.** Round 1 cold-starts `codex exec`; every later round
-  resumes the same session (`codex exec resume`) so codex cross-checks from its own
-  prior answer rather than reconstructing it. The session id lives in the
-  gitignored per-worktree `.codex-debate/` (a distinct `codex-answer-session.id`,
-  so it never collides with review mode's session), degrading gracefully to a cold
-  start if capture ever fails.
-- **Symmetric convergence, schema-detected, candidate-confirmed.** Each side emits
-  `agreesWithOther` + `objections`; a side counts as agreeing only when it sets
-  `agreesWithOther:true` AND leaves no objection, so a stray objection can't be
-  papered over by an over-eager boolean. Because the two run in parallel each round,
-  a single mutually-agreeing round can be a **swap false positive** (Claude adopts
-  codex's prior answer while codex adopts Claude's — both report agreement, but their
-  current outputs are swapped and still differ), and they can keep swapping back and
-  forth, so counting consecutive parallel agreements does **not** prove the current
-  outputs match. The only sound test is to make both sides judge **one shared piece
-  of text**. So when a round shows mutual agreement, the workflow synthesizes a single
-  **candidate** from the two agreed answers and runs a **confirmation phase**: both
-  sides review that *identical* candidate (without rewriting their own answer) and
-  either approve it or object. Approval is on one fixed text both actually saw, so no
-  swap is possible; if both approve, that candidate is the converged answer — already
-  signed off by both debaters (which is also why `finalAnswer` is never unapproved
-  synthesized text). If either objects, the candidate is dropped and the cross-check
-  loop resumes with the objections folded in. No round cap, no deadlock exit.
-- **Chat + saved transcript, no outward writes.** The unified answer is presented
-  in chat and the full transcript is saved to the gitignored
-  `.codex-debate/answer-<slug>.md`. Unlike review mode, answer mode never commits
-  or posts to a PR.
-
-## Safety & notes (review mode)
-
-- **codex runs read-only — enforced, not just asked.** codex is invoked with
-  `--sandbox read-only`, so the kernel sandbox blocks file writes and other
-  state-mutating syscalls; the prompt's "don't write" instruction is belt-and-
-  suspenders, not the only guard. This matters because codex reviews arbitrary
-  diffs and could be prompt-injected by file contents. The only writes to the
-  tree come from the Claude author rounds. (codex auto-falls-back to its bundled
-  bubblewrap when the system one is absent, so read-only works in containers.)
-  Resume rounds enforce the same read-only policy via `-c sandbox_mode=read-only`
-  (the `resume` subcommand has no `--sandbox` flag) — same kernel guard, set
-  through config instead of the flag.
-- **Warm reviewer session.** Round 1 cold-starts `codex exec`; the runner records
-  codex's session id (its `thread_id`, captured from the `--json` event stream)
-  under the scratch dir and every later round `codex exec resume`s it, so codex
-  retains its own prior review across rounds. The session id lives in the
-  gitignored per-worktree `.codex-debate/`, so parallel debates never resume each
-  other's sessions. If the id is ever missing (round-1 capture failed), a later
-  round transparently cold-starts with the full prompt + rebuttal — graceful
-  degradation, never a wedge.
-- **Warm author (context, not session).** The Claude author can't be resumed the
-  way codex is — `agent()` is one-shot and Claude isn't headless under Max auth,
-  so there's no session id to carry forward. The equivalent is context, not state:
-  each follow-up round the author **reads the per-round section files**
-  (`cat .codex-debate/section-*.md`) — every prior round's codex findings and its
-  own dispositions — so it builds on its last round rather than re-deriving the
-  whole diff, and won't re-fix or re-litigate findings already settled. Each round
-  writes two small files (a Haiku-rendered codex section and the author's own
-  disposition section), so round N>1 always sees rounds 1..N-1; round 1 has none
-  yet, so it's byte-identical to a cold start (and if no sections exist, the author
-  falls back to the diff + verdict). The *same* sections compose the PR comment step
-  3 posts and the rebuttal codex reads, so the author's memory, the published
-  summary, and codex's rebuttal are one record. Crucially, the author **writes its
-  own disposition section directly** — it never has to pour that narrative through a
-  structured field — so its structured return stays a minimal ack and can't overflow
-  on a large, many-finding diff (the failure this design replaced). The Haiku writer
-  only ever renders codex's small *structured* verdict, so nothing weak retypes a
-  large blob. codex stays on its own warm session and never reads the sections —
-  only the one rebuttal file each round.
-- **Inherited context, not just diff.** On top of that cross-round memory, when the
-  caller passes `context` and/or `rationale` the author **inherits them in EVERY
-  round's prompt** — the main-agent intent (what the change is FOR) and the
-  deliberate-decision note. So even **round 1** reasons from the change's purpose
-  rather than the diff alone, and the author *disputes* a finding that contradicts a
-  deliberate choice instead of dutifully "fixing" it. The `rationale` also rides
-  codex's round-1 prompt (see `codex-review.sh`), so the reviewer doesn't raise those
-  intentional choices at the source; `context` is the author's alone (codex stays an
-  independent reviewer of the code, not the narrative).
-- **Commits, but never pushes or merges.** Each round is committed locally (unless
-  `--no-commit`) so the PR history reads as the debate, but the skill never
-  pushes or merges. Consensus means "both AIs agree on the committed code," not
-  "ship it" — the human reviews the commits and pushes/merges.
-- **Parallel-safe.** Ephemeral scratch (verdicts and the per-round section files,
-  the author-written ones doubling as the rebuttal) lives under the gitignored,
-  per-worktree `<repoPath>/.codex-debate/`, so debates on many worktrees run at once
-  without clobbering each other — no shared `/tmp` paths, and each worktree's section
-  files are its own.
-- **Posts to the PR by default.** When a PR exists, the debate summary — the
-  `commentHeader` followed by the per-round section files `cat`-ed together (step 3)
-  — is posted as a PR comment (outward-facing write) unless `--no-comment` is passed
-  — the point is to leave the review trail on the PR.
-- **Runs to consensus — no cap, no deadlock exit.** The loop ends only when codex
-  and Claude agree; it does not bail out at a round cap or declare a "deadlock," because
-  a debate that quits without agreement is pointless. The two sides keep arguing
-  until one concedes. The harness's own per-workflow agent backstop is the sole
-  hard ceiling; interrupt via `/workflows` or `TaskStop` if you ever need to stop
-  one by hand. **The one carve-out is *not* a deadlock exit:** a finding that is *not a
-  code edit for this worktree* but a downstream / ship-phase / process gate (a companion
-  repo pinning this repo's final post-review HEAD, a CI/release step, a cross-repo PR)
-  cannot be satisfied during the review — it targets the *post*-gauntlet HEAD. When
-  CLAUDE shows a finding is such a gate, codex marks it **resolved-and-deferred**
-  (acknowledged, handed to the ship phase) instead of holding it open forever. The CODE
-  debate still converges to consensus the normal way; this only stops the loop spinning
-  on a process gate neither side can land mid-review. It is narrow by design — a genuine
-  code defect CLAUDE simply dislikes is still argued to consensus, no exit. (This is the
-  loop that once spun until a human killed it on a `@kolu/surface` cross-repo run.)
+- **Both peers read-only — instructed, not enforced.** Under the `--yolo` engine
+  neither peer is kernel-sandboxed; both rest on instruction. (The old engine
+  kernel-enforced read-only for codex specifically — that asymmetric hard guarantee is
+  **gone** under the TUI engine; this is the same honest downgrade as review mode.) A
+  prompt-injected or mistaken peer *could* in principle write. If that risk matters for
+  a given prompt, run the debate in a disposable/read-only worktree.
+- **Warm codex session — native.** The split keeps codex's own prior answer across
+  rounds; no `codex exec resume`.
+- **Files are the payload; the screen carries only the ping.** Answers, verdicts, the
+  candidate, and the transcript are all files under `.codex-debate/`; the terminal
+  carries only the `VERDICT-WRITTEN` marker and the ping — same as review mode.
+- **Chat + saved transcript, no outward writes.** The unified answer is presented in
+  chat and the transcript saved to the gitignored `.codex-debate/answer-<slug>.md`.
+  Unlike review mode, answer mode never commits or posts to a PR.
 
 ## Files
 
-Shared:
+There are **no** workflow or `codex exec` scripts — the engine is this prose plus the
+`kaval-tui`/`padi-tui` CLIs and the [/kolu skill](../kolu/SKILL.md). All debate state
+is ephemeral, under the gitignored per-worktree `$REPO/.codex-debate/`:
 
-- `scripts/codex-exec-lib.sh` — the sourced core both modes share: the read-only
-  `codex exec`/`resume` invocation, warm-session resolve/persist, retry/backoff,
-  thread-id capture, and the synthesized error-verdict fallback (via a caller hook).
-  The two mode scripts source this and add only their own prompts + verdict shape.
+- `ask-NNN.md` / `ask-answer-N.md` — the round's instructions you write and point
+  codex at (fold-safe file-pointer prompts).
+- `verdict-NNN.json` / `answer-verdict-N.json` — codex's structured verdict/answer
+  (the machine record you parse; re-ask on malformed).
+- `section-NNN-1-codex.md` — codex's readable review render (part of the PR comment).
+- `section-NNN-2-claude.md` — your per-finding dispositions (your memory, codex's
+  rebuttal, part of the PR comment).
+- `answer-claude-N.md` / `answer-codex-N.md` / `candidate.md` / `answer-<slug>.md` —
+  answer-mode answers, the confirmed candidate, and the saved transcript.
 
-Review mode:
-
-- `debate.workflow.js` — the Workflow script (the loop + consensus logic).
-- `scripts/codex-review.sh` — the review-specific invocation (arg parsing, the
-  review prompts, the verdict schema/session file, the verdict-shaped error).
-- `scripts/codex-verdict.schema.json` — the JSON Schema codex's verdict is constrained to.
-
-Answer mode:
-
-- `answer.workflow.js` — the Workflow script for the symmetric answer-debate
-  (parallel answers → cross-check loop to agreement → synthesis).
-- `scripts/codex-answer.sh` — the answer-specific invocation (arg parsing, the
-  answer prompts, the answer schema/session file, the answer-shaped error).
-- `scripts/codex-answer.schema.json` — the JSON Schema codex's answer is constrained to.
-
-These are generated from `agents/.apm/skills/codex-debate/`; edit the source there and
-run `just ai apm` to regenerate.
+This skill is generated from `agents/.apm/skills/codex-debate/`; edit the source there
+and keep the generated `.claude/skills/` and `.agents/skills/` copies identical in the
+same commit (see `.claude/rules/apm-workflow.md`).
 
 ARGUMENTS: $ARGUMENTS
