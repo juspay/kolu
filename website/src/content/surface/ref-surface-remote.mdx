@@ -50,10 +50,11 @@ your sink until the link dies.
 | --- | --- | --- |
 | `pumpRemoteSurface(opts)` | `.` | pin → per-spawn `mirrorRemoteSurface` into `makeSink()` until each link dies, then await the next spawn |
 | `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
-| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns `{ surface, router, done }` |
-| `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next()` blocks until a fresh client (post-reconnect) — the raw-loop primitive under the pump |
+| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns a supervised `{ surface, router, done, close }` (the `router` is the FINAL top-level router) |
+| `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next(signal?)` blocks until a fresh client (post-reconnect), or wakes early on `signal` abort — the raw-loop primitive under the pump |
 
-`pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection? }`.
+`pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
+`reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent.
 `makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
 every spawn, so no per-client state survives a reconnect. `onLinkDown` fires after
 holders clear — the cue to drop any per-link local fold so the next spawn rebuilds

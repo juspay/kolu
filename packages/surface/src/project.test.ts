@@ -28,12 +28,7 @@ import {
   surfaceClientRef,
 } from "./project";
 import type { InMemoryChannel, SurfaceCtx } from "./server";
-import {
-  implementSurface,
-  inMemoryChannel,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "./server";
+import { implementSurface, inMemoryChannel, inMemoryStore } from "./server";
 
 // ── Surface A — the source ───────────────────────────────────────────────
 
@@ -87,7 +82,6 @@ function buildSourceA(): SourceA {
   const countStore = inMemoryStore(0);
 
   const { router, ctx } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       count: { store: countStore },
     },
@@ -156,7 +150,6 @@ function projectB(a: SourceA) {
   return projectSurface<ASpec, BSpec>(a.surface, {
     spec: bSpec,
     deps: (client) => ({
-      channel: inMemoryChannelByName(),
       cells: {
         count1: deriveCell(
           (opts) => client.surface.count.get(undefined, opts),
@@ -207,11 +200,11 @@ function setup(initialCount?: number): Harness {
   if (initialCount !== undefined) {
     a.countStore.set(initialCount);
   }
-  const aClient = surfaceClientRef(a.surface, a.router);
+  const aClient = surfaceClientRef(a.surface, a.router as never);
   const projected = projectB(a);
   const { router } = projected.implement(aClient);
   const bClient = directLink<typeof projected.surface.contract>(
-    router,
+    router as never,
   ) as BClient;
   return { a, aClient, bClient };
 }
@@ -386,6 +379,45 @@ describe("projectSurface — surface B derived from a client of surface A", () =
     await vi.waitFor(() => expect(a.surface).toBeDefined());
     // dispose must not throw and must abort the upstream subscription cleanly.
     expect(() => derived.dispose()).not.toThrow();
+  });
+
+  it("connect()'s disposer aborts AND awaits the upstream generator's async teardown (F3)", async () => {
+    let finallyDone = false;
+    const upstream = async (opts: {
+      signal?: AbortSignal;
+    }): Promise<AsyncIterable<number>> => ({
+      async *[Symbol.asyncIterator]() {
+        try {
+          yield 1;
+          // Park until the disposer aborts us.
+          await new Promise<void>((resolve) =>
+            opts.signal?.addEventListener("abort", () => resolve(), {
+              once: true,
+            }),
+          );
+        } finally {
+          // Async teardown work — `close()` (via the disposer) must WAIT for this,
+          // rather than resolving the instant it fires abort (#1719).
+          await new Promise((r) => setTimeout(r, 20));
+          finallyDone = true;
+        }
+      },
+    });
+
+    const seen: number[] = [];
+    const derived = deriveCell(upstream, (n) => n, 0);
+    const disposer = derived.connect({
+      set: (v) => seen.push(v),
+    }) as () => Promise<void>;
+    await vi.waitFor(() => expect(seen).toEqual([1]));
+
+    const p = disposer();
+    // The disposer's promise is still pending — the generator's async finally
+    // has not finished, so a runtime `close()` awaiting this would not yet resolve.
+    expect(finallyDone).toBe(false);
+    await p;
+    // Only after awaiting the disposer is the upstream fully torn down.
+    expect(finallyDone).toBe(true);
   });
 
   it("deriveCell routes a non-abort upstream failure to onError, not the void (F8)", async () => {

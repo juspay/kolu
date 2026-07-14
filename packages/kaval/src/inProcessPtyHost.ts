@@ -30,9 +30,9 @@
 import { randomUUID } from "node:crypto";
 import { homedir, platform, userInfo } from "node:os";
 import { directLink } from "@kolu/surface/links/direct";
-import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
+import { implementSurface } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
-import { implement, ORPCError, type Router } from "@orpc/server";
+import { ORPCError, type Router } from "@orpc/server";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
 import type { DaemonLifetimeInfo, Logger } from "@kolu/surface-daemon";
@@ -125,7 +125,6 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   };
 
   const surface = implementSurface(ptyHostSurface, {
-    channel: inMemoryChannelByName(),
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
       terminalAttach: {
@@ -376,47 +375,49 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   return { ...surface, terminalCount: () => host.size() };
 }
 
-/** The raw `implementSurface` fragment router — the `.router` field of
- *  `servePtyHost`. `directLink` consumes this fragment directly (the
- *  in-process web client); over-the-wire serving needs it wrapped first — see
- *  `createInProcessPtyHost`'s `servedRouter`. */
+/** The FINAL top-level router — the `.router` field of `servePtyHost`'s
+ *  {@link SurfaceRuntime}. `directLink` consumes it (the in-process web client)
+ *  AND it serves straight over the wire (`serveOverStdio` / the unix socket) —
+ *  no per-call-site re-wrap. */
 export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
 
-/** Build the in-process pty-host ONCE and return three views of the same host:
+/** Build the in-process pty-host ONCE and return several views of the same host:
  *   - `client` — the no-wire `directLink` client kolu-server's web path uses;
- *   - `servedRouter` — the host's router wrapped in a top-level contract router,
- *     ready to hand straight to `serveOverStdio` (the unix socket for kaval-tui;
- *     the ssh stdio for a daemon). The bare fragment can't route over the wire
- *     (the StandardRPCHandler answers "Not Found"), so the wrap lives here —
- *     once, beside the contract it references — rather than at every serving
- *     call site;
- *   - `router` — the raw fragment, for advanced in-process use.
+ *   - `servedRouter` — the FINAL top-level router, ready to hand straight to
+ *     `serveOverStdio` (the unix socket for kaval-tui; the ssh stdio for a
+ *     daemon). It is `router` — `implementSurface` already finalized it, so
+ *     there is no fragment to wrap;
+ *   - `router` — the same final router, for advanced in-process use;
+ *   - `done` / `close` — the surface runtime's supervision handles. The
+ *     ptyHost surface declares no cell connectors, so `done` is inert (nothing
+ *     to fault) and `close` releases nothing today — exposed so the daemon owns
+ *     shutdown by construction, not as a behavior change.
  *  Call once per process; calling twice spawns two independent hosts. */
 export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   router: PtyHostRouter;
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the contract-wrapped served router's context type doesn't line up, though the runtime shape is exactly what serving wants.
+  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the runtime's router context type doesn't line up, though the runtime shape is exactly what serving wants.
   servedRouter: Router<any, any>;
   client: PtyHostClient;
   /** Live-PTY count (sync) — the daemon's diagnostics samples it. */
   terminalCount: () => number;
+  /** Rejects on an owned surface fault (inert today — no cell connectors). */
+  done: Promise<void>;
+  /** Release the surface runtime's owned sources. Idempotent. */
+  close(): Promise<void>;
 } {
   const served = servePtyHost(deps);
-  const router = served.router;
-  // Wrap the implementSurface fragment in a top-level contract router so the
-  // StandardRPCHandler can route it over the wire; narrow the result back to
-  // the `Router<any, any>` serving wants (the fragment's procedure-context type
-  // doesn't line up with implement().router()'s contract-derived param, though
-  // the runtime shape is exactly correct — the same unavoidable mismatch as
-  // serveOverSocket.ts:125 and mini-ci's served router).
-  const servedRouter = implement(ptyHostSurface.contract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch (see above); runtime shape is correct.
-    router as any,
-    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param (see above).
-  ) as Router<any, any>;
+  // `implementSurface` returns the FINAL top-level router (opaque `unknown` at
+  // the runtime boundary) — `directLink` AND the over-the-wire
+  // StandardRPCHandler both consume it directly, no re-wrap. Narrow it once here
+  // to the router shape both consumers want.
+  // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level router, same cast every serving site uses.
+  const router = served.router as Router<any, any>;
   return {
     router,
-    servedRouter,
+    servedRouter: router,
     client: directLink<typeof ptyHostSurface.contract>(router),
     terminalCount: served.terminalCount,
+    done: served.done,
+    close: served.close,
   };
 }

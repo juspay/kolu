@@ -48,7 +48,6 @@ import type { InMemoryChannel, SurfaceCtx } from "@kolu/surface/server";
 import {
   implementSurface,
   inMemoryChannel,
-  inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -114,7 +113,6 @@ function buildSourceA(initial: Node[]): SourceA {
   const nodesStore = inMemoryStore<Node[]>(initial);
 
   const { router, ctx } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: {
       nodes: { store: nodesStore },
     },
@@ -206,7 +204,6 @@ function projectB(a: SourceA) {
   return projectSurface<ASpec, BSpec>(a.surface, {
     spec: bSpec,
     deps: (client) => ({
-      channel: inMemoryChannelByName(),
       cells: {
         nodes: deriveCell(
           (opts) => client.surface.nodes.get(undefined, opts),
@@ -264,13 +261,13 @@ async function compose(initial: Node[]): Promise<Composed> {
   // type-check pass and overflow TS's union budget (`implement` takes the loose
   // `SurfaceClientLike` shape, so it doesn't need precision).
   const a = buildSourceA(initial);
-  const aClient = surfaceClientRef(a.surface, a.router);
+  const aClient = surfaceClientRef(a.surface, a.router as never);
 
   // 2. PROJECT A → B, implement B against the A-client, build a B-client.
   const projected = projectB(a);
   const { router: bRouter } = projected.implement(aClient);
   const bClient = directLink<typeof projected.surface.contract>(
-    bRouter,
+    bRouter as never,
   ) as BClient;
 
   // 3. SERVE B as MCP over an in-memory transport pair.

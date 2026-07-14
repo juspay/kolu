@@ -10,11 +10,7 @@
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
 import { z } from "zod";
 import { connectSurfaceMap } from "./client";
@@ -89,7 +85,6 @@ export function makeEntry(urgency: {
 }) {
   let urgencyGetCount = 0;
   const { router, ctx } = implementSurface(entrySurface, {
-    channel: inMemoryChannelByName(),
     cells: { urgency: { store: inMemoryStore(urgency) } },
     collections: {
       terminals: {
@@ -99,7 +94,7 @@ export function makeEntry(urgency: {
       },
     },
   });
-  const raw = directLink<typeof entrySurface.contract>(router);
+  const raw = directLink<typeof entrySurface.contract>(router as never);
   // Count subscriptions to `surface.urgency.get` — one per upstream forward.
   // biome-ignore lint/suspicious/noExplicitAny: opaque oRPC client, spied by string
   const link = new Proxy(raw as any, {

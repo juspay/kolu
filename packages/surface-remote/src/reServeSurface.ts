@@ -51,11 +51,10 @@ import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
   type CellCtxSetOpts,
   type ImplementSurfaceDeps,
-  implementSurface,
+  implementSurfaceOnPublisher,
   inMemoryChannelByName,
 } from "@kolu/surface/server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import { implement } from "@orpc/server";
 import { mirroredSurface, type WithConnection } from "./connection";
 import { seedConnectionCell } from "./connectionPipe";
 import {
@@ -123,13 +122,19 @@ export interface ReServedSurface<S extends SurfaceSpec> {
   surface: Surface<WithConnection<S>>;
   /** The per-binding oRPC router (flattened for a handler / `directLink`). */
   router: unknown;
-  /** Settles when the pump loop exits (the session was destroyed). It can also
-   *  REJECT on an unrecoverable mirror fault — a `SinkError` (a broken local fold)
-   *  or a client/surface mismatch — which STOPS the pump (no further reconnect). A
-   *  consumer MUST observe `done` and surface such a fault loudly (e.g. drive the
-   *  `connection` cell to failed); dropping it leaks an unhandled rejection and a
+  /** Settles when the pump loop exits (the session was destroyed, or `close`
+   *  aborted it). It can also REJECT on an unrecoverable mirror fault — a
+   *  `SinkError` (a broken local fold), a client/surface mismatch, or an owned
+   *  runtime fault (a cell connector rejecting) — which STOPS the pump (no
+   *  further reconnect). A consumer MUST observe `done` and surface such a fault
+   *  loudly (e.g. drive the `connection` cell to failed); dropping it leaks a
    *  silently-dead binding. (#1661 candidate 9; consumer wiring is W2.2.) */
   done: Promise<void>;
+  /** Stop this re-serve: abort the pump (WITHOUT destroying the caller-owned
+   *  session — the active mirror's per-key pumps settle via `signal.reason`,
+   *  #1719) and release the internal runtime's owned sources. Idempotent; always
+   *  resolves. The supervised-teardown twin of `done` (SRT-PR1). */
+  close(): Promise<void>;
 }
 
 /** The runtime shape of a forwarding stub — loosely typed here; the precise
@@ -382,7 +387,6 @@ export function reServeSurface<S extends SurfaceSpec>(
   // pass per kind, plus `connection`). The dynamic build is cast once at this
   // boundary, exactly as the framework's own dynamic walks cast.
   const deps = {
-    channel,
     cells: cellsDeps,
     collections: collectionsDeps,
     streams: streamsDeps,
@@ -390,8 +394,11 @@ export function reServeSurface<S extends SurfaceSpec>(
     procedures: proceduresDeps,
   } as unknown as ImplementSurfaceDeps<WithConnection<S>>;
 
-  const fragment = implementSurface(surface, deps);
-  const ctx = fragment.ctx as {
+  // The re-serve owns a SHARED, bounded channel (used by both the surface deps
+  // and the cell fold), so it serves on the caller-provided-channel constructor
+  // — the runtime does not own the channel's lifetime, the re-serve does.
+  const runtime = implementSurfaceOnPublisher(surface, deps, channel);
+  const ctx = runtime.ctx as {
     cells: Record<
       string,
       { set: (v: unknown, opts?: CellCtxSetOpts) => void } | undefined
@@ -413,9 +420,9 @@ export function reServeSurface<S extends SurfaceSpec>(
       "reServeSurface: mirroredSurface did not compose a connection cell",
     );
   }
-  // Flatten the `{ surface }` fragment once (a raw fragment double-prefixes to
-  // `surface/surface/…`), the pattern kolu's own server + the teaching example use.
-  const router = implement(surface.contract).router({ ...fragment.router });
+  // `implementSurfaceOnPublisher` already returns the FINAL top-level router
+  // (no re-flatten needed — the double-prefix is gone at the framework seam).
+  const router = runtime.router;
 
   // ── The reconnect-mirror pump ─────────────────────────────────────────────
   // The sink folds VALUE cells + collections into the per-binding stores; streams
@@ -495,7 +502,13 @@ export function reServeSurface<S extends SurfaceSpec>(
     return { cells, collections } as unknown as SurfaceSink<S>;
   };
 
-  const done = pumpRemoteSurface<S>({
+  // The re-serve's supervision handle: `close()` aborts THIS pump (without
+  // destroying the caller-owned session) and releases the runtime's own sources.
+  // The pump's own `.done` is the primary settle (session destroyed / mirror
+  // fault); an owned runtime fault (a cell connector rejecting) also reaches
+  // `done` — the re-serve is now a supervised source, not a floating pump.
+  const pumpAbort = new AbortController();
+  const pumpDone = pumpRemoteSurface<S>({
     source,
     session,
     makeSink,
@@ -505,8 +518,40 @@ export function reServeSurface<S extends SurfaceSpec>(
     // (subscribes `session.onState` once) — the wiring #1564 says a re-serve
     // can't forget.
     connection: { set: connectionCell.set },
+    signal: pumpAbort.signal,
     log,
   });
 
-  return { surface, router, done };
+  // Join the internal runtime's owned-fault channel into `done` WITHOUT letting
+  // its clean-close resolution pre-empt the pump's own settle: only propagate a
+  // runtime REJECTION; a runtime resolve (on `close`) is intentionally ignored so
+  // `pumpDone` remains the resolving edge. First settle wins; each source routes
+  // its own resolve/reject.
+  const done = new Promise<void>((resolve, reject) => {
+    pumpDone.then(resolve, reject);
+    runtime.done.catch(reject);
+  });
+  // `done` may reject from either arm; guard against an unhandled rejection if a
+  // consumer only observes `close()`. (Consumers that read `done` still see it.)
+  done.catch(() => {});
+
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    // This hand-rolls the same abort-first / await-settle / dispose teardown
+    // doctrine that `superviseSurface` (@kolu/surface/server) is the canonical
+    // combinator for. It is NOT delegated to here because the resolve edges
+    // differ: the pump's own settlement is TERMINAL (a session destroy resolves
+    // `done`), whereas `superviseSurface.done` resolves only on `close`. Unifying
+    // the two — teaching `superviseSurface` a terminal source — is deferred to PR5.
+    closing ??= (async () => {
+      // Abort FIRST (the active mirror's per-key pumps settle via signal.reason —
+      // #1719), then await the pump's own settle, then release the runtime.
+      pumpAbort.abort();
+      await pumpDone.catch(() => {});
+      await runtime.close();
+    })();
+    return closing;
+  };
+
+  return { surface, router, done, close };
 }

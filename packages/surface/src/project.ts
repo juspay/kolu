@@ -43,6 +43,7 @@ import {
 } from "./define";
 import {
   type CellStore,
+  type Disposer,
   type EventHandlerDeps,
   type ImplementSurfaceDeps,
   implementSurface,
@@ -190,10 +191,13 @@ export function deriveEvent<I, F, T>(
 
 /** The `cells.<key>` impl deps a derived (no-patch) cell needs: an
  *  `inMemoryCell` store and a `connect` hook that subscribes upstream. Matches
- *  the no-patch branch of `CellImplDeps`. */
+ *  the no-patch branch of `CellImplDeps`. `connect` returns a {@link Disposer}
+ *  (aborts the upstream subscription) so the runtime's `close()` tears the
+ *  derivation down — the derived cell joins the {@link SurfaceRuntime}'s
+ *  ownership rather than living for the process lifetime unconditionally. */
 export interface DerivedCellDeps<T> {
   store: CellStore<T>;
-  connect: (cell: { set: (next: T) => void }) => void;
+  connect: (cell: { set: (next: T) => void }) => Disposer;
 }
 
 /** Derive a cell that tracks an upstream A cell and republishes `map(frame)`.
@@ -216,18 +220,26 @@ export interface DerivedCellDeps<T> {
  *  is async). Once A's first frame lands it's overwritten with the mapped
  *  snapshot through the same equals/onWrite/store.set/bus.publish path.
  *
- *  Teardown: `connect` owns its own `AbortController`. The framework has no
- *  "disconnect" hook for a cell (a cell is process-lifetime), so the upstream
- *  subscription lives as long as B's implementation does — which is correct: B's
- *  cell must keep tracking A for B's whole life. The returned `dispose` lets a
- *  caller that *does* own a teardown point (a test, a scoped adapter) abort the
- *  upstream explicitly.
+ *  Teardown: `connect` owns its own `AbortController` and RETURNS a disposer, so
+ *  the {@link SurfaceRuntime}'s `close()` aborts the upstream subscription when
+ *  the served surface is torn down — the derivation lives exactly as long as the
+ *  runtime that owns it, not unconditionally for the process. The two teardown
+ *  paths differ in their COMPLETION guarantee: `connect`'s returned disposer
+ *  `abort()`s and then `await`s the subscription task, so it resolves only once
+ *  the upstream iterator has fully torn down (the #1719 abort-then-observe
+ *  contract the runtime's `close()` relies on). The standalone `dispose` — for a
+ *  caller that owns its OWN teardown point (a test, a scoped adapter serving no
+ *  runtime) — only `abort()`s and returns immediately, NOT awaiting the task; use
+ *  it for fire-and-forget cancellation, the returned disposer when you must know
+ *  teardown finished. Abort is idempotent, so the two never conflict.
  *
- *  Error policy: the subscribe loop is fire-and-forget (the framework calls
- *  `connect` and never awaits it), so a non-abort upstream failure cannot
- *  propagate to a caller — left to throw it would become an *unhandled
- *  rejection* and the derived cell would silently stop tracking. Instead a
- *  non-abort error is routed to `opts.onError` and the loop ends; the cell
+ *  Error policy: the subscribe loop routes every non-abort failure to
+ *  `opts.onError` rather than rejecting (so the task always settles — that's
+ *  what lets `close()` await its teardown; see the disposer). A non-abort
+ *  upstream failure thus cannot propagate to a caller — left to throw it would
+ *  become an *unhandled rejection* and the derived cell would silently stop
+ *  tracking. Instead a non-abort error is routed to `opts.onError` and the loop
+ *  ends; the cell
  *  keeps its last value. `onError` defaults to a stderr log so a failure is
  *  never invisible — pass `() => {}` to opt into silent-stop deliberately, or
  *  supply a handler that re-arms the subscription if you need retry/backoff.
@@ -251,16 +263,17 @@ export function deriveCell<F, T>(
     // so hand its store straight through — no rename adapter.
     store,
     connect: (cell) => {
-      // Fire-and-forget subscribe loop. The framework calls `connect` once,
-      // after the cell ctx is wired, handing us its setter — every mapped
-      // frame flows through the surface's equals/onWrite/store.set/bus.publish
-      // path (we do NOT touch `store` directly, or the wire side wouldn't see
-      // the publish). The per-frame abort-time swallow lives in the shared
-      // `iterateUntilAborted`; this catch handles only the pre-iteration
-      // `upstream()` rejection (abort-shaped → swallow, else → `onError`) and
-      // any non-abort iteration failure, routed to `onError` rather than
-      // rethrown into the void.
-      void (async () => {
+      // The subscribe loop, RETAINED as a task (not fire-and-forget). The
+      // framework calls `connect` once, after the cell ctx is wired, handing us
+      // its setter — every mapped frame flows through the surface's
+      // equals/onWrite/store.set/bus.publish path (we do NOT touch `store`
+      // directly, or the wire side wouldn't see the publish). The per-frame
+      // abort-time swallow lives in the shared `iterateUntilAborted`; this catch
+      // handles only the pre-iteration `upstream()` rejection (abort-shaped →
+      // swallow, else → `onError`) and any non-abort iteration failure, routed to
+      // `onError` — so the task ALWAYS settles (never rejects), which is what lets
+      // the disposer await it safely below.
+      const task = (async () => {
         try {
           const iterable = await upstream({ signal: controller.signal });
           for await (const frame of iterateUntilAborted(
@@ -274,6 +287,16 @@ export function deriveCell<F, T>(
           onError(err);
         }
       })();
+      // Return an ASYNC disposer: abort the upstream subscription AND await the
+      // loop's teardown (its `finally` / the upstream iterator's `return()`), so
+      // the SurfaceRuntime's `close()` does not resolve before A's subscription
+      // is fully torn down — the #1719 abort-then-observe-settlement contract.
+      // (abort is idempotent, so this and the standalone `dispose()` below can
+      // both fire harmlessly.)
+      return async () => {
+        controller.abort();
+        await task;
+      };
     },
     dispose: () => controller.abort(),
   };
@@ -312,7 +335,7 @@ export interface SurfaceProjection<
  *      const projected = projectSurface(appSurface, {
  *        spec: { cells: { … }, streams: { … }, procedures: { … } },
  *        deps: (a) => ({
- *          channel: inMemoryChannelByName(),
+ *          // No `channel` — the ordinary `implementSurface` owns it internally.
  *          cells:   { mirror: deriveCell((o) => a.surface.x.get(undefined, o), map, 0) },
  *          streams: { view:   deriveStream((i, o) => a.surface.s.get(i, o), map) },
  *          procedures: { ns: { run: ({ input }) => a.surface.ns.run(input) } },

@@ -15,7 +15,7 @@ import {
   ClientSurfaceMismatchError,
   mirrorRemoteSurface,
 } from "./mirrorRemoteSurface";
-import { type Channel, implementSurface, inMemoryChannel } from "./server";
+import { implementSurface } from "./server";
 
 const testSurface = defineSurface({
   cells: { count: { schema: z.number(), default: 0 } },
@@ -414,7 +414,6 @@ const procSurface = defineSurface({
  *  ran on the far side. */
 function serveProc(recordedResets: number[] = []) {
   const { router } = implementSurface(procSurface, {
-    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
     procedures: {
       math: {
         double: ({ input }) => ({ y: input.x * 2 }),
@@ -425,7 +424,7 @@ function serveProc(recordedResets: number[] = []) {
       },
     },
   });
-  return directLink<typeof procSurface.contract>(router);
+  return directLink<typeof procSurface.contract>(router as never);
 }
 
 describe("mirrorRemoteSurface — procedures (the total dual)", () => {
@@ -447,7 +446,6 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     // remote — the location-transparency the whole epic rests on.
     const mirror = mirrorRemoteSurface(procSurface, serveProc(), {});
     const { router: reRouter } = implementSurface(procSurface, {
-      channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
       procedures: {
         math: {
           double: ({ input }) => mirror.procedures.math.double(input),
@@ -456,7 +454,7 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
         },
       },
     });
-    const reServed = directLink<typeof procSurface.contract>(reRouter);
+    const reServed = directLink<typeof procSurface.contract>(reRouter as never);
     expect(await reServed.surface.math.double({ x: 21 })).toEqual({ y: 42 });
     expect(await reServed.surface.math.ping()).toEqual({ pong: true });
   });
@@ -481,7 +479,6 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
       },
     });
     const { router } = implementSurface(mixed, {
-      channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
       streams: {
         ticks: {
           source: async function* (input) {
@@ -491,7 +488,7 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
       },
       procedures: { math: { double: ({ input }) => ({ y: input.x * 2 }) } },
     });
-    const client = directLink<typeof mixed.contract>(router);
+    const client = directLink<typeof mixed.contract>(router as never);
 
     const frames: number[] = [];
     const mirror = mirrorRemoteSurface(mixed, client, {

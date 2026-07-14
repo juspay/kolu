@@ -15,7 +15,6 @@
  * literally named "keys" and one literally named "deltas".
  */
 
-import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
@@ -26,7 +25,7 @@ import {
 import type { CollectionDelta } from "./define";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
-import { implementSurface, inMemoryChannelByName } from "./server";
+import { implementSurface } from "./server";
 
 describe("channel-name helpers — pure string output", () => {
   it("mints the two fixed channels and a key:-namespaced per-key channel", () => {
@@ -60,7 +59,6 @@ function serveStringKeyedItems() {
   });
   const items = new Map<string, { name: string }>();
   const { router, ctx } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     collections: {
       items: {
         readAll: () => items,
@@ -73,9 +71,8 @@ function serveStringKeyedItems() {
       },
     },
   });
-  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast (mirrors collectionKeysMembership.test.ts) — the router's Lazy<Router> spread isn't accepted by directLink's input type; the runtime shape is valid.
-  const wrapped = implement(surface.contract).router({ ...router }) as any;
-  const client = directLink<typeof surface.contract>(wrapped);
+  const wrapped = router;
+  const client = directLink<typeof surface.contract>(wrapped as never);
   return { client, ctx };
 }
 

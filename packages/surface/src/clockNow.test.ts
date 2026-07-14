@@ -17,12 +17,7 @@ import { z } from "zod";
 import { clockOffsetFrom, probeSurfaceClockNow } from "./clockNow";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
-import {
-  type Channel,
-  implementSurface,
-  inMemoryChannel,
-  inMemoryStore,
-} from "./server";
+import { implementSurface, inMemoryStore } from "./server";
 
 // A surface that ALSO declares its own `system.*` verb, to prove the reserved
 // `system.clockNow` merges into an app-owned `system` namespace rather than
@@ -45,7 +40,6 @@ function buildSurface() {
 
 function makeClient(surface: ReturnType<typeof buildSurface>) {
   const { router } = implementSurface(surface, {
-    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
     cells: { state: { store: inMemoryStore({ value: 0 }) } },
     procedures: {
       system: {
@@ -53,7 +47,7 @@ function makeClient(surface: ReturnType<typeof buildSurface>) {
       },
     },
   });
-  return directLink<typeof surface.contract>(router);
+  return directLink<typeof surface.contract>(router as never);
 }
 
 describe("framework-reserved system.clockNow probe", () => {
