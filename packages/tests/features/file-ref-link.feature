@@ -37,16 +37,20 @@ Feature: File-ref autolinking in terminal
 
   @touch-desktop
   Scenario: A touch tap resolves to the visually-tapped cell in a zoomed canvas tile
-    # PR-2 divisor unification. A coarse-primary pointer that CAN hover, at
-    # desktop width (a touchscreen device that hovers), is the ONE config where
-    # kolu both mounts the spatial pan/zoom canvas (desktop layout) AND wires the
-    # touch tap (coarse pointer) — exactly where a pointer→cell divisor under a
-    # zoomed tile matters. The tap routes through xterm's own font-metric
-    # authority (cellAtPoint, /internals), the divisor selection/hover use, not a
-    # hand-rolled rect.width/cols. This proves a tap on the ref's RENDERED glyph
-    # opens that ref, at normal scale AND after zooming the tile in — the
-    # correctness criterion (the two divisors agree only when the screen's layout
-    # width equals cols×cssCellWidth, which a zoomed tile need not).
+    # PR-2 divisor unification — the regression guard for the extracted touch tap.
+    # A coarse-primary pointer that CAN hover, at desktop width (a touchscreen
+    # device that hovers), is the ONE config where kolu both mounts the spatial
+    # pan/zoom canvas (desktop layout) AND wires the touch tap (coarse pointer).
+    # The tap now routes through xterm's own font-metric authority (cellAtPoint,
+    # /internals — what selection and hover already use) instead of a hand-rolled
+    # rect.width/cols. This guards that a tap on the ref's RENDERED glyph still
+    # opens that ref, at normal scale AND after zooming the tile in. NOTE it does
+    # NOT discriminate cellAtPoint from the deleted rect.width/cols: a CENTRE tap
+    # on the same cell resolves identically under BOTH (the old post-transform
+    # divisor self-corrected for zoom too, and their per-cell divergence is
+    # sub-pixel). The unification's value is one authority, not a tap-lands-wrong
+    # bug; this is the "the extracted tap still works" gate, not an equivalence
+    # disproof.
     When I run "git init /tmp/kolu-file-ref-zoom && cd /tmp/kolu-file-ref-zoom"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > zoom.txt"

@@ -23,6 +23,7 @@ import {
   createEffect,
   type JSX,
   on,
+  onCleanup,
   splitProps,
 } from "solid-js";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
@@ -74,7 +75,7 @@ interface XtermOwnProps {
   /** Extra xterm constructor options (scrollback, cursor, allowProposedApi …).
    *  `theme`/`fontSize`/`fontFamily` are set from the props above. */
   terminalOptions?: Omit<
-    Parameters<typeof createXtermLifecycle>[1]["terminalOptions"],
+    ReturnType<Parameters<typeof createXtermLifecycle>[1]>["terminalOptions"],
     "theme" | "fontSize" | "fontFamily"
   >;
   /** Keystrokes out (query-response filtering / sticky modifiers are policy). */
@@ -127,19 +128,35 @@ export const Xterm: Component<
   let core: XtermCore | null = null;
   let clearAtlas: (() => void) | null = null;
 
+  // This component's OWN retained refs, released synchronously on disposal so no
+  // leaked owner closure keeps the xterm graph reachable (#606). The lifecycle
+  // disposes term+addons and attachWebGL releases the GPU context (its own
+  // LIFO-earlier onCleanup); here we (1) cancel a pending refit rAF — an external
+  // browser root that would otherwise stay parked in a background tab and fire
+  // `fit()` on a disposed terminal — and (2) null `core`/`clearAtlas`, whose
+  // `addons.fit` holds a `_terminal` back-pointer FitAddon.dispose() never
+  // clears, so a retained `core` alone re-forms the #606 retainer chain.
+  onCleanup(() => {
+    cancelAnimationFrame(fitRaf);
+    core = null;
+    clearAtlas = null;
+  });
+
   // The scroll lock is solid-reactive, so it's created in the component owner.
   const scrollLock = createScrollLock(own.scrollLockEnabled);
 
   createXtermLifecycle(
     () => container,
-    {
+    // A thunk, not a snapshot: the lifecycle re-reads this AFTER the font await,
+    // so a `theme`/`fontSize` that changed mid-load builds with the latest value.
+    () => ({
       terminalOptions: {
         ...(own.terminalOptions ?? {}),
         theme: own.theme,
         fontSize: own.fontSize,
         fontFamily: own.fontFamily,
       },
-    },
+    }),
     (c: XtermCore) => {
       core = c;
       const term = c.terminal;

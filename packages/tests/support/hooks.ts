@@ -679,24 +679,51 @@ async function newScenarioPage(
     });
     previousContext = context;
     const page = await context.newPage();
-    // @touch-desktop: pin the pointer/hover media the client's `layoutMode` keys
-    // on — a coarse PRIMARY pointer that CAN hover, so `handheld` (coarse AND
-    // hover:none) is false and the desktop spatial canvas mounts, while
-    // `isTouch` (coarse) still wires the touch tap. Playwright's `emulateMedia`
-    // can't set pointer/hover, so use CDP. Bundled with `hasTouch` (above) inside
-    // the one `@touch-desktop` switch — never exposed separately.
-    if (touchDesktop) {
-      const cdp = await context.newCDPSession(page);
-      await cdp.send("Emulation.setEmulatedMedia", {
-        features: [
-          { name: "pointer", value: "coarse" },
-          { name: "hover", value: "hover" },
-        ],
-      });
-    }
+    // NOTE: the @touch-desktop pointer/hover media is pinned in the Before hook
+    // AFTER Playwright's own `emulateMedia` runs — a `page.emulateMedia` call
+    // resends `Emulation.setEmulatedMedia` with ONLY its own features, replacing
+    // the whole emulated set, so a CDP override sent here would be clobbered by
+    // the reduced-motion emulation below. See `pinTouchDesktopMedia`.
     previousContext = undefined;
     return { context, page };
   });
+}
+
+/** Pin the `@touch-desktop` pointer/hover media — a coarse PRIMARY pointer that
+ *  CAN hover (a touchscreen laptop): `handheld` (coarse AND hover:none) is false,
+ *  so the desktop spatial canvas mounts, while `isTouch` (coarse) still wires the
+ *  touch tap. Playwright's `emulateMedia` can't set pointer/hover, so use CDP.
+ *
+ *  MUST run AFTER any `page.emulateMedia(...)`: Playwright implements that by
+ *  resending `Emulation.setEmulatedMedia` with only ITS features, replacing the
+ *  whole emulated set — so an earlier CDP pointer/hover override is wiped, and
+ *  the scenario silently falls back to the handheld drawer layout. We send the
+ *  final, authoritative set here, folding reduced-motion back in when the suite
+ *  wanted it, then assert the media actually took before any navigation. */
+async function pinTouchDesktopMedia(
+  context: BrowserContext,
+  page: Page,
+  reducedMotion: boolean,
+): Promise<void> {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setEmulatedMedia", {
+    features: [
+      { name: "pointer", value: "coarse" },
+      { name: "hover", value: "hover" },
+      ...(reducedMotion
+        ? [{ name: "prefers-reduced-motion", value: "reduce" }]
+        : []),
+    ],
+  });
+  const media = await page.evaluate(() => ({
+    coarse: matchMedia("(pointer: coarse)").matches,
+    hover: matchMedia("(hover: hover)").matches,
+    handheld: matchMedia("(pointer: coarse) and (hover: none)").matches,
+  }));
+  if (!media.coarse || !media.hover || media.handheld)
+    throw new Error(
+      `@touch-desktop media not pinned before navigation: ${JSON.stringify(media)}`,
+    );
 }
 
 /** Wait until the server WE spawned owns the port and answers health.
@@ -1145,7 +1172,8 @@ Before(async function (this: KoluWorld, scenario) {
   // prefers-reduced-motion tells well-behaved libraries to skip animations;
   // the style override catches anything that ignores the media query. SKIPPED
   // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
-  if (!EVIDENCE && !X11CAP) {
+  const reducedMotion = !EVIDENCE && !X11CAP;
+  if (reducedMotion) {
     await this.page.emulateMedia({ reducedMotion: "reduce" });
     await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
@@ -1154,6 +1182,12 @@ Before(async function (this: KoluWorld, scenario) {
         document.head.appendChild(style);
       });
     `);
+  }
+  // AFTER the reduced-motion emulateMedia (which would otherwise clobber it), pin
+  // the coarse+hover pointer/hover media @touch-desktop keys its layout on —
+  // folding reduced-motion back into the same authoritative CDP call.
+  if (isTouchDesktop) {
+    await pinTouchDesktopMedia(this.context, this.page, reducedMotion);
   }
   // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
   // banner unconditionally (it's desktop-always-on, not the startupTips pref).

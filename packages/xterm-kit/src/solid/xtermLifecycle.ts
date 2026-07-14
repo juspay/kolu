@@ -52,7 +52,12 @@ export function createXtermLifecycle(
    *  the component body, but is present by the time the post-await body reads it
    *  (the div mounts synchronously before the font `await` resolves). */
   getContainer: () => HTMLElement,
-  options: XtermLifecycleOptions,
+  /** Read lazily too, and specifically re-read AFTER the font await for
+   *  construction — so a reactive `theme`/`fontSize` that changed while the font
+   *  was loading constructs the terminal with the LATEST value, not a snapshot
+   *  taken at call time (which the deferred live-update effects would then miss,
+   *  having already fired-and-bailed while `core` was still null). */
+  getOptions: () => XtermLifecycleOptions,
   onReady: (core: XtermCore) => void,
 ): void {
   const owner = getOwner();
@@ -74,11 +79,16 @@ export function createXtermLifecycle(
 
   void (async () => {
     try {
-      await document.fonts.load(`1em ${options.terminalOptions.fontFamily}`);
+      // fontFamily is static (the awaited face); read it eagerly for the load.
+      await document.fonts.load(
+        `1em ${getOptions().terminalOptions.fontFamily}`,
+      );
       if (disposed) return;
       const container = getContainer();
       runWithOwner(owner, () => {
-        const term = new XTerm(options.terminalOptions);
+        // Re-read here (post-await) so reactive theme/fontSize are current, not
+        // the value they held when the component body called us.
+        const term = new XTerm(getOptions().terminalOptions);
         terminal = term;
 
         const fit = new FitAddon();

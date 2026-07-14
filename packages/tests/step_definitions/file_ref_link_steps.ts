@@ -73,12 +73,14 @@ async function findRefClickPoint(
 /** Pixel at the FONT-METRIC visual centre of a terminal file-ref's first cell —
  *  where xterm actually renders the glyph (`_core._renderService.dimensions.css.
  *  cell.*`, the UNtransformed cell), scaled by the tile's CSS `scale(zoom)`. This
- *  is the cell the user visually taps. It differs from `findRefClickPoint`'s
- *  `rect.width / cols` exactly when the two divisors diverge (rounding, padding,
- *  or a zoomed tile near a cell boundary) — so tapping HERE and asserting the ref
- *  resolves proves the tap routes through xterm's font-metric authority
- *  (`cellAtPoint`), not the deleted parallel divisor (PR-2). Null when no marker
- *  row / cell metrics are measurable. */
+ *  is the cell the user visually taps. Tapping HERE and asserting the ref
+ *  resolves guards that the extracted touch tap still routes a visual tap to the
+ *  right cell through xterm's font-metric authority (`cellAtPoint`, PR-2),
+ *  including under zoom. It is NOT a discriminator against the deleted
+ *  `rect.width / cols`: a centre tap on a cell resolves to that same cell under
+ *  both divisors (their per-cell divergence is sub-pixel, and both self-correct
+ *  for zoom), so this is a regression guard, not an equivalence disproof. Null
+ *  when no marker row / cell metrics are measurable. */
 async function findRefFontMetricPoint(
   world: KoluWorld,
   refText: string,

@@ -50,6 +50,12 @@ export function wireTouchTaps(
     startY: number;
   } | null = null;
   makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
+    // TOUCH pointers only. This surface is wired on any coarse pointer, which
+    // now includes the coarse+hover DESKTOP class (a touchscreen laptop) — where
+    // a real mouse/pen also fires pointer events. `preventDefault`ing those (and
+    // reading their pointerup as a tap) would break xterm's own mouse selection,
+    // focus, and link handling. Leave non-touch pointers to xterm untouched.
+    if (e.pointerType !== "touch") return;
     e.preventDefault();
     activeTap = {
       pointerId: e.pointerId,
@@ -58,6 +64,7 @@ export function wireTouchTaps(
     };
   });
   makeEventListener(screen, "pointerup", (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
     if (activeTap === null || e.pointerId !== activeTap.pointerId) return;
     const { startX, startY } = activeTap;
     activeTap = null;
@@ -70,6 +77,7 @@ export function wireTouchTaps(
     handlers.onFocus();
   });
   makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
     if (activeTap?.pointerId === e.pointerId) activeTap = null;
   });
 }
