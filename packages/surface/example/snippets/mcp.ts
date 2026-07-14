@@ -10,14 +10,13 @@ import { implementSurface } from "@kolu/surface/server";
 import { directLink } from "@kolu/surface/links/direct";
 import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
 // #endregion imports
-import { inMemoryChannelByName, inMemoryStore } from "@kolu/surface/server";
+import { inMemoryStore } from "@kolu/surface/server";
 import { type Pid, type Proc, surface, ZERO } from "./surface";
 
 const table = new Map<Pid, Proc>();
 
 // #region client
 const { router } = implementSurface(surface, {
-  channel: inMemoryChannelByName(),
   cells: { load: { store: inMemoryStore(ZERO) } },
   collections: {
     processes: {
@@ -47,7 +46,7 @@ const { router } = implementSurface(surface, {
     },
   },
 });
-const client = directLink<typeof surface.contract>(router); // serve-fresh
+const client = directLink<typeof surface.contract>(router as never); // serve-fresh
 // #endregion client
 
 // #region serve

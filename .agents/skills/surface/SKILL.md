@@ -29,7 +29,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 ## The spine (real import paths)
 
 - **Define** — `defineSurface({cells,collections,streams,events,procedures})` (`@kolu/surface/define`). Many surfaces over one transport: `composeSurfaceContracts(map)` + sibling clients, never merged.
-- **Serve** — `implementSurface(surface, deps)` / `implementSurfaces(map, fwDeps, perKeyDeps)` (`@kolu/surface/server`; `inMemoryStore` / `inMemoryChannelByName` back the cells/channels). **Always flatten before serving:** `implement(surface.contract).router({ ...fragment.router })` — else oRPC double-prefixes `/surface/surface/…` and every call 404s.
+- **Serve** — `implementSurface(surface, deps)` / `implementSurfaces(map, base, perKeyDeps)` (`@kolu/surface/server`) returns a supervised runtime `{ router, ctx, done, close }`. `router` is the FINAL top-level router — **serve it directly** (no `implement(surface.contract).router(...)` re-wrap; a second finalize double-prefixes `/surface/surface/…` and 404s). Observe `done` (owned-fault channel) and own `close` at teardown. Serve on a SHARED caller-owned publisher via `implementSurfaceOnPublisher` / `implementSurfacesOnPublisher`.
 - **Consume (SolidJS)** — `surfaceClient(surface, link)` / `surfaceClients(link, map)` (`@kolu/surface/solid`) → `client.cells.X.use({authority,initial,onError})`, `.collections.X.use({keys,onError})` then `.byKey(id)?.()` / `.keys()`, `.streams.X.use(inputFn,{onError})` with `.pending()`/`.error()`, `.events.X.use(inputFn,handler)`.
 - **Consume (CLI/TUI)** — no reactive hooks; raw awaited `conn.client.surface.<verb>(…)` + async-iterator iteration; a live board uses `mirrorRemoteSurface(spec, client, {collections,streams}, {log})` (`@kolu/surface/mirror`) into plain callbacks.
 
@@ -41,7 +41,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
 1. **Dial the host** — `makeSession({connectOnce: sshConnector<contract>({host, binary, resolveDrvPath})})` (`@kolu/surface-remote`): long-lived, `nix copy`s the agent closure, runs `<bin> --stdio` over ssh, reconnects. `buildRemotePool` fans out N hosts; one-shot CLIs use `dialAgentOnce` instead.
 2. **Mirror inward** — `pumpRemoteSurface({source, session, makeSink, …})` (`-remote`) folds the remote agent's frames into a local `implementSurface` re-serve via a `SurfaceSink` (`makeSink`, `@kolu/surface/mirror`). The parent implements the *same* surface; a remotely-unobservable cell (e.g. connection state) is parent-authoritative.
-3. **Re-serve** — the local fragment served on `/rpc/ws`, accepted via `acceptSurfaceSocket` (`@kolu/surface-app/server`). Browsers connect with `connectSurface` (`@kolu/surface-app/solid`), which bundles socket + `websocketLink` + `surfaceClient` + a default-on liveness heartbeat.
+3. **Re-serve** — the local re-served surface (a FINAL `implementSurface` router) served on `/rpc/ws`, accepted via `acceptSurfaceSocket` (`@kolu/surface-app/server`). Browsers connect with `connectSurface` (`@kolu/surface-app/solid`), which bundles socket + `websocketLink` + `surfaceClient` + a default-on liveness heartbeat.
 
 ## Gotchas (hard-won, all real)
 

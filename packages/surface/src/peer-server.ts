@@ -27,22 +27,18 @@
  * to call from non-agent contexts (e.g. tests using a `LoopbackPair`)
  * without surprising stderr redirection.
  *
- * ## Router wrapping caveat
+ * ## Pass the router directly — no wrapping
  *
- * `implementSurface(...).router` returns a router *fragment* — a plain
- * record of handlers, not a top-level router from `implement(contract)`.
- * `StandardRPCHandler` needs the latter. Consumers wire it up at the
- * call site:
+ * `implementSurface(...).router` (and the plural / re-serve constructors)
+ * returns the FINAL top-level oRPC router, not a fragment. Hand it straight
+ * to `serveOverStdio`; there is no `implement(contract).router(...)` wrap
+ * anymore (SRT-PR1 retired it — a second finalize double-prefixes to
+ * `/surface/surface/…` and every call 404s):
  *
  * ```ts
- * const fragment = implementSurface(surface, deps).router;
- * const router = implement(contract).router(fragment);
+ * const { router } = implementSurface(surface, deps);
  * await serveOverStdio({ router });
  * ```
- *
- * `serveOverStdio` doesn't do the wrap itself because the contract isn't
- * available here without an extra arg, and the wrap is symmetric with how
- * `RPCHandler` (the WebSocket variant) gets called.
  *
  * ## Deferred heartbeat
  *
@@ -58,12 +54,12 @@
  */
 
 import type { Readable, Writable } from "node:stream";
-import { type Context, implement, type Router } from "@orpc/server";
+import type { Context, Router } from "@orpc/server";
 import type { StandardRPCHandlerOptions } from "@orpc/server/standard";
 import { StandardRPCHandler } from "@orpc/server/standard";
-// `Router<any, T>` is the exact shape `StandardRPCHandler` expects;
-// matching it avoids needing consumers to re-wrap an `implementSurface`
-// fragment through `implement(contract).router(fragment)`.
+// `Router<any, T>` is the exact shape `StandardRPCHandler` expects; an
+// `implementSurface` runtime's FINAL `.router` is already that shape, so it
+// passes straight through with no re-wrap.
 import {
   createServerPeerHandleRequestFn,
   type HandleStandardServerPeerMessageOptions,
@@ -98,12 +94,11 @@ export interface ServeOverStdioEnd {
 }
 
 export interface ServeOverStdioOptions<T extends Context> {
-  /** Top-level router accepted by `StandardRPCHandler`. The
-   *  `implementSurface` fragment's `.router` field is already at the
-   *  top level (it includes the `surface` namespace internally), so
-   *  pass it directly — no second `implement(contract).router(...)`
-   *  wrap needed. */
-  // biome-ignore lint/suspicious/noExplicitAny: mirrors `StandardRPCHandler`'s constructor signature (`Router<any, T>`); narrowing here would force consumers to refit their fragment through another generic and the existing example pattern of passing `fragment.router` straight in would no longer type-check.
+  /** Top-level router accepted by `StandardRPCHandler`. An
+   *  `implementSurface` runtime's `.router` is already the FINAL top-level
+   *  router (it includes the `surface` namespace internally), so pass it
+   *  directly — no `implement(contract).router(...)` wrap needed. */
+  // biome-ignore lint/suspicious/noExplicitAny: mirrors `StandardRPCHandler`'s constructor signature (`Router<any, T>`); narrowing here would force consumers to refit their router through another generic and passing a runtime's `.router` straight in would no longer type-check.
   router: Router<any, T>;
   /** Stream pair override. Omit for the default `process.stdin` /
    *  `process.stdout` (the subprocess-agent case). */
@@ -211,9 +206,3 @@ export function serveOverStdio<T extends Context>(
       peer.close();
     });
 }
-
-/** Re-export `implement` from `@orpc/server` so agent authors can wrap a
- *  surface fragment in a top-level router without pulling in
- *  `@orpc/server` directly. Avoids the "router fragment doesn't work"
- *  footgun documented in this module's header. */
-export { implement };

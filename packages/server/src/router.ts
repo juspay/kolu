@@ -47,14 +47,26 @@ export interface BuildAppRouterDeps {
   reconnectHost: (host: HostKey) => void;
 }
 
-/** Assemble the full host router from the surface router + the two raw RPCs.
- *  Called from `index.ts`'s async boot once the padi binding is up. */
+/** Assemble the full host router from the surface router + the raw RPCs.
+ *  Called from `index.ts`'s async boot once the padi binding is up.
+ *
+ *  The assembled surface (`kolu` + `surfaceApp` from the runtime, spliced with
+ *  the re-served `padi` map fragment) is passed THROUGH `t.router({...})`, where
+ *  `t = implement(servedContract)` (the padi-WIDENED contract — see
+ *  `surface.ts`). That re-adaptation is LOAD-BEARING: `serveHostMap` returns a
+ *  fragment carrying no `/surface/padi/*` matcher meta of its own, so the
+ *  padi-aware `servedContract` builder is what attaches the routes the
+ *  HTTP/ws `RPCHandler` matcher needs. Building against the padi-less `contract`
+ *  would silently drop every `/surface/padi/*` route (a boot-time 404 the
+ *  `directLink`-based `padiBinding` test can't see — directLink bypasses the
+ *  matcher). Pinned by the matcher-tree assertion in `router.test.ts`. */
 export function buildAppRouter(deps: BuildAppRouterDeps) {
   return t.router({
-    // The surface router is assembled DYNAMICALLY — the kolu+surfaceApp fragment
-    // spliced with the re-served padi sub-router — a shape oRPC's typed builder
-    // can't verify statically, though the runtime shape matches `servedContract`.
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic surface-router splice; runtime shape is a valid router (proved by the padiBinding integration test dialing /surface/padi/*).
+    // The surface router is assembled DYNAMICALLY — the kolu+surfaceApp final
+    // router's `.surface` spliced with the re-served padi map fragment — a shape
+    // oRPC's typed builder can't verify statically, though the runtime shape
+    // matches `servedContract` and `t.router` re-adapts it for the wire matcher.
+    // biome-ignore lint/suspicious/noExplicitAny: dynamic surface-router splice; runtime shape is a valid router re-adapted against servedContract (pinned by router.test.ts).
     ...(deps.surfaceRouter as any),
     server: {
       // Per-host BRANDING the shell needs synchronously at boot (document title,

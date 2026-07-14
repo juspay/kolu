@@ -28,8 +28,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { unixSocketLink } from "./links/unix-socket";
-import { implement } from "./peer-server";
-import { type Channel, implementSurface, inMemoryChannel } from "./server";
+import { implementSurface } from "./server";
 import {
   getRuntimeSocketPath,
   serveOverUnixSocket,
@@ -49,17 +48,13 @@ const surface = defineSurface({
 
 // biome-ignore lint/suspicious/noExplicitAny: the shape `serveOverUnixSocket` accepts, mirroring its own `Router<any, any>` param.
 function buildRouter(): Router<any, any> {
-  const fragment = implementSurface(surface, {
-    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
+  const runtime = implementSurface(surface, {
     procedures: {
       math: { double: async ({ input }) => ({ y: input.x * 2 }) },
     },
   });
-  return implement(surface.contract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch; runtime shape is valid (same cast as mini-ci and kolu's createInProcessPtyHost).
-    { ...fragment.router } as any,
-    // biome-ignore lint/suspicious/noExplicitAny: narrow back to the `Router<any, any>` serving wants (see above).
-  ) as Router<any, any>;
+  // biome-ignore lint/suspicious/noExplicitAny: runtime.router is typed `unknown`; narrow to the `Router<any, any>` serving wants.
+  return runtime.router as Router<any, any>;
 }
 
 describe("getRuntimeSocketPath", () => {

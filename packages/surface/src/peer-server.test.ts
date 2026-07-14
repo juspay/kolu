@@ -13,8 +13,8 @@ import type { Router } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
-import { implement, serveOverStdio } from "./peer-server";
-import { type Channel, implementSurface, inMemoryChannel } from "./server";
+import { serveOverStdio } from "./peer-server";
+import { implementSurface } from "./server";
 
 // biome-ignore lint/suspicious/noExplicitAny: the shape `serveOverStdio` accepts, mirroring its own `Router<any, T>` param.
 function buildRouter(): Router<any, any> {
@@ -23,15 +23,11 @@ function buildRouter(): Router<any, any> {
       sys: { ping: { output: z.object({ ok: z.boolean() }) } },
     },
   });
-  const fragment = implementSurface(surface, {
-    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
+  const runtime = implementSurface(surface, {
     procedures: { sys: { ping: async () => ({ ok: true }) } },
   });
-  return implement(surface.contract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch; runtime shape is valid (same cast as mini-ci and kolu's createInProcessPtyHost).
-    { ...fragment.router } as any,
-    // biome-ignore lint/suspicious/noExplicitAny: narrow back to the `Router<any, any>` serving wants (see above).
-  ) as Router<any, any>;
+  // biome-ignore lint/suspicious/noExplicitAny: runtime.router is typed `unknown`; narrow to the `Router<any, any>` serving wants.
+  return runtime.router as Router<any, any>;
 }
 
 describe("serveOverStdio — settled-result contract", () => {

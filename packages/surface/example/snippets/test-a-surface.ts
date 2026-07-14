@@ -7,11 +7,7 @@
 
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { directLink } from "@kolu/surface/links/direct";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { expect } from "vitest";
 import { type LogFrame, type Pid, type Proc, surface, ZERO } from "./surface";
 
@@ -20,7 +16,6 @@ const table = new Map<Pid, Proc>();
 // #region client
 function makeTestClient() {
   const { router } = implementSurface(surface, {
-    channel: inMemoryChannelByName(),
     cells: { load: { store: inMemoryStore(ZERO) } },
     collections: {
       processes: {
@@ -53,7 +48,7 @@ function makeTestClient() {
   // The raw typed client — the wire client, in-process. `implementSurface`
   // already returns a ready `{ router }`, so no re-wrap; pass it bare, because
   // directLink is the one link `surfaceClient` accepts without a watchdog.
-  return directLink<typeof surface.contract>(router);
+  return directLink<typeof surface.contract>(router as never);
 }
 // #endregion client
 

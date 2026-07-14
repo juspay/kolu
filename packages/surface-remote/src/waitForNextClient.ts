@@ -19,8 +19,12 @@ import type { Session } from "./session";
  *  }
  *  ``` */
 export interface ClientCursor {
-  /** Block until the session exposes a new spawn; resolve with its client. */
-  next(): Promise<SurfaceClientLike>;
+  /** Block until the session exposes a new spawn; resolve with its client.
+   *  An optional `signal` lets a caller wake the wait early (a re-serve's
+   *  `close()` aborting the pump while the link is DOWN and no fresh spawn is
+   *  coming) — the wait then rejects with the signal's reason and detaches its
+   *  session subscription, so a supervised pump can stop deterministically. */
+  next(signal?: AbortSignal): Promise<SurfaceClientLike>;
 }
 
 /** Build a {@link ClientCursor} over `session`.
@@ -38,10 +42,11 @@ export function makeClientCursor(
 ): ClientCursor {
   let previous: Promise<SurfaceClientLike> | null = null;
   return {
-    async next() {
+    async next(signal) {
       const { client, clientPromise } = await waitForNextClient(
         session,
         previous,
+        signal,
       );
       previous = clientPromise;
       return client;
@@ -81,10 +86,30 @@ interface NextClient {
 function waitForNextClient(
   session: Session<SurfaceClientLike, string>,
   previous: Promise<SurfaceClientLike> | null,
+  signal?: AbortSignal,
 ): Promise<NextClient> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    // The one place the wait's session subscription is torn down — on resolve,
+    // on a session-destroyed reject, or on abort. Set once the onState sub
+    // exists; harmless before then (the pre-sub tryResolve paths return here
+    // via `done`).
+    let unsub: (() => void) | undefined;
+    const onAbort = (): void => {
+      unsub?.();
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const settle = (): void => {
+      unsub?.();
+      signal?.removeEventListener("abort", onAbort);
+    };
     const tryResolve = async (): Promise<boolean> => {
       if (session.isDestroyed()) {
+        settle();
         reject(new Error("session destroyed"));
         return true;
       }
@@ -95,6 +120,7 @@ function waitForNextClient(
       if (clientPromise === null || clientPromise === previous) return false;
       try {
         const client = await clientPromise;
+        settle();
         resolve({ client, clientPromise });
         return true;
       } catch {
@@ -104,10 +130,10 @@ function waitForNextClient(
       return false;
     };
     void tryResolve().then((done) => {
-      if (done) return;
-      const unsub = session.onState(() => {
+      if (done || signal?.aborted) return;
+      unsub = session.onState(() => {
         void tryResolve().then((doneNow) => {
-          if (doneNow) unsub();
+          if (doneNow) unsub?.();
         });
       });
     });

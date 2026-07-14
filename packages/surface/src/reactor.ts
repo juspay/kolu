@@ -39,7 +39,7 @@ import {
   signal,
 } from "@preact/signals-core";
 import { DERIVED_CELL_BRAND } from "./reactorBrand";
-import type { CellStore } from "./server";
+import type { CellStore, Disposer } from "./server";
 
 // ── Graph node ───────────────────────────────────────────────────────────
 
@@ -290,8 +290,14 @@ export interface DerivedCell<T> {
    *  builds its OWN private serving store (seeded from this `get`) and drives it
    *  exclusively through the `connect` seam. */
   readonly store: CellStore<T>;
-  readonly connect: (cell: { set: (next: T) => void }) => void;
-  /** Tear down the connect effect and the backing node. */
+  /** The `connect` seam. Subscribes the node's level and returns a
+   *  {@link Disposer} that tears down the effect + backing node — so the
+   *  {@link SurfaceRuntime}'s `close()` disposes the reactor subscription (the
+   *  derived cell joins the runtime's ownership). */
+  readonly connect: (cell: { set: (next: T) => void }) => Disposer;
+  /** Tear down the connect effect and the backing node. Idempotent — the same
+   *  teardown `connect` returns, so a standalone owner and the runtime's
+   *  `close()` never double-dispose. */
   readonly dispose: () => void;
   readonly [DERIVED_CELL_BRAND]: true;
 }
@@ -309,6 +315,22 @@ export const derived = {
    *  unchanged and a spec-`equals`-equal recompute never crosses the wire. */
   cell<T>(node: GraphNode<T>): DerivedCell<T> {
     let disposeEffect: (() => void) | undefined;
+    let connected = false;
+    // ONE idempotent teardown, shared by `connect`'s returned disposer (the
+    // runtime's `close()`) and the standalone `dispose()` — so neither can
+    // double-dispose the effect + node.
+    let torn = false;
+    const teardown = (): void => {
+      if (torn) return;
+      torn = true;
+      // Attempt BOTH the effect disposal and the node disposal even if the first
+      // throws — a failing effect teardown must not strand the backing node.
+      try {
+        disposeEffect?.();
+      } finally {
+        node.dispose();
+      }
+    };
 
     return {
       // Public store is a READ-ONLY, STATELESS facade: `get` pulls the node's
@@ -328,6 +350,23 @@ export const derived = {
       },
       [DERIVED_CELL_BRAND]: true,
       connect: (cell) => {
+        // One-shot lifecycle, fail-fast on misuse: a derived cell wires exactly
+        // ONE subscription, and only while it is live. Connecting after teardown
+        // (a standalone `dispose()` ran first) would install an effect whose
+        // returned teardown is a permanent no-op (`torn` is already set) — a
+        // silent leak; connecting twice would strand the first effect. Crash
+        // loudly rather than model either impossible state.
+        if (torn) {
+          throw new Error(
+            "derived cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
+          );
+        }
+        if (connected) {
+          throw new Error(
+            "derived cell: connect() called twice — a derived cell wires exactly one subscription",
+          );
+        }
+        connected = true;
         // The connect seam: an engine effect subscribes the node's level and
         // pushes every change through the ctx setter (the member's write gate).
         // The first synchronous run pushes the seed, which the member's `equals`
@@ -336,11 +375,11 @@ export const derived = {
         disposeEffect = effect(() => {
           cell.set(node.value.value);
         });
+        // Return the teardown so the runtime's `close()` disposes this
+        // subscription (the reactor sub joins the runtime's ownership).
+        return teardown;
       },
-      dispose: () => {
-        disposeEffect?.();
-        node.dispose();
-      },
+      dispose: teardown,
     };
   },
 };

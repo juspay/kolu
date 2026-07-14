@@ -76,11 +76,22 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // to `daemonMain` below, so the readout and the actual policy can't drift.
   const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
 
-  const { servedRouter, terminalCount } = createInProcessPtyHost({
+  const ptyHost = createInProcessPtyHost({
     log,
     rcDir,
     lifetime: lifetimeInfo(lifetime),
   });
+  const { servedRouter, terminalCount } = ptyHost;
+  // Observe the surface runtime's `done`: the ptyHost surface declares no cell
+  // connectors, so this is inert today (nothing faults) — wired so any future
+  // owned fault reaches kaval's log instead of floating, without changing today's
+  // behavior (fail-fast disposition unchanged; a fault does not kill the daemon).
+  ptyHost.done.catch((err) =>
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "pty-host surface runtime faulted",
+    ),
+  );
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
   // heap curve with the live-terminal count (the leak's independent variable)
@@ -123,7 +134,17 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     log,
     signal: controller.signal,
     onReady: opts.onReady,
-  }).finally(stopWatch);
+  }).finally(() => {
+    stopWatch();
+    // Own the surface runtime's shutdown deterministically: once the daemon has
+    // stopped serving, release its owned sources. AWAITING close here (the
+    // `.finally` waits on the returned promise) — rather than a fire-and-forget
+    // `void ptyHost.close()` off an abort listener that an ALREADY-aborted input
+    // signal could register too late to ever fire — makes the release ordered
+    // and unmissable. Inert today (the ptyHost surface declares no cell
+    // connectors), but the daemon owns its runtime's lifetime by construction.
+    return ptyHost.close();
+  });
 }
 
 /** Poll the state-root recorded in the manifest beside kaval's socket; once it

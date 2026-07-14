@@ -13,15 +13,15 @@
  *      own a `state:changed` channel can't collide.
  */
 
-import { call, implement } from "@orpc/server";
+import { call } from "@orpc/server";
 import { StandardRPCMatcher } from "@orpc/server/standard";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import {
   type Channel,
-  composeSurfaceContracts,
   implementSurfaces,
+  implementSurfacesOnPublisher,
   inMemoryChannel,
   inMemoryStore,
 } from "./server";
@@ -57,7 +57,7 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
     const surfaces = { a, b };
     const { router } = implementSurfaces(
       surfaces,
-      { channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>() },
+      {},
       {
         a: {
           cells: { state: { store: inMemoryStore({ value: 0 }) } },
@@ -72,14 +72,7 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
         b: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
       },
     );
-    // Same wrapping requirement as `implementSurface`: the bare fragment
-    // double-prefixes; `implement(contract).router({...fragment})` lands it
-    // at the right depth. The contract is `composeSurfaceContracts(surfaces)`.
-    const contract = composeSurfaceContracts(surfaces);
-    const wrapped = implement(contract).router({
-      ...router,
-      // biome-ignore lint/suspicious/noExplicitAny: implementSurfaces' Lazy<Router> spread isn't accepted by oRPC's RouterImplementer input type; the runtime shape is a valid router.
-    } as any);
+    const wrapped = router;
     const matcher = new StandardRPCMatcher();
     // biome-ignore lint/suspicious/noExplicitAny: matcher.init expects a Router; the wrapped runtime shape satisfies it.
     matcher.init(wrapped as any);
@@ -98,7 +91,7 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
     const b = surfaceB();
     const { router } = implementSurfaces(
       { a, b },
-      { channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>() },
+      {},
       {
         a: {
           cells: { state: { store: inMemoryStore({ value: 0 }) } },
@@ -132,7 +125,7 @@ describe("implementSurfaces: connect cell-dep", () => {
       onEvent: (v) => published.push(v),
       onError: () => {},
     });
-    implementSurfaces(
+    implementSurfacesOnPublisher(
       { a },
       {
         channel: <T>(name: string): Channel<T> =>
@@ -175,7 +168,7 @@ describe("implementSurfaces: channels are key-namespaced", () => {
       void name;
       return inMemoryChannel<unknown>();
     });
-    implementSurfaces(
+    implementSurfacesOnPublisher(
       { a, b },
       { channel: channel as <T>(name: string) => Channel<T> },
       {
