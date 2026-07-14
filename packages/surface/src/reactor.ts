@@ -34,12 +34,27 @@
 
 import {
   batch,
+  computed as engineComputed,
   effect,
   type ReadonlySignal,
   signal,
 } from "@preact/signals-core";
-import { DERIVED_CELL_BRAND } from "./reactorBrand";
+import type { SiblingRead, SurfaceSpec } from "./define";
+import {
+  DERIVED_CELL_BRAND,
+  DERIVED_COMPUTE_BRAND,
+  type SiblingSourcesRuntime,
+} from "./reactorBrand";
 import type { CellStore, Disposer } from "./server";
+
+/** `batch` — group several graph writes into ONE frame, so derivations
+ *  recompute once. The bridge owns the batch at every internal graph entry point
+ *  (a source `emit`, a poll tick); this re-export is the ONE knob an app reaches
+ *  for to coalesce a multi-member burst of ctx writes into a single recompute
+ *  pass (e.g. `batch(() => { registry.set(a); registry.delete(b); })`). It is the
+ *  engine's `batch`, surfaced through the reactor so app code never deep-imports
+ *  the engine. */
+export { batch };
 
 // ── Graph node ───────────────────────────────────────────────────────────
 
@@ -302,84 +317,268 @@ export interface DerivedCell<T> {
   readonly [DERIVED_CELL_BRAND]: true;
 }
 
-/** The reactor's wire exits. Phase 0 ships `cell`; `collection` is a later
- *  phase. Namespaced (`derived.cell`) so the read-only-projection intent is
- *  legible at every declaration site. */
-export const derived = {
-  /** Publish a graph node as a cell. The cell is wire-read-only by construction
-   *  (the boot walk crashes if it declares a write verb) and seeds from the
-   *  node's current level by an eager pull at wiring — truth, never a fabricated
-   *  default (a throw at seed time is a boot crash). Every subsequent level
-   *  change flows through the member's own `equals → onWrite → store.set →
-   *  bus.publish` gate via the `connect` setter, so the wire dedup point is
-   *  unchanged and a spec-`equals`-equal recompute never crosses the wire. */
-  cell<T>(node: GraphNode<T>): DerivedCell<T> {
-    let disposeEffect: (() => void) | undefined;
-    let connected = false;
-    // ONE idempotent teardown, shared by `connect`'s returned disposer (the
-    // runtime's `close()`) and the standalone `dispose()` — so neither can
-    // double-dispose the effect + node.
-    let torn = false;
-    const teardown = (): void => {
-      if (torn) return;
-      torn = true;
-      // Attempt BOTH the effect disposal and the node disposal even if the first
-      // throws — a failing effect teardown must not strand the backing node.
-      try {
-        disposeEffect?.();
-      } finally {
-        node.dispose();
-      }
-    };
+/** The COMPUTE-FN form of a derived cell — `derived.cell(($) => …)`. It reads
+ *  its SIBLINGS through the typed `$` face rather than wrapping a pre-built graph
+ *  node, so the boot walk cannot build its node until every sibling mirror
+ *  exists: it carries {@link DERIVED_COMPUTE_BRAND} and a `bindSiblings` seam the
+ *  walk calls once, after `$` assembly, before seeding. `S` rides a phantom so
+ *  the deps slot flows the surface's sibling types back to the `($)` parameter
+ *  (typed at the call site, never read at runtime). */
+export interface DerivedComputeCell<S extends SurfaceSpec, T>
+  extends DerivedCell<T> {
+  readonly [DERIVED_COMPUTE_BRAND]: true;
+  /** Build the compute node from the assembled sibling sources. Called ONCE by
+   *  the boot walk after every sibling mirror exists; `store.get()` (the eager
+   *  seed pull) and `connect` are only valid after it. */
+  bindSiblings(sources: SiblingSourcesRuntime): void;
+  /** Phantom carrying `S` so the deps slot can flow `$`'s type to the compute
+   *  fn's parameter. Never present at runtime. */
+  readonly __computeSurface?: (siblings: SiblingRead<S>) => void;
+}
 
-    return {
-      // Public store is a READ-ONLY, STATELESS facade: `get` pulls the node's
-      // current level live (its serving endpoint IS the authority — an eager
-      // truth, never a fabricated default); `set` throws (fail-fast one-writer
-      // guard). The dep carries NO writable store — `implementSurface` builds and
-      // owns its own private serving store (seeded from this `get`) and writes it
-      // only through the `connect` seam, so nothing a holder can reflect off this
-      // dep can poison the wire snapshot `cellHandlers.get` serves.
-      store: {
-        get: () => node.value.peek(),
-        set: () => {
-          throw new Error(
-            "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
-          );
-        },
+/** A derived value — a pure graph node reading OTHER graph nodes (a private
+ *  intermediate several wire members can share without any of them becoming a
+ *  wire member). Glitch-free by the engine's version-checked lazy pull. A pure
+ *  computed installs nothing, so its `dispose` is a no-op — it composes into
+ *  `derived.cell(node)` exactly like a `scan`. */
+export function computed<T>(compute: () => T): GraphNode<T> {
+  return { value: engineComputed(compute), dispose: () => {} };
+}
+
+/** The graph-node `derived.cell(node)` — publish a pre-built graph node (a
+ *  `scan`, a `computed`) as a cell. Extracted so `derived.cell` can OVERLOAD the
+ *  compute-fn form beside it. */
+function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
+  let disposeEffect: (() => void) | undefined;
+  let connected = false;
+  // ONE idempotent teardown, shared by `connect`'s returned disposer (the
+  // runtime's `close()`) and the standalone `dispose()` — so neither can
+  // double-dispose the effect + node.
+  let torn = false;
+  const teardown = (): void => {
+    if (torn) return;
+    torn = true;
+    // Attempt BOTH the effect disposal and the node disposal even if the first
+    // throws — a failing effect teardown must not strand the backing node.
+    try {
+      disposeEffect?.();
+    } finally {
+      node.dispose();
+    }
+  };
+
+  return {
+    // Public store is a READ-ONLY, STATELESS facade: `get` pulls the node's
+    // current level live (its serving endpoint IS the authority — an eager
+    // truth, never a fabricated default); `set` throws (fail-fast one-writer
+    // guard). The dep carries NO writable store — `implementSurface` builds and
+    // owns its own private serving store (seeded from this `get`) and writes it
+    // only through the `connect` seam, so nothing a holder can reflect off this
+    // dep can poison the wire snapshot `cellHandlers.get` serves.
+    store: {
+      get: () => node.value.peek(),
+      set: () => {
+        throw new Error(
+          "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
+        );
       },
-      [DERIVED_CELL_BRAND]: true,
-      connect: (cell) => {
-        // One-shot lifecycle, fail-fast on misuse: a derived cell wires exactly
-        // ONE subscription, and only while it is live. Connecting after teardown
-        // (a standalone `dispose()` ran first) would install an effect whose
-        // returned teardown is a permanent no-op (`torn` is already set) — a
-        // silent leak; connecting twice would strand the first effect. Crash
-        // loudly rather than model either impossible state.
-        if (torn) {
-          throw new Error(
-            "derived cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
-          );
-        }
-        if (connected) {
-          throw new Error(
-            "derived cell: connect() called twice — a derived cell wires exactly one subscription",
-          );
-        }
-        connected = true;
-        // The connect seam: an engine effect subscribes the node's level and
-        // pushes every change through the ctx setter (the member's write gate).
-        // The first synchronous run pushes the seed, which the member's `equals`
-        // dedups against the identical store seed — so wiring a derived cell
-        // publishes nothing until the level genuinely moves.
-        disposeEffect = effect(() => {
-          cell.set(node.value.value);
-        });
-        // Return the teardown so the runtime's `close()` disposes this
-        // subscription (the reactor sub joins the runtime's ownership).
-        return teardown;
+    },
+    [DERIVED_CELL_BRAND]: true,
+    connect: (cell) => {
+      // One-shot lifecycle, fail-fast on misuse: a derived cell wires exactly
+      // ONE subscription, and only while it is live. Connecting after teardown
+      // (a standalone `dispose()` ran first) would install an effect whose
+      // returned teardown is a permanent no-op (`torn` is already set) — a
+      // silent leak; connecting twice would strand the first effect. Crash
+      // loudly rather than model either impossible state.
+      if (torn) {
+        throw new Error(
+          "derived cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
+        );
+      }
+      if (connected) {
+        throw new Error(
+          "derived cell: connect() called twice — a derived cell wires exactly one subscription",
+        );
+      }
+      connected = true;
+      // The connect seam: an engine effect subscribes the node's level and
+      // pushes every change through the ctx setter (the member's write gate).
+      // The first synchronous run pushes the seed, which the member's `equals`
+      // dedups against the identical store seed — so wiring a derived cell
+      // publishes nothing until the level genuinely moves.
+      disposeEffect = effect(() => {
+        cell.set(node.value.value);
+      });
+      // Return the teardown so the runtime's `close()` disposes this
+      // subscription (the reactor sub joins the runtime's ownership).
+      return teardown;
+    },
+    dispose: teardown,
+  };
+}
+
+/** The compute-fn `derived.cell(($) => …)` — a derivation over SIBLINGS. Reading
+ *  `$.<sibling>()` inside the compute is depending on that sibling; the reactor
+ *  wraps each read in a per-sibling version signal (bumped by the sibling's
+ *  post-equals change edge) so the compute recomputes exactly when a sibling it
+ *  read moved. The compute node cannot exist until every sibling mirror does, so
+ *  `bindSiblings` builds it lazily; `store.get()`/`connect` require it. */
+function computeCell<S extends SurfaceSpec, T>(
+  compute: (siblings: SiblingRead<S>) => T,
+): DerivedComputeCell<S, T> {
+  let node: ReadonlySignal<T> | undefined;
+  const unsubscribes: Array<() => void> = [];
+  let disposeEffect: (() => void) | undefined;
+  let connected = false;
+  let torn = false;
+
+  const requireNode = (): ReadonlySignal<T> => {
+    if (!node) {
+      throw new Error(
+        "derived compute cell: used before bindSiblings() — the boot walk must assemble $ and bind it before seeding/connecting.",
+      );
+    }
+    return node;
+  };
+
+  const teardown = (): void => {
+    if (torn) return;
+    torn = true;
+    // Dispose the connect effect first, then release every sibling subscription
+    // even if the effect teardown throws — a failing effect teardown must not
+    // strand the sibling taps.
+    try {
+      disposeEffect?.();
+    } finally {
+      for (const off of unsubscribes) off();
+      unsubscribes.length = 0;
+    }
+  };
+
+  const bindSiblings = (sources: SiblingSourcesRuntime): void => {
+    if (node) {
+      throw new Error(
+        "derived compute cell: bindSiblings() called twice — the compute node is built once.",
+      );
+    }
+    // Per-sibling version signals, created LAZILY on first read INSIDE the
+    // compute: an unread sibling gets no signal and no subscription, so a
+    // derivation depends only on what it actually reads. The value is the
+    // sibling's LIVE `read()`; the version signal is purely the reactive edge
+    // (bumped on the sibling's post-equals change), which the engine tracks
+    // because the read happens inside `engineComputed` below.
+    const versions = new Map<string, ReturnType<typeof signal<number>>>();
+    const siblings = new Proxy({} as SiblingRead<S>, {
+      get(_target, key) {
+        const name = key as string;
+        return () => {
+          const source = sources[name];
+          if (!source) {
+            throw new Error(
+              `derived compute cell: read of unknown sibling "$.${name}" — no such cell or collection on this surface.`,
+            );
+          }
+          let version = versions.get(name);
+          if (!version) {
+            const created = signal(0);
+            versions.set(name, created);
+            unsubscribes.push(
+              source.subscribe(() => {
+                created.value++;
+              }),
+            );
+            version = created;
+          }
+          version.value; // track — depend on this sibling
+          return source.read();
+        };
       },
-      dispose: teardown,
-    };
+    });
+    node = engineComputed(() => compute(siblings));
+  };
+
+  return {
+    store: {
+      // Eager seed pull: reads the compute's CURRENT value (truth from the
+      // siblings), never a fabricated default. A throw here is a boot crash
+      // (mirror-never-fabricate). Valid only after `bindSiblings`.
+      get: () => requireNode().peek(),
+      set: () => {
+        throw new Error(
+          "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
+        );
+      },
+    },
+    [DERIVED_CELL_BRAND]: true,
+    [DERIVED_COMPUTE_BRAND]: true,
+    bindSiblings,
+    connect: (cell) => {
+      if (torn) {
+        throw new Error(
+          "derived compute cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
+        );
+      }
+      if (connected) {
+        throw new Error(
+          "derived compute cell: connect() called twice — a derived cell wires exactly one subscription",
+        );
+      }
+      connected = true;
+      const n = requireNode();
+      // Stateless-compute error policy — LOG-SKIP-CONTINUE holding the last
+      // published value: a throw in the compute (a recompute hitting a case it
+      // can't handle) is logged and the last good value HELD, and the next
+      // successful recompute heals it. (Contrast `scan`'s stop-hold: a scan
+      // carries state, so a throwing step STOPS; a stateless compute has no
+      // corrupt accumulator to protect, so it continues.) The first run pushes
+      // the seed, which the member's `equals` dedups against the identical store
+      // seed — so wiring publishes nothing until the derivation genuinely moves.
+      disposeEffect = effect(() => {
+        let next: T;
+        try {
+          next = n.value;
+        } catch (err) {
+          console.error(
+            "reactor: derived compute cell recompute threw — holding last published value",
+            err,
+          );
+          return;
+        }
+        cell.set(next);
+      });
+      return teardown;
+    },
+    dispose: teardown,
+  };
+}
+
+/** The reactor's wire exits. Phase 0 shipped the graph-node `cell`; SR7 adds the
+ *  compute-fn overload (`derived.cell(($) => …)`); `collection` is a later phase.
+ *  Namespaced (`derived.cell`) so the read-only-projection intent is legible at
+ *  every declaration site. */
+interface DerivedApi {
+  /** Publish a pre-built graph node (a `scan`, a `computed`) as a cell — seeds
+   *  from the node's current level by an eager pull at wiring (a throw is a boot
+   *  crash), and every level change flows through the member's own `equals →
+   *  onWrite → store.set → bus.publish` gate via the `connect` setter, so the
+   *  wire dedup point is unchanged. */
+  cell<T>(node: GraphNode<T>): DerivedCell<T>;
+  /** Publish a SIBLING derivation as a cell — `derived.cell(($) => f($.a(), …))`.
+   *  `$` is the typed sibling-read face; reading a sibling is depending on it, so
+   *  the cell recomputes exactly when a sibling it read changed. Wire-read-only
+   *  and eager-seeded like the graph-node form; the recompute is glitch-free and
+   *  its error policy is log-skip-continue (holds last published on a throw). */
+  cell<S extends SurfaceSpec, T>(
+    compute: (siblings: SiblingRead<S>) => T,
+  ): DerivedComputeCell<S, T>;
+}
+
+export const derived: DerivedApi = {
+  cell(
+    arg: GraphNode<unknown> | ((siblings: SiblingRead<SurfaceSpec>) => unknown),
+    // biome-ignore lint/suspicious/noExplicitAny: the two overloads' return types are the public contract; the impl is intentionally loose
+  ): any {
+    return typeof arg === "function" ? computeCell(arg) : graphNodeCell(arg);
   },
 };

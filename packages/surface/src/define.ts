@@ -661,6 +661,28 @@ export type SurfaceEventPayload<
   K extends keyof SurfaceTypes<S>["events"] & string,
 > = SurfaceTypes<S>["events"][K] extends { Payload: infer P } ? P : never;
 
+/** The typed `$` SIBLING-READ face handed to a compute-fn `derived.cell` /
+ *  `derived.collection` — a plain mapped type over the spec (no `keyof` union
+ *  explosion), so `$.someCell()` reads a sibling cell's value and
+ *  `$.someCollection()` reads a sibling collection's live map. Reading is
+ *  depending: the reactor tracks each `$.<sibling>()` read as a graph edge, so a
+ *  derivation recomputes exactly when a sibling it read changed. A derived
+ *  sibling reads as its own computed value (never a half-updated mirror) — every
+ *  derivation chain stays a pure computed graph, glitch-free.
+ *
+ *  Cells and collections share the one flat `$` namespace; a name declared as
+ *  both would intersect their two accessor signatures. */
+export type SiblingRead<S extends SurfaceSpec> = {
+  [K in keyof NonNullable<S["cells"]> & string]: () => z.infer<
+    NonNullable<S["cells"]>[K]["schema"]
+  >;
+} & {
+  [K in keyof NonNullable<S["collections"]> & string]: () => ReadonlyMap<
+    z.infer<NonNullable<S["collections"]>[K]["keySchema"]>,
+    z.infer<NonNullable<S["collections"]>[K]["schema"]>
+  >;
+};
+
 // ── Type oracles for per-primitive contract entry shape ────────────────
 //
 // Each `build*` here is a runtime-dead type oracle: TypeScript reads
