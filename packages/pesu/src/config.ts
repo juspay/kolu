@@ -38,6 +38,15 @@ export const DEFAULT_COORDINATOR_TITLE = "RT-fable-main";
 
 type Env = Record<string, string | undefined>;
 
+/** Drop trailing `/`s from a base URL, LINEARLY (a `/\/+$/` regex is a
+ *  polynomial-ReDoS footgun on a string of many slashes — CodeQL
+ *  `js/polynomial-redos` — so we scan from the end instead). */
+export function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end--;
+  return s.slice(0, end);
+}
+
 function required(env: Env, name: string): string {
   const raw = env[name];
   if (raw === undefined || raw.trim() === "") {
@@ -80,7 +89,7 @@ export function loadConfig(env: Env = process.env): PesuConfig {
   return {
     signingSecret: required(env, "PESU_SIGNING_SECRET"),
     jwtToken: required(env, "PESU_JWT_TOKEN"),
-    xyneBaseUrl: required(env, "XYNE_BASE_URL").replace(/\/+$/, ""),
+    xyneBaseUrl: stripTrailingSlashes(required(env, "XYNE_BASE_URL")),
     port: parsePort(env),
     coordinatorTitle: env.PESU_COORDINATOR_TITLE?.trim()
       ? env.PESU_COORDINATOR_TITLE.trim()

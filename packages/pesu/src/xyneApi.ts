@@ -16,6 +16,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+import { stripTrailingSlashes } from "./config.ts";
+
 /** The subset of the app API pesu drives. An interface so the engine can be
  *  tested against a fake without a network. */
 export interface XyneApi {
@@ -88,7 +90,7 @@ function pickString(obj: unknown, ...keys: string[]): string | null {
  *  engine turns that into a visible fault reply, never a silent swallow. */
 export function createXyneApi(cfg: XyneApiConfig): XyneApi {
   const doFetch = cfg.fetch ?? fetch;
-  const base = cfg.baseUrl.replace(/\/+$/, "");
+  const base = stripTrailingSlashes(cfg.baseUrl);
   const userCache = new Map<
     string,
     { name: string | null; email: string | null }

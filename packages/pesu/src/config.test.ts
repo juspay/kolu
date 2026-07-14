@@ -4,6 +4,7 @@ import {
   DEFAULT_PORT,
   isOperatorEmail,
   loadConfig,
+  stripTrailingSlashes,
 } from "./config.ts";
 
 const full = {
@@ -70,6 +71,19 @@ describe("loadConfig — fail-fast, no fallbacks", () => {
     expect(() => loadConfig({ ...full, PESU_PORT: "not-a-number" })).toThrow(
       "PESU_PORT",
     );
+  });
+});
+
+describe("stripTrailingSlashes — linear, ReDoS-free", () => {
+  it("removes one or many trailing slashes", () => {
+    expect(stripTrailingSlashes("https://x.com/")).toBe("https://x.com");
+    expect(stripTrailingSlashes("https://x.com///")).toBe("https://x.com");
+    expect(stripTrailingSlashes("https://x.com")).toBe("https://x.com");
+  });
+  it("returns fast on a pathological all-slashes input (no polynomial backtracking)", () => {
+    const start = performance.now();
+    expect(stripTrailingSlashes("/".repeat(200000))).toBe("");
+    expect(performance.now() - start).toBeLessThan(100);
   });
 });
 
