@@ -651,6 +651,29 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
   };
 }
 
+/** In-memory additive Collection deps — the Map-backed `{ readAll, upsert, remove }`
+ *  a collection with no persistence hands `implementSurface` (the collection twin of
+ *  {@link inMemoryStore}). `readAll` returns the LIVE backing Map (the framework
+ *  reads it for `keys` / `get` / the `deltas` snapshot); `upsert` / `remove` mutate
+ *  it. One implementation for every re-serve mirror cache and additive fold that
+ *  used to hand-roll the same three lines (SR5). */
+export function inMemoryCollection<K, V>(): {
+  readAll: () => Map<K, V>;
+  upsert: (key: K, value: V) => void;
+  remove: (key: K) => void;
+} {
+  const map = new Map<K, V>();
+  return {
+    readAll: () => map,
+    upsert: (key, value) => {
+      map.set(key, value);
+    },
+    remove: (key) => {
+      map.delete(key);
+    },
+  };
+}
+
 /** Single-process broadcast pub/sub `Channel<T>` for surfaces served from a
  *  Node-only process where the `@orpc/experimental-publisher` dependency is
  *  overkill. Each `publish` delivers to every live subscriber synchronously
