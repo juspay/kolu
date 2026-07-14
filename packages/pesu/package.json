@@ -1,0 +1,39 @@
+{
+  "name": "pesu",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "pesu": "./src/bin.ts"
+  },
+  "scripts": {
+    "start": "tsx src/bin.ts",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.13",
+    "@kolu/padi": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
+    "hono": "^4.12.25",
+    "kaval": "workspace:*",
+    "kolu-claude-code": "workspace:*",
+    "kolu-codex": "workspace:*",
+    "kolu-grok": "workspace:*",
+    "kolu-opencode": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
+    "ts-pattern": "^5.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
+  }
+}
