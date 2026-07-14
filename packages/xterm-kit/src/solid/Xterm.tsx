@@ -114,17 +114,17 @@ export const Xterm: Component<
 > = (props) => {
   const [own, rest] = splitProps(props, OWN_KEYS);
   let container!: HTMLDivElement;
-  let fit: FitAddon | null = null;
   let fitRaf = 0;
   const refit = () => {
     cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(() => fit?.fit());
+    fitRaf = requestAnimationFrame(() => core?.addons.fit.fit());
   };
 
-  // The live terminal + atlas-clear, built asynchronously and read by the
-  // theme/fontSize/visible effects below (which run in this same owner but may
-  // tick before construction — hence the null guards).
-  let liveTerm: XTerm | null = null;
+  // The constructed core (terminal + addons), built asynchronously and read by
+  // the theme/fontSize/visible effects below (which run in this same owner but
+  // may tick before construction — hence the null guards). Its atlas-clear is
+  // sourced from the WebGL handle, so it stays a separate ref.
+  let core: XtermCore | null = null;
   let clearAtlas: (() => void) | null = null;
 
   // The scroll lock is solid-reactive, so it's created in the component owner.
@@ -140,10 +140,9 @@ export const Xterm: Component<
         fontFamily: own.fontFamily,
       },
     },
-    (core: XtermCore) => {
-      const term = core.terminal;
-      fit = core.addons.fit;
-      liveTerm = term;
+    (c: XtermCore) => {
+      core = c;
+      const term = c.terminal;
 
       const webgl = attachWebGL(term, own.webgl, own.webglHooks);
       clearAtlas = webgl.clearTextureAtlas;
@@ -195,7 +194,7 @@ export const Xterm: Component<
       const handle: XtermHandle = {
         terminal: term,
         container,
-        addons: core.addons,
+        addons: c.addons,
         scrollLock,
         write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
         webgl,
@@ -208,7 +207,7 @@ export const Xterm: Component<
       // If xterm's default grid already matched the fit target, onResize won't
       // fire, so publish the current grid manually too.
       if (own.visible) {
-        core.addons.fit.fit();
+        c.addons.fit.fit();
         own.onResize({ cols: term.cols, rows: term.rows });
       }
     },
@@ -219,8 +218,8 @@ export const Xterm: Component<
     on(
       () => own.theme,
       (theme) => {
-        if (!liveTerm) return;
-        liveTerm.options.theme = theme;
+        if (!core) return;
+        core.terminal.options.theme = theme;
         clearAtlas?.();
       },
       { defer: true },
@@ -231,8 +230,8 @@ export const Xterm: Component<
     on(
       () => own.fontSize,
       (size) => {
-        if (!liveTerm) return;
-        liveTerm.options.fontSize = size;
+        if (!core) return;
+        core.terminal.options.fontSize = size;
         refit();
         clearAtlas?.();
       },
@@ -244,9 +243,9 @@ export const Xterm: Component<
     on(
       () => own.visible,
       (visible) => {
-        if (!visible || !liveTerm) return;
+        if (!visible || !core) return;
         scrollLock.reset();
-        liveTerm.scrollToBottom();
+        core.terminal.scrollToBottom();
         refit();
       },
       { defer: true },
