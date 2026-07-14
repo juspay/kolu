@@ -170,6 +170,38 @@ describe("relayFailThroughStream (delta)", () => {
     expect(fence({ error: relayError })).toBe(true); // transport loss → retried
   });
 
+  it("fails loud (NOT the retryable relay end) when the live client doesn't expose the member", async () => {
+    // A structural mismatch — a version-skewed agent whose client lacks the member —
+    // makes select(client) undefined and select(client).get a TypeError BEFORE any
+    // network I/O. That must NOT be classified as a transport loss (which the fence
+    // would retry forever); it fails loud (on the wire, a non-retriable sanitized
+    // error), never wrapped as RelayTransportLostError.
+    const holder = observableHolder<ByteClient>();
+    // biome-ignore lint/suspicious/noExplicitAny: deliberately a client missing member `s`.
+    holder.current = { surface: {} } as any;
+    const relay = relayFailThroughStream(
+      POLICY,
+      "liveBytes",
+      holder,
+      selectByte,
+    );
+    let error: unknown = null;
+    await (async () => {
+      try {
+        for await (const _ of relay({ id: "t" }, undefined)) {
+          /* consume */
+        }
+      } catch (err) {
+        error = err;
+      }
+    })();
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(RelayTransportLostError);
+    expect((error as Error).message).toMatch(
+      /structural client\/surface mismatch/,
+    );
+  });
+
   it("propagates a clean upstream end as a clean downstream end", async () => {
     const up = controllable<string>();
     const holder = observableHolder<ByteClient>();

@@ -249,6 +249,25 @@ per transport; see [How to choose a link](/surface/choose-a-link).
 Matching serve-side entry points: `serveOverStdio`, `serveOverUnixSocket`, and
 oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
 
+### The retry contract (`@kolu/surface/client`)
+
+Every framework-driven stream carries `STREAM_RETRY`, which retries transport
+errors forever (each reconnect re-invokes the source, whose first frame is a fresh
+snapshot). The single fence `shouldNotRetryORPCError` decides: retry anything that
+is **not** an `ORPCError`, plus the one **retryable** `ORPCError` code
+`SURFACE_RELAY_TRANSPORT_LOST` (a re-serve relay's middle-hop loss — see
+[`@kolu/surface-remote`](/surface/ref-surface-remote)); every other `ORPCError` is an
+application error that must **not** retry.
+
+| Export | Purpose |
+| --- | --- |
+| `STREAM_RETRY` | the per-call retry context threaded through every framework stream |
+| `shouldNotRetryORPCError` | the shared retry fence (retry non-`ORPCError` + the one retryable code) |
+| `SURFACE_RELAY_TRANSPORT_LOST` | the ONE retryable `ORPCError` code (a re-serve relay's transport loss) |
+| `SURFACE_STDIO_TRANSPORT_CLOSED` / `SURFACE_TRANSPORT_RETIRED` | the permanently-dead transport codes |
+| `deadTransportError(code, message)` | mint a non-retriable dead-transport `ORPCError` |
+| `isDeadTransportError(err)` | recognize those dead-transport codes — the recognition twin of `deadTransportError` |
+
 ## Liveness and health
 
 Liveness is on by construction. `surface.system.live` (`@kolu/surface/liveness`)

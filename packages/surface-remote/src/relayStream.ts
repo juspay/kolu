@@ -184,12 +184,16 @@ export function holdOpenStreamCore<Cl, I, F>(
         if (!(await waitNextSpawn())) return;
         continue;
       }
+      // Resolve the member OUTSIDE the try — a client that doesn't expose it is a
+      // structural mismatch that must fail loud, not be caught below as a "link blip"
+      // and held open forever waiting for a rebind that can never fix a missing member.
+      const stream = requireUpstream(select, client, member);
       // Box-PRESENCE, not frame-value: `opts.lead` is a `{ frame }` box (or
       // absent), so this yields a lead whose frame is legitimately `undefined`
       // (a void-framed stream) instead of swallowing it as omission.
       if (opts.lead !== undefined) yield opts.lead.frame;
       try {
-        for await (const frame of await select(client).get(input, { signal })) {
+        for await (const frame of await stream.get(input, { signal })) {
           yield frame;
         }
         // Clean end: the source completed THIS input's stream on purpose (a
@@ -297,6 +301,30 @@ function isMiddleHopTransportLoss(err: unknown): boolean {
   return isDeadTransportError(err);
 }
 
+/** Resolve a live client's member stream for relaying, or throw a LOUD structural
+ *  mismatch. A live client that doesn't expose the member (a version-skewed agent, a
+ *  policy/spec drift, a wiring bug) is NOT a middle-hop transport loss — resolving it
+ *  BEFORE the transport try keeps the resulting error out of the transport-loss catch,
+ *  which would otherwise see a `TypeError` from the relay's own `undefined.get`
+ *  property lookup, classify it as transport loss (any non-`ORPCError`), and wrap it
+ *  as the RETRYABLE relay end — retried forever behind a misleading "link died" log
+ *  instead of failing loud. Thrown here it crosses oRPC sanitized to a non-retriable
+ *  error, so a genuine structural bug surfaces as a failure, mirroring the fail-loud
+ *  member checks the cell/procedure forward paths already do. */
+function requireUpstream<Cl, I, F>(
+  select: (client: Cl) => ForwardableStream<I, F>,
+  client: Cl,
+  member: string,
+): ForwardableStream<I, F> {
+  const stream = select(client);
+  if (!stream || typeof stream.get !== "function") {
+    throw new Error(
+      `relayStream: live client exposes no "${member}" stream member to relay — structural client/surface mismatch, not a transport loss`,
+    );
+  }
+  return stream;
+}
+
 /**
  * Relay an input-keyed DELTA (byte / liveness) stream, FAILING THROUGH.
  *
@@ -341,12 +369,15 @@ export function failThroughStreamCore<Cl, I, F>(
     // client's STREAM_RETRY re-subscribes end-to-end. We do NOT catch that error
     // (which would strand the client on a silently-dead stream) and we do NOT
     // rebind (the hold-open anti-pattern that corrupts a live terminal).
+    // Resolve the member OUTSIDE the transport try — a missing member is a structural
+    // mismatch that must fail loud, never fall into the transport-loss catch below.
+    const stream = requireUpstream(select, client, member);
     try {
       // The subscribe handshake is INSIDE the try: an abort during `get(...)` (the
       // downstream unsubscribed before the first frame) rejects with the signal's
       // reason, which `isAbortReason` below turns into a clean return — not a throw
       // that would surface a spurious error to the client (#1661 candidate 10).
-      const upstream = await select(client).get(input, { signal });
+      const upstream = await stream.get(input, { signal });
       for await (const frame of iterateUntilAborted(upstream, signal)) {
         yield frame;
       }

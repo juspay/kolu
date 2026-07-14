@@ -21,6 +21,7 @@ import { directLink } from "./links/direct";
 import {
   extendSurface,
   implementSurface,
+  inMemoryCollection,
   inMemoryStore,
   type ServedSurface,
 } from "./server";
@@ -36,20 +37,10 @@ const extSurface = defineSurface({
 });
 
 function buildBase() {
-  const map = new Map<string, number>();
   return implementSurface(baseSurface, {
     cells: { status: { store: inMemoryStore("live") } },
-    collections: {
-      items: {
-        readAll: () => map,
-        upsert: (k, v) => {
-          map.set(k, v);
-        },
-        remove: (k) => {
-          map.delete(k);
-        },
-      },
-    },
+    // The additive in-memory collection this PR extracted for exactly this shape.
+    collections: { items: inMemoryCollection<string, number>() },
   });
 }
 
