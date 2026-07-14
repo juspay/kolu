@@ -50,29 +50,24 @@ export interface BuildAppRouterDeps {
 /** Assemble the full host router from the surface router + the raw RPCs.
  *  Called from `index.ts`'s async boot once the padi binding is up.
  *
- *  Build order is load-bearing. Only the RAW non-surface RPCs (`server` /
- *  `daemon` / `hosts`, all declared in the base `contract`) go through the
- *  contract builder `t = implement(contract)`. The SURFACE siblings —
- *  `kolu` + `surfaceApp` from the runtime and the re-served `padi` from the map
- *  — are ALREADY FINAL routers, so the assembled `deps.surfaceRouter.surface` is
- *  HAND-MERGED onto the result rather than re-passed through `t.router({...})`.
- *
- *  Why not through `t.router(...)`: oRPC's `implement(contract).router(obj)`
- *  ADAPTS `obj` against the contract and SILENTLY DROPS any key the contract
- *  doesn't declare — and the base `contract` is padi-LESS (the widened
- *  `servedContract` was retired at SRT-PR1). Spreading `surface: { …, padi }`
- *  through `t.router(...)` therefore drops every `/surface/padi/*` route from the
- *  wire matcher (a 404 the `directLink`-based `padiBinding` test can't see —
- *  directLink navigates structurally, not through the RPCHandler matcher). The
- *  plan's contract is "routing by the assembled object", so we merge the final
- *  routers directly. Pinned by the matcher-tree assertion in `router.test.ts`. */
+ *  The assembled surface (`kolu` + `surfaceApp` from the runtime, spliced with
+ *  the re-served `padi` map fragment) is passed THROUGH `t.router({...})`, where
+ *  `t = implement(servedContract)` (the padi-WIDENED contract — see
+ *  `surface.ts`). That re-adaptation is LOAD-BEARING: `serveHostMap` returns a
+ *  fragment carrying no `/surface/padi/*` matcher meta of its own, so the
+ *  padi-aware `servedContract` builder is what attaches the routes the
+ *  HTTP/ws `RPCHandler` matcher needs. Building against the padi-less `contract`
+ *  would silently drop every `/surface/padi/*` route (a boot-time 404 the
+ *  `directLink`-based `padiBinding` test can't see — directLink bypasses the
+ *  matcher). Pinned by the matcher-tree assertion in `router.test.ts`. */
 export function buildAppRouter(deps: BuildAppRouterDeps) {
-  // The raw, contract-declared RPCs — the ONLY procedures that need `t`'s builder.
-  // The input omits `surface` (hand-merged below), which `t.router`'s type demands
-  // as a required contract key; the runtime adapts a partial object fine (it only
-  // builds the namespaces present), so the input is cast past that one type check
-  // at the closing brace.
-  const raw = t.router({
+  return t.router({
+    // The surface router is assembled DYNAMICALLY — the kolu+surfaceApp final
+    // router's `.surface` spliced with the re-served padi map fragment — a shape
+    // oRPC's typed builder can't verify statically, though the runtime shape
+    // matches `servedContract` and `t.router` re-adapts it for the wire matcher.
+    // biome-ignore lint/suspicious/noExplicitAny: dynamic surface-router splice; runtime shape is a valid router re-adapted against servedContract (pinned by router.test.ts).
+    ...(deps.surfaceRouter as any),
     server: {
       // Per-host BRANDING the shell needs synchronously at boot (document title,
       // watermark, PWA theme color). The restart axis (`processId`) and the build
@@ -114,14 +109,5 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
         deps.reconnectHost(input.host);
       }),
     },
-    // biome-ignore lint/suspicious/noExplicitAny: see the comment above `raw` — partial input, `surface` hand-merged after.
-  } as any);
-  // Hand-merge the assembled surface (kolu + surfaceApp + padi, all FINAL
-  // routers) — NOT through `t.router(...)`, which would drop the padi routes the
-  // padi-less contract doesn't declare (see the doc above).
-  return {
-    ...(raw as Record<string, unknown>),
-    surface: (deps.surfaceRouter as { surface: unknown }).surface,
-    // biome-ignore lint/suspicious/noExplicitAny: the assembled router mixes `t`'s built raw namespaces with final surface routers; runtime shape is a valid top-level router (RPCHandler consumes it via its own `as any`).
-  } as any;
+  });
 }

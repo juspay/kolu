@@ -36,12 +36,14 @@
 import { publisher } from "@kolu/padi/assembly";
 import {
   type CellStore,
+  composeSurfaceContracts,
   confStore,
   type ImplementSurfaceDeps,
   implementSurfacesOnPublisher,
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -59,6 +61,7 @@ import {
   type koluSurface,
   surfaces,
 } from "kolu-common/surface";
+import { padiHostMap, surfacesWithPadi } from "kolu-common/surfacesWithPadi";
 import {
   serverCommit,
   serverProcessId,
@@ -68,20 +71,44 @@ import {
 import { log } from "./log.ts";
 import { store } from "./state.ts";
 
-// `t` is the builder for kolu-server's RAW root RPCs — `server.info`,
-// `daemon.restart`, `hosts.*` — which are NOT surface members and so need their
-// own oRPC builder. It binds against the padi-less kolu-common `contract` (the
-// same one the client consumes, byte-for-byte).
+// kolu-server serves a SUPERSET contract locally: the padi-less kolu-common
+// `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
+// `padi` sibling. Spreading the already-built `contract` carries over its root
+// namespaces (`server`/`daemon`/`hosts`) and its 2-sibling `surface`
+// (kolu + surfaceApp); the second spread of
+// `composeSurfaceContracts(surfacesWithPadi)` then WIDENS `surface` to three
+// siblings (adds `padi`), and `padi` is overwritten with the host MAP's own
+// contract (the key-folded members + the `entries` membership collection) so the
+// served wire shape matches what `serveHostMap` serves (in `index.ts`).
 //
-// The SURFACE is no longer finalized here: `implementSurfacesOnPublisher`
-// (below) returns a FINAL top-level router for the `kolu` + `surfaceApp`
-// siblings, and `index.ts` splices the RE-SERVED `padi` sibling into its
-// `.surface` as a plain router object. The old `servedContract` superset — a
-// `padi`-widened contract built solely to finalize the surface via `t` — is gone
-// (the SRT-PR1 deletion): routing is driven by the assembled router object, not a
-// widened contract, so the spliced padi routes without the widening (proved by
-// the padiBinding integration test dialing `/surface/padi/*`).
-export const t = implement(contract);
+// This contract widening is LOAD-BEARING for the WIRE MATCHER, not just for
+// surface finalization. `implement(contract).router(obj)` ADAPTS `obj` against
+// the contract and DROPS any key the contract doesn't declare — and the
+// re-served `padi` sibling is a `serveSurfaceMap` FRAGMENT (structurally
+// navigable by `directLink`, but carrying no `/surface/padi/*` matcher meta of
+// its own). So the `padi`-widened `servedContract` builder is what RE-ADAPTS the
+// map fragment under the `padi` key, attaching the `/surface/padi/*` routes the
+// HTTP/ws `RPCHandler` matcher needs. Building `t` against the padi-LESS
+// `contract` silently drops every `/surface/padi/*` route → a boot-time 404 the
+// `directLink`-based `padiBinding` test can't see (directLink bypasses the
+// matcher). Pinned by `router.test.ts`. (The SURFACE FINALIZATION did move to
+// `implementSurfacesOnPublisher` below — this `t` binds the raw root RPCs and
+// re-adapts the spliced siblings for the wire, it no longer finalizes the kolu
+// surface.)
+const servedContract = oc.router({
+  ...contract,
+  surface: {
+    ...composeSurfaceContracts(surfacesWithPadi).surface,
+    // biome-ignore lint/suspicious/noExplicitAny: padiHostMap.contract is AnyContractRouter; its `.surface` is the folded map fragment.
+    padi: (padiHostMap.contract as any).surface,
+  },
+});
+
+// `t` is the host router builder against the SERVED (superset) contract; both
+// the spliced surface siblings and the raw oRPC handlers in `router.ts` plug into
+// it. Exported so `router.ts` binds `t.server.info` / `t.daemon.restart` /
+// `t.hosts.*` and re-adapts the assembled surface against the same builder.
+export const t = implement(servedContract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 //

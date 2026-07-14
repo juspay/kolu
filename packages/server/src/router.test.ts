@@ -2,58 +2,62 @@
  * REGRESSION PIN (SRT-PR1): the assembled app router must route the re-served
  * `/surface/padi/*` sibling over the WIRE matcher — the tree `RPCHandler` builds.
  *
- * The trap this pins: `buildAppRouter` binds its raw RPCs with
- * `t = implement(contract)`, and the base `contract` is padi-LESS (the widened
- * `servedContract` was retired at SRT-PR1). oRPC's `implement(contract).router(obj)`
- * ADAPTS `obj` against the contract and SILENTLY DROPS any key the contract
- * doesn't declare — so passing the `padi` sibling THROUGH `t.router({...})` drops
- * every `/surface/padi/*` route from the matcher (a boot-time 404: the server is
- * healthy, the padi session connects, but `POST /rpc/surface/padi/lifecycle/*`
- * 404s and padi never becomes "live"). The fix hand-merges the final `padi` router
- * onto the assembled object instead of re-adapting it through `t`.
+ * The trap this pins: `buildAppRouter` re-adapts the assembled surface through
+ * `t = implement(servedContract)`, and `servedContract` MUST widen the base
+ * (padi-less) `contract` with the `padi` sibling. Two independent facts make the
+ * widening load-bearing for ROUTING, not just types:
  *
- * The `directLink`-based `padiBinding` integration test can NOT catch this —
- * `directLink` navigates the router object structurally, bypassing the
- * `StandardRPCMatcher` that the HTTP/ws `RPCHandler` uses. So this pins the matcher
- * tree directly, which is the exact surface the e2e exercises over the wire.
+ *  1. oRPC's `implement(C).router(obj)` adapts `obj` against `C` and SILENTLY
+ *     DROPS any key `C` doesn't declare — so a padi-less builder drops every
+ *     `/surface/padi/*` route from the matcher.
+ *  2. `serveHostMap` returns a `{ surface: … }` FRAGMENT carrying no
+ *     `/surface/padi/*` matcher meta of its own (it's structurally navigable by
+ *     `directLink`, which is why `padiBinding.test` — a directLink test — can't
+ *     see this). The padi-aware `servedContract` builder is what RE-ADAPTS that
+ *     fragment under the `padi` key, attaching the wire routes.
+ *
+ * If `surface.ts` ever rebinds `t` to the padi-less `contract`, `t.surface.padi`
+ * vanishes and this test throws (or the matcher loses the route) — the exact
+ * boot-time 404 that made padi "never become live" in the e2e.
  */
 
-import { implement } from "@orpc/server";
 import { StandardRPCMatcher } from "@orpc/server/standard";
-import { oc } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { buildAppRouter } from "./router.ts";
+import { t } from "./surface.ts";
 
-/** A minimal FINAL `padi` sibling router — the shape `index.ts` splices in from
- *  the re-served host map (a self-contained router built against its own
- *  contract, exactly like `serveHostMap`'s output). */
-function padiSiblingSurface(): unknown {
-  const padiContract = oc.router({
-    lifecycle: { killAll: oc.output(z.object({}).loose()) },
-  });
-  const b = implement(oc.router({ surface: padiContract }));
-  const built = b.router({
-    surface: {
-      lifecycle: { killAll: b.surface.lifecycle.killAll.handler(() => ({})) },
+/** A minimal `padi` sibling built through the EXPORTED `t` builder's
+ *  `surface.padi` node — which only exists when `servedContract` widens the
+ *  contract with padi. `entries` is the map's always-present membership
+ *  collection (`serveHostMap` serves `keys` + `get`). */
+function padiSibling(): unknown {
+  // biome-ignore lint/suspicious/noExplicitAny: reach the padi builder node; its absence (padi-less `t`) is itself the regression this pins.
+  const padi = (t as any).surface.padi;
+  return {
+    entries: {
+      keys: padi.entries.keys.handler(async function* () {
+        yield [];
+      }),
+      get: padi.entries.get.handler(async function* () {
+        yield { kind: "warming", membershipId: "x" };
+      }),
     },
-    // biome-ignore lint/suspicious/noExplicitAny: a built router's `.surface` is the sibling map; runtime shape is a valid router leaf.
-  }) as any;
-  return built.surface;
+  };
 }
 
 describe("buildAppRouter — the re-served padi sibling routes over the wire matcher", () => {
   it("puts /surface/padi/* AND the raw /server/info in the StandardRPCMatcher tree", () => {
     const app = buildAppRouter({
-      // The assembled surface object `index.ts` hands in: the re-served padi
-      // sibling as a FINAL router leaf (kolu/surfaceApp elided — this test pins
-      // that the padi splice survives the assembly, the exact regression).
-      surfaceRouter: { surface: { padi: padiSiblingSurface() } },
+      // The assembled surface `index.ts` hands in: the re-served padi sibling
+      // (kolu/surfaceApp elided — this test pins that the padi splice survives
+      // the assembly's re-adaptation, the exact regression).
+      surfaceRouter: { surface: { padi: padiSibling() } },
       drainBoundPadi: async () => {},
       addHost: async () => {},
       removeHost: async () => {},
       reconnectHost: () => {},
-    });
+      // biome-ignore lint/suspicious/noExplicitAny: buildAppRouter's dynamic surface-router splice is opaque; the runtime shape is a valid router.
+    } as any);
 
     const matcher = new StandardRPCMatcher();
     // biome-ignore lint/suspicious/noExplicitAny: matcher.init takes a Router; the assembled runtime shape satisfies it (the same `as any` RPCHandler uses).
@@ -62,12 +66,13 @@ describe("buildAppRouter — the re-served padi sibling routes over the wire mat
       (matcher as unknown as { tree: Record<string, unknown> }).tree,
     );
 
-    // The regression: this route was DROPPED when the padi sibling was spread
-    // through the padi-less `t.router({...})`.
-    expect(paths).toContain("/surface/padi/lifecycle/killAll");
+    // The regression: these routes were DROPPED when `t` bound the padi-less
+    // contract, so the wire matcher 404'd every `/surface/padi/*` request.
+    expect(paths).toContain("/surface/padi/entries/keys");
+    expect(paths).toContain("/surface/padi/entries/get");
     // The raw contract-declared RPC still routes (built through `t`).
     expect(paths).toContain("/server/info");
     // No double-prefix from the assembly.
-    expect(paths).not.toContain("/surface/surface/padi/lifecycle/killAll");
+    expect(paths).not.toContain("/surface/surface/padi/entries/keys");
   });
 });
