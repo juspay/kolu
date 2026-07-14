@@ -12,18 +12,28 @@
  * live xterm" corruption is unrepresentable, not a rule to remember.
  */
 
+import { ORPCError } from "@orpc/client";
+import {
+  SURFACE_RELAY_TRANSPORT_LOST,
+  shouldNotRetryORPCError,
+} from "@kolu/surface/client";
 import { describe, expect, it } from "vitest";
 import { controllable } from "./controllableStream.testutil";
 import { observableHolder } from "./hostFanout";
 import {
   type ForwardableStream,
-  NoLiveUpstreamError,
   type RelayPolicy,
+  RelayTransportLostError,
   relayFailThroughStream,
   relayHoldOpenStream,
 } from "./relayStream";
 
 const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+// The shared retry fence is typed as a `Value<...>` union (a boolean OR a
+// predicate), so pin it to the predicate form to call it — the same cast the
+// `@kolu/surface-app` fence tests use.
+const fence = shouldNotRetryORPCError as (a: { error: unknown }) => boolean;
 
 const POLICY = {
   liveBytes: "delta",
@@ -82,7 +92,16 @@ describe("relayFailThroughStream (delta)", () => {
     up2.push("spliced-should-never-appear");
 
     await run;
-    expect((error as Error).message).toBe("stdio link died"); // downstream terminated
+    // The downstream ends with the NAMED RETRYABLE transport end (SR5), NOT a raw
+    // re-throw — so it crosses oRPC retryable and the browser re-subscribes. The
+    // raw upstream error is preserved on `cause` for diagnosis.
+    expect(error).toBeInstanceOf(RelayTransportLostError);
+    expect((error as ORPCError<string, unknown>).code).toBe(
+      SURFACE_RELAY_TRANSPORT_LOST,
+    );
+    expect(((error as Error).cause as Error).message).toBe("stdio link died");
+    // The shared retry fence classifies it RETRYABLE (unlike any other ORPCError).
+    expect(fence({ error })).toBe(true);
     expect(frames).toEqual(["snapshot", "live-1"]); // no spliced frame
   });
 
@@ -108,7 +127,7 @@ describe("relayFailThroughStream (delta)", () => {
     expect(frames).toEqual(["a"]);
   });
 
-  it("throws NoLiveUpstreamError when subscribed with no live client", async () => {
+  it("throws the RETRYABLE RelayTransportLostError when subscribed with no live client", async () => {
     const holder = observableHolder<ByteClient>(); // current === null
     const relay = relayFailThroughStream(
       POLICY,
@@ -116,20 +135,30 @@ describe("relayFailThroughStream (delta)", () => {
       holder,
       selectByte,
     );
-    await expect(
-      (async () => {
+    let error: unknown = null;
+    await (async () => {
+      try {
         for await (const _ of relay({ id: "t" }, undefined)) {
           /* consume */
         }
-      })(),
-    ).rejects.toBeInstanceOf(NoLiveUpstreamError);
+      } catch (err) {
+        error = err;
+      }
+    })();
+    expect(error).toBeInstanceOf(RelayTransportLostError);
+    expect((error as ORPCError<string, unknown>).code).toBe(
+      SURFACE_RELAY_TRANSPORT_LOST,
+    );
+    // The shared retry fence classifies the no-live-upstream end RETRYABLE too, so
+    // a subscribe before the link is up re-subscribes once it comes back.
+    expect(fence({ error })).toBe(true);
   });
 
-  it("ends cleanly (no NoLiveUpstreamError) on an already-aborted subscribe with no live upstream", async () => {
+  it("ends cleanly (no RelayTransportLostError) on an already-aborted subscribe with no live upstream", async () => {
     // A teardown can race an upstream drop: the downstream aborts while
     // `holder.current` is null, and the generator is first pulled AFTER the abort.
     // That abort is teardown, not a dead-link condition, so it must end cleanly —
-    // NOT surface a spurious NoLiveUpstreamError to a client that already walked
+    // NOT surface a spurious RelayTransportLostError to a client that already walked
     // away (the abort check precedes the `client === null` branch).
     const holder = observableHolder<ByteClient>(); // current === null
     const relay = relayFailThroughStream(
@@ -147,7 +176,7 @@ describe("relayFailThroughStream (delta)", () => {
     } catch (err) {
       error = err;
     }
-    expect(error).toBeNull(); // clean return, not NoLiveUpstreamError
+    expect(error).toBeNull(); // clean return, not RelayTransportLostError
     expect(frames).toEqual([]);
   });
 

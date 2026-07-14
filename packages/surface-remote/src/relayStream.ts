@@ -44,6 +44,8 @@
  * graduates the machinery; W1 shipped that classification.
  */
 
+import { ORPCError } from "@orpc/client";
+import { SURFACE_RELAY_TRANSPORT_LOST } from "@kolu/surface/client";
 import type { UpstreamSource } from "@kolu/surface/project";
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
 import type { LiveSpawnHolder, ObservableHolder } from "./hostFanout";
@@ -237,16 +239,37 @@ export function relayHoldOpenStream<P extends RelayPolicy, Cl, I, F>(
 
 // ── relayFailThroughStream — the DELTA path (end downstream on upstream drop) ─
 
-/** Raised when a fail-through stream is subscribed while no upstream is live.
- *  Ending the downstream loudly (rather than a healthy-but-empty stream) is what
- *  makes the client's retry re-subscribe once the link is back — a snapshot only
- *  ever leads a FRESH stream. */
-export class NoLiveUpstreamError extends Error {
-  constructor(member: string) {
-    super(
-      `relayFailThroughStream: "${member}" subscribed with no live upstream link — downstream ends so the client re-subscribes end-to-end`,
-    );
-    this.name = "NoLiveUpstreamError";
+/** The NAMED, RETRYABLE transport end a fail-through relay ends its downstream
+ *  with when its UPSTREAM link to the agent is lost — either subscribed while no
+ *  upstream is live, or a mid-stream link death (SR5 — one protocol across the
+ *  wire). Ending the downstream LOUDLY (rather than a healthy-but-empty stream)
+ *  is what makes the client's retry re-subscribe once the link is back, so a
+ *  snapshot only ever leads a FRESH stream.
+ *
+ *  It is an `ORPCError` with the {@link SURFACE_RELAY_TRANSPORT_LOST} code — the
+ *  ONE code the shared retry fence (`shouldNotRetryORPCError`, `@kolu/surface`)
+ *  treats as RETRYABLE — so it crosses oRPC with its code PRESERVED (not sanitized
+ *  to a generic non-retriable `INTERNAL_SERVER_ERROR`) and the browser's
+ *  `STREAM_RETRY` re-subscribes end-to-end. A RAW re-throw of the upstream error
+ *  would cross as a NON-retriable error and STRAND the downstream — the bug this
+ *  named end fixes. The upstream error, when there is one, is carried on `cause`. */
+export class RelayTransportLostError extends ORPCError<
+  typeof SURFACE_RELAY_TRANSPORT_LOST,
+  unknown
+> {
+  constructor(
+    member: string,
+    reason: "no-live-upstream" | "link-died",
+    cause?: unknown,
+  ) {
+    super(SURFACE_RELAY_TRANSPORT_LOST, {
+      message:
+        reason === "no-live-upstream"
+          ? `relayFailThroughStream: "${member}" subscribed with no live upstream link — downstream ends (retryable) so the client re-subscribes end-to-end`
+          : `relayFailThroughStream: "${member}" lost its upstream link mid-stream — downstream ends (retryable) so the client re-subscribes end-to-end`,
+      cause,
+    });
+    this.name = "RelayTransportLostError";
   }
 }
 
@@ -273,7 +296,7 @@ export function failThroughStreamCore<Cl, I, F>(
   const log = opts.log ?? (() => {});
   return async function* (input, signal) {
     // Already-aborted subscribe — the downstream unsubscribed before the first
-    // pull. Clean return, NOT a `NoLiveUpstreamError`: an abort is teardown, not a
+    // pull. Clean return, NOT a `RelayTransportLostError`: an abort is teardown, not a
     // dead-link condition, so surfacing an error to a client that already walked
     // away would be spurious (the sibling `holdOpenStreamCore`'s `while (!aborted())`
     // head returns the same way, and the subscribe-handshake abort below is already
@@ -282,10 +305,11 @@ export function failThroughStreamCore<Cl, I, F>(
     if (signal?.aborted === true) return;
     const client = holder.current;
     if (client === null) {
-      // No live upstream at subscribe — end (loudly) so the client re-subscribes
-      // once the link is back, never a healthy-but-empty byte stream.
+      // No live upstream at subscribe — end (loudly, as the NAMED RETRYABLE
+      // transport end) so the client re-subscribes once the link is back, never a
+      // healthy-but-empty byte stream.
       log(`${member}: no live client at subscribe — ending downstream`);
-      throw new NoLiveUpstreamError(member);
+      throw new RelayTransportLostError(member, "no-live-upstream");
     }
     // Straight through: forward the upstream 1:1. `iterateUntilAborted` swallows
     // only the downstream-abort rejection; a clean end completes the loop and an
@@ -305,10 +329,15 @@ export function failThroughStreamCore<Cl, I, F>(
       log(`${member}: upstream stream ended — ending downstream`);
     } catch (err) {
       if (isAbortReason(err, signal)) return;
+      // A mid-stream upstream death. End the downstream with the NAMED RETRYABLE
+      // transport end (carrying the raw upstream error as `cause`), NOT a raw
+      // re-throw: a raw error crosses oRPC sanitized to a NON-retriable
+      // `INTERNAL_SERVER_ERROR`, which would STRAND the downstream instead of
+      // re-subscribing it end-to-end.
       log(
         `${member}: upstream link died — ending downstream: ${(err as Error).message}`,
       );
-      throw err;
+      throw new RelayTransportLostError(member, "link-died", err);
     }
   };
 }

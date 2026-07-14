@@ -19,13 +19,29 @@
 import { ORPCError } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
-/** The retry policy shared across transports: retry transport errors,
- *  never an `ORPCError` (an application-level error the server chose to
- *  raise — retrying it just repeats the same failure). Named once here so
- *  `STREAM_RETRY` (per-call streaming context) and the stdio link's
+/** The ONE `ORPCError` code that is RETRYABLE (SR5 — "one protocol across the
+ *  wire"). A re-serving parent's fail-through relay ends its downstream with this
+ *  code when its UPSTREAM link to the agent is lost (no live upstream at subscribe,
+ *  or a mid-stream link death), so the browser's `STREAM_RETRY` re-subscribes
+ *  end-to-end and a fresh snapshot leads the new stream. It is the NAMED retryable
+ *  transport end the reServe relay produces (`RelayTransportLostError`,
+ *  `@kolu/surface-remote`), and it crosses oRPC as an `ORPCError` — code PRESERVED,
+ *  not sanitized — so the fence below can recognize it on the far side. The dual of
+ *  `deadTransportError`'s codes: those are permanently dead (never retry), this one
+ *  is a transient middle-hop drop the parent will heal. */
+export const SURFACE_RELAY_TRANSPORT_LOST = "SURFACE_RELAY_TRANSPORT_LOST";
+
+/** The retry policy shared across transports: retry transport errors, and the ONE
+ *  named RETRYABLE relay end ({@link SURFACE_RELAY_TRANSPORT_LOST} — a re-serve's
+ *  transient upstream drop), but never any OTHER `ORPCError` (an application-level
+ *  error the server chose to raise — retrying it just repeats the same failure, and
+ *  it is the non-retriable shape a permanently-dead transport rejects with). Named
+ *  once here so `STREAM_RETRY` (per-call streaming context) and the stdio link's
  *  factory-level `ClientRetryPlugin` default can't drift apart. */
 export const shouldNotRetryORPCError: ClientRetryPluginContext["shouldRetry"] =
-  ({ error }) => !(error instanceof ORPCError);
+  ({ error }) =>
+    !(error instanceof ORPCError) ||
+    error.code === SURFACE_RELAY_TRANSPORT_LOST;
 
 /** The two codes a permanently-dead transport rejects with. Distinct strings
  *  (so a consumer can tell *which* transport died) but one shape: both flow
