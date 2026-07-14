@@ -91,8 +91,8 @@ export interface SurfacesConnection<
   link: LiveSignalHandle<C>["link"];
   /** The BRANDED transport handle `createLiveSignal` minted (link + watchdog `live` +
    *  status, paired by construction). Exposed for FRAMEWORK COMPOSITION over a SIBLING
-   *  of this combined socket: `connectSurfaceMap(map, conn.transport, "<siblingKey>")`
-   *  slices that sibling from the handle and recovers THIS socket's watchdog `live` — so
+   *  of this combined socket: `connectSurfaceMap(map, conn.transport)` slices the sibling
+   *  named by `map.name` from the handle and recovers THIS socket's watchdog `live` — so
    *  a keyed map dialled over the sibling floors its chips on the real transport, with NO
    *  raw-`{ live }` seam to forge. The handle is unforgeable (module-private brand), so
    *  exposing it invites no green-over-dead lie. */

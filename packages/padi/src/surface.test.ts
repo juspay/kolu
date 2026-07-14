@@ -281,8 +281,10 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiControlSurface.spec.cells?.version.default).toEqual({
       controlCoreVersion: CONTROL_CORE_VERSION,
     });
-    // The four control verbs live under the single `control` namespace — served
-    // for real in W2.2 (W1.C pinned their existence as schema shapes).
+    // The frozen control verbs live under the single `control` namespace — served
+    // for real in W2.2 (W1.C pinned their existence as schema shapes). `clockNow`
+    // is a frozen member kept FOREVER for cross-version skew, beside the new
+    // framework `system.clockNow` measurement path.
     expect(
       Object.keys(padiControlSurface.spec.procedures?.core ?? {}).sort(),
     ).toEqual(["clockNow", "controlVersion", "drain", "hello"]);

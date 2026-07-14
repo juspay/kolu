@@ -39,6 +39,10 @@ function padiSibling(): unknown {
         yield [];
       }),
       get: padi.entries.get.handler(async function* () {
+        // A bare-string `membershipId` here is fine: `padi` is `(t as any)`, so
+        // the branded `MembershipId` type never reaches this stub, and this yield
+        // is dead — the test asserts the ROUTING tree, never invoking `get`. It is
+        // not a typed `EntryStatus` fixture, so it needs no `testMembershipId()`.
         yield { kind: "warming", membershipId: "x" };
       }),
     },

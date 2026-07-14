@@ -15,6 +15,9 @@ export {
   entryStatusSchema,
   type Key,
   type KeyCodec,
+  type MembershipId,
+  MembershipIdSchema,
+  PENDING_MEMBERSHIP_ID,
   type SurfaceMap,
 } from "./define";
 // (`EntryState` is sourced from the SOLID-FREE `./define`, NOT `./client`: a

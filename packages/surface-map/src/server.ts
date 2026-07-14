@@ -28,7 +28,8 @@ import {
 import { ORPCError } from "@orpc/client";
 import { implement } from "@orpc/server";
 import type { z } from "zod";
-import type { EntryStatus, SurfaceMap } from "./define";
+import type { EntryStatus, MembershipId, SurfaceMap } from "./define";
+import { MembershipIdSchema } from "./define";
 import { unfoldInput, unfoldKeyField } from "./envelope";
 
 // ── The resolver / membership seam ──────────────────────────────────────
@@ -36,7 +37,9 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
 /** A session's connection state — the map DERIVES {@link EntryStatus} from it (a
  *  projection, never a second writer). `copying`/`connecting` project to
  *  `warming`; `connected` carries the serving process's own-clock offset at
- *  hello; `disconnected`/`failed` project to `failed(failure)`.
+ *  hello (`number | null`, where `null` = not-yet-measured — readiness is
+ *  link-liveness, so a connected session projects to `connected` regardless);
+ *  `disconnected`/`failed` project to `failed(failure)`.
  *
  *  `Prov` mirrors `@kolu/surface-remote/session`'s `SessionState<Prov extends
  *  string>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
@@ -98,7 +101,7 @@ export type EntryConnectionState<
 > =
   | { kind: Prov }
   | { kind: "connecting" }
-  | { kind: "connected"; clockOffset: number }
+  | { kind: "connected"; clockOffset: number | null }
   | { kind: "disconnected"; failure?: Failure }
   | { kind: "failed"; failure: Failure };
 
@@ -136,6 +139,17 @@ export interface EntryFault<Failure = unknown> {
  *  - CLAUSE 1 (ordering): `onChange` fires only AFTER `members()`/`has()` reflect
  *    the change.
  *  - CLAUSE 2 (snapshot): `members()` and `has()` answer from ONE consistent view.
+ *  - CLAUSE 3 (per-transition, non-coalescing): every membership transition is
+ *    OBSERVABLE — a key's departure and its re-add are never coalesced into one
+ *    `onChange` that leaves `members()` showing the key continuously present. A key
+ *    that leaves must be absent from `members()` on the notification that reports its
+ *    departure BEFORE any re-add is reported. This is the law the per-add
+ *    `membershipId` mint (a departed key's id is pruned on its departure notification,
+ *    so the re-add mints a FRESH one) AND the client's per-key root lifecycle
+ *    (`scoped.ts`'s `keyArray`, disposed on exit / rebuilt on entry) both rely on: a
+ *    registry that atomically swaps a same-key session without an observable departure
+ *    would reuse the stale id and strand the old subscription. The pool registries
+ *    satisfy this by construction (each add/remove fires its own synchronous notify).
  *  - Status is DERIVED from the resolved session's state (projection). */
 export interface MapRegistry<
   K,
@@ -176,13 +190,18 @@ function isFault<Failure>(
  *  classification seam (`serveHostMap`) rather than here. */
 function projectStatus<Failure>(
   state: EntryConnectionState<"copying", Failure>,
+  membershipId: MembershipId,
 ): EntryStatus<Failure> {
   switch (state.kind) {
     case "copying":
     case "connecting":
-      return { kind: "warming" };
+      return { kind: "warming", membershipId };
     case "connected":
-      return { kind: "connected", clockOffset: state.clockOffset };
+      return {
+        kind: "connected",
+        membershipId,
+        clockOffset: state.clockOffset,
+      };
     // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
     //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
     //     redialing; the classifier reported NO standing failure (absent `failure`).
@@ -197,14 +216,14 @@ function projectStatus<Failure>(
     // specificity: a refuse carries one, a transient drop carries none.
     case "disconnected":
       return state.failure === undefined
-        ? { kind: "warming" }
-        : { kind: "failed", failure: state.failure };
+        ? { kind: "warming", membershipId }
+        : { kind: "failed", membershipId, failure: state.failure };
     // A terminal give-up (the reconnect loop stopped for good) — always a red
     // `failed` chip carrying the domain failure the arm is now typed to REQUIRE
     // (the illegal "failed with no failure" is unconstructible; the producer's
     // classification seam in `serveHostMap` fails loud before it can arise here).
     case "failed":
-      return { kind: "failed", failure: state.failure };
+      return { kind: "failed", membershipId, failure: state.failure };
   }
 }
 
@@ -272,8 +291,11 @@ function leafAt(
 export interface ServeSurfaceMapResult {
   /** A finalized top-level oRPC router — hand it straight to `directLink` (or a
    *  wire serve path). Serves `surface.<member>.<verb>` (key-folded, forwarded)
-   *  and `surface.entries.{keys,get}` (the membership projection). */
-  readonly router: unknown;
+   *  and `surface.entries.{keys,get}` (the membership projection). Typed as
+   *  `{ surface: … }` (PR3) — not `unknown` — so a host that mounts this router as a
+   *  sibling (`{ surface: { …, [name]: served.router.surface } }`) reaches `.surface`
+   *  with NO `as any` cast; the cast is unspellable by type, not merely deleted. */
+  readonly router: { readonly surface: Record<string, unknown> };
   /** Tear down the membership republish subscription. */
   dispose(): void;
 }
@@ -296,16 +318,50 @@ export function serveSurfaceMap<
   const resolve = (k: K) => registry.resolve(k);
   const members = () => registry.members();
 
+  // ── Opaque per-add membership identity (PR3) ─────────────────────────
+  //
+  // A fresh `crypto.randomUUID()` stamped when a key ENTERS membership, dropped
+  // when it leaves, published on EVERY status arm. Minted LAZILY (`membershipIdFor`)
+  // — a present member always resolves to one, so a per-key snapshot read
+  // (`readOne`, no membership change to hang minting on) never lacks an id — and
+  // PRUNED on every membership change (`pruneDepartedIds`, fired from the republish
+  // subscription below, which CLAUSE 1 guarantees fires with the departed key
+  // ALREADY gone). Prune-on-departure is what makes a same-key remove/re-add mint a
+  // FRESH id: the removal drops the old id, so the re-add lazily mints a new one. An
+  // authority restart is a fresh `serveSurfaceMap` over a fresh registry — an empty
+  // id map — so every member mints anew; ids are never reused across a restart by
+  // construction. The client keys every cached owner on `{encodedKey, membershipId}`,
+  // so both paths rebuild subscriptions without any hand-rolled generation rearm.
+  const membershipIds = new Map<string, MembershipId>();
+  const membershipIdFor = (enc: string): MembershipId => {
+    let id = membershipIds.get(enc);
+    if (id === undefined) {
+      // The MINT — one of the only two producers of a branded `MembershipId` (the
+      // other being the wire `entryStatusSchema` parse). `parse` brands the fresh
+      // uuid; a non-empty uuid always clears `.min(1)`.
+      id = MembershipIdSchema.parse(crypto.randomUUID());
+      membershipIds.set(enc, id);
+    }
+    return id;
+  };
+  const pruneDepartedIds = (currentEncs: readonly string[]): void => {
+    const present = new Set(currentEncs);
+    for (const enc of [...membershipIds.keys()]) {
+      if (!present.has(enc)) membershipIds.delete(enc);
+    }
+  };
+
   // A structural fault (no live session — the mock harness's failed member)
   // publishes the SAME schema-valid domain `failure` a session-backed failed
   // entry does (PR4 — no `"other"` fabrication); the registry that mints the
   // fault owns classifying it. `resolve` that cannot classify a fault has no
   // business minting one — it fails loud instead (see `serveHostMap`).
   const statusOf = (mapKey: K): EntryStatus<Failure> => {
+    const membershipId = membershipIdFor(map.codec.encode(mapKey));
     const r = resolve(mapKey);
     return isFault(r)
-      ? { kind: "failed", failure: r.failure }
-      : projectStatus<Failure>(r.state);
+      ? { kind: "failed", membershipId, failure: r.failure }
+      : projectStatus<Failure>(r.state, membershipId);
   };
 
   // ── Forward one streaming member call, ending TYPED on membership loss ──
@@ -491,6 +547,11 @@ export function serveSurfaceMap<
     channel<EntryStatus<Failure>>(collectionKeyChannel("entries", encoded));
 
   const entriesDeps: CollectionHandlerDeps<string, EntryStatus<Failure>> = {
+    // The snapshot is built ONLY from the current `members()`, so a departed id in
+    // `membershipIds` can never enter it; and the republish subscription below prunes on
+    // EVERY membership change (CLAUSE 1 fires synchronously after a departure), so the id
+    // map is already bounded to current members by the time any `readAll` runs. No belt
+    // prune needed here.
     readAll: () =>
       new Map(
         members().map(
@@ -528,6 +589,10 @@ export function serveSurfaceMap<
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();
     const encoded = ks.map((k) => map.codec.encode(k));
+    // Prune BEFORE publishing: CLAUSE 1 guarantees a departed key is already gone
+    // from `members()` here, so dropping its id now means the next re-add lazily
+    // mints a FRESH one (the same-key remove/re-add → new-membershipId path).
+    pruneDepartedIds(encoded);
     keysBus.publish(encoded);
     for (const k of ks) perKeyBus(map.codec.encode(k)).publish(statusOf(k));
   });

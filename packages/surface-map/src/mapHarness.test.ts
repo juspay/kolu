@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
 import type { EntryStatus, KeyCodec } from "./define";
+import { testMembershipId } from "./testing";
 import {
   A,
   B,
@@ -32,7 +33,9 @@ import {
   type HostKey,
   HostKeySchema,
   identityCodec,
+  liveWhenEntrySurface,
   makeEntry,
+  makeLiveWhenEntry,
   makeRegistry,
   settle,
   setup,
@@ -134,7 +137,10 @@ describe("surface-map mock-entry e2e harness", () => {
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
       let keys: string[] = [];
-      let state: EntryState = { kind: "warming" };
+      let state: EntryState = {
+        kind: "warming",
+        membershipId: testMembershipId(),
+      };
       createEffect(() => {
         cellError = cell.error();
       });
@@ -148,14 +154,17 @@ describe("surface-map mock-entry e2e harness", () => {
       await settle();
       expect(cell.value()?.awaiting).toBe(9);
       expect(keys).toContain("a");
-      expect(state).toEqual({ kind: "connected", clockOffset: 100 });
+      // `toMatchObject` — the published arm now also carries an opaque `membershipId`
+      // (PR3), asserted for real in the "membership is time" pins below; here we pin the
+      // kind + offset the consumer reads, blind to the id.
+      expect(state).toMatchObject({ kind: "connected", clockOffset: 100 });
 
       remove(A);
       await settle();
 
       expect(cellError).toBeUndefined(); // TYPED end — no socket-error frame
       expect(keys).not.toContain("a"); // dropped from the one authority
-      expect(state).toEqual({ kind: "not-a-member" }); // total existence-as-a-value
+      expect(state).toEqual({ kind: "not-a-member" }); // total existence-as-a-value (no id)
       dispose();
     });
   });
@@ -178,17 +187,24 @@ describe("surface-map mock-entry e2e harness", () => {
         kind: "connecting",
       });
       await settle();
-      expect(stC).toEqual({ kind: "warming" }); // connecting → warming
+      expect(stC).toMatchObject({ kind: "warming" }); // connecting → warming
 
       setState(C, connected(42));
       await settle();
-      expect(stC).toEqual({ kind: "connected", clockOffset: 42 });
+      expect(stC).toMatchObject({ kind: "connected", clockOffset: 42 });
+
+      // Readiness is decoupled from the clock offset (PR3): a connected session whose
+      // `system.clockNow` probe hasn't landed carries `clockOffset: null` and still reads
+      // CONNECTED end-to-end (server projection → client), never demoted to connecting/warming.
+      setState(C, connected(null));
+      await settle();
+      expect(stC).toMatchObject({ kind: "connected", clockOffset: null });
 
       addFault(D, { cause: "drv-missing", reason: "no drv for arch" });
       await settle();
       // A structural fault (no live session) publishes the SAME schema-valid domain
       // `failure` a session-backed failed entry does (PR4 — no `"other"` fabrication).
-      expect(stD).toEqual({
+      expect(stD).toMatchObject({
         kind: "failed",
         failure: { cause: "drv-missing", reason: "no drv for arch" },
       });
@@ -211,7 +227,7 @@ describe("surface-map mock-entry e2e harness", () => {
         connected(0),
       );
       await settle();
-      expect(st).toEqual({ kind: "connected", clockOffset: 0 });
+      expect(st).toMatchObject({ kind: "connected", clockOffset: 0 });
 
       // TRANSIENT reconnect-backoff — the link dropped, the loop is redialing, the
       // classifier reported NO standing failure (absent `failure`). IN MOTION ->
@@ -220,7 +236,7 @@ describe("surface-map mock-entry e2e harness", () => {
       // failure-PRESENCE now, not a magic "other" sentinel.
       setState(C, disconnected());
       await settle();
-      expect(st).toEqual({ kind: "warming" });
+      expect(st).toMatchObject({ kind: "warming" });
 
       // STANDING refuse — a domain `failure` on disconnected (the session holds
       // degraded, redialing can't resolve a foreign supervisor). NOT PROCEEDING
@@ -234,7 +250,7 @@ describe("surface-map mock-entry e2e harness", () => {
         }),
       );
       await settle();
-      expect(st).toEqual({
+      expect(st).toMatchObject({
         kind: "failed",
         failure: {
           cause: "cross-supervisor",
@@ -252,7 +268,7 @@ describe("surface-map mock-entry e2e harness", () => {
         }),
       );
       await settle();
-      expect(st).toEqual({
+      expect(st).toMatchObject({
         kind: "failed",
         failure: { cause: "link-failed", reason: "gave up after 5 tries" },
       });
@@ -413,20 +429,21 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(9) the { live } override is unspellable — the 3rd arg is a siblingKey string, not a raw liveness accessor", () => {
+  it("(9) the { live } override is unspellable — there is NO 3rd arg; liveness rides only the branded transport", () => {
     const map = buildTestMap({
       key: HostKeySchema,
       entry: entrySurface,
       codec: identityCodec,
     });
     // Liveness comes ONLY from a branded LiveSignalHandle (its watchdog `live`) or a
-    // constant-true in-process directLink; a raw accessor over a bare link (the #1564
-    // green-over-dead lie) cannot be SPELLED — the 3rd arg is a siblingKey string.
+    // constant-true in-process directLink. PR3 removed the `siblingKey` param (the slice
+    // key derives from `map.name` now), so there is no 3rd argument at all — a raw
+    // liveness accessor (the #1564 green-over-dead lie) has nowhere to go.
     const bad = () =>
       connectSurfaceMap(
         map,
         {} as unknown,
-        // @ts-expect-error — `{ live }` is not assignable to `siblingKey?: string`.
+        // @ts-expect-error — connectSurfaceMap takes exactly 2 args; there is no 3rd seam.
         { live: () => true },
       );
     expect(bad).toBeDefined();
@@ -711,27 +728,284 @@ function armableRegistry() {
   };
 }
 
+// ── Membership is time, and time is a fact (PR3) ──────────────────────────────
+// The opaque, never-reused `membershipId` `serveSurfaceMap` stamps on every add,
+// published on every status arm, keyed by every cached client — the fact that makes a
+// same-key remove/re-add and an authority restart rebuild subscriptions BY CONSTRUCTION,
+// replacing kolu's hand-rolled `createRejoinKeyedSub` generation rearm.
+describe("membership is time — opaque membershipId (PR3)", () => {
+  /** Read A's currently-published `membershipId` off the `entries` authority. */
+  const idReader = (client: ReturnType<typeof setup>["client"]) => {
+    let id: string | undefined;
+    createEffect(() => {
+      id = (
+        client.entries.use().byKey(A)?.() as
+          | EntryStatus<TestFailure>
+          | undefined
+      )?.membershipId;
+    });
+    return () => id;
+  };
+
+  it("every published arm carries a membershipId — warming, connected, AND failed", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession, addFault, setState } = setup();
+      const view = client.entries.use();
+      let stA: EntryStatus<TestFailure> | undefined;
+      let stB: EntryStatus<TestFailure> | undefined;
+      createEffect(() => {
+        stA = view.byKey(A)?.() as EntryStatus<TestFailure> | undefined;
+      });
+      createEffect(() => {
+        stB = view.byKey(B)?.() as EntryStatus<TestFailure> | undefined;
+      });
+
+      addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).link, {
+        kind: "connecting",
+      }); // → warming
+      addFault(B, { cause: "drv-missing", reason: "no drv" }); // → failed
+      await settle();
+      expect(stA?.kind).toBe("warming");
+      expect(stA?.membershipId).toEqual(expect.any(String));
+      expect(stB?.kind).toBe("failed");
+      expect(stB?.membershipId).toEqual(expect.any(String));
+
+      setState(A, connected(0)); // → connected
+      await settle();
+      expect(stA?.kind).toBe("connected");
+      expect(stA?.membershipId).toEqual(expect.any(String));
+      dispose();
+    });
+  });
+
+  it("a same-key remove/re-add mints a DIFFERENT membershipId AND rebuilds the subscription (the createRejoinKeyedSub scenario)", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession, remove } = setup();
+      const entry1 = makeEntry({ awaiting: 1, awaitingIds: [] });
+      addSession(A, entry1.link, connected(0));
+
+      // A reactive useEntry sub over A's urgency cell (opened synchronously — `useEntry`
+      // needs a live reactive owner). It is the sub that must REBUILD on a same-key re-add
+      // — the exact stranding `createRejoinKeyedSub` used to hand-fix.
+      const [active] = createSignal<HostKey>(A);
+      const cell = client.useEntry(active).cells.urgency.use();
+      let awaiting: number | undefined;
+      createEffect(() => {
+        awaiting = cell.value()?.awaiting;
+      });
+      const idOf = idReader(client);
+      await settle();
+      expect(awaiting).toBe(1);
+      const id1 = idOf();
+      expect(id1).toEqual(expect.any(String));
+
+      // Flap: remove A (its subs typed-end), then re-add under a BRAND-NEW session.
+      remove(A);
+      await settle();
+      const entry2 = makeEntry({ awaiting: 2, awaitingIds: [] });
+      addSession(A, entry2.link, connected(0));
+      await settle();
+
+      const id2 = idOf();
+      expect(id2).toEqual(expect.any(String));
+      expect(id2).not.toBe(id1); // never reused — a re-add is a NEW member
+      // The REBUILD, proven two ways: the sub now reads the NEW session's value (not
+      // stranded at the old 1), and the new session's link got EXACTLY ONE fresh upstream
+      // forward — the stale sub was torn down and a genuinely fresh one opened against it.
+      expect(awaiting).toBe(2);
+      expect(entry2.urgencyGetCount()).toBe(1);
+      dispose();
+    });
+  });
+
+  it("the membershipId is STABLE across a status transition — a mere connected↔warming flip does NOT churn it or rebuild the sub", async () => {
+    await createRoot(async (dispose) => {
+      const { client, addSession, setState } = setup();
+      const entry = makeEntry({ awaiting: 7, awaitingIds: [] });
+      addSession(A, entry.link, connected(0));
+
+      const [active] = createSignal<HostKey>(A);
+      const cell = client.useEntry(active).cells.urgency.use();
+      createEffect(() => void cell.value());
+      const idOf = idReader(client);
+      await settle();
+      const id1 = idOf();
+      expect(id1).toEqual(expect.any(String));
+      // Baseline forward count once connected (a sub opened before its first membership
+      // frame re-keys once when the id lands — an on-screen-neutral cold-start detail; we
+      // pin the INVARIANT that a status flip adds NO further forwards, not the absolute).
+      const forwardsWhenConnected = entry.urgencyGetCount();
+
+      // A transient drop (→ warming) then reconnect (→ connected): the SAME membership
+      // throughout — no remove — so the id must not change and the sub must not rebuild
+      // (a churned id here would be a spurious teardown storm on every reconnect blip).
+      setState(A, disconnected());
+      await settle();
+      expect(idOf()).toBe(id1);
+      setState(A, connected(5));
+      await settle();
+      expect(idOf()).toBe(id1);
+      // No NEW forward across the flip — same membership, same client, no re-key/rebuild.
+      expect(entry.urgencyGetCount()).toBe(forwardsWhenConnected);
+      dispose();
+    });
+  });
+
+  it("an authority restart (a fresh serveSurfaceMap over the SAME registry) mints ids NEVER reused from the prior server", async () => {
+    // Ids live in the `serveSurfaceMap` instance (an in-process Map), so a restarted
+    // map-server can never reuse a prior id BY CONSTRUCTION. Composed with the re-add pin
+    // above (the client rebuilds on ANY id change), this is the authority-restart path:
+    // the reconnect delivers fresh ids → every cached owner misses → subscriptions rebuild.
+    const map = buildTestMap({
+      key: HostKeySchema,
+      entry: entrySurface,
+      codec: identityCodec,
+    });
+    const reg = makeRegistry();
+    reg.addSession(
+      A,
+      makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+      connected(0),
+    );
+
+    const readIdFromFreshServer = async (): Promise<string | undefined> => {
+      const served = serveSurfaceMap(map, reg.registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+      let id: string | undefined;
+      await createRoot(async (dispose) => {
+        const idOf = idReader(client);
+        await settle();
+        id = idOf();
+        dispose();
+      });
+      served.dispose();
+      return id;
+    };
+
+    const id1 = await readIdFromFreshServer();
+    const id2 = await readIdFromFreshServer();
+    expect(id1).toEqual(expect.any(String));
+    expect(id2).toEqual(expect.any(String));
+    expect(id2).not.toBe(id1); // a restarted authority never re-mints a prior id
+  });
+
+  it("a RETAINED entry() sub on the pending client survives a concurrent useEntry pending→real re-key", async () => {
+    // The createHostWire / watchByEntry shape: a RETAINED `entry(key)` sub (NOT `useEntry`)
+    // opened during the pre-first-frame gap rides the '' PENDING client. When a CONCURRENT
+    // `useEntry(key)` on the SAME key re-keys pending→real (its first membership frame lands),
+    // `clientFor` must NOT dispose the pending client out from under the retained sub — they
+    // route identically by enc, and the retained sub has no keyed root to rebuild it.
+    await createRoot(async (dispose) => {
+      const { client, addSession } = setup();
+      const entryA = makeEntry({ awaiting: 4, awaitingIds: [] });
+      // Add the member, then open BOTH subs SYNCHRONOUSLY — before `settle` propagates the
+      // membership frame, so `membershipIdOf(A)` is still undefined and both open on pending.
+      addSession(A, entryA.link, connected(0));
+
+      const retained = client.entry(A).cells.urgency.use();
+      let retainedAwaiting: number | undefined;
+      createEffect(() => {
+        retainedAwaiting = retained.value()?.awaiting;
+      });
+
+      const [active] = createSignal<HostKey>(A);
+      const view = client.useEntry(active).cells.urgency.use();
+      createEffect(() => void view.value());
+
+      // The frame lands → useEntry re-keys pending→real and builds the real client.
+      await settle();
+      expect(retainedAwaiting).toBe(4); // the retained sub survived the re-key
+
+      // A LATER frame must still reach it — proof its upstream forward was not torn down.
+      entryA.setUrgency({ awaiting: 9, awaitingIds: [] });
+      await settle();
+      expect(retainedAwaiting).toBe(9);
+      dispose();
+    });
+  });
+
+  it("a liveWhen cell's standing subscription REBUILDS on a same-key re-add — not stranded by clientFor eviction (F1)", async () => {
+    // A `liveWhen` cell (padi's real `connection` cell) opens an EAGER, CLIENT-OWNED
+    // standing subscription that `SurfaceClient.dispose()` destroys — a DIFFERENT lifecycle
+    // from an ordinary cell. `clientFor` disposes the superseded client on a re-add, so the
+    // reactive lens must REBUILD that standing sub against the fresh client. The `urgency`
+    // re-add pin can't exercise this (ordinary cells have no standing root); here the health
+    // value must follow the NEW session, proving the standing sub was rebuilt, not stranded.
+    await createRoot(async (dispose) => {
+      const map = buildTestMap({
+        key: HostKeySchema,
+        entry: liveWhenEntrySurface,
+        codec: identityCodec,
+      });
+      const reg = makeRegistry();
+      const served = serveSurfaceMap(map, reg.registry);
+      const mapLink = directLink<AnyContractRouter>(served.router as never);
+      const client = connectSurfaceMap(map, mapLink);
+
+      reg.addSession(A, makeLiveWhenEntry(1).link, connected(0));
+
+      const [active] = createSignal<HostKey>(A);
+      const cell = client.useEntry(active).cells.health.use();
+      let n: number | undefined;
+      createEffect(() => {
+        n = (cell.value() as { n: number } | undefined)?.n;
+      });
+      await settle();
+      expect(n).toBe(1);
+
+      // Flap: remove A (its standing liveWhen sub is disposed with the client), then re-add
+      // under a NEW session whose `health` reads a DIFFERENT value.
+      reg.remove(A);
+      await settle();
+      reg.addSession(A, makeLiveWhenEntry(2).link, connected(0));
+      await settle();
+
+      expect(n).toBe(2); // the standing sub REBUILT against the new session — not stranded at 1
+      dispose();
+    });
+  });
+});
+
 // The liveness floor `state()`/foldState applies (D3): a per-key chip must never paint
 // green over a dead map transport. The dead-link branch is unreachable through the harness
 // (a `directLink` is constant-live and a `LiveSignalHandle` is un-forgeable), so the floor
 // is extracted PURE (`floorOnLiveness`) and pinned here — foldState routes every status
 // through it with the resolved transport `live()`, so this IS the state() decision.
 describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
-  it("downgrades a server-published 'connected' to 'warming' when our link is dead", () => {
+  it("downgrades a server-published 'connected' to 'warming' when our link is dead — membershipId preserved (PR3)", () => {
     // The D3 defect: state() published `connected` while `live() === false`, painting a
     // green chip over a transport that can no longer deliver a demotion. Floored → warming.
+    // The floor is about LIVENESS, not identity: the entry's opaque `membershipId` rides
+    // through the demotion untouched, so the warming is still the SAME membership.
     expect(
-      floorOnLiveness({ kind: "connected", clockOffset: 42 }, false),
+      floorOnLiveness(
+        {
+          kind: "connected",
+          membershipId: testMembershipId("m1"),
+          clockOffset: 42,
+        },
+        false,
+      ),
     ).toEqual({
       kind: "warming",
+      membershipId: testMembershipId("m1"),
     });
   });
 
-  it("passes 'connected' through UNTOUCHED when the link is live (offset preserved)", () => {
+  it("passes 'connected' through UNTOUCHED when the link is live (offset + membershipId preserved)", () => {
     expect(
-      floorOnLiveness({ kind: "connected", clockOffset: 42 }, true),
+      floorOnLiveness(
+        {
+          kind: "connected",
+          membershipId: testMembershipId("m1"),
+          clockOffset: 42,
+        },
+        true,
+      ),
     ).toEqual({
       kind: "connected",
+      membershipId: testMembershipId("m1"),
       clockOffset: 42,
     });
   });
@@ -740,15 +1014,26 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
     for (const live of [true, false]) {
       expect(
         floorOnLiveness(
-          { kind: "failed", failure: { cause: "x", reason: "boom" } },
+          {
+            kind: "failed",
+            membershipId: testMembershipId("m1"),
+            failure: { cause: "x", reason: "boom" },
+          },
           live,
         ),
       ).toEqual({
         kind: "failed",
+        membershipId: testMembershipId("m1"),
         failure: { cause: "x", reason: "boom" },
       });
-      expect(floorOnLiveness({ kind: "warming" }, live)).toEqual({
+      expect(
+        floorOnLiveness(
+          { kind: "warming", membershipId: testMembershipId("m1") },
+          live,
+        ),
+      ).toEqual({
         kind: "warming",
+        membershipId: testMembershipId("m1"),
       });
       expect(floorOnLiveness({ kind: "not-a-member" }, live)).toEqual({
         kind: "not-a-member",
