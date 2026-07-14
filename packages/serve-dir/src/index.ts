@@ -44,7 +44,6 @@ import { Readable } from "node:stream";
 import { lookup } from "mrmime";
 
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
-const RE_TEXT_BEARING = /^text\/|\/(javascript|json)$/;
 const RE_BYTE_RANGE = /^bytes=(\d*)-(\d*)$/;
 
 /** Content-Type for a path. Backed by `mrmime`'s complete IANA-derived table
@@ -77,7 +76,11 @@ const OVERRIDES: Record<string, string> = {
 export function contentTypeForPath(filePath: string): string {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   const mime = OVERRIDES[ext] ?? lookup(filePath) ?? "application/octet-stream";
-  return RE_TEXT_BEARING.test(mime) ? `${mime}; charset=utf-8` : mime;
+  const textBearing =
+    mime.startsWith("text/") ||
+    mime.endsWith("/javascript") ||
+    mime.endsWith("/json");
+  return textBearing ? `${mime}; charset=utf-8` : mime;
 }
 
 /** The path portion of a request URL WITHOUT WHATWG normalization — the RAW,

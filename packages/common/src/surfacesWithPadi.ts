@@ -25,6 +25,7 @@ import {
   type EntryStatus,
   type KeyCodec,
 } from "@kolu/surface-map";
+import { z } from "zod";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -65,62 +66,88 @@ const hostKeyCodec: KeyCodec<HostKey> = {
   decode: decodeHostKey,
 };
 
-/** The padi map's DOMAIN failure cause — "why did this host's padi entry fail", a
- *  STRUCTURAL classification never parsed from `reason` (the W4 types decision,
- *  D1). Distinct from `@kolu/surface-remote`'s transport cause ("network" vs
- *  "remote" — the TRANSPORT axis, shared with drishti/odu via `SessionState`);
+/** The typed version pair the `contract-skew-refused` failure carries (D2) — TYPED
+ *  fields a producer sets on the failure value (`packages/server`'s remote padi
+ *  binder), never scanned from `reason`'s human text by a consumer. Defined ONCE as
+ *  a schema so the wire failure arm, the `PadiEntryFailedDetail` type, and the client
+ *  reader all derive from a single source that agrees on optionality — the fields are
+ *  OPTIONAL because the binder omits them when it doesn't know the running/expected
+ *  versions (`computeEntryFailedDetail` returns `{ cause }` without them). */
+const SkewVersionPairSchema = z.object({
+  running: z.string().optional(),
+  expected: z.string().optional(),
+});
+export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
+
+/** The padi map's DOMAIN failure — "why did this host's padi entry fail". A
+ *  STRUCTURAL classification never parsed from the human `reason` (the W4 types
+ *  decision, D1). Distinct from `@kolu/surface-remote`'s transport cause ("network"
+ *  vs "remote" — the TRANSPORT axis, shared with drishti/odu via `SessionState`);
  *  this is padi's OWN domain axis, one layer up — not duplication, a different
  *  question at a different layer.
+ *
+ *  A schema VALIDATES this value on the wire (PR4): the map's `failed` arm can only
+ *  carry a value this schema accepts, and there is NO fabricated catch-all — every
+ *  arm is a named structural producer, so a failure kolu can't classify fails loud
+ *  (`serveHostMap`'s `UnclassifiedHostFailureError`) rather than bucketing into a
+ *  renamed "other" (dropped in PR4). Each arm carries its human `reason` (shown verbatim on the
+ *  host-down card, never parsed for control flow); `contract-skew-refused` carries
+ *  the typed {@link SkewVersionPair} (D2) directly, when the binder knows it.
  *
  *   - `contract-skew-refused` — #1313: this binder is OLDER than the running padi
  *     — never drains (monotonicity).
  *   - `cross-supervisor`      — a DIFFERENT LIVE supervisor owns the state root —
- *     never drains. RESERVED: not yet a live producer — wired by the held W4 P0
- *     ownership/lineage work (`claimLocalSupervisor`'s `SupervisorClaim.kind ===
- *     "foreign"` verdict), which lands separately.
+ *     never drains (`remotePadiBinding`'s `crossSupervisor` verdict).
  *   - `drv-unbaked`           — `PADI_AGENT_DRVS_JSON` isn't baked (a non-Nix-wrapper run).
  *   - `drv-missing-for-system`— the baked map has no `.drv` for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
- *   - `link-failed`           — the transport gave up (host unreachable / provisioning
- *     failed).
- *   - `other`                 — every other structural fault (unknown host, a plain
- *     transport failure with no more specific classification). ALWAYS a member —
- *     `@kolu/surface-map`'s own generic fallback (`projectStatus`/`statusOf`) when
- *     a registry supplies no (or no matching) domain classification lands here. */
-export type EntryFailedCause =
-  | "contract-skew-refused"
-  | "cross-supervisor"
-  | "drv-unbaked"
-  | "drv-missing-for-system"
-  | "unconverged"
-  | "link-failed"
-  | "other";
+ *   - `link-failed`           — a REMOTE transport gave up (host unreachable /
+ *     provisioning failed / a remote terminal give-up). Set by the remote arm's
+ *     convergence machine (`remotePadiBinding`, on the `failed` phase).
+ *   - `local-start-failed`    — the LOCAL padi couldn't start on THIS machine (a
+ *     terminal give-up with no convergence channel — the local arm's
+ *     `entryFailedDetail()` is always null). A DISTINCT producer from `link-failed`
+ *     (a spawn/connect failure here, not a network reach), with a distinct remedy
+ *     (check the local install/logs), so it earns its own arm rather than
+ *     collapsing into `link-failed` — which would be `"other"` wearing a better
+ *     name. `padiFailureOf` mints it for the `detail === null && phase === "failed"`
+ *     case, which is uniquely the local arm (the remote arm always carries a
+ *     `link-failed` detail on a terminal give-up). */
+export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
+  z.object({
+    cause: z.literal("contract-skew-refused"),
+    reason: z.string(),
+    // The skew fields are defined ONCE in `SkewVersionPairSchema` and spread here —
+    // one source of truth for the pair's shape and (optional) optionality, so the
+    // wire arm can never drift from the `SkewVersionPair` type consumers read.
+    ...SkewVersionPairSchema.shape,
+  }),
+  z.object({ cause: z.literal("cross-supervisor"), reason: z.string() }),
+  z.object({ cause: z.literal("drv-unbaked"), reason: z.string() }),
+  z.object({ cause: z.literal("drv-missing-for-system"), reason: z.string() }),
+  z.object({ cause: z.literal("unconverged"), reason: z.string() }),
+  z.object({ cause: z.literal("link-failed"), reason: z.string() }),
+  z.object({ cause: z.literal("local-start-failed"), reason: z.string() }),
+]);
 
-/** The typed version pair the `contract-skew-refused` cause carries (D2) — TYPED
- *  fields a producer attaches to the wire object (`packages/server`'s remote padi
- *  binder), never scanned from `reason`'s human text by a consumer. */
-export interface SkewVersionPair {
-  readonly running: string;
-  readonly expected: string;
-}
+/** The validated padi failure value on a `failed` entry's `EntryStatus` — a
+ *  discriminated union over the structural {@link EntryFailedCause}, each arm with
+ *  its human `reason` and (for skew) the typed {@link SkewVersionPair}. */
+export type PadiEntryFailure = z.infer<typeof PadiEntryFailureSchema>;
 
-/** The padi map's published per-entry status — `EntryStatus` narrowed to padi's
- *  own {@link EntryFailedCause}, PLUS the typed {@link SkewVersionPair} sidecar on
- *  the `contract-skew-refused` cause specifically (D2). `@kolu/surface-map` can't
- *  type the version-pair fields itself (a domain-agnostic package can't know a
- *  domain's per-cause extra fields — the volatility boundary D1 draws); a padi
- *  consumer that wants typed `.running`/`.expected` reads through THIS view (a
- *  cast at the read site — `entry.state() as PadiEntryStatus`). The wire schema
- *  itself stays a loose object (`entryStatusSchema`'s `failed` arm) so the extra
- *  fields a producer attaches survive transport untouched; this type is the
- *  consumer-side promise about what they are. */
-export type PadiEntryStatus =
-  | Exclude<EntryStatus<EntryFailedCause>, { cause: "contract-skew-refused" }>
-  | ({
-      kind: "failed";
-      reason: string;
-      cause: "contract-skew-refused";
-    } & SkewVersionPair);
+/** The padi map's failure-cause discriminant — DERIVED from
+ *  {@link PadiEntryFailureSchema} (ONE source of truth), so the vocabulary and its
+ *  wire validation can never drift. There is deliberately no `"other"` member: PR4
+ *  bans a renamed catch-all, so an unclassifiable failure fails loud instead. */
+export type EntryFailedCause = PadiEntryFailure["cause"];
+
+/** The padi map's published per-entry status — `EntryStatus` narrowed to padi's own
+ *  {@link PadiEntryFailure}. Because the failure IS a discriminated union (with the
+ *  skew sidecar typed on its own arm), a consumer reads `state.failure.cause` /
+ *  `state.failure.reason` (and `state.failure.running/expected` on the skew arm)
+ *  with full narrowing — no cast, and the wire value is validated against the
+ *  schema, not waved through as loose unknown extras. */
+export type PadiEntryStatus = EntryStatus<PadiEntryFailure>;
 
 /** The per-host entry surface — `padiSurface` MIRRORED with the get-only `connection`
  *  cell (the same seam kolu-server's `reServeSurface` composes per host). Exposing the
@@ -138,14 +165,14 @@ export const padiEntrySurface = mirroredSurface(padiSurface);
  *  map's contract (the key-folded members + the `entries` membership collection). With
  *  the host env unset the map has exactly one member (the local host) — pixel-identical.
  *
- *  Instantiated at `EntryFailedCause` (D1, decision #1's option 2) — explicit type
- *  arguments, not inference: nothing in `defineSurfaceMap`'s runtime args
- *  (`keySchema`/`entry`/`codec`) mentions `Cause`, so it can't be inferred. Every
- *  consumer that reads `padiHostMap.entriesSpec`/`connectSurfaceMap(padiHostMap,
- *  ...)`'s `.entry(k).state()` now sees the NARROWED `EntryStatus<EntryFailedCause>`
- *  (never a bare `string` cause) by construction. */
-export const padiHostMap = defineSurfaceMap<
-  typeof HostKeySchema,
-  typeof padiEntrySurface.spec,
-  EntryFailedCause
->(HostKeySchema, padiEntrySurface, hostKeyCodec);
+ *  The `failure` schema ({@link PadiEntryFailureSchema}) is what makes `Failure`
+ *  INFERRED (PR4) — no explicit type arguments needed: every consumer that reads
+ *  `padiHostMap.entriesSpec`/`connectSurfaceMap(padiHostMap, …)`'s `.entry(k).state()`
+ *  sees the NARROWED `EntryStatus<PadiEntryFailure>` (a schema-validated domain
+ *  value, never a bare `string` cause) by construction. */
+export const padiHostMap = defineSurfaceMap({
+  key: HostKeySchema,
+  entry: padiEntrySurface,
+  codec: hostKeyCodec,
+  failure: PadiEntryFailureSchema,
+});

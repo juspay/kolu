@@ -134,6 +134,12 @@ describe("injectShellCommit", () => {
     // Injected right after the (attribute-bearing) head open tag.
     expect(out.indexOf(script)).toBeLessThan(out.indexOf("<title>"));
   });
+
+  it("throws on an unterminated <head> tag", () => {
+    expect(() => injectShellCommit('<html><head lang="en"', "x")).toThrow(
+      /unterminated/,
+    );
+  });
 });
 
 describe("isImmutableAssetPath", () => {

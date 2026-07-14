@@ -59,15 +59,18 @@ export function dotClass(status: EntryState): string {
   return DOT_TONE[status.kind];
 }
 
-/** A one-line human note for the dot's `title` — the failure reason when failed. */
-export function statusTitle(status: EntryState): string {
+/** A one-line human note for the dot's `title` — the failure reason when failed.
+ *  Reads only the failure's human `reason` (PR4: the reason folds into the
+ *  schema-valid domain `failure` value), so it's typed to that minimal shape and
+ *  stays domain-agnostic. */
+export function statusTitle(status: EntryState<{ reason: string }>): string {
   switch (status.kind) {
     case "connected":
       return "connected";
     case "warming":
       return "connecting…";
     case "failed":
-      return `failed: ${status.reason}`;
+      return `failed: ${status.failure.reason}`;
     default:
       return "not a member";
   }

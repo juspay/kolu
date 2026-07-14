@@ -81,8 +81,8 @@ interface MembershipKernel<K> {
 function membershipKernel<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
-  Cause extends string,
->(client: SurfaceMapClient<KS, ES, Cause>): MembershipKernel<z.infer<KS>> {
+  Failure,
+>(client: SurfaceMapClient<KS, ES, Failure>): MembershipKernel<z.infer<KS>> {
   const enc = (key: z.infer<KS>): string => client.codec.encode(key);
   const entriesView = client.entries.use();
   const memberKeys = createMemo(() => entriesView.keys());
@@ -149,10 +149,10 @@ export interface ScopedByEntry<K, T> {
 export function scopedByEntry<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
-  Cause extends string,
+  Failure,
   T,
 >(
-  client: SurfaceMapClient<KS, ES, Cause>,
+  client: SurfaceMapClient<KS, ES, Failure>,
   active: Accessor<z.infer<KS> | null>,
   build: (key: z.infer<KS>, ctx: { isActive: Accessor<boolean> }) => T,
 ): ScopedByEntry<z.infer<KS>, T> {
@@ -298,7 +298,7 @@ export interface WatchByEntry<K, A> {
 export function watchByEntry<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
-  Cause extends string,
+  Failure,
   A,
   // Ids are `PropertyKey` (string / number / symbol), never objects: raise
   // detection is a `Set` diff, and object ids — reconstructed fresh from each
@@ -307,8 +307,8 @@ export function watchByEntry<
   // storm.
   I extends PropertyKey,
 >(
-  client: SurfaceMapClient<KS, ES, Cause>,
-  cell: (entry: Entry<ES, Cause>) => WatchableCell<A>,
+  client: SurfaceMapClient<KS, ES, Failure>,
+  cell: (entry: Entry<ES, Failure>) => WatchableCell<A>,
   items: (value: A) => I[],
   onRaise: (key: z.infer<KS>, raised: I[], value: A) => void,
   opts?: {

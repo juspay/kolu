@@ -43,7 +43,7 @@ let pillEl: HTMLDivElement | null = null;
 function postToParent(
   msg: SelectMsg | ReadyMsg | HistoryMsg | OpenExternalMsg,
 ): void {
-  window.parent.postMessage(msg, "*");
+  window.parent.postMessage(msg, window.location.origin);
 }
 
 /** The absolute URL to open in a real browser tab when `anchor` is clicked, or
@@ -188,6 +188,16 @@ function ensureHighlightStyle(): void {
 }
 
 function onMessage(event: MessageEvent<ParentToIframe>): void {
+  // The frame is served by the same Kolu origin as its parent. Its sandboxed
+  // document has an opaque security origin, but `location.origin` still names
+  // the URL origin that loaded it. Check both the sender window and that origin:
+  // another window must not be able to steer the preview's path/highlights.
+  if (
+    event.source !== window.parent ||
+    event.origin !== window.location.origin
+  ) {
+    return;
+  }
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
   // `postMessage` is a network-grade boundary — any embedder can send

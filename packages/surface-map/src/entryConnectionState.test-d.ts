@@ -33,6 +33,34 @@ void local;
 const localConnecting: EntryConnectionState<never> = { kind: "connecting" };
 void localConnecting;
 
+// ── The `failed` arm REQUIRES a domain `failure` (lowy-1 / hickey-2, PR4) ─────────
+// A terminal give-up is ALWAYS a real failure, so "failed with no failure" is an
+// illegal state made UNCONSTRUCTIBLE at the type — not caught by a runtime throw
+// (the old `UnclassifiedEntryFailureError` in `projectStatus` is gone). This
+// compile-fail is the migrated home of `mapHarness.test.ts`'s deleted `(5c)` runtime
+// `.toThrow(...)` pin.
+// @ts-expect-error — `failed` requires `failure`; the illegal state cannot be spelled.
+const failedNoFailure: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "failed",
+};
+void failedNoFailure;
+
+// A `failed` arm WITH the domain failure is the ONLY constructible form.
+const failedOk: EntryConnectionState<"copying", { reason: string }> = {
+  kind: "failed",
+  failure: { reason: "gave up for good" },
+};
+void failedOk;
+
+// `disconnected.failure` stays OPTIONAL — a transient drop legitimately carries
+// none (→ warming). That per-arm optionality is exactly what does NOT bleed onto
+// `failed`, so an omitted `failure` here is valid, not an error.
+const disconnectedTransient: EntryConnectionState<
+  "copying",
+  { reason: string }
+> = { kind: "disconnected" };
+void disconnectedTransient;
+
 // The same split, one layer up: an `EntrySession<never>` (a LOCAL entry's
 // resolved session) cannot carry a "copying" `state` either.
 const localSession: EntrySession<never> = {
@@ -50,7 +78,7 @@ void localSession;
 // compile error at the DEFINITION site, not just at a hand-built literal.
 declare const localRegistry: MapRegistry<string, never>;
 const resolved = localRegistry.resolve("a");
-if (!("failed" in resolved)) {
+if (resolved.kind === "session") {
   // The pin: `resolved.state.kind`'s type is EXACTLY the four-phase union below
   // (never widened by "copying") — if the `Prov` split regressed, this
   // assignment would fail (the source would carry an extra "copying" member the

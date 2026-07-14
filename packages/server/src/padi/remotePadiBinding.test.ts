@@ -925,12 +925,14 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     );
   });
 
-  it("PROJECTION INVARIANT: a plain TRANSIENT link drop (healthy bind that dropped) yields NO domain cause → 'other' → warming", async () => {
-    // The other half of the invariant the cause-discriminated projection rides on: a
-    // link that dropped WITHOUT a refuse verdict has no non-transient reason, so
-    // `entryFailedDetail()` returns `null` — `serveHostMap`'s `causeFor` then falls back
-    // to `"other"`, and `projectStatus` reads that as the RETRIABLE warming (coming back
-    // up), never a masked-standing `failed`.
+  it("PROJECTION INVARIANT: a plain TRANSIENT link drop (healthy bind that dropped) yields NO domain detail → null → warming", async () => {
+    // The other half of the invariant the failure projection rides on: a link that
+    // dropped WITHOUT a refuse verdict has no standing failure, so `entryFailedDetail()`
+    // returns `null`. On a still-retrying `disconnected` state `padiFailureOf` projects
+    // that `null` straight through (the single-meaning absent, PR4), and `serveHostMap`
+    // reads the absent failure as RETRIABLE warming (coming back up), never a masked-
+    // standing `failed`. (A terminal give-up is the OTHER case — `padiFailureOf` floors
+    // it to `link-failed` off the transport reason; see `padiSession.test.ts`.)
     const { session, enqueue, handles } = makeArm({ binderBuildId: "build-X" });
     enqueue(serve(helloVals({ buildId: "build-X" }))); // same build → clean ADOPT
     await pinAdopt(session);

@@ -1,105 +1,79 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 614" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The seam between XS (the chat app) and kolu, on one machine. XS owns identity, login, presence, and the write-floor (at most one writer). Inside kolu, pulam is a read-only awareness fold (host-wide) and kaval is the single writer that serializes input to the terminal. Two channels, both over one trusted connection: OBSERVE flows out from pulam up to XS — observe, attach, getSession — read-only; observe and attach ship today, getSession is still to build. ACT flows in from XS down to kaval — submit, write, kill, resize, wake — as plain calls over the trusted connection; write is partial, the rest are still to build. kolu authenticates nothing: the connection is the trust, identity and the write-floor live in XS, and kolu serializes writes and keeps no roster.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 668" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">The seam — observe out raw; act in through the coordinator</title>
+  <desc id="desc">XS, the chat app, sits on top and owns identity, login, presence, and attribution. Two channels connect it to kolu below. The green OBSERVE channel flows out of padi raw and read-only: the who-needs-me board, attention pings, and deep links into kolu for depth. The blue ACT channel flows in through one door: the coordinator, an orchestrator agent running in an ordinary kolu terminal, whose inbox is the write floor and which also assists the humans' own discussion. Inside the kolu machine, the coordinator terminal drives the worker terminals with the fleet loop — create, send, wait, snapshot — while padi watches every terminal with agent sensors and owns durable sessions, and kaval owns each PTY as its single writer. Chat has no raw write verbs on workers; that absence is the design.</desc>
   <defs>
-    <marker id="cb2-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#15803D"/>
+    <marker id="arrG" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0 0 L8 4.5 L0 9 z" fill="#15803D" />
     </marker>
-    <marker id="cb2-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#B45309"/>
+    <marker id="arrB" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0 0 L8 4.5 L0 9 z" fill="#0D32B2" />
     </marker>
-    <marker id="cb2-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#0b6478"/>
+    <marker id="arrK" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0 0 L8 4.5 L0 9 z" fill="#64748b" />
     </marker>
-    <style>
-      .b-title  { fill:#0f172a; font-size:16px; font-weight:700; }
-      .b-sub    { fill:#64748b; font-size:11.5px; }
-      .mono     { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
-
-      .seam     { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
-      .seam-t   { fill:#92400E; font-weight:700; font-size:14px; }
-      .seam-s   { fill:#7a4f00; font-size:11px; }
-
-      .host     { fill:#fbfcfe; stroke:#9aa0a6; stroke-width:1.5; stroke-dasharray:5 4; }
-      .hostlabel{ fill:#7a8089; font-size:11px; font-weight:700; letter-spacing:0.09em; }
-
-      .prim     { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.75; }
-      .prim-t   { fill:#0D32B2; font-weight:700; font-size:13.5px; }
-      .prim-s   { fill:#4A5072; font-size:11px; }
-      .prim-n   { fill:#3f7d8c; font-size:10.5px; font-style:italic; }
-
-      .tile     { fill:#f4f6f8; stroke:#5a6270; stroke-width:1.5; }
-      .tile-t   { fill:#2a2f36; font-weight:700; font-size:13.5px; }
-      .tile-s   { fill:#5a6270; font-size:11px; }
-
-      .eg       { stroke:#15803D; stroke-width:2.5; fill:none; }
-      .ea       { stroke:#B45309; stroke-width:2.5; fill:none; stroke-dasharray:7 5; }
-      .et       { stroke:#0b6478; stroke-width:2; fill:none; }
-
-      .lblg     { fill:#15803D; font-size:11px; font-style:italic; }
-      .lblgb    { fill:#15803D; font-size:10px; font-weight:700; letter-spacing:0.05em; }
-      .lbla     { fill:#B45309; font-size:11px; font-style:italic; }
-      .lblab    { fill:#B45309; font-size:10px; font-weight:700; letter-spacing:0.05em; }
-      .lblt     { fill:#0b6478; font-size:10.5px; font-style:italic; }
-
-      .lawbox   { fill:#EEF1FB; stroke:#0D32B2; stroke-width:1.5; }
-      .law-t    { fill:#0D32B2; font-size:13px; font-weight:700; }
-      .law-s    { fill:#3a4575; font-size:11px; }
-    </style>
   </defs>
 
-  <text class="b-title" x="40" y="32">The seam &#8212; what kolu exposes</text>
-  <text class="b-sub" x="40" y="52">OBSERVE flows out &#183; ACT flows in &#8212; both over one trusted connection</text>
+  <rect width="760" height="668" fill="#fbfbfd" />
+  <text x="40" y="34" font-size="17" font-weight="700" fill="#1a1c20">The seam — observe out raw · act through the coordinator</text>
+  <text x="40" y="54" font-size="12" fill="#5b6472">one attributed inbox is the write floor · chat never writes to a worker terminal</text>
 
-  <!-- XS band -->
-  <rect class="seam" x="150" y="74" width="460" height="60" rx="9"/>
-  <text class="seam-t" x="380" y="100" text-anchor="middle">XS &#8212; the chat app</text>
-  <text class="seam-s" x="380" y="120" text-anchor="middle">owns identity &#183; login &#183; presence &#183; the write-floor (at most one writer)</text>
+  <!-- XS box -->
+  <rect x="40" y="72" width="680" height="84" rx="10" fill="#ffffff" stroke="#cbd2dc" stroke-width="1.5" />
+  <text x="60" y="100" font-size="14" font-weight="700" fill="#1a1c20">XS — the chat app</text>
+  <text x="60" y="120" font-size="12" fill="#5b6472">owns identity · login · presence · attribution — humans discuss here, the coordinator participates</text>
+  <text x="60" y="140" font-size="12" fill="#5b6472">renders the board · pings attention · deep-links into kolu for depth</text>
 
-  <!-- host -->
-  <rect class="host" x="50" y="176" width="660" height="350" rx="12"/>
-  <text class="hostlabel" x="380" y="196" text-anchor="middle">KOLU &#8212; ON ONE MACHINE</text>
+  <!-- OBSERVE channel (green, up) -->
+  <line x1="150" y1="296" x2="150" y2="162" stroke="#15803D" stroke-width="2.5" marker-end="url(#arrG)" />
+  <text x="94" y="188" font-size="12.5" font-weight="700" fill="#15803D">OBSERVE — raw · read-only</text>
+  <text x="94" y="207" font-size="11.5" fill="#3f6212">the board straight off padi:</text>
+  <text x="94" y="223" font-size="11.5" fill="#3f6212">working · asking you · just finished</text>
+  <text x="94" y="239" font-size="11.5" fill="#3f6212">attention pings the thread</text>
+  <text x="94" y="255" font-size="11.5" fill="#3f6212">deep links → depth in kolu itself</text>
 
-  <!-- pulam (read, left) -->
-  <rect class="prim" x="86" y="288" width="246" height="98" rx="8"/>
-  <text class="prim-t" x="209" y="314" text-anchor="middle">pulam &#8212; read-only awareness</text>
-  <text class="prim-s" x="209" y="335" text-anchor="middle">observe &#183; rank &#183; fold to &#8220;who needs me&#8221;</text>
-  <text class="prim-n" x="209" y="358" text-anchor="middle">host-wide &#183; read-only by design</text>
+  <!-- ACT channel (blue, down into the coordinator terminal) -->
+  <line x1="560" y1="162" x2="560" y2="330" stroke="#0D32B2" stroke-width="2.5" marker-end="url(#arrB)" />
+  <text x="430" y="188" font-size="12.5" font-weight="700" fill="#0D32B2">ACT — one door</text>
+  <text x="430" y="207" font-size="11.5" fill="#31437c">thread messages, attributed,</text>
+  <text x="430" y="223" font-size="11.5" fill="#31437c">land in the coordinator's inbox —</text>
+  <text x="430" y="239" font-size="11.5" fill="#31437c">the write floor, serialized by</text>
+  <text x="430" y="255" font-size="11.5" fill="#31437c">conversation, not by locks</text>
 
-  <!-- kaval (write, right) -->
-  <rect class="prim" x="434" y="288" width="246" height="98" rx="8"/>
-  <text class="prim-t" x="557" y="314" text-anchor="middle">kaval &#8212; single writer of the terminal</text>
-  <text class="prim-s" x="557" y="335" text-anchor="middle">spawn &#183; write &#183; kill &#183; resize</text>
-  <text class="prim-n" x="557" y="358" text-anchor="middle">serializes input &#8212; last writer wins</text>
+  <!-- kolu machine box -->
+  <rect x="40" y="296" width="680" height="322" rx="10" fill="#f4f6f9" stroke="#cbd2dc" stroke-width="1.5" />
+  <text x="60" y="322" font-size="13" font-weight="700" fill="#1a1c20">KOLU — on one machine, or several (local + ssh remotes behind one host switcher)</text>
 
-  <!-- live tile -->
-  <rect class="tile" x="250" y="430" width="260" height="84" rx="8"/>
-  <text class="tile-t" x="380" y="459" text-anchor="middle">live terminal</text>
-  <text class="tile-s mono" x="380" y="481" text-anchor="middle" font-size="11px">claude &#183; codex &#183; opencode</text>
+  <!-- coordinator terminal -->
+  <rect x="70" y="340" width="290" height="112" rx="8" fill="#ffffff" stroke="#0D32B2" stroke-width="2" />
+  <text x="86" y="364" font-size="12.5" font-weight="700" fill="#0D32B2">the coordinator terminal</text>
+  <text x="86" y="382" font-size="11.5" fill="#3c4553">an orchestrator agent in an ordinary PTY</text>
+  <text x="86" y="398" font-size="11.5" fill="#3c4553">/orchestrator contract: claims verified at the</text>
+  <text x="86" y="414" font-size="11.5" fill="#3c4553">tree · grounded rulings · recorded-PIDs-only</text>
+  <text x="86" y="430" font-size="11.5" fill="#3c4553">teardown · the human merges every PR</text>
 
-  <!-- OBSERVE channel: pulam -> XS (green, ships) -->
-  <path class="eg" d="M188 288 L252 134" marker-end="url(#cb2-green)"/>
-  <text class="lblg" x="135" y="206" text-anchor="middle">observe &#183; attach</text>
-  <text class="lblgb" x="135" y="222" text-anchor="middle">SHIP TODAY (surface)</text>
-  <text class="lblg" x="135" y="244" text-anchor="middle">getSession</text>
-  <text class="lblab" x="135" y="259" text-anchor="middle">TO BUILD</text>
-  <text class="lblgb" x="135" y="279" text-anchor="middle">OUT &#183; READ-ONLY</text>
+  <!-- fleet loop arrow -->
+  <line x1="360" y1="396" x2="428" y2="396" stroke="#64748b" stroke-width="2" marker-end="url(#arrK)" />
+  <text x="394" y="384" font-size="10.5" fill="#5b6472" text-anchor="middle">the fleet loop</text>
+  <text x="394" y="414" font-size="10.5" fill="#5b6472" text-anchor="middle">create · send ·</text>
+  <text x="394" y="428" font-size="10.5" fill="#5b6472" text-anchor="middle">wait · snapshot</text>
 
-  <!-- ACT channel: XS -> kaval (amber dashed, plain calls) -->
-  <path class="ea" d="M508 134 L555 285" marker-end="url(#cb2-amber)"/>
-  <text class="lbla" x="628" y="200" text-anchor="middle">submit &#183; write &#183; kill</text>
-  <text class="lbla" x="628" y="216" text-anchor="middle">resize &#183; wake</text>
-  <text class="lbla" x="628" y="238" text-anchor="middle">over the trusted connection</text>
-  <text class="lbla" x="628" y="256" text-anchor="middle" font-size="10px">write: partial &#183; rest to build</text>
+  <!-- worker terminals -->
+  <rect x="430" y="340" width="260" height="112" rx="8" fill="#ffffff" stroke="#cbd2dc" stroke-width="1.5" />
+  <text x="446" y="364" font-size="12.5" font-weight="700" fill="#1a1c20">worker terminals</text>
+  <text x="446" y="382" font-size="11.5" fill="#3c4553">claude · codex · opencode — one task each,</text>
+  <text x="446" y="398" font-size="11.5" fill="#3c4553">own git worktree, briefs + report-back tokens,</text>
+  <text x="446" y="414" font-size="11.5" fill="#3c4553">questions routed back to the coordinator</text>
+  <text x="446" y="430" font-size="11.5" fill="#3c4553">(never answered in their own PTY)</text>
 
-  <!-- kaval -> tile (teal, internal write) -->
-  <path class="et" d="M470 386 L500 428" marker-end="url(#cb2-teal)"/>
-  <text class="lblt" x="520" y="410" text-anchor="start">write bytes</text>
+  <!-- padi bar -->
+  <rect x="70" y="472" width="620" height="52" rx="8" fill="#ffffff" stroke="#15803D" stroke-width="1.5" />
+  <text x="86" y="493" font-size="12.5" font-weight="700" fill="#15803D">padi — agent sensors + durable sessions</text>
+  <text x="86" y="511" font-size="11.5" fill="#3c4553">watches every terminal without touching it · folds to the board · owns restore identity across restarts</text>
 
-  <!-- tile -> pulam (teal, observe) -->
-  <path class="et" d="M300 430 L244 388" marker-end="url(#cb2-teal)"/>
-  <text class="lblt" x="248" y="406" text-anchor="start">observe</text>
+  <!-- kaval bar -->
+  <rect x="70" y="536" width="620" height="52" rx="8" fill="#ffffff" stroke="#cbd2dc" stroke-width="1.5" />
+  <text x="86" y="557" font-size="12.5" font-weight="700" fill="#1a1c20">kaval — owns each live PTY, the single writer</text>
+  <text x="86" y="575" font-size="11.5" fill="#3c4553">spawn · write · kill · resize — serializes input, last one wins · mirrors every screen</text>
 
-  <!-- the principle (brief) -->
-  <rect class="lawbox" x="50" y="544" width="660" height="54" rx="10"/>
-  <text class="law-t" x="380" y="570" text-anchor="middle">kolu authenticates nothing &#8212; the connection is the trust.</text>
-  <text class="law-s" x="380" y="589" text-anchor="middle">Identity, login, and presence live in XS. kolu serializes writes (last one wins) and keeps no roster.</text>
+  <text x="380" y="648" font-size="11.5" fill="#5b6472" text-anchor="middle">kolu authenticates nothing — the connection is the trust. Chat has no raw write verbs on workers: that absence is the design.</text>
 </svg>

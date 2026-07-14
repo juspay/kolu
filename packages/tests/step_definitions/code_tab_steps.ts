@@ -145,10 +145,9 @@ When(
 When(
   "I click the context menu item {string}",
   async function (this: KoluWorld, label: string) {
-    const escaped = label.replace(/"/g, '\\"');
-    const btn = this.page.locator(
-      `button:has-text("${escaped}"), [role="menuitem"]:has-text("${escaped}")`,
-    );
+    const btn = this.page
+      .locator('button, [role="menuitem"]')
+      .filter({ hasText: label });
     await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await btn.first().click();
     await this.waitForFrame();

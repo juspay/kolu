@@ -66,13 +66,21 @@ export const HOST_DOWN_COPY = {
       "provisioning failed partway. Check the host is up and reachable over ssh, " +
       "or switch back to your local host.",
   },
-  other: {
+  // The LOCAL padi couldn't start on this machine — a distinct producer from the
+  // remote `link-failed` (a local spawn/connect give-up, not a network reach). Its
+  // copy is master's pre-PR4 catch-all card verbatim: that card only ever rendered
+  // for a local terminal give-up (a remote give-up always classified `link-failed`),
+  // so reusing it keeps this reachable case byte-identical on screen (PR4 neutrality).
+  "local-start-failed": {
     title: "This host's padi couldn't start",
     body:
       "This host's padi failed to come up for a reason kolu couldn't classify " +
       "further. The detail below has what the host reported; switch back to your " +
       "local host to keep working.",
   },
+  // PR4: there is deliberately no `other` catch-all copy — `EntryFailedCause` dropped
+  // its catch-all, so an unclassifiable failure fails loud (a defect to classify) and
+  // this `satisfies` stays exhaustive over only the named structural causes.
 } satisfies Record<EntryFailedCause, HostDownCopy>;
 
 /** Look up a cause's card copy. Total over {@link EntryFailedCause} — every cause
