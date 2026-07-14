@@ -52,8 +52,8 @@ a commit SHA must never be posted while that SHA is local-only — if a later st
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
 (`--no-comment`); be-review captures each comment body (the lens skill returns one
-ready; the codex body it assembles from `commentHeader` + the section files —
-step 2), pushes once at the end, and only then posts the lens comment, the codex
+ready; the codex body it assembles from the `section-*.md` files `/codex-debate` left
+in `.codex-debate/` — step 2), pushes once at the end, and only then posts the lens comment, the codex
 comment, and its own police summary. No PR comment can reference a local-only
 commit.
 
@@ -101,15 +101,16 @@ already ran `git fetch origin` and resolved the base, so pass `MB` straight into
 each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
 it once per step.
 
-**How to "wait for the Workflow" — let its own settle notification resume you.**
-The debate skills run as a backgrounded `Workflow` ("launched in background; Task
-ID: …"); a debate can legitimately take 20–30 min. When it settles it fires its
-own task-notification that resumes this run automatically — that is the wait. So
-after dispatching a step, go to rest and let that notification wake you; **do not
-schedule redundant `ScheduleWakeup` polls** and there is nothing to babysit. (A
-prior run scheduled 4-min wakeups *and* the user wired a 5-min `/loop` to nudge a
-gauntlet that was simply mid-debate — both were unnecessary churn.) Only act when
-the workflow's notification arrives or it has provably errored.
+**How the debate steps run — two different shapes.** `/lens-debate` runs as a
+backgrounded `Workflow` ("launched in background; Task ID: …") that can take
+20–30 min; when it settles it fires a task-notification that resumes this run —
+that *is* the wait, so after dispatching it go to rest, **don't schedule redundant
+`ScheduleWakeup` polls**, and don't babysit (a prior run wired 4-min wakeups *and*
+a 5-min `/loop` to nudge a gauntlet that was simply mid-debate — pure churn).
+`/codex-debate` is **different now**: it runs **inline in your own turn**, driving
+a live codex split terminal that pings you each round — you follow its event-driven
+loop to consensus directly, with no background `Workflow` to await. Either way, act
+only on the real signal (the lens notification, or codex's ping), never a timer.
 
 1. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
    `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`),
@@ -137,75 +138,49 @@ the workflow's notification arrives or it has provably errored.
      on). Never report "lens consensus" for an `unresolved` run.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
 
-2. **codex** — follow `/codex-debate` (Skill tool). `repoPath` = the live
-   worktree, `base` = `MB`, **`--no-comment`** (so it doesn't advertise its
-   local-only round commits before be-review pushes), and thread both `context`
-   (the task / main-agent context, so the codex **author inherits what you know —
-   not just the diff** — every round) and `rationale` (so codex doesn't flag
-   deliberate decisions at the source) straight through. **When the diff makes an
-   API-facing change to the shared surface stack** (`packages/surface{,-app,-remote}`
-   per `.claude/rules/surface.md`), it trips the drishti companion-repo gate, which is
-   satisfiable **only against the *final* post-gauntlet kolu HEAD** — never mid-review,
-   by construction. Seed that into the `rationale` explicitly (e.g. *"the surface.md
-   drishti ship-gate is deferred to §ship; it is not a blocking code finding"*) so codex
-   defers it **from round 1**. `/codex-debate` also defers such a gate reactively once
-   the author flags it mid-round, but the up-front rationale is what converges the debate
-   *fast*: on this skill's originating `@kolu/surface` run, the debate without it spun 32
-   rounds to a weekly-usage-limit kill (131 agents, 2.69M tokens); the very next surface
-   debate, with it, converged in 2 rounds (8 agents). Its step-2 `Workflow` runs
-   in the background; **wait for it to finish** before starting the simplify step.
-   It commits its rounds and returns a `commentHeader` plus the per-round section
-   files under `workDir` (it no longer returns a single pre-rendered comment string).
-   **Assemble the comment body now and hold it** to post after the final push —
-   capture it immediately so a later step can't disturb the scratch:
+2. **codex** — invoke `/codex-debate` (Skill tool) as `review --base MB`,
+   **`--no-comment`** (so it doesn't advertise its local-only round commits before
+   be-review's final push — you post the codex comment after the push),
+   **`--effort xhigh`** (the gauntlet's deep review), and thread both **`--context`**
+   (the task / main-agent intent, so the author reasons from what you know — not just
+   the diff) and **`--rationale`** (so codex doesn't flag deliberate decisions). **When
+   the diff makes an API-facing change to the shared surface stack**
+   (`packages/surface{,-app,-remote}` per `.claude/rules/surface.md`), it trips the
+   drishti companion-repo gate, satisfiable **only against the *final* post-gauntlet kolu
+   HEAD** — never mid-review, by construction. Seed that into `--rationale` explicitly
+   (e.g. *"the surface.md drishti ship-gate is deferred to §ship; it is not a blocking
+   code finding"*) so codex defers it **from round 1**. `/codex-debate` also defers such
+   a gate reactively once you flag it mid-round, but the up-front rationale is what
+   converges the debate *fast*: on this skill's originating `@kolu/surface` run, the
+   debate without it spun 32 rounds to a weekly-usage-limit kill (131 agents, 2.69M
+   tokens); the very next surface debate, with it, converged in 2 rounds.
+
+   **Unlike the old engine, `/codex-debate` now runs inline in your turn** — it spawns a
+   live codex split, debates to consensus, and **commits each round locally itself**
+   (never pushing). Follow its event-driven loop to completion; there is **no background
+   `Workflow` to await** and no `commentHeader`/`workDir` return — the per-round trail is
+   the `section-*.md` files it leaves in `.codex-debate/`. On **consensus**, assemble the
+   codex comment to post after the final push, from **this run's** section files —
+   capture it now so a later step can't disturb the scratch:
 
    ```bash
+   workDir="$repoPath/.codex-debate"
+   rounds=$(ls "$workDir"/section-*-1-codex.md 2>/dev/null | wc -l | tr -d ' ')
    {
-     printf '%s\n' "$commentHeader"
-     for f in "$workDir"/section-*.md; do printf '\n'; cat "$f"; printf '\n'; done
+     printf '## Codex ⇄ Claude debate\n\n✅ Consensus in %s round(s) · reviewer effort: xhigh\n' "$rounds"
+     for n in $(seq -w 1 "$rounds"); do
+       for f in "$workDir"/section-"$n"-*.md; do printf '\n'; cat "$f"; printf '\n'; done
+     done
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```
 
-   This **freezes** the body now, so any reconciliation a later branch performs
-   (a `commit-incomplete` or `section-incomplete` fix-up below) is **not** in this
-   file yet — **append** that note to `$workDir/comment.md` after you reconcile, or
-   it won't reach the posted comment.
-
-   (On `merge-base-error` the workflow aborted before any debate ran, so there is
-   **no** `commentHeader`/`workDir`/`section-*.md` to assemble — do **not** run the
-   block above. Per `/codex-debate`, report the scope failure from the return's
-   `note`, fix the base ref (e.g. `git fetch`), and re-run; there's nothing to post.
-   On persistent `reviewer-error` there is likewise **no body to post** — an
-   unresolved reviewer error is not a consensus to report; skip the codex comment in
-   that case.)
-
-   **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
-   in `consensus`, `commit-incomplete` / `section-incomplete` (see below),
-   `reviewer-error`, or `merge-base-error` — `reviewer-error` meaning codex never
-   produced a structured verdict even after `codex-review.sh`'s built-in
-   per-`codex exec` retries. That is an *infrastructure hiccup, not a debate
-   outcome*: re-launch it immediately with the same args. Stop the moment an
-   attempt reaches `consensus`. Only if **all 3** come back `reviewer-error` do
-   you give up on codex — report the persistent reviewer-error honestly (no false
-   consensus comment) and move on to the simplify step.
-
-   **On `commit-incomplete`,** the debate converged but a round's author left its
-   edits uncommitted (round numbers in `commitGaps`). The edits are still in the
-   tree, but the per-round commit didn't land — **commit the outstanding tree
-   yourself** (staging only the files that round changed, message
-   `fix: codex review — debate round N`) before the simplify step, then **append**
-   the reconciliation note to the already-frozen `$workDir/comment.md` (the body was
-   captured above *before* this fix-up, so editing the section files wouldn't reach
-   it). Don't report it as a clean consensus.
-
-   **On `section-incomplete`,** the debate converged but a round's author **skipped
-   or under-filled its disposition section file** (missing, empty, or omitting a
-   marker for an open finding; round numbers in `sectionGaps`), so the per-round
-   trail — and thus `$workDir/comment.md` — has a gap for that round. The tree edits
-   and commits are intact; the missing piece is the record. **Append** a note to the
-   already-frozen `$workDir/comment.md` naming the round(s) whose disposition record
-   is missing, and report it as **converged-but-not-clean** in your gauntlet summary.
-   Don't report it as a clean consensus.
+   If `/codex-debate` ends in **reviewer-error** (codex broken/unavailable even after its
+   own re-asks) or aborts on a **merge-base-error**, there is **no consensus and no body
+   to post**: report the failure honestly (no false-consensus comment) and move on to the
+   simplify step (for a merge-base-error, fix the base ref and re-run). The old
+   `commit-incomplete` / `section-incomplete` reconciliation is gone — the new engine's
+   author *is* the running agent, which writes each section file and commits its own round
+   directly, so there is no partial-return gap to reconcile.
 
 3. **simplify** — invoke `/simplify` (Skill tool), scoped to the change vs `MB`.
    It applies its fixes to the working tree. When it finishes, **commit** what it
@@ -265,8 +240,7 @@ When you do post, post **one comment per track that produced a body** — skip a
 track `--tracks` excluded, and skip a track that ran but yielded no postable
 comment (lens on `merge-base-error`, codex on persistent `reviewer-error`): the
 lens body and the codex body verbatim (`gh pr comment -F` — the codex body is the
-`$workDir/comment.md` you assembled in step 2 from `commentHeader` + the section
-files), and the police summary (the
+`$workDir/comment.md` you assembled in step 2 from the `section-*.md` files), and the police summary (the
 `## [👮 Code-police](https://agency.srid.ca/)` comment described in Report).
 
 ## Report
@@ -278,9 +252,8 @@ Summarize in chat — reporting **only the selected tracks**, and naming any tra
   findings still need human adjudication and how you adjudicated each, or
   `merge-base-error`); its PR comment landed (posted after the push) — except on
   `merge-base-error`, which has no comment body to post.
-- **codex** — consensus / reviewer-error (note how many attempts if retried); on
-  consensus its PR comment landed (posted after the push, per "Push, then
-  comment") — on persistent reviewer-error there is no comment to post.
+- **codex** — consensus / reviewer-error; on consensus its PR comment landed (posted
+  after the push, per "Push, then comment") — on reviewer-error there is no comment to post.
 - **simplify** — whether it changed anything and what it committed.
 - **police** — findings and how each was actioned; the
   `## [👮 Code-police](https://agency.srid.ca/)` summary comment landed (posted

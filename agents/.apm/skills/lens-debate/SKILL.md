@@ -15,9 +15,11 @@ thing fragmented?) each review the diff *independently*, then cross-examine
 to the PR** as a comment. You stay out of the middle: the script couriers
 schema-constrained dispositions between the lenses and decides when they agree.
 
-This is the sibling of `/codex-debate`. Same engine (the `Workflow` tool), same
-"both sides emit structured JSON so agreement is detected in code, not by vibes,"
-same "commits but never pushes or merges." The difference is *who debates whom*.
+This is the sibling of `/codex-debate` — same debate-to-consensus shape (structured
+per-round dispositions, commits but never pushes or merges), differing in *who debates
+whom*. The **mechanics** now differ: this skill runs on the `Workflow` tool, whereas
+`/codex-debate` drives a live codex session in a split terminal (so it no longer shares
+an engine or a schema-forced-JSON consensus with this one).
 
 ## Why this shape
 
