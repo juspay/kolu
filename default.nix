@@ -100,6 +100,7 @@ let
       ./packages/kaval-tui
       ./packages/padi
       ./packages/padi-tui
+      ./packages/pesu
       ./packages/server
       ./packages/client
       ./packages/transcript-core
