@@ -193,6 +193,43 @@ returns, **`snapshot --viewport` and read** what's on screen before responding.
 > }
 > ```
 
+## Provisioning a worktree'd agent — `padi-tui create`
+
+When the terminal should be a **kolu-owned** workspace — visible on the canvas,
+tracked by padi's agent sensors so `padi-tui wait` works against it — provision
+it with `padi-tui create` instead of raw `kaval-tui create`:
+
+```sh
+git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
+padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>
+# e.g. `-- claude --permission-mode auto` — prints the new terminal's id; padi owns it
+```
+
+- **Never hardcode the agent CLI.** `<agent>` defaults to the same agent *you*
+  are running as (a Claude Code orchestrator spawns `claude`, a codex one
+  `codex`, …) — unless the human named a different agent in their prompt, which
+  wins.
+- **Fast-forward the base repo first.** `--worktree` branches from the repo's
+  checkout as it stands — a stale default branch silently seeds the agent an old
+  tree, and nothing errors.
+- **`create` returning ≠ the agent is ready.** Snapshot before dispatching: a
+  fresh worktree's first dev-env build can take minutes, and a first-run agent
+  may sit on a one-time dialog (MCP server selection, a trust prompt) that needs
+  its own `send --key Enter`. Drive every boot step by `snapshot`, never by
+  sleeping and hoping.
+- **Set the permission mode AT LAUNCH, then verify it from the footer.** An
+  agent that will run unattended goes in **auto mode**, and the mode is a launch
+  flag, not an interactive chore: `-- claude --permission-mode auto` (Claude
+  Code; other agent CLIs have their own equivalents). Snapshot the footer and
+  confirm it reads `auto mode on` before dispatching. Interactive cycling
+  (`send --key Shift-Tab`, re-snapshot after each press) is the fallback for an
+  agent that is already running — never the provisioning path.
+- **Restarting the agent CLI in place:** text typed at a *running* agent becomes
+  a prompt (your relaunch command line gets answered, not executed), and `C-c`
+  doesn't reliably quit the TUI — send the agent's quit command (`/exit` in
+  Claude Code) as its own three-step submit, wait for the shell prompt to show
+  in the snapshot, then launch again.
+
 ## `padi-tui wait` vs `kaval-tui wait` — two done-signals
 
 They are not rivals; they read different things:

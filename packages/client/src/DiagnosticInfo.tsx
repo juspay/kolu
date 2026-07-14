@@ -8,7 +8,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
-import { PAINT_STALL_WARN_MS } from "./terminal/renderRecovery";
+import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";

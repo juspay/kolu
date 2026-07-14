@@ -19,6 +19,7 @@
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
+    "@kolu/xterm-kit": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "@xterm/addon-serialize": "^0.14.0",

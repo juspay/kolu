@@ -197,13 +197,16 @@ The moving parts, in the order a chunk travels:
 
 Three boundary decisions, stated as verdicts:
 
-- **A leaf, not electricity — but a *fail-loud* leaf.** The client module
-  lives at `packages/client/src/terminal/scrollbackBackfill.ts`, a sibling of
-  <Cite file="packages/client/src/terminal/xtermInternals.ts" />. It hides no
-  transport, no reconnect, no persistence — a bounded algorithm over xterm's
-  buffer, so it earns no `@kolu/*` package. But it inverts its sibling's
-  philosophy: `xtermInternals.ts` degrades to a no-op when a private symbol
-  is missing, which is right for cosmetic reads — and **wrong here**, because
+- **A leaf, not electricity — but a *fail-loud* leaf.** It hides no transport,
+  no reconnect, no persistence — a bounded algorithm over xterm's buffer, so on
+  its own it earned no package. It has since graduated into
+  [`@kolu/xterm-kit`](xterm-kit) — not as electricity in its own right, but as
+  one part of the accumulated xterm machinery that package owns — where it lives
+  at `packages/xterm-kit/src/scrollbackBackfill.ts` (the `/backfill` entry, which
+  constructs the `@xterm/xterm` scratch), a sibling of the pinned-internals door
+  <Cite file="packages/xterm-kit/src/internals.ts" />. It inverts that sibling's
+  philosophy: `internals.ts` degrades to a no-op when a private symbol is
+  missing, which is right for cosmetic reads — and **wrong here**, because
   a silent partial prepend corrupts a terminal. The prototype demonstrated
   the failure live: without the guard, a splice past `maxLength` silently
   trims the oldest rows while the register arithmetic still assumes they
@@ -241,7 +244,9 @@ Three boundary decisions, stated as verdicts:
 **One PR**, five steps — the work threads existing seams (attach, the
 terminal module, kaval's verbs) and nothing here can ship usefully alone:
 
-1. **The module** — `packages/client/src/terminal/scrollbackBackfill.ts`
+1. **The module** — `scrollbackBackfill.ts` (shipped under
+   `packages/client/src/terminal/`; later graduated verbatim into
+   `packages/xterm-kit/src/` — see [xterm-kit](xterm-kit))
    exporting `prependScrollback(term, rawChunk, servedRows): PrependResult` — a
    discriminated `{ kind: "inserted"; rows } | { kind: "skipped" }`, so the
    caller can never conflate "consumed, inserted *M* rows" with "not consumed"

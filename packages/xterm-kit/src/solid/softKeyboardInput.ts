@@ -13,7 +13,7 @@
  *
  *  Desktop is left untouched — xterm's mousedown → textarea.focus path works fine
  *  with a hardware keyboard, and we don't want to risk fighting its selection
- *  handling. The `isTouch()` guard lives here, so callers invoke this
+ *  handling. The `isCoarsePointer()` guard lives here, so callers invoke this
  *  unconditionally and never reach into xterm's shadow DOM themselves.
  *
  *  Returns the prepared `.xterm-screen` element (the input surface) so the caller
@@ -21,10 +21,10 @@
  *  DOM exists. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
-import { isTouch } from "../useMobile";
+import { isCoarsePointer } from "./pointer";
 
 export function enableSoftKeyboardInput(term: XTerm): HTMLElement | null {
-  if (!isTouch()) return null;
+  if (!isCoarsePointer()) return null;
   const screen = term.element?.querySelector(
     ".xterm-screen",
   ) as HTMLElement | null;
