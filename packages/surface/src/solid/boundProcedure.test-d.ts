@@ -37,11 +37,10 @@ import { defineSurface } from "../define";
 import type { BoundProcedure } from "./surfaceClient";
 
 // Exact (invariant) type equality — a widen OR narrow on either side flips it.
-type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B
-  ? 1
-  : 2
-  ? true
-  : false;
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 type Assert<_T extends true> = never;
 
 // A FIXED concrete spec touching all four arms. `defineSurface` runs its
@@ -72,11 +71,9 @@ type WireProcs = ContractRouterClient<
 // oRPC's wire callable: input-present ⇒ first param `unknown`, input-absent ⇒
 // `void`. `[void] extends [void]` distinguishes them (`unknown` is not `void`).
 // biome-ignore lint/suspicious/noExplicitAny: type-level predicate over any callable arm.
-type WireHasInput<F extends (...args: any) => any> = [
-  Parameters<F>[0],
-] extends [void]
-  ? false
-  : true;
+type WireHasInput<F extends (...args: any) => any> =
+  // biome-ignore lint/suspicious/noConfusingVoidType: matching oRPC's absent-input `input?: void` marker structurally requires `void` here.
+  [Parameters<F>[0]] extends [void] ? false : true;
 // BoundProcedure: input-present arms have a REQUIRED first param of the schema
 // type; input-absent arms have `input?: undefined`, so the param widens to
 // `undefined`. `[undefined] extends [void]` is true, so reuse the same predicate
