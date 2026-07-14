@@ -67,9 +67,8 @@ The "user" of this feature is a developer embedding a terminal. Both consumers
 get the same promise: **the hazards are owned by the package**, and the consumer
 writes only its own policy — which bytes, when, for whom.
 
-A SolidJS app renders a live terminal in one component (the `<Xterm>` wrapper is
-**PR 2 target API** — it does not ship in PR 1, which graduates the primitives it
-will compose):
+A SolidJS app renders a live terminal in one component (the `<Xterm>` wrapper
+shipped in PR 2, <PrLink pr={1808} />, composing the primitives PR 1 graduated):
 
 ```tsx
 import { Xterm, type XtermHandle } from "@kolu/xterm-kit/solid";
@@ -299,14 +298,14 @@ The two internals philosophies are not an implementation detail — they are the
 
 ### `/solid` — the browser adapter
 
-The first three below are **PR 2 target API** (the `<Xterm>` component and its
-lifecycle/WebGL primitives); the rest ship in PR 1:
+The first three below shipped in PR 2 (the `<Xterm>` component and its
+lifecycle/WebGL primitives); the rest in PR 1:
 
 ```tsx
 import {
-  Xterm,                // PR 2 — the component: lifecycle + addons + WebGL + fit, in JSX form
-  createXtermLifecycle, // PR 2 — the primitive under it, for a non-JSX composition
-  attachWebGL,          // PR 2 — single-owner WebglAddon lifetime + context-loss recovery
+  Xterm,                // the component: lifecycle + addons + WebGL + fit, in JSX form (PR 2)
+  createXtermLifecycle, // the primitive under it, for a non-JSX composition (PR 2)
+  attachWebGL,          // single-owner WebglAddon lifetime + context-loss recovery (PR 2)
   createRenderRecovery, // forced sync repaint when the rAF paint loop parks
   wireScrollIntent,     // DOM wheel/pointer wiring for the core scroll lock
   createScrollLock,     // freeze-while-reading latch; buffered writes keep their callbacks
@@ -386,28 +385,29 @@ import {
   tap on content means (kolu: follow a `path:line` ref into the Code tab,
   else focus-to-type) — is the `onTap` hook, threaded through `<Xterm>` as a
   prop.
-- **The touch divisor is a hand-rolled parallel of a fact xterm already owns —
-  the follow-up deletes it; this PR keeps its fence.** One invariant —
-  pointer→cell under a CSS transform — is computed today by **two separate
-  divisors**: xterm's hit-test path (its font-metric cell mapping, the authority
-  that actually places the glyphs, corrected on the *input* by
-  `unscaleEventPoint`), and the tap path's `fileRefAtPoint`, which derives its
-  OWN cell size from the post-transform rect (`rect.width / cols`). These agree
-  only when xterm's internal cell equals `rect.width / cols` — which nothing
-  guarantees: font-metric rounding, sub-pixel, or screen padding can make a tap
-  near a cell boundary resolve to a *different* cell under zoom. So the
-  rect-derived divisor is a hand-rolled parallel of the existing source of
-  truth, and collapsing the two is a **behavior change, not a move**. The
-  `/solid`-component follow-up (PR 2 below) deletes the rect divisor and routes
-  the tap through xterm's mapping; its done-criterion is *correctness*, not
-  equivalence to today — a tap resolves to the cell the user visually tapped, at
-  normal scale AND under zoom, proven by standard-suite browser e2e (it may well
-  be a bug fix: today's taps can already mis-target under zoom where the cells
-  diverge). Until that PR both divisors stay, and the mirrored *"keep both in
-  step"* warnings at both sites<Footnote><Cite file="packages/client/src/terminal/Terminal.tsx" />
-  and <Cite file="packages/xterm-kit/src/internals.ts" /> carry the paired
-  warning — the load-bearing fence while two divisors coexist.</Footnote> are
-  the fence that keeps them from drifting.
+- **The touch divisor was a hand-rolled parallel of a fact xterm already owns —
+  PR 2 (<PrLink pr={1808} />) deleted it.** One invariant — pointer→cell under a
+  CSS transform — used to be computed by **two separate divisors**: xterm's
+  hit-test path (its font-metric cell mapping, the authority that actually places
+  the glyphs, corrected on the *input* by `unscaleEventPoint`), and the tap path's
+  `fileRefAtPoint`, which derived its OWN cell size from the post-transform rect
+  (`rect.width / cols`). They agreed only when xterm's internal cell equalled
+  `rect.width / cols` — which nothing guarantees: font-metric rounding, sub-pixel,
+  or screen padding can make a tap near a cell boundary resolve to a *different*
+  cell under zoom. So the rect-derived divisor was a hand-rolled parallel of the
+  existing source of truth. PR 2 added `cellAtPoint` to `/internals` (the single
+  pointer→cell authority, a cosmetic read that degrades to null) and routes the
+  tap through it, **deleting** the rect divisor and the mirrored *"keep both in
+  step"* fence warnings that guarded the pair.<Footnote>The tap resolver now lives
+  in `Terminal.tsx`'s `onTap` (via `cellAtPoint`), and `internals.ts` records the
+  history in past tense — the single divisor is `unscaleEventPoint` +
+  `getCoords`, shared by selection, hover, and the tap
+  (<Cite file="packages/xterm-kit/src/internals.ts" />).</Footnote> Its
+  done-criterion was *correctness*, not equivalence — a tap resolves to the cell
+  the user visually tapped, at normal scale AND under zoom, proven by a
+  standard-suite browser e2e (the `@touch-desktop` tap-under-zoom scenario). No
+  user-observed regression surfaced, so it landed as the
+  reuse-the-source-of-truth dedup rather than a bug fix.
 - **`stickyModifiers` stays out — the boundary test, applied honestly.** It
   never touches a `Terminal`: it is an arming latch over
   `@kolu/terminal-protocol`'s control/meta byte tables, armed by kolu's
