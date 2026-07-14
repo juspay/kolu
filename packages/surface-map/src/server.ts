@@ -136,6 +136,17 @@ export interface EntryFault<Failure = unknown> {
  *  - CLAUSE 1 (ordering): `onChange` fires only AFTER `members()`/`has()` reflect
  *    the change.
  *  - CLAUSE 2 (snapshot): `members()` and `has()` answer from ONE consistent view.
+ *  - CLAUSE 3 (per-transition, non-coalescing): every membership transition is
+ *    OBSERVABLE — a key's departure and its re-add are never coalesced into one
+ *    `onChange` that leaves `members()` showing the key continuously present. A key
+ *    that leaves must be absent from `members()` on the notification that reports its
+ *    departure BEFORE any re-add is reported. This is the law the per-add
+ *    `membershipId` mint (a departed key's id is pruned on its departure notification,
+ *    so the re-add mints a FRESH one) AND the client's per-key root lifecycle
+ *    (`scoped.ts`'s `keyArray`, disposed on exit / rebuilt on entry) both rely on: a
+ *    registry that atomically swaps a same-key session without an observable departure
+ *    would reuse the stale id and strand the old subscription. The pool registries
+ *    satisfy this by construction (each add/remove fires its own synchronous notify).
  *  - Status is DERIVED from the resolved session's state (projection). */
 export interface MapRegistry<
   K,

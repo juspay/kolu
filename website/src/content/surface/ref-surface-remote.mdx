@@ -119,10 +119,18 @@ of the CURRENT episode in milliseconds — a **duration** on the server's single
 (never a foreign epoch the browser would subtract), which the browser extends smoothly
 with its own ticker. Both `log` and `sinceMs` are scoped to the current dial-to-up
 episode and RESET on a down→up crossing, so a reconnect never shows a stale tail under
-a fresh timer. `disconnected` adds `error` + `cause` (`"network"` unreachable /
-`"remote"` refused); `failed` is terminal with `cause` pinned to the `"remote"` literal
-(a network fault never gives up, so `failed` + `network` is unrepresentable). There is
-no separate `progressLines` / `remoteProgressLines` — provenance is the `source` field.
+a fresh timer. The **`connected`** arm alone additionally carries `clockOffset: number | null`
+— the far-end host's wall-clock offset (ms) vs the serving process, measured off the
+framework-reserved `system.clockNow` at admit (RTT-compensated; see
+`measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped
+once the probe lands — `null` means *not yet measured*, so `serveHostMap` reads it as still
+`connecting` (a `0` placeholder would be a lie on a skewed host). This is where the
+`clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
+the session's own state, no longer an injected `offsetOf`. `disconnected` adds `error` +
+`cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`
+pinned to the `"remote"` literal (a network fault never gives up, so `failed` + `network` is
+unrepresentable). There is no separate `progressLines` / `remoteProgressLines` — provenance
+is the `source` field.
 
 | Export | Subpath | Role |
 | --- | --- | --- |

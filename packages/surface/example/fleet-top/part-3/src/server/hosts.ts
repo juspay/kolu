@@ -51,8 +51,10 @@ export interface HostBinding {
 /** Project the session's connection state onto the map's per-entry state. A
  *  copying/reconnecting window reads `warming` (in motion, self-heals); only a
  *  bounded remote fault reads `failed` (needs intervention) — an unreachable box
- *  stays `warming` and retries, it does not become `failed`. (This demo doesn't
- *  measure a clock offset, so `connected` carries 0 — no clock reprojection.) */
+ *  stays `warming` and retries, it does not become `failed`. `connected` propagates
+ *  the wall-clock offset `makeSession` measures off the reserved `system.clockNow`
+ *  at admit (`null` until the first probe lands → `connecting`, so a skewed host's
+ *  timestamps are never mis-mapped through a fabricated 0). */
 function projectState(
   s: SessionState<SshProv>,
 ): EntryConnectionState<"copying", HostFailure> {
@@ -64,7 +66,9 @@ function projectState(
     case "connecting":
       return { kind: "connecting" };
     case "connected":
-      return { kind: "connected", clockOffset: 0 };
+      return s.clockOffset === null
+        ? { kind: "connecting" }
+        : { kind: "connected", clockOffset: s.clockOffset };
     case "disconnected":
       // Transient — no domain failure attached, so it projects to `warming` (an
       // unreachable box self-heals; it does not become `failed`).

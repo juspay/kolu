@@ -1045,8 +1045,14 @@ export function makeSession<
           sinceMs: since(),
         } as SessionState<Prov>);
       })
-      .catch(() => {
-        /* no offset this cycle — the frame stays `clockOffset: null`; never fabricate a 0 */
+      .catch((err) => {
+        // No offset this cycle — the frame stays `clockOffset: null` (never fabricate a
+        // 0). But a probe failure is DIAGNOSED, never silently swallowed (the contract the
+        // old `measureClockOffset` line-sink carried): a serveHostMap consumer reads a null
+        // offset as still `connecting`, so a probe that keeps failing must be visible in the
+        // session log rather than leaving the entry warming for a reason nothing recorded.
+        const reason = err instanceof Error ? err.message : String(err);
+        emit(`[${label}] clock offset probe failed: ${reason}`);
       });
   };
 

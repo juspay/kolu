@@ -247,8 +247,9 @@ export const client = link;
 // owner — never disposed.
 const hostScoped = createRoot(() => {
   const active = padiMap.useEntry(activeHost);
-  // The membership authority — shared by the connection re-arm (below), the host-membership
-  // reconcile (further down), and HostSelectorStrip (deduped via the base-client ref-count).
+  // The membership authority — shared by the host-membership reconcile (further down) and
+  // HostSelectorStrip (deduped via the base-client ref-count). The active host's connection
+  // cell re-arms itself off `active`'s `membershipId` re-key (below), not this membership read.
   const members = padiMap.entries.use({ onError: onHostMembershipError });
   // FAIL-FAST invariant guard (juspay/kolu#1766): `LOCAL_HOST` is the server's unremovable
   // seed[0] (`server/index.ts`), so once membership has LOADED (a non-empty snapshot) it MUST
@@ -283,7 +284,7 @@ const hostScoped = createRoot(() => {
   // captured forward correctly orphans), and the entry's opaque `membershipId` changes on
   // that re-add, so the keyed lens disposes the stranded stream and opens a fresh one BY
   // CONSTRUCTION (PR3 — this is what retired the hand-rolled `createRejoinKeyedSub` rearm).
-  const connection = padiMap.useEntry(activeHost).cells.connection.use({
+  const connection = active.cells.connection.use({
     onError: (err: Error) =>
       toast.error(`Connection subscription error: ${err.message}`),
   }).value;

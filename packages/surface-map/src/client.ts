@@ -424,7 +424,7 @@ export function connectSurfaceMap<
   // `LiveSignalHandle` yields its watchdog `live` + link; a bare half-open wire link
   // THROWS; an in-process `directLink` yields constant-`true`. For framework composition
   // over a SIBLING of a combined transport (kolu's `padi` sibling of `conn.transport`),
-  // pass the whole branded handle + `siblingKey`: the sibling is sliced from the resolved
+  // pass the whole branded handle: the sibling is sliced by `map.name` from the resolved
   // link AFTER the guard, so it inherits the PARENT's watchdog `live` by construction —
   // there is no bare slice paired with a fabricated accessor.
   // connectSurfaceMap OWNS the slicing (by `map.name`), so `transport` must be the

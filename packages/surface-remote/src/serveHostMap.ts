@@ -115,10 +115,16 @@ export function projectState<Prov extends string>(
   }
   if (s.phase === "connected") {
     // A generic `Prov` defeats TS's discriminated-union narrowing (`Prov` could be
-    // `"connected"`), so read `clockOffset` off the connected shape explicitly.
+    // `"connected"`, so the union's first arm structurally admits a `{ phase: "connected" }`
+    // that carries NO `clockOffset`), so read `clockOffset` off the connected shape
+    // explicitly. `makeSession` always stamps it (`null` at connect, a number once the probe
+    // lands), so a MISSING (`undefined`) offset can only mean a bare `connected` no producer
+    // of ours constructs — treat it exactly like the honest not-yet-measured `null` (`== null`
+    // catches both) so an invalid frame reads `connecting`, never a `connected` carrying an
+    // `undefined` offset.
     const clockOffset = (s as Extract<SessionState, { phase: "connected" }>)
       .clockOffset;
-    return clockOffset === null
+    return clockOffset == null
       ? { kind: "connecting" }
       : { kind: "connected", clockOffset };
   }

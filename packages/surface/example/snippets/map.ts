@@ -107,7 +107,14 @@ function projectState(
     case "connecting":
       return { kind: "connecting" };
     case "connected":
-      return { kind: "connected", clockOffset: 0 };
+      // `makeSession` measures the far-end wall-clock offset off the reserved
+      // `system.clockNow` at admit and carries it on the `connected` arm — propagate
+      // that real value, don't fake a 0. It is `null` until the first probe lands, so
+      // the entry honestly reads `connecting` until then (a `0` on a skewed host would
+      // mis-map its timestamps).
+      return s.clockOffset === null
+        ? { kind: "connecting" }
+        : { kind: "connected", clockOffset: s.clockOffset };
     case "disconnected":
       // Transient (no domain failure) → projects to `warming`, self-heals.
       return { kind: "disconnected" };
