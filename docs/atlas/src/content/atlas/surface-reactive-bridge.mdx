@@ -117,7 +117,7 @@ Not carded: the keyed machinery — `reactiveFamily` *(phase 3)* and `signalMap`
 
 The review artifact: real befores at master, the after as it would read.
 
-### 1. padi urgency
+### SR7 · worked example 1 — padi urgency
 
 **Before:** `recomputeUrgency` (`urgency.ts:23-38`) is refolded by `publishUrgency` (`metadata.ts:110-112`) as a rider inside every `publishComposedTerminal` (`:97-105`) on the ~150 ms agent firehose, plus a separate removal-path refold (`dropSnapshot`, `:129-132`), held together by a prose invariant (`metadata.ts:93-96`). **After**, in servePadi.ts:
 
@@ -150,7 +150,7 @@ const alerts = client.cells.alerts.use();
 wireSubscriptionUpdated(alerts.sub, () => playRaiseSound());  // fires iff spec-equals said "changed"
 ```
 
-### 3. A sampler — padi processMemory
+### SR8 · worked example 3 — a sampler (padi processMemory)
 
 **Before:** `startPadiMemorySampler` (`memorySampler.ts`) hand-rolls the T+0 fire, the 5s `setInterval(...).unref()`, and the `inFlight` non-overlap guard; `samplePadiMemoryOnce` publishes via `padiSurfaceCtx.cells.processMemory.set`. **After:**
 
@@ -170,7 +170,7 @@ cells: {
 
 The bridge owns: the T+0 seed read whose **first failure propagates** (never a fabricated default), the inFlight guard, later-read log-skip-continue. kolu-server's fused cadence (interval + `onState` force-resample, `index.ts:807`) is two more plain lines inside `install` — no cadence micro-API. `hostInventory.ts` falls to the identical pattern.
 
-### 4. The serveHostMap keyed family
+### SR9 · worked example 4 — the serveHostMap keyed family
 
 **Before** (`serveHostMap.ts:145-206`): hand-held `latestState`/`stateSubs`/`links` Maps, attach/detach/reconcile, the `fire` fan-out, the per-member catch (`:168-182`); drishti carries a drifted clone (`hostMapRegistry.ts`, clockOffset hardcoded `0`). **After:**
 
@@ -191,7 +191,7 @@ const registry = derived.registry(($) =>
 
 ~60 lines of kolu plumbing and the ~90-line drishti clone die; the pure projections survive untouched. The target stays the pull-shaped `MapRegistry` face its one live consumer eats.
 
-### 5. Cross-member derivation — free
+### SR10 · worked example 5 — cross-member derivation, free
 
 The deferred `combineCells` combinator, as three lines of the same primitive:
 
@@ -238,7 +238,7 @@ A name survives only where its promise cannot be expressed by composition:
 
 Net public vocabulary: **seven orthogonal symbols** — `source` · `scan` · `computed` (graph), `derived.cell` · `derived.collection` (wire), `$` · `batch` (glue) — plus the phase-3/4 keyed machinery (`reactiveFamily`, `signalMap`); versus the algebra's 7–8 names with 6 queued.
 
-## Migration — phase 0 IS the W5 slice
+## SR7–SR10 — migration (phase 0 shipped as the W5 slice)
 
 *Sequencing superseded (2026-07-13): the phase labels below are no longer the campaign's numbering — phases 1–4 land as SR7–SR10 of [the merged plan of record](surface-runtime-boundary.html), which carries the one sequenced PR list (kernel first). This section survives as the technical content of those PRs; the plan note says the same on its side.*
 
