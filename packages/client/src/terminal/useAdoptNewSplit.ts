@@ -25,8 +25,8 @@
  *  `subIds[0]`); adopting there would fight hydration. The restore `phase` is
  *  DELIBERATELY non-reactive (`createSessionRestore`), so it is SAMPLED, never
  *  tracked — and the baseline can't lean on reacting to the seed transition:
- *  every sub is recorded into `seen` regardless of phase, so a sub present
- *  before the host seeds is baseline (never a false arrival), and only a
+ *  a sub present before the host seeds lands in the memo's PREVIOUS snapshot on
+ *  the next tick, so it is baseline (never a false arrival), and only a
  *  genuinely-new sub that appears WHILE seeded is adopted. */
 
 import type { TerminalId } from "kolu-common/surface";
@@ -80,40 +80,31 @@ export function useAdoptNewSplit(deps: {
     { equals: (a, b) => a.host === b.host && sameParentSnapshot(a.map, b.map) },
   );
 
-  // Every sub id already accounted for on the CURRENT host — a sub NOT in here is
-  // a candidate for adoption. Accumulated regardless of phase so a sub present
-  // before the host seeds is baseline, never a false arrival. Reset (with the
-  // host token) on a switch, so the switched-to host's existing splits baseline
-  // rather than all "arriving" at once.
-  const seen = new Set<TerminalId>();
-  let seenHost: string | undefined;
-
   createEffect(
-    on(snapshot, (snap) => {
-      // Host switch (or first run) — rebaseline to this host's current subs and
-      // adopt NONE: switching to a host must not auto-open its existing splits.
-      if (seenHost !== snap.host) {
-        seen.clear();
-        for (const id of snap.map.keys()) seen.add(id);
-        seenHost = snap.host;
-        return;
-      }
+    on(snapshot, (curr, prev) => {
+      // First run OR a host SWITCH — advance the baseline and adopt NONE: a fresh
+      // host must not auto-open its existing splits. `prev` is framework-maintained
+      // (SolidJS keeps the memo's prior value), so the switched-to host's subs land
+      // in the baseline next tick for free — no manual accumulator to reset.
+      if (prev === undefined || curr.host !== prev.host) return;
       // `on` runs this callback untracked, so the SAMPLED phase read (and the
       // ports' live reads below) add no dependency — the effect wakes only on a
-      // snapshot change, exactly like the reconcile.
-      const seeded = deps.restorePhase() === "seeded";
-      for (const [subId, parentId] of snap.map) {
-        if (seen.has(subId)) continue;
-        seen.add(subId); // record even when not seeded — keeps the baseline honest
-        if (!seeded) continue; // load/restore/recycle → hydration owns the tabs
+      // snapshot change, exactly like the reconcile. Not seeded (load/restore/
+      // recycle) → hydration owns the tabs; we skip, but `curr` still becomes next
+      // tick's `prev`, so a sub seen while unseeded is baseline, never a deferred
+      // false arrival.
+      if (deps.restorePhase() !== "seeded") return;
+      // Arrivals are curr − prev: a sub in the live map absent from last tick's.
+      for (const [subId, parentId] of curr.map) {
+        if (prev.map.has(subId)) continue;
         deps.ports.expandPanel(parentId);
         // Don't-steal, but only from a LIVE split: adopt through a `null` OR a
         // STALE active tab (one no longer among this parent's live subs — left
-        // dangling when the parent's last split was closed). `snap.map` is the
+        // dangling when the parent's last split was closed). `curr.map` is the
         // live sub→parent set, so membership is the liveness test.
         const active = deps.ports.activeSubTab(parentId);
         const activeIsLiveSub =
-          active !== null && snap.map.get(active) === parentId;
+          active !== null && curr.map.get(active) === parentId;
         if (!activeIsLiveSub) deps.ports.setActiveSubTab(parentId, subId);
       }
     }),
