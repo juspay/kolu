@@ -53,6 +53,25 @@ function terminalsMap(
   );
 }
 
+/** A composed SLEEPING `PadiTerminal` — a DIFFERENT arm of the union than active.
+ *  Its agent identity survives the release, so `.agent` is present, but the fold
+ *  must exclude it because it narrows on `state === "active"`. This is the twin of
+ *  the old registry gate on `entry.meta.state`, now expressed as the composed
+ *  discriminant. */
+function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
+  const snapshot: TerminalSnapshot = {
+    cwd: "/tmp",
+    git: null,
+    pr: { kind: "pending" },
+    agent,
+    foreground: null,
+  };
+  return composeTerminalMetadata(
+    { state: "sleeping", location: LOCAL_LOCATION, lastActivityAt: 0, sleptAt: 0 },
+    snapshot,
+  );
+}
+
 const ID_A = "urg-a";
 const ID_B = "urg-b";
 
@@ -85,6 +104,21 @@ describe("recomputeUrgency", () => {
     expect(
       recomputeUrgency(terminalsMap([[ID_A, makeAgent("thinking")]])),
     ).toEqual({ awaitingIds: [] });
+  });
+
+  it("EXCLUDES a SLEEPING terminal even when its agent reads as awaiting_user", () => {
+    // The migrated fold gates on the COMPOSED record's `state === "active"`
+    // discriminant (previously the raw registry's `entry.meta.state`). A sleeping
+    // terminal is a different arm of the union — its agent identity survives, so it
+    // could read `awaiting_user`, but it must NOT count toward urgency. This pins
+    // the behavioral-parity claim in `urgency.ts` (a terminal slept mid-await is not
+    // urgent) as an executable invariant, not just prose.
+    const map = new Map<TerminalId, PadiTerminal>([
+      [ID_A as TerminalId, sleepingTerminal(makeAgent("awaiting_user"))],
+      [ID_B as TerminalId, activeTerminal(makeAgent("awaiting_user"))],
+    ]);
+    // Only the ACTIVE awaiting terminal counts; the sleeping one is excluded.
+    expect(recomputeUrgency(map)).toEqual({ awaitingIds: [ID_B] });
   });
 });
 

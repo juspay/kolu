@@ -353,6 +353,22 @@ export function computed<T>(compute: () => T): GraphNode<T> {
   return { value: engineComputed(compute), dispose: () => {} };
 }
 
+/** A derived cell's public store facade, shared by both `derived.cell` forms:
+ *  `get` reads the graph node's current level (an eager truth, never a fabricated
+ *  default), and `set` THROWS — the graph is the member's ONE writer, so a direct
+ *  write is a fail-fast defect, not a live path. The dep carries no writable
+ *  backing; `implementSurface` builds and owns the private serving store. */
+function graphOwnedStore<T>(get: () => T): CellStore<T> {
+  return {
+    get,
+    set: () => {
+      throw new Error(
+        "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
+      );
+    },
+  };
+}
+
 /** The connect seam's publish effect, shared by both `derived.cell` forms: an
  *  engine effect that pushes each recompute of `read` through the member's write
  *  gate (`set`). It carries the stateless-compute error policy in ONE home — a
@@ -404,21 +420,13 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
   };
 
   return {
-    // Public store is a READ-ONLY, STATELESS facade: `get` pulls the node's
-    // current level live (its serving endpoint IS the authority — an eager
-    // truth, never a fabricated default); `set` throws (fail-fast one-writer
-    // guard). The dep carries NO writable store — `implementSurface` builds and
+    // Public store is the READ-ONLY, STATELESS facade (`get` pulls the node's
+    // current level live — an eager truth, never a fabricated default — and `set`
+    // throws). The dep carries NO writable store; `implementSurface` builds and
     // owns its own private serving store (seeded from this `get`) and writes it
     // only through the `connect` seam, so nothing a holder can reflect off this
     // dep can poison the wire snapshot `cellHandlers.get` serves.
-    store: {
-      get: () => node.value.peek(),
-      set: () => {
-        throw new Error(
-          "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
-        );
-      },
-    },
+    store: graphOwnedStore(() => node.value.peek()),
     // Engine-tracked sibling read: `.value` (not `.peek()`) so a downstream
     // computed reading `$.thisCell()` tracks this node directly — the shared
     // computed graph the glitch-freedom law rests on.
@@ -554,17 +562,10 @@ function computeCell<S extends SurfaceSpec, T>(
   };
 
   return {
-    store: {
-      // Eager seed pull: reads the compute's CURRENT value (truth from the
-      // siblings), never a fabricated default. A throw here is a boot crash
-      // (mirror-never-fabricate). Valid only after `bindSiblings`.
-      get: () => requireNode().peek(),
-      set: () => {
-        throw new Error(
-          "derived cell store is graph-owned (one writer) — the graph is its only writer; do not set it directly",
-        );
-      },
-    },
+    // Eager seed pull (`requireNode().peek()`): reads the compute's CURRENT value
+    // (truth from the siblings), never a fabricated default; a throw is a boot
+    // crash (mirror-never-fabricate). Valid only after `bindSiblings`.
+    store: graphOwnedStore(() => requireNode().peek()),
     // Engine-tracked sibling read of this compute cell's computed (`.value`, not
     // `.peek()`), so a downstream `$.thisCell()` tracks it directly — glitch-free.
     siblingRead: () => requireNode().value,
