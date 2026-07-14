@@ -17,10 +17,12 @@ throughout.
 
 ## 1. Define the map
 
-`defineSurfaceMap(keySchema, entry, codec)` takes the per-host entry surface and
+`defineSurfaceMap({ key, entry, codec, failure })` takes the per-host entry surface and
 produces its map form: every member's input gains a key so one socket carries all
 instances. The `codec` bridges your `Key` to the wire string every channel is
-keyed on; for a plain-string key it is the identity pair.
+keyed on; for a plain-string key it is the identity pair. The required `failure`
+schema fixes the domain failure value a `failed` entry carries — the `Failure` type is
+inferred from it.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="define" />
 
@@ -37,9 +39,11 @@ it retries, `failed` only on a standing fault — never as a fleet-wide crash.
 
 <Aside type="tip" title="The warm-pool helpers do this for you">
   For a production fan-out, `@kolu/surface-remote`'s `buildRemotePool` keys one
-  `{ session, handler }` per host and `serveHostMap(map, pool, { linkFor, causeFor })`
+  `{ session, handler }` per host and `serveHostMap(map, pool, { linkFor, offsetOf, failureOf })`
   adapts the pool straight into a served map — folding each host's measured clock
-  offset. This guide builds the registry by hand to show the seam; the helpers are
+  offset. `failureOf` is the required, total classifier: `null` keeps a transient down
+  entry warming, a schema-valid domain failure marks a standing one. This guide builds
+  the registry by hand to show the seam; the helpers are
   in the [@kolu/surface-remote reference](/surface/ref-surface-remote).
 </Aside>
 

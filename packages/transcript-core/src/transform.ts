@@ -24,7 +24,9 @@ export type StringTransform = (s: string) => string;
  *  a header label. */
 export function makeRelativizer(cwd: string | null): StringTransform | null {
   if (!cwd) return null;
-  const base = cwd.replace(/\/+$/, "");
+  let baseEnd = cwd.length;
+  while (baseEnd > 0 && cwd[baseEnd - 1] === "/") baseEnd--;
+  const base = cwd.slice(0, baseEnd);
   if (!base) return null;
   // Match `${base}/<continuation>` where the continuation is captured
   // up to the next whitespace, quote, or closing paren/bracket. The

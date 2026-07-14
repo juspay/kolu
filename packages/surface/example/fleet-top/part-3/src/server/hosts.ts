@@ -29,6 +29,7 @@ import {
   type SshProv,
 } from "@kolu/surface-remote";
 import type { EntryConnectionState } from "@kolu/surface-map/server";
+import type { HostFailure } from "../common/map";
 import {
   DEFAULT_LOAD,
   DEFAULT_MEMORY,
@@ -41,7 +42,7 @@ export interface HostBinding {
   /** The in-process link the surface-map forwards member calls to. */
   link: unknown;
   /** This host's latest session state, projected for the map. */
-  state(): EntryConnectionState<"copying">;
+  state(): EntryConnectionState<"copying", HostFailure>;
   /** Subscribe to session-state changes (for the registry's `subscribe`). */
   onStateChange(cb: () => void): () => void;
   destroy(): void;
@@ -54,7 +55,7 @@ export interface HostBinding {
  *  measure a clock offset, so `connected` carries 0 — no clock reprojection.) */
 function projectState(
   s: SessionState<SshProv>,
-): EntryConnectionState<"copying"> {
+): EntryConnectionState<"copying", HostFailure> {
   switch (s.phase) {
     case "probing":
     case "copying":
@@ -65,9 +66,13 @@ function projectState(
     case "connected":
       return { kind: "connected", clockOffset: 0 };
     case "disconnected":
-      return { kind: "disconnected", reason: s.error };
+      // Transient — no domain failure attached, so it projects to `warming` (an
+      // unreachable box self-heals; it does not become `failed`).
+      return { kind: "disconnected" };
     case "failed":
-      return { kind: "failed", reason: s.error };
+      // A bounded terminal give-up — a failed entry must carry the schema-valid
+      // domain failure it publishes.
+      return { kind: "failed", failure: { reason: s.error } };
   }
 }
 

@@ -409,22 +409,6 @@ export async function clickWithArrow(
   await clearAnnotations(world);
 }
 
-// Walk open shadow trees (Pierre's file view nests one; the Markdown preview is
-// light DOM and the same DFS handles it). Used by selectTextInView.
-const SHADOW_DFS_FN_SRC = `
-function shadowDfs(root, visit) {
-  const stack = [root];
-  while (stack.length) {
-    const node = stack.pop();
-    const r = visit(node);
-    if (r) return r;
-    if (node.nodeType === 1) {
-      if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
-      for (const ch of node.childNodes) stack.push(ch);
-    }
-  }
-}`;
-
 /**
  * Drive a REAL mouse drag to select the `target` text inside the element matched
  * by `containerSelector` (e.g. the Code-tab file view). Mirrors the e2e harness's
@@ -436,35 +420,60 @@ export async function selectTextInView(
   containerSelector: string,
   target: string,
 ): Promise<void> {
-  const c = JSON.stringify(containerSelector);
-  const t = JSON.stringify(target);
-  await world.page.waitForFunction(
-    `(() => { ${SHADOW_DFS_FN_SRC}
-      const view = document.querySelector(${c});
+  const rectHandle = await world.page.waitForFunction(
+    ({ containerSelector, target }) => {
+      const shadowDfs = (
+        root: Node,
+        visit: (node: Node) => boolean,
+      ): boolean => {
+        const stack = [root];
+        while (stack.length > 0) {
+          const node = stack.pop();
+          if (!node) continue;
+          if (visit(node)) return true;
+          if (node instanceof Element) {
+            if (node.shadowRoot) stack.push(...node.shadowRoot.childNodes);
+            stack.push(...node.childNodes);
+          }
+        }
+        return false;
+      };
+      const view = document.querySelector(containerSelector);
       if (!view) return false;
-      let found = false;
-      shadowDfs(view, (n) => { if (n.nodeType === 3 && (n.nodeValue || "").indexOf(${t}) !== -1) { found = true; return true; } });
-      return found;
-    })()`,
-    undefined,
-    { timeout: 15_000 },
-  );
-  const rect = (await world.page.evaluate(
-    `(() => { ${SHADOW_DFS_FN_SRC}
-      const view = document.querySelector(${c});
-      if (!view) return null;
-      let node = null, off = -1;
-      shadowDfs(view, (n) => { if (n.nodeType === 3) { const i = (n.nodeValue || "").indexOf(${t}); if (i !== -1) { node = n; off = i; return true; } } });
-      if (!node || off < 0) return null;
+      let node: Node | null = null;
+      let off = -1;
+      shadowDfs(view, (candidate) => {
+        if (candidate.nodeType !== Node.TEXT_NODE) return false;
+        const index = (candidate.nodeValue ?? "").indexOf(target);
+        if (index === -1) return false;
+        node = candidate;
+        off = index;
+        return true;
+      });
+      if (node === null || off < 0) return null;
       const range = document.createRange();
       range.setStart(node, off);
-      range.setEnd(node, off + ${t}.length);
+      range.setEnd(node, off + target.length);
       const rects = range.getClientRects();
-      const first = rects[0], last = rects[rects.length - 1];
+      const first = rects[0],
+        last = rects[rects.length - 1];
       if (!first || !last) return null;
-      return { sx: first.left, sy: first.top + first.height / 2, ex: last.right, ey: last.top + last.height / 2 };
-    })()`,
-  )) as { sx: number; sy: number; ex: number; ey: number } | null;
+      return {
+        sx: first.left,
+        sy: first.top + first.height / 2,
+        ex: last.right,
+        ey: last.top + last.height / 2,
+      };
+    },
+    { containerSelector, target },
+    { timeout: 15_000 },
+  );
+  let rect: { sx: number; sy: number; ex: number; ey: number } | null;
+  try {
+    rect = (await rectHandle.jsonValue()) as typeof rect;
+  } finally {
+    await rectHandle.dispose();
+  }
   if (!rect) {
     throw new Error(`Could not locate "${target}" in ${containerSelector}`);
   }

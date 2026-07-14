@@ -78,11 +78,13 @@ export function canvasMode(deps: {
       facts = { ...liveness, entry: "warming", connectPhase };
       break;
     case "failed":
+      // PR4: the failed arm carries a schema-valid domain `failure` value; the
+      // resolver's flat `cause`/`reason` (all the host-down card needs) unpack from it.
       facts = {
         ...liveness,
         entry: "failed",
-        cause: state.cause,
-        reason: state.reason,
+        cause: state.failure.cause,
+        reason: state.failure.reason,
       };
       break;
     case "not-a-member":

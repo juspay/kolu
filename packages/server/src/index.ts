@@ -56,6 +56,7 @@ import {
   type HostKey,
   HostKeySchema,
   LOCAL_HOST,
+  type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import { type WebSocket, WebSocketServer } from "ws";
@@ -78,7 +79,7 @@ import {
   handlePadiBootFailure,
 } from "./padi/padiBinding.ts";
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
-import type { PadiSession } from "./padi/padiSession.ts";
+import { padiFailureOf, type PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import {
   assertRemovableHost,
@@ -505,14 +506,21 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   // measurer. `null` until the first hello stamps it (offset-at-hello is the
   // contract) → the entry reads `connecting` until then.
   offsetOf: (s) => s.clockOffset(),
-  // D1 + D2: the DOMAIN cause (+ D2's typed running/expected pair on
-  // contract-skew-refused) — padi's own knowledge (`session.entryFailedDetail()`,
-  // derived from `convergence()`/the drv-resolution fault, both arm-local), never
-  // guessed generically by `serveHostMap` (a transport-only adapter). Falls through
-  // to `@kolu/surface-map`'s own `"other"` fallback when the session is down for a
-  // reason padi hasn't classified.
-  causeFor: (_host, session) =>
-    session.entryFailedDetail() ?? { cause: "other" },
+  // D1 + D2: classify a DOWN session into the schema-valid `PadiEntryFailure` —
+  // padi's own knowledge (`session.entryFailedDetail()`, derived from
+  // `convergence()`/the drv-resolution fault, both arm-local), never guessed
+  // generically by `serveHostMap` (a transport-only adapter). PR4: this is REQUIRED
+  // and TOTAL — the classification lives in `padiFailureOf` (the ONE tested source of
+  // truth): a finer arm-local detail pairs with the transport `reason`; a transient
+  // `disconnected` with no detail keeps the entry warming (`null`, the single-meaning
+  // absent); and a terminal give-up (`state.phase === "failed"`) that carries no finer
+  // detail is classified off the ARM via `session.provisions` — a non-provisioning
+  // (LOCAL) give-up is `local-start-failed` (its own named producer, distinct from the
+  // remote arm's `link-failed`), a provisioning (remote) one is `link-failed` — rather
+  // than yielding `null` into `serveHostMap`'s fail-loud `UnclassifiedHostFailureError`
+  // seam. So a genuinely-failed entry always classifies.
+  failureOf: (_host, session, state): PadiEntryFailure | null =>
+    padiFailureOf(session.provisions, session.entryFailedDetail(), state),
 });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own

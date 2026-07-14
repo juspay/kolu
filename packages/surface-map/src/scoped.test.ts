@@ -226,7 +226,7 @@ describe("scopedByEntry — per-key ownership by entries membership", () => {
       // A structurally faulted member (`failed`, no session) is likewise a MEMBER
       // (it appears in `entries`), so it too gets an owner on activation — a scope
       // is withheld only for a NON-member, never for a member that isn't connected.
-      addFault(B, "no drv for arch");
+      addFault(B, { cause: "drv-missing", reason: "no drv for arch" });
       await settle();
       setActive(B);
       await settle();

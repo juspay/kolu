@@ -17,8 +17,13 @@ import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildRemotePool } from "./hostFanout";
-import { projectState, serveHostMap } from "./serveHostMap";
-import type { Session, SessionState } from "./session";
+import {
+  projectState,
+  serveHostMap,
+  UnclassifiedHostFailureError,
+  UnclassifiedHostSessionError,
+} from "./serveHostMap";
+import type { DownSessionState, Session, SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
 const entrySurface = defineSurface({
@@ -38,7 +43,26 @@ const identityCodec: KeyCodec<z.infer<typeof HostKey>> = {
   encode: (k) => k,
   decode: (s) => s as z.infer<typeof HostKey>,
 };
-const map = defineSurfaceMap(HostKey, entrySurface, identityCodec);
+// A minimal domain failure schema (PR4) — the map's `failed` arm validates against it.
+const failureSchema = z.object({ cause: z.string(), reason: z.string() });
+type TestFailure = z.infer<typeof failureSchema>;
+const map = defineSurfaceMap({
+  key: HostKey,
+  entry: entrySurface,
+  codec: identityCodec,
+  failure: failureSchema,
+});
+
+/** A test `failureOf` — classifies a DOWN state's transport `error` into the
+ *  schema-valid failure. `failureOf` is only ever invoked on a genuinely-down state,
+ *  so its param is the canonical {@link DownSessionState} and `error` reads with no
+ *  cast. Inert for the warming/connected/copying tests (they never reach a down
+ *  state, so this is never called there). */
+const classify = (
+  _h: string,
+  _s: FakeSession,
+  state: DownSessionState,
+): TestFailure | null => ({ cause: "link-failed", reason: state.error });
 
 /** Build a `SessionState` for the given `phase`. The DOWN arm
  *  (`disconnected`/`failed`) now REQUIRES a real `error` — the type no longer
@@ -145,19 +169,14 @@ describe("projectState — SessionState → EntryConnectionState", () => {
     });
     // connected but no offset yet → still settling (connected REQUIRES the offset).
     expect(projectState(st("connected"), null)).toEqual({ kind: "connecting" });
+    // The RAW projection is domain-agnostic: the down arms carry NEITHER a domain
+    // `failure` NOR a transport `reason` (lowy-1/lowy-2). `resolve` classifies the
+    // down state into the schema-valid `failure` via `failureOf`, reading the
+    // transport error off the `SessionState` there — it is not threaded onto the arm.
     expect(projectState(st("disconnected", "boom"), 5)).toEqual({
       kind: "disconnected",
-      reason: "boom",
     });
-    expect(projectState(st("failed", "dead"), 5)).toEqual({
-      kind: "failed",
-      reason: "dead",
-    });
-    // NOTE: a down state with NO reason is no longer constructible at all — the
-    // `SessionState` sum requires `lastError` on `disconnected`/`failed` (see
-    // `st()` above), so the old "reason coalesces a null lastError" case (the
-    // `?? "disconnected"` fallback `projectState` used to need) has no
-    // representable input to test; the fallback itself was deleted as dead code.
+    expect(projectState(st("failed", "dead"), 5)).toEqual({ kind: "failed" });
     expect(projectState(undefined, 5)).toEqual({ kind: "connecting" });
   });
 });
@@ -169,6 +188,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -190,6 +210,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const iter = await entriesGet(
       directLink<AnyContractRouter>(served.router as never),
@@ -208,6 +229,7 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const served = serveHostMap(map, p.pool, {
       linkFor: () => directLink<AnyContractRouter>({} as never),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(served.router as never);
     const iterA = await entriesGet(link, "local-a");
@@ -246,6 +268,7 @@ describe("serveHostMap — entries authority", () => {
       // dummy entry link — this pin exercises `entries`, not member forwarding
       linkFor: () => ({ surface: {} }),
       offsetOf: (sess) => sess.clockOffset(),
+      failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router
@@ -272,6 +295,7 @@ describe("serveHostMap — entries authority", () => {
     const served = serveHostMap(map, pf.pool, {
       linkFor: () => ({ surface: {} }),
       offsetOf: (s) => s.clockOffset(),
+      failureOf: classify,
     });
     const link = directLink<AnyContractRouter>(
       // biome-ignore lint/suspicious/noExplicitAny: served router
@@ -285,5 +309,70 @@ describe("serveHostMap — entries authority", () => {
     pf.add("a", fakeSession(st("connected"), 0));
     expect((await keysIter.next()).value).toEqual(["a"]);
     served.dispose();
+  });
+});
+
+describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () => {
+  it("throws UnclassifiedHostSessionError for a member with no session (the has()/getSession() race)", async () => {
+    // A pool that reports a member but hands back no session — the unreachable-in-
+    // steady-state race. A STATIC pool (subscribe never fires) so no background
+    // republish runs; the throw surfaces through the client's `entries.get` read.
+    const ghostPool = {
+      hosts: () => ["ghost"],
+      has: () => true,
+      getSession: () => undefined,
+      subscribe: () => () => {},
+    } as unknown as ReturnType<typeof fakePool>["pool"];
+    const served = serveHostMap(map, ghostPool, {
+      linkFor: () => ({ surface: {} }),
+      offsetOf: () => 0,
+      failureOf: classify,
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    const iter = await entriesGet(link, "ghost");
+    await expect(iter.next()).rejects.toThrow(UnclassifiedHostSessionError);
+    served.dispose();
+  });
+
+  it("fails loud (out-of-band crash) when failureOf returns null for a terminal failed session", async () => {
+    // A `failureOf` that declines to classify a terminal give-up is a producer defect:
+    // the `failed` arm cannot exist without a schema-valid failure, so the republish
+    // rethrows out-of-band (queueMicrotask) to crash the process rather than degrade to
+    // a stale status. Detach vitest's own `uncaughtException` handlers for the window and
+    // COLLECT every uncaught throw ourselves (one `add` drives two republishes — the
+    // `onState` seed and the membership fire — so more than one crash queues), then
+    // assert at least one is `UnclassifiedHostFailureError`. Collecting (not `once`)
+    // keeps a second queued throw from leaking to vitest as a spurious suite failure.
+    const priorHandlers = process.listeners("uncaughtException");
+    for (const h of priorHandlers)
+      process.removeListener("uncaughtException", h);
+    const uncaught: unknown[] = [];
+    const collect = (err: unknown): void => {
+      uncaught.push(err);
+    };
+    process.on("uncaughtException", collect);
+    const pf = fakePool();
+    const served = serveHostMap(map, pf.pool, {
+      linkFor: () => ({ surface: {} }),
+      offsetOf: (s) => s.clockOffset(),
+      failureOf: () => null, // declines to classify — the producer defect
+    });
+    try {
+      pf.add("boom", fakeSession(st("failed", "gave up for good"), 0));
+      served.dispose();
+      // Drain the queued microtask rethrows (and any macrotask straggler) before asserting.
+      await new Promise((r) => setTimeout(r, 0));
+      // The funnel rethrows a WRAPPER `Error` carrying the original as its `cause`.
+      expect(
+        uncaught.some(
+          (e) =>
+            e instanceof Error &&
+            e.cause instanceof UnclassifiedHostFailureError,
+        ),
+      ).toBe(true);
+    } finally {
+      process.removeListener("uncaughtException", collect);
+      for (const h of priorHandlers) process.on("uncaughtException", h);
+    }
   });
 });
