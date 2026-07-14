@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-14T16:00:16.019921+00:00'
+generated_at: '2026-07-14T16:15:49.123707+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agents
@@ -53,7 +53,7 @@ dependencies:
     .agents/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .agents/skills/be-review/SKILL.md: sha256:ae0cd8a55f037c8fb64f05faf393c746ea7f85dc47efda51c16e6936992cb4a0
     .agents/skills/be/SKILL.md: sha256:e7ad6d775802d78e80bf3e541581240d5933185de527aa00e58354bfeabd7b9e
-    .agents/skills/codex-debate/SKILL.md: sha256:677cfd56b587c6921e2296fb1158432fc9c217415091ef08f96b16a91830df0a
+    .agents/skills/codex-debate/SKILL.md: sha256:2f380362448edab68e51616401856c825b19b8cc14a68a181e5fb94e1d4cd61f
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .agents/skills/kolu/SKILL.md: sha256:b7251179cca93c0d2039007bd262c76f48a928d33442e1f65b3b8c05873113d9
     .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
@@ -64,7 +64,7 @@ dependencies:
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .claude/skills/be-review/SKILL.md: sha256:ae0cd8a55f037c8fb64f05faf393c746ea7f85dc47efda51c16e6936992cb4a0
     .claude/skills/be/SKILL.md: sha256:e7ad6d775802d78e80bf3e541581240d5933185de527aa00e58354bfeabd7b9e
-    .claude/skills/codex-debate/SKILL.md: sha256:677cfd56b587c6921e2296fb1158432fc9c217415091ef08f96b16a91830df0a
+    .claude/skills/codex-debate/SKILL.md: sha256:2f380362448edab68e51616401856c825b19b8cc14a68a181e5fb94e1d4cd61f
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .claude/skills/kolu/SKILL.md: sha256:b7251179cca93c0d2039007bd262c76f48a928d33442e1f65b3b8c05873113d9
     .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
@@ -449,7 +449,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:677cfd56b587c6921e2296fb1158432fc9c217415091ef08f96b16a91830df0a
+  content_hash: sha256:2f380362448edab68e51616401856c825b19b8cc14a68a181e5fb94e1d4cd61f
 - kind: project-relative
   target: agents
   value: .agents/skills/dev-server
@@ -1413,7 +1413,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:677cfd56b587c6921e2296fb1158432fc9c217415091ef08f96b16a91830df0a
+  content_hash: sha256:2f380362448edab68e51616401856c825b19b8cc14a68a181e5fb94e1d4cd61f
 - kind: project-relative
   target: claude
   value: .claude/skills/dev-server
