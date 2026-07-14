@@ -136,4 +136,59 @@ describe("makeSession clock-probe deadline + cancellation (F4)", () => {
     // No orphaned deadline/retry timer survives the teardown.
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("a STRUCTURALLY-absent system.clockNow (an old peer) STOPS probing — no cadence retry, logged at debug (not error)", async () => {
+    // A client whose contract PREDATES the reserved member: `system.identity` answers, but
+    // `system.clockNow` is absent. `probeSurfaceClockNow` throws a TYPED
+    // `ClockNowUnavailableError` (structural navigation, NOT a string-matched `TypeError`),
+    // so `pollClockNow` classifies it permanent-absent: emit ONCE at `debug` (the "tool not
+    // installed" analogue, not a fault), leave the honest `null`, and STOP — never polling a
+    // member that can never answer every 10s forever. The link STAYS connected (readiness is
+    // link-liveness). This pins the branch the fragile message-heuristic left untested.
+    const clientNoClock = {
+      surface: {
+        system: { identity: () => Promise.resolve({ kind: "anonymous" }) },
+      },
+    } as unknown as FakeClient;
+
+    const logs: Array<{ line: string; severity?: string }> = [];
+    const session = makeSession<FakeClient, never>({
+      connectOnce: fakeConnector(clientNoClock),
+      initialConnection: "connecting",
+      reconnectDelayMs: 1000,
+      liveness: false,
+      label: "oldpeer",
+      onLog: (line, severity) => logs.push({ line, severity }),
+    });
+
+    let phase = "";
+    session.onState((s) => {
+      phase = s.phase;
+    });
+
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(1);
+    session.markConnected();
+    await vi.advanceTimersByTimeAsync(1);
+
+    // Connected despite no offset — readiness is link-liveness, not clock-measured.
+    expect(phase).toBe("connected");
+    const absent = logs.filter((l) =>
+      l.line.includes("system.clockNow absent on this dial"),
+    );
+    expect(absent).toHaveLength(1);
+    expect(absent[0]?.severity).toBe("debug"); // expected-absent → debug, never error
+
+    // No retry cadence for a permanent-absent member: advancing well past the 10s cadence
+    // fires NO further absent line (the probe stopped, it does not poll forever).
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(
+      logs.filter((l) =>
+        l.line.includes("system.clockNow absent on this dial"),
+      ),
+    ).toHaveLength(1);
+
+    session.destroy();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

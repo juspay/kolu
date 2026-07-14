@@ -63,19 +63,47 @@ export type SurfaceClockNowProbeable = {
   >;
 };
 
+/** The route is STRUCTURALLY absent on the probed client — its contract predates the
+ *  reserved member (an OLDER server than this framework, e.g. a rolling upgrade dialling a
+ *  padi that has no `system.clockNow`) or the whole `system` namespace is missing. A TYPED
+ *  signal so a caller classifies "member absent" by an `instanceof` check, NEVER by
+ *  string-matching a `TypeError` message (which differs by WHICH navigation step is
+ *  undefined and by JS engine — the fragile heuristic this replaces). Distinct from a
+ *  server-side oRPC `NOT_FOUND` (the route exists on the client but the server refuses it);
+ *  both are permanent-absent, and `makeSession` treats them alike. */
+export class ClockNowUnavailableError extends Error {
+  constructor(reason: string) {
+    super(`reserved system.clockNow is unavailable on this client (${reason})`);
+    this.name = "ClockNowUnavailableError";
+  }
+}
+
 /** The framework-reserved clock round-trip — the clock twin of
  *  {@link probeSurfaceIdentity} / {@link probeSurfaceLive}. Resolves with the server's
  *  own wall clock ({@link ServedClockNow}). Pass the thing that carries `.surface`; an
  *  optional {@link AbortSignal} is forwarded to the oRPC call so a caller that gives up
  *  on the probe (a deadline, a superseded dial, a destroyed session) CANCELS the
- *  in-flight request rather than leaving it pending — see `makeSession`'s clock poll. */
+ *  in-flight request rather than leaving it pending — see `makeSession`'s clock poll.
+ *
+ *  Navigates the route defensively and throws a TYPED {@link ClockNowUnavailableError}
+ *  when it is structurally absent, so the caller never has to infer "member absent" from a
+ *  `TypeError` message substring. */
 export function probeSurfaceClockNow(
   client: unknown,
   signal?: AbortSignal,
 ): Promise<ServedClockNow> {
-  return (client as SurfaceClockNowProbeable).surface[CLOCK_NOW_NAMESPACE][
-    CLOCK_NOW_VERB
-  ]({}, { signal });
+  const surface = (client as Partial<SurfaceClockNowProbeable>).surface;
+  const verb = surface?.[CLOCK_NOW_NAMESPACE]?.[CLOCK_NOW_VERB];
+  if (typeof verb !== "function") {
+    throw new ClockNowUnavailableError(
+      surface === undefined
+        ? "no `surface` on the client"
+        : surface[CLOCK_NOW_NAMESPACE] === undefined
+          ? "no reserved `system` namespace"
+          : "no `system.clockNow` verb",
+    );
+  }
+  return verb({}, { signal });
 }
 
 /** Measure the far-end host's wall-clock offset (ms) vs THIS process off one

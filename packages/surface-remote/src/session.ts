@@ -44,7 +44,10 @@ import {
 } from "@kolu/surface/heartbeat";
 import { ORPCError } from "@orpc/client";
 import { monotonicNow } from "@kolu/surface/time";
-import { measureSurfaceClockOffset } from "@kolu/surface/clock-now";
+import {
+  ClockNowUnavailableError,
+  measureSurfaceClockOffset,
+} from "@kolu/surface/clock-now";
 import {
   probeSurfaceIdentity,
   type ServedIdentity,
@@ -383,12 +386,13 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *
    *  `severity` classifies the line so a structured sink routes it to the right log
    *  level (`.agency/code-police.md`: genuine failed I/O logs at `error`, expected-
-   *  absent conditions at `info`) — a GENUINE failure (a wedged `system.clockNow`
+   *  absent conditions at `debug`) — a GENUINE failure (a wedged `system.clockNow`
    *  probe that hit its deadline, a transport fault) is `"error"`, an expected-absent
-   *  condition (an agent dial whose client carries no reserved `system.clockNow`) is
-   *  `"info"`. It is optional and defaults to `"info"`, so a one-argument sink
-   *  (`(line) => …`) stays source-compatible. */
-  onLog?: (line: string, severity?: "info" | "error") => void;
+   *  condition (a dial whose client carries no reserved `system.clockNow`) is `"debug"`
+   *  ("tool not installed", not a fault), and ordinary progress is `"info"`. It is
+   *  optional and defaults to `"info"`, so a one-argument sink (`(line) => …`) stays
+   *  source-compatible. */
+  onLog?: (line: string, severity?: "debug" | "info" | "error") => void;
   /** Label for diagnostic lines (`[<label>] …`) — e.g. the host. Default `session`. */
   label?: string;
 }
@@ -534,7 +538,10 @@ export function makeSession<
     sinceMs: 0,
   } as SessionState<Prov>);
 
-  const emit = (line: string, severity: "info" | "error" = "info"): void => {
+  const emit = (
+    line: string,
+    severity: "debug" | "info" | "error" = "info",
+  ): void => {
     if (opts.onLog) {
       try {
         opts.onLog(line, severity);
@@ -1174,27 +1181,31 @@ export function makeSession<
         //
         // EXPECTED-ABSENT vs GENUINE FAILURE (`.agency/code-police.md`: genuine failed I/O
         // at `error`, expected-absent at `info`). EXPECTED-ABSENT is the missing-member dial:
-        // its client has no `system.clockNow`, so the call rejects with an oRPC `NOT_FOUND`
-        // (member absent server-side) or a `TypeError` (the proxy route is `undefined`) — the
-        // "tool not installed" analogue. That condition is PERMANENT on this dial (the member
-        // will never appear), so retrying it every cadence forever is pure waste: emit ONCE at
-        // `info`, leave the honest `null` standing, and STOP. A fresh `enterConnected` on the
-        // next reconnect re-fires the probe, so a later upgrade is still picked up. EVERYTHING
-        // else — the deadline timeout (a wedged clock RPC), a transport fault, an unexpected
-        // server error — is a GENUINE, plausibly-transient failure → `error` (an error-filtered
-        // operator sees a clock that never lands) AND retried on `clockProbeRetryMs` cadence
-        // while connected, until it lands or the link drops. On the padi bindings
-        // `system.clockNow` is framework-reserved and always present, so every rejection there
-        // is genuine.
+        // its client has no `system.clockNow` — the route is STRUCTURALLY absent, so
+        // `probeSurfaceClockNow` threw a TYPED `ClockNowUnavailableError` (client-side
+        // navigation), or the server refused it with an oRPC `NOT_FOUND` (server-side). Both
+        // are detected by an `instanceof` check — NEVER by string-matching a `TypeError`
+        // message (which differs by which navigation step is undefined and by JS engine; a
+        // genuine transient `TypeError` must not be misfiled as permanent-absent and silently
+        // stop the probe). That condition is PERMANENT on this dial (the member will never
+        // appear), so retrying it every cadence forever is pure waste: emit ONCE at `debug`
+        // (the "tool not installed" analogue — not a fault), leave the honest `null` standing,
+        // and STOP. A fresh `enterConnected` on the next reconnect re-fires the probe, so a
+        // later upgrade is still picked up. EVERYTHING else — the deadline timeout (a wedged
+        // clock RPC), a transport fault, an unexpected server error — is a GENUINE,
+        // plausibly-transient failure → `error` (an error-filtered operator sees a clock that
+        // never lands) AND retried on `clockProbeRetryMs` cadence while connected, until it
+        // lands or the link drops. On the padi bindings `system.clockNow` is framework-reserved
+        // and always present, so every rejection there is genuine.
         const expectedAbsent =
-          (err instanceof ORPCError && err.code === "NOT_FOUND") ||
-          (err instanceof TypeError && /is not a function/.test(err.message));
+          err instanceof ClockNowUnavailableError ||
+          (err instanceof ORPCError && err.code === "NOT_FOUND");
         const reason = err instanceof Error ? err.message : String(err);
         if (expectedAbsent) {
           emit(
             `[${label}] clock offset probe: reserved system.clockNow absent on this dial ` +
               `(staying connected, offset unmeasured, not retrying — a reconnect re-probes): ${reason}`,
-            "info",
+            "debug",
           );
           return;
         }

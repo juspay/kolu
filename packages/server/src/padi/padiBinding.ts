@@ -603,10 +603,11 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     reconnectDelayMs: opts.reconnectDelayMs,
     label: PADI_HOST_ID,
     onLog: (line, severity) =>
-      (severity === "error" ? log.error : log.info)(
-        { line },
-        "local padi session",
-      ),
+      (severity === "error"
+        ? log.error
+        : severity === "debug"
+          ? log.debug
+          : log.info)({ line }, "local padi session"),
   });
 
   // NB: this builds the session but does NOT dial — the loop warms on the first `pin()`.
