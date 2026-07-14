@@ -582,6 +582,14 @@ export function connectSurfaceMap<
       // never kill the authoritative real-id client. Reaping a superseded-id client HERE is
       // what lets the departed-membership effect below read only the KEYSET, never opening
       // a per-key status sub for every member just to notice an id changed.
+      //
+      // Disposing the pending client does NOT strand a RETAINED `entry(key)` consumer
+      // (`createHostWire`, `watchByEntry`) that opened `.use()` subs on it during the
+      // pre-frame gap: `SurfaceClient.dispose()` tears down only the client's build-time
+      // `liveWhen` standing roots, never a consumer-owned `.use()` subscription (that
+      // rides the CONSUMER's reactive owner and its subs route by enc, identical to the
+      // real-id client). The `mapHarness` "RETAINED entry() sub … survives a concurrent
+      // useEntry pending→real re-key" test pins exactly that.
       if (membershipId !== undefined) {
         for (const [otherId, otherClient] of [...inner]) {
           if (otherId !== id) {

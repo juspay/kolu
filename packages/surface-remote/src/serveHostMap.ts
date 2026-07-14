@@ -117,14 +117,23 @@ export function projectState<Prov extends string>(
     // A generic `Prov` defeats TS's discriminated-union narrowing (`Prov` could be
     // `"connected"`, so the union's first arm structurally admits a `{ phase: "connected" }`
     // that carries NO `clockOffset`), so read `clockOffset` off the connected shape
-    // explicitly. `makeSession` always stamps it (`null` at connect, a number once the probe
-    // lands), so a MISSING (`undefined`) offset can only mean a bare `connected` no producer
-    // of ours constructs — treat it exactly like the honest not-yet-measured `null` (`== null`
-    // catches both) so an invalid frame reads `connecting`, never a `connected` carrying an
-    // `undefined` offset.
+    // explicitly. `makeSession` ALWAYS stamps the field on a connected frame (`null` at
+    // connect, a number once the probe lands), so the two legitimate values are `null`
+    // (honest not-yet-measured → the entry reads `connecting`) and a number (measured →
+    // `connected`). A MISSING (`undefined`) offset is the type-only illegal inhabitant no
+    // producer of ours constructs — FAIL LOUD rather than silently degrade it to warming
+    // (the funnel `fire()` rethrows this out-of-band as the invariant it is), so a future
+    // producer that forgets to stamp the field is caught, not masked.
     const clockOffset = (s as Extract<SessionState, { phase: "connected" }>)
       .clockOffset;
-    return clockOffset == null
+    if (clockOffset === undefined) {
+      throw new Error(
+        "[serveHostMap] connected SessionState carries no clockOffset — makeSession must " +
+          "stamp it (null at connect, a number once the system.clockNow probe lands). A " +
+          "missing field is a producer defect; failing loud rather than degrading to warming.",
+      );
+    }
+    return clockOffset === null
       ? { kind: "connecting" }
       : { kind: "connected", clockOffset };
   }

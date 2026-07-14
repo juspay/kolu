@@ -761,6 +761,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       await settle();
       expect(stA?.kind).toBe("connected");
       expect(stA?.membershipId).toEqual(expect.any(String));
+      dispose();
     });
   });
 
@@ -874,6 +875,41 @@ describe("membership is time — opaque membershipId (PR3)", () => {
     expect(id1).toEqual(expect.any(String));
     expect(id2).toEqual(expect.any(String));
     expect(id2).not.toBe(id1); // a restarted authority never re-mints a prior id
+  });
+
+  it("a RETAINED entry() sub on the pending client survives a concurrent useEntry pending→real re-key", async () => {
+    // The createHostWire / watchByEntry shape: a RETAINED `entry(key)` sub (NOT `useEntry`)
+    // opened during the pre-first-frame gap rides the '' PENDING client. When a CONCURRENT
+    // `useEntry(key)` on the SAME key re-keys pending→real (its first membership frame lands),
+    // `clientFor` must NOT dispose the pending client out from under the retained sub — they
+    // route identically by enc, and the retained sub has no keyed root to rebuild it.
+    await createRoot(async (dispose) => {
+      const { client, addSession } = setup();
+      const entryA = makeEntry({ awaiting: 4, awaitingIds: [] });
+      // Add the member, then open BOTH subs SYNCHRONOUSLY — before `settle` propagates the
+      // membership frame, so `membershipIdOf(A)` is still undefined and both open on pending.
+      addSession(A, entryA.link, connected(0));
+
+      const retained = client.entry(A).cells.urgency.use();
+      let retainedAwaiting: number | undefined;
+      createEffect(() => {
+        retainedAwaiting = retained.value()?.awaiting;
+      });
+
+      const [active] = createSignal<HostKey>(A);
+      const view = client.useEntry(active).cells.urgency.use();
+      createEffect(() => void view.value());
+
+      // The frame lands → useEntry re-keys pending→real and builds the real client.
+      await settle();
+      expect(retainedAwaiting).toBe(4); // the retained sub survived the re-key
+
+      // A LATER frame must still reach it — proof its upstream forward was not torn down.
+      entryA.setUrgency({ awaiting: 9, awaitingIds: [] });
+      await settle();
+      expect(retainedAwaiting).toBe(9);
+      dispose();
+    });
   });
 });
 

@@ -1046,11 +1046,21 @@ export function makeSession<
         } as SessionState<Prov>);
       })
       .catch((err) => {
+        // Drop a rejection from a SUPERSEDED / destroyed dial — the same epoch guard the
+        // success path carries. Without it, a slow probe from a now-dead link rejecting
+        // AFTER a reconnect would log a spurious failure against the live dial's session.
+        if (destroyed || epoch !== dialEpoch) return;
         // No offset this cycle — the frame stays `clockOffset: null` (never fabricate a
         // 0). But a probe failure is DIAGNOSED, never silently swallowed (the contract the
         // old `measureClockOffset` line-sink carried): a serveHostMap consumer reads a null
-        // offset as still `connecting`, so a probe that keeps failing must be visible in the
-        // session log rather than leaving the entry warming for a reason nothing recorded.
+        // offset as still `connecting`, so a probe that keeps failing is recorded on the
+        // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, e.g. the padi
+        // binder's structured `log.warn`; stderr when no sink is wired) rather than leaving
+        // the entry warming for a reason nothing recorded. It is deliberately NOT pushed
+        // onto the state `log` overlay tail (`localProgress`): a clock probe legitimately
+        // rejects with "no such member" on a dial whose client carries no reserved
+        // `system.clockNow` (an agent dial via `dialAgentOnce`), and that structural
+        // non-failure must not paint the user-facing connect overlay.
         const reason = err instanceof Error ? err.message : String(err);
         emit(`[${label}] clock offset probe failed: ${reason}`);
       });

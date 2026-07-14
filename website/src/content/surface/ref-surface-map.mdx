@@ -69,10 +69,17 @@ bound hooks a single surface has), plus:
 | `state()` | `EntryStatus \| { kind: "not-a-member" }` — a total fold over `entries`, never nullable |
 
 `entry(key)` is a partial application of the key: a per-key `SurfaceClient<ES>`,
-cached by key, so two views of one entry share one upstream subscription.
-`useEntry` re-keys on a key *change* — the old key's subscriptions dispose, the
-new key's populate synchronously — and canonicalizes its accessor's key by its
-encoded string, so a same-key re-decode reads as a no-op, never a re-key.
+cached by the entry's **`{encodedKey, membershipId}`** identity (see the
+membership note below), so two views of one *live* member share one upstream
+subscription. `useEntry` re-keys its reactive subscription whenever that identity
+changes — an **active-key switch** (the encoded key changes: the old key's
+subscriptions dispose, the new key's populate synchronously) **and** a **same-key
+membership re-add or authority restart** (a new `membershipId` for the same
+encoded key). It also canonicalizes its accessor's key by its encoded string, so a
+same-key **re-decode** of the *same* membership reads as a no-op, never a re-key.
+The pure `entry(key)` point lens itself stays owner-free (an imperative call reads
+the pending identity and routes identically by encoded key); the `{encodedKey,
+membershipId}` re-key is the *reactive* `.use()` lifetime `useEntry` drives.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="useentry" />
 

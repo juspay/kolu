@@ -274,7 +274,7 @@ describe("padiSurface 1.0 contract", () => {
     expect(out.headers["Content-Range"]).toBe("bytes 0-1023/4096");
   });
 
-  it("serves the frozen control core surface (hello · version · drain · clock.now)", () => {
+  it("serves the frozen control core surface (hello · version · drain)", () => {
     expect(CONTROL_CORE_VERSION).toBe("1.0");
     // The frozen `version` cell echoes the control-core version, distinct from
     // padiSurface's own version cell (which may move; this one never does).

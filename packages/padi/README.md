@@ -21,7 +21,7 @@ double move. So the package exists from day one, even though no process does yet
   `import`, the `terminalExit` event, and the `terminalAttach` byte stream —
   **every member annotated with a forwarding policy** (`value` = hold-open vs
   `delta` = fail-through, only `activity`/`terminalAttach`) — plus the frozen
-  **control core** (hello · version · drain · clock.now). Nothing served; zero
+  **control core** (hello · version · drain). Nothing served; zero
   runtime change.
 - **W1.M — the motion**. The terminal domain relocates OUT of `packages/server`
   INTO this package, verbatim (registry · lifecycle · fold + metadata · endpoint
@@ -53,7 +53,7 @@ The package graduated to a **process**: `package = process = restart-hash`.
   kaval (the #1313 property). A `state-root` manifest maps the digest back, so a
   flag-less `kaval-tui` keeps labelling what it discovers.
 - **The frozen control core** (`./surface`'s `padiControlSurface`, served in
-  `./controlCore`) — hello · version · drain · clock.now — is served BESIDE
+  `./controlCore`) — hello · version · drain — is served BESIDE
   `padiSurface` (sibling key `control`), so a binder reaches it even when
   `padiSurface` is version-skewed. It never versions.
 
@@ -132,7 +132,7 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 - **`@kolu/padi/surface`** — BROWSER-SAFE. The `padiSurface` 1.0 zod contract,
   the per-member **forwarding-policy** annotations (`value` = hold-open vs
   `delta` = fail-through), and the frozen **control-core** types (hello ·
-  version · drain · clock.now). Imports only `@kolu/surface/define` + zod-only
+  version · drain). Imports only `@kolu/surface/define` + zod-only
   schema modules — no `node:` runtime, so a browser consumer imports it freely.
 
 The node-only side (the daemon runtime kolu-server serves through) lands beside
