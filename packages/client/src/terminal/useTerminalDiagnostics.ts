@@ -17,7 +17,7 @@ import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
-import type { ScrollLockEvent } from "../scrollLock";
+import type { ScrollLockEvent } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
 

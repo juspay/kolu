@@ -111,6 +111,7 @@ let
       ./packages/shell-quote
       ./packages/url-shape
       ./packages/log
+      ./packages/xterm-kit
     ];
   };
 
