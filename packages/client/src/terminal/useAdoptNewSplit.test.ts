@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { batch, createRoot, createSignal } from "solid-js";
+import { batch, createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { type SplitAdoptPorts, useAdoptNewSplit } from "./useAdoptNewSplit";
@@ -223,5 +223,85 @@ describe("useAdoptNewSplit — adopt an externally-created split", () => {
     expect(h.calls.expandPanel).toHaveBeenCalledWith(T("B1"));
     expect(h.calls.setActiveSubTab).toHaveBeenCalledWith(T("B1"), T("B3"));
     h.dispose();
+  });
+});
+
+/** Composed with hydration, the way the composition root (useTerminals.ts) wires
+ *  them: `useAdoptNewSplit` and a hydration effect that flips the restore latch to
+ *  `seeded` on the flush where the last restored terminal's metadata arrives. The
+ *  end-to-end invariant this guards: a RESTORED split delivered on that seed-
+ *  boundary flush is NOT false-adopted (which would re-open a persisted-collapsed
+ *  panel and persist the wrong state), yet a genuinely-new split arriving LATER —
+ *  the real feature — still is. The safety holds independent of the two effects'
+ *  relative run order: `useAdoptNewSplit` is created before `useSessionRestore`
+ *  (creation order), AND its effect is memo-backed (`on(snapshot,…)`) while
+ *  hydration is a plain effect — SolidJS schedules a memo-backed effect ahead of a
+ *  plain one regardless of creation order, so adopt samples the pre-flip `decided`
+ *  either way. This test reproduces that production scheduling. */
+describe("useAdoptNewSplit — composed with hydration", () => {
+  it("baselines a restored split on the seed-boundary flush, then adopts a later live split", async () => {
+    const latch = { phase: "decided" as HydrationPhase };
+    const calls = {
+      expandPanel: vi.fn<(parentId: TerminalId) => void>(),
+      setActiveSubTab:
+        vi.fn<(parentId: TerminalId, subId: TerminalId) => void>(),
+    };
+    let handles!: {
+      deliverSeedBoundary: () => void;
+      deliverLiveSplit: () => void;
+      dispose: () => void;
+    };
+    createRoot((dispose) => {
+      const [rawIds, setRawIds] = createSignal<TerminalId[]>([T("P")]);
+      const [parents, setParents] = createSignal<
+        Record<string, TerminalId | null>
+      >({ P: null });
+      // Production order: adopt is created BEFORE the hydration stand-in.
+      useAdoptNewSplit({
+        rawList: rawIds,
+        parentOf: (id) => parents()[id] ?? null,
+        activeHostKey: () => "local",
+        restorePhase: () => latch.phase,
+        ports: {
+          expandPanel: calls.expandPanel,
+          activeSubTab: () => null,
+          setActiveSubTab: calls.setActiveSubTab,
+        },
+      });
+      // Hydration stand-in: once the restored split S's metadata has arrived (the
+      // seed boundary), flip the latch to `seeded` — the same non-reactive write
+      // `markSeeded` makes inside the real hydration effect.
+      createEffect(() => {
+        if (parents().S === T("P") && latch.phase === "decided") {
+          latch.phase = "seeded";
+        }
+      });
+      handles = {
+        deliverSeedBoundary: () =>
+          batch(() => {
+            setParents({ P: null, S: T("P") });
+            setRawIds([T("P"), T("S")]);
+          }),
+        deliverLiveSplit: () =>
+          batch(() => {
+            setParents({ P: null, S: T("P"), S2: T("P") });
+            setRawIds([T("P"), T("S"), T("S2")]);
+          }),
+        dispose,
+      };
+    });
+    await tick();
+
+    // Seed-boundary flush: the restored split S arrives AND hydration seeds in the
+    // same batch. S must be baselined, not adopted.
+    handles.deliverSeedBoundary();
+    expect(calls.expandPanel).not.toHaveBeenCalled();
+    expect(calls.setActiveSubTab).not.toHaveBeenCalled();
+
+    // Later, a genuinely-new split S2 arrives while seeded — the real feature.
+    handles.deliverLiveSplit();
+    expect(calls.expandPanel).toHaveBeenCalledWith(T("P"));
+    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
+    handles.dispose();
   });
 });
