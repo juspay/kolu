@@ -50,6 +50,31 @@ import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
 
+// ── Membership identity (PR3) ───────────────────────────────────────────
+
+/** The opaque per-add membership identity — a BRANDED string, so an id can be
+ *  produced ONLY two ways: `serveSurfaceMap`'s mint (a fresh
+ *  `MembershipIdSchema.parse(crypto.randomUUID())`) and the wire schema's
+ *  `entryStatusSchema` parse (the one boundary a status is decoded through). A bare
+ *  `string` — an empty `""` or a client-fabricated value — is NOT assignable to
+ *  `MembershipId`, so the "spellable empty/fabricated id" gap is a COMPILE ERROR,
+ *  not a runtime convention (P4: the illegal value is unrepresentable). `.min(1)`
+ *  is the paired RUNTIME guard at the parse boundary; the brand is erased at
+ *  runtime (the value is the plain string), so keying/serialization are unchanged. */
+export const MembershipIdSchema = z.string().min(1).brand("MembershipId");
+export type MembershipId = z.infer<typeof MembershipIdSchema>;
+
+/** The client-only PENDING membership marker (PR3) — the single sanctioned id for
+ *  the transient pre-frame gap, where a key is seen in the membership keyset before
+ *  its first per-key status frame lands. It is minted ONCE through the schema (never
+ *  a bare literal), and is DISPLAY-ONLY: it rides the synthesized `warming` that
+ *  `foldState` returns for the gap, which no consumer reads a `membershipId` off,
+ *  and the per-key client keys off `membershipIdOf` (the RAW status, `undefined`
+ *  here) — NEVER this marker — so it can never be keyed against or collide with a
+ *  real minted id (a UUID). Replaced by the real id on the next frame. */
+export const PENDING_MEMBERSHIP_ID: MembershipId =
+  MembershipIdSchema.parse("pending");
+
 // ── Membership status ──────────────────────────────────────────────────
 
 /** The published per-entry status — the value carried by the `entries`
@@ -87,9 +112,13 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  `unknown` so generic library code carries the value opaquely; a domain
  *  narrows it at its own map. */
 export type EntryStatus<Failure = unknown> =
-  | { kind: "warming"; membershipId: string }
-  | { kind: "connected"; membershipId: string; clockOffset: number | null }
-  | { kind: "failed"; membershipId: string; failure: Failure };
+  | { kind: "warming"; membershipId: MembershipId }
+  | {
+      kind: "connected";
+      membershipId: MembershipId;
+      clockOffset: number | null;
+    }
+  | { kind: "failed"; membershipId: MembershipId; failure: Failure };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
@@ -109,23 +138,25 @@ export type EntryState<Failure = unknown> =
  *  `expected` skew pair — are all validated by the domain schema itself, not
  *  waved through as unknown extras). A generic package can't know the domain's
  *  schema, so this is a FUNCTION of it rather than a module const. Every arm also
- *  carries `membershipId: z.string()` (PR3) — the opaque per-add identity, on the
- *  wire so the client keys owners on `{encodedKey, membershipId}`. */
+ *  carries `membershipId: MembershipIdSchema` (PR3) — the opaque per-add identity,
+ *  BRANDED here so this parse is (with `serveSurfaceMap`'s mint) one of the only two
+ *  producers of a `MembershipId`; a status decoded off the wire is branded by
+ *  construction. */
 export function entryStatusSchema<Failure>(
   failureSchema: ZodType<Failure>,
 ): ZodType<EntryStatus<Failure>> {
   return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("warming"), membershipId: z.string() }),
+    z.object({ kind: z.literal("warming"), membershipId: MembershipIdSchema }),
     z.object({
       kind: z.literal("connected"),
-      membershipId: z.string(),
+      membershipId: MembershipIdSchema,
       // `null` = not-yet-measured (ONE meaning); readiness is link-liveness, so a
       // connected entry stays connected whether or not the offset has landed.
       clockOffset: z.number().nullable(),
     }),
     z.object({
       kind: z.literal("failed"),
-      membershipId: z.string(),
+      membershipId: MembershipIdSchema,
       failure: failureSchema,
     }),
   ]) as unknown as ZodType<EntryStatus<Failure>>;

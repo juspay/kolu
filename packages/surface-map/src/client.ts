@@ -34,7 +34,14 @@ import {
   untrack,
 } from "solid-js";
 import type { z } from "zod";
-import type { EntryState, EntryStatus, KeyCodec, SurfaceMap } from "./define";
+import type {
+  EntryState,
+  EntryStatus,
+  KeyCodec,
+  MembershipId,
+  SurfaceMap,
+} from "./define";
+import { PENDING_MEMBERSHIP_ID } from "./define";
 import { fold } from "./envelope";
 
 // ── Entry & client shapes ───────────────────────────────────────────────
@@ -553,7 +560,7 @@ export function connectSurfaceMap<
   // `makeReactiveEntry`); `undefined` before the first status frame lands, or for a
   // key that is not a member. Callers that must stay non-reactive (`entry`'s pure
   // lens) read it through `untrack`.
-  const membershipIdOf = (key: K): string | undefined => {
+  const membershipIdOf = (key: K): MembershipId | undefined => {
     const enc = map.codec.encode(key);
     const view = rawEntries.use();
     if (!view.keys().includes(enc)) return undefined;
@@ -573,13 +580,14 @@ export function connectSurfaceMap<
   // a keyed-root rebuild and retaining another entry's subscription.
   const clientCacheKey = (
     enc: string,
-    membershipId: string | undefined,
+    membershipId: MembershipId | undefined,
   ): string => JSON.stringify([enc, membershipId ?? null]);
 
   // The pure lens' get-or-create: a per-key `SurfaceClient<ES>` cached by
   // `{encodedKey, membershipId}` (PR3) — NEVER the enc alone. The identity pair is held
-  // STRUCTURALLY as a nested `Map<enc, Map<membershipId, client>>` (`'' = pending`), so
-  // enc-departure pruning and same-enc eviction are map operations, not substring
+  // STRUCTURALLY as a nested `Map<enc, Map<membershipId, client>>` (`PENDING_MEMBERSHIP_ID`
+  // slots the not-yet-known id), so enc-departure pruning and same-enc eviction are map
+  // operations, not substring
   // surgery on a delimited key. A same-key remove/re-add mints a NEW id server-side, and
   // an authority restart mints new ids for every member, so either way this cache MISSES
   // and builds a FRESH client (fresh dedup cache → fresh subscriptions) rather than
@@ -590,10 +598,10 @@ export function connectSurfaceMap<
   const clients = new Map<string, Map<string, SurfaceClient<ES>>>();
   const clientFor = (
     key: K,
-    membershipId: string | undefined,
+    membershipId: MembershipId | undefined,
   ): SurfaceClient<ES> => {
     const enc = map.codec.encode(key);
-    const id = membershipId ?? "";
+    const id = membershipId ?? PENDING_MEMBERSHIP_ID;
     let inner = clients.get(enc);
     if (inner === undefined) {
       inner = new Map<string, SurfaceClient<ES>>();
@@ -677,13 +685,17 @@ export function connectSurfaceMap<
     // for free). An in-process `directLink` can't half-open so its `live()` is a constant
     // true and never floors. This is the flooring `hostChipTone`'s docstring asserts, in code.
     //
-    // The pre-frame synthesized warming carries an EMPTY `membershipId` (PR3): the id
+    // The pre-frame synthesized warming carries `PENDING_MEMBERSHIP_ID` (PR3): the id
     // rides ON the status, so a member seen in the keyset before its first status frame
-    // has none yet. It is never used for keying — the per-key client keys off
-    // `membershipIdOf` (the RAW status, `undefined` here), not this display value — and no
-    // consumer reads `membershipId` off `state()`; it is the arm's required field made
-    // total for the transient pre-frame gap, replaced by the real id on the next frame.
-    return floorOnLiveness(v ?? { kind: "warming", membershipId: "" }, live());
+    // has none yet. It is DISPLAY-ONLY, never used for keying — the per-key client keys
+    // off `membershipIdOf` (the RAW status, `undefined` here), not this value — and no
+    // consumer reads `membershipId` off `state()`; it is the arm's required field filled
+    // with the ONE sanctioned pending marker (never a bare literal — `""` and any
+    // fabricated id are now type errors), replaced by the real id on the next frame.
+    return floorOnLiveness(
+      v ?? { kind: "warming", membershipId: PENDING_MEMBERSHIP_ID },
+      live(),
+    );
   };
 
   const entry = (key: K): Entry<ES, Failure> => {

@@ -26,6 +26,7 @@ import {
   defineSurfaceMap,
   type EntryStatus as RealEntryStatus,
   type KeyCodec,
+  type MembershipId,
 } from "@kolu/surface-map";
 import {
   connectSurfaceMap,
@@ -328,11 +329,17 @@ const kill = (
 
 // #region entrystatus
 type EntryStatus<Failure = unknown> =
-  // `membershipId`: opaque, never-reused per-add identity — clients key cached owners on
+  // `membershipId`: opaque, never-reused per-add identity — a BRANDED `MembershipId`
+  // (an empty/fabricated bare string is a compile error), minted only by
+  // `serveSurfaceMap` / the wire parse. Clients key cached owners on
   // `{encodedKey, membershipId}`, so a same-key re-add / authority restart rebuilds.
-  | { kind: "warming"; membershipId: string }
-  | { kind: "connected"; membershipId: string; clockOffset: number | null } // own-clock offset; null = not-yet-measured
-  | { kind: "failed"; membershipId: string; failure: Failure }; // schema-valid domain failure
+  | { kind: "warming"; membershipId: MembershipId }
+  | {
+      kind: "connected";
+      membershipId: MembershipId;
+      clockOffset: number | null;
+    } // own-clock offset; null = not-yet-measured
+  | { kind: "failed"; membershipId: MembershipId; failure: Failure }; // schema-valid domain failure
 // #endregion entrystatus
 
 // Grounding: the shape shown above is mutually assignable to the real exported

@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
 import type { EntryStatus, KeyCodec } from "./define";
+import { testMembershipId } from "./testing";
 import {
   A,
   B,
@@ -136,7 +137,10 @@ describe("surface-map mock-entry e2e harness", () => {
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
       let keys: string[] = [];
-      let state: EntryState = { kind: "warming", membershipId: "" };
+      let state: EntryState = {
+        kind: "warming",
+        membershipId: testMembershipId(),
+      };
       createEffect(() => {
         cellError = cell.error();
       });
@@ -976,24 +980,32 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
     // through the demotion untouched, so the warming is still the SAME membership.
     expect(
       floorOnLiveness(
-        { kind: "connected", membershipId: "m1", clockOffset: 42 },
+        {
+          kind: "connected",
+          membershipId: testMembershipId("m1"),
+          clockOffset: 42,
+        },
         false,
       ),
     ).toEqual({
       kind: "warming",
-      membershipId: "m1",
+      membershipId: testMembershipId("m1"),
     });
   });
 
   it("passes 'connected' through UNTOUCHED when the link is live (offset + membershipId preserved)", () => {
     expect(
       floorOnLiveness(
-        { kind: "connected", membershipId: "m1", clockOffset: 42 },
+        {
+          kind: "connected",
+          membershipId: testMembershipId("m1"),
+          clockOffset: 42,
+        },
         true,
       ),
     ).toEqual({
       kind: "connected",
-      membershipId: "m1",
+      membershipId: testMembershipId("m1"),
       clockOffset: 42,
     });
   });
@@ -1004,21 +1016,24 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
         floorOnLiveness(
           {
             kind: "failed",
-            membershipId: "m1",
+            membershipId: testMembershipId("m1"),
             failure: { cause: "x", reason: "boom" },
           },
           live,
         ),
       ).toEqual({
         kind: "failed",
-        membershipId: "m1",
+        membershipId: testMembershipId("m1"),
         failure: { cause: "x", reason: "boom" },
       });
       expect(
-        floorOnLiveness({ kind: "warming", membershipId: "m1" }, live),
+        floorOnLiveness(
+          { kind: "warming", membershipId: testMembershipId("m1") },
+          live,
+        ),
       ).toEqual({
         kind: "warming",
-        membershipId: "m1",
+        membershipId: testMembershipId("m1"),
       });
       expect(floorOnLiveness({ kind: "not-a-member" }, live)).toEqual({
         kind: "not-a-member",

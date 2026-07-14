@@ -9,8 +9,9 @@ import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
 A dynamic keyed map of remote surfaces — one entry surface, typed once, keyed at
-runtime, served as one. It depends only on `@kolu/surface` and has three
-subpaths: the contract, the server, and the client.
+runtime, served as one. It depends only on `@kolu/surface` and has three public
+subpaths: the contract, the server, and the client (plus a test-only `/testing`
+subpath, whose `testMembershipId()` mints a branded `MembershipId` for fixtures).
 
 ## The three halves
 
@@ -181,6 +182,7 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
 
 - **Absence from `entries` is "not a member".** There is no `absent` arm — a collection already expresses absence by not carrying the key. Client reads stay total via an explicit `{ kind: "not-a-member" }` value; the wire never carries it.
 - **Every arm carries a `membershipId`.** `serveSurfaceMap` stamps an opaque, never-reused `crypto.randomUUID()` when a key **enters** membership, drops it when the key leaves, and publishes it on the `warming` / `connected` / `failed` arms alike. The client keys every cached per-key owner on `{encodedKey, membershipId}`, so a same-key remove/re-add (a new id) and an authority restart (fresh ids for every member — the id map is per-server-instance, never reused across a restart) rebuild subscriptions **by construction** — no hand-rolled generation rearm. It is framework identity, not something a display consumer reads (they switch on `kind`, read `failure`/`clockOffset`).
+- **`membershipId` is a branded `MembershipId`, not a bare `string`.** The type is `MembershipIdSchema.brand("MembershipId")` (a non-empty branded string), so an empty `""` or a client-fabricated id is a **compile error** — an opaque never-reused identity is unspellable by a consumer (P4). It is produced only two ways: `serveSurfaceMap`'s mint (`MembershipIdSchema.parse(crypto.randomUUID())`) and the wire `entryStatusSchema` parse (the one boundary a status is decoded through). The brand is erased at runtime (the value is the plain string), so keying and serialization are unchanged. Tests mint one through the `testMembershipId()` helper on the `@kolu/surface-map/testing` subpath — never a literal. The transient pre-frame gap (a key seen in the membership keyset before its first status frame) uses the single sanctioned `PENDING_MEMBERSHIP_ID` marker, which is display-only and never keyed against.
 - **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` → `warming`; `connected` → `connected`; a `disconnected` carrying a standing domain failure, or a terminal `failed`, → `failed`; a plain transient `disconnected` (no specific failure) → `warming`. `warming` means in motion (self-heals — an unreachable box retrying at backoff is warming, not failed); `failed` means it needs intervention.
 - **`Failure` is a type parameter.** It defaults to `unknown` and is inferred from the map's `failure` schema; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map so `.failure` narrows there. The package carries the discriminant, never the enumeration.
 - **The `failed` arm carries a schema-valid domain `failure` value**, validated by the map's own `failure` schema — not a loose object. padi's `PadiEntryFailure` is a `z.discriminatedUnion` over a structural `cause`, each arm carrying its human `reason` (and the `contract-skew-refused` arm additionally a typed `running`/`expected` version pair), so a consumer reads `state.failure.cause` / `state.failure.reason` (and `.running`/`.expected` on the skew arm) with full narrowing.

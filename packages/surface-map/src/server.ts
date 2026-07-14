@@ -28,7 +28,8 @@ import {
 import { ORPCError } from "@orpc/client";
 import { implement } from "@orpc/server";
 import type { z } from "zod";
-import type { EntryStatus, SurfaceMap } from "./define";
+import type { EntryStatus, MembershipId, SurfaceMap } from "./define";
+import { MembershipIdSchema } from "./define";
 import { unfoldInput, unfoldKeyField } from "./envelope";
 
 // ── The resolver / membership seam ──────────────────────────────────────
@@ -189,7 +190,7 @@ function isFault<Failure>(
  *  classification seam (`serveHostMap`) rather than here. */
 function projectStatus<Failure>(
   state: EntryConnectionState<"copying", Failure>,
-  membershipId: string,
+  membershipId: MembershipId,
 ): EntryStatus<Failure> {
   switch (state.kind) {
     case "copying":
@@ -331,11 +332,14 @@ export function serveSurfaceMap<
   // id map — so every member mints anew; ids are never reused across a restart by
   // construction. The client keys every cached owner on `{encodedKey, membershipId}`,
   // so both paths rebuild subscriptions without any hand-rolled generation rearm.
-  const membershipIds = new Map<string, string>();
-  const membershipIdFor = (enc: string): string => {
+  const membershipIds = new Map<string, MembershipId>();
+  const membershipIdFor = (enc: string): MembershipId => {
     let id = membershipIds.get(enc);
     if (id === undefined) {
-      id = crypto.randomUUID();
+      // The MINT — one of the only two producers of a branded `MembershipId` (the
+      // other being the wire `entryStatusSchema` parse). `parse` brands the fresh
+      // uuid; a non-empty uuid always clears `.min(1)`.
+      id = MembershipIdSchema.parse(crypto.randomUUID());
       membershipIds.set(enc, id);
     }
     return id;
