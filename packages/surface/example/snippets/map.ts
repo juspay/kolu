@@ -109,12 +109,11 @@ function projectState(
     case "connected":
       // `makeSession` measures the far-end wall-clock offset off the reserved
       // `system.clockNow` at admit and carries it on the `connected` arm — propagate
-      // that real value, don't fake a 0. It is `null` until the first probe lands, so
-      // the entry honestly reads `connecting` until then (a `0` on a skewed host would
-      // mis-map its timestamps).
-      return s.clockOffset === null
-        ? { kind: "connecting" }
-        : { kind: "connected", clockOffset: s.clockOffset };
+      // that real value (`number | null`), don't fake a 0. Readiness is link-liveness,
+      // NOT clock-measured: a connected session is `connected` whether or not the offset
+      // has landed. `null` (not-yet-measured) rides THROUGH; the clock reader renders "—"
+      // for it until the probe lands. (A `0` on a skewed host would mis-map its timestamps.)
+      return { kind: "connected", clockOffset: s.clockOffset };
     case "disconnected":
       // Transient (no domain failure) → projects to `warming`, self-heals.
       return { kind: "disconnected" };
@@ -333,7 +332,7 @@ type EntryStatus<Failure = unknown> =
   // `membershipId`: opaque, never-reused per-add identity — clients key cached owners on
   // `{encodedKey, membershipId}`, so a same-key re-add / authority restart rebuilds.
   | { kind: "warming"; membershipId: string }
-  | { kind: "connected"; membershipId: string; clockOffset: number } // own-clock offset
+  | { kind: "connected"; membershipId: string; clockOffset: number | null } // own-clock offset; null = not-yet-measured
   | { kind: "failed"; membershipId: string; failure: Failure }; // schema-valid domain failure
 // #endregion entrystatus
 

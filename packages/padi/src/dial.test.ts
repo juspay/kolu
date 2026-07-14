@@ -4,7 +4,7 @@
  * A REAL spawned `padi` process (under tsx's loader, the shipped launcher shape),
  * anchored to a private state-root, dialed over its digest-keyed unix socket:
  *   - the frozen CONTROL CORE handshakes for real (`control.hello` echoes the
- *     state-root + versions);
+ *     state-root + versions; `control.clockNow` answers);
  *   - a terminal ROUND-TRIPS through `padiSurface` over the socket — padi
  *     spawns-or-adopts its OWN kaval under `kaval-<digest>/`, so `lifecycle.create`
  *     → `terminalAttach` (a snapshot frame) → `sendInput` → `screen.state` shows
@@ -310,6 +310,9 @@ describe("padi the process — dial acceptance", () => {
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
 
+    const clock = await conn.client.surface.control.core.clockNow();
+    expect(clock.epochMs).toBeGreaterThan(0);
+
     await conn.dispose();
     await reap(p);
   }, 40000);
@@ -496,6 +499,9 @@ describe("padi the process — dialed over a stdio front (the ssh transport, min
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(hello.controlCoreVersion).toBe("1.0");
     expect(hello.startedAt).toBeGreaterThan(0);
+
+    const clock = await client.surface.control.core.clockNow();
+    expect(clock.epochMs).toBeGreaterThan(0);
 
     await reapStdioFront(front);
   }, 40000);

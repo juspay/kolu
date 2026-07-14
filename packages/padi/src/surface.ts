@@ -1044,13 +1044,20 @@ export const PadiControlVersionSchema = z.object({
 });
 export type PadiControlVersion = z.infer<typeof PadiControlVersionSchema>;
 
-/** The frozen control-core SURFACE — hello · version · drain.
+/** `clock.now` — padi's current clock, RTT-halved by the binder to measure a
+ *  once-per-bind offset (owner-clock display; deliberately NOT a served ticking
+ *  cell). */
+export const PadiClockNowSchema = z.object({ epochMs: z.number() });
+export type PadiClockNow = z.infer<typeof PadiClockNowSchema>;
+
+/** The frozen control-core SURFACE — hello · version · drain · clock.now.
  *  Defined as pure schema shapes in W1.C; W2.2 serves them for real, BESIDE
  *  `padiSurface` (as the sibling surface key `control`), over padi's socket. A
  *  binder reaches it even when `padiSurface` is version-skewed — the schemas here
  *  NEVER change (the frozen side channel), so a newer binder can always call
  *  `control.drain` to converge the daemon onto the newest closure rather than
- *  livelock, and no path ever kill-9s a padi.
+ *  livelock, and no path ever kill-9s a padi. `clock.now` is a frozen member
+ *  kept FOREVER for cross-version skew (see its per-verb note below).
  *
  *  The frozen `version` cell (`controlCoreVersion`, always "1.0") is DISTINCT from
  *  `padiSurface`'s own `version` cell — this one is contractually immovable. */
@@ -1074,6 +1081,17 @@ export const padiControlSurface = defineSurface({
       /** Persist state + exit; the PTYs survive in kaval, and the caller observes
        *  the socket close. Takes no input, returns nothing. */
       drain: {},
+      /** padi's current clock — the binder RTT-halves it once per bind to age
+       *  memory against the host's clock (deliberately NOT a ticking cell).
+       *
+       *  FROZEN control-core member, kept FOREVER for cross-version skew: an old
+       *  binder crosses versions via `hello → clockNow → decide`, so this member
+       *  never versions and never leaves the frozen core. The framework
+       *  `system.clockNow` reserved member (see `@kolu/surface`, measured by
+       *  `makeSession` at admit) is the NEW measurement path that lives BESIDE
+       *  this one — a graduation, NOT a replacement. New kolu measures via
+       *  `system.clockNow` only; this stays for the old binders. */
+      clockNow: { output: PadiClockNowSchema },
     },
   },
 });

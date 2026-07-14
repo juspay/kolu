@@ -274,18 +274,20 @@ describe("padiSurface 1.0 contract", () => {
     expect(out.headers["Content-Range"]).toBe("bytes 0-1023/4096");
   });
 
-  it("serves the frozen control core surface (hello · version · drain)", () => {
+  it("serves the frozen control core surface (hello · version · drain · clock.now)", () => {
     expect(CONTROL_CORE_VERSION).toBe("1.0");
     // The frozen `version` cell echoes the control-core version, distinct from
     // padiSurface's own version cell (which may move; this one never does).
     expect(padiControlSurface.spec.cells?.version.default).toEqual({
       controlCoreVersion: CONTROL_CORE_VERSION,
     });
-    // The three control verbs live under the single `control` namespace — served
-    // for real in W2.2 (W1.C pinned their existence as schema shapes).
+    // The frozen control verbs live under the single `control` namespace — served
+    // for real in W2.2 (W1.C pinned their existence as schema shapes). `clockNow`
+    // is a frozen member kept FOREVER for cross-version skew, beside the new
+    // framework `system.clockNow` measurement path.
     expect(
       Object.keys(padiControlSurface.spec.procedures?.core ?? {}).sort(),
-    ).toEqual(["controlVersion", "drain", "hello"]);
+    ).toEqual(["clockNow", "controlVersion", "drain", "hello"]);
     // The daemon serves BOTH surfaces on one socket, keyed `padi` + `control`, so
     // a binder reaches the frozen core even when padiSurface is version-skewed.
     expect(Object.keys(padiDaemonSurfaces).sort()).toEqual(["control", "padi"]);

@@ -218,8 +218,10 @@ export const B = HostKeySchema.parse("b");
 export const C = HostKeySchema.parse("c");
 export const D = HostKeySchema.parse("d");
 
+// `clockOffset` accepts `null` (not-yet-measured) as well as a number: readiness is
+// link-liveness, so a `connected` state is legal with an unmeasured offset.
 export const connected = (
-  clockOffset: number,
+  clockOffset: number | null,
 ): EntryConnectionState<"copying", TestFailure> => ({
   kind: "connected",
   clockOffset,

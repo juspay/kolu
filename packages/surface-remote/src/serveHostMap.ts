@@ -90,17 +90,19 @@ export class UnclassifiedHostFailureError extends Error {
 type RawConnectionState =
   | { kind: "copying" }
   | { kind: "connecting" }
-  | { kind: "connected"; clockOffset: number }
+  | { kind: "connected"; clockOffset: number | null }
   | { kind: "disconnected" }
   | { kind: "failed" };
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
  *  `connectionPipe.projectConnection` (which targets the 4-field browser
- *  `ConnectionInfo`). `connected` REQUIRES the measured clock offset, which rides the
- *  session's OWN `connected` arm (`makeSession` stamps it off the reserved
- *  `system.clockNow` at admit): until that probe has landed, the arm's `clockOffset`
- *  is `null` and the entry honestly reads as still `connecting` (offset-at-hello is
- *  the contract — a `0` placeholder would be a lie). */
+ *  `ConnectionInfo`). Readiness is LINK liveness, NOT clock-measured: a connected
+ *  session projects to `connected` REGARDLESS of whether the clock offset has landed.
+ *  The offset is a SEPARATE fact riding the session's own `connected` arm
+ *  (`makeSession` stamps it off the reserved `system.clockNow` at admit): `null` is a
+ *  legal, single-meaning "not-yet-measured" value carried THROUGH on the connected arm
+ *  — it does NOT demote the entry to `connecting` (that was the old, wrongly-coupled
+ *  behaviour). A number is the measured offset; the reader renders "—" for null. */
 export function projectState<Prov extends string>(
   s: SessionState<Prov> | undefined,
 ): RawConnectionState {
@@ -118,24 +120,22 @@ export function projectState<Prov extends string>(
     // `"connected"`, so the union's first arm structurally admits a `{ phase: "connected" }`
     // that carries NO `clockOffset`), so read `clockOffset` off the connected shape
     // explicitly. `makeSession` ALWAYS stamps the field on a connected frame (`null` at
-    // connect, a number once the probe lands), so the two legitimate values are `null`
-    // (honest not-yet-measured → the entry reads `connecting`) and a number (measured →
-    // `connected`). A MISSING (`undefined`) offset is the type-only illegal inhabitant no
-    // producer of ours constructs — FAIL LOUD rather than silently degrade it to warming
-    // (the funnel `fire()` rethrows this out-of-band as the invariant it is), so a future
-    // producer that forgets to stamp the field is caught, not masked.
+    // connect, a number once the probe lands). Readiness is LINK liveness: a connected
+    // session is `connected` either way — `null` (honest not-yet-measured) is carried
+    // THROUGH, not demoted to `connecting`. A MISSING (`undefined`) offset is the
+    // type-only illegal inhabitant no producer of ours constructs — FAIL LOUD rather
+    // than silently degrade it (the funnel `fire()` rethrows this out-of-band as the
+    // invariant it is), so a future producer that forgets to stamp the field is caught.
     const clockOffset = (s as Extract<SessionState, { phase: "connected" }>)
       .clockOffset;
     if (clockOffset === undefined) {
       throw new Error(
         "[serveHostMap] connected SessionState carries no clockOffset — makeSession must " +
           "stamp it (null at connect, a number once the system.clockNow probe lands). A " +
-          "missing field is a producer defect; failing loud rather than degrading to warming.",
+          "missing field is a producer defect; failing loud rather than degrading it.",
       );
     }
-    return clockOffset === null
-      ? { kind: "connecting" }
-      : { kind: "connected", clockOffset };
+    return { kind: "connected", clockOffset };
   }
   if (s.phase === "connecting") return { kind: "connecting" };
   // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —

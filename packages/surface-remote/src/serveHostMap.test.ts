@@ -163,15 +163,20 @@ async function entriesGet(
 }
 
 describe("projectState — SessionState → EntryConnectionState", () => {
-  it("maps each connection state, gating `connected` on the measured offset", () => {
+  it("maps each connection state; readiness is link-liveness, the offset rides through", () => {
     expect(projectState(st("copying"))).toEqual({ kind: "copying" });
     expect(projectState(st("connecting"))).toEqual({ kind: "connecting" });
     expect(projectState(connected(5))).toEqual({
       kind: "connected",
       clockOffset: 5,
     });
-    // connected but no offset yet → still settling (connected REQUIRES the offset).
-    expect(projectState(connected(null))).toEqual({ kind: "connecting" });
+    // Connected but no offset yet → STILL `connected` (readiness is link-liveness, NOT
+    // clock-measured). The null offset rides through as an honest "not-yet-measured"
+    // fact — it does NOT demote the entry to `connecting`.
+    expect(projectState(connected(null))).toEqual({
+      kind: "connected",
+      clockOffset: null,
+    });
     // The RAW projection is domain-agnostic: the down arms carry NEITHER a domain
     // `failure` NOR a transport `reason` (lowy-1/lowy-2). `resolve` classifies the
     // down state into the schema-valid `failure` via `failureOf`, reading the

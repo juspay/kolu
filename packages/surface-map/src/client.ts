@@ -79,10 +79,12 @@ export interface Entry<ES extends SurfaceSpec, Failure = unknown>
 export interface EntryClock {
   /** A remote-host epoch-ms → this process's LOCAL-clock epoch-ms, via the entry's
    *  offset-at-hello `clockOffset`. Returns `null` when the entry has no offset yet
-   *  (`warming` / `failed` / `not-a-member`) — the caller MUST handle it (render a
-   *  pending "—"), NEVER falling back to the raw remote value (that is the silent
-   *  foreign-clock identity this lens exists to prevent). Read inside a reactive scope:
-   *  it folds the membership collection, so it re-answers as the entry connects. */
+   *  (`warming` / `failed` / `not-a-member`, OR `connected` with a not-yet-measured
+   *  `clockOffset: null` — readiness is link-liveness, so an entry is connected before
+   *  the probe lands) — the caller MUST handle it (render a pending "—"), NEVER falling
+   *  back to the raw remote value (that is the silent foreign-clock identity this lens
+   *  exists to prevent). Read inside a reactive scope: it folds the membership
+   *  collection, so it re-answers as the entry's offset lands. */
   toLocal(remoteMs: number): number | null;
 }
 
@@ -137,13 +139,16 @@ function floorEntrySubscription<Failure = unknown>(
 /** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
  *  `clockOffset = remoteEpoch − localEpoch` (same instant), so a remote-clock timestamp
  *  maps to this process's local clock by subtracting it. No `connected` status ⇒ no
- *  measured offset ⇒ `null` (never a silent identity). Failure-agnostic: it only ever
- *  reads `.kind`, never `.failure`, so it takes no `Failure` type param of its own. */
+ *  measured offset ⇒ `null` (never a silent identity). A `connected` status whose
+ *  `clockOffset` is `null` (not-yet-measured — readiness is link-liveness, so the
+ *  entry is connected before the probe lands) ALSO yields `null`: no reprojection yet,
+ *  the reader renders "—". Failure-agnostic: it only ever reads `.kind`, never
+ *  `.failure`, so it takes no `Failure` type param of its own. */
 function makeEntryClock(getState: () => EntryState): EntryClock {
   return {
     toLocal(remoteMs: number): number | null {
       const s = getState();
-      if (s.kind !== "connected") return null;
+      if (s.kind !== "connected" || s.clockOffset === null) return null;
       return remoteMs - s.clockOffset;
     },
   };

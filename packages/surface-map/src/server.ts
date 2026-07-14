@@ -36,7 +36,9 @@ import { unfoldInput, unfoldKeyField } from "./envelope";
 /** A session's connection state — the map DERIVES {@link EntryStatus} from it (a
  *  projection, never a second writer). `copying`/`connecting` project to
  *  `warming`; `connected` carries the serving process's own-clock offset at
- *  hello; `disconnected`/`failed` project to `failed(failure)`.
+ *  hello (`number | null`, where `null` = not-yet-measured — readiness is
+ *  link-liveness, so a connected session projects to `connected` regardless);
+ *  `disconnected`/`failed` project to `failed(failure)`.
  *
  *  `Prov` mirrors `@kolu/surface-remote/session`'s `SessionState<Prov extends
  *  string>` split (juspay/kolu#1716) ONE LAYER UP: `"copying"` is the
@@ -98,7 +100,7 @@ export type EntryConnectionState<
 > =
   | { kind: Prov }
   | { kind: "connecting" }
-  | { kind: "connected"; clockOffset: number }
+  | { kind: "connected"; clockOffset: number | null }
   | { kind: "disconnected"; failure?: Failure }
   | { kind: "failed"; failure: Failure };
 

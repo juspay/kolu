@@ -396,6 +396,12 @@ export function makeSession<
   const label = opts.label ?? "session";
   const reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 30_000;
+  // Cadence for re-attempting a FAILED `system.clockNow` offset probe while the
+  // session stays connected. Readiness is link-liveness (a failed probe leaves the
+  // link `connected` with an honest `clockOffset: null`), so the probe is not on the
+  // connect critical path — it retries loudly on its own timer until it lands or the
+  // session drops, never silently stranding a null offset with no signal.
+  const clockProbeRetryMs = 10_000;
   // The runtime twin of `Prov` (erased at runtime, so this is the only witness
   // left standing at construction time). This is no GUESS from the initial state's
   // incidental value: `MakeSessionOptions.initialConnection`'s TYPE
@@ -415,6 +421,11 @@ export function makeSession<
    *  two are never live at once, so folding them into one slot makes "at most one
    *  timer pending" a structural invariant. */
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The pending `system.clockNow` retry timer (a SEPARATE cadence from
+   *  `pendingTimer`'s connect/reconnect one — the two run concurrently, so this can't
+   *  fold into that slot). Non-null only while a failed offset probe is waiting to
+   *  re-attempt; cleared on success, on the next poll, and on destroy. */
+  let clockProbeTimer: ReturnType<typeof setTimeout> | null = null;
   /** The in-flight/current client promise (or `null` between a link death and the
    *  backoff timer firing). Each dial reassigns it, so the pump's cursor advances on
    *  identity. */
@@ -511,6 +522,13 @@ export function makeSession<
     if (pendingTimer !== null) {
       clearTimeout(pendingTimer);
       pendingTimer = null;
+    }
+  };
+
+  const clearClockProbeTimer = (): void => {
+    if (clockProbeTimer !== null) {
+      clearTimeout(clockProbeTimer);
+      clockProbeTimer = null;
     }
   };
 
@@ -1023,11 +1041,16 @@ export function makeSession<
   const pollClockNow = (client: Client): void => {
     // Measure the far-end clock offset off the framework-reserved `system.clockNow`
     // (the clock twin of the `system.identity` poll above) and stamp it onto the LIVE
-    // `connected` frame. Fired once per admit — offset-at-hello IS the contract, no
-    // continuous drift correction. This replaces the app-side hand-measurement the padi
-    // binders did (`measureClockOffset` over the padi-specific `control.core.clockNow`):
-    // the offset now rides the session's OWN connected state, so a keyed `SurfaceMap`
-    // reads it there with no injected `offsetOf`.
+    // `connected` frame. Fired at admit and re-attempted on `clockProbeRetryMs` cadence
+    // until it lands — offset-at-hello IS the contract, no continuous drift correction.
+    // This replaces the app-side hand-measurement the padi binders did
+    // (`measureClockOffset` over the padi-specific `control.core.clockNow`): the offset
+    // now rides the session's OWN connected state, so a keyed `SurfaceMap` reads it there
+    // with no injected `offsetOf`.
+    //
+    // Only ONE poll+retry chain runs at a time — clear any pending retry before firing so
+    // a fresh admit (or a manual re-poll) supersedes a stale one rather than racing it.
+    clearClockProbeTimer();
     const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
     measureSurfaceClockOffset(client)
       .then((clockOffset) => {
@@ -1050,19 +1073,32 @@ export function makeSession<
         // success path carries. Without it, a slow probe from a now-dead link rejecting
         // AFTER a reconnect would log a spurious failure against the live dial's session.
         if (destroyed || epoch !== dialEpoch) return;
-        // No offset this cycle — the frame stays `clockOffset: null` (never fabricate a
-        // 0). But a probe failure is DIAGNOSED, never silently swallowed (the contract the
-        // old `measureClockOffset` line-sink carried): a serveHostMap consumer reads a null
-        // offset as still `connecting`, so a probe that keeps failing is recorded on the
+        // No offset this cycle — the link STAYS `connected` (readiness is link-liveness,
+        // not clock-measured) with an honest `clockOffset: null` (never fabricate a 0; the
+        // reader renders "—"). But a probe failure is neither swallowed nor allowed to
+        // strand a null offset forever with no signal: it is (1) surfaced LOUDLY on the
         // session's DIAGNOSTIC sink (`emit` → the connector's `onLog`, e.g. the padi
-        // binder's structured `log.warn`; stderr when no sink is wired) rather than leaving
-        // the entry warming for a reason nothing recorded. It is deliberately NOT pushed
+        // binder's structured `log.warn`; stderr when no sink is wired), naming the host and
+        // the failure, and (2) RE-ATTEMPTED on `clockProbeRetryMs` cadence while the session
+        // stays connected, until it lands or the link drops. It is deliberately NOT pushed
         // onto the state `log` overlay tail (`localProgress`): a clock probe legitimately
         // rejects with "no such member" on a dial whose client carries no reserved
         // `system.clockNow` (an agent dial via `dialAgentOnce`), and that structural
         // non-failure must not paint the user-facing connect overlay.
         const reason = err instanceof Error ? err.message : String(err);
-        emit(`[${label}] clock offset probe failed: ${reason}`);
+        emit(
+          `[${label}] clock offset probe failed (staying connected, offset unmeasured; ` +
+            `retrying in ${clockProbeRetryMs}ms): ${reason}`,
+        );
+        // Retry on cadence. Guard the callback the same way the probe body is guarded —
+        // a later dial or a dropped link cancels this chain (the epoch/phase re-check),
+        // and `destroy()` clears the timer outright.
+        clockProbeTimer = setTimeout(() => {
+          clockProbeTimer = null;
+          if (destroyed || epoch !== dialEpoch) return;
+          if (stateCell.current().phase !== "connected") return;
+          pollClockNow(client);
+        }, clockProbeRetryMs);
       });
   };
 
@@ -1128,6 +1164,7 @@ export function makeSession<
     destroy() {
       destroyed = true;
       clearTimer();
+      clearClockProbeTimer();
       stopLiveness();
       current?.teardown();
       current = null;

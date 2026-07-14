@@ -62,9 +62,11 @@ A key that leaves and returns is a *new member* even when its spelling is unchan
 ```ts
 type EntryStatus<Failure> =
   | { kind: "warming"; membershipId: string }
-  | { kind: "connected"; membershipId: string; clockOffset: number }
+  | { kind: "connected"; membershipId: string; clockOffset: number | null }
   | { kind: "failed"; membershipId: string; failure: Failure };
 ```
+
+Readiness is **link-liveness, not clock-measured**: an entry is `connected` the moment its link is live. The clock offset is a *separate fact* on that arm, with honest null-absence — `clockOffset: number | null`, where `null` has one meaning (not-yet-measured; the reader renders "—"). A connected entry with `clockOffset: null` stays fully `connected`, never demoted; the offset probe surfaces loudly and retries on its own cadence until it lands, so a failed probe never silently strands a null. And the padi-specific `control.core.clockNow` stays **frozen-forever** beside the new framework-reserved `system.clockNow` — the frozen control core never versions, so old binders keep crossing skew on it while new kolu measures via `system.clockNow` only.
 
 W11 already proved the doctrine's sibling on the server side: the remembered fleet became its own ordered fact (`persistedMembership`), never derived from the live pool's keys, exactly because retire deliberately desyncs live from remembered.<Footnote><Cite file="packages/surface-remote/src/hostFanout.ts" lines="486" rev="2b83737fd8f3" /> inside `buildRemotePool`, shipped by W11 (<PrLink pr={1775} />). Membership identity is the client-side twin of the same insight: identity is a fact in its own right, not a projection of key spelling.</Footnote> This PR kills kolu's `createRejoinKeyedSub` and its test outright.
 

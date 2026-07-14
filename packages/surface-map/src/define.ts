@@ -55,8 +55,13 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
 /** The published per-entry status — the value carried by the `entries`
  *  collection. Absence from the collection is "not a member"; there is no
  *  `absent` variant (dual-authority for membership is unconstructible at the
- *  source — one writer publishes membership + status together). `clockOffset`
- *  is the serving process's own-clock offset at hello (one named writer, P3).
+ *  source — one writer publishes membership + status together). Readiness is
+ *  LINK liveness, NOT clock-measured: an entry is `connected` as soon as the link
+ *  is live. `clockOffset` is a SEPARATE fact on the connected arm — the serving
+ *  process's own-clock offset at hello (one named writer, P3) — and it is
+ *  `number | null`, where `null` has ONE meaning: not-yet-measured (the probe has
+ *  not landed; the reader renders "—"). A connected entry with `clockOffset: null`
+ *  is fully `connected`, never demoted to `warming`.
  *
  *  `membershipId` (PR3) is an opaque, never-reused identity stamped by
  *  `serveSurfaceMap` on every ADD — a fresh `crypto.randomUUID()` when a key
@@ -83,7 +88,7 @@ import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
  *  narrows it at its own map. */
 export type EntryStatus<Failure = unknown> =
   | { kind: "warming"; membershipId: string }
-  | { kind: "connected"; membershipId: string; clockOffset: number }
+  | { kind: "connected"; membershipId: string; clockOffset: number | null }
   | { kind: "failed"; membershipId: string; failure: Failure };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
@@ -114,7 +119,9 @@ export function entryStatusSchema<Failure>(
     z.object({
       kind: z.literal("connected"),
       membershipId: z.string(),
-      clockOffset: z.number(),
+      // `null` = not-yet-measured (ONE meaning); readiness is link-liveness, so a
+      // connected entry stays connected whether or not the offset has landed.
+      clockOffset: z.number().nullable(),
     }),
     z.object({
       kind: z.literal("failed"),
