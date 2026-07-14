@@ -3,7 +3,7 @@
  * DECLARATION-TYPED, not `unknown`. This is the compile-time dual of the runtime
  * `procedureCastGuard.test.ts`: the guard proves kolu no longer CASTS a declared
  * procedure client; this proves it no longer NEEDS to, because `padiMap`'s entry
- * `procedures` (reached via `activePadiRpc` / `padiRpcOf`) carries the padi
+ * `procedures` (reached via `activePadiRpc` / `padiMap.entry`) carries the padi
  * declaration's types straight through.
  *
  * `tsc` GREEN over this file ⇒ every access below resolves against `padiSurface`'s
@@ -17,7 +17,7 @@
 
 import type { StreamingProcedure } from "@kolu/surface/client";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
-import { activePadiRpc, activePadiStreams, padiRpcOf } from "./wire";
+import { activePadiRpc, activePadiStreams, padiMap } from "./wire";
 
 // Exact (invariant) type equality — a widen (to `Promise<unknown>`/`Promise<any>`)
 // OR narrow on either side flips it, so it pins precision an assignment can't.
@@ -40,9 +40,10 @@ type _textOut = Assert<
   Equals<ReturnType<typeof activePadiRpc.screen.text>, Promise<string>>
 >;
 
-// `padiRpcOf(host)` (the fixed-host face) is the SAME declaration-typed procedures.
+// `padiMap.entry(host).procedures` (the fixed-host face `createViewState` reaches)
+// is the SAME declaration-typed procedures.
 const _perHostKillAll: () => Promise<void> =
-  padiRpcOf(LOCAL_HOST).lifecycle.killAll;
+  padiMap.entry(LOCAL_HOST).procedures.lifecycle.killAll;
 void _perHostKillAll;
 
 // NEGATIVE: `activePadiRpc` is the BOUND PROCEDURES face — it is NOT the raw oRPC

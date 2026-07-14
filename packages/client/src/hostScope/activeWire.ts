@@ -5,7 +5,7 @@
  *
  *  WHY ITS OWN MODULE (not `wire.ts`): these facades depend on `activeScope`
  *  (`./hostScopes`), which in turn depends on `wire.ts` (for `padiMap` / `activeHost`
- *  / `padiRpcOf`). Defining them IN `wire.ts` would make `wire.ts → hostScopes →
+ *  / `activePadiRpc`). Defining them IN `wire.ts` would make `wire.ts → hostScopes →
  *  wire.ts` a real import cycle (`biome`'s `noImportCycles`, CI-enforced). This module
  *  is the LEAF that closes the seam instead: it imports BOTH `wire.ts` (types) and
  *  `hostScopes` (`activeScope`), and nothing imports it back — so the graph stays

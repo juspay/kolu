@@ -69,7 +69,7 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
    *  the old whole-client `health().live` (the map has no single per-host client). */
   live: Accessor<boolean>;
   /** The pulse streaming procedure as a FACTORY re-derived at each (re)subscribe —
-   *  `() => padiRpcOf(activeHost()).surface.<pulse>.get`. A factory, not a pre-bound proc, so
+   *  `() => activePadiStreams.<pulse>.unenrolled`. A factory, not a pre-bound proc, so
    *  the live-refresh watcher follows the ACTIVE host: the effect re-runs on a host switch
    *  (via `pulseHost` below) and re-reads `activeHost()`, rebinding the pulse to the new host.
    *  A pre-bound proc pins the pulse to the MOUNT-TIME host forever (the boot-host-capture
@@ -260,7 +260,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // the pulse below on its first frame (the immediate refresh on activation).
       if (activeKey !== shownKey) blank();
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
-      // (`padiRpcOf(activeHost()).surface.<pulse>.get`). Each frame requeries; the
+      // (`activePadiStreams.<pulse>.unenrolled`). Each frame requeries; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
       // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
       // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next

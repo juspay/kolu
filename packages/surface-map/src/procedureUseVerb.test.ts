@@ -3,15 +3,21 @@
  * whose verb is literally named `use` — never intercept it as a reactive `.use()`
  * hook.
  *
- * The trap: `makeReactiveEntry`'s `primProxy` branches on `verb === "use"` at its
- * second proxy level to spot the reactive-hook verb. For cells/collections/streams/
- * events that level is a FIXED vocabulary (use/upsert/delete), so the check is safe.
- * But `procedures` rides the SAME `primProxy`, where the second level is a USER-NAMED
- * procedure verb — and `procedures: { <ns>: { use: {...} } }` is legally spellable
- * (ProcedureSpec inner keys are free-form; the wire path `surface.<ns>.use` collides
- * with nothing). Without the `prim !== "procedures"` gate, `useEntry(...).procedures
- * .<ns>.use(input)` would wrap the one-shot call in a keyed root instead of calling
- * it — a silent divergence from the pure `entry(key).procedures` path, which works.
+ * The trap it guards against: `makeReactiveEntry`'s `primProxy` branches on
+ * `verb === "use"` at its second proxy level to spot the reactive-hook verb. For
+ * cells/collections/streams/events that level is a FIXED vocabulary (use/upsert/
+ * delete), so the check is safe. `procedures: { <ns>: { use: {...} } }` is legally
+ * spellable, though (ProcedureSpec inner keys are free-form; the wire path
+ * `<ns>.use` collides with nothing), so if procedures ALSO rode `primProxy` a verb
+ * literally named `use` would be mis-caught by that branch and wrapped in a keyed
+ * root instead of called.
+ *
+ * The current wiring makes that mis-route unspellable: `procedures` (and `.rpc`) do
+ * NOT ride `primProxy` at all — they route through `faceDelegate` (client.ts), an
+ * arbitrary-depth path-walk that reads the active key per call and just applies the
+ * final node. There is no `verb === "use"` branch on that path, so a procedure verb
+ * named `use` is always a plain call, identical to the pure `entry(key).procedures`
+ * path.
  *
  * This pins BOTH paths (`entry` and `useEntry`) call the procedure and return its
  * `Promise<O>`.

@@ -107,6 +107,11 @@ export const mockPadiMap = {
     return {
       cells: { session: cell, activityFeed: cell },
       collections: { terminals: collection, daemonStatus: collection },
+      // The entry's BOUND PROCEDURES face — where `createViewState`'s `writeActive`
+      // reports the active tile (`padiMap.entry(host).procedures.chrome.setActive`).
+      // A benign no-op: no per-host test asserts on the fire-and-forget report, they
+      // only need it not to throw when a tile activates.
+      procedures: { chrome: { setActive: async () => {} } },
     };
   },
   useEntry: () => {
@@ -125,20 +130,6 @@ export const mockPadiMap = {
  *  single-host test). */
 export const mockGroundedActiveHost = (active: Accessor<HostKey>) => () =>
   groundActiveHost(active(), mockPadiMap.entries.use().keys());
-
-/** The `padiRpcOf(host)` stub the per-host tests share — now the entry's BOUND
- *  PROCEDURES face (`padiRpcOf = padiMap.entry(host).procedures`), so its one wired
- *  member is `chrome.setActive` (where `createViewState`'s `writeActive` reports the
- *  active tile) — no `.surface` prefix, and no `terminals.keys` (the un-enrolled keys
- *  stream moved onto the entry's collections face, stubbed in {@link mockPadiMap}'s
- *  `entry().collections.terminals.unenrolledKeys`). Pass the per-test `setActive`
- *  spy; the shape lives HERE so a `padiRpcOf` contract change lands once, not in
- *  every `vi.mock` factory. (`activePadiRpc` is NOT shared — its wired procedure
- *  members genuinely differ per test, so each factory stubs its own.) */
-export const mockPadiRpcOf =
-  (setActive: (...args: never[]) => unknown) => () => ({
-    chrome: { setActive },
-  });
 
 /** An async iterable that completes immediately (yields nothing) — the mock
  *  `terminals.keys` stream `createHostWire` opens through `unenrolledStreamCall`. */

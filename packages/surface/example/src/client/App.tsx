@@ -9,8 +9,9 @@
  *
  * The bound `.use()` hooks pre-fill `source` / `mutate` / `valueSource` /
  * `keyToInput` — only domain policy (authority, initial value, applyPatch,
- * onError) lives at the call site. Imperative procedures stay accessible
- * via `app.rpc.<ns>.<verb>(...)`.
+ * onError) lives at the call site. Declared imperative procedures stay
+ * accessible via `app.procedures.<ns>.<verb>(...)` (the reserved framework
+ * `system.*` procs and the link-root escape hatch stay on `app.rpc`).
  */
 
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";

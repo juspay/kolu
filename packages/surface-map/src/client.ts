@@ -293,9 +293,7 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
   entryFor: (key: K) => Entry<ES, Failure>,
   keyAccessor: Accessor<K>,
 ): Entry<ES, Failure> {
-  const primProxy = (
-    prim: "cells" | "collections" | "streams" | "events",
-  ) =>
+  const primProxy = (prim: "cells" | "collections" | "streams" | "events") =>
     new Proxy(
       {},
       {

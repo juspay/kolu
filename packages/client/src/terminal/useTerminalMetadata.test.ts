@@ -71,6 +71,9 @@ vi.mock("../wire", () => {
     },
     collections: { terminals, daemonStatus: stubCollection },
     cells: { session: stubCell, activityFeed: stubCell },
+    // `createViewState`'s `writeActive` reports the active tile via
+    // `entry(host).procedures.chrome.setActive` — a benign no-op here.
+    procedures: { chrome: { setActive: async () => {} } },
   });
   // The `terminals` collection now rides the active host's RETAINED `scopedByEntry`
   // owner (W9), read via `activeScope().wire.terminals` — so the mock is
@@ -87,10 +90,6 @@ vi.mock("../wire", () => {
       entry,
       useEntry: entry,
     },
-    // `padiRpcOf(host)` is the entry's bound PROCEDURES face now — the un-enrolled
-    // keys stream moved onto `entry.collections.terminals.unenrolledKeys` (above).
-    // `createViewState`'s `writeActive` reports the active tile via `.chrome.setActive`.
-    padiRpcOf: () => ({ chrome: { setActive: async () => {} } }),
     activeHost: () => LOCAL_HOST,
     // The GROUNDED accessor the per-host scope reads (juspay/kolu#1763). This mock's
     // membership is a static single local host and it never switches, so LOCAL_HOST is

@@ -35,7 +35,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createSignal, type Setter } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
-import { padiRpcOf } from "../wire";
+import { padiMap } from "../wire";
 
 // A terminal that has drawn attention while unwatched, surfaced as a dock unread
 // mark. (The former `"badge-only"` state drove the active-host OS badge; W5
@@ -103,14 +103,15 @@ export function createViewState(host: HostKey): HostViewState {
       );
     // Report the active terminal to THIS owner's host for its session snapshot.
     // `writeActive` only ever runs for the shown host (you activate a tile on the
-    // host you are viewing), so `padiRpcOf(host)` is the active-host client.
+    // host you are viewing), so this fixed-host entry IS the active-host client.
     // A failure here leaves the server's saved-session snapshot momentarily stale
     // (the NEXT activation re-reports and self-heals), so this is best-effort — but
     // it must not vanish silently: log it so a persistent failure is visible rather
     // than a stale restore with no trace. No toast — this fires on every tile
     // activation, and a background bookkeeping report is not a user-facing action.
-    void padiRpcOf(host)
-      .chrome.setActive({ id })
+    void padiMap
+      .entry(host)
+      .procedures.chrome.setActive({ id })
       .catch((err: Error) => {
         console.error(
           `hostScope: failed to report active terminal ${id} to ${encoded}: ${err.message}`,
