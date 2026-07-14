@@ -56,6 +56,7 @@ import {
   type HostKey,
   HostKeySchema,
   LOCAL_HOST,
+  PADI_SURFACE_NAME,
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
@@ -501,11 +502,12 @@ const reServedPadiClient = surfaceClientRef(
 const padiMap = serveHostMap(padiHostMap, pool, {
   // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
   linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
-  // The clock offset is now INJECTED (no `ClockableSession` type bound): padi's
-  // arms measure it at the admit handshake, so hand `serveHostMap` the real
-  // measurer. `null` until the first hello stamps it (offset-at-hello is the
-  // contract) → the entry reads `connecting` until then.
-  offsetOf: (s) => s.clockOffset(),
+  // The clock offset is no longer injected: `makeSession` measures it off the
+  // framework-reserved `system.clockNow` at admit and carries it on each session's
+  // own `connected` state, which `serveHostMap` reads directly. Readiness is
+  // LINK-liveness: the entry is `connected` the moment its link is live and carries
+  // `clockOffset: null` through until the first probe stamps it — never demoted to
+  // `connecting`.
   // D1 + D2: classify a DOWN session into the schema-valid `PadiEntryFailure` —
   // padi's own knowledge (`session.entryFailedDetail()`, derived from
   // `convergence()`/the drv-resolution fault, both arm-local), never guessed
@@ -527,10 +529,13 @@ const padiMap = serveHostMap(padiHostMap, pool, {
 // siblings. `serveHostMap` returns a top-level single-surface router
 // (`{ surface: { <folded members>, entries } }`), so nesting its `.surface` under `padi`
 // yields `/surface/padi/<folded-member>` + `/surface/padi/entries`, no double prefix.
+// `padiMap.router` is typed `{ surface: … }` (PR3), so `.surface` reads cast-free — the
+// router splice's old `as any` is now unspellable by type, closing the campaign's
+// no-splice property WHOLLY in PR3 (contract cast + string keys + router cast).
 const surfaceRouter = {
   surface: {
     ...koluSurfaceRouter.surface,
-    padi: (padiMap.router as { surface: Record<string, unknown> }).surface,
+    [PADI_SURFACE_NAME]: padiMap.router.surface,
   },
 };
 

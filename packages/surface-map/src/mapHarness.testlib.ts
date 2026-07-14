@@ -129,6 +129,42 @@ export function makeEntry(urgency: {
   };
 }
 
+// ── A liveWhen-cell entry surface (F1) ────────────────────────────────────────
+// A `liveWhen` cell (padi's real `connection` cell is one) has a DIFFERENT
+// subscription lifecycle from an ordinary cell: `buildSurfaceClient` opens an EAGER
+// CLIENT-OWNED STANDING subscription for it (the `health().live` fold), destroyed by
+// `SurfaceClient.dispose()`. `clientFor`'s superseded-client eviction disposes that
+// client on a re-add — so the re-add must REBUILD the standing sub against the fresh
+// client, not strand the old one. The `urgency`-cell re-add pin can't exercise this
+// (ordinary cells have no standing root); this surface does.
+export const liveWhenEntrySurface = defineSurface({
+  cells: {
+    health: {
+      schema: z.object({ n: z.number() }),
+      default: { n: 0 },
+      verbs: ["get"],
+      liveWhen: (v: { n: number }) => v.n > 0,
+    },
+  },
+});
+
+/** A mock in-process entry surface whose ONLY member is the `liveWhen` `health`
+ *  cell, served from a settable store. `setHealth` pushes a new value through the
+ *  server-internal ctx writer so a re-add's fresh session reads a genuinely
+ *  different value (proving the sub rebuilt, not stranded at the old one). */
+export function makeLiveWhenEntry(n: number) {
+  const { router, ctx } = implementSurface(liveWhenEntrySurface, {
+    cells: { health: { store: inMemoryStore({ n }) } },
+  });
+  const link = directLink<typeof liveWhenEntrySurface.contract>(
+    router as never,
+  );
+  return {
+    link,
+    setHealth: (v: { n: number }) => ctx.cells.health.set(v),
+  };
+}
+
 /** A mock `MapRegistry` backed by a `Map` of key → session|fault. Honors the two
  *  clauses: `members()`/`has()` reflect a change BEFORE `onChange` fires, from
  *  one consistent view. */
@@ -218,8 +254,10 @@ export const B = HostKeySchema.parse("b");
 export const C = HostKeySchema.parse("c");
 export const D = HostKeySchema.parse("d");
 
+// `clockOffset` accepts `null` (not-yet-measured) as well as a number: readiness is
+// link-liveness, so a `connected` state is legal with an unmeasured offset.
 export const connected = (
-  clockOffset: number,
+  clockOffset: number | null,
 ): EntryConnectionState<"copying", TestFailure> => ({
   kind: "connected",
   clockOffset,

@@ -53,6 +53,7 @@ import {
 // working.
 export { composeSurfaceContracts };
 
+import { CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB } from "./clockNow";
 import {
   type BakedIdentity,
   IDENTITY_NAMESPACE,
@@ -2114,6 +2115,20 @@ function walkSurface<const S extends SurfaceSpec>(
     [IDENTITY_VERB]: root[IDENTITY_NAMESPACE][IDENTITY_VERB].handler(
       () => servedIdentity,
     ),
+  };
+
+  // Auto-answer the framework-reserved clock probe (see @kolu/surface ./clockNow),
+  // the clock twin of `system.live`/`system.identity` in the SAME reserved `system`
+  // namespace. Replies with this process's own wall clock — computed FRESH per call
+  // (unlike the constant identity), since a consumer measures the far-end clock
+  // OFFSET off it at admit (`Date.now()` is already the uptime source above). No app
+  // implements it. (Merged into the same `system` namespace — the spread preserves
+  // `live` and `identity`.)
+  namespaces[CLOCK_NOW_NAMESPACE] = {
+    ...(namespaces[CLOCK_NOW_NAMESPACE] ?? {}),
+    [CLOCK_NOW_VERB]: root[CLOCK_NOW_NAMESPACE][CLOCK_NOW_VERB].handler(() => ({
+      epochMs: Date.now(),
+    })),
   };
 
   return { namespaces, ctx: ctx as SurfaceCtx<S>, starts };
