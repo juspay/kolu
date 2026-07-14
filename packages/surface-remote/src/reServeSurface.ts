@@ -48,6 +48,7 @@
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
+import type { SurfaceClientLike } from "@kolu/surface/project";
 import {
   type CellCtxSetOpts,
   type ImplementSurfaceDeps,
@@ -56,7 +57,6 @@ import {
   inMemoryCollection,
   superviseTerminalSource,
 } from "@kolu/surface/server";
-import type { SurfaceClientLike } from "@kolu/surface/project";
 import { mirroredSurface, type WithConnection } from "./connection";
 import { seedConnectionCell } from "./connectionPipe";
 import {
@@ -64,14 +64,14 @@ import {
   observableHolder,
   pumpRemoteSurface,
 } from "./hostFanout";
-import type { Session } from "./session";
-import type { SshProv } from "./sshConnector";
 import {
-  failThroughStreamCore,
   type ForwardableStream,
+  failThroughStreamCore,
   holdOpenStreamCore,
   type RelayPolicy,
 } from "./relayStream";
+import type { Session } from "./session";
+import type { SshProv } from "./sshConnector";
 
 /** A mirrored cell's local READ store, with the mirror-never-fabricate gate.
  *  Seeds the declared default so `get()` is a typed `T`, and flips `hasSnapshot`

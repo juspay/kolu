@@ -2419,7 +2419,9 @@ export function extendSurface<
   const t = implement(combined.contract as any) as any;
   const baseNs = (base.router as { surface: Record<string, unknown> }).surface;
   const extNs = (ext.router as { surface: Record<string, unknown> }).surface;
-  // biome-ignore lint/suspicious/noExplicitAny: dynamic surface-router splice; runtime shape is a valid router re-adapted against the combined contract (pinned by extendSurface.test).
+  // `t` is already `any` (the implement chain above); the splice's runtime shape is
+  // a valid router re-adapted against the combined contract (pinned by
+  // extendSurface.test's matcher-tree assertion).
   const router = t.router({
     surface: { ...baseNs, ...extNs },
   }) as unknown;

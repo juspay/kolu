@@ -44,10 +44,10 @@
  * graduates the machinery; W1 shipped that classification.
  */
 
-import { ORPCError } from "@orpc/client";
 import { SURFACE_RELAY_TRANSPORT_LOST } from "@kolu/surface/client";
 import type { UpstreamSource } from "@kolu/surface/project";
 import { isAbortReason, iterateUntilAborted } from "@kolu/surface/server";
+import { ORPCError } from "@orpc/client";
 import type { LiveSpawnHolder, ObservableHolder } from "./hostFanout";
 
 // ── The forwarding policy (surface-generic) ────────────────────────────────

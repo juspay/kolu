@@ -47,7 +47,6 @@
  */
 
 import type { ZodType } from "zod";
-import { collectionHasDeltas } from "./define";
 import type {
   CollectionDeltasMsg,
   CollectionSpec,
@@ -56,6 +55,7 @@ import type {
   SurfaceSpec,
   SurfaceTypes,
 } from "./define";
+import { collectionHasDeltas } from "./define";
 import type { SurfaceClientLike } from "./project";
 import { isAbortReason, iterateUntilAborted } from "./server";
 
@@ -434,9 +434,9 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const colSink = collSinks?.[key];
       if (!colSink) continue;
       const entry = ns[key];
-      // `key` comes from `Object.keys(spec.collections)`, so the spec is present —
-      // the `?? {}` keeps the empty-collections case out of the loop entirely.
-      const collSpec = (spec.collections ?? {})[key] as CollectionSpec;
+      // `key` comes from `Object.keys(spec.collections)`, so — the loop only runs
+      // when `spec.collections` is present — the spec for this key is present too.
+      const collSpec = spec.collections?.[key] as CollectionSpec;
       if (collectionHasDeltas(collSpec)) {
         // Delta protocol: one stream carries snapshot-then-deltas for the whole
         // collection. SUPPLYING a sink means the caller expects that stream, so a
