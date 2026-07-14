@@ -14,7 +14,7 @@ import { connectSurface } from "@kolu/surface-app/solid";
 import { router } from "./serve";
 import { surface } from "./surface";
 
-const link = directLink<typeof surface.contract>(router);
+const link = directLink<typeof surface.contract>(router as never);
 
 const nodeId = "node-1";
 const docId = "doc-1";

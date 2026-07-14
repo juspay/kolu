@@ -51,9 +51,10 @@ subscribers read; `makeSink` writes the incoming frames through its `ctx`.
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/server/hosts.ts" region="pump" />
 
-Finally **re-serve**: a `directLink` over the local fragment's flattened router is
-the link the browser reaches. Three hops — dial, pump, re-serve — and the surface
-that started on another machine now serves from this process.
+Finally **re-serve**: a `directLink` over the re-served surface's FINAL router is
+the link the browser reaches (`reServeSurface` returns it ready-to-serve — no
+flatten). Three hops — dial, pump, re-serve — and the surface that started on
+another machine now serves from this process.
 
 <Aside type="caution" title="The parent owns the connection state">
   The remote box cannot report whether *your* link to it is healthy — so that

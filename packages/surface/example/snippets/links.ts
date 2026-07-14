@@ -8,7 +8,7 @@
 import { directLink } from "@kolu/surface/links/direct";
 import { surfaceClient } from "@kolu/surface/solid";
 import { connectSurface } from "@kolu/surface-app/solid";
-import { fragment } from "./serve";
+import { runtime } from "./serve";
 import { surface } from "./surface";
 
 const url = "wss://example.test/rpc/ws";
@@ -18,7 +18,7 @@ function inProcess() {
   // Was: in-process
   const app = surfaceClient(
     surface,
-    directLink<typeof surface.contract>(fragment.router),
+    directLink<typeof surface.contract>(runtime.router as never),
   );
   // #endregion direct
   return app;

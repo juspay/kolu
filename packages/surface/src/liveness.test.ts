@@ -16,12 +16,7 @@ import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
 import { probeSurfaceLive } from "./liveness";
-import {
-  type Channel,
-  implementSurface,
-  inMemoryChannel,
-  inMemoryStore,
-} from "./server";
+import { implementSurface, inMemoryStore } from "./server";
 
 // A surface that ALSO declares its own `system.*` verb (mirrors kaval's
 // `system.heartbeat`), to prove the reserved `system.live` merges into an
@@ -44,7 +39,6 @@ function buildSurface() {
 
 function makeClient(surface: ReturnType<typeof buildSurface>) {
   const { router } = implementSurface(surface, {
-    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
     cells: { state: { store: inMemoryStore({ value: 0 }) } },
     procedures: {
       system: {
@@ -52,7 +46,7 @@ function makeClient(surface: ReturnType<typeof buildSurface>) {
       },
     },
   });
-  return directLink<typeof surface.contract>(router);
+  return directLink<typeof surface.contract>(router as never);
 }
 
 describe("framework-reserved system.live liveness probe", () => {

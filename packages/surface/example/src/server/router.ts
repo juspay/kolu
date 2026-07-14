@@ -11,8 +11,10 @@
  * publishes route through the same channels.
  */
 
-import { implementSurface, publisherChannel } from "@kolu/surface/server";
-import { implement } from "@orpc/server";
+import {
+  implementSurfaceOnPublisher,
+  publisherChannel,
+} from "@kolu/surface/server";
 import { surface } from "../common/surface";
 import {
   allNotes,
@@ -26,84 +28,82 @@ import {
   upsertNote,
 } from "./store";
 
-const { router: surfaceRouter } = implementSurface(surface, {
-  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-
-  cells: {
-    prefs: {
-      // patch fn comes from `surface.cells.prefs.patch` on the spec —
-      // server and client share one merge function, no duplicate import.
-      store: { get: getPrefs, set: setPrefs },
-    },
-  },
-
-  collections: {
-    notes: {
-      readAll: allNotes,
-      upsert: (key, value) => {
-        upsertNote(key, value);
-        scheduleAutosave(value);
-      },
-      remove: removeNote,
-    },
-  },
-
-  streams: {
-    search: {
-      // One-shot per query: yield the search result for the current
-      // query and close. The client's `useStream` re-subscribes whenever
-      // its input signal changes, so each keystroke spawns a fresh
-      // subscription that runs once. The example doesn't track notes
-      // changes for live re-fire — that would either be a client-side
-      // `createMemo` over the bound notes view (zero wire) or, if
-      // genuinely needed server-side, a future "derived stream"
-      // primitive over a graph dep.
-      source: async function* (input) {
-        yield {
-          matches: searchNotes(input.query),
-          query: input.query,
-        };
+const { router: surfaceRouter } = implementSurfaceOnPublisher(
+  surface,
+  {
+    cells: {
+      prefs: {
+        // patch fn comes from `surface.cells.prefs.patch` on the spec —
+        // server and client share one merge function, no duplicate import.
+        store: { get: getPrefs, set: setPrefs },
       },
     },
-  },
 
-  events: {
-    autosave: {
-      // Per-note channel: each note id has its own subscribe stream.
-      // Channel managed in store.ts (not surface-derived) so the publish
-      // path inside scheduleAutosave can write to the same instance.
-      source: (id, signal) => autosaveChannel(id).subscribe(signal),
+    collections: {
+      notes: {
+        readAll: allNotes,
+        upsert: (key, value) => {
+          upsertNote(key, value);
+          scheduleAutosave(value);
+        },
+        remove: removeNote,
+      },
     },
-  },
 
-  procedures: {
-    notes: {
-      // Imperative create — server assigns the id; the surface's wrapped
-      // upsert publishes through the framework's note channels.
-      create: async ({ input, ctx }) => {
-        const id = newNoteId();
-        const note = {
-          id,
-          title: input.title,
-          body: "",
-          updatedAt: Date.now(),
-        };
-        ctx.collections.notes.upsert(id, note);
-        return note;
+    streams: {
+      search: {
+        // One-shot per query: yield the search result for the current
+        // query and close. The client's `useStream` re-subscribes whenever
+        // its input signal changes, so each keystroke spawns a fresh
+        // subscription that runs once. The example doesn't track notes
+        // changes for live re-fire — that would either be a client-side
+        // `createMemo` over the bound notes view (zero wire) or, if
+        // genuinely needed server-side, a future "derived stream"
+        // primitive over a graph dep.
+        source: async function* (input) {
+          yield {
+            matches: searchNotes(input.query),
+            query: input.query,
+          };
+        },
+      },
+    },
+
+    events: {
+      autosave: {
+        // Per-note channel: each note id has its own subscribe stream.
+        // Channel managed in store.ts (not surface-derived) so the publish
+        // path inside scheduleAutosave can write to the same instance.
+        source: (id, signal) => autosaveChannel(id).subscribe(signal),
+      },
+    },
+
+    procedures: {
+      notes: {
+        // Imperative create — server assigns the id; the surface's wrapped
+        // upsert publishes through the framework's note channels.
+        create: async ({ input, ctx }) => {
+          const id = newNoteId();
+          const note = {
+            id,
+            title: input.title,
+            body: "",
+            updatedAt: Date.now(),
+          };
+          ctx.collections.notes.upsert(id, note);
+          return note;
+        },
       },
     },
   },
-});
+  <T>(name: string) => publisherChannel<T>(publisher, name),
+);
 
-// `implementSurface` returns a fragment shaped `{ surface: t.router(...) }`
-// — a router fragment that the consumer wraps once via
-// `implement(contract).router({...fragment})` (or spreads alongside other
-// namespaces, as Kolu's main router does). Passing the fragment straight
-// to `RPCHandler` produces a `/surface/surface/...` double-prefix in the
-// matcher tree (every client request 404s).
-export const appRouter = implement(surface.contract).router({
-  ...surfaceRouter,
-});
+// `implementSurfaceOnPublisher` returns a runtime whose `.router` is already
+// the FINAL top-level router (`/surface/...`) — no consumer re-finalizes it via
+// oRPC `implement`. It's typed `unknown`; `main.ts` casts it at the
+// `RPCHandler` boundary.
+export const appRouter = surfaceRouter;
 
 // ── Helpers (autosave debounce) ────────────────────────────────────────
 
