@@ -202,7 +202,7 @@ it with `padi-tui create` instead of raw `kaval-tui create`:
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
 padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>
-# e.g. `-- claude --permission-mode auto` — prints the new terminal's id; padi owns it
+# e.g. `-- claude --dangerously-skip-permissions` — prints the new terminal's id; padi owns it
 ```
 
 - **Never hardcode the agent CLI.** `<agent>` defaults to the same agent *you*
@@ -218,12 +218,15 @@ padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-f
   its own `send --key Enter`. Drive every boot step by `snapshot`, never by
   sleeping and hoping.
 - **Set the permission mode AT LAUNCH, then verify it from the footer.** An
-  agent that will run unattended goes in **auto mode**, and the mode is a launch
-  flag, not an interactive chore: `-- claude --permission-mode auto` (Claude
-  Code; other agent CLIs have their own equivalents). Snapshot the footer and
-  confirm it reads `auto mode on` before dispatching. Interactive cycling
-  (`send --key Shift-Tab`, re-snapshot after each press) is the fallback for an
-  agent that is already running — never the provisioning path.
+  agent that will run unattended launches with **bypass permissions**, and the
+  mode is a launch flag, not an interactive chore:
+  `-- claude --dangerously-skip-permissions` (Claude Code; other agent CLIs
+  have their own equivalents). Snapshot the footer and confirm it reads
+  `bypass permissions on` before dispatching — auto mode still stops to ask on
+  some tool calls, and an unattended agent's question in its own PTY sits
+  unanswered. Interactive cycling (`send --key Shift-Tab`, re-snapshot after
+  each press) is the fallback for an agent that is already running — never the
+  provisioning path.
 - **Restarting the agent CLI in place:** text typed at a *running* agent becomes
   a prompt (your relaunch command line gets answered, not executed), and `C-c`
   doesn't reliably quit the TUI — send the agent's quit command (`/exit` in
