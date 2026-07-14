@@ -1680,7 +1680,16 @@ function walkSurface<const S extends SurfaceSpec>(
   // Compute cells cannot build their node until every sibling source exists (a
   // sibling collection is walked AFTER the cells), so their bind + eager seed is
   // deferred to one pass after both loops.
-  const bindComputeCells: Array<(sources: SiblingSourcesRuntime) => void> = [];
+  // Compute-cell wiring, split into two independent phases so the deferred build
+  // is a TWO-PASS walk: `bind` builds the (lazy) `engineComputed` node; `seed`
+  // eager-pulls it into the private store. Pass A runs every `bind`, then pass B
+  // runs every `seed` — so a compute cell that reads a DERIVED sibling via `$`
+  // finds that sibling's node already built regardless of declaration order (the
+  // engine's lazy DAG orders the pull). No upstream-before-downstream contract.
+  const bindComputeCells: Array<{
+    bind: (sources: SiblingSourcesRuntime) => void;
+    seed: () => void;
+  }> = [];
 
   // ── Cells ────────────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -1785,18 +1794,21 @@ function walkSurface<const S extends SurfaceSpec>(
     } else {
       registerSibling(key, () => store.get());
     }
-    // Defer a compute cell's node build + eager seed until every sibling source
-    // exists (after both loops). `bindSiblings` builds the node; the eager pull
-    // re-seeds the private store (a throw is a boot crash — mirror-never-fabricate)
-    // WITHOUT firing the poke (a seed is not a change; no subscriber exists yet).
+    // Defer a compute cell's node build (`bind`) and eager seed (`seed`) until
+    // every sibling source exists, and keep them as SEPARATE phases: `bindSiblings`
+    // builds the (lazy) node — evaluating nothing — while the eager pull re-seeds
+    // the private store (a throw is a boot crash — mirror-never-fabricate) WITHOUT
+    // firing the poke (a seed is not a change; no subscriber exists yet). The two
+    // deferred loops run all binds before any seed, so every derived sibling's node
+    // already exists by the time any seed pulls it — order-independent.
     if (isComputeCell) {
       const computeDeps = cellDeps as unknown as DerivedComputeCell<
         SurfaceSpec,
         unknown
       >;
-      bindComputeCells.push((sources) => {
-        computeDeps.bindSiblings(sources);
-        rawStore.set(computeDeps.store.get());
+      bindComputeCells.push({
+        bind: (sources) => computeDeps.bindSiblings(sources),
+        seed: () => rawStore.set(computeDeps.store.get()),
       });
     }
     const handlers = cellHandlers(
@@ -2271,14 +2283,15 @@ function walkSurface<const S extends SurfaceSpec>(
   // Every member has validated and every cell/collection sibling source now
   // exists, so build each compute-fn `derived.cell(($) => …)` node and eager-seed
   // its private store — the last synchronous step before the walk returns, so a
-  // seed's dependency graph is whole. Runs in declaration order: a compute cell
-  // that reads another compute sibling reads its already-seeded value only if the
-  // upstream is declared first — a diamond across compute cells that needs a
-  // specific order is the caller's to declare, exactly as an app orders its
-  // `computed`s. A seed throw here is a boot crash (mirror-never-fabricate); the
-  // graph subscriptions it installs are walk-local closures, discarded with the
-  // walk if a throw unwinds it.
-  for (const bind of bindComputeCells) bind(siblingSources);
+  // seed's dependency graph is whole. TWO passes: pass A builds every (lazy) node,
+  // pass B eager-seeds every store. Because every node exists before any seed pulls,
+  // a compute cell that reads another compute sibling via `$` works in ANY
+  // declaration order (a diamond across compute cells too) — the engine's lazy DAG
+  // orders the pull, only a genuine cycle fails. A seed throw here is a boot crash
+  // (mirror-never-fabricate); the graph subscriptions it installs are walk-local
+  // closures, discarded with the walk if a throw unwinds it.
+  for (const { bind } of bindComputeCells) bind(siblingSources);
+  for (const { seed } of bindComputeCells) seed();
 
   return { namespaces, ctx: ctx as SurfaceCtx<S>, starts };
 }

@@ -669,15 +669,10 @@ export type SurfaceEventPayload<
  *  derivation recomputes exactly when a sibling it read changed. A derived
  *  sibling reads as its own computed value (never a half-updated mirror) — every
  *  derivation chain stays a pure computed graph, glitch-free by the engine's lazy
- *  pull, even across a diamond.
- *
- *  REQUIREMENT — declare an upstream before a downstream. A derived member read
- *  through `$` is read as its `computed`, which must already exist when the
- *  reader's node is built (the walk builds nodes in declaration order). So a
- *  `derived.cell` that reads a sibling `derived.cell` via `$` MUST be declared
- *  AFTER it — exactly as an app orders its own `computed`s. Reading a
- *  not-yet-declared derived sibling crashes the boot walk (fail-fast), never
- *  silently serves a stale value.
+ *  pull, even across a diamond. Declaration order is irrelevant: the boot walk
+ *  builds every derived node before it seeds any, so a `derived.cell` may read a
+ *  sibling `derived.cell` via `$` whether declared before or after it — only a
+ *  genuine cycle fails.
  *
  *  Cells and collections share the one flat `$` namespace; a name declared as
  *  both would intersect their two accessor signatures. */

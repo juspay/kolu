@@ -668,9 +668,9 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const { router, ctx } = implementSurface(surface, {
       cells: {
         terminals: { store: inMemoryStore(0) },
-        // urgency DECLARED BEFORE overview — the upstream-before-downstream contract
-        // the $ face requires (a downstream reads an upstream's computed, which must
-        // exist when the downstream binds).
+        // Declaration order is irrelevant here — the boot walk builds every derived
+        // node before it seeds any, so overview reads urgency's computed whether
+        // urgency is declared before or after it (see the order-independence test).
         urgency: derived.cell(($) => $.terminals() * 10),
         overview: derived.cell(($) => {
           const v = { t: $.terminals(), u: $.urgency() };
@@ -697,5 +697,48 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       { t: 1, u: 10 },
       { t: 2, u: 20 },
     ]);
+  });
+
+  it("ORDER-INDEPENDENT BOOT: a downstream compute cell declared BEFORE its upstream seeds correctly", async () => {
+    // overview (reads urgency) is DECLARED BEFORE urgency (reads terminals) — the
+    // reverse of the diamond above. The two-pass boot walk builds every derived
+    // node before it seeds any, so overview's seed finds urgency's node already
+    // built regardless of declaration order and pulls its computed value. RED on
+    // the old single-pass build: seeding overview would pull a not-yet-built
+    // urgency node and crash the walk (`implementSurface` would throw here). (Only
+    // the seed is order-independent; a diamond's glitch-free UPDATE ordering is
+    // pinned by the DIAMOND test above, which declares upstream-first.)
+    const surface = defineSurface({
+      cells: {
+        terminals: { schema: z.number(), default: 0 },
+        overview: {
+          schema: z.object({ t: z.number(), u: z.number() }),
+          default: { t: 0, u: 0 },
+          equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
+            a.t === b.t && a.u === b.u,
+          verbs: ["get"],
+        },
+        urgency: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { router } = implementSurface(surface, {
+      cells: {
+        terminals: { store: inMemoryStore(3) },
+        // Downstream declared FIRST — reads urgency, which is declared LAST.
+        overview: derived.cell(($) => ({ t: $.terminals(), u: $.urgency() })),
+        urgency: derived.cell(($) => $.terminals() * 10),
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const frames = take(await client.surface.overview.get(undefined), 1);
+    await flush();
+
+    // Boot did not crash and seeded from the whole graph: overview = {t:3, u:3*10}.
+    expect(await frames).toEqual([{ t: 3, u: 30 }]);
   });
 });
