@@ -741,4 +741,118 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // Boot did not crash and seeded from the whole graph: overview = {t:3, u:3*10}.
     expect(await frames).toEqual([{ t: 3, u: 30 }]);
   });
+
+  it("a derived cell folding a COLLECTION recomputes on upsert/remove (the version-poke edge padi urgency rides)", async () => {
+    // The exact edge that drives padi urgency: a derived cell reads $.<collection>()
+    // and must recompute whenever the collection's wrapped publishers fire — an
+    // upsert or a remove. The $-typing test above only seeds an empty collection;
+    // this end-to-end test mutates it and asserts the recompute + wire frames, so
+    // the bridge→collection integration can't silently regress.
+    const surface = defineSurface({
+      cells: {
+        bigCount: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+      collections: {
+        items: {
+          keySchema: z.string(),
+          schema: z.object({ n: z.number() }),
+          verbs: ["keys", "get"],
+        },
+      },
+    });
+    const store = new Map<string, { n: number }>();
+    const { router, ctx } = implementSurface(surface, {
+      cells: {
+        // count the items whose n > 1 — a fold over the whole collection
+        bigCount: derived.cell(
+          ($) => [...$.items().values()].filter((v) => v.n > 1).length,
+        ),
+      },
+      collections: {
+        items: {
+          readAll: () => store,
+          readOne: (k) => store.get(k),
+          upsert: (k, v) => {
+            store.set(k, v);
+          },
+          remove: (k) => {
+            store.delete(k);
+          },
+        },
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const frames = take(await client.surface.bigCount.get(undefined), 4);
+    await flush();
+
+    ctx.collections.items.upsert("a", { n: 5 }); // → 1
+    ctx.collections.items.upsert("b", { n: 0 }); // n≤1: fold unchanged → deduped, no frame
+    ctx.collections.items.upsert("c", { n: 9 }); // → 2
+    ctx.collections.items.remove("a"); // → 1
+    // seed 0, then the three folds that MOVED the count (the b-upsert deduped).
+    expect(await frames).toEqual([0, 1, 2, 1]);
+  });
+
+  it("derived.cell(computed(fn)) holds last published on a LATER throw — log-skip-continue, no escape", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let emit!: (n: number) => void;
+    const src = source<number>((e) => {
+      emit = e;
+    });
+    const count = scan(src, 0, (n) => n + 1);
+    let boom = false;
+    const c = computed(() => {
+      const v = count.value.value;
+      if (boom) throw new Error("boom");
+      return v * 2;
+    });
+    const dc = derived.cell(c);
+    const ctx = recordingCtx(
+      inMemoryStore(dc.store.get()),
+      (a: number, b: number) => a === b,
+    );
+    dc.connect(ctx);
+
+    emit(0); // count 1 → 2
+    expect(ctx.published).toEqual([2]);
+    boom = true;
+    // The compute throw is LOGGED and swallowed at the effect boundary — it must
+    // NOT escape synchronously into the writer's (`emit`'s) stack.
+    expect(() => emit(0)).not.toThrow();
+    expect(ctx.published).toEqual([2]); // last value HELD
+    expect(errSpy).toHaveBeenCalled();
+    boom = false;
+    emit(0); // count 3 → 6 — heals on the next good recompute
+    expect(ctx.published).toEqual([2, 6]);
+    dc.dispose();
+    errSpy.mockRestore();
+  });
+
+  it("fail-fast: a cell and a collection sharing a key crashes the boot walk", () => {
+    const surface = defineSurface({
+      cells: { same: { schema: z.number(), default: 0, verbs: ["get"] } },
+      // disjoint wire verbs, so the existing duplicate-verb guard can't mask it —
+      // the $-face key collision is what must fail.
+      collections: {
+        same: { keySchema: z.string(), schema: z.number(), verbs: ["keys"] },
+      },
+    });
+    expect(() =>
+      implementSurface(surface, {
+        cells: { same: { store: inMemoryStore(0) } },
+        collections: {
+          same: {
+            readAll: () => new Map<string, number>(),
+            upsert: () => {},
+            remove: () => {},
+          },
+        },
+      }),
+    ).toThrow(/declared as BOTH a cell and a collection/);
+  });
 });

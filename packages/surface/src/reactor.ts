@@ -1,5 +1,5 @@
 /**
- * `reactor.ts` — the reactive bridge, phase 0.
+ * `reactor.ts` — the reactive bridge.
  *
  * State is a signal; derived state is a computed; **the wire is a signal
  * boundary that snapshots and replays.** This module is the ONE exit from the
@@ -9,13 +9,14 @@
  * engine's deep import is lint-banned outside this file (`biome.jsonc`), so this
  * wrapper is the graph's only exit by construction, not by review.
  *
- * Phase 0 exports exactly three symbols — `source`, `scan`, and `derived.cell`
- * — the minimum W5 needs (drishti's `alerts` cell is their first consumer). The
- * `$` sibling-read face, `computed`, `batch`, and `derived.collection` are later
- * phases; the full model, laws, and worked examples live in the reactive-bridge
+ * Exports today: `source` + `scan` (phase 0), and — SR7 — the typed `$`
+ * sibling-read face, `computed`, `batch`, and both `derived.cell` forms (a
+ * graph-node `derived.cell(node)` and a compute-fn `derived.cell(($) => …)`).
+ * Still ahead: `derived.collection` and the poll `source({ read, install })`
+ * shape. The full model, laws, and worked examples live in the reactive-bridge
  * note (`docs/atlas/.../surface-reactive-bridge.mdx`).
  *
- * Three guarantees ride phase 0:
+ * Three guarantees ride every `derived.cell`:
  *   - **one writer, structural** — a `derived.cell(...)` dep is branded so the
  *     boot walk enforces wire-read-only (no `set`/`patch`/`test__set`); the
  *     graph is the member's only writer.
@@ -227,9 +228,10 @@ export type ScanStep<S, F> = (state: S, frame: F) => S;
  *  source subscription is disposed, the last state is HELD (never a fabricated
  *  reset), the throw is logged loudly, and `stopped` latches so the surface's
  *  liveness can tell a frozen derivation from a legitimately quiet one. It never
- *  heals — recovery is a restart. (The stateless-compute error policy —
- *  log-skip-continue — is a later phase's `computed`; a `scan` carries state, so
- *  continuing past a throw would fold onto a corrupt accumulator.) */
+ *  heals — recovery is a restart. (Contrast the stateless-compute error policy —
+ *  log-skip-continue — a `derived.cell` / `computed` holds its last value and
+ *  heals on the next good recompute; a `scan` carries state, so continuing past a
+ *  throw would fold onto a corrupt accumulator, which is why it stops instead.) */
 export function scan<F, S>(
   src: Source<F>,
   initial: S,
@@ -417,8 +419,26 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
       // The first synchronous run pushes the seed, which the member's `equals`
       // dedups against the identical store seed — so wiring a derived cell
       // publishes nothing until the level genuinely moves.
+      //
+      // Stateless-compute error policy (no bridge effect body escapes its
+      // wrapper): a LATER read that throws — a `computed(fn)` node whose `fn`
+      // hits a case it can't handle — is logged and the last published value
+      // HELD, healing on the next good recompute. (The SEED throw is a boot crash,
+      // caught at the eager `store.get()` pull, not here.) Without this a
+      // `derived.cell(computed(fn))` throw would escape synchronously into the
+      // writer's stack.
       disposeEffect = effect(() => {
-        cell.set(node.value.value);
+        let next: T;
+        try {
+          next = node.value.value;
+        } catch (err) {
+          console.error(
+            "reactor: derived cell recompute threw — holding last published value",
+            err,
+          );
+          return;
+        }
+        cell.set(next);
       });
       // Return the teardown so the runtime's `close()` disposes this
       // subscription (the reactor sub joins the runtime's ownership).

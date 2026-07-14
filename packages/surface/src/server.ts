@@ -1662,6 +1662,17 @@ function walkSurface<const S extends SurfaceSpec>(
     read: () => unknown,
     engineTracked = false,
   ): void => {
+    // Cells and collections share the one flat `$` namespace, and cells register
+    // first — so a collection that reused a cell's name would SILENTLY overwrite
+    // its source, and `$.<name>()` would return the collection map at runtime
+    // while `SiblingRead` typed it as the cell's value (the accessors intersect to
+    // the cell arm). Make that illegal state unrepresentable: crash at boot. A
+    // surface must not declare a cell and a collection under the same key.
+    if (siblingSources[key]) {
+      throw new Error(
+        `implementSurface: "${key}" is declared as BOTH a cell and a collection — the $ sibling-read face requires disjoint member names (their accessors would collide, and the runtime value would disagree with its static type).`,
+      );
+    }
     const subscribers = new Set<() => void>();
     siblingSources[key] = {
       read,
