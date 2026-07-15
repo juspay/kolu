@@ -5,19 +5,24 @@
  * As of the W2.2 cutover kolu-server serves NO terminal domain: `padiSurface` is
  * RE-SERVED off a bound padi PROCESS (see `padiBinding.ts` + the async boot in
  * `index.ts`), not implemented in-process here. So this file implements only the
- * two siblings kolu-server owns and exports the kolu+surfaceApp FINAL surface
- * router (`koluSurfaceRouter`, a supervised {@link SurfaceRuntime}) for `index.ts`
- * to splice the re-served `padi` sibling into, plus the `t` builder `router.ts`
- * binds kolu-server's remaining raw RPCs (`server`/`daemon`/`hosts`) against. The
- * surface is finalized by `implementSurfacesOnPublisher`, not by a local
+ * two siblings kolu-server owns. SR8.a moved the serve itself out of module load
+ * into a boot-time {@link implementKoluSurface} that `index.ts` calls AFTER
+ * `padiSession` exists — it RETURNS `{ router, ctx }` (there are no module-level
+ * `koluSurfaceRouter`/`koluSurfaceCtx` exports); `index.ts` splices the re-served
+ * `padi` sibling into `router.surface` and drives the store cells off the ctx. What
+ * stays at module load is the `t` builder `router.ts` binds kolu-server's remaining
+ * raw RPCs (`server`/`daemon`/`hosts`) against — a pure oRPC contract builder that
+ * fires no connects, so the app-router assembly is unaffected by the serve moving.
+ * The surface is finalized by `implementSurfacesOnPublisher`, not by a local
  * `implement(servedContract)` (retired at SRT-PR1 — the runtime returns a final
  * router; routing is by the assembled object, so the padi splice needs no widened
  * contract).
  *
- *   - The kolu surface's mutation ctx is built here and EXPORTED as
- *     `koluSurfaceCtx` (only the memory sampler in `index.ts` writes it —
- *     `processMemory` — so a plain export off the built ctx suffices; no
- *     late-bound holder).
+ *   - The kolu surface's mutation ctx is returned by `implementKoluSurface` so
+ *     `index.ts` drives the `padiLink` + `processStartedAt` STORE cells off
+ *     `padiSession.onState`. The two DERIVED poll cells (`processMemory`,
+ *     `daemonInventory`) have NO ctx entry — the reactor graph is their one writer
+ *     (SR8.a).
  *
  * Publisher channel names are framework-derived in two layers. Each surface
  * names its own channels by primitive: `<prim>:changed` for cells,
