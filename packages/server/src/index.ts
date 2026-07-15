@@ -20,6 +20,7 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import type { ServeResult } from "@kolu/serve-dir";
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { directLink } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import {
@@ -836,13 +837,16 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
       {},
       { signal: ctl.signal },
     );
-    for await (const frame of iterable) return frame;
+    const frame = await firstFrameOrUndefined(iterable);
     // The client was live but the cell yielded no frame — an operational anomaly,
     // not "no process to measure". Report `error`, not `absent`, and log at `error`
     // (a live-client read that produced nothing is a failed read, not a degraded-but-
     // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
-    log.error({}, "padi memory read yielded no frame through the mirror");
-    return PADI_MEMORY_READ_ERROR;
+    if (frame === undefined) {
+      log.error({}, "padi memory read yielded no frame through the mirror");
+      return PADI_MEMORY_READ_ERROR;
+    }
+    return frame;
   } catch (err) {
     // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
     // honest `error` state, distinct from `absent`, rather than collapsing a caught
