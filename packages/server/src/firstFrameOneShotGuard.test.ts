@@ -64,7 +64,10 @@ function listSourceFiles(tree: string): string[] {
 }
 
 /** Recursively visit every AST node reachable through object/array properties. */
-function walk(node: unknown, visit: (n: Record<string, unknown>) => void): void {
+function walk(
+  node: unknown,
+  visit: (n: Record<string, unknown>) => void,
+): void {
   if (node === null || typeof node !== "object") return;
   if (Array.isArray(node)) {
     for (const child of node) walk(child, visit);
@@ -73,7 +76,11 @@ function walk(node: unknown, visit: (n: Record<string, unknown>) => void): void 
   const rec = node as Record<string, unknown>;
   if (typeof rec.type === "string") visit(rec);
   for (const key of Object.keys(rec)) {
-    if (key === "loc" || key === "leadingComments" || key === "trailingComments")
+    if (
+      key === "loc" ||
+      key === "leadingComments" ||
+      key === "trailingComments"
+    )
       continue;
     walk(rec[key], visit);
   }
@@ -121,15 +128,13 @@ function findViolations(): string[] {
       const lines = text.split("\n");
       const ast = parse(text, {
         sourceType: "module",
-        plugins: file.endsWith(".tsx")
-          ? ["typescript", "jsx"]
-          : ["typescript"],
+        plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
       });
       const rel = file.replace(`${PACKAGES}/`, "");
       walk(ast.program, (node) => {
         if (!isOneShotForAwait(node)) return;
-        const line = (node.loc as { start: { line: number } } | undefined)?.start
-          .line;
+        const line = (node.loc as { start: { line: number } } | undefined)
+          ?.start.line;
         if (line !== undefined && isAllowListed(lines, line)) return;
         violations.push(`${rel}:${line ?? "?"}`);
       });
@@ -151,16 +156,35 @@ describe("first-frame one-shot guard — no open-coded one-shot first-frame adva
       const ast = parse(src, { sourceType: "module", plugins: ["typescript"] });
       const hits: string[] = [];
       walk(ast.program, (n) => {
-        if (isOneShotForAwait(n)) hits.push(String((n.loc as { start: { line: number } }).start.line));
+        if (isOneShotForAwait(n))
+          hits.push(String((n.loc as { start: { line: number } }).start.line));
       });
       return hits;
     };
     // one-shot: braced return, braceless return, and settle-then-return.
-    expect(collect("async function f(){ for await (const m of await c.g({i})) { return m.x; } }")).toEqual(["1"]);
-    expect(collect("async function f(){ for await (const m of s) return m; }")).toEqual(["1"]);
-    expect(collect("async function f(){ for await (const _m of s) { g(); return; } }")).toEqual(["1"]);
+    expect(
+      collect(
+        "async function f(){ for await (const m of await c.g({i})) { return m.x; } }",
+      ),
+    ).toEqual(["1"]);
+    expect(
+      collect("async function f(){ for await (const m of s) return m; }"),
+    ).toEqual(["1"]);
+    expect(
+      collect(
+        "async function f(){ for await (const _m of s) { g(); return; } }",
+      ),
+    ).toEqual(["1"]);
     // delta loop: every exit is nested in an `if` → keeps iterating → NOT flagged.
-    expect(collect("async function f(){ for await (const m of s) { if (m.k==='o') break; await w(m.d); } }")).toEqual([]);
-    expect(collect("async function f(){ for await (const m of s) { if (m!==null) return m; buf+=m; } }")).toEqual([]);
+    expect(
+      collect(
+        "async function f(){ for await (const m of s) { if (m.k==='o') break; await w(m.d); } }",
+      ),
+    ).toEqual([]);
+    expect(
+      collect(
+        "async function f(){ for await (const m of s) { if (m!==null) return m; buf+=m; } }",
+      ),
+    ).toEqual([]);
   });
 });
