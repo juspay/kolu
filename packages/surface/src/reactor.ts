@@ -414,6 +414,12 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
       try {
         // The signal rides the read so a cooperative reader unblocks a `close()`
         // waiting on a slow seed.
+        // ⚠ POLL-READ AUTHORS: a `read` that THROWS here tears down this cadence
+        // PERMANENTLY (the seed failure propagates + rolls back the install), so under
+        // a caller whose `runtime.done` handler is non-fatal (logs, no restart) the cell
+        // then serves its spec DEFAULT for the process's life — no retry. Keep a poll
+        // `read` TOTAL (catch transient errors → best-effort/last value); reserve a throw
+        // for a DETERMINISTIC boot defect that genuinely SHOULD be fatal.
         const seed = await read(signal);
         inFlight = false;
         // Disposed mid-seed (the runtime closed before the first read landed): tear the
