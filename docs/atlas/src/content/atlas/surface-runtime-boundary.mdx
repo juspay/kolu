@@ -174,8 +174,11 @@ Padi's terminal registry is an ordinary in-memory `Map` (`terminal-registry.ts:9
 ```ts
 // any future padi feature, any file:
 const entry = requireMutableTerminal(id);
+// ^ the registry's accessor for mutation handlers (terminal-registry.ts:277):
+//   looks the id up and returns the LIVE TerminalProcess object itself —
+//   whoever holds it can assign to entry.meta/entry.snapshot directly.
 entry.meta.lastActivityAt = Date.now();   // mutates the registry in place
-// ...forgot: publishComposedTerminal(id)
+// ...forgot: publishComposedTerminal(id)  ← the convention. Nothing enforces it.
 ```
 
 Two consequences, the second subtler: the tile shows stale info forever, **and** `materializeSiblingView`'s per-key cache (SR8's perf fix, sole-writer-coupled at `servePadi.ts:305-314`) still holds the *old* composed record — so server-side derived readers (`urgency`) go stale too. The cache made a forgotten publish *quieter*, not louder. Under `signalMap`, mutation and publish are the same act, so the forgetting is unspellable:
@@ -185,13 +188,52 @@ Two consequences, the second subtler: the tile shows stale info forever, **and**
 terminals.update(id, (t) => ({ ...t, meta: { ...t.meta, lastActivityAt: now } }));
 ```
 
-**What SR7–SR9 already banked** (the marginal-value ledger from the SR10-ADJ decision package): derived facts can't be forgotten (SR7 — urgency rides a tracked edge); the fold stays O(M) on the firehose (SR8 `materializeSiblingView`, gate-proven); the keyed reconciler + family machinery exist (SR8 `derived.collection`, SR9 `reactiveFamily`). **What remains open only because the registry is imperative:** the five seams as a named-call convention (the snippet above), and SR8.b's incremental fold staying parked.
+**What SR7–SR9 already banked** (the marginal-value ledger from the SR10-ADJ decision package), in code:
 
-**The cost, honestly:** SR9 reshaped a *projection* of an external authority; the registry **is** the authority — in-place mutation on the ~150 ms firehose, 17 imperative readers, snapshot/restore/park/sleep/wake semantics — plus building **and serving** a new framework primitive for exactly one consumer (SR8.c's live evidence: even a two-cell conversion surfaced type-acceptance subtleties).
+```ts
+// SR7 — a DERIVED fact can't be forgotten: the graph tracks the edge, no
+// writer calls anything (servePadi.ts:251):
+urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+
+// SR8 — the fold stays O(M) on the firehose: $.terminals() reads a per-key
+// materialized cache instead of re-composing all M (servePadi.ts:314):
+terminals: { /* … */ materializeSiblingView: true },
+// gate-proven: urgencyComposeCost.test.ts — 24 composes/cycle at M=24, vs 600.
+
+// SR8 + SR9 — the keyed machinery exists:
+processes: derived.collection(source({ read, install })),   // wire reconciler
+const hosts = reactiveFamily({ members, attach, onEvict }); // serveHostMap (SR9)
+```
+
+**What remains open only because the registry is imperative:** the five seams as a named-call convention (the snippet above), and SR8.b's incremental fold staying parked. Everything else the row once implied is in the ledger above.
+
+**The cost, honestly — what a conversion must re-path, in code.** SR9 reshaped a *projection* of an external authority (the host pool); the registry **is** the authority:
+
+```ts
+// the store to replace IS the source of truth (terminal-registry.ts:95):
+const terminals = new Map<TerminalId, TerminalProcess>();
+
+// in-place mutation on the ~150 ms firehose, once per live terminal
+// (metadata.ts:154) — every such site must route through the new store's
+// write so the change edge fires:
+entry.snapshot = observation;
+
+// ~17 synchronous readers that must keep working WITHOUT reactivity —
+// they need a pull face (keys/has/get), not signals:
+getTerminal(id); registryMap(compose); terminalEntries(); snapshotFor(id);
+parkedTerminalIds(); requireActiveTerminal(); drainTerminals(); /* … */
+
+// park/restore/sleep/wake walk the raw map (terminal-registry.ts:149-173) —
+// the restore's parked→active flip is the restore-idempotency token and must
+// survive a store whose writes now also emit wire frames:
+hasParkedTerminals();
+```
+
+…plus `signalMap` itself must be **built** (`reactor.ts:19` — "Still ahead: SR10's `signalMap`") *and* **served** — and SR8.c's live evidence is that even a two-cell conversion surfaced type-acceptance subtleties.
 
 **Adjudication — srid's call, on the record here:** the recommendation (the SR10-ADJ package's and the coordinator's, /perfection-review-run) is **decline, dated, with two teeth**:
 1. **The confinement pin ships now** (rides SR8.c as one small commit): an AST guard in the SR6 pattern pinning *registry-entry mutation happens only inside `metadata.ts`* — so a future write path is forced into the one file where the seams live, or fails CI. The declined class stays expressible but becomes **un-sprawlable**: bounded to one reviewed file, not loose in the tree.
-2. **Revive when any one holds:** a second consumer needs a writable reactive keyed store (prove-then-extract); OR SR8.b's workload gate trips (live M grows past where the scan is noise); OR a silently-stale-tile incident lands from a forgotten seam.
+2. **Revive when any one holds:** a second consumer needs a writable reactive keyed store (prove-then-extract — **checked 2026-07-15, none exists**: drishti's one instance of the shape already rides the graduated `serveHostMap`; odu's two near-misses both fail honestly — the MCP `LogsStore` is a projection of the coordinator's stream, and the runner's `PipelineState.nodes` is a true keyed store whose writes are already atomic set+publish through one helper, `runner.ts:89-97` — the forgotten-publish hazard does not occur in either repo; the most plausible *future* consumer is a live `odu runs --watch` over the on-disk ledger, if that feature is ever built); OR SR8.b's workload gate trips (live M grows past where the scan is noise); OR a silently-stale-tile incident lands from a forgotten seam.
 
 The convention-published members persist alongside derived ones — the bridge's honest cost #10, accepted with a fence rather than denied. The deleted-world doc sweep's residue rides **SR8.c** (the plan's last-shipping PR) as its tail commit.<Footnote>Comments and READMEs across the stack still cite the deleted `packages/pulam*` packages as context (31 non-test src files, re-verified 2026-07-15; `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus package READMEs). Update each to the padi-era truth or delete; Atlas notes are exempt (historical record). Done when the grep returns only deliberate historical references, each commented as such. Hygiene never ships standalone — it rides the last PR as one tail commit.</Footnote>
 
