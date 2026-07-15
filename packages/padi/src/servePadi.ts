@@ -259,6 +259,17 @@ export function buildPadiSurfaceDeps(deps: {
         },
         upsert: () => {},
         remove: () => {},
+        // The derived `urgency` cell folds `$.terminals()` on the ~150 ms agent
+        // firehose; a plain `readAll()` sibling read would re-compose ALL M
+        // terminals (`registryMap(composePadiTerminal)`) per poke = O(M²)
+        // composes/cycle (SR7's regression). Opt into the materialized view so
+        // the fold reads a per-key cache updated by these publish seams — O(M).
+        // SAFE here because EVERY terminals change flows through this collection's
+        // ctx `upsert`/`remove` (metadata.ts's `publishComposedTerminal` and
+        // `dropSnapshot` are the sole writers; the registry is the store, so
+        // `upsert`/`remove` above are no-ops and the composed value the seams pass
+        // is the view's single write path).
+        materializeSiblingView: true,
       },
 
       // Per-host kaval status — backed by padi's own `readDaemonStatuses` /

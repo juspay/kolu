@@ -1225,6 +1225,26 @@ export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
         readOne?: (key: K) => T | undefined;
         upsert: (key: K, value: T) => void;
         remove: (key: K) => void;
+        /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
+         *  `readAll()` semantics). By default a compute reading `$.<coll>()`
+         *  re-runs `readAll()` on every access — correct for a registry
+         *  projection whose `readAll` reads a live external store, but for a
+         *  collection whose `readAll` is an EXPENSIVE per-key compose (padi's
+         *  `terminals`: `registryMap(composePadiTerminal)`), a derived member
+         *  folding `$.<coll>()` on a firehose re-composes ALL M entries per
+         *  poke = O(M²) composes/cycle (SR7's urgency regression). Set this and
+         *  the framework maintains a MATERIALIZED VIEW — a per-key cache seeded
+         *  from `readAll()` once at construction and updated per-key by the
+         *  SAME `upsert`/`remove` writes (which already carry the value) — so
+         *  the `$`-read returns the view WITHOUT recomposing (O(M²)→O(M)). Same
+         *  contents and same per-key `siblingChange` granularity as `readAll()`.
+         *
+         *  SAFE ONLY when EVERY mutation flows through the ctx `upsert`/`remove`
+         *  seam — that is the view's SINGLE write path, so it cannot diverge
+         *  from truth. Opting in is the author VOUCHING for that invariant. A
+         *  collection whose backing is mutated OUTSIDE `upsert`/`remove` (a live
+         *  external store its `readAll` re-reads) must NOT opt in. */
+        materializeSiblingView?: boolean;
       }
     : never;
 
@@ -2041,6 +2061,7 @@ function walkSurface<const S extends SurfaceSpec>(
           readOne?: (k: unknown) => unknown;
           upsert: (k: unknown, v: unknown) => void;
           remove: (k: unknown) => void;
+          materializeSiblingView?: boolean;
         }
       | undefined;
     if (!collDeps) {
@@ -2108,15 +2129,32 @@ function walkSurface<const S extends SurfaceSpec>(
     // "membership-change only" contract this stream promises, and untested.) The
     // published array is always the live `readAll()` set, so the seed only ever
     // suppresses a redundant snapshot, never a wrong one.
-    // Expose this collection to `$`: a sibling read returns its LIVE map
-    // (`readAll()`); its change edge fires on every accepted key change below (a
-    // version poke — a compute reading `$.<coll>()` re-runs, then its OWN member
-    // `equals` is the final wire dedup). Registered before the wrapped publishers
-    // so `siblingChange[key]` exists when they fire.
-    registerSibling(key, () => collDeps.readAll());
-    const broadcastKeys = new Set<unknown>(collDeps.readAll().keys());
+    // Expose this collection to `$`. Its change edge fires on every accepted key
+    // change below (a version poke — a compute reading `$.<coll>()` re-runs, then
+    // its OWN member `equals` is the final wire dedup). Registered before the
+    // wrapped publishers so `siblingChange[key]` exists when they fire.
+    //
+    // The sibling READ is `readAll()` by default (a fresh fold each access). When
+    // the collection opts into `materializeSiblingView`, the read instead returns
+    // a MATERIALIZED VIEW — a per-key cache of `readAll()` seeded once here and
+    // kept current by the wrapped publishers below (the view's single write path)
+    // — so a `$`-reader never re-runs an expensive `readAll()` recompose (the SR7
+    // urgency O(M²) fix; see `CollectionImplDeps.materializeSiblingView`). Same
+    // contents and same per-key poke granularity — a pure optimization behind the
+    // seam. One `readAll()` seeds BOTH the view and `broadcastKeys`, so opting in
+    // never doubles the boot fold.
+    const initialEntries = collDeps.readAll();
+    const siblingView = collDeps.materializeSiblingView
+      ? new Map<unknown, unknown>(initialEntries)
+      : undefined;
+    registerSibling(
+      key,
+      siblingView ? () => siblingView : () => collDeps.readAll(),
+    );
+    const broadcastKeys = new Set<unknown>(initialEntries.keys());
     const wrappedUpsert = (k: unknown, v: unknown) => {
       collDeps.upsert(k, v);
+      siblingView?.set(k, v); // materialized view — the SINGLE write path (opt-in)
       if (!broadcastKeys.has(k)) {
         broadcastKeys.add(k);
         keysBus.publish(Array.from(collDeps.readAll().keys()));
@@ -2127,6 +2165,7 @@ function walkSurface<const S extends SurfaceSpec>(
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
+      siblingView?.delete(k); // materialized view — the SINGLE write path (opt-in)
       if (broadcastKeys.delete(k)) {
         keysBus.publish(Array.from(collDeps.readAll().keys()));
       }
