@@ -110,7 +110,7 @@ This PR reworks the re-serve internals, so two standing cleanups in them ride al
 
 ### SR6 — Adopt before you mint
 
-Some cleanup is adoption rather than invention, and it needs no new framework API. One-shot reads keep the existing non-empty first-frame contract (`firstFrameOrThrow`) instead of open-coding iterator advancement; socket acceptance, connection presentation, attention, and combined health all have existing primitives consumers should reach before the framework grows another concept.<Footnote>`firstFrameOrThrow`: <Cite file="packages/surface/src/firstFrame.ts" lines="42-48" rev="2b83737fd8f3" />. The primitives to adopt: `acceptSurfaceSocket` in <Cite file="packages/surface-app/src/server.ts" lines="597-640" rev="2b83737fd8f3" />, `presentingDown` in <Cite file="packages/surface-app/src/solid/index.ts" lines="674-677" rev="2b83737fd8f3" />, `setAttention` in <Cite file="packages/surface-app/src/solid/index.ts" lines="584-602" rev="2b83737fd8f3" />; drishti already computes combined health from its two siblings via `surfaceClientsHealth` (<Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/App.tsx" lines="461-466" />).</Footnote> This is consumer-side and may ride SR1–SR5's branches rather than ship alone.
+Some cleanup is adoption rather than invention, and it needs no new framework API. One-shot reads keep the existing non-empty first-frame contract (`firstFrameOrThrow`) instead of open-coding iterator advancement; socket acceptance, connection presentation, attention, and combined health all have existing primitives consumers should reach before the framework grows another concept.<Footnote>`firstFrameOrThrow`: <Cite file="packages/surface/src/firstFrame.ts" lines="42-48" rev="2b83737fd8f3" />. The primitives to adopt: `acceptSurfaceSocket` in <Cite file="packages/surface-app/src/server.ts" lines="597-640" rev="2b83737fd8f3" />, `presentingDown` in <Cite file="packages/surface-app/src/solid/index.ts" lines="674-677" rev="2b83737fd8f3" />, `setAttention` in <Cite file="packages/surface-app/src/solid/index.ts" lines="584-602" rev="2b83737fd8f3" />; drishti already computes combined health from its two siblings via `surfaceClientsHealth` (<Cite repo="srid/drishti" rev="e22339f9a435" file="packages/app/src/client/App.tsx" lines="461-466" />).</Footnote> This is consumer-side; it shipped as its own PR (<PrLink pr={1829} />), and the grounded sweep found most named sites already adopted — the sequence-table row records the honest per-site outcome.
 
 ## Deliberately not in this plan
 
@@ -140,16 +140,148 @@ Kernel first (track prefix **SR** — surface runtime) — each PR independently
 | --- | --- | --- | --- |
 | **SR1** (<PrLink pr={1805} />) | supervised `SurfaceRuntime` — final router, `done`, idempotent `close`; `implementSurfaceOnPublisher` stays distinct (with an `implementSurfacesOnPublisher` plural twin) | kolu's `implement(servedContract)` **surface-finalization** step; drishti's fragment wrap; odu's two wraps at next pin. Done only when every serving site observes `runtime.done` and owns shutdown<Footnote>The headline shrank in the build, the negative property did not. kolu's `implement(servedContract)` is **not** fully deleted — it stays as the app-router *builder* (binding `server`/`daemon`/`hosts` and re-adapting the re-served `padi` map fragment for the wire matcher, which requires a contract that declares `surface.padi`). What deleted is its *surface-finalization* role, which moved into `implementSurfacesOnPublisher`. So the campaign property holds verbatim — "no production consumer imports oRPC `implement` **merely** to finalize a Surface" — because kolu's remaining `implement` is the app-router builder, not mere finalization. This was learned the hard way: CI's e2e caught a deterministic wire-matcher 404 (`serveHostMap` returns a matcher-meta-less fragment; a padi-less builder drops every `/surface/padi/*` route) that the `directLink`-based `padiBinding` integration test structurally could not see — directLink navigates the router object, never the matcher. The lesson is now a pin: `packages/server/src/router.test.ts` asserts the assembled `appRouter`'s `StandardRPCMatcher` tree routes `/surface/padi/*`, the evidence class structural navigation cannot provide.</Footnote> | drishti pair |
 | **SR2** <PrLink pr={1815} /> | bound procedures at `client.procedures.<ns>.<verb>` and on map entries; plus `BoundStream.unenrolled` / `BoundCollection.unenrolledKeys` for the un-enrolled carve-out reach | kolu's `PadiRpc` casts (both sites); drishti's `HostRpc`/`AdminScopedRpc` casts | drishti pair |
-| **SR3** | opaque `membershipId` per map add; typed map connection key; `clockNow` reserved member + offset-at-admit | `connectionRearm.ts` + test; the `"padi"`/`"hosts"` string keys and the `as any` contract/router splices; drishti's `offsetOf: () => 0` stub. Done only when same-key remove/re-add *and* authority restart rebuild subscriptions keyed on `{encodedKey, membershipId}` | drishti pair |
+| **SR3** <PrLink pr={1811} /> | opaque `membershipId` per map add; typed map connection key; `clockNow` reserved member + offset-at-admit | `connectionRearm.ts` + test; the `"padi"`/`"hosts"` string keys and the `as any` contract/router splices; drishti's `offsetOf: () => 0` stub. Done only when same-key remove/re-add *and* authority restart rebuild subscriptions keyed on `{encodedKey, membershipId}` | drishti pair |
 | **SR4** <PrLink pr={1804} /> | failure schema on `defineSurfaceMap`; required, total `failureOf` | both `"other"` fabrication sites in the map server; the loose `z.string()` cause on the wire | drishti pair |
 | **SR5** <PrLink pr={1822} /> | mirror + `reServeSurface` consume declared collection `deltas`; named retryable relay end; `extendSurface` for parent-owned additions (the re-serve cast/collection dedup rides along) | drishti's `processesSnapshot` stream, parent reducer, and inert `metricHistory` stub; the mirror's per-key stream fan-out for delta-declaring collections | drishti pair |
 | **SR6** (<PrLink pr={1829} />) | adoption sweep — `firstFrameOrUndefined` at two open-coded one-shot reads (kaval-tui `readExitCode` over the `exit` stream, server `readPadiMemoryOnce` over `processMemory`), pinned by an AST guard; kaval-tui `consumeExit` stays open-coded as a documented non-adoption (its `settle` must fire before the awaited iterator-close in a `Promise.all` race); the other named primitives (`acceptSurfaceSocket`, `presentingDown`, `setAttention`, `surfaceClientsHealth`) grounded as already-adopted or deliberate divergences, not force-adopted | the open-coded iterator advances (consumer-side; rode no sibling branch) | none |
 | **SR7** (<PrLink pr={1823} />) | bridge: the `$` read face, `computed`, `batch`, post-equals mirror pokes | padi urgency's `publishUrgency` + both riders + the prose invariant ([worked example 1](surface-reactive-bridge.html#the-worked-examples)) | drishti pair |
-| **SR8** | bridge: `derived.collection` + `source`'s poll shape; the poll-on-change client core moves into `@kolu/surface` beside `pollOnEvent` as its named dual<Footnote>The move's shape: a framework-free core (subscribe to the `{seq}` pulse → re-run the procedure → equality-dedupe → emit) exported beside `pollOnEvent`; the SolidJS ergonomics (`.pending()`, the #818 selection-stability guard) stay in `packages/client`. Done when the core is importable from `@kolu/surface` with zero Solid imports and the Code tab is byte-identical (the existing e2e + the #818 guard test pin it). The current app copy duplicates the framework-private `writeWrappedValue`; the move deletes the copy.</Footnote> **Named obligation (from SR7):** resolve the **urgency compose-fold regression** — SR7 wired `urgency: derived.cell(($) => recomputeUrgency($.terminals()))` off the *composed* collection, so every firehose poke re-composes every live terminal (O(M)→O(M²)/cycle vs the pre-SR7 raw-registry reads; see [SR7 <PrLink pr={1823} />](surface-reactive-bridge.html#the-worked-examples)). `derived.collection`'s keyed reconciler is the *designed* fix (it re-composes only changed keys), so **SR8 is that regression's proving case** and cannot ship without addressing it. | the three hand-rolled samplers (padi memory, hostInventory, kolu-server); drishti's keyed poll-reconciles; the app-local copy of `writeWrappedValue`; **the urgency compose-fold regression (SR7)** | drishti pair |
-| **SR9** | bridge: `reactiveFamily` + `derived.registry` — the `serveHostMap` reshape (worked example 4) | ~60 lines of serveHostMap plumbing (drishti's clone already died in #92) | drishti pair |
-| **SR10** | bridge: the padi registry as `signalMap` — padi's call, taken on SR7–SR9 as evidence; the deleted-world doc sweep's residue rides the plan's last-shipping PR as its tail commit<Footnote>Comments and READMEs across the stack still cite the deleted `packages/pulam*` packages as context (31 non-test src files at the 2026-07-10 count; `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus package READMEs). Update each to the padi-era truth or delete; Atlas notes are exempt (historical record). Done when the grep returns only deliberate historical references, each commented as such. Hygiene never ships standalone — it rides the last PR as one tail commit.</Footnote> | with it, all five `metadata.ts` publish seams; without it, convention-published members persist and this row closes as "declined, dated" | drishti pair |
+| **SR8** | bridge: `derived.collection` + `source`'s poll shape; the poll-on-change client core moves into `@kolu/surface` beside `pollOnEvent` as its named dual<Footnote>The move's shape: a framework-free core (subscribe to the `{seq}` pulse → re-run the procedure → equality-dedupe → emit) exported beside `pollOnEvent`; the SolidJS ergonomics (`.pending()`, the #818 selection-stability guard) stay in `packages/client`. Done when the core is importable from `@kolu/surface` with zero Solid imports and the Code tab is byte-identical (the existing e2e + the #818 guard test pin it). The once-planned `writeWrappedValue` copy-deletion is already satisfied — the copy was consolidated in #805 before SR8; L1's live deliverable is the core extraction alone.</Footnote> **Named obligation (from SR7):** resolve the **urgency compose-fold regression** — SR7 wired `urgency: derived.cell(($) => recomputeUrgency($.terminals()))` off the *composed* collection, so every firehose poke re-composes every live terminal (O(M)→O(M²)/cycle vs the pre-SR7 raw-registry reads; see [SR7 <PrLink pr={1823} />](surface-reactive-bridge.html#the-worked-examples)). The fix, precisely located (the keyed reconciler is a *wire* dedup — it diffs a whole-map read, after the recompose): the **incremental `$` sibling read** — the framework maintains the composed per-key map in the existing `wrappedUpsert`/`wrappedRemove`, so a cycle costs M composes, one per poke — proven by a compose-count gate (24 vs 600/cycle at M=24). **SR8 is that regression's proving case** and cannot ship without it. | two of the three hand-rolled samplers (padi memory, hostInventory; kolu-server parked as [SR8.a](#sr8a)); drishti's keyed poll-reconciles; **the urgency compose-fold regression (SR7)** | drishti pair |
+| **SR9** (<PrLink pr={1836} />) | bridge: `reactiveFamily` + `derived.registry` — the `serveHostMap` reshape (worked example 4), **extended: one connection authority.** Both connection views — the dot's `EntryStatus` *and* the word — derive from the one `reactiveFamily<SessionState>` source; the fine connection payload rides the entry (equals-gated), the `connection` cell / `connectionPipe.ts` / the `mirroredSurface` seam are deleted from the tree, and the word derives client-side via the exported pure `projectConnection`. The joint invariant — *for any `SessionState`, `EntryStatus === connected` ⟺ `connection.phase === connected`* — is enforced server-side pre-publication and pinned by a contract test plus a joint-render pin at drishti's sole `entry.state()` seam (drishti has no browser harness by design; the delivery-divergence class died with the second channel, so the pin realizes the "settled frame agreement" done-criterion). Fixed the live bug ([srid/drishti#102](https://github.com/srid/drishti/issues/102), green dot + permanent "connecting") — srid live-confirmed on a real deployment before merge | ~60 lines of serveHostMap plumbing (drishti's clone already died in #92); the second independent connection projection/subscription — `connectionPipe.ts` and the dot-vs-word split (fixed srid/drishti#102, pair [srid/drishti#105](https://github.com/srid/drishti/pull/105)) | drishti pair |
+| **SR10** | the padi registry as `signalMap` — the campaign's one *adjudicated* row; the full question, the defect in code, and the decision live in [its own section below](#sr10) | per the adjudication | per the adjudication |
 
 Ordering constraints, honestly stated: SR1–SR6 are mutually independent (land in any order); SR7 needs only shipped phase 0; SR8 needs 7 (`$` and the poke seams); SR9 needs 8 (the collection wire form); SR10 needs 7–9 (it is their evidence). The **named design questions** that are deliberately *not* PRs here: the append-heavy wire member (above, where the framework-backpressure question also closes if it ships a bound); the bridge's open questions, ruled inside its track; the server-authored notify discriminant (needs grounding first). One unratified candidate stands beside the plan, srid's to revive: a repeatable typing-latency lane as this plan's net — the keystroke→echo pipe these PRs rebuild was measured once at W2.2 (+1.3 ms p99 against a +5 ms budget, method in [the baseline note](padi-latency-baseline.html)), and a `just bench`-style lane rerunning that method before/after would replace a months-old one-off with a standing budget check. The parked padi-area cleanups (each with its own gate) live in [the padi note](padi.html#parked) and are untouched by this plan.
+
+<a id="sr8a"></a>
+
+### SR8.a — serve after boot, then the third sampler
+
+SR8 (<PrLink pr={1832} />) converted two of the three hand-rolled samplers; kolu-server's `processMemory` is this parked continuation. The blocker is ordering: kolu's surface is served eagerly at `surface.ts` module load, while the sampler's read (`readPadiMemoryOnce`) and its `padiSession.onState` force-resample exist only after `index.ts`'s async boot — a derived poll cell can't wire the resample, and losing it is a real regression (the rail freezes a stale MB for up to ~5 s on a padi drop). The late-bind registrar seam that would force it into SR8 was rejected as an override-knob. **The work, one PR:** move the kolu surface serve into `index.ts` post-`padiSession` (a router/serve assembly restructure), then convert the sampler. Build-time grounding found a **second** kolu-server hand-roll of the identical shape — `startDaemonInventorySampler` (`padi/daemonInventory.ts`), outside the campaign's three-sampler ledger — and it converts in the same PR, so the negative property ships with **zero allowlist**: no hand-rolled `setInterval` sampler remains in kolu-server. **Gate:** none beyond scheduling it — the gate *is* the restructure. Provenance: issue #1831, closed into this entry.
+
+<a id="sr8b"></a>
+
+### SR8.b — the incremental per-key urgency fold
+
+SR8 resolved its named obligation (compose count O(M²)→O(M), gate-proven 600→24/cycle at M=24), and its wall-clock evidence disclosed the honest remainder: `recomputeUrgency` still scans the whole terminals map per poke — a cheap residual O(M²); the win plateaus at ~14× (278→19 ms/cycle at M=1536) instead of growing. **The work:** a lawful incremental fold — only the poked key updates its urgency contribution, surviving removes — never a cached scan. **Gate:** a real workload where the scan matters (live M is ~16–24 today, where it is noise) — with SR10 declined, the "keyed machinery makes it free" branch closes; a SR10 revival reopens it. Provenance: issue #1834, closed into this entry; evidence on <PrLink pr={1832} />.
+
+<a id="sr10"></a>
+
+### SR10 — the padi registry as signalMap: the adjudication
+
+Padi's terminal registry is an ordinary in-memory `Map` (`terminal-registry.ts:95`), and **the registry IS the store** — the `terminals` collection is served straight off it. When code changes a terminal it must *remember to call* one of five named publish seams (`metadata.ts:96-243`, all funneling into two ctx writes) so the change becomes a wire frame. SR10 asks: rebuild the registry as a `signalMap` — a writable reactive store — so publishing is automatic and forgetting has no spelling?
+
+**The defect the convention leaves expressible, in code.** Nothing rejects this today — no type, no lint, no crash:
+
+```ts
+// any future padi feature, any file:
+const entry = requireMutableTerminal(id);
+// ^ the registry's accessor for mutation handlers (terminal-registry.ts:277):
+//   looks the id up and returns the LIVE TerminalProcess object itself —
+//   whoever holds it can assign to entry.meta/entry.snapshot directly.
+entry.meta.lastActivityAt = Date.now();   // mutates the registry in place
+// ...forgot: publishComposedTerminal(id)  ← the convention. Nothing enforces it.
+```
+
+Two consequences, the second subtler: the tile shows stale info forever, **and** `materializeSiblingView`'s per-key cache (SR8's perf fix, sole-writer-coupled at `servePadi.ts:305-314`) still holds the *old* composed record — so server-side derived readers (`urgency`) go stale too. The cache made a forgotten publish *quieter*, not louder. Under `signalMap`, mutation and publish are the same act, so the forgetting is unspellable:
+
+```ts
+// there is no bare entry to mutate; this is the ONLY write:
+terminals.update(id, (t) => ({ ...t, meta: { ...t.meta, lastActivityAt: now } }));
+```
+
+**What SR7–SR9 already banked** (the marginal-value ledger from the SR10-ADJ decision package), in code:
+
+```ts
+// SR7 — a DERIVED fact can't be forgotten: the graph tracks the edge, no
+// writer calls anything (servePadi.ts:251):
+urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+
+// SR8 — the fold stays O(M) on the firehose: $.terminals() reads a per-key
+// materialized cache instead of re-composing all M (servePadi.ts:314):
+terminals: { /* … */ materializeSiblingView: true },
+// gate-proven: urgencyComposeCost.test.ts — 24 composes/cycle at M=24, vs 600.
+
+// SR8 + SR9 — the keyed machinery exists:
+processes: derived.collection(source({ read, install })),   // wire reconciler
+const hosts = reactiveFamily({ members, attach, onEvict }); // serveHostMap (SR9)
+```
+
+**What remains open only because the registry is imperative:** the five seams as a named-call convention (the snippet above), and SR8.b's incremental fold staying parked. Everything else the row once implied is in the ledger above.
+
+**The cost, honestly — what a conversion must re-path, in code.** SR9 reshaped a *projection* of an external authority (the host pool); the registry **is** the authority:
+
+```ts
+// the store to replace IS the source of truth (terminal-registry.ts:95):
+const terminals = new Map<TerminalId, TerminalProcess>();
+
+// in-place mutation on the ~150 ms firehose, once per live terminal
+// (metadata.ts:154) — every such site must route through the new store's
+// write so the change edge fires:
+entry.snapshot = observation;
+
+// ~17 synchronous readers that must keep working WITHOUT reactivity —
+// they need a pull face (keys/has/get), not signals:
+getTerminal(id); registryMap(compose); terminalEntries(); snapshotFor(id);
+parkedTerminalIds(); requireActiveTerminal(); drainTerminals(); /* … */
+
+// park/restore/sleep/wake walk the raw map (terminal-registry.ts:149-173) —
+// the restore's parked→active flip is the restore-idempotency token and must
+// survive a store whose writes now also emit wire frames:
+hasParkedTerminals();
+```
+
+…plus `signalMap` itself must be **built** (`reactor.ts:19` — "Still ahead: SR10's `signalMap`") *and* **served** — and SR8.c's live evidence is that even a two-cell conversion surfaced type-acceptance subtleties.<Footnote>**Why a new primitive — doesn't Solid ship one?** Client-side, yes (`createStore`/`reconcile`, `@solid-primitives`' reactive map) and kolu uses them there. But padi is a Node daemon where Solid is banned by a pinned test (`noSolidInDaemon.test.ts` — "a UI reactive framework has no business in a PTY daemon's closure"; padi imports zero `solid-js`), and the server graph's ratified engine is `@preact/signals-core` behind `reactor.ts` (`@solidjs/signals` is the named swap target, not a today option) — two reactive graphs in one process is the complecting the reactor boundary exists to prevent. And the genuinely new part isn't the reactive map (small; `reactiveFamily`'s in-place-latest + version-signal pattern is the precedent) — it's the **wire half** no library can ship: served as `derived.collection` with per-key frames and equals gating, the synchronous pull face, the `poke` form, the boot-walk connect, the durability laws. Roughly 20% map, 80% kolu's own wire contract.</Footnote>
+
+**What the converted world would look like** (the after, sketched honestly):
+
+```ts
+// terminal-registry.ts — the registry IS the reactive store now:
+const terminals = signalMap<TerminalId, TerminalProcess>();
+// the 17 synchronous readers survive on the pull face, unchanged signatures:
+export const getTerminal = (id: TerminalId) => terminals.get(id);
+export const terminalEntries = () => terminals.entries();
+// requireMutableTerminal is DELETED — the raw-entry door the defect walks
+// through cannot exist: nothing hands out a live object to mutate silently.
+
+// metadata.ts — the five seams SURVIVE as the domain vocabulary; only the
+// ritual line dies. Cold paths use the immutable update:
+export function updateMemory(id: TerminalId, facts: MemoryFacts) {
+  terminals.update(id, (t) => ({ ...t, meta: { ...t.meta, ...facts } }));
+  // no publishComposedTerminal(id) — the write IS the wire frame
+}
+// the ~150 ms firehose CANNOT afford a spread per poke (the alloc cost SR7/SR8
+// fought), so the hot seam uses the in-place poke form — mutate, then the store
+// bumps that key's version (the reactiveFamily precedent: in-place `latest` +
+// a version-signal change edge):
+export function commitSnapshot(id: TerminalId, observation: Snapshot) {
+  terminals.poke(id, (t) => { t.snapshot = observation; });
+}
+
+// servePadi.ts — the collection is declared FROM the store; the wire member
+// stops being convention-published:
+terminals: derived.collection(terminals.map(composePadiTerminal)),
+// downstream derivations unchanged:
+urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+```
+
+Three honest observations about the after: the seams don't vanish — `updateMemory`/`commitSnapshot`/etc. survive as the domain verbs, and what vanishes is the *forgettable line* inside them plus `requireMutableTerminal` (the door itself); the store must ship **both** write forms (`update` for cold paths, `poke` for the firehose) or the conversion trades the forgotten-publish class for an allocation regression; and `terminals.map(composePadiTerminal)` has to subsume `materializeSiblingView`'s per-key caching internally — compose-once-per-poke, gate-pinned by the existing `urgencyComposeCost` harness.
+
+**Adjudicated — DECLINED, dated 2026-07-15** (srid's explicit call, after the full code-first review of this section: the defect snippet, the banked ledger, the cost re-path, the converted-world sketch, the second-consumer sweep, and the engine question). Not a permanent no — a decline **with two teeth**:
+1. **The confinement pin ships now** (rides SR8.c as one small commit): an AST guard in the SR6 pattern pinning *registry-entry mutation happens only inside `metadata.ts`* — so a future write path is forced into the one file where the seams live, or fails CI. The declined class stays expressible but becomes **un-sprawlable**: bounded to one reviewed file, not loose in the tree.
+2. **Revive when any one holds:** a second consumer needs a writable reactive keyed store (prove-then-extract — **checked 2026-07-15, none exists**: drishti's one instance of the shape already rides the graduated `serveHostMap`; odu's two near-misses both fail honestly — the MCP `LogsStore` is a projection of the coordinator's stream, and the runner's `PipelineState.nodes` is a true keyed store whose writes are already atomic set+publish through one helper, `runner.ts:89-97` — the forgotten-publish hazard does not occur in either repo; the most plausible *future* consumer is a live `odu runs --watch` over the on-disk ledger, if that feature is ever built); OR SR8.b's workload gate trips (live M grows past where the scan is noise); OR a silently-stale-tile incident lands from a forgotten seam.
+
+The convention-published members persist alongside derived ones — the bridge's honest cost #10, accepted with a fence rather than denied. The deleted-world doc sweep's residue rides **SR8.c** (the plan's last-shipping PR) as its tail commit.<Footnote>Comments and READMEs across the stack still cite the deleted `packages/pulam*` packages as context (31 non-test src files, re-verified 2026-07-15; `rg -i 'pulam' packages/*/src --type ts -g '!*test*'` plus package READMEs). Update each to the padi-era truth or delete; Atlas notes are exempt (historical record). Done when the grep returns only deliberate historical references, each commented as such. Hygiene never ships standalone — it rides the last PR as one tail commit.</Footnote>
+
+<a id="sr8c"></a>
+
+### SR8.c — members have one home
+
+SR8.a shipped with a composition defect srid caught post-merge: `implementKoluSurface(pollCells: KoluDerivedCells)` splits kolu's member table across two files **by dependency timing** — `index.ts`'s boot builds the framework's `derived.cell(source(...))` inline and injects the *constructed artifacts*, while store cells wire in `surface.ts`. The design that cures it was lens-run before authoring<Footnote>Two Workflow runs over the proposed shape — `wf_4d7b4b25-995` (C2/C3/C6 + adversarial refute, 15 raw → 4 confirmed) and `wf_f51bacc4-d06` (overlay-parameterized C3 ladder + C1). The runs *refuted the initial framework diagnosis*: `implementSurfaces` has carried per-entry spec types since #1197/#1201 (`SurfaceDepsFor<S>`, tsc-probed — full inline inference, zero casts); the "any-specs / cast at the entry boundary" story survives only in a stale comment (`packages/server/src/surface.ts:217-220`) contradicted five lines down, and `Omit<ImplementSurfaceDeps<…>, "channel">` is a provable no-op (`channel` left the interface in #1805). The originally-proposed framework signature change + drishti pair would have been churn on a healthy API.</Footnote> — three moves, one PR:
+
+1. **Hygiene — delete the fossils.** The two vestigial `Omit<ImplementSurfaceDeps<…>, "channel">` spells (`packages/server/src/surface.ts:223-226` **and** `packages/padi/src/controlCore.ts:21-24` — line-wrapped, a naive single-line grep misses both); the lying "any-specs / cast at the entry boundary" comment; the unnecessary `{ input: … }` hand-annotations in `implementSurfaces.test.ts`. Out-of-line deps consts keep a clean `ImplementSurfaceDeps<typeof spec>` annotation (structurally required by TS for a standalone const — no builder API chases this).
+2. **The inversion — one home, one writer.** `implementKoluSurface` takes plain domain-named dependencies (`readPadiMemoryOnce` / `readDaemonInventoryOnce` / a payload-typed `onState` / `padiIdentity`) and builds **all** members inside `surface.ts` — the framework `source(...)` nodes are assembled there (never a kolu-named parallel poll-spec type — that would duplicate `PollSourceOptions` one layer up). `padiLink` + `processStartedAt` convert to **push-source** derived cells on the single `onState` subscription, retiring their hand-rolled in-memory stores and the exported-ctx write path (`index.ts:999/:1005`) — "graph is the one writer" completed. Explicitly NOT the deferred *poll* arm: the reactor defers poll reads by a microtask, the exact stale-read hazard `captureLatest` exists for — verify push-emit timing is synchronous at build, and STOP if it is not. `KoluDerivedCells` dies; `index.ts` imports no reactor primitives.
+3. **The one genuinely-lower move (the real framework half, drishti-paired):** graduate the cadence fuse — kolu-server's `everyMsOrOnState` (`pollCadence.ts:29`) and padi's byte-same `everyMsOrOnDaemonChange` (`servePadi.ts:168`) — to `@kolu/surface`'s reactor beside `everyMs` (two proven consumers, zero kolu concepts; the SR8.a-recorded follow-up lands here). Both twins delete; `ref-surface.mdx` updates. Do **not** ship SR8.c with the duplicate pair still standing.
+
+`captureLatest` is deliberately **kept at app policy** — one consumer; its deeper cure (surface-remote's honest liveness during connecting) stays the separately-recorded follow-up, not swept into this move. The build's gauntlet surfaced two further reactor-depth candidates, **recorded with gates, not done**: a **hot push-source** (replay the current level to a late subscriber — would retire the shared-source seed invariant the build instead enforces fail-fast at boot; gate: a second late-subscriber consumer, or that boot assert ever firing in the wild) and **poll-seed totality lifted into the reactor** (log-skip-continue on the T+0 read, retiring per-cell total-wrappers; gate: a second total-wrapper appearing). Both are `@kolu/surface` changes with drishti drag — prove-then-extract holds them. Done-criteria, grep-shaped: no `Omit<ImplementSurfaceDeps` spelling anywhere (multiline-aware grep); no local cadence-fuse in kolu-server or padi (the reactor export is the only spelling); `index.ts` imports no `derived`/`source`; behavior-neutral — e2e + seal. **Gate:** none — schedulable. Provenance: srid's post-merge finding on <PrLink pr={1835} /> + the two lens runs.
 
 The campaign is complete only when these negative properties hold — each is a grep or a test, not a judgment call:
 
