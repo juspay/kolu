@@ -87,7 +87,16 @@ const FUNCTION_TYPES = new Set([
   "StaticBlock",
 ]);
 
-/** A non-test `.ts`/`.tsx` source file. */
+/** AST node keys that hold no child statement/expression — source positions and
+ *  attached comments. Both walkers skip them so recursion stays on the tree. */
+const SKIP_KEYS = new Set(["loc", "leadingComments", "trailingComments"]);
+const childKeys = (rec: Record<string, unknown>): string[] =>
+  Object.keys(rec).filter((k) => !SKIP_KEYS.has(k));
+
+/** A non-test `.ts`/`.tsx` source file. (A deliberate small parallel to
+ *  `listGuardSourceFiles` in `packages/client/src` — that helper is a
+ *  client-package-internal testlib, not cross-package importable, and a bounded
+ *  file-lister is a leaf, not a shared receptacle.) */
 const isSourceFile = (p: string): boolean =>
   /\.tsx?$/.test(p) && !/\.test(-d)?\.tsx?$/.test(p);
 
@@ -121,17 +130,10 @@ function forEachForAwait(
     forEachForAwait(rec.body, name ? [...pending, name] : pending, cb);
     return;
   }
-  if (rec.type === "ForOfStatement" && rec.await === true) {
-    cb(rec, pending);
-    forEachForAwait(rec.body, [], cb);
-    forEachForAwait(rec.right, [], cb);
-    return;
-  }
-  for (const key of Object.keys(rec)) {
-    if (key === "loc" || key === "leadingComments" || key === "trailingComments")
-      continue;
-    forEachForAwait(rec[key], [], cb);
-  }
+  if (rec.type === "ForOfStatement" && rec.await === true) cb(rec, pending);
+  // Every non-labeled node (including the `for await` just reported) recurses its
+  // children with the label stack reset — a label reaches only its immediate child.
+  for (const key of childKeys(rec)) forEachForAwait(rec[key], [], cb);
 }
 
 /** The direct statements of a loop body — the block's children, or the single
@@ -175,11 +177,7 @@ function hasSelfContinue(
     const t = typeof type === "string" ? type : "";
     const childNestedLoop = nestedLoop || LOOP_TYPES.has(t);
     const childInFn = inFn || FUNCTION_TYPES.has(t);
-    for (const key of Object.keys(rec)) {
-      if (key === "loc" || key === "leadingComments" || key === "trailingComments")
-        continue;
-      descend(rec[key], childNestedLoop, childInFn);
-    }
+    for (const key of childKeys(rec)) descend(rec[key], childNestedLoop, childInFn);
   };
   descend(body, false, false);
   return found;
