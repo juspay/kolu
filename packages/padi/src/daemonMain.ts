@@ -45,7 +45,6 @@ import {
   setPadiSessionStore,
 } from "./confStores.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
-import { startPadiHostInventorySampler } from "./hostInventory.ts";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
 import {
   ensureKoluRoot,
@@ -274,6 +273,9 @@ function serveDaemonSurfaces(
         startedAt: PADI_STARTED_AT,
         commit: currentPadiCommitHash(),
         lifetime,
+        // The `hostInventory` derived poll cell resolves its held-kaval fallback
+        // address from this state-root.
+        stateRoot,
       }),
       control: buildControlCoreDeps({
         stateRoot,
@@ -450,10 +452,11 @@ export async function runPadiDaemon(
       dirname(getLocalSocketPath() ?? kavalSocket),
       stateRoot,
     );
-    // Feed the Kaval + Padi dialogs' "Running daemons" list — started after the
-    // manifests so the very first tick labels the discovered kaval by state-root. The
-    // serving padi reports ITSELF by construction (see `withSelfPadi`).
-    startPadiHostInventorySampler({ padiSocket: socketPath, stateRoot });
+    // (The Kaval + Padi dialogs' "Running daemons" list — `hostInventory` — is now a
+    // DERIVED poll cell owned by the served surface (`servePadi.ts`); its poll read
+    // resolves the discovered kaval from the state-root, so no boot-time sampler start
+    // is needed. The serving padi still reports ITSELF by construction — see
+    // `withSelfPadi` — reading padi's serve socket from the module global.)
 
     return await daemonMain({
       gatePath,

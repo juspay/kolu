@@ -50,7 +50,6 @@ import {
   restoreSession,
 } from "./sessionRestore.ts";
 import {
-  DEFAULT_PADI_HOST_INVENTORY,
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
   type PadiIdentity,
@@ -71,6 +70,10 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import {
+  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+  samplePadiHostInventory,
+} from "./hostInventory.ts";
 import {
   MEMORY_SAMPLE_INTERVAL_MS,
   samplePadiMemory,
@@ -145,8 +148,11 @@ export function buildPadiSurfaceDeps(deps: {
    *  seeded into the `identity` cell so the readout and the actual policy can't
    *  drift. */
   lifetime: DaemonLifetimeInfo;
+  /** padi's resolved state-root — the `hostInventory` poll read resolves the
+   *  held-kaval fallback address from it (`samplePadiHostInventory`). */
+  stateRoot: string;
 }): Omit<PadiDeps, "channel"> {
-  const { endpoint, log, startedAt, commit, lifetime } = deps;
+  const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
@@ -187,12 +193,22 @@ export function buildPadiSurfaceDeps(deps: {
       // daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
       // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
-      // leak diagnostic. In-memory (a live diagnostic has no on-disk slot); the
-      // periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
-      // is the sole writer via `padiSurfaceCtx.cells.hostInventory.set`; a fresh
-      // subscription reads the latest via `get`. No `equals` dedup: the coarse 10s
-      // cadence + small payload is cheap.
-      hostInventory: { store: inMemoryStore(DEFAULT_PADI_HOST_INVENTORY) },
+      // leak diagnostic. A DERIVED member fed by a POLL source: `samplePadiHostInventory`
+      // scans the host (reading padi's serve socket from the module global set at boot),
+      // and the reactor owns the T+0 seed (from the spec default until it lands), the
+      // non-overlap guard, and later-read log-skip-continue that the hand-rolled
+      // `startPadiHostInventorySampler` used to spell. `install` owns just the coarse
+      // 10s unref'd cadence (a live diagnostic never holds the process open).
+      hostInventory: derived.cell(
+        source({
+          read: () => samplePadiHostInventory(stateRoot),
+          install: (tick) => {
+            const iv = setInterval(tick, HOST_INVENTORY_SAMPLE_INTERVAL_MS);
+            iv.unref();
+            return () => clearInterval(iv);
+          },
+        }),
+      ),
       // Live process-memory readout (padi's OWN RSS + its kaval's) — a DERIVED
       // member fed by a POLL source: `samplePadiMemory` is the read, and the
       // reactor owns the T+0 seed (seeded from the spec default until it lands),

@@ -5,9 +5,9 @@
  * dialogs list. padi OWNS the daemon domain (it discovers, adopts, and supervises
  * the host's daemons), so the scanner lives here — and two callers reuse it:
  *
- *   1. padi itself, for the `hostInventory` surface member it serves ({@link
- *      startPadiHostInventorySampler}) — its scan of its OWN host, marking the kaval
- *      it holds + itself `active`. This is what lets the dialog show the BOUND host's
+ *   1. padi itself, for the `hostInventory` surface member it serves — the poll READ
+ *      ({@link samplePadiHostInventory}) behind its DERIVED cell — its scan of its OWN
+ *      host, marking the kaval it holds + itself `active`. This is what lets the dialog show the BOUND host's
  *      daemons even when kolu-server reaches padi over ssh: the member rides the
  *      re-served surface, so the list works identically local and remote.
  *   2. kolu-server's web shell, for the LOCAL-machine scan it publishes on
@@ -32,9 +32,10 @@ import {
   type KavalDaemon,
   type ptyHostSurface,
 } from "kaval";
-import { log } from "./log.ts";
-import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
-import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
+import {
+  getPadiServeSocketPath,
+  readDaemonStatus,
+} from "./ptyHost/daemonStatus.ts";
 import {
   discoverPadiDaemons,
   type PadiDaemon,
@@ -303,49 +304,33 @@ export function withSelfPadi(
  *  immediately (a T+0 anchor so the cell has a value before the first dialog open), then
  *  every {@link HOST_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow tick never
  *  doubles up) and `unref`'d so the interval never holds padi's process open on its own. */
-export function startPadiHostInventorySampler(opts: {
-  /** THIS padi's own rendezvous socket — the padi row it marks `active`. */
-  padiSocket: string;
+export async function samplePadiHostInventory(
   /** THIS padi's resolved state-root — resolves the held-kaval fallback address. */
-  stateRoot: string;
-}): void {
+  stateRoot: string,
+): Promise<PadiHostInventory> {
+  // THIS padi's own rendezvous socket — the padi row it marks `active`. Read from
+  // the module global set at boot phase "identity" (`setPadiServeSocketPath`), which
+  // runs BEFORE the surface is served, so it is always present by the time the
+  // derived cell's poll connect fires — an absent value is a boot-order defect, so
+  // fail loud rather than mislabel the self-padi row.
+  const padiSocket = getPadiServeSocketPath();
+  if (!padiSocket) {
+    throw new Error(
+      "host-inventory read before padi's serve socket was set (boot-order defect)",
+    );
+  }
   // Read the ambient pid ONCE, here at the edge — the pure `withSelfPadi` core receives
   // it as a value (P2: effects at the boundary, not smuggled from a global mid-fold).
-  const self = {
-    padiSocket: opts.padiSocket,
-    stateRoot: opts.stateRoot,
-    pid: process.pid,
-  };
-  const sampleOnce = async (): Promise<void> => {
-    const held = heldKaval(opts.stateRoot);
-    const inv = await enumerateHostDaemons({
-      discoverKavals: discoverKavalDaemons,
-      // The serving padi reports itself by construction — never dependent on the socket
-      // already listening (T+0) or on the digest-dir naming (a `--socket` override).
-      discoverPadis: () => withSelfPadi(discoverPadiDaemons(), self),
-      probe: probeKavalStatus,
-      activeKavalSocket: held.socket,
-      activeKavalAtLegacy: held.atLegacy,
-      activePadiSocket: opts.padiSocket,
-    });
-    padiSurfaceCtx.cells.hostInventory.set(inv);
-  };
-
-  let inFlight = false;
-  const tick = (): void => {
-    if (inFlight) return;
-    inFlight = true;
-    void sampleOnce()
-      .catch((err) => {
-        // enumerateHostDaemons never throws (each probe folds its own failure), but a
-        // surprise (a discovery read blowing up) must be legible, not swallowed into a
-        // silently missing cell. The cell keeps its last value; the next tick retries.
-        log.error({ err }, "host-inventory sample failed");
-      })
-      .finally(() => {
-        inFlight = false;
-      });
-  };
-  tick();
-  setInterval(tick, HOST_INVENTORY_SAMPLE_INTERVAL_MS).unref();
+  const self = { padiSocket, stateRoot, pid: process.pid };
+  const held = heldKaval(stateRoot);
+  return enumerateHostDaemons({
+    discoverKavals: discoverKavalDaemons,
+    // The serving padi reports itself by construction — never dependent on the socket
+    // already listening (T+0) or on the digest-dir naming (a `--socket` override).
+    discoverPadis: () => withSelfPadi(discoverPadiDaemons(), self),
+    probe: probeKavalStatus,
+    activeKavalSocket: held.socket,
+    activeKavalAtLegacy: held.atLegacy,
+    activePadiSocket: padiSocket,
+  });
 }
