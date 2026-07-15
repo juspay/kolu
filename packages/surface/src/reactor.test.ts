@@ -1,16 +1,27 @@
 /**
- * `reactor.ts` — the reactive bridge phase 0. These tests pin the wrapper's
- * OWN contract (source occurrences, scan's fold + prev-ref-no-publish + the
- * stop-hold error law, and `derived.cell`'s seed / connect-seam / equals dedup),
- * and the boot narrowing that keeps a derived member wire-read-only. The raw
- * engine's guarantees live in `reactorEngineLaws.test.ts`.
+ * `reactor.ts` — the reactive bridge. These tests pin the wrapper's OWN contract
+ * (source occurrences, scan's fold + prev-ref-no-publish + the stop-hold error
+ * law, and `derived.cell`'s seed / connect-seam / equals dedup), the boot
+ * narrowing that keeps a derived member wire-read-only, and — for SR7 — the `$`
+ * sibling-read face end-to-end through `implementSurface`: the LAWS as written in
+ * the reactive-bridge note (glitch-freedom, `batch` coalescing, change-iff-fired,
+ * and the post-equals mirror-poke → derived-recompute edge), plus `computed` as a
+ * composable graph node. The raw engine's guarantees live in
+ * `reactorEngineLaws.test.ts`.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
-import { derived, scan, source } from "./reactor";
+import {
+  batch,
+  computed,
+  derived,
+  type DerivedComputeCell,
+  scan,
+  source,
+} from "./reactor";
 import type { CellStore } from "./server";
 import { implementSurface, inMemoryStore } from "./server";
 
@@ -422,5 +433,443 @@ describe("derived.cell", () => {
         cells: { count: { store: inMemoryStore(0) } },
       }),
     ).not.toThrow();
+  });
+});
+
+describe("computed", () => {
+  it("composes as a graph node into derived.cell and recomputes reactively", () => {
+    let emit!: (n: number) => void;
+    const src = source<number>((e) => {
+      emit = e;
+    });
+    const count = scan(src, 0, (n) => n + 1);
+    const doubled = computed(() => count.value.value * 2);
+    const dc = derived.cell(doubled);
+    const ctx = recordingCtx(
+      inMemoryStore(dc.store.get()),
+      (a: number, b: number) => a === b,
+    );
+    // Eager seed from the computed's current value (count 0 → 0), never a default.
+    expect(dc.store.get()).toBe(0);
+    dc.connect(ctx);
+    expect(ctx.published).toEqual([]); // seed deduped at wiring
+
+    emit(0); // count → 1 → doubled 2
+    emit(0); // count → 2 → doubled 4
+    expect(ctx.published).toEqual([2, 4]);
+    dc.dispose();
+  });
+});
+
+describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () => {
+  // The `$` face + the post-equals mirror poke live across `reactor.ts` and
+  // `server.ts`, so these ride a REAL `implementSurface` (never a hand-rolled
+  // ctx) — the poke is a property of the walk's store wrapper, not the reactor
+  // alone.
+
+  it("the post-equals mirror poke edge: a sibling write recomputes a derived compute cell", async () => {
+    const surface = defineSurface({
+      cells: {
+        a: { schema: z.number(), default: 1 },
+        doubled: {
+          schema: z.number(),
+          default: 0,
+          equals: (x: number, y: number) => x === y,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { router, ctx } = implementSurface(surface, {
+      cells: {
+        a: { store: inMemoryStore(1) },
+        doubled: derived.cell(($) => $.a() * 2),
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const collected = take(await client.surface.doubled.get(undefined), 3);
+    await flush(); // let the get subscribe before we poke
+
+    ctx.cells.a.set(5); // poke a → doubled recomputes → 10
+    ctx.cells.a.set(6); // poke a → doubled recomputes → 12
+    // Eager seed (1*2), then two recomputes driven purely by the sibling write.
+    expect(await collected).toEqual([2, 10, 12]);
+  });
+
+  it("change-iff-fired: a suppressed (equals-equal) sibling write never pokes → no recompute", () => {
+    let runs = 0;
+    const surface = defineSurface({
+      cells: {
+        a: {
+          schema: z.number(),
+          default: 0,
+          equals: (x: number, y: number) => x === y, // a dedups its own writes
+        },
+        mirror: {
+          schema: z.number(),
+          default: 0,
+          equals: (x: number, y: number) => x === y,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { ctx } = implementSurface(surface, {
+      cells: {
+        a: { store: inMemoryStore(0) },
+        mirror: derived.cell(($) => {
+          runs++;
+          return $.a();
+        }),
+      },
+    });
+    const runsAfterSeed = runs; // one compute at the eager seed
+
+    ctx.cells.a.set(0); // equals(0,0) true → SUPPRESSED before store.set → no poke
+    expect(runs).toBe(runsAfterSeed); // the derivation did NOT re-run
+
+    ctx.cells.a.set(7); // a genuine change → poke → exactly one recompute
+    expect(runs).toBe(runsAfterSeed + 1);
+  });
+
+  it("batch coalesces sibling writes into ONE glitch-free recompute (a diamond)", async () => {
+    let runs = 0;
+    const seen: Array<[number, number]> = [];
+    const surface = defineSurface({
+      cells: {
+        a: { schema: z.number(), default: 0 },
+        b: { schema: z.number(), default: 0 },
+        sum: {
+          schema: z.number(),
+          default: 0,
+          equals: (x: number, y: number) => x === y,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { router, ctx } = implementSurface(surface, {
+      cells: {
+        a: { store: inMemoryStore(0) },
+        b: { store: inMemoryStore(0) },
+        sum: derived.cell(($) => {
+          runs++;
+          const av = $.a();
+          const bv = $.b();
+          seen.push([av, bv]);
+          return av + bv;
+        }),
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const collected = take(await client.surface.sum.get(undefined), 2);
+    await flush();
+
+    const runsBefore = runs;
+    batch(() => {
+      ctx.cells.a.set(3);
+      ctx.cells.b.set(4);
+    });
+    // ONE recompute for the two-write burst …
+    expect(runs).toBe(runsBefore + 1);
+    // … and it saw BOTH new values together — never the half-updated [3, 0]
+    // (glitch-freedom): the only frame the batch produced is [3, 4].
+    expect(seen.slice(runsBefore)).toEqual([[3, 4]]);
+    // Seed snapshot 0, then the single coalesced delta 7.
+    expect(await collected).toEqual([0, 7]);
+  });
+
+  it("$ types each sibling read — a cell is its value, a collection its live map (compile-time)", () => {
+    const surface = defineSurface({
+      cells: {
+        n: { schema: z.number(), default: 0 },
+        combined: {
+          schema: z.number(),
+          default: 0,
+          equals: (x: number, y: number) => x === y,
+          verbs: ["get"],
+        },
+      },
+      collections: {
+        items: {
+          keySchema: z.string(),
+          schema: z.object({ v: z.number() }),
+          verbs: ["keys", "get"],
+        },
+      },
+    });
+    // The assignments below are the assertion: `$.n()` MUST be `number` and
+    // `$.items()` MUST be `ReadonlyMap<string, { v: number }>`, or this fails to
+    // typecheck (the file is part of the typecheck gate).
+    const { ctx } = implementSurface(surface, {
+      cells: {
+        n: { store: inMemoryStore(2) },
+        combined: derived.cell(($) => {
+          const nv: number = $.n();
+          const items: ReadonlyMap<string, { v: number }> = $.items();
+          return nv + items.size;
+        }),
+      },
+      collections: {
+        items: {
+          readAll: () => new Map<string, { v: number }>(),
+          upsert: () => {},
+          remove: () => {},
+        },
+      },
+    });
+    // Seed folds the (empty) collection + n: 2 + 0.
+    expect(ctx.cells.combined.get()).toBe(2);
+  });
+
+  it("fail-fast: reading an unknown sibling throws", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: deliberately bypass the typed $ to reach the runtime guard
+    const dc = derived.cell(($: any) => $.ghost()) as DerivedComputeCell<
+      never,
+      unknown
+    >;
+    dc.bindSiblings({}); // no sources
+    expect(() => dc.store.get()).toThrow(/unknown sibling/);
+  });
+
+  it("fail-fast: used before bindSiblings throws (the walk must bind before seeding)", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: reach store.get before the walk binds siblings
+    const dc = derived.cell(($: any) => $.x()) as DerivedComputeCell<
+      never,
+      unknown
+    >;
+    expect(() => dc.store.get()).toThrow(/before bindSiblings/);
+  });
+
+  it("DIAMOND: derived-reads-derived is glitch-free (the law's permanent pin)", async () => {
+    // overview reads BOTH terminals (authored, direct) AND urgency (DERIVED) —
+    // worked example 5's diamond. A derived sibling is read as its COMPUTED (not a
+    // push-lagging mirror), so the engine's lazy pull orders the recompute: overview
+    // never observes a half-updated pair. This test is RED on an all-mirror bridge
+    // (overview sees {t:2,u:10} before {t:2,u:20}) and GREEN once a derived sibling
+    // is read as its computed. It is the law "derived reads derived as computed,
+    // never as mirror" made executable.
+    const surface = defineSurface({
+      cells: {
+        terminals: { schema: z.number(), default: 0 },
+        urgency: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+        overview: {
+          schema: z.object({ t: z.number(), u: z.number() }),
+          default: { t: 0, u: 0 },
+          equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
+            a.t === b.t && a.u === b.u,
+          verbs: ["get"],
+        },
+      },
+    });
+    const seen: Array<{ t: number; u: number }> = [];
+    const { router, ctx } = implementSurface(surface, {
+      cells: {
+        terminals: { store: inMemoryStore(0) },
+        // Declaration order is irrelevant here — the boot walk builds every derived
+        // node before it seeds any, so overview reads urgency's computed whether
+        // urgency is declared before or after it (see the order-independence test).
+        urgency: derived.cell(($) => $.terminals() * 10),
+        overview: derived.cell(($) => {
+          const v = { t: $.terminals(), u: $.urgency() };
+          seen.push(v);
+          return v;
+        }),
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const frames = take(await client.surface.overview.get(undefined), 3);
+    await flush();
+
+    ctx.cells.terminals.set(1); // → overview {t:1,u:10}
+    batch(() => {
+      ctx.cells.terminals.set(2); // → overview {t:2,u:20}
+    });
+
+    // No `seen` value is ever a half-updated pair (u must always equal t*10).
+    for (const v of seen) expect(v.u).toBe(v.t * 10);
+    // And each terminals change publishes overview exactly once (no double from a
+    // transient glitch): seed + two coalesced deltas.
+    expect(await frames).toEqual([
+      { t: 0, u: 0 },
+      { t: 1, u: 10 },
+      { t: 2, u: 20 },
+    ]);
+  });
+
+  it("ORDER-INDEPENDENT BOOT: a downstream compute cell declared BEFORE its upstream seeds correctly", async () => {
+    // overview (reads urgency) is DECLARED BEFORE urgency (reads terminals) — the
+    // reverse of the diamond above. The two-pass boot walk builds every derived
+    // node before it seeds any, so overview's seed finds urgency's node already
+    // built regardless of declaration order and pulls its computed value. RED on
+    // the old single-pass build: seeding overview would pull a not-yet-built
+    // urgency node and crash the walk (`implementSurface` would throw here). (Only
+    // the seed is order-independent; a diamond's glitch-free UPDATE ordering is
+    // pinned by the DIAMOND test above, which declares upstream-first.)
+    const surface = defineSurface({
+      cells: {
+        terminals: { schema: z.number(), default: 0 },
+        overview: {
+          schema: z.object({ t: z.number(), u: z.number() }),
+          default: { t: 0, u: 0 },
+          equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
+            a.t === b.t && a.u === b.u,
+          verbs: ["get"],
+        },
+        urgency: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { router } = implementSurface(surface, {
+      cells: {
+        terminals: { store: inMemoryStore(3) },
+        // Downstream declared FIRST — reads urgency, which is declared LAST.
+        overview: derived.cell(($) => ({ t: $.terminals(), u: $.urgency() })),
+        urgency: derived.cell(($) => $.terminals() * 10),
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const frames = take(await client.surface.overview.get(undefined), 1);
+    await flush();
+
+    // Boot did not crash and seeded from the whole graph: overview = {t:3, u:3*10}.
+    expect(await frames).toEqual([{ t: 3, u: 30 }]);
+  });
+
+  it("a derived cell folding a COLLECTION recomputes on upsert/remove (the version-poke edge padi urgency rides)", async () => {
+    // The exact edge that drives padi urgency: a derived cell reads $.<collection>()
+    // and must recompute whenever the collection's wrapped publishers fire — an
+    // upsert or a remove. The $-typing test above only seeds an empty collection;
+    // this end-to-end test mutates it and asserts the recompute + wire frames, so
+    // the bridge→collection integration can't silently regress.
+    const surface = defineSurface({
+      cells: {
+        bigCount: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+      collections: {
+        items: {
+          keySchema: z.string(),
+          schema: z.object({ n: z.number() }),
+          verbs: ["keys", "get"],
+        },
+      },
+    });
+    const store = new Map<string, { n: number }>();
+    const { router, ctx } = implementSurface(surface, {
+      cells: {
+        // count the items whose n > 1 — a fold over the whole collection
+        bigCount: derived.cell(
+          ($) => [...$.items().values()].filter((v) => v.n > 1).length,
+        ),
+      },
+      collections: {
+        items: {
+          readAll: () => store,
+          readOne: (k) => store.get(k),
+          upsert: (k, v) => {
+            store.set(k, v);
+          },
+          remove: (k) => {
+            store.delete(k);
+          },
+        },
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    const frames = take(await client.surface.bigCount.get(undefined), 4);
+    await flush();
+
+    ctx.collections.items.upsert("a", { n: 5 }); // → 1
+    ctx.collections.items.upsert("b", { n: 0 }); // n≤1: fold unchanged → deduped, no frame
+    ctx.collections.items.upsert("c", { n: 9 }); // → 2
+    ctx.collections.items.remove("a"); // → 1
+    // seed 0, then the three folds that MOVED the count (the b-upsert deduped).
+    expect(await frames).toEqual([0, 1, 2, 1]);
+  });
+
+  it("derived.cell(computed(fn)) holds last published on a LATER throw — log-skip-continue, no escape", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let emit!: (n: number) => void;
+    const src = source<number>((e) => {
+      emit = e;
+    });
+    const count = scan(src, 0, (n) => n + 1);
+    let boom = false;
+    const c = computed(() => {
+      const v = count.value.value;
+      if (boom) throw new Error("boom");
+      return v * 2;
+    });
+    const dc = derived.cell(c);
+    const ctx = recordingCtx(
+      inMemoryStore(dc.store.get()),
+      (a: number, b: number) => a === b,
+    );
+    dc.connect(ctx);
+
+    emit(0); // count 1 → 2
+    expect(ctx.published).toEqual([2]);
+    boom = true;
+    // The compute throw is LOGGED and swallowed at the effect boundary — it must
+    // NOT escape synchronously into the writer's (`emit`'s) stack.
+    expect(() => emit(0)).not.toThrow();
+    expect(ctx.published).toEqual([2]); // last value HELD
+    expect(errSpy).toHaveBeenCalled();
+    boom = false;
+    emit(0); // count 3 → 6 — heals on the next good recompute
+    expect(ctx.published).toEqual([2, 6]);
+    dc.dispose();
+    errSpy.mockRestore();
+  });
+
+  it("fail-fast: a cell and a collection sharing a key is rejected at defineSurface", () => {
+    // The $-face flat-namespace invariant is a static property of the spec, so it
+    // is caught at DEFINITION (for every consumer, server or contract-only client)
+    // — not deferred to the boot walk. Disjoint wire verbs (cell `get`, collection
+    // `keys`), so the existing duplicate-verb guard can't mask it — the key
+    // collision itself is what must fail.
+    expect(() =>
+      defineSurface({
+        cells: { same: { schema: z.number(), default: 0, verbs: ["get"] } },
+        collections: {
+          same: { keySchema: z.string(), schema: z.number(), verbs: ["keys"] },
+        },
+      }),
+    ).toThrow(/declared as BOTH a cell and a collection/);
+  });
+
+  it("a member named like an Object.prototype key (toString) does NOT falsely collide", () => {
+    // Member names are arbitrary Record keys; a cell named `toString` must not read
+    // as already-registered off the sibling dictionary's prototype (nor leak the
+    // inherited function to `$`). Boots clean and `$.toString()` reads the real cell.
+    const surface = defineSurface({
+      cells: {
+        toString: { schema: z.number(), default: 7, verbs: ["get"] },
+        mirror: {
+          schema: z.number(),
+          default: 0,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { ctx } = implementSurface(surface, {
+      cells: {
+        toString: { store: inMemoryStore(7) },
+        mirror: derived.cell(($) => $.toString()),
+      },
+    });
+    expect(ctx.cells.mirror.get()).toBe(7);
   });
 });

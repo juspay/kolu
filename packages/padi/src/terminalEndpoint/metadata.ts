@@ -23,16 +23,15 @@
  *   - `updateClientMetadata` — client-persisted authored fields, mutator typed
  *     `TerminalClientMetadata`.
  *
- * TWO cross-cutting concerns ride these seams, and each has ONE owner here:
+ * Urgency is NO LONGER a concern these seams carry. It is now a DERIVED member —
+ * `derived.cell(($) => recomputeUrgency($.terminals()))` (`servePadi.ts`) — so the
+ * reactive graph tracks the `terminals → urgency` edge and recomputes the badge
+ * whenever a `terminals` upsert/remove fires, deduped by the cell's `equals`. The
+ * old `publishUrgency` rider that every composed publish (and the removal path) had
+ * to remember is gone: a registry writer can no longer forget urgency, because the
+ * edge is tracked rather than conventional (worked example 1 of the reactive-bridge
+ * note). ONE cross-cutting concern still rides these seams:
  *
- *   - **Urgency.** `publishComposedTerminal` refolds the `urgency` cell
- *     (`recomputeUrgency()`) on EVERY composed publish — the one call site. The
- *     cell's `equals` (`urgencyEqual`) dedups, so a seam whose write can't move the
- *     projection (memory facts, client chrome) refolds to an equal value and
- *     publishes nothing; a seam whose write can (the agent-state firehose, an
- *     active↔sleeping flip) updates the badge. The removal path refolds separately
- *     (`dropSnapshot` — no composed publish to ride). No seam decides "does this
- *     change urgency?" any more; the fold answers it uniformly and for free.
  *   - **Autosave arming.** A seam that should schedule a session save calls
  *     {@link notifyDirty} (the `AutosaveGate`'s single writer entry);
  *     `updateClientMetadata` and `publishTerminalState` do, because every client
@@ -53,7 +52,6 @@ import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { notifyDirty } from "../publisher.ts";
 import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
-import { recomputeUrgency } from "../urgency.ts";
 import {
   composeTerminalMetadata,
   PersistedSnapshotSchema,
@@ -81,19 +79,20 @@ export function composePadiTerminal(entry: TerminalProcess): PadiTerminal {
 }
 
 /** Publish a terminal's COMPOSED record — `composeTerminalMetadata(entry.meta,
- *  entry.snapshot)` — onto padi's `terminals` collection, AND refold the urgency
- *  projection. The SOLE channel a metadata change (an authored-delta OR a
- *  snapshot-delta) reaches the client: the server folds the two halves that share
+ *  entry.snapshot)` — onto padi's `terminals` collection (which recomputes the
+ *  DERIVED urgency cell for free). The SOLE channel a metadata change (an
+ *  authored-delta OR a snapshot-delta) reaches the client: the server folds the
+ *  two halves that share
  *  the one registry entry, so the wire carries the already-joined `active|sleeping`
  *  record (the client's reader-join collapsed to a single read in W1.R1). Reads the
  *  CURRENT registry entry via `getTerminal(id)`; a no-op if the id has no entry (the
  *  removal path uses `dropSnapshot` → `.remove` instead). The `upsert` only fans out
  *  to subscribers — the registry IS the store.
  *
- *  Every composed publish also refolds `urgency` ({@link publishUrgency}): this is
- *  the ONE call site that answers "did this write move the urgency projection?", so
- *  no seam has to decide it. The refold is deduped by `urgencyEqual`, free when the
- *  write can't move the badge. */
+ *  This upsert is also what recomputes the DERIVED `urgency` cell: the reactive
+ *  bridge tracks `urgency`'s read of `$.terminals()`, so every composed publish
+ *  refolds the badge by construction (deduped by the cell's `equals`), with no
+ *  `publishUrgency` rider to remember here. */
 function publishComposedTerminal(terminalId: string): void {
   const entry = getTerminal(terminalId);
   if (!entry) return;
@@ -101,14 +100,6 @@ function publishComposedTerminal(terminalId: string): void {
     terminalId,
     composePadiTerminal(entry),
   );
-  publishUrgency();
-}
-
-/** Refold + publish the recency-free urgency projection. Deduped by the cell's
- *  `urgencyEqual`, so folding it into every composed publish (and the removal path)
- *  is free. */
-function publishUrgency(): void {
-  padiSurfaceCtx.cells.urgency.set(recomputeUrgency());
 }
 
 /** Fan a terminal's COMPOSED record out onto the `terminals` collection. The
@@ -121,19 +112,20 @@ export function installSnapshot(terminalId: string): void {
   publishComposedTerminal(terminalId);
 }
 
-/** Fan a terminal's REMOVAL out onto the `terminals` collection and refold
- *  urgency. The entry was already dropped by `unregisterTerminal` /
- *  `drainTerminals` before this runs, so `.remove` tells subscribers it is gone and
- *  `recomputeUrgency` folds the post-removal registry. Called by the endpoint's
- *  `finalizeRemoval` (and `killAll`) on exit / kill / discard. */
+/** Fan a terminal's REMOVAL out onto the `terminals` collection. The entry was
+ *  already dropped by `unregisterTerminal` / `drainTerminals` before this runs, so
+ *  `.remove` tells subscribers it is gone — and the same `.remove` recomputes the
+ *  derived `urgency` cell (the removal changes what `$.terminals()` folds), so no
+ *  urgency rider is needed here either. Called by the endpoint's `finalizeRemoval`
+ *  (and `killAll`) on exit / kill / discard. */
 export function dropSnapshot(terminalId: string): void {
   padiSurfaceCtx.collections.terminals.remove(terminalId);
-  publishUrgency();
 }
 
 /** Commit a folded `TerminalSnapshot` — REPLACE `entry.snapshot` wholesale (the fold
  *  built a new value; nothing is mutated in place) and publish the composed record
- *  (which refolds urgency — the agent state rides the observation). Does NOT arm the
+ *  (which recomputes the derived urgency cell — the agent state rides the
+ *  observation). Does NOT arm the
  *  autosave (no {@link notifyDirty}): the ~150 ms agent-detail/foreground firehose is
  *  not itself restore-relevant, and the fold's watch loop pulses `notifyDirty` on the
  *  restore-relevant VALUE change. A no-op if `id` has no entry (a late commit after
@@ -200,8 +192,9 @@ export function updateMemory(
   entry.meta.lastActivityAt = memory.lastActivityAt;
   entry.meta.lastAgentCommand = memory.lastAgentCommand;
   entry.meta.restoreTarget = restoreTarget;
-  // The composed publish refolds urgency uniformly; the memory facts written above
-  // are none of `recomputeUrgency`'s inputs, so the refold dedups to a no-op here.
+  // The composed publish recomputes the derived urgency cell uniformly; the memory
+  // facts written above are none of `recomputeUrgency`'s inputs, so the recompute
+  // dedups to a no-op here (the cell's `equals`).
   try {
     publishComposedTerminal(terminalId);
   } catch (err) {
@@ -217,7 +210,8 @@ export function updateMemory(
  *  publish the composed record. The mutator is narrowed to `TerminalClientMetadata`
  *  so RPC handlers cannot overwrite provider-owned state. Every client field is
  *  persisted, so this arms the autosave ({@link notifyDirty}). The composed publish
- *  refolds urgency uniformly (a no-op here — client chrome is not an urgency input). */
+ *  recomputes the derived urgency cell uniformly (a no-op here — client chrome is
+ *  not an urgency input). */
 export function updateClientMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -237,9 +231,10 @@ export function updateClientMetadata(
  *  THE SOLE PUSH CHANNEL for a lifecycle flip: the `terminals` collection's `upsert`
  *  only fans out to subscribers (the registry IS the store), and the `terminals:dirty`
  *  pulse alone never re-reads the registry. Every authored active↔sleeping flip and
- *  fresh spawn MUST call this. The composed publish refolds urgency (the flip changes
- *  `meta.state`, an urgency input — a slept awaiting-terminal can't self-heal via
- *  `commitSnapshot`, its sensors are torn down), and this arms the autosave
+ *  fresh spawn MUST call this. The composed publish recomputes the derived urgency
+ *  cell (the flip changes `meta.state`, an urgency input — a slept awaiting-terminal
+ *  can't self-heal via `commitSnapshot`, its sensors are torn down), and this arms
+ *  the autosave
  *  ({@link notifyDirty}). Reads the current registry entry via the id (the caller
  *  already registered the replacement entry), so it needs no entry argument. */
 export function publishTerminalState(terminalId: string): void {
