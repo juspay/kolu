@@ -241,7 +241,9 @@ export function foldInput(inner?: ZodType<unknown>): ZodType {
   }) as ZodType;
 }
 
-function foldedCell(spec: CellSpec<unknown, unknown>): Record<string, unknown> {
+function foldedCell(
+  spec: CellSpec<unknown, unknown, unknown>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const v of resolveCellVerbs(spec)) {
     if (v === "get") {
@@ -263,7 +265,7 @@ function foldedCell(spec: CellSpec<unknown, unknown>): Record<string, unknown> {
 }
 
 function foldedCollection(
-  spec: CollectionSpec<unknown, unknown>,
+  spec: CollectionSpec<unknown, unknown, unknown>,
 ): Record<string, unknown> {
   const keyShape = z.object({ key: spec.keySchema });
   const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });

@@ -70,6 +70,19 @@ import {
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
+/** The ORIGIN-FREE client error interpreter — the seam the app registers so a
+ *  spec-declared `client.onError` policy (see `ClientCellPolicy` /
+ *  `ClientCollectionPolicy` in `../define`) reaches app code when a member's
+ *  client subscription fails. `policy` is the OPAQUE, app-typed value the member
+ *  declared (the framework never inspects it); `err` is the subscription error.
+ *
+ *  Base @kolu/surface is DELIBERATELY origin-free — `origin` (a `{ key }`) is a
+ *  surface-map concept, injected in `@kolu/surface-map`'s `connectSurfaceMap` by
+ *  wrapping THIS interpreter per key (design §B/§C). So this base type never
+ *  names a key; a keyed map's per-key builder closes the key over the wrapper it
+ *  hands to `buildSurfaceClient`. */
+export type OnClientError = (policy: unknown, err: Error) => void;
+
 /** Resolve the transport argument `surfaceClient`/`surfaceClients` were handed into
  *  the `{ link, live }` the bundle is built over — collapsing the pair at the API so
  *  there is nothing to re-prove at runtime:
@@ -388,7 +401,8 @@ export interface RawStreamOptions<O> {
 type BoundCellsFor<S extends SurfaceSpec> = {
   [K in keyof S["cells"] & string]: NonNullable<S["cells"]>[K] extends CellSpec<
     infer T,
-    infer P
+    infer P,
+    unknown
   >
     ? // A get-only cell (no wire mutation verb) gets a read-only bound type —
       // no `.set` / `.patch` / local-authority path the contract router lacks.
@@ -410,7 +424,7 @@ type BoundCellsFor<S extends SurfaceSpec> = {
 type BoundCollectionsFor<S extends SurfaceSpec> = {
   [K in keyof S["collections"] & string]: NonNullable<
     S["collections"]
-  >[K] extends CollectionSpec<infer K2, infer T>
+  >[K] extends CollectionSpec<infer K2, infer T, unknown>
     ? // `unenrolledKeys` / `unenrolledDeltas` are each added ONLY when their verb is
       // declared — the raw ref has nothing to point at otherwise (the contract router
       // binds no such stream), so a collection missing the verb must not type an
@@ -588,6 +602,7 @@ function openReadinessLeg<S extends SurfaceSpec>(
   source: StreamingProcedure<undefined, unknown>,
   registry: ReturnType<typeof createSurfaceHealthRegistry>,
   surface: Surface<S>,
+  policyOnError: ((err: Error) => void) | undefined,
 ): { standing: ReadOnlyUseCellResult<unknown>; dispose: () => void } {
   const liveWhen = cellSpec.liveWhen as (value: unknown) => boolean;
   let standing!: ReadOnlyUseCellResult<unknown>;
@@ -595,7 +610,11 @@ function openReadinessLeg<S extends SurfaceSpec>(
     const s = useCell(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key],
-      { source, authority: "server" },
+      // Route a spec-declared `client.onError` policy for a read-only `liveWhen` cell
+      // through its ONE standing subscription — the sub a read-only `.use()` shares, so
+      // the policy fires once per subscription (design §F/m6). Threaded via `onError`
+      // (design §E's single funnel), inside this root so it disposes with the leg.
+      { source, authority: "server", onError: policyOnError },
     );
     registry.enroll(key, { pending: s.pending, error: s.error });
     registry.enrollReadiness(key, () =>
@@ -640,10 +659,30 @@ function bindCell<S extends SurfaceSpec>(
   registry: ReturnType<typeof createSurfaceHealthRegistry>,
   subs: KeyedSubscriptionCache,
   surface: Surface<S>,
+  onClientError?: OnClientError,
 ): { cell: BoundCell<unknown, unknown>; disposeRoot?: () => void } {
   // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
   const ns = (link as any).surface[key];
   const source: StreamingProcedure<undefined, unknown> = ns.get;
+  // The OPAQUE, app-declared client error policy for this cell (design §B), reified
+  // into a `useCell` `onError` handler. Read the policy as `unknown` — the value is
+  // app-typed and the framework never inspects it, only threads it to `onClientError`.
+  // Threading it through `useCell`'s `onError` (NOT `wireSubscriptionError` on the
+  // sub) is load-bearing for design §E: that single funnel carries BOTH the
+  // subscription-drop edge AND a local-authority cell's coalesced write-FLUSH failure
+  // (`useCell.ts` fires `options.onError` from the mutate catch — write-time, per
+  // failure), so the ONE declared policy knowingly serves both clocks. Passed into the
+  // SHARED slot's `useCell` (once per slot), so it fires once per underlying
+  // subscription (the "interpret per subscription" rule, §F/m6) — never once per
+  // consumer. The construction-throw in `buildSurfaceClient` already guaranteed
+  // `onClientError` is present whenever a policy is declared, so the guard here is a
+  // type-narrowing formality, not a second fallback.
+  const cellPolicy: unknown = (cellSpec as CellSpec<unknown, unknown, unknown>)
+    .client?.onError;
+  const policyOnError: ((err: Error) => void) | undefined =
+    cellPolicy !== undefined && onClientError
+      ? (err) => onClientError(cellPolicy, err)
+      : undefined;
   // Bind the cell's CLIENT mutation verb — the one the bound `.use()` mutate path
   // actually calls. Only `set`/`patch` qualify; `test__set` is the e2e reset
   // procedure, never a consumer mutation, so a `["get", "test__set"]` cell (e.g.
@@ -693,7 +732,7 @@ function bindCell<S extends SurfaceSpec>(
   // leg now (the self-contained detached-root concern). A read-only `.use()` SHARES
   // this `standing` — no second `.get` stream, no duplicate member in `subs`.
   const leg = cellSpec.liveWhen
-    ? openReadinessLeg(key, cellSpec, source, registry, surface)
+    ? openReadinessLeg(key, cellSpec, source, registry, surface, policyOnError)
     : undefined;
   const standing = leg?.standing;
   const cell: BoundCell<unknown, unknown> = {
@@ -728,7 +767,14 @@ function bindCell<S extends SurfaceSpec>(
             useCell(
               // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
               (surface.descriptors.cells as any)[key],
-              { source, authority: "server", onComplete },
+              // `onError: policyOnError` threads the spec-declared policy into the SHARED
+              // slot's ONE subscription (once per slot, never once per consumer).
+              {
+                source,
+                authority: "server",
+                onComplete,
+                onError: policyOnError,
+              },
             ),
           // Enrol the cell's self-clearing error()/pending() into health() ONCE inside
           // the shared slot (un-enrols on slot disposal), not once per consumer — which
@@ -787,7 +833,13 @@ function bindCell<S extends SurfaceSpec>(
           useCell(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
             (surface.descriptors.cells as any)[key],
-            { ...sharedOpts, onComplete },
+            // `onError: policyOnError` routes the spec-declared policy through the shared
+            // subscription's ONE `useCell` funnel — covering BOTH the subscription drop
+            // AND, for a local-authority cell, the coalesced write-FLUSH failure `useCell`
+            // fires from its mutate catch (design §E: write-time, per-failure, but the
+            // SAME declared policy). Divergent `authority`/`coalesceMs` options key
+            // DISTINCT slots, so each honest subscription fires the policy once.
+            { ...sharedOpts, onComplete, onError: policyOnError },
           ),
         (c) => registry.enroll(key, { pending: c.pending, error: c.error }),
       );
@@ -822,8 +874,42 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   surface: Surface<S>,
   link: Rpc,
   live: Accessor<boolean>,
+  onClientError?: OnClientError,
 ): SurfaceClient<S, Rpc> {
   const spec = surface.spec;
+
+  // FAIL-FAST (design §D / F5): a member that DECLARES a `client.onError` policy but
+  // whose client was built with NO interpreter would route that policy nowhere — a
+  // declared error handler that silently swallows, the exact `caught-error-must-not-
+  // collapse-to-empty` defect. So scan the spec ONCE at construction and CRASH LOUDLY
+  // if any cell/collection declares `client.onError` and `onClientError` is absent —
+  // regardless of whether any consumer ever `.use()`s the member (the wiring below
+  // fires only on subscribe; this check must not). Mirrors the loud-crash precedent
+  // at `resolveTransport` (the half-open-blind transport). The typed enforcement lives
+  // upstream (`connectSurfaces`/`connectSurfaceMap` require `onClientError` when the
+  // surface carries a non-`never` policy); this is the belt-and-braces runtime guard.
+  if (onClientError === undefined) {
+    const policyMember =
+      Object.entries(spec.cells ?? {}).find(
+        ([, s]) =>
+          (s as CellSpec<unknown, unknown, unknown>).client?.onError !==
+          undefined,
+      )?.[0] ??
+      Object.entries(spec.collections ?? {}).find(
+        ([, s]) =>
+          (s as CollectionSpec<unknown, unknown, unknown>).client?.onError !==
+          undefined,
+      )?.[0];
+    if (policyMember !== undefined) {
+      throw new Error(
+        `buildSurfaceClient: member "${policyMember}" declares a client.onError ` +
+          "policy but no `onClientError` interpreter was threaded — the declared " +
+          "policy would route nowhere (a silent swallow). Build this surface " +
+          "through `connectSurfaces`/`connectSurfaceMap` with an `onClientError`, " +
+          "which threads the interpreter to every internal `buildSurfaceClient`.",
+      );
+    }
+  }
   // The per-client subscription-health registry. Every `.use()` below enrols its
   // subscription, so `health()` folds a TOTAL picture (a partial registry behind
   // a confident gate is worse than no gate — `./health`). The transport leg is the
@@ -880,6 +966,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       registry,
       subs,
       surface,
+      onClientError,
     );
     cells[key] = cell;
     if (disposeRoot) standingRoots.push(disposeRoot);
@@ -911,9 +998,34 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     );
     const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
     const del = (k: unknown) => ns.delete({ key: k });
+    // The OPAQUE, app-declared client error policy for this collection (design §B),
+    // reified into an error handler that threads the declared value to `onClientError`.
+    // Read as `unknown` — the framework never inspects it. A collection has no
+    // write-flush clock (upsert/delete are direct RPCs), so its ONE funnel is the
+    // subscription error: the whole-collection `dispatchError` (once per shared slot)
+    // and each narrowed keyed subscription's `onError` (per-subscription, §F/m6). The
+    // construction-throw already guaranteed `onClientError` when a policy is declared.
+    const collPolicy: unknown = (
+      rawColl as CollectionSpec<unknown, unknown, unknown>
+    ).client?.onError;
+    const collPolicyOnError: ((err: Error) => void) | undefined =
+      collPolicy !== undefined && onClientError
+        ? (err) => onClientError(collPolicy, err)
+        : undefined;
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
+        // Fold the spec-declared policy into a narrowed (keyed) subscription's error
+        // handling alongside the per-consumer `onError` — both fire on a failure. A
+        // keyed `.use()` is honestly its own subscription (no dedup), so the policy
+        // fires per subscription (§F/m6), the acknowledged duplicate-toast case.
+        const narrowedOnError =
+          onError && collPolicyOnError
+            ? (err: Error) => {
+                onError(err);
+                collPolicyOnError(err);
+              }
+            : (onError ?? collPolicyOnError);
         // A NARROWED subscription (explicit reactive `opts.keys` — the "watch this
         // subset" case) is ACCESSOR-input: two input accessors are honestly two
         // subscriptions, so it stays PER-CONSUMER (no dedup), unchanged. Its `.use()`
@@ -926,7 +1038,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
               keys: opts.keys,
               valueSource: ns.get,
               keyToInput: (k) => ({ key: k }),
-              onError,
+              onError: narrowedOnError,
               enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
             },
           );
@@ -1000,6 +1112,9 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
           // lifetime or clears it — the per-consumer register/unregister above is the
           // only writer/deleter.
           const dispatchError = (err: Error): void => {
+            // The spec-declared policy fires ONCE per shared slot here (never once per
+            // consumer), alongside the live per-consumer handler fan-out below.
+            collPolicyOnError?.(err);
             const live = collOnError.get(collKey);
             if (live) for (const h of live.keys()) h(err);
           };
@@ -1250,6 +1365,7 @@ export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: a LiveSignalHandle over the combined websocket, or a dynamic combined ContractRouterClient; scoping is walk-by-string.
   transport: any,
   entries: E,
+  onClientError?: OnClientError,
 ): SurfaceClients<E> {
   // Collapse the combined transport ONCE, at the public boundary: a
   // `LiveSignalHandle` yields the combined `link` and the shared watchdog-backed
@@ -1268,6 +1384,9 @@ export function surfaceClients<
         // biome-ignore lint/suspicious/noExplicitAny: the scoped sibling slice is dynamic; the per-surface spec carries call-site safety.
         scopeSibling(link, k) as any,
         live,
+        // Threaded to EVERY sibling client — the app spells ONE interpreter at the
+        // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).
+        onClientError,
       ),
     ]),
   ) as SurfaceClients<E>;

@@ -459,6 +459,25 @@ function faceDelegate<
 
 // ── connectSurfaceMap ───────────────────────────────────────────────────
 
+/** Options for {@link connectSurfaceMap} — the keyed-map counterpart to
+ *  `ConnectSurfacesOptions.onClientError`. */
+export interface ConnectSurfaceMapOptions<K> {
+  /** The app's client error interpreter, with the surface-map `origin` INJECTED per
+   *  key. `@kolu/surface-map` is where a `{ key: K }` origin exists (a per-key entry
+   *  client's builder holds the decoded key), so THIS interpreter — unlike the
+   *  origin-free base `OnClientError` — carries it (design §B/§C). A per-key entry
+   *  member's declared `client.onError` policy fires with `origin = { key }`; the
+   *  membership `entries` collection (no per-key origin) fires with `origin` OMITTED.
+   *  So an origin-requiring policy arm is only reachable where the key exists (F8),
+   *  and the base `buildSurfaceClient` stays origin-agnostic (the per-key wrapper
+   *  closes the key over the origin-free interpreter it hands down).
+   *
+   *  Required in practice when the map's entry surface carries a non-`never` policy:
+   *  `buildSurfaceClient` THROWS at construction if a declared policy has no
+   *  interpreter (design §D / F5). Omit it only for a policy-free map. */
+  onClientError?: (policy: unknown, err: Error, origin?: { key: K }) => void;
+}
+
 /** Connect a `SurfaceMap` over a transport, producing the typed map client. The
  *  transport is resolved ONCE (via `resolveTransport`, the ONLY liveness source — there
  *  is NO `{ live }` override seam): the resolved `live` threads into the `entries` client
@@ -483,6 +502,7 @@ export function connectSurfaceMap<
 >(
   map: SurfaceMap<KS, ES, Failure, Conn>,
   transport: unknown,
+  opts?: ConnectSurfaceMapOptions<z.infer<KS>>,
 ): SurfaceMapClient<KS, ES, Failure, Conn> {
   type K = z.infer<KS>;
 
@@ -533,7 +553,13 @@ export function connectSurfaceMap<
     collections: { entries: typeof map.entriesSpec };
   }> = defineSurface({ collections: { entries: map.entriesSpec } });
   const entriesClient = build(() =>
-    buildSurfaceClient(entriesSurface, baseLink, live),
+    // The membership `entries` collection has NO per-key origin — it is the whole
+    // map's membership authority — so its client's interpreter forwards to the app
+    // interpreter with `origin` OMITTED (design §C). The base `buildSurfaceClient`
+    // stays origin-agnostic; the `{ key }` origin lives only where keys exist (below).
+    buildSurfaceClient(entriesSurface, baseLink, live, (policy, err) =>
+      opts?.onClientError?.(policy, err),
+    ),
   );
   const rawEntries = entriesClient.collections
     .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure, Conn>>;
@@ -642,7 +668,17 @@ export function connectSurfaceMap<
     let c = inner.get(id);
     if (!c) {
       c = build(() =>
-        buildSurfaceClient(map.entry, keyInjectingLink(baseLink, enc), live),
+        // INJECT the origin PER KEY: this builder holds the decoded `key: K`, so it
+        // wraps the app interpreter to close `{ key }` over it and hands the base
+        // ORIGIN-FREE `(policy, err)` shape to `buildSurfaceClient` (design §C). So an
+        // origin-bearing policy arm (kolu's hostToast/scopedSub) is only reachable
+        // here, where the key exists — the base stays origin-agnostic.
+        buildSurfaceClient(
+          map.entry,
+          keyInjectingLink(baseLink, enc),
+          live,
+          (policy, err) => opts?.onClientError?.(policy, err, { key }),
+        ),
       ) as SurfaceClient<ES>;
       inner.set(id, c);
       // A REAL id supersedes every prior client for THIS enc — the `#pending` slot AND
