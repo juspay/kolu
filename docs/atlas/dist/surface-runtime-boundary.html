@@ -274,8 +274,8 @@
 </tr>
 <tr>
 <td><strong>SR9</strong></td>
-<td>bridge: <code>reactiveFamily</code> + <code>derived.registry</code> — the <code>serveHostMap</code> reshape (worked example 4)</td>
-<td>~60 lines of serveHostMap plumbing (drishti’s clone already died in #92)</td>
+<td>bridge: <code>reactiveFamily</code> + <code>derived.registry</code> — the <code>serveHostMap</code> reshape (worked example 4), <strong>extended: one connection authority.</strong> Both connection views — the map’s <code>EntryStatus</code> <em>and</em> the per-host <code>connection</code> cell — derive from the one <code>reactiveFamily&lt;SessionState&gt;</code> source; the reshape as originally worked unifies only the dot, and the surviving second subscription is a live bug (<a href="https://github.com/srid/drishti/issues/102">srid/drishti#102</a>: green dot + permanent “connecting”; the callout in <a href="surface-reactive-bridge.html#the-worked-examples">worked example 4</a>). Done-criteria include the joint-invariant contract test — <em>for any <code>SessionState</code>, <code>EntryStatus === connected</code> ⟺ <code>connection.phase === connected</code></em> — and a drishti steady-state e2e that a connected host’s dot and word agree in one settled frame</td>
+<td>~60 lines of serveHostMap plumbing (drishti’s clone already died in #92); the second independent connection projection/subscription — the dot-vs-word split (fixes srid/drishti#102)</td>
 <td>drishti pair</td>
 </tr>
 <tr>
