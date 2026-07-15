@@ -14,7 +14,7 @@
  *  2. CACHE each session's latest `SessionState` (a `Session` has no synchronous state
  *     getter — only `onState`), so the map's `resolve()` answers `state` synchronously.
  *  3. PROJECT `SessionState` → the map's `EntryConnectionState` (a distinct target from
- *     the browser `ConnectionInfo` that `connectionPipe.projectConnection` builds),
+ *     the browser `ConnectionInfo` that `connection.projectConnection` builds),
  *     folding in the session's measured `clockOffset` for the `connected` state.
  *
  * `reactiveFamily` owns (1) the membership diff, (2) the last-frame hold, plus per-key
@@ -101,7 +101,7 @@ type RawConnectionState =
   | { kind: "failed" };
 
 /** Project a `SessionState` → the map's `EntryConnectionState`. NEW projection — NOT
- *  `connectionPipe.projectConnection` (which targets the 4-field browser
+ *  `connection.projectConnection` (which targets the 4-field browser
  *  `ConnectionInfo`). Readiness is LINK liveness, NOT clock-measured: a connected
  *  session projects to `connected` REGARDLESS of whether the clock offset has landed.
  *  The offset is a SEPARATE fact riding the session's own `connected` arm
