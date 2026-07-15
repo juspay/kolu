@@ -56,8 +56,11 @@ export type { EntryState };
 /** The entry-typed subtree PLUS a total existence-as-a-value fold over
  *  `entries`. Reuses the base `SurfaceClient<ES>`'s bound subtrees verbatim
  *  (`.cells`/`.collections`/`.streams`/`.events`/`.procedures`). */
-export interface Entry<ES extends SurfaceSpec, Failure = unknown>
-  extends Pick<
+export interface Entry<
+  ES extends SurfaceSpec,
+  Failure = unknown,
+  Conn = unknown,
+> extends Pick<
     SurfaceClient<ES>,
     "cells" | "collections" | "streams" | "events"
   > {
@@ -85,8 +88,10 @@ export interface Entry<ES extends SurfaceSpec, Failure = unknown>
   readonly clock: EntryClock;
   /** The `EntryStatus` when a member, an explicit `not-a-member` value when not
    *  — a client fold over `entries`, total and never nullable. Read it inside a
-   *  reactive scope (it subscribes to the membership collection). */
-  state(): EntryState<Failure>;
+   *  reactive scope (it subscribes to the membership collection). Carries the fine
+   *  `connection` payload (SR9) so a consumer derives the word from the SAME entry the
+   *  dot reads — no second subscription. */
+  state(): EntryState<Failure, Conn>;
 }
 
 /** The entry's clock translation (see {@link Entry.clock}). */
@@ -112,15 +117,20 @@ export interface EntryClock {
  *  transport). Every other status (`failed` / `warming` / `not-a-member`) is already
  *  honest and passes through untouched, and a live link is a no-op. Making `live` a
  *  REQUIRED argument is the point: `foldState` cannot forget to floor. */
-export function floorOnLiveness<Failure = unknown>(
-  status: EntryState<Failure>,
+export function floorOnLiveness<Failure = unknown, Conn = unknown>(
+  status: EntryState<Failure, Conn>,
   live: boolean,
-): EntryState<Failure> {
+): EntryState<Failure, Conn> {
   // Downgrade the CLAIM (connected → warming) but carry the entry's opaque
-  // `membershipId` through untouched — the floor is about liveness, not identity, so
-  // the demoted `warming` is still the SAME membership, keyed the same way (PR3).
+  // `membershipId` AND its fine `connection` payload (SR9) through untouched — the floor
+  // is about liveness, not identity or the fine connection state, so the demoted
+  // `warming` is still the SAME membership + connection, keyed the same way (PR3).
   if (status.kind === "connected" && !live)
-    return { kind: "warming", membershipId: status.membershipId };
+    return {
+      kind: "warming",
+      membershipId: status.membershipId,
+      connection: status.connection,
+    };
   return status;
 }
 
@@ -135,19 +145,19 @@ export function floorOnLiveness<Failure = unknown>(
  *  DEMOTES a `connected` value it's handed (never introduces `not-a-member`), so the
  *  cast back to `EntryStatus` is sound. `pending`/`error`/`complete` pass through
  *  untouched — only the VALUE the subscription reports is floored. */
-function floorEntrySubscription<Failure = unknown>(
-  sub: Subscription<EntryStatus<Failure>>,
+function floorEntrySubscription<Failure = unknown, Conn = unknown>(
+  sub: Subscription<EntryStatus<Failure, Conn>>,
   live: Accessor<boolean>,
-): Subscription<EntryStatus<Failure>> {
+): Subscription<EntryStatus<Failure, Conn>> {
   return Object.assign(
     () => {
       const v = sub();
       return v === undefined
         ? undefined
-        : (floorOnLiveness(v, live()) as EntryStatus<Failure>);
+        : (floorOnLiveness(v, live()) as EntryStatus<Failure, Conn>);
     },
     { pending: sub.pending, error: sub.error, complete: sub.complete },
-  ) as Subscription<EntryStatus<Failure>>;
+  ) as Subscription<EntryStatus<Failure, Conn>>;
 }
 
 /** Build an {@link EntryClock} over a `state()` reader. `measureClockOffset` stamps
@@ -172,9 +182,13 @@ export interface SurfaceMapClient<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
   Failure = unknown,
+  Conn = unknown,
 > {
   /** The ONE membership authority, consumed as a normal bound collection. */
-  readonly entries: ReadOnlyBoundCollection<z.infer<KS>, EntryStatus<Failure>>;
+  readonly entries: ReadOnlyBoundCollection<
+    z.infer<KS>,
+    EntryStatus<Failure, Conn>
+  >;
   /** The app-transport liveness leg (resolved from the link once). A per-key chip
    *  must FLOOR its status claim on this — a stale `connected` over a silently
    *  half-open link is the #1568 lie. Constant-`true` for an in-process `directLink`;
@@ -189,11 +203,11 @@ export interface SurfaceMapClient<
   readonly codec: KeyCodec<z.infer<KS>>;
   /** PURE lens — partial application of the key. No owner, no I/O, safe
    *  anywhere. Total. */
-  entry(key: z.infer<KS>): Entry<ES, Failure>;
+  entry(key: z.infer<KS>): Entry<ES, Failure, Conn>;
   /** Solid reactive lens — owns swap disposal (a keyed root disposes the old
    *  key's subscriptions on switch and rebuilds synchronously). THROWS outside a
    *  reactive owner. */
-  useEntry(key: Accessor<z.infer<KS>>): Entry<ES, Failure>;
+  useEntry(key: Accessor<z.infer<KS>>): Entry<ES, Failure, Conn>;
   dispose(): void;
 }
 
@@ -313,11 +327,16 @@ function reactiveDelegate<R extends object>(current: Accessor<R>): R {
  *  re-add / authority restart (a new membershipId), the two paths PR3 makes rebuild by
  *  construction. Imperative collection members (`upsert`/`delete`) and procedures
  *  delegate to the current key (one-shot — no membership-fresh client needed). */
-function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
-  entryFor: (key: K) => Entry<ES, Failure>,
+function makeReactiveEntry<
+  ES extends SurfaceSpec,
+  K,
+  Failure = unknown,
+  Conn = unknown,
+>(
+  entryFor: (key: K) => Entry<ES, Failure, Conn>,
   keyAccessor: Accessor<K>,
   reKeyIdentity: (key: K) => string,
-): Entry<ES, Failure> {
+): Entry<ES, Failure, Conn> {
   const primProxy = (prim: "cells" | "collections" | "streams" | "events") =>
     new Proxy(
       {},
@@ -400,7 +419,7 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
     rpc: faceDelegate(entryFor, keyAccessor, (e) => e.rpc),
     clock: makeEntryClock(() => entryFor(keyAccessor()).state()),
     state: () => entryFor(keyAccessor()).state(),
-  } as unknown as Entry<ES, Failure>;
+  } as unknown as Entry<ES, Failure, Conn>;
 }
 
 /** A path-walking proxy over a chosen entry FACE (`e.procedures` or `e.rpc`) that reads
@@ -408,10 +427,15 @@ function makeReactiveEntry<ES extends SurfaceSpec, K, Failure = unknown>(
  *  the active host at call time. The `face` selector is the ONLY axis of variation
  *  between the two imperative subtrees; both are the same arbitrary-depth walk (rare for
  *  `.rpc`: procedures usually use the pure `entry()`, but this keeps the face total). */
-function faceDelegate<ES extends SurfaceSpec, K, Failure = unknown>(
-  entryFor: (key: K) => Entry<ES, Failure>,
+function faceDelegate<
+  ES extends SurfaceSpec,
+  K,
+  Failure = unknown,
+  Conn = unknown,
+>(
+  entryFor: (key: K) => Entry<ES, Failure, Conn>,
   keyAccessor: Accessor<K>,
-  face: (entry: Entry<ES, Failure>) => unknown,
+  face: (entry: Entry<ES, Failure, Conn>) => unknown,
 ): unknown {
   const walk = (path: string[]): unknown =>
     new Proxy(() => {}, {
@@ -448,10 +472,11 @@ export function connectSurfaceMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
   Failure = unknown,
+  Conn = unknown,
 >(
-  map: SurfaceMap<KS, ES, Failure>,
+  map: SurfaceMap<KS, ES, Failure, Conn>,
   transport: unknown,
-): SurfaceMapClient<KS, ES, Failure> {
+): SurfaceMapClient<KS, ES, Failure, Conn> {
   type K = z.infer<KS>;
 
   // Resolve the transport ONCE — the guard is the ONLY way in: a branded
@@ -504,7 +529,7 @@ export function connectSurfaceMap<
     buildSurfaceClient(entriesSurface, baseLink, live),
   );
   const rawEntries = entriesClient.collections
-    .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure>>;
+    .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure, Conn>>;
 
   // A key object has NO reference identity of its own (two independent decodes of
   // the same wire string are logically equal but never `===` — zod's `.parse`
@@ -537,7 +562,7 @@ export function connectSurfaceMap<
   // the selector strip) can `.kind`-switch the members it reads. `decodeKey`'s
   // canonicalization means an UNCHANGED member yields the SAME `K` reference across
   // calls, so a reference-keyed `<For>` reconciles only a genuinely changed row.
-  const entries: ReadOnlyBoundCollection<K, EntryStatus<Failure>> = {
+  const entries: ReadOnlyBoundCollection<K, EntryStatus<Failure, Conn>> = {
     use(opts) {
       const rawKeys = opts?.keys
         ? () => opts.keys?.().map((k) => map.codec.encode(k)) ?? []
@@ -564,7 +589,7 @@ export function connectSurfaceMap<
     const enc = map.codec.encode(key);
     const view = rawEntries.use();
     if (!view.keys().includes(enc)) return undefined;
-    return (view.byKey(enc)?.() as EntryStatus<Failure> | undefined)
+    return (view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined)
       ?.membershipId;
   };
 
@@ -672,11 +697,11 @@ export function connectSurfaceMap<
     });
   });
 
-  const foldState = (key: K): EntryState<Failure> => {
+  const foldState = (key: K): EntryState<Failure, Conn> => {
     const view = rawEntries.use();
     const enc = map.codec.encode(key);
     if (!view.keys().includes(enc)) return { kind: "not-a-member" };
-    const v = view.byKey(enc)?.() as EntryStatus<Failure> | undefined;
+    const v = view.byKey(enc)?.() as EntryStatus<Failure, Conn> | undefined;
     // A member whose per-key status frame hasn't landed yet is honestly warming; then
     // FLOOR the claim on the map's OWN transport liveness via {@link floorOnLiveness}: a
     // server-published "connected" over a dead/half-open link (`live() === false`) can no
@@ -698,7 +723,7 @@ export function connectSurfaceMap<
     );
   };
 
-  const entry = (key: K): Entry<ES, Failure> => {
+  const entry = (key: K): Entry<ES, Failure, Conn> => {
     // Key the per-key client on the CURRENT {enc, membershipId} (PR3). Read the id only
     // inside a reactive owner — the `useEntry` / reactive-`.use()` path, whose keyed root
     // (`reKeyIdentity`) drives the rebuild on a re-add/restart — and read it UNTRACKED, so
@@ -720,13 +745,13 @@ export function connectSurfaceMap<
       procedures: c.procedures,
       // The raw oRPC procedure client — reserved procs + link-root escape hatch. Typed
       // loosely off the untyped link (`c.rpc` is `unknown`), so cast to `Entry.rpc`.
-      rpc: c.rpc as Entry<ES, Failure>["rpc"],
+      rpc: c.rpc as Entry<ES, Failure, Conn>["rpc"],
       clock: makeEntryClock(() => foldState(key)),
       state: () => foldState(key),
     };
   };
 
-  const useEntry = (keyAccessor: Accessor<K>): Entry<ES, Failure> => {
+  const useEntry = (keyAccessor: Accessor<K>): Entry<ES, Failure, Conn> => {
     if (!getOwner()) {
       throw new Error(
         "connectSurfaceMap: useEntry(accessor) must run inside a reactive owner " +

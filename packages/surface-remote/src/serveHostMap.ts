@@ -151,12 +151,23 @@ export function projectState<Prov extends string>(
   return { kind: "copying" };
 }
 
-export interface ServeHostMapOptions<K, S, Failure = unknown> {
+export interface ServeHostMapOptions<K, S, Failure = unknown, Conn = unknown> {
   /** The re-served entry-surface CLIENT for one host — a `directLink` over the host's
    *  `reServeSurface(...).router` (the re-serve POLICY is app-specific, hence
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
+  /** SR9 — project the session's cached frame → the FINE connection payload the entry
+   *  publishes (padi's `ConnectionInfo`: the rich phase + log tail + elapsed the coarse
+   *  `EntryStatus.kind` folds away). Injected because the fine connection's TYPE is domain
+   *  knowledge (`@kolu/surface-remote` is transport-only, the same reason `failureOf` is
+   *  injected). It is called on the SAME `raw` frame, in the SAME `resolve`, as the coarse
+   *  projection — so the dot (`kind`) and the word (`connection`) are co-produced from ONE
+   *  `SessionState` frame and can never disagree (drishti#102 made unspellable). `raw` is
+   *  `undefined` only pre-first-frame (a member seen before its first `onState`); return a
+   *  gate-closed "connecting" connection then, matching the coarse `connecting`. Omit for a
+   *  map that carries no fine connection (the entry then has no `connection` field). */
+  connectionOf?: (raw: SessionState<string> | undefined) => Conn;
   /** Classify a DOWN session into the map's schema-valid domain `failure` — this
    *  adapter is transport-only (it projects a bare {@link DownSessionState}, which
    *  carries only the transport-axis `cause`, "network" vs "remote"); a domain
@@ -193,10 +204,11 @@ export function serveHostMap<
   ES extends SurfaceSpec,
   S extends MappableSession,
   Failure = unknown,
+  Conn = unknown,
 >(
-  map: SurfaceMap<KS, ES, Failure>,
+  map: SurfaceMap<KS, ES, Failure, Conn>,
   pool: MembershipPool<S>,
-  opts: ServeHostMapOptions<z.infer<KS>, S, Failure>,
+  opts: ServeHostMapOptions<z.infer<KS>, S, Failure, Conn>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   // `pool` is ALWAYS string-keyed (the warm ssh pool's native key), while the map's
@@ -257,7 +269,7 @@ export function serveHostMap<
   const resolveEntry = (
     enc: string,
     raw: SessionState<string> | undefined,
-  ): EntrySession<"copying", Failure> | EntryFault<Failure> => {
+  ): EntrySession<"copying", Failure, Conn> | EntryFault<Failure> => {
     const session = pool.getSession(enc);
     if (session === undefined) {
       // A member with NO session — `has(k)` true but `getSession(k)` undefined.
@@ -339,6 +351,12 @@ export function serveHostMap<
       kind: "session",
       link: linkFor(k, session),
       state,
+      // SR9 — the FINE connection payload, projected from the SAME `raw` frame that
+      // produced `state` above, in this SAME `resolve`. One frame → both the dot (`state`
+      // → `kind`) and the word (`connection`); there is no construction path for a
+      // half-updated pair, so the drishti#102 divergence is unspellable. Absent when no
+      // `connectionOf` is injected (a map that carries no fine connection).
+      connection: opts.connectionOf?.(raw),
     };
   };
 
@@ -350,7 +368,7 @@ export function serveHostMap<
 
   // Bridge the family's STRING key space to the map's `K` at the `MapRegistry<K>`
   // boundary (the only place the codec is needed).
-  const registry: MapRegistry<K, "copying", Failure> = {
+  const registry: MapRegistry<K, "copying", Failure, Conn> = {
     members: () => reg.members().map(decode),
     subscribe: (onChange) => reg.subscribe(onChange),
     has: (k) => reg.has(encode(k)),

@@ -16,6 +16,7 @@ import {
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { type ConnectionInfo, ConnectionInfoSchema } from "./connection";
 import { buildRemotePool } from "./hostFanout";
 import {
   projectState,
@@ -51,7 +52,17 @@ const map = defineSurfaceMap({
   entry: entrySurface,
   codec: identityCodec,
   failure: failureSchema,
+  // SR9: the map carries the FINE connection payload (`ConnectionInfo`) on its entries,
+  // so a consumer derives BOTH the coarse dot and the fine word from the SAME entry.
+  connection: ConnectionInfoSchema,
 });
+
+/** The SR9 fine-connection projection the padi call site injects — the entry's word.
+ *  For this transport-only test the fine connection IS the raw frame (a `ConnectionInfo`
+ *  by construction: the fake sessions are ssh-typed); a not-yet-seeded member projects the
+ *  gate-closed "connecting", matching the coarse arm. */
+const connectionOf = (raw: SessionState<string> | undefined): ConnectionInfo =>
+  (raw ?? { phase: "connecting", log: [], sinceMs: 0 }) as ConnectionInfo;
 
 /** A test `failureOf` — classifies a DOWN state's transport `error` into the
  *  schema-valid failure. `failureOf` is only ever invoked on a genuinely-down state,
@@ -379,4 +390,47 @@ describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () 
       for (const h of priorHandlers) process.on("uncaughtException", h);
     }
   });
+});
+
+describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
+  // THE LAW banked with SR9: for any `SessionState`, the entry's coarse dot
+  // (`EntryStatus.kind === "connected"`) ⟺ its fine word
+  // (`connection.phase === "connected"`). Before SR9 the word lived on a SEPARATE
+  // `connection` cell (a second wire channel / subscription) that could latch out of
+  // step with the dot — the drishti#102 divergence (green dot, permanent "connecting").
+  // SR9 makes them ONE arm, produced by ONE per-frame projection from ONE `SessionState`,
+  // so a half-updated dot/word pair has NO construction path. This test pins what that
+  // construction guarantees; it also DRIVES the API (the entry must carry `connection`),
+  // so it is RED until the fine payload rides the served `EntryStatus`.
+  const cases: Array<{ name: string; state: SessionState<SshProv> }> = [
+    { name: "connecting", state: st("connecting") },
+    { name: "copying", state: st("copying") },
+    { name: "building", state: st("building") },
+    { name: "connected(measured)", state: connected(42) },
+    { name: "connected(unmeasured)", state: connected(null) },
+    { name: "disconnected", state: st("disconnected", "boom") },
+    { name: "failed", state: st("failed", "dead") },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: dot-connected ⟺ word-connected (one arm, one frame)`, async () => {
+      const pf = fakePool();
+      const served = serveHostMap(map, pf.pool, {
+        linkFor: () => ({ surface: {} }),
+        failureOf: classify,
+        connectionOf,
+      });
+      const link = directLink<AnyContractRouter>(served.router as never);
+      pf.add("h", fakeSession(c.state));
+      const iter = await entriesGet(link, "h");
+      const value = (await iter.next()).value as EntryStatus & {
+        connection?: { phase?: string };
+      };
+      const dotConnected = value.kind === "connected";
+      const wordConnected = value.connection?.phase === "connected";
+      // The biconditional — the single fact the two views must never disagree on.
+      expect(dotConnected).toBe(wordConnected);
+      served.dispose();
+    });
+  }
 });
