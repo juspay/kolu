@@ -15,12 +15,18 @@ function expandDeepLink(world: KoluWorld, template: string): string {
   return template
     .replace(/\{id(\d+)\}/g, (_m, n: string) => {
       const id = world.createdTerminalIds[Number(n) - 1];
-      assert.ok(id, `no created terminal #${n} — call "I create a terminal" first`);
+      assert.ok(
+        id,
+        `no created terminal #${n} — call "I create a terminal" first`,
+      );
       return id;
     })
     .replace(/\{sub\}/g, () => {
       const id = world.rememberedSubTerminalId;
-      assert.ok(id, "no remembered sub-terminal — call \"I remember the sub-terminal's id\" first");
+      assert.ok(
+        id,
+        'no remembered sub-terminal — call "I remember the sub-terminal\'s id" first',
+      );
       return id;
     });
 }
