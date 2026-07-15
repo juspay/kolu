@@ -140,6 +140,10 @@ export function projectConnection<Prov extends SshProv>(
   return s;
 }
 
+/** Frames already validated by {@link sessionConnection}, keyed by REFERENCE so the entry is
+ *  auto-evicted when the family replaces the frame — the validate-once-per-frame memo. */
+const validatedFrames = new WeakSet<SessionState<string>>();
+
 /** The total projection a host-map consumer feeds to `serveHostMap`'s `connection.project` —
  *  `(raw: SessionState<string> | undefined) => ConnectionInfo`, shaped to that seam so no
  *  consumer re-hand-assembles the undefined-arm + the erased-`Prov` cast. Folds the
@@ -162,19 +166,28 @@ export function projectConnection<Prov extends SshProv>(
  *  catch downstream. On success the ORIGINAL frame is returned (never the parsed clone) —
  *  reference stability is what the entries `equals` dedup rests on, and `makeSession` stamps
  *  every arm field, so this validation never trips in steady state; it is the fail-fast
- *  belt for a future producer that forgets. */
+ *  belt for a future producer that forgets.
+ *
+ *  VALIDATE-ONCE-PER-FRAME: `serveHostMap` re-projects the SAME cached frame on every
+ *  republish (O(M) per change, O(M²) per pool burst) — a `safeParse` on each would re-walk
+ *  unchanged frames on the status hot path. The frame is reference-stable until its next
+ *  `onState`, so the validation is memoised by frame REFERENCE ({@link validatedFrames}, a
+ *  `WeakMap` auto-evicted when the frame is replaced): only a genuinely-new frame parses. */
 export function sessionConnection(
   raw: SessionState<string> | undefined,
 ): ConnectionInfo {
   if (raw === undefined) return DEFAULT_CONNECTION;
-  const parsed = ConnectionInfoSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      "sessionConnection: session frame is not a valid ConnectionInfo — a host map " +
-        "declaring a `connection` payload must be served over ssh-typed sessions producing " +
-        "valid ConnectionInfo frames (`makeSession` stamps every arm field). Failing loud " +
-        `rather than casting a malformed/non-ssh frame. ${parsed.error.message}`,
-    );
+  if (!validatedFrames.has(raw)) {
+    const parsed = ConnectionInfoSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        "sessionConnection: session frame is not a valid ConnectionInfo — a host map " +
+          "declaring a `connection` payload must be served over ssh-typed sessions producing " +
+          "valid ConnectionInfo frames (`makeSession` stamps every arm field). Failing loud " +
+          `rather than casting a malformed/non-ssh frame. ${parsed.error.message}`,
+      );
+    }
+    validatedFrames.add(raw);
   }
   // The frame IS a valid ConnectionInfo (validated above) — return it, not the clone, so
   // the reference stays stable for the entries `equals` dedup. `projectConnection` names
