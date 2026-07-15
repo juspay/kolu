@@ -3,8 +3,9 @@
  *
  * The pool ({@link buildRemotePool}) is the membership + session source; the app
  * supplies each host's re-served entry-surface link (the re-serve POLICY is
- * app-specific, so `linkFor` is injected). This adapter's job is the framework glue
- * a hand-rolled `MapRegistry` would otherwise repeat:
+ * app-specific, so `linkFor` is injected). This adapter's job is the PROJECTION and
+ * the codec bridge — the framework glue a hand-rolled `MapRegistry` would otherwise
+ * repeat is now owned, once, by `@kolu/surface`'s {@link reactiveFamily}:
  *
  *  1. FUSE the pool's membership `subscribe` with each member session's own
  *     `onState`, so the map's `entries` collection republishes on BOTH a membership
@@ -16,10 +17,15 @@
  *     the browser `ConnectionInfo` that `connectionPipe.projectConnection` builds),
  *     folding in the session's measured `clockOffset` for the `connected` state.
  *
- * Then it hands the composed registry to `serveSurfaceMap`.
+ * `reactiveFamily` owns (1) the membership diff, (2) the last-frame hold, plus per-key
+ * disposal and per-member error isolation; this file keeps only the PROJECTION (clause
+ * 3 — `projectState` + the injected `failureOf` + the #1716 belt) and the `map.codec`
+ * bridge at the `MapRegistry<K>` boundary. It then hands the composed registry (via
+ * `derived.registry`, the pull-face exit) to `serveSurfaceMap`.
  */
 
 import type { SurfaceSpec } from "@kolu/surface/define";
+import { derived, reactiveFamily, source } from "@kolu/surface/reactor";
 import type { SurfaceMap } from "@kolu/surface-map";
 import {
   type EntryConnectionState,
@@ -140,8 +146,8 @@ export function projectState<Prov extends string>(
   if (s.phase === "connecting") return { kind: "connecting" };
   // A connector-declared provisioning phase (ssh's `probing`/`copying`/`building`) —
   // the map's coarse "warming" bucket (its `EntryStatus` collapses them all to
-  // `warming`; the fine phase rides the per-host `connection` cell, not this
-  // projection).
+  // `warming`; the fine phase rides the entry's own `SessionState`, which the browser
+  // now reads off the entry directly — no separate `connection` cell).
   return { kind: "copying" };
 }
 
@@ -180,8 +186,8 @@ export type MembershipPool<S extends Session<SurfaceClientLike, string>> = Pick<
 >;
 
 /** Serve a `SurfaceMap` over a warm host pool. Returns the same shape
- *  `serveSurfaceMap` does; `dispose()` tears down the map, the membership
- *  subscription, and every per-member `onState`. */
+ *  `serveSurfaceMap` does; `dispose()` tears down the map and, through the reactive
+ *  family, the membership subscription and every per-member `onState`. */
 export function serveHostMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
@@ -194,94 +200,44 @@ export function serveHostMap<
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   // `pool` is ALWAYS string-keyed (the warm ssh pool's native key), while the map's
-  // own `K` may be a non-primitive (kolu's `HostKey`). Every internal cache here
-  // (state, subs, links) is therefore keyed by the pool's own STRING — `map.codec`
-  // bridges to/from `K` only at the `MapRegistry<K>` boundary below, mirroring the
-  // same string-space-internally/object-at-the-boundary shape `@kolu/surface-map`'s
-  // own client/server halves use.
+  // own `K` may be a non-primitive (kolu's `HostKey`). The reactive family below is
+  // keyed by the pool's own STRING; `map.codec` bridges to/from `K` only at the
+  // `MapRegistry<K>` boundary, mirroring the same string-space-internally/
+  // object-at-the-boundary shape `@kolu/surface-map`'s own client/server halves use.
   const { encode, decode } = map.codec;
 
-  const latestState = new Map<string, SessionState<string>>();
-  const stateSubs = new Map<string, () => void>();
+  // The re-served entry-surface link per host, memoised and evicted on host exit (the
+  // re-serve POLICY is app-specific, hence injected). The ONE hand-held cache that
+  // survives the reshape — its eviction now rides the family's `onEvict`.
   const links = new Map<string, unknown>();
-  const changeListeners = new Set<() => void>();
 
-  // The ONE funnel every republish emission passes through — BOTH a per-member
-  // `onState` transition (`attach`, below) and a membership change (`offMembership`,
-  // below) drive it. `l()` is `serveSurfaceMap`'s republish over EVERY member (resolve
-  // → projectState → failureOf → belt), so any throw that escapes it is an INVARIANT /
-  // producer defect (`UnclassifiedHostFailureError`, `UnclassifiedHostSessionError`,
-  // the #1716 belt), never a recoverable per-member condition. The guard lives HERE, at
-  // the shared funnel, NOT at one caller — otherwise the identical defect has two fates:
-  // the `onState` path caught-and-crashed, the membership path escaping SYNCHRONOUSLY
-  // out of `pool.subscribe`'s callback the moment an unrelated host is added/removed.
-  // Catching per-listener means (1) one member's defect can't abort the remaining
-  // listeners, and (2) it can't tear down whichever caller drove this fire (the
-  // `onState` consume loop — freezing that member while a sibling advances, the
-  // green-chip-frozen divergence). It must still FAIL LOUD, not degrade to
-  // stale-but-healthy (a `console.error` no server watches is the exact silent fallback
-  // the design philosophy forbids), so we RETHROW out-of-band on the next microtask: the
-  // sync loop finishes the frame, the invariant crashes the process (uncaught) right
-  // after. (A CLIENT-initiated read/forward — the map's `readAll`/`readOne`/
-  // `makeStreamHandler` calls into `resolve` — is NOT routed through here; its throw
-  // surfaces as a loud client-facing stream error, the loud thing appropriate to a
-  // caller that CAN receive one.)
-  const fire = (): void => {
-    for (const l of [...changeListeners]) {
-      try {
-        l();
-      } catch (err) {
-        queueMicrotask(() => {
-          throw new Error(
-            "[serveHostMap] entries republish threw — an invariant/producer defect; " +
-              "failing loud rather than degrading to a stale status stream",
-            { cause: err },
-          );
-        });
-      }
-    }
-  };
-  const members = (): K[] => pool.hosts().map((h) => decode(h));
-  const has = (k: K): boolean => pool.has(encode(k));
-  const sessionOf = (k: K): S | undefined => pool.getSession(encode(k));
-
-  // Attach a per-member `onState` — cache the latest state, and fire the fused change
-  // signal on every transition so `entries` republishes the new `EntryStatus` WITHOUT
-  // a membership change. `onState` is snapshot-then-delta, so this also seeds the cache
-  // synchronously.
-  const attach = (enc: string): void => {
-    if (stateSubs.has(enc)) return;
-    const session = pool.getSession(enc);
-    if (session === undefined) return;
-    const off = session.onState((s) => {
-      // Cache the frame FIRST — the republish `fire()` drives must never lose it (d3).
-      // `fire()` itself owns the fail-loud guard (it is the shared funnel both this
-      // `onState` path and the membership path drive), so this consumer just fires.
-      latestState.set(enc, s);
-      fire();
-    });
-    stateSubs.set(enc, off);
-  };
-  const detach = (enc: string): void => {
-    stateSubs.get(enc)?.();
-    stateSubs.delete(enc);
-    latestState.delete(enc);
-    links.delete(enc);
-  };
-  // Reconcile per-member `onState` subs (and dropped links) against membership.
-  const reconcile = (): void => {
-    const current = new Set(pool.hosts());
-    for (const enc of current) attach(enc);
-    for (const enc of [...stateSubs.keys()]) if (!current.has(enc)) detach(enc);
-  };
-  reconcile();
-
-  // Membership change → reconcile the per-member subs, then fire. `pool.subscribe`
-  // fires only after `hosts()`/`has()` reflect the change (ordering), so the fused
-  // signal is never ahead of the snapshot the republish reads.
-  const offMembership = pool.subscribe(() => {
-    reconcile();
-    fire();
+  // The ONE membership+state source. `reactiveFamily` fuses the pool's membership
+  // `subscribe` with each session's own `onState` and owns — once, for the framework —
+  // the membership diff, the last-frame hold (a `Session` has no synchronous state
+  // getter, only `onState`), per-key disposal, and per-member error isolation. What was
+  // ~60 lines of hand-held `latestState`/`stateSubs`/`attach`/`detach`/`reconcile`/`fire`
+  // here (including the shared funnel's fail-loud-but-isolated republish catch) is now
+  // the primitive's job; the fail-loud republish doctrine rides its `subscribe`.
+  const family = reactiveFamily<string, SessionState<string>>({
+    // One occurrence per membership transition — `pool.subscribe` fires only after
+    // `hosts()`/`has()` reflect the change (the pool's ordering clause), so the family's
+    // reconcile is never ahead of the snapshot the republish reads, and a remove/re-add
+    // are two transitions (never coalesced — the map's clause-3 the `membershipId` mint
+    // rests on).
+    members: source(
+      (emit) => pool.subscribe(() => emit(pool.hosts())),
+      pool.hosts(),
+    ),
+    // `onState` is snapshot-then-delta, so this seeds the member's state synchronously.
+    // A member with no session (the reconcile race) attaches a no-op — `resolve` then
+    // fails loud (`UnclassifiedHostSessionError`), never fabricating a state for it.
+    attach: (enc, set) => pool.getSession(enc)?.onState(set) ?? (() => {}),
+    // Tie the re-serve link's eviction to the family's per-key disposal — the ONE detach
+    // seam (it mirrored the old `detach`'s `links.delete`), so a departed host's link is
+    // never left behind.
+    onEvict: (enc) => {
+      links.delete(enc);
+    },
   });
 
   const linkFor = (k: K, session: S): unknown => {
@@ -294,103 +250,111 @@ export function serveHostMap<
     return link;
   };
 
-  const registry: MapRegistry<K, "copying", Failure> = {
-    members,
-    has,
-    subscribe(onChange) {
-      changeListeners.add(onChange);
-      return () => {
-        changeListeners.delete(onChange);
-      };
-    },
-    resolve(k): EntrySession<"copying", Failure> | EntryFault<Failure> {
-      const enc = encode(k);
-      const session = sessionOf(k);
-      if (session === undefined) {
-        // A member with NO session — `has(k)` true but `getSession(k)` undefined.
-        // Membership and sessions are reconciled together (CLAUSE 1/2), so this
-        // can't legitimately happen in steady state. PR4: rather than fabricate a
-        // catch-all failure for it, fail LOUD — a real firing means a genuine
-        // unclassified producer appeared, a defect to classify then.
-        throw new UnclassifiedHostSessionError(enc);
-      }
-      const raw = latestState.get(enc);
-      const projected = projectState(raw);
-      // Classify a DOWN state into the map's schema-valid domain `failure` via the
-      // REQUIRED, TOTAL `failureOf` (PR4). `raw` is always defined and genuinely
-      // down here (the only way `projectState` returns "disconnected"/"failed"), so
-      // its transport `error` is real, not invented.
-      let state: EntryConnectionState<"copying", Failure>;
-      if (projected.kind === "disconnected" || projected.kind === "failed") {
-        // Inside this guard `raw` is guaranteed a genuinely-down frame — reuse the
-        // canonical {@link DownSessionState} receptacle (not a hand-rolled
-        // `as { error }`) so the injected classifier AND the seam throw read `error`
-        // off the narrowed shape the type author intended.
-        const down = raw as DownSessionState;
-        // BELT — symmetric with the connected-arm `clockOffset` guard in
-        // `projectState`: the erased `SessionState<string>` seam this map serves over
-        // (`Prov = string`, the phase top) structurally admits a down frame MISSING its
-        // REQUIRED `error` (under a `string` Prov the union's first arm widens `phase` to
-        // `string`, so `{ phase: "disconnected" }` sans `error`/`cause` type-checks). No
-        // producer of ours constructs one — `makeSession` ALWAYS stamps `error`+`cause`
-        // on a down frame — but a future producer that forgot would otherwise reach the
-        // injected `failureOf` reading `undefined`; on a `disconnected` frame `padiFailureOf`
-        // returns `null` without touching `error` and the map would publish the malformed
-        // frame SILENTLY as warming. Fail LOUD here instead (the sanctioned pattern, not a
-        // silent degrade), so the down seam is as fail-loud as the connected one.
-        if (typeof down.error !== "string") {
-          throw new Error(
-            `[serveHostMap] down SessionState for host "${enc}" carries no \`error\` — a ` +
-              "down frame (disconnected/failed) MUST carry a real transport error " +
-              "(makeSession always stamps error+cause). A missing field is a producer " +
-              "defect; failing loud rather than publishing a malformed down state as warming.",
-          );
-        }
-        const failure = opts.failureOf(k, session, down);
-        if (projected.kind === "failed") {
-          // A terminal `failed` session that yields NO domain failure is a producer
-          // defect: the map's `failed` arm cannot exist without a schema-valid
-          // domain failure (PR4, no fabricated fallback). Fail LOUD at this
-          // classification seam — naming the TRUE producer (`failureOf` returned
-          // null for a terminal failed session) — rather than construct a failed-
-          // without-failure state the tightened published arm cannot even hold.
-          if (failure === null)
-            throw new UnclassifiedHostFailureError(enc, down.error);
-          state = { kind: "failed", failure };
-        } else {
-          // `disconnected`: `null` = transient drop → keep `failure` ABSENT
-          // (→ warming); a domain failure → attach it (a standing refuse → failed).
-          state =
-            failure !== null
-              ? { kind: "disconnected", failure }
-              : { kind: "disconnected" };
-        }
-      } else {
-        // An up arm (copying/connecting/connected) — no `failure` field, so it's a
-        // structural subset of `EntryConnectionState<"copying", Failure>` and assigns
-        // directly (the previous cast was redundant).
-        state = projected;
-      }
-      // BELT (juspay/kolu#1716): a non-provisioning session (`session.provisions ===
-      // false` — a `makeSession<_, never>` arm typed WITHOUT "copying") can NEVER
-      // legitimately reach the provisioning phase. Checked per-SESSION (the runtime
-      // twin of its `Prov` type, not an app-nominated "the local one" key), so a pool
-      // with any number of non-provisioning members is covered, not just one. If it
-      // ever projects "copying" anyway, fail LOUD rather than paint a lying "warming"
-      // chip.
-      if (!session.provisions && state.kind === "copying") {
+  // PROJECT one member's cached `SessionState` → its serveable `EntrySession` (or fail
+  // loud). The pure classification the reshape keeps: `projectState` + the injected
+  // `failureOf` + the #1716 belt, composed. `raw` is the family's last-frame hold —
+  // `undefined` only pre-first-frame (`projectState(undefined)` → connecting).
+  const resolveEntry = (
+    enc: string,
+    raw: SessionState<string> | undefined,
+  ): EntrySession<"copying", Failure> | EntryFault<Failure> => {
+    const session = pool.getSession(enc);
+    if (session === undefined) {
+      // A member with NO session — `has(k)` true but `getSession(k)` undefined.
+      // Membership and sessions are reconciled together (CLAUSE 1/2), so this can't
+      // legitimately happen in steady state. PR4: rather than fabricate a catch-all
+      // failure for it, fail LOUD — a real firing means a genuine unclassified producer
+      // appeared, a defect to classify then.
+      throw new UnclassifiedHostSessionError(enc);
+    }
+    const k = decode(enc);
+    const projected = projectState(raw);
+    // Classify a DOWN state into the map's schema-valid domain `failure` via the
+    // REQUIRED, TOTAL `failureOf` (PR4). `raw` is always defined and genuinely down here
+    // (the only way `projectState` returns "disconnected"/"failed"), so its transport
+    // `error` is real, not invented.
+    let state: EntryConnectionState<"copying", Failure>;
+    if (projected.kind === "disconnected" || projected.kind === "failed") {
+      // Inside this guard `raw` is guaranteed a genuinely-down frame — reuse the
+      // canonical {@link DownSessionState} receptacle (not a hand-rolled `as { error }`)
+      // so the injected classifier AND the seam throw read `error` off the narrowed
+      // shape the type author intended.
+      const down = raw as DownSessionState;
+      // BELT — symmetric with the connected-arm `clockOffset` guard in `projectState`:
+      // the erased `SessionState<string>` seam this map serves over (`Prov = string`, the
+      // phase top) structurally admits a down frame MISSING its REQUIRED `error`. No
+      // producer of ours constructs one — `makeSession` ALWAYS stamps `error`+`cause` on
+      // a down frame — but a future producer that forgot would otherwise reach the
+      // injected `failureOf` reading `undefined`; on a `disconnected` frame `padiFailureOf`
+      // returns `null` without touching `error` and the map would publish the malformed
+      // frame SILENTLY as warming. Fail LOUD here instead (the sanctioned pattern, not a
+      // silent degrade), so the down seam is as fail-loud as the connected one.
+      if (typeof down.error !== "string") {
         throw new Error(
-          `host "${enc}" projected a provisioning "copying" state its session can ` +
-            "never inhabit — a non-provisioning session must never enter copying " +
-            "(see juspay/kolu#1716)",
+          `[serveHostMap] down SessionState for host "${enc}" carries no \`error\` — a ` +
+            "down frame (disconnected/failed) MUST carry a real transport error " +
+            "(makeSession always stamps error+cause). A missing field is a producer " +
+            "defect; failing loud rather than publishing a malformed down state as warming.",
         );
       }
-      return {
-        kind: "session",
-        link: linkFor(k, session),
-        state,
-      };
-    },
+      const failure = opts.failureOf(k, session, down);
+      if (projected.kind === "failed") {
+        // A terminal `failed` session that yields NO domain failure is a producer
+        // defect: the map's `failed` arm cannot exist without a schema-valid domain
+        // failure (PR4, no fabricated fallback). Fail LOUD at this classification seam —
+        // naming the TRUE producer (`failureOf` returned null for a terminal failed
+        // session) — rather than construct a failed-without-failure state the tightened
+        // published arm cannot even hold.
+        if (failure === null)
+          throw new UnclassifiedHostFailureError(enc, down.error);
+        state = { kind: "failed", failure };
+      } else {
+        // `disconnected`: `null` = transient drop → keep `failure` ABSENT (→ warming); a
+        // domain failure → attach it (a standing refuse → failed).
+        state =
+          failure !== null
+            ? { kind: "disconnected", failure }
+            : { kind: "disconnected" };
+      }
+    } else {
+      // An up arm (copying/connecting/connected) — no `failure` field, so it's a
+      // structural subset of `EntryConnectionState<"copying", Failure>` and assigns
+      // directly.
+      state = projected;
+    }
+    // BELT (juspay/kolu#1716): a non-provisioning session (`session.provisions === false`
+    // — a `makeSession<_, never>` arm typed WITHOUT "copying") can NEVER legitimately
+    // reach the provisioning phase. Checked per-SESSION (the runtime twin of its `Prov`
+    // type, not an app-nominated "the local one" key), so a pool with any number of
+    // non-provisioning members is covered. If it ever projects "copying" anyway, fail
+    // LOUD rather than paint a lying "warming" chip.
+    if (!session.provisions && state.kind === "copying") {
+      throw new Error(
+        `host "${enc}" projected a provisioning "copying" state its session can ` +
+          "never inhabit — a non-provisioning session must never enter copying " +
+          "(see juspay/kolu#1716)",
+      );
+    }
+    return {
+      kind: "session",
+      link: linkFor(k, session),
+      state,
+    };
+  };
+
+  // The pull-face exit over the family: resolves each member's entry on demand from its
+  // cached state, and fires the republish `subscribe` on every family change (membership
+  // OR status). A republish throw (an invariant/producer defect) is contained + rethrown
+  // out-of-band by the family — the old shared-funnel `fire()` doctrine, framework-owned.
+  const reg = derived.registry(family, resolveEntry);
+
+  // Bridge the family's STRING key space to the map's `K` at the `MapRegistry<K>`
+  // boundary (the only place the codec is needed).
+  const registry: MapRegistry<K, "copying", Failure> = {
+    members: () => reg.members().map(decode),
+    subscribe: (onChange) => reg.subscribe(onChange),
+    has: (k) => reg.has(encode(k)),
+    resolve: (k) => reg.resolve(encode(k)),
   };
 
   const served = serveSurfaceMap(map, registry);
@@ -399,12 +363,10 @@ export function serveHostMap<
     router: served.router,
     dispose() {
       served.dispose();
-      offMembership();
-      for (const off of stateSubs.values()) off();
-      stateSubs.clear();
-      latestState.clear();
+      // Tears down the family (the membership subscription and every per-member
+      // `onState`), running each member's `onEvict` (which drops its link).
+      reg.dispose();
       links.clear();
-      changeListeners.clear();
     },
   };
 }
