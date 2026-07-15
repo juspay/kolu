@@ -311,23 +311,42 @@ return padiMap.entry(host).cells.processMemory.use({
 **After — the policy moves into the declaration** (common/surface.ts, beside schema + equals), and the framework mints the hook:
 
 ```ts
-// common — ONE spelling of the member, both halves:
+// common — policy is DATA: a closed discriminated union, never a string.
+// (A toast FUNCTION can't live in common; the declaration carries the typed
+// intent, the client owns the one interpreter of each arm.)
+type ClientErrorPolicy =
+  | { kind: "toast"; label: string }       // label is payload, kind is checked
+  | { kind: "log" }                        // observable but silent to the user
+  | { kind: "membership" };                // routes to the host-membership handler
+
 processMemory: {
   schema: ProcessMemorySchema,
   equals: processMemoryMbEqual,
-  client: { onError: "toast:Padi/kaval memory" },   // policy AS declaration
+  client: { onError: { kind: "toast", label: "Padi/kaval memory" } },
 },
 preferences: {
   schema: PreferencesSchema,
   client: { authority: "local", initial: DEFAULT_PREFERENCES,
-            coalesceMs: 150, onError: "toast:Preferences" },
+            coalesceMs: 150,
+            onError: { kind: "toast", label: "Preferences" } },
 },
 
-// client — the use-site shrinks to the read; policy is unrepeatable:
-const mem = padiMap.entry(host).cells.processMemory.use();   // policy came with the member
+// client — ONE interpreter per arm, registered once (satisfies-never fenced,
+// so a new policy kind FORCES a decision here):
+const interpretErrorPolicy = (p: ClientErrorPolicy, err: Error): void => {
+  switch (p.kind) {
+    case "toast": toast.error(`${p.label} error: ${err.message}`); return;
+    case "log": log.warn(err); return;
+    case "membership": onHostMembershipError(err); return;
+    default: p satisfies never;
+  }
+};
+
+// the use-site shrinks to the read; policy is unrepeatable:
+const mem = padiMap.entry(host).cells.processMemory.use();
 ```
 
-What it deletes: the 22-site policy class, the same way `derived.cell` deleted the publish seams — a future consumer *can't* re-decide a member's error routing or floor, because there is no options bag left to spell it in. The open design questions a lens run must settle before this is a PR: policy values that are **client-side capabilities** (a toast function doesn't belong in `common` — the sketch's `"toast:…"` string implies a client-registered policy vocabulary, which needs its own one-writer story); per-site *legitimate* divergence (a site that genuinely wants a different floor must become a declared variant, not an override knob); and whether `initial`/`authority` are policy or wiring. **Gate:** lens-run-first (the design-bearing trigger applies in full) + srid's ratification; drishti-paired (a `@kolu/surface` declaration-shape change). Until ruled, the 22 sites stand — they are correct, just repetitious.
+What it deletes: the 22-site policy class, the same way `derived.cell` deleted the publish seams — a future consumer *can't* re-decide a member's error routing or floor, because there is no options bag left to spell it in. The open design questions a lens run must settle before this is a PR: the exact arms of the policy union and their interpreter's home (the sketch's shape — typed union in `common`, one `satisfies never`-fenced interpreter in the client — is the P4-correct skeleton; an earlier draft spelled it as a `"toast:…"` string, which srid caught as one string doing two jobs, discriminant + payload, unrejectable by the checker — the union is the fix, recorded here so it isn't re-litigated); per-site *legitimate* divergence (a site that genuinely wants a different floor must become a declared variant, not an override knob); and whether `initial`/`authority` are policy or wiring. **Gate:** lens-run-first (the design-bearing trigger applies in full) + srid's ratification; drishti-paired (a `@kolu/surface` declaration-shape change). Until ruled, the 22 sites stand — they are correct, just repetitious.
 
 The campaign is complete only when these negative properties hold — each is a grep or a test, not a judgment call:
 
