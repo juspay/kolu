@@ -86,6 +86,41 @@ export function isDeadTransportError(error: unknown): boolean {
   );
 }
 
+/** Is `reason` the greppable {@link deadTransportError}(`SURFACE_STDIO_TRANSPORT_CLOSED`)
+ *  a closed stdio link raises (#1719)? Brand-checked on `ORPCError` + the exact code,
+ *  so it holds across module-instance / realm boundaries (the robustness oRPC errors
+ *  use), and DELIBERATELY tight: it matches nothing but that one transport-closed error.
+ *
+ *  Narrower than {@link isDeadTransportError} (which also spans the retired websocket) —
+ *  this is the single stdio-close code. A re-serve CONSUMER that dials the relay with a
+ *  raw client (no `STREAM_RETRY` plugin) uses it — with {@link isSurfaceRelayTransportLost}
+ *  — to recognize a transport-loss end and RE-SUBSCRIBE across a reconnect window,
+ *  mirroring what `STREAM_RETRY` does for a plugin-equipped client (see the padiBinding
+ *  reconnect test). */
+export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
+  return (
+    reason instanceof ORPCError &&
+    reason.code === SURFACE_STDIO_TRANSPORT_CLOSED
+  );
+}
+
+/** Is `reason` the reServe relay's RETRYABLE middle-hop transport-loss end —
+ *  `RelayTransportLostError` (`@kolu/surface-remote`), an `ORPCError` with the
+ *  {@link SURFACE_RELAY_TRANSPORT_LOST} code? Brand-checked on `ORPCError` + the exact
+ *  code, like {@link isSurfaceStdioTransportClosed}, and just as tight.
+ *
+ *  When a bound upstream (a padi) dies mid-stream, the re-serve relay
+ *  (`failThroughStreamCore`) CATCHES the stdio close and re-throws it WRAPPED as this
+ *  retryable relay end, so a live client re-subscribes end-to-end. A raw-client consumer
+ *  (no `STREAM_RETRY`) recognizes it here to retry across the reconnect gap. It stays
+ *  NARROW: the relay re-throws genuine application errors UNCHANGED, so this exact code
+ *  is ALWAYS a benign transport-loss end, never an app error. */
+export function isSurfaceRelayTransportLost(reason: unknown): boolean {
+  return (
+    reason instanceof ORPCError && reason.code === SURFACE_RELAY_TRANSPORT_LOST
+  );
+}
+
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application
