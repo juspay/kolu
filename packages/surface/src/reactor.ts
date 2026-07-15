@@ -686,6 +686,29 @@ function connectPollNode<T>(
   });
 }
 
+/** The one-shot connect guard shared by every derived builder (cell, compute cell,
+ *  collection): a derived member wires EXACTLY ONE subscription, and only while it is
+ *  live. Connecting after teardown (a standalone `dispose()` ran first) would install a
+ *  subscription whose returned teardown is a permanent no-op (`torn` is already set) — a
+ *  silent leak; connecting twice would strand the first. Crash loudly rather than model
+ *  either impossible state. `label` names the builder in the thrown message. */
+function assertOneShotConnect(
+  torn: boolean,
+  connected: boolean,
+  label: string,
+): void {
+  if (torn) {
+    throw new Error(
+      `${label}: connect() after dispose() — already torn down (one-shot lifecycle)`,
+    );
+  }
+  if (connected) {
+    throw new Error(
+      `${label}: connect() called twice — wires exactly one subscription`,
+    );
+  }
+}
+
 /** The graph-node `derived.cell(node)` — publish a pre-built graph node (a
  *  `scan`, a `computed`) as a cell. Extracted so `derived.cell` can OVERLOAD the
  *  compute-fn form beside it. */
@@ -730,22 +753,7 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
     // publishes the first read. The brand tells the walk which seed to use.
     ...(poll ? { [DERIVED_POLL_BRAND]: true } : {}),
     connect: (cell, opts) => {
-      // One-shot lifecycle, fail-fast on misuse: a derived cell wires exactly
-      // ONE subscription, and only while it is live. Connecting after teardown
-      // (a standalone `dispose()` ran first) would install an effect whose
-      // returned teardown is a permanent no-op (`torn` is already set) — a
-      // silent leak; connecting twice would strand the first effect. Crash
-      // loudly rather than model either impossible state.
-      if (torn) {
-        throw new Error(
-          "derived cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
-        );
-      }
-      if (connected) {
-        throw new Error(
-          "derived cell: connect() called twice — a derived cell wires exactly one subscription",
-        );
-      }
+      assertOneShotConnect(torn, connected, "derived cell");
       connected = true;
       if (poll) {
         // A poll source connects ASYNCHRONOUSLY (see `connectPollNode`): the T+0
@@ -886,16 +894,7 @@ function computeCell<S extends SurfaceSpec, T>(
     [DERIVED_COMPUTE_BRAND]: true,
     bindSiblings,
     connect: (cell) => {
-      if (torn) {
-        throw new Error(
-          "derived compute cell: connect() after dispose() — the cell is already torn down (one-shot lifecycle)",
-        );
-      }
-      if (connected) {
-        throw new Error(
-          "derived compute cell: connect() called twice — a derived cell wires exactly one subscription",
-        );
-      }
+      assertOneShotConnect(torn, connected, "derived compute cell");
       connected = true;
       const n = requireNode();
       // Stateless-compute error policy — LOG-SKIP-CONTINUE holding the last
@@ -962,15 +961,16 @@ function derivedCollection<K, V>(
   ): void => {
     // Update `current` BEFORE each publisher call, so the surface's own `readAll()`
     // (which its `keys` broadcast reads) already reflects the key by the time the
-    // wrapped publisher fires. Snapshot the removal keys (spread) so deleting mid-
-    // iteration is safe.
+    // wrapped publisher fires. Deleting the just-yielded key from `current` during
+    // its own `keys()` iteration is well-defined (a Map iterator skips deleted keys),
+    // so the removal pass needs no snapshot copy.
     for (const [k, v] of next) {
       if (!current.has(k) || !pub.equals(current.get(k) as V, v)) {
         current.set(k, v);
         pub.upsert(k, v);
       }
     }
-    for (const k of [...current.keys()]) {
+    for (const k of current.keys()) {
       if (!next.has(k)) {
         current.delete(k);
         pub.remove(k);
@@ -983,16 +983,7 @@ function derivedCollection<K, V>(
     readAll: () => new Map(current) as Map<unknown, unknown>,
     readOne: (key) => current.get(key as K),
     connect: (publishers, opts) => {
-      if (torn) {
-        throw new Error(
-          "derived collection: connect() after dispose() — already torn down (one-shot lifecycle)",
-        );
-      }
-      if (connected) {
-        throw new Error(
-          "derived collection: connect() called twice — wires exactly one subscription",
-        );
-      }
+      assertOneShotConnect(torn, connected, "derived collection");
       connected = true;
       const pub = {
         upsert: (k: K, v: V) => publishers.upsert(k, v),

@@ -295,15 +295,13 @@ export function withSelfPadi(
   ];
 }
 
-/** Start padi's periodic host-inventory sampler — the sole writer of the
- *  `hostInventory` surface cell. Scans THIS padi's host and marks the kaval it holds +
- *  itself `active`, so the re-served member hands the dialog the bound host's daemons
- *  (identically local and remote). The serving padi ALWAYS reports itself via {@link
- *  withSelfPadi} — the liveness tell holds even on the T+0 tick (socket not yet
- *  listening) and under a `--socket` override (outside the discovered dirs). Fires once
- *  immediately (a T+0 anchor so the cell has a value before the first dialog open), then
- *  every {@link HOST_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow tick never
- *  doubles up) and `unref`'d so the interval never holds padi's process open on its own. */
+/** One host-inventory read backing the `hostInventory` surface cell — scans THIS padi's
+ *  host and marks the kaval it holds + itself `active`, so the re-served member hands the
+ *  dialog the bound host's daemons (identically local and remote). The serving padi ALWAYS
+ *  reports itself via {@link withSelfPadi} — the liveness tell holds even on the T+0 read
+ *  (socket not yet listening) and under a `--socket` override (outside the discovered
+ *  dirs). This is a pure single read: the derived poll cell (`derived.cell(source(...))`)
+ *  owns the cadence, the T+0 seed, and non-overlap — this function no longer loops. */
 export async function samplePadiHostInventory(
   /** THIS padi's resolved state-root — resolves the held-kaval fallback address. */
   stateRoot: string,
