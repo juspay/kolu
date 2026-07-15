@@ -23,7 +23,10 @@ import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { chromeDrawerOpen, setChromeDrawerOpen } from "./useChromeDrawer";
+import {
+  chromeDrawerOpen as chromeOpen,
+  setChromeDrawerOpen as setChromeOpen,
+} from "./useChromeDrawer";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
@@ -44,9 +47,9 @@ const MobilePullChrome: Component<{
   onOpenPalette: () => void;
 }> = (props) => {
   const store = useTerminalStore();
-  // The open state is a module singleton (`useChromeDrawer`) so the `#/settings`
-  // deep link can raise the drawer that hosts the settings popover on touch.
-  const [chromeOpen, setChromeOpen] = [chromeDrawerOpen, setChromeDrawerOpen];
+  // The open state is a module singleton (`useChromeDrawer`, imported aliased
+  // above) so the `#/settings` deep link can raise the drawer that hosts the
+  // settings popover on touch.
   // Every dismiss path — backdrop tap, drag-to-close (both via Corvu's
   // onOpenChange) and the in-sheet buttons (`onClose`, routed through
   // `handler(false)`) — funnels through this so the soft keyboard never lingers

@@ -155,17 +155,61 @@ export function useDeepLinks(): void {
         .with({ kind: "host" }, ({ host }) =>
           setActiveHost(decodeHostKey(host)),
         )
-        .with({ kind: "terminal" }, (l) => routeToTerminal(l))
-        .with({ kind: "code" }, (l) => routeToTerminal(l))
-        .with({ kind: "inspector" }, (l) => routeToTerminal(l))
+        // terminal · code · inspector all target a terminal — one handler.
+        .with(
+          { kind: "terminal" },
+          { kind: "code" },
+          { kind: "inspector" },
+          (l) => routeToTerminal(l),
+        )
         .exhaustive();
     });
+  }
+
+  /** Resolve a route's target record AND the tile that OWNS its right panel —
+   *  the parent tile for a sub-terminal, else the target itself. `null` until
+   *  both records have composed. The ONE definition of the anchor relationship,
+   *  so the settle effect, the backstop, and enact can't spell it three
+   *  different ways. */
+  function resolveRoute(
+    route: TerminalRoute,
+  ): { meta: TerminalMeta; anchorMeta: TerminalMeta } | null {
+    const meta = store.getMetadata(route.terminalId);
+    if (!meta) return null;
+    const anchorId = meta.parentId ?? route.terminalId;
+    const anchorMeta =
+      anchorId === route.terminalId ? meta : store.getMetadata(anchorId);
+    if (!anchorMeta) return null;
+    return { meta, anchorMeta };
+  }
+
+  /** A `code` route still waiting on (or lacking) its owning tile's repo root —
+   *  the git sensor is a THIRD async fact, settled INDEPENDENTLY of membership,
+   *  and `git` is `null` both for "no repo" and "not sensed yet". The one place
+   *  this hedge is spelled (see the LEDGER note below), read by both the settle
+   *  gate (wait) and the backstop (message). */
+  function codeRouteAwaitingRepo(
+    route: TerminalRoute,
+    anchorMeta: TerminalMeta,
+  ): boolean {
+    return route.kind === "code" && !anchorMeta.git?.repoRoot;
   }
 
   // The settle-then-verdict effect (CodeTab's `pendingOpen` precedent, over
   // terminal membership). Waits for the active host's list to settle, then
   // enacts or toasts "gone" — a bookmark never toasts mid-cold-boot because the
   // list is still `pending`.
+  //
+  // LEDGER (deferred): `codeRouteAwaitingRepo`'s `git == null` conflates "git
+  // not sensed yet" with "terminal has no repo" because `git` is
+  // `GitInfoSchema.nullable()` in terminal-vocab/src/schema.ts — the ONE
+  // snapshot field that doesn't model its async resolution as a discriminated
+  // union the way its siblings `pr` (PrResultSchema) and `agent` do. The ideal
+  // fix aligns git's schema shape with them — `{ kind: "sensing" } | { kind:
+  // "none" } | { kind: "repo"; info }` — so a code route enacts only on the
+  // `repo` arm and toasts immediately on `none`. That is a cross-package + wire
+  // migration; deferred. Until then the backstop hedges the no-repo case with a
+  // git-specific message instead of the host-unreachable one.
   createEffect(() => {
     const route = pending();
     if (!route) return;
@@ -198,36 +242,15 @@ export function useDeepLinks(): void {
       );
       return;
     }
-    const meta = store.getMetadata(id);
-    if (!meta) return; // in the list but its record hasn't composed yet — wait
-    // The right panel is per-TILE, so a `code`/`inspector` route addresses the
-    // tile that OWNS the panel — the parent tile for a sub-terminal, else the
-    // target itself. Resolve its record; `code` waits on and resolves against
-    // THAT tile's repo, not the split's (which the panel can't represent).
-    const anchorId = meta.parentId ?? id;
-    const anchorMeta = anchorId === id ? meta : store.getMetadata(anchorId);
-    if (!anchorMeta) return; // the owning tile's record hasn't composed yet
-    // A `/code` route needs the terminal's repo root — a THIRD async fact (the
-    // git sensor) that settles INDEPENDENTLY of membership, and `git` is `null`
-    // both for "no repo" and "not sensed yet". Wait for it too (the 8s backstop
-    // still bounds the wait), so a real-repo terminal whose git hasn't sensed
-    // yet — a fresh terminal, or the cold-boot window before the watcher
-    // re-resolves — doesn't get a false "not a git repository". The effect
-    // re-runs when the git fact lands (getMetadata is reactive).
-    //
-    // LEDGER (deferred): this `null` conflates "git not sensed yet" with
-    // "terminal has no repo" because `git` is `GitInfoSchema.nullable()` in
-    // terminal-vocab/src/schema.ts — the ONE snapshot field that doesn't model
-    // its async resolution as a discriminated union the way its siblings `pr`
-    // (PrResultSchema) and `agent` do. The ideal fix aligns git's schema shape
-    // with them — `{ kind: "sensing" } | { kind: "none" } | { kind: "repo";
-    // info }` — so the code route enacts only on the `repo` arm and toasts
-    // immediately on `none`. That is a cross-package + wire migration; deferred.
-    // Until then the backstop below hedges the no-repo case with a
-    // git-specific message instead of the host-unreachable one.
-    if (route.kind === "code" && !anchorMeta.git?.repoRoot) return;
+    const resolved = resolveRoute(route);
+    if (!resolved) return; // a record hasn't composed yet — wait
+    // `code` waits on its owning tile's repo root (a fresh terminal / cold-boot
+    // window before the git watcher resolves) rather than toasting a false
+    // "not a git repository"; the effect re-runs when the git fact lands
+    // (getMetadata is reactive), bounded by the 8s backstop.
+    if (codeRouteAwaitingRepo(route, resolved.anchorMeta)) return;
     setPending(null);
-    enact(route, meta, anchorMeta);
+    enact(route, resolved.meta, resolved.anchorMeta);
   });
 
   // Bounded backstop: if the wait never resolves, give up loudly rather than
@@ -246,13 +269,10 @@ export function useDeepLinks(): void {
     const timer = setTimeout(() => {
       if (pending() !== route) return;
       setPending(null);
-      // The repo fact lives on the tile that owns the panel (the parent for a
-      // sub), same as the settle gate reads it.
-      const meta = store.getMetadata(route.terminalId);
-      const anchorMeta = meta
-        ? store.getMetadata(meta.parentId ?? route.terminalId)
-        : undefined;
-      if (route.kind === "code" && anchorMeta && !anchorMeta.git?.repoRoot) {
+      // Same anchor + repo-readiness facts the settle gate reads, so the
+      // message can't drift from the gate's own verdict.
+      const resolved = resolveRoute(route);
+      if (resolved && codeRouteAwaitingRepo(route, resolved.anchorMeta)) {
         toast.error(
           "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
         );
