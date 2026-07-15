@@ -147,10 +147,15 @@ export function projectConnection<Prov extends SshProv>(
  *  arm, so the dot and word agree), and returns the frame otherwise. A host map serves
  *  over `SessionState<string>` (Prov erased to the phase top) and its sessions are ssh (or
  *  the `never` endpoint — `never extends SshProv`), so the frame IS a `ConnectionInfo`; the
- *  entries wire schema validates it. This is the ONE home for that erased-Prov identity —
- *  the strict `projectConnection` stays cast-free for a caller that holds a real `Prov`. */
+ *  entries wire schema validates it. This is the ONE home for that erased-Prov CAST — it
+ *  restores the real `Prov` and delegates the identity to the strict, cast-free
+ *  {@link projectConnection}, so the provable-identity insight lives in exactly ONE place
+ *  and `projectConnection` is the leaf every session→ConnectionInfo projection routes
+ *  through (a real production consumer, not just the type-d pin). */
 export function sessionConnection(
   raw: SessionState<string> | undefined,
 ): ConnectionInfo {
-  return raw === undefined ? DEFAULT_CONNECTION : (raw as ConnectionInfo);
+  return raw === undefined
+    ? DEFAULT_CONNECTION
+    : projectConnection(raw as SessionState<SshProv>);
 }
