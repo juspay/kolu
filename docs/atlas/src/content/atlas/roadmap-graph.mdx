@@ -1,6 +1,6 @@
 ---
 title: The Roadmap Graph
-description: "Work items as a queryable graph — one yaml of inputs (deps, gates, human lifecycle, asserted ships), everything else computed: the ripe frontier as a command, the sequence table generated from data, statuses derived from the forge and stamped with their observation date."
+description: "The coordinator's dispatch substrate for agent fleets — one yaml of inputs (deps, gates, human lifecycle, asserted ships), everything else computed: ripe answers what the coordinator dispatches next, a node becomes a brief becomes a lane, and the human's whole view is the judgment-gate queue plus the merge queue."
 parents: [feature]
 status: proposed
 maturity: seedling
@@ -9,11 +9,11 @@ updated: 2026-07-15
 
 import Footnote from "../../components/Footnote.astro";
 
-The SR campaign proved the thesis: when the graph is explicit (ids, dep edges, gates), work dispatches itself. What failed was that the graph's *facts* lived in prose and heads — "what's dispatchable?" hand-recomputed, gates checked by memory, odu's drift invisible for a whole campaign. The cure is not a tracker; it is **one small file of inputs, and everything else computed**.<Footnote>The schema below is the *second* draft: a lens run (`wf_f751c3e0-f75`, 13 raw → 10 confirmed findings) gutted the first. The three biggest kills: a single `status` field had **two writers** (a sync tool could silently flip SR10's dated decline to "shipped"); `ships[]` was specced as forge-derived, but the run verified **all ten campaign PRs carry zero PR-closes-issue edges** — the edge doesn't exist to walk; and storing `ripe`/`shipped` at all was a cached derivation read back as truth (P1). Every field below exists in its corrected, one-writer form because of that run.</Footnote>
+This is infrastructure for exactly one operating model: [**agent fleets**](https://kolu.dev/agent-fleets) — one coordinator (running /orchestrator) dispatching worktree'd implementing agents, the human one layer up. The graph is **the coordinator's dispatch substrate**, not a project-management tool: its one reader is the coordinator, a ripe node becomes a brief becomes a lane, and the human touches it at exactly two points — **judgment gates** (the decisions only the human can make, surfaced as a queue) and **merges**. The SR campaign proved the thesis: when the graph is explicit (ids, dep edges, gates), the coordinator dispatches work without the human ordering it. What failed was that the graph's *facts* lived in prose and the coordinator's head — "what's dispatchable?" hand-recomputed, gates checked by memory, odu's drift invisible for a whole campaign. The cure is not a tracker; it is **one small file of inputs, and everything else computed**.<Footnote>The schema below is the *second* draft: a lens run (`wf_f751c3e0-f75`, 13 raw → 10 confirmed findings) gutted the first. The three biggest kills: a single `status` field had **two writers** (a sync tool could silently flip SR10's dated decline to "shipped"); `ships[]` was specced as forge-derived, but the run verified **all ten campaign PRs carry zero PR-closes-issue edges** — the edge doesn't exist to walk; and storing `ripe`/`shipped` at all was a cached derivation read back as truth (P1). Every field below exists in its corrected, one-writer form because of that run.</Footnote>
 
 ## User-facing description
 
-One file: `docs/atlas/src/data/roadmap.yaml` — **inputs only**, one writer per field:
+Per the fleet model's three layers, "user" splits in two. **The human sees:** the judgment-gate queue (`ripe`'s `JUDGMENT` rows — DL2 below — are *your* inbox) and the merge queue; nothing else requires you. **The coordinator operates:** `ripe` answers "what do I dispatch next," each ripe node's `note:` section is the brief's plan-of-record, dispatch makes a lane (terminal + worktree + token — live facts the coordinator holds, never committed to the graph), a merged `Ships:` PR flips delivery. One file: `docs/atlas/src/data/roadmap.yaml` — **inputs only**, one writer per field:
 
 ```yaml
 - id: SR8.b
@@ -82,4 +82,4 @@ The open contributor proposal (<a href="https://github.com/juspay/kolu/pull/760"
 
 ### RM2 — the live surface *(gated on srid's go, after RM1 soaks)*
 
-Serve the computed graph as a surface collection: the frontier on the canvas, each node deep-linking (DL1's grammar) to its note section and — when a lane is live — its terminal. The dashboard's hand-maintained board shrinks to what only the coordinator knows (in-flight conversation state); everything the graph knows renders itself.
+The fleet page's shape, rendered: serve the computed graph as a surface collection and join it with padi's live agent-state — the frontier on the canvas, each node deep-linking (DL1's grammar) to its note section and, when its lane is live, its terminal with the real `working`/`awaiting`/`waiting` state beside it. Observation flows out freely (the human watches the whole fleet through the graph); action still flows in through the coordinator's one door. The hand-maintained dashboard shrinks to what only the coordinator knows (in-flight conversation state); everything the graph and padi know renders itself.
