@@ -108,3 +108,78 @@ export function isDerivedComputeCellDeps(
       true
   );
 }
+
+/** Property key branding a `derived.cell(source({ read, install }))` — a derived
+ *  cell backed by a POLL source, whose graph node has NO synchronous seed value:
+ *  the T+0 read is async, so the node's level is `undefined` until the first read
+ *  lands (published through the async `connect`). The boot walk reads this brand
+ *  to seed the private serving store from the member's SPEC DEFAULT (the value the
+ *  hand-rolled sampler served pre-first-sample — behavior-neutral) rather than an
+ *  eager `store.get()` pull that would seed `undefined` and break serialization
+ *  before the first read. `Symbol.for` for the same duplicate-module reason as
+ *  {@link DERIVED_CELL_BRAND}. A poll cell is always a derived cell, so it carries
+ *  BOTH brands; it is NOT a compute cell (no `$` bind). */
+export const DERIVED_POLL_BRAND: unique symbol = Symbol.for(
+  "kolu.surface.reactor.derivedPollCell",
+);
+
+/** Whether a cell dep is a POLL-source derived cell (so the walk seeds its store
+ *  from the spec default — the node has no synchronous seed until the first read). */
+export function isDerivedPollCellDeps(deps: unknown): boolean {
+  return (
+    isDerivedCellDeps(deps) &&
+    (deps as unknown as Record<PropertyKey, unknown>)[DERIVED_POLL_BRAND] ===
+      true
+  );
+}
+
+/** Property key branding a `derived.collection(node)` dep — a COLLECTION whose
+ *  per-key contents are a projection of a graph node's keyed value (a poll source
+ *  reading a whole `Map`, or a `$`-compute producing one). The graph is its one
+ *  writer: the boot walk narrows the ctx `upsert`/`remove` to throw, seeds the
+ *  wire snapshot from the node's current map, and fires {@link
+ *  DerivedCollectionBranded.connect} — which subscribes the node and RECONCILES
+ *  each new map against the last by the collection's `equals`, driving the
+ *  surface's own per-key `upsert`/`remove` publishers for exactly the changed and
+ *  removed keys (the keyed-reconciler wire adapter). `Symbol.for` for the same
+ *  duplicate-module reason as {@link DERIVED_CELL_BRAND}. */
+export const DERIVED_COLLECTION_BRAND: unique symbol = Symbol.for(
+  "kolu.surface.reactor.derivedCollection",
+);
+
+/** Structural shape a `derived.collection(...)` dep carries so the boot walk can
+ *  wire it without importing `reactor.ts`. */
+export interface DerivedCollectionBranded {
+  readonly [DERIVED_COLLECTION_BRAND]: true;
+  /** The current reconciled map — the wire snapshot a late subscriber reads. For
+   *  a poll node this is empty until the first read publishes; the materialized
+   *  map the reconciler maintains, never a fresh recompute. */
+  readAll(): Map<unknown, unknown>;
+  /** One key's current value (or `undefined`) — the per-key `get` snapshot. */
+  readOne(key: unknown): unknown;
+  /** The connect seam: subscribe the backing node and reconcile each new map
+   *  against the last by `equals`, driving the surface's per-key publishers. The
+   *  walk fires it (a poll node connects async, so it may return a
+   *  `Promise<Disposer>`); the returned disposer joins the runtime's ownership. */
+  connect(
+    publishers: {
+      upsert(key: unknown, value: unknown): void;
+      remove(key: unknown): void;
+      equals(a: unknown, b: unknown): boolean;
+    },
+    opts?: { signal?: AbortSignal },
+  ): (() => void) | Promise<() => void>;
+  /** Tear down the backing node + the reconcile subscription. Idempotent. */
+  dispose(): void;
+}
+
+/** Whether a collection dep is a reactor `derived.collection`. */
+export function isDerivedCollectionDeps(
+  deps: unknown,
+): deps is DerivedCollectionBranded {
+  return (
+    typeof deps === "object" &&
+    deps !== null &&
+    (deps as Record<PropertyKey, unknown>)[DERIVED_COLLECTION_BRAND] === true
+  );
+}

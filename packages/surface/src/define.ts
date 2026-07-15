@@ -155,6 +155,15 @@ export interface CollectionSpec<K = unknown, T = unknown> {
   keySchema: ZodType<K>;
   schema: ZodType<T>;
   verbs?: readonly CollectionVerb[];
+  /** Per-key VALUE equality — the collection sibling of {@link CellSpec.equals}.
+   *  A `derived.collection(...)` reconciler uses it to publish only the keys whose
+   *  value actually MOVED against the last snapshot (drishti's `processChanged`,
+   *  declared once here instead of hand-held at every write site). Omitted ⇒ the
+   *  reconciler treats every present key as changed each frame (the unconditional
+   *  re-publish drishti's `cpuCores`/`networkInterfaces` do today — a per-tick rate
+   *  that always moves). It does NOT gate an authored collection's `upsert` publish;
+   *  it is the derived reconciler's diff predicate. */
+  equals?: (a: T, b: T) => boolean;
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
