@@ -19,6 +19,7 @@
     "./first-frame": "./src/firstFrame.ts",
     "./loopback": "./src/loopback.ts",
     "./mirror": "./src/mirrorRemoteSurface.ts",
+    "./poll-on-change": "./src/pollOnChange.ts",
     "./project": "./src/project.ts",
     "./reactor": "./src/reactor.ts",
     "./server": "./src/server.ts",
