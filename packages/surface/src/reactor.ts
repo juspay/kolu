@@ -318,10 +318,25 @@ export function everyMsOr(
 ): (tick: () => void) => SourceCleanup {
   return (tick) => {
     const stopInterval = everyMs(ms)(tick);
-    const off = subscribe(tick);
-    return () => {
-      off();
+    // Transactional setup: the interval is live before `subscribe`, so if the edge
+    // subscription throws, roll the interval back rather than leaking a timer that
+    // wakes forever against a tick nothing owns.
+    let off: () => void;
+    try {
+      off = subscribe(tick);
+    } catch (err) {
       stopInterval?.();
+      throw err;
+    }
+    // Cleanup tears down BOTH arms: `finally` runs `stopInterval` even if `off`
+    // throws, so a faulty unsubscribe can't strand the interval (the both-teardown
+    // contract this fuse documents).
+    return () => {
+      try {
+        off();
+      } finally {
+        stopInterval?.();
+      }
     };
   };
 }

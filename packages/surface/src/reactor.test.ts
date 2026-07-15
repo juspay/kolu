@@ -1541,4 +1541,37 @@ describe("everyMsOr — the fused interval + edge cadence", () => {
     vi.advanceTimersByTime(20_000);
     expect(tick).not.toHaveBeenCalled();
   });
+
+  it("rolls the interval back if subscribe throws during setup — no orphaned timer", () => {
+    const clearInterval = vi.spyOn(globalThis, "clearInterval");
+    const boom = new Error("edge source unavailable");
+    const subscribe = () => {
+      throw boom;
+    };
+
+    // The interval is live before subscribe runs; a throwing subscribe must clear it, not leak it.
+    expect(() => everyMsOr(5_000, subscribe)(() => {})).toThrow(boom);
+    expect(clearInterval).toHaveBeenCalledOnce();
+
+    // No orphaned timer survives to fire.
+    const tick = vi.fn();
+    everyMsOr(5_000, () => () => {})(tick);
+    vi.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+
+    clearInterval.mockRestore();
+  });
+
+  it("clears the interval even when unsubscribe throws during cleanup — finally, not sequence", () => {
+    const off = () => {
+      throw new Error("unsubscribe failed");
+    };
+    const tick = vi.fn();
+    const cleanup = everyMsOr(5_000, () => off)(tick);
+
+    // A throwing unsubscribe propagates, but the interval is still torn down (finally).
+    expect(() => cleanup?.()).toThrow("unsubscribe failed");
+    vi.advanceTimersByTime(20_000);
+    expect(tick).not.toHaveBeenCalled();
+  });
 });
