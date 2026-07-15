@@ -53,7 +53,6 @@ import {
   shutdownCleanup,
 } from "./koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "./log.ts";
-import { startPadiMemorySampler } from "./memorySampler.ts";
 import { setPadiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
@@ -437,11 +436,10 @@ export async function runPadiDaemon(
       legacyKavalSocket: opts.legacyKavalSocket,
     });
 
-    // Samplers + manifests run AFTER the endpoint boot (the `endpoint` token proves it):
-    // they read the held kaval's socket / a connected daemon.
-    // Feed the chrome bar's memory rail: sample padi's OWN RSS + poll its kaval's on a
-    // fixed cadence; a not-yet-connected kaval reads `absent`.
-    startPadiMemorySampler();
+    // Manifests run AFTER the endpoint boot (the `endpoint` token proves it): they
+    // read the held kaval's socket / a connected daemon.
+    // (padi's `processMemory` rail is now a DERIVED poll cell owned by the served
+    // surface — `servePadi.ts` — so it no longer needs a boot-time sampler start.)
     // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
     // discovers — written into both padi's and its kaval's runtime dirs.
     writeStateRootManifest(dirname(socketPath), stateRoot);

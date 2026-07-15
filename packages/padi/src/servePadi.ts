@@ -17,7 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { derived } from "@kolu/surface/reactor";
+import { derived, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
@@ -51,7 +51,6 @@ import {
 } from "./sessionRestore.ts";
 import {
   DEFAULT_PADI_HOST_INVENTORY,
-  DEFAULT_PADI_PROCESS_MEMORY,
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
   type PadiIdentity,
@@ -72,6 +71,10 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  samplePadiMemory,
+} from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
@@ -190,13 +193,23 @@ export function buildPadiSurfaceDeps(deps: {
       // subscription reads the latest via `get`. No `equals` dedup: the coarse 10s
       // cadence + small payload is cheap.
       hostInventory: { store: inMemoryStore(DEFAULT_PADI_HOST_INVENTORY) },
-      // Live process-memory readout (padi's OWN RSS + its kaval's). In-memory —
-      // a live metric has no on-disk slot. The periodic sampler
-      // (`memorySampler.ts`, wired into daemon boot) is the sole writer via
-      // `padiSurfaceCtx.cells.processMemory.set`; a fresh subscription reads the
-      // latest via `get`. No `equals` dedup: the 5s cadence + small payload is
-      // cheap, and padi can't reuse kolu-common's whole-MB helper across the seal.
-      processMemory: { store: inMemoryStore(DEFAULT_PADI_PROCESS_MEMORY) },
+      // Live process-memory readout (padi's OWN RSS + its kaval's) — a DERIVED
+      // member fed by a POLL source: `samplePadiMemory` is the read, and the
+      // reactor owns the T+0 seed (seeded from the spec default until it lands),
+      // the non-overlap guard, and later-read log-skip-continue that the
+      // hand-rolled `startPadiMemorySampler` used to spell. `install` owns just the
+      // cadence: a 5s `unref`'d interval (a live metric never holds the process
+      // open). The graph is the one writer — no ctx `.set`, no store/equals here.
+      processMemory: derived.cell(
+        source({
+          read: samplePadiMemory,
+          install: (tick) => {
+            const iv = setInterval(tick, MEMORY_SAMPLE_INTERVAL_MS);
+            iv.unref();
+            return () => clearInterval(iv);
+          },
+        }),
+      ),
       // A DERIVED member — the urgency projection is `recomputeUrgency` folded off
       // the `terminals` collection through the reactive bridge's `$` sibling read.
       // The graph tracks the `terminals → urgency` edge, so no seam has to remember
