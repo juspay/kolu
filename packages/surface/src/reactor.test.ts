@@ -1100,6 +1100,33 @@ describe("derived.collection — the keyed reconciler", () => {
     await runtime.close();
   });
 
+  it("boot narrowing: a derived collection declaring a wire WRITE verb crashes at wiring", () => {
+    // A derived collection is wire-read-only (its reconciler is the one writer); a
+    // declared `upsert`/`delete` wire verb would let a client publish a value the
+    // graph never derived — a second writer. Crash at boot, mirroring derived cells.
+    const writeSurface = defineSurface({
+      collections: {
+        items: {
+          keySchema: z.string(),
+          schema: z.object({ n: z.number() }),
+          verbs: ["keys", "get", "upsert", "delete"],
+        },
+      },
+    });
+    expect(() =>
+      implementSurface(writeSurface, {
+        collections: {
+          items: derived.collection(
+            source({
+              read: () => Promise.resolve(new Map<string, { n: number }>()),
+              install: () => () => {},
+            }),
+          ),
+        },
+      }),
+    ).toThrow(/wire-read-only/);
+  });
+
   it("an unchanged tick reconciles to NOTHING — same map in, no key churn (equals dedup)", async () => {
     // A poll read that keeps yielding the SAME content (fresh object refs, equal
     // `.n`) must not churn the collection: the reconciler's `equals` diff drops it.

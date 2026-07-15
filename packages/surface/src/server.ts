@@ -2096,6 +2096,23 @@ function walkSurface<const S extends SurfaceSpec>(
     const derivedColl = isDerivedCollectionDeps(collDeps)
       ? (collDeps as unknown as DerivedCollectionBranded)
       : undefined;
+    // Boot narrowing for a `derived.collection`: the reconciler is the member's
+    // ONE writer, so it is wire-read-only BY CONSTRUCTION. Crash loudly if it
+    // declares any wire WRITE verb (`upsert`/`delete`/`test__set`) — a wire
+    // mutation would otherwise reach `wrappedUpsert` and publish a value the graph
+    // never derived (a second writer over the wire). Mirror of the derived-cell
+    // narrowing above; the reconciled value still reaches the wire through
+    // `keys`/`get`/`deltas`.
+    if (derivedColl) {
+      const writeVerbs = resolveCollectionVerbs(collSpec).filter(
+        (v) => v === "upsert" || v === "delete" || v === "test__set",
+      );
+      if (writeVerbs.length > 0) {
+        throw new Error(
+          `implementSurface: derived collection "${key}" is wire-read-only (its reconciler is the one writer) but declares write verb(s) [${writeVerbs.join(", ")}] — declare only read verbs (keys/get/deltas).`,
+        );
+      }
+    }
     // The backing write seams the wrapped publishers call. For an authored
     // collection they are the dep's own persistence writes; for a derived
     // collection they are no-ops (the registry IS the reconciler's `current` map).
