@@ -74,10 +74,17 @@ const LOOP_TYPES = new Set([
   "WhileStatement",
   "DoWhileStatement",
 ]);
+// Every function-scope boundary Babel emits: a `continue` inside one belongs to a
+// loop in THAT scope, never the `for await` we're inspecting. (Object/class methods
+// and a class `static { }` block are scopes too, not just the three function forms.)
 const FUNCTION_TYPES = new Set([
   "FunctionDeclaration",
   "FunctionExpression",
   "ArrowFunctionExpression",
+  "ObjectMethod",
+  "ClassMethod",
+  "ClassPrivateMethod",
+  "StaticBlock",
 ]);
 
 /** A non-test `.ts`/`.tsx` source file. */
@@ -310,6 +317,12 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
     expect(
       collect(
         "async function f(){ outer: for await (const m of s) { const g = () => { outer: for (const y of z) { if (y) continue outer; } }; return m; } }",
+      ),
+    ).toEqual(["1"]);
+    // …the boundary holds for an OBJECT METHOD scope too (not just the function forms).
+    expect(
+      collect(
+        "async function f(){ outer: for await (const m of s) { const o = { g(){ outer: for (const y of z) { if (y) continue outer; } } }; return m; } }",
       ),
     ).toEqual(["1"]);
   });
