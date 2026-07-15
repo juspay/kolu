@@ -356,8 +356,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             // `select()` marks aria-selected but doesn't move the
             // virtualizer; deep paths in large worktrees would stay
             // off-screen until the user scrolled. `scrollToPath`
-            // reveals the row.
-            tree?.scrollToPath(path);
+            // reveals the row — with `{ focus: false }` so it does NOT
+            // drag Pierre's keyboard focus. Re-applying selection here on
+            // every store change; letting it move focus made Pierre re-emit
+            // `onSelectionChange` at the NEIGHBOUR row, which the host wrote
+            // back into the selection store, re-running this effect — a
+            // self-sustaining focus/selection loop between two adjacent files
+            // (juspay/kolu#1841; a profile of the loop showed `focus()` as the
+            // hottest leaf). Revealing without focus keeps the row on-screen
+            // while leaving focus where the user put it.
+            tree?.scrollToPath(path, { focus: false });
           }
         }, props.onError);
       },
