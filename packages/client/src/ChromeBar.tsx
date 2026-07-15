@@ -19,7 +19,7 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import HostSelectorStrip from "./host/HostSelectorStrip";
@@ -29,6 +29,7 @@ import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
+import { setSettingsOpen, settingsOpen } from "./settings/useSettingsOpen";
 import {
   DockToggleIcon,
   InspectorToggleIcon,
@@ -54,7 +55,6 @@ const ChromeBar: Component<{
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
   let settingsTriggerRef!: HTMLButtonElement;
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // True when the terminal is maximized. The header is full-width docked in
   // BOTH postures now (see the module comment), so this no longer gates
