@@ -229,7 +229,7 @@ parkedTerminalIds(); requireActiveTerminal(); drainTerminals(); /* … */
 hasParkedTerminals();
 ```
 
-…plus `signalMap` itself must be **built** (`reactor.ts:19` — "Still ahead: SR10's `signalMap`") *and* **served** — and SR8.c's live evidence is that even a two-cell conversion surfaced type-acceptance subtleties.
+…plus `signalMap` itself must be **built** (`reactor.ts:19` — "Still ahead: SR10's `signalMap`") *and* **served** — and SR8.c's live evidence is that even a two-cell conversion surfaced type-acceptance subtleties.<Footnote>**Why a new primitive — doesn't Solid ship one?** Client-side, yes (`createStore`/`reconcile`, `@solid-primitives`' reactive map) and kolu uses them there. But padi is a Node daemon where Solid is banned by a pinned test (`noSolidInDaemon.test.ts` — "a UI reactive framework has no business in a PTY daemon's closure"; padi imports zero `solid-js`), and the server graph's ratified engine is `@preact/signals-core` behind `reactor.ts` (`@solidjs/signals` is the named swap target, not a today option) — two reactive graphs in one process is the complecting the reactor boundary exists to prevent. And the genuinely new part isn't the reactive map (small; `reactiveFamily`'s in-place-latest + version-signal pattern is the precedent) — it's the **wire half** no library can ship: served as `derived.collection` with per-key frames and equals gating, the synchronous pull face, the `poke` form, the boot-walk connect, the durability laws. Roughly 20% map, 80% kolu's own wire contract.</Footnote>
 
 **What the converted world would look like** (the after, sketched honestly):
 
