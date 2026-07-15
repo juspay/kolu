@@ -83,7 +83,7 @@ import {
   MEMORY_SAMPLE_INTERVAL_MS,
   sampleServerMemory,
 } from "./memorySampler.ts";
-import { everyMsOrOnState } from "./pollCadence.ts";
+import { captureLatest, everyMsOrOnState } from "./pollCadence.ts";
 import {
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -573,12 +573,26 @@ const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
 // (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
 // padi process now, so padi (not kolu-server) is the source of that pair; the
 // `processMemory` poll cell folds it in below.
+// The bound padi's liveness, captured SYNCHRONOUSLY at each `onState` (via `captureLatest`)
+// — the gate the memory poll read consults, NOT a live `padiSession.currentClient()` read.
+// The derived `processMemory` cell's read is DEFERRED a microtask by the reactor, and a
+// reconnect assigns `clientPromise = attempt()` in the SAME synchronous frame that fired
+// `onState("connecting")` (see `captureLatest`'s doc + `surface-remote/session.ts`), so a
+// live `currentClient()` at the deferred moment would read the primed mirror's stale RSS
+// during `connecting`. The snapshot fixes the read's liveness to the state-change instant,
+// byte-identical to the retired synchronous `startMemorySampler`.
+const padiLiveness = captureLatest(
+  (onChange) => padiSession.onState(onChange),
+  () => padiSession.currentClient() !== null,
+);
+
 async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
-  // The bound padi's liveness is the gate — no live client → honest `absent` (the gate,
-  // not the held store, decides down-ness). M2 (a standing skew nulls the client) and
-  // the onState flip-to-absent both ride this exactly as the old bound-session read did;
-  // a fresh rebind has a bounded stale-read window until the mirror re-folds (see above).
-  if (!padiSession.currentClient()) return null;
+  // No live client at the last state change → honest `absent` (the gate, not the held
+  // store, decides down-ness). M2 (a standing skew nulls the client) and the onState
+  // flip-to-absent both ride this snapshot exactly as the old synchronous read did off the
+  // live accessor; a fresh rebind still has the bounded stale-read window until the mirror
+  // re-folds (see above, Ledger L14).
+  if (!padiLiveness.get()) return null;
   const ctl = new AbortController();
   try {
     // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so

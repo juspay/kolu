@@ -39,3 +39,32 @@ export function everyMsOrOnState(
     };
   };
 }
+
+/** Snapshot a value SYNCHRONOUSLY at each change-signal firing, for a reactor poll
+ *  read to consult instead of a live accessor.
+ *
+ *  Why a snapshot: the reactor DEFERS each poll read by a microtask (`source`'s
+ *  `tickRead` schedules `Promise.resolve().then(read)`), so a read that itself calls a
+ *  LIVE accessor can observe state assigned AFTER the change that triggered it. The
+ *  motivating case (kolu-server's `processMemory` cell): a bound-padi reconnect assigns
+ *  `clientPromise = attempt()` in the SAME synchronous frame that `attempt()` fired
+ *  `onState("connecting")` — so a deferred read calling `currentClient()` sees the
+ *  just-assigned in-flight (or backoff-retained rejected) promise as truthy and reads a
+ *  stale held mirror, where the retired SYNCHRONOUS sampler saw the pre-assignment
+ *  `null` and reported `absent`. Capturing `read()` at the `subscribe` callback (which
+ *  fires in that same synchronous frame) fixes the poll read's decision to the
+ *  state-change instant.
+ *
+ *  `subscribe` is expected to fire its callback once on subscribe (seeding) and on each
+ *  later change; the initial `read()` seeds regardless. Returns the current snapshot and
+ *  the unsubscribe. */
+export function captureLatest<T>(
+  subscribe: (onChange: () => void) => () => void,
+  read: () => T,
+): { get: () => T; stop: () => void } {
+  let latest = read();
+  const stop = subscribe(() => {
+    latest = read();
+  });
+  return { get: () => latest, stop };
+}
