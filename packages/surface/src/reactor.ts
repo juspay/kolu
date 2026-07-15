@@ -1048,8 +1048,14 @@ export interface ReactiveFamilyOptions<K, S> {
   /** Subscribe ONE member's state: `set(state)` caches the frame (last-frame hold)
    *  and pokes the family's change edge. Called once per key ENTRY; a
    *  snapshot-then-delta source seeds synchronously (its `set` fires inside `attach`).
-   *  Returns the member's disposer, run on key EXIT and on family dispose. */
-  readonly attach: (key: K, set: (state: S) => void) => Disposer;
+   *  Returns the member's disposer, run on key EXIT and on family dispose.
+   *
+   *  Return `undefined` to signal "NOTHING TO SUBSCRIBE YET — retry me" (a transient race,
+   *  e.g. a member present in the key list before its backing session has landed). The
+   *  family then does NOT mark the key attached, so the next membership frame RETRIES the
+   *  attach — a self-heal, NOT a defect (never fabricate a no-op disposer that freezes the
+   *  member as un-seeded forever). Return a real disposer once the subscription is live. */
+  readonly attach: (key: K, set: (state: S) => void) => Disposer | undefined;
   /** Per-key disposal hook, run AFTER the member disposer on key exit (and on family
    *  dispose) — the seam an app hangs per-key cleanup on (a memo eviction, a link
    *  cache delete). Optional; contained (a throw is logged, never aborts teardown). */
@@ -1092,10 +1098,16 @@ export function reactiveFamily<K, S>(
   // edge, so a firehose of state frames costs O(1) per poke, never O(M) re-allocating
   // the whole map (the SR7/SR8 compose-fold lesson, applied to the source side).
   const latest = new Map<K, S>();
-  // Attached membership: key → its member disposer. This — not `latest` — is the
-  // membership set (`keys`/`has`), so a member whose first frame has not landed is
-  // still a member (its `get` is `undefined`), mirroring the old adapter reporting a
-  // pool member before its first `onState` frame (→ `projectState(undefined)`).
+  // The current MEMBERSHIP — the last membership frame's key set. This (NOT the attached
+  // set below) is what `keys`/`has` report: a member is reported the moment the source lists
+  // it, even before its `attach` has installed a subscription (its `get` is `undefined` then,
+  // and a not-yet-attached member is retried on the next frame). This mirrors the old adapter
+  // reporting a pool member before its first `onState` frame (→ `projectState(undefined)`),
+  // and — crucially — keeps a member whose source is *permanently* absent VISIBLE so the
+  // consumer's `resolve` fails loud on it, rather than silently dropping it.
+  let memberSet = new Set<K>();
+  // Attached subset: key → its member disposer. A member in `memberSet` but not here is
+  // present-but-not-yet-subscribed (its `attach` returned `undefined` — retried each frame).
   const disposers = new Map<K, Disposer>();
   // Per-attachment generation token. Each `attach` mints a fresh object; the member's
   // `set` callback is honoured ONLY while its token is still the current one for that key
@@ -1163,7 +1175,7 @@ export function reactiveFamily<K, S>(
       latest.set(key, state);
       if (!reconciling) fire(); // during a reconcile, the trailing fire covers the seed
     };
-    let off: Disposer;
+    let off: Disposer | undefined;
     try {
       off = opts.attach(key, set);
     } catch (err) {
@@ -1174,6 +1186,16 @@ export function reactiveFamily<K, S>(
           "never silently vanish)",
         err,
       );
+      return;
+    }
+    if (off === undefined) {
+      // `attach` signalled "nothing to subscribe yet — retry me" (a transient race, e.g. a
+      // member present before its session lands). Do NOT mark the key attached: leave it out
+      // of `disposers` so the NEXT membership frame re-runs `attachKey` for it (a self-heal),
+      // and roll back the token + any synchronous seed. Never fabricate a no-op disposer —
+      // that would freeze the member as un-seeded forever (the drishti#102 class of bug).
+      tokens.delete(key);
+      latest.delete(key);
       return;
     }
     disposers.set(key, off);
@@ -1199,13 +1221,15 @@ export function reactiveFamily<K, S>(
     }
   };
 
-  // Diff a membership frame against the live set: attach entrants, detach leavers, then
-  // fire ONE edge for the whole frame. `members` fires one occurrence per pool transition
+  // Diff a membership frame against the live set: adopt it as the new `memberSet`, attach
+  // entrants (retrying any that are present-but-not-yet-subscribable), detach departed
+  // ATTACHED members, then fire ONE edge. `members` fires one occurrence per pool transition
   // (never coalescing), so each frame is a single-transition delta and one observable edge.
   const reconcile = (keys: readonly K[]): void => {
     const next = new Set(keys);
     reconciling = true;
     try {
+      memberSet = next; // membership = the frame (a present-but-unattached member is retried)
       for (const key of next) attachKey(key);
       for (const key of [...disposers.keys()]) {
         if (!next.has(key)) detachKey(key);
@@ -1231,8 +1255,8 @@ export function reactiveFamily<K, S>(
       version.value; // track
       return new Map(latest);
     }),
-    keys: () => [...disposers.keys()],
-    has: (key) => disposers.has(key),
+    keys: () => [...memberSet],
+    has: (key) => memberSet.has(key),
     get: (key) => latest.get(key),
     // The pull-face change edge: a DIRECT listener registration (fired synchronously by
     // `fire`, once per completed change edge — never on subscribe, and never coalesced
@@ -1251,6 +1275,7 @@ export function reactiveFamily<K, S>(
       // teardown would fire a still-subscribed listener into a torn-down family; the
       // listeners' owners release them (`subscribe` returns their disposer).
       for (const key of [...disposers.keys()]) detachKey(key);
+      memberSet = new Set();
       listeners.clear();
     },
   };

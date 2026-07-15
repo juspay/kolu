@@ -336,7 +336,7 @@ describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)",
 
 describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-5)", () => {
   // A mirror-shaped surface: a get-only `connection` cell that declares the
-  // readiness predicate, exactly as `surface-remote`'s `connectionCell` does.
+  // readiness `liveWhen` predicate (the framework mechanism a readiness cell rides).
   // The VOCABULARY (`state === "connected"`) rides the cell; the framework only
   // invokes it. Gate-closed default (`connecting`) so cold start reads not-live.
   const mirrored = defineSurface({

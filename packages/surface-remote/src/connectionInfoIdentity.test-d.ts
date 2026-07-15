@@ -1,8 +1,8 @@
 /**
- * TYPE-LEVEL pin (W6 review, item 1): the browser `connection` cell and the session
+ * TYPE-LEVEL pin (W6 review, item 1): the browser `ConnectionInfo` value and the session
  * sum are ONE type family. `ConnectionInfo` is DEFINED as `SessionState<SshProv>`
  * (`./connection`), and the hand-written zod `ConnectionInfoSchema` — which MUST exist
- * (a wire cell needs a concrete browser-safe validator, which a TS-generic type is not)
+ * (the wire value needs a concrete browser-safe validator, which a TS-generic type is not)
  * — is pinned STRUCTURALLY EQUAL to it here: `z.infer<typeof ConnectionInfoSchema>` ≡
  * `SessionState<SshProv>`, both directions.
  *

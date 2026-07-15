@@ -277,9 +277,13 @@ export function serveHostMap<
       pool.hosts(),
     ),
     // `onState` is snapshot-then-delta, so this seeds the member's state synchronously.
-    // A member with no session (the reconcile race) attaches a no-op — `resolve` then
-    // fails loud (`UnclassifiedHostSessionError`), never fabricating a state for it.
-    attach: (enc, set) => pool.getSession(enc)?.onState(set) ?? (() => {}),
+    // A member present with NO session yet (the documented reconcile race — membership and
+    // sessions reconcile together, so this is transient) returns `undefined`: the family then
+    // does NOT mark it attached and RETRIES on the next membership frame, exactly as the old
+    // hand-rolled `attach` did. This preserves the self-heal — NEVER a no-op disposer that
+    // would freeze the member un-seeded (a resolve reading the now-present session finds a
+    // live handle but a `latest` of `undefined`, publishing a permanent "connecting").
+    attach: (enc, set) => pool.getSession(enc)?.onState(set),
     // Tie the re-serve link's eviction to the family's per-key disposal — the ONE detach
     // seam (it mirrored the old `detach`'s `links.delete`), so a departed host's link is
     // never left behind.

@@ -95,10 +95,10 @@ async function main(): Promise<void> {
   const snapshotDeltaBus = inMemoryChannel<ProcessesSnapshotMsg>();
   const runtime = implementSurface(surface, {
     cells: {
-      // The agent serves the connection-FREE base surface. Link health is the
-      // *parent's* observation of the parent↔agent link (lesson #6 — the agent
-      // can't see it from the inside), so it's composed only at the parent's
-      // re-serve via `mirroredSurface`, never here.
+      // The agent serves its base surface. Link health is the *parent's* observation of
+      // the parent↔agent link (lesson #6 — the agent can't see it from the inside); SR9
+      // moved it onto the host-map entry's connection payload (a host-map concept), never
+      // here (see `common/surface.ts`).
       system: { store: systemStore },
     },
     collections: {

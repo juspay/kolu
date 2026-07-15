@@ -119,17 +119,50 @@ describe("reactiveFamily — per-key disposal + per-member error isolation", () 
         return () => {};
       },
     });
-    // "good" attached + seeded fine (sibling isolation); "bad"'s throw was rolled back
-    // (no ghost `latest` entry) and rethrown out-of-band (fail-loud, not a dropped member).
+    // "good" attached + seeded fine (sibling isolation); "bad"'s throw was rolled back (no
+    // ghost `latest` entry) and rethrown out-of-band (fail-loud). "bad" stays a MEMBER
+    // (visible, not silently dropped) but unseeded — its `get` is undefined.
     expect(family.get("good")).toBe(1);
+    expect(family.has("bad")).toBe(true);
     expect(family.get("bad")).toBeUndefined();
-    expect(family.has("bad")).toBe(false);
     expect(microtasks.length).toBeGreaterThanOrEqual(1);
     expect(() => microtasks[0]?.()).toThrow(/attach for a member threw/);
     // The family keeps working — a later membership frame still reconciles.
     emitMembers(["good"]);
     expect(family.keys()).toEqual(["good"]);
     vi.unstubAllGlobals();
+    family.dispose();
+  });
+});
+
+describe("reactiveFamily — attach retry (a member present before its source lands)", () => {
+  it("retries an attach that returns undefined on the next membership frame (never freezes)", () => {
+    let emitMembers!: (keys: string[]) => void;
+    const members = source<readonly string[]>(
+      (emit) => {
+        emitMembers = emit;
+        return () => {};
+      },
+      ["a"],
+    );
+    let sourceReady = false;
+    const family = reactiveFamily<string, number>({
+      members,
+      attach: (_key, set) => {
+        if (!sourceReady) return undefined; // nothing to subscribe yet — retry me
+        set(1);
+        return () => {};
+      },
+    });
+    // "a" IS a member (visible so a consumer's resolve fails loud on it), but its attach
+    // returned undefined → not yet SUBSCRIBED, so its state is undefined (never dropped).
+    expect(family.has("a")).toBe(true);
+    expect(family.get("a")).toBeUndefined();
+    // The source lands; the next membership frame RETRIES the attach → subscribed + seeded.
+    sourceReady = true;
+    emitMembers(["a"]);
+    expect(family.has("a")).toBe(true);
+    expect(family.get("a")).toBe(1);
     family.dispose();
   });
 });
