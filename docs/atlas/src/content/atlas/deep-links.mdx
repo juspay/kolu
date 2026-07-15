@@ -12,21 +12,17 @@ import Footnote from "../../components/Footnote.astro";
 import PrLink from "../../components/PrLink.astro";
 import architecture from "../../diagrams/deep-links-architecture.svg?raw";
 
-export const Url = (props) => (
-  <code style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:.15rem .5rem;display:inline-block;margin:.1rem 0">{props.children}</code>
-);
-
 ## User-facing description
 
 Any place that can render a link — the orchestrator dashboard, an issue, a Slack message, a bookmark — can point **into** kolu: click it and the installed PWA window comes to the front already showing the right host, terminal, file, or dialog. No PWA? The same URL opens in any browser. The full grammar (v1 ships all of it):
 
 | URL | what you land on |
 |---|---|
-| <Url>#/h/&lt;host&gt;</Url> | the host binding switched to `<host>` |
-| <Url>#/t/&lt;host&gt;/&lt;terminalId&gt;</Url> | that host **and** the terminal tile focused |
-| <Url>#/t/&lt;host&gt;/&lt;terminalId&gt;/code?path=&lt;p&gt;&amp;line=&lt;n&gt;</Url> | the terminal's right panel on the **Code tab**, `<p>` open (optionally at line `<n>`) |
-| <Url>#/t/&lt;host&gt;/&lt;terminalId&gt;/inspector</Url> | the terminal's right panel on the **Inspector** tab |
-| <Url>#/settings</Url> | the settings dialog |
+| `#/h/<host>` | the host binding switched to `<host>` |
+| `#/t/<host>/<terminalId>` | that host **and** the terminal tile focused |
+| `#/t/<host>/<terminalId>/code?path=<p>&line=<n>` | the terminal's right panel on the **Code tab**, `<p>` open (optionally at line `<n>`) |
+| `#/t/<host>/<terminalId>/inspector` | the terminal's right panel on the **Inspector** tab |
+| `#/settings` | the settings dialog |
 
 `<host>` is the canonical encoded host key (`encodeHostKey` — the local host is `local`); `<terminalId>` is the terminal's UUID.<Footnote>The same two facts every attention-notification click already carries (`attentionNotify.ts`'s `AttentionClick`), validated the same way: a non-canonical host key or a non-UUID id is dropped, never routed.</Footnote>
 
