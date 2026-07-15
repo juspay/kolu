@@ -303,25 +303,18 @@ conjunction of transport-live and every readiness predicate; a subscription
 error stays in `subs` and is never folded into `live`. This is what lets the
 UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
 
-## The stdio seam's typed close reason
+## Recognizing a transport-loss end (for reconnect retry)
 
-When a stdio link's transport dies (the peer process exited, the ssh pipe
-dropped), the link closes its `ClientPeer` with **one** typed reason so exactly
-that shape — never an anonymous `AbortError` — crosses the seam on every
-cancelled request/stream pull: `deadTransportError(SURFACE_STDIO_TRANSPORT_CLOSED,
-…)` (both from `@kolu/surface/client`). `isSurfaceStdioTransportClosed(reason)`
-is the brand-checked predicate for it (matches `ORPCError` + that exact code,
-across realm boundaries; matches nothing else).
-
-A consumer that runs a **fatal `unhandledRejection` policy** (kolu-server, and
-any surface re-serve host) needs this predicate for a **narrow** survival
-boundary: an oRPC-internal read-ahead pull, abandoned as a re-served stream's
-consumer unwinds mid-subscribe, can float this typed error with no awaiter — and
-the honest response is to survive *that one shape* loudly while every other
-rejection stays fatal, not to broaden the fatal policy. (`streamHandlers` already
-owns the ~⅔ of these pulls it can reach, via a manual read-ahead-owning iterator;
-the residual is an abandoned promise one layer down, inside oRPC — filed upstream,
-so the boundary is temporary.)
+A re-serve relay ends a live downstream with one of two typed `ORPCError` codes on
+a transport loss: `SURFACE_STDIO_TRANSPORT_CLOSED` (the raw stdio close) or, when
+the relay catches an upstream death mid-stream and re-throws it wrapped, the
+**retryable** `SURFACE_RELAY_TRANSPORT_LOST`. A plugin-equipped client re-subscribes
+on the latter automatically via `STREAM_RETRY`; a consumer that dials the re-served
+router with a **raw** client (no retry plugin) recognizes them with
+`isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reason)` (both
+from `@kolu/surface/client` — brand-checked on `ORPCError` + the exact code) to retry
+the subscribe across a reconnect window. Both are deliberately tight; the relay
+re-throws genuine application errors UNCHANGED, so neither code is ever an app error.
 
 ## Cross-cutting invariants
 

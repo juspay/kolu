@@ -86,30 +86,17 @@ export function isDeadTransportError(error: unknown): boolean {
   );
 }
 
-/** Is `reason` the ONE typed shape a closed stdio link floats — the greppable
- *  {@link deadTransportError}(`SURFACE_STDIO_TRANSPORT_CLOSED`) #1719 made the only
- *  thing crossing the stdio seam at close? Brand-checked on `ORPCError` + the exact
- *  code, so it holds across module-instance / realm boundaries (the robustness oRPC
- *  errors use), and it is DELIBERATELY tight: it matches nothing but that one owned
- *  transport-closed error.
+/** Is `reason` the greppable {@link deadTransportError}(`SURFACE_STDIO_TRANSPORT_CLOSED`)
+ *  a closed stdio link raises (#1719)? Brand-checked on `ORPCError` + the exact code,
+ *  so it holds across module-instance / realm boundaries (the robustness oRPC errors
+ *  use), and DELIBERATELY tight: it matches nothing but that one transport-closed error.
  *
- *  Deliberately NARROWER than {@link isDeadTransportError}: that recognizer spans
- *  BOTH dead-transport codes (the retired websocket too) for relay translation;
- *  this one is the single code an abandoned stdio pull actually floats. The
- *  difference is load-bearing — this predicate gates a consumer-side
- *  `unhandledRejection` SURVIVAL boundary, so it must admit ONLY the identified
- *  float and let every other shape (incl. `SURFACE_TRANSPORT_RETIRED`, an
- *  un-analyzed float) stay fatal by the fail-fast default. Broadening it to
- *  `isDeadTransportError` would survive a shape the mechanism was never proven
- *  benign for.
- *
- *  The residual it gates: an oRPC-INTERNAL intermediate promise (in
- *  `ClientPeer.request`'s streaming response handling) that is abandoned as a
- *  re-served relay's nested-generator consumer unwinds mid-subscribe and floats
- *  this typed error. kolu proved it cannot OWN that promise from any of its own
- *  layers (the ownership guarantee is oRPC's, a lower layer cannot complete it —
- *  architecture-first-principles P5), so a narrow-loud survival boundary + an
- *  upstream fix is the honest kolu-side maximum. */
+ *  Narrower than {@link isDeadTransportError} (which also spans the retired websocket) —
+ *  this is the single stdio-close code. A re-serve CONSUMER that dials the relay with a
+ *  raw client (no `STREAM_RETRY` plugin) uses it — with {@link isSurfaceRelayTransportLost}
+ *  — to recognize a transport-loss end and RE-SUBSCRIBE across a reconnect window,
+ *  mirroring what `STREAM_RETRY` does for a plugin-equipped client (see the padiBinding
+ *  reconnect test). */
 export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
   return (
     reason instanceof ORPCError &&
@@ -122,16 +109,12 @@ export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
  *  {@link SURFACE_RELAY_TRANSPORT_LOST} code? Brand-checked on `ORPCError` + the exact
  *  code, like {@link isSurfaceStdioTransportClosed}, and just as tight.
  *
- *  This is the SECOND shape the same padiBinding "reconnects when padi dies" residual
- *  wears: a re-serve relay (`failThroughStreamCore`) CATCHES an upstream stdio close
- *  mid-stream and re-throws it WRAPPED as this retryable relay end (so a live client
- *  re-subscribes end-to-end). When that re-throw lands on the oRPC-internal
- *  intermediate promise kolu can't own (P5), it floats carrying THIS code instead of
- *  the raw {@link SURFACE_STDIO_TRANSPORT_CLOSED}. The consumer-side survival boundary
- *  recognizes both. It stays NARROW: the relay re-throws genuine application errors
- *  UNCHANGED (only a real middle-hop transport death is wrapped as
- *  `SURFACE_RELAY_TRANSPORT_LOST`), so a float of this exact code is ALWAYS a benign
- *  abandoned transport teardown, never an app error — every OTHER shape stays fatal. */
+ *  When a bound upstream (a padi) dies mid-stream, the re-serve relay
+ *  (`failThroughStreamCore`) CATCHES the stdio close and re-throws it WRAPPED as this
+ *  retryable relay end, so a live client re-subscribes end-to-end. A raw-client consumer
+ *  (no `STREAM_RETRY`) recognizes it here to retry across the reconnect gap. It stays
+ *  NARROW: the relay re-throws genuine application errors UNCHANGED, so this exact code
+ *  is ALWAYS a benign transport-loss end, never an app error. */
 export function isSurfaceRelayTransportLost(reason: unknown): boolean {
   return (
     reason instanceof ORPCError && reason.code === SURFACE_RELAY_TRANSPORT_LOST

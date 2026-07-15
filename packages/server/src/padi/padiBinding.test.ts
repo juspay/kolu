@@ -93,26 +93,23 @@ const silentLog = {
   error() {},
 };
 
-// ── Two guarantees, two homes (the #1719 residual) ──
+// ── The #1719 residual: an un-retried retryable relay-lost on reconnect ──
 //
 // The reconnect test below kills a bound padi WHILE the re-served `terminalAttach`
-// stream is live. That produces TWO effects, proven in two places:
+// stream is live. Post-SR5 (#1822) the re-serve relay CATCHES that mid-stream
+// transport loss and re-throws it as the RETRYABLE `RelayTransportLostError`
+// (`SURFACE_RELAY_TRANSPORT_LOST`) — an AWAITED throw, not a floating rejection.
+// Production's re-serve consumer re-subscribes on it via `STREAM_RETRY`; this test
+// dials the re-served router with a RAW `createRouterClient` (no retry plugin), so the
+// attach threw un-retried and flaked. The whole fix is the `STREAM_RETRY` mimic in
+// `roundTripTerminal` (below): retry the attach across the reconnect gap on a
+// survivable transport float.
 //
-//  1. The re-serve relay ends the live downstream with the RETRYABLE
-//     `RelayTransportLostError` — the CONSUMER must re-subscribe (production's
-//     `STREAM_RETRY`). That is what this test exercises: `roundTripTerminal` retries
-//     the attach across the reconnect gap and asserts the surface round-trips again.
-//
-//  2. oRPC ALSO abandons an intermediate promise in its streaming-response path, which
-//     floats — the residual kolu cannot own (P5). In the RUNNING DAEMON that float is a
-//     process `unhandledRejection` caught by kolu-server's narrow-loud boundary
-//     (`reserveFloatBoundary.ts`, wired in `index.ts`). This test does NOT re-observe
-//     that global-rejection path: under vitest + the in-process `directLink` the effect
-//     surfaces as effect (1)'s awaited retryable throw, not a global rejection (a
-//     module-load boundary was tried and empirically never fired here). The daemon's
-//     survival of the abandoned float is pinned DETERMINISTICALLY in
-//     `reserveFloatBoundary.test.ts` (survives both codes, fatal for everything else,
-//     live-path stays retryable) — the honest home for guarantee (2).
+// (The earlier premise — an un-ownable oRPC-internal float the DAEMON must survive —
+// was overturned by reproduction: the pre-SR5 abandoned-pull float class died with
+// #1822's relay rework. Two 400-iter isolation runs on the real reconnect, WITH and
+// WITHOUT an ownership wrapper, both showed 0 fails and 0 process floats. So there is
+// no float to own or survive here — only the un-retried awaited throw above.)
 
 /** Set (or, given `undefined`, unset) `$XDG_RUNTIME_DIR` — the single-source pin
  *  below flips this between a simulated wait-time and serve-time read. */
