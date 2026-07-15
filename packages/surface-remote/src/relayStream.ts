@@ -20,8 +20,8 @@
  *     source finished THIS input on purpose (a one-shot event, a value stream that
  *     completed) while the link is live, so it SURFACES downstream rather than
  *     parking for a respawn that isn't coming (#1661 candidate 3a). The other exit
- *     is the downstream unsubscribing. (This is pulam-web's `forwardInputStream`,
- *     recovered into the shared stack.)
+ *     is the downstream unsubscribing. (This is the retired pulam-web's
+ *     `forwardInputStream`, recovered into the shared stack.)
  *
  *   - {@link relayFailThroughStream} — the **delta** path. FAIL THROUGH: forward
  *     the current live client's stream 1:1, propagating its end AND its error,
@@ -29,7 +29,7 @@
  *     the client's own end-to-end retry re-subscribes and a scrollback/liveness
  *     snapshot only ever arrives as the FIRST frame of a FRESH stream. Holding a
  *     byte stream open and splicing a replayed snapshot into a live xterm would
- *     corrupt the screen — pulam-web's hold-open forwarder was *exactly wrong*
+ *     corrupt the screen — the retired pulam-web's hold-open forwarder was *exactly wrong*
  *     for attach, and this is its correction.
  *
  * The split is guarded at the type level for DIRECT callers: {@link

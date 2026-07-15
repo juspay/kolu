@@ -257,7 +257,7 @@ const argv = cli({
       parameters: ["<id>"],
       help: {
         description:
-          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints one result frame per outcome — `{ id, result, … }`, where `result` is met / timeout / gone / interrupted / closed (a met frame adds `fired` — idle / match —, elapsedMs, and matchedLine on a match), so a driver never falls back to the exit code alone. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `pulam-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
+          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints one result frame per outcome — `{ id, result, … }`, where `result` is met / timeout / gone / interrupted / closed (a met frame adds `fired` — idle / match —, elapsedMs, and matchedLine on a match), so a driver never falls back to the exit code alone. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `padi-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
         ...endpointFlags,
@@ -695,7 +695,7 @@ function abortOnShutdownSignals(): AbortController {
 
 /** Block until terminal `id`'s raw output meets `condition`, then map the
  *  outcome to output + exit code — the thin glue over `awaitOutputCondition`
- *  (the pure, testable data layer). Exit codes mirror `pulam-tui wait`: 0 met ·
+ *  (the pure, testable data layer). Exit codes mirror `padi-tui wait`: 0 met ·
  *  2 timeout · 3 the terminal exited first · 130 interrupted · 1 link/usage
  *  error. */
 async function cmdWait(
@@ -1104,7 +1104,7 @@ async function main(): Promise<void> {
       // validated pre-dial above), so keying the branch off it — rather than
       // re-checking `argv.command === "wait"` and re-narrowing with an internal
       // "can't happen" guard — carries the validated invocation straight through
-      // (mirrors pulam-tui's `waitTargets !== null` dispatch).
+      // (mirrors padi-tui's `waitTargets !== null` dispatch).
       await cmdWait(
         conn,
         await resolveOne(conn, argv._.id),

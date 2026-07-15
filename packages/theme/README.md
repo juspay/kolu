@@ -32,11 +32,13 @@ Each surface imports it right after Tailwind:
 ## Consumers
 
 - `packages/client/` — the on-canvas Dock + the rest of the desktop workspace.
-- `packages/pulam-web/` — the fleet dashboard (`<html class="dark">` selects the
-  dark values statically).
+- A browser fleet mirror — the shared token set a fleet dashboard renders against
+  (`<html class="dark">` selects the dark values statically). The original such
+  consumer, `pulam-web`, has since retired into padi; the leaf stays reusable for
+  any downstream mirror.
 
-Dependency arrow points *out*: `kolu-client → @kolu/theme` and
-`pulam-web → @kolu/theme`.
+Dependency arrow points *out*: `kolu-client → @kolu/theme` (and any fleet mirror
+likewise).
 
 > The sleeping accent `--color-moonlit` (`#8895ad`) is deliberately **fixed**
 > (no light-mode override) and shared with the client's dormant-tile palette

@@ -17,7 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { derived, everyMs, source } from "@kolu/surface/reactor";
+import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
@@ -152,7 +152,7 @@ export function buildPadiSurfaceDeps(deps: {
   /** padi's resolved state-root — the `hostInventory` poll read resolves the
    *  held-kaval fallback address from it (`samplePadiHostInventory`). */
   stateRoot: string;
-}): Omit<PadiDeps, "channel"> {
+}): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
@@ -165,16 +165,9 @@ export function buildPadiSurfaceDeps(deps: {
   // re-sample onto the daemon-status change (available at serve time — unlike
   // kolu-server's late `padiSession`, which is why that sampler defers to #1831)
   // closes that startup window: the readout re-reads on connect, not one tick later.
-  const everyMsOrOnDaemonChange =
-    (ms: number) =>
-    (tick: () => void): (() => void) => {
-      const stopInterval = everyMs(ms)(tick);
-      const off = onDaemonStatusChange(tick);
-      return () => {
-        off();
-        stopInterval?.();
-      };
-    };
+  // The fuse itself is the reactor's `everyMsOr(ms, subscribe)` (SR8.c graduated the
+  // once-duplicated app-local twins into `@kolu/surface`); here the change signal is
+  // `onDaemonStatusChange`.
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
   // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
@@ -223,7 +216,10 @@ export function buildPadiSurfaceDeps(deps: {
       hostInventory: derived.cell(
         source({
           read: () => samplePadiHostInventory(stateRoot),
-          install: everyMsOrOnDaemonChange(HOST_INVENTORY_SAMPLE_INTERVAL_MS),
+          install: everyMsOr(
+            HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+            onDaemonStatusChange,
+          ),
         }),
       ),
       // Live process-memory readout (padi's OWN RSS + its kaval's) — a DERIVED
@@ -236,7 +232,7 @@ export function buildPadiSurfaceDeps(deps: {
       processMemory: derived.cell(
         source({
           read: samplePadiMemory,
-          install: everyMsOrOnDaemonChange(MEMORY_SAMPLE_INTERVAL_MS),
+          install: everyMsOr(MEMORY_SAMPLE_INTERVAL_MS, onDaemonStatusChange),
         }),
       ),
       // A DERIVED member — the urgency projection is `recomputeUrgency` folded off

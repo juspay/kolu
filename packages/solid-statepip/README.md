@@ -17,7 +17,7 @@ small amber **alert badge** in the corner when a fired notification is unopened.
     state core** — the glyph-only rail and sub-tabs still render the standalone
     `LiveActivityDot` corner dot, which has no core to ring);
   - `alert` → a small amber `--color-attention` **corner badge** (an unopened
-    notification — the Dock's `unread`, pulam-web's notify-class). A badge, NOT a
+    notification — the Dock's `unread`, or a fleet mirror's notify-class). A badge, NOT a
     ring: a surrounding alert ring (especially nested with the live ring) read as
     overwhelming, so the two axes use different shapes and the state core stays
     fully visible.
@@ -31,16 +31,17 @@ small amber **alert badge** in the corner when a fired notification is unopened.
   `sleeping` · `empty`).
 - **`pipForPaintClass`** + the ring/badge class constants (`LIVE_RING_CLASS`,
   `ALERT_BADGE_CLASS`) on the `./pipVariant` subpath — the shared agent-paint →
-  pip fold plus the overlay class names. Both kolu's Dock (`pipVariant`) and
-  pulam-web's fleet (`pipVariantFor`) route their state→variant mapping through
+  pip fold plus the overlay class names. Both kolu's Dock (`pipVariant`) and a
+  fleet mirror (`pipVariantFor`) route their state→variant mapping through
   the fold, and both render the same overlay classes (defined once in
   `statepip.css`), so the indicator a given (state, live, alert) triple shows is
-  defined **once** and cannot drift between the two surfaces.
+  defined **once** and cannot drift between surfaces.
 
-This exists so kolu's on-canvas **Dock** and the **pulam-web** fleet dashboard
-render the *byte-identical* pip — the two fleet views mirror the Dock's
-agent-state UX (see `.claude/rules/dock-fleet-mirror.md`); the pip is the pixel
-half of that contract.
+This exists so kolu's on-canvas **Dock** and any fleet mirror render the
+*byte-identical* pip — a fleet view mirrors the Dock's agent-state UX (see
+`.claude/rules/dock-fleet-mirror.md`); the pip is the pixel half of that
+contract. (It was first shared with the **pulam-web** fleet dashboard, since
+retired into padi.)
 
 ## What it knows nothing about
 
@@ -52,8 +53,8 @@ half of that contract.
   (`bg-alert` · `border-accent` · `text-moonlit`), resolved by whichever surface
   `@import`s the theme. The leaf carries the Tailwind class names, not hexes.
 - **App chrome / transport / layout.** It is a leaf: the dependency arrow points
-  *out* — `kolu-client → @kolu/solid-statepip` and
-  `pulam-web → @kolu/solid-statepip`, neither importing the other through it.
+  *out* — `kolu-client → @kolu/solid-statepip` (and any fleet mirror likewise),
+  neither importing the other through it.
 - **Its own box size.** The wrapper is content-sized (it fits whatever
   text/gap context it lands in); a surface that reserves a fixed column passes
   that box in via the `class` prop (the dock + fleet rows use the exported
@@ -63,7 +64,8 @@ half of that contract.
 ## Consumers
 
 - `packages/client/` — the Dock row pip, the canvas tile-title pip.
-- `packages/pulam-web/` — the fleet dashboard row pip.
+- A downstream fleet mirror — the fleet dashboard row pip. (The original such
+  consumer, `pulam-web`, has since retired into padi.)
 
 Each `@source`-scans this package's `src/` from its own `index.css` so the pip's
 Tailwind utilities survive tree-shaking.

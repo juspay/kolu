@@ -6,8 +6,9 @@
  *  store: it cannot CONSTRUCT the two memory facts (`lastActivityAt` /
  *  `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
  *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`TerminalSnapshot`),
- *  not a runtime mutator split. kolu folds the stream into a `TerminalState`
- *  (`./fold.ts`); the daemon (pulam) folds the snapshot half only.
+ *  not a runtime mutator split. padi folds the stream into a `TerminalState`
+ *  (`./fold.ts`, with memory on the host clock); a memoryless dashboard consumer
+ *  folds the snapshot half only.
  *
  *  Producer:
  *
@@ -88,8 +89,8 @@ export interface CommandRunSample {
   replayed: boolean;
 }
 
-/** Per-terminal signals the sensors subscribe to. The host (kolu-server's
- *  local endpoint, or `pulam`) creates a fresh in-memory channel of each kind
+/** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
+ *  a local or remote host) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
  *  pty-host serves the same taps. */
 export interface SensorSignals {
@@ -111,7 +112,7 @@ export interface SensorSignals {
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
  *  one optional host input the producer takes (besides the taps). Provided by
- *  hosts that can reach the PTY screen buffer (kolu's local endpoint and pulam,
+ *  padi wherever it can reach the PTY screen buffer (local or remote host,
  *  via pty-host's `getScreenText`). Async + host-supplied, so the producer keeps
  *  its zero *synchronous* dependency on the PTY host. Drives
  *  `AgentAdapter.screenScrape` promotion (Claude's `AskUserQuestion` /
@@ -873,8 +874,8 @@ export function startSensors(
   // it, so a throw escaping `emit` would both freeze the raising sensor's `consume`
   // loop AND desync the host fold from the now-advanced baseline (a later equal value
   // deduped → lost forever). So error handling lives where the fallible work actually
-  // is — the host's publish boundary (kolu's `commitSnapshot` / `updateMemory` /
-  // `emitTerminalsDirty`, and pulam's `upsert`, each fold-ACCEPT then guard their own
+  // is — the host's publish boundary (the fold's `updateMemory` and padi's
+  // collection `upsert`, each fold-ACCEPT then guard their own
   // publish), NOT a funnel wrapper here that would sit at the wrong seam (after the
   // baseline advanced) and merely log a lost observation. With the publish guarded at
   // its boundary, `emit` is infallible and passed straight through to each sensor.

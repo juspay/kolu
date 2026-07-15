@@ -209,7 +209,7 @@ function prValueText(pr: PadiTerminal["pr"]): string {
  *  `list` uses). Sorted by id for a stable display. Empty inventory gets an
  *  honest one-liner, not a bare header. The STATE column names the record arm
  *  (active · sleeping · parked) — padi serves dormant records too, unlike the
- *  old pulam awareness snapshot. */
+ *  retired pulam daemon's awareness snapshot. */
 export function formatStatus(
   entries: Array<[TerminalId, PadiTerminal]>,
 ): string {
