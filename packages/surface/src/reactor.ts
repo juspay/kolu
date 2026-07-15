@@ -537,6 +537,31 @@ function connectPublishEffect<T>(
   });
 }
 
+/** The async poll-connect protocol, shared by every builder that wires a POLL
+ *  source (`derived.cell` and `derived.collection`). `connectPoll` does the T+0
+ *  seed read (a rejection propagates through this promise to the runtime's
+ *  `done`), publishes it via `onValue`, and installs the tick loop — resolving to
+ *  the loop's disposer. If the builder was torn down while the seed was in flight
+ *  (`isTorn()`), dispose the just-installed loop rather than joining it to a
+ *  torn-down node; otherwise `adopt` the disposer and return the builder's
+ *  `teardown` so the runtime's `close()` disposes the subscription. */
+function connectPollNode<T>(
+  poll: PollSource<T>,
+  onValue: (v: T) => void,
+  isTorn: () => boolean,
+  adopt: (d: Disposer) => void,
+  teardown: Disposer,
+): Promise<Disposer> {
+  return poll.connectPoll(onValue).then((loopDispose) => {
+    if (isTorn()) {
+      loopDispose();
+      return () => {};
+    }
+    adopt(loopDispose);
+    return teardown;
+  });
+}
+
 /** The graph-node `derived.cell(node)` — publish a pre-built graph node (a
  *  `scan`, a `computed`) as a cell. Extracted so `derived.cell` can OVERLOAD the
  *  compute-fn form beside it. */
@@ -599,22 +624,18 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
       }
       connected = true;
       if (poll) {
-        // A poll source connects ASYNCHRONOUSLY: `connectPoll` does the T+0 seed
-        // read (a rejection propagates through this promise to the runtime's
-        // `done` — a boot crash, never a fabricated default), publishes it, and
-        // installs the tick loop, resolving to the loop's disposer.
-        return poll
-          .connectPoll((next) => cell.set(next))
-          .then((loopDispose) => {
-            // Disposed while the seed was in flight (the runtime closed): dispose the
-            // just-installed loop rather than joining it to a torn-down cell.
-            if (torn) {
-              loopDispose();
-              return () => {};
-            }
-            disposeEffect = loopDispose;
-            return teardown;
-          });
+        // A poll source connects ASYNCHRONOUSLY (see `connectPollNode`): the T+0
+        // seed read faults the runtime's `done` on rejection — a boot crash,
+        // never a fabricated default.
+        return connectPollNode(
+          poll,
+          (next) => cell.set(next),
+          () => torn,
+          (d) => {
+            disposeEffect = d;
+          },
+          teardown,
+        );
       }
       // The connect seam: an engine effect subscribes the node's level and
       // pushes every change through the ctx setter (the member's write gate).
@@ -853,19 +874,18 @@ function derivedCollection<K, V>(
         equals: publishers.equals as (a: V, b: V) => boolean,
       };
       if (poll) {
-        // Async: `connectPoll`'s seed read gives the first whole map (reconciled
-        // against the empty baseline ⇒ every key upserted), then each tick's map
-        // reconciles. A first-read rejection faults the runtime's `done`.
-        return poll
-          .connectPoll((nextMap) => reconcile(nextMap, pub))
-          .then((loopDispose) => {
-            if (torn) {
-              loopDispose();
-              return () => {};
-            }
-            disposeReconcile = loopDispose;
-            return teardown;
-          });
+        // Async (see `connectPollNode`): the seed read gives the first whole map
+        // (reconciled against the empty baseline ⇒ every key upserted), then each
+        // tick's map reconciles. A first-read rejection faults the runtime's `done`.
+        return connectPollNode(
+          poll,
+          (nextMap) => reconcile(nextMap, pub),
+          () => torn,
+          (d) => {
+            disposeReconcile = d;
+          },
+          teardown,
+        );
       }
       // A non-poll node (a `computed`/`$`-compute producing a map): an engine effect
       // reconciles on each change. Log-skip-continue on a compute throw (hold last).
