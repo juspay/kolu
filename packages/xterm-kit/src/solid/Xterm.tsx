@@ -120,9 +120,6 @@ export const Xterm: Component<
     cancelAnimationFrame(fitRaf);
     fitRaf = requestAnimationFrame(() => core?.addons.fit.fit());
   };
-  // Separate rAF handle for the on-show atlas rebuild (below), so a concurrent
-  // ResizeObserver `refit()` sharing `fitRaf` can't cancel it.
-  let showRaf = 0;
 
   // The constructed core (terminal + addons), built asynchronously and read by
   // the theme/fontSize/visible effects below (which run in this same owner but
@@ -141,7 +138,6 @@ export const Xterm: Component<
   // clears, so a retained `core` alone re-forms the #606 retainer chain.
   onCleanup(() => {
     cancelAnimationFrame(fitRaf);
-    cancelAnimationFrame(showRaf);
     core = null;
     clearAtlas = null;
   });
@@ -269,23 +265,7 @@ export const Xterm: Component<
         if (!visible || !core) return;
         scrollLock.reset();
         core.terminal.scrollToBottom();
-        // A tile returning from `display:none` can carry a STALE glyph atlas: while
-        // hidden it misses the resize/DPR events that would rebuild it, and on show
-        // a same-geometry `fit()` is a cols/rows no-op that fires no `handleResize`,
-        // so nothing rebuilds — every glyph then draws from a wrong atlas slot
-        // (whole-tile garble, cleared only by a real resize or reload). Force a
-        // rebuild, mirroring `refitOnTabVisible`'s whole-tab `clearTextureAtlas` for
-        // the per-tile toggle it never covered. One post-layout frame — fit() first
-        // (handles the cols/rows-CHANGED case), then clearAtlas() (the UNCHANGED
-        // case) — so the redraw re-rasterizes at the tile's real, non-zero size, not
-        // the 0×0 it had while hidden. `clearTextureAtlas` re-warms on the live
-        // context without routing through `_refreshCharAtlas`, so it cannot hit
-        // xterm's zero-dims atlas-skip.
-        cancelAnimationFrame(showRaf);
-        showRaf = requestAnimationFrame(() => {
-          core?.addons.fit.fit();
-          clearAtlas?.();
-        });
+        refit();
       },
       { defer: true },
     ),
