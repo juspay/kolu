@@ -364,9 +364,11 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       }),
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
-      // The store cells (`preferences`/`padiLink`/`processStartedAt`) + the two
-      // injected DERIVED poll cells (`processMemory`/`daemonInventory`). Every
-      // terminal-derived member rides the re-served `padi` sibling.
+      // The one Conf-backed store cell (`preferences`) + the two DERIVED PUSH cells
+      // scanning `onState` (`padiLink`/`processStartedAt`) + the two DERIVED poll cells
+      // (`processMemory`/`daemonInventory`) — every one built above in THIS file (SR8.c),
+      // the reactor graph its own writer. Every terminal-derived member rides the
+      // re-served `padi` sibling.
       kolu: koluDeps,
     },
   );
@@ -396,8 +398,8 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // `{ kolu, surfaceApp }` sibling map — `index.ts`'s async boot splices the RE-SERVED
   // `padi` sibling in beside them (`{ surface: { ...router.surface, padi } }`) and
   // assembles the final host router. padi is async (an `await`ed binding), so it can't be
-  // composed here. Every member is written inside this file now (poll cells by the graph,
-  // the two push-shaped store cells by the `onState` subscription above), so NO ctx is
+  // composed here. Every member is the reactor graph's own writer now (the poll cells'
+  // reads + the push cells' `scan`s over the shared `onState` source), so NO ctx is
   // returned — the caller only splices the router.
   return {
     router: koluSurfaces.router as { surface: Record<string, unknown> },
