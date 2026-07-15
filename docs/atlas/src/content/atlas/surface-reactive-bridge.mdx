@@ -202,6 +202,8 @@ A live drishti regression ([srid/drishti#102](https://github.com/srid/drishti/is
 
 **Why no test caught it:** each projection is asserted alone — `serveHostMap.test.ts` pins `EntryStatus`, `connection.test.ts` pins `projectConnection` — and no test asserts the joint invariant. The missing law, to bank with SR9: *for any `SessionState`, `EntryStatus === connected` ⟺ `connection.phase === connected`*, plus a drishti steady-state e2e that a connected host's dot and word agree in one settled frame.
 
+**Resolved** — SR9 shipped it (<PrLink pr={1836} /> + [srid/drishti#105](https://github.com/srid/drishti/pull/105)): the second projection/subscription and `connectionPipe.ts` are deleted, the joint invariant is enforced pre-publication and pinned (contract test + drishti's joint-render pin), and srid live-confirmed the fix before merge. The disagreement no longer has an encoding.
+
 </Callout>
 
 ### 5. Cross-member derivation — free
