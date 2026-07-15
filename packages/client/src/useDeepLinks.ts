@@ -169,12 +169,17 @@ export function useDeepLinks(): void {
   createEffect(() => {
     const route = pending();
     if (!route) return;
-    // Only decide once the ACTIVE host IS the route's host: `setActiveHost`
-    // re-windows the list sub to the new host, so deciding before the switch has
-    // landed would read the WRONG host's membership. Guards the stale-settle /
-    // cross-host race (a second link to another host, or a manual switch while
-    // this route is armed).
-    if (encodeHostKey(activeHost()) !== route.host) return;
+    // Only act while the ACTIVE host IS the route's host. `setActiveHost`
+    // re-windows the list sub, so a mismatch means either the switch hasn't
+    // landed (never happens — `routeToTerminal` batches host+pending) or the
+    // user has since navigated AWAY (a manual host-chip switch). Treat a
+    // mismatch as SUPERSESSION: clear the route so it can't enact if the user
+    // switches back, and — because the 8s backstop tracks `pending` — clearing
+    // it disposes that timer too, so no stale toast fires in the new host's view.
+    if (encodeHostKey(activeHost()) !== route.host) {
+      setPending(null);
+      return;
+    }
     if (store.listSub.pending()) return; // membership not settled — wait
     if (store.listSub.error()) {
       // The list stream faulted — `pending()` is false but the value is stale

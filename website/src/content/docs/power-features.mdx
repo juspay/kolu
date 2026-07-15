@@ -93,13 +93,16 @@ opens in any browser).
 | --- | --- |
 | `#/h/<host>` | that host, switched to |
 | `#/t/<host>/<id>` | that host **and** the terminal focused |
-| `#/t/<host>/<id>/code?path=<p>&line=<n>` | the Code tab, `<p>` open at line `<n>` |
+| `#/t/<host>/<id>/code?path=<p>` | the Code tab, `<p>` open (add `&line=<n>` to land on a line) |
 | `#/t/<host>/<id>/inspector` | the Inspector tab |
 | `#/settings` | the settings dialog |
 
 `<host>` is the host's key (`local`, or `remote:<target>`); `<id>` is the
 terminal's id. A link to a **split** lands the sub-terminal live, not just its
-parent tile.
+parent tile. Because the Code tab and Inspector belong to the top-level **tile**
+(a split shares its parent's right panel), a `/code` or `/inspector` link to a
+split focuses the split and opens the **parent tile's** panel — and `/code`
+resolves `<p>` against that tile's repository.
 
 - **Durable, not one-shot** — unlike a notification click, a deep link is a
   bookmark: reload and it re-navigates.
@@ -111,10 +114,12 @@ parent tile.
   the host's terminals to load before deciding anything is missing.
 
 <Aside type="note" title="Focus the installed app, don't spawn a second window">
-  When kolu is installed as a [PWA](/install-pwa), an in-scope link focuses the
-  already-open app window (via the manifest's `launch_handler`) instead of
-  opening a duplicate — so a link from your chat or board jumps you straight to
-  the terminal, in the window you already have.
+  When kolu is installed as a [PWA](/install-pwa) on a Chromium browser, an
+  in-scope link focuses the already-open app window (via the manifest's
+  `launch_handler` and the Launch Queue API) instead of opening a duplicate — so
+  a link from your chat or board jumps you straight to the terminal, in the
+  window you already have. Elsewhere the link just opens kolu normally; either
+  way it lands on the right view.
 </Aside>
 
 <Aside type="note" title="Drive it from the shell">
