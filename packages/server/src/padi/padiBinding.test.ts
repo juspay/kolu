@@ -83,7 +83,6 @@ import {
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
 import { buildAppRouter } from "../router.ts";
-import { surviveReserveTransportFloat } from "../reserveFloatBoundary.ts";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */
@@ -94,49 +93,26 @@ const silentLog = {
   error() {},
 };
 
-// ── The #1719-survivor boundary, mirrored from kolu-server's own (index.ts) ──
+// ── Two guarantees, two homes (the #1719 residual) ──
 //
 // The reconnect test below kills a bound padi WHILE the re-served `terminalAttach`
-// stream is live — the race that leaves oRPC holding an ABANDONED intermediate
-// promise in its streaming-response path, which floats the typed transport-closed
-// error. kolu proved it cannot OWN that promise (see `reserveFloatBoundary.ts`); the
-// honest guarantee is not "zero unhandled rejections" (that would demand owning a
-// promise kolu cannot) but "reconnect succeeds AND the daemon SURVIVES the dependency
-// float". So this file registers the SAME narrow boundary kolu-server installs
-// process-wide. Registering ANY `unhandledRejection` listener makes vitest DEFER to it
-// (vitest's own worker handler returns early once `process.listeners("unhandledRejection")
-// .length > 1` — its "the user is handling it" convention), so a survived typed float
-// no longer fails the run; a float of ANY OTHER shape is re-surfaced as an
-// uncaughtException (only vitest listens for that → the run STILL fails loud). NARROW —
-// never a blanket swallow. TEMPORARY — delete this + assert plain zero-floats again when
-// the upstream oRPC fix lands.
-const survivedFloats: unknown[] = [];
-const boundaryHandler = (reason: unknown): void => {
-  if (
-    surviveReserveTransportFloat(reason, silentLog, (r) =>
-      survivedFloats.push(r),
-    )
-  )
-    return;
-  // NOT the survivable float — re-surface as an uncaughtException so the run fails
-  // loud (the narrow edge; vitest reports it since nothing else listens for it).
-  setImmediate(() => {
-    throw reason;
-  });
-};
-// Register at MODULE LOAD and NEVER remove it — faithfully mirroring kolu-server's
-// PERMANENT `unhandledRejection` handler (`index.ts`), which is the whole point: the
-// daemon survives this float because its handler is always installed. A beforeAll/
-// afterAll on/off pair leaves a WINDOW — the ECONNRESET-driven pull rejection can be
-// delivered a tick LATE, after `afterAll` removed the handler, and then vitest (now the
-// sole `unhandledRejection` listener, so its `processListeners(event).length > 1`
-// deferral no longer fires) reports the typed float and fails the run (~0.6% of a long
-// stress). A module-load registration closes that window: from load through worker
-// teardown, `length >= 2` always holds, so vitest always defers to this narrow boundary
-// and the typed float is always survived — exactly as in the running daemon. The handler
-// is NARROW (survives only the one typed shape; re-throws every other float as an
-// uncaughtException), so a permanent registration can never mask an unrelated float.
-process.on("unhandledRejection", boundaryHandler);
+// stream is live. That produces TWO effects, proven in two places:
+//
+//  1. The re-serve relay ends the live downstream with the RETRYABLE
+//     `RelayTransportLostError` — the CONSUMER must re-subscribe (production's
+//     `STREAM_RETRY`). That is what this test exercises: `roundTripTerminal` retries
+//     the attach across the reconnect gap and asserts the surface round-trips again.
+//
+//  2. oRPC ALSO abandons an intermediate promise in its streaming-response path, which
+//     floats — the residual kolu cannot own (P5). In the RUNNING DAEMON that float is a
+//     process `unhandledRejection` caught by kolu-server's narrow-loud boundary
+//     (`reserveFloatBoundary.ts`, wired in `index.ts`). This test does NOT re-observe
+//     that global-rejection path: under vitest + the in-process `directLink` the effect
+//     surfaces as effect (1)'s awaited retryable throw, not a global rejection (a
+//     module-load boundary was tried and empirically never fired here). The daemon's
+//     survival of the abandoned float is pinned DETERMINISTICALLY in
+//     `reserveFloatBoundary.test.ts` (survives both codes, fatal for everything else,
+//     live-path stays retryable) — the honest home for guarantee (2).
 
 /** Set (or, given `undefined`, unset) `$XDG_RUNTIME_DIR` — the single-source pin
  *  below flips this between a simulated wait-time and serve-time read. */
@@ -308,14 +284,45 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   // terminalAttach is a DELTA member — its first frame is the snapshot, forwarded
   // 1:1 through the re-serve's fail-through relay. Frames are a { kind, data, … }
   // discriminated union (contract 5.2); the first is a `snapshot`.
-  const attach = (await padi.terminalAttach.get({ id }))[
-    Symbol.asyncIterator
-  ]();
-  const first = await attach.next();
-  const firstFrame = first.value as TerminalAttachFrame;
+  //
+  // The attach can race the reconnect window: when the bound padi dies mid-attach the
+  // re-serve relay (`failThroughStreamCore`) ends the downstream with the RETRYABLE
+  // `RelayTransportLostError` (`SURFACE_RELAY_TRANSPORT_LOST`) — or the raw
+  // `SURFACE_STDIO_TRANSPORT_CLOSED` — so a LIVE consumer re-subscribes end-to-end. In
+  // PRODUCTION the reServe consumer carries `STREAM_RETRY` and re-subscribes
+  // transparently (the terminal re-attaches with no user-visible break). This test dials
+  // the re-served router with a RAW `createRouterClient` (no retry plugin), so mirror
+  // `STREAM_RETRY` explicitly here: retry the attach across the reconnect gap on a
+  // survivable transport float, exactly as `create` above retries. (This is the
+  // consumer half of the reconnect guarantee; the DAEMON half — surviving the abandoned
+  // oRPC-internal float without crashing — is pinned deterministically in
+  // `reserveFloatBoundary.test.ts`.)
+  let firstFrame: TerminalAttachFrame | undefined;
+  for (let i = 0; i < 200 && firstFrame === undefined; i++) {
+    try {
+      const attach = (await padi.terminalAttach.get({ id }))[
+        Symbol.asyncIterator
+      ]();
+      const first = await attach.next();
+      firstFrame = first.value as TerminalAttachFrame;
+      await attach.return?.();
+    } catch (err) {
+      if (
+        isSurfaceStdioTransportClosed(err) ||
+        isSurfaceRelayTransportLost(err)
+      ) {
+        await sleep(50); // the retryable relay/transport end — re-subscribe like STREAM_RETRY
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (firstFrame === undefined)
+    throw new Error(
+      "terminalAttach never landed a snapshot across the reconnect",
+    );
   expect(firstFrame.kind).toBe("snapshot");
   expect(typeof firstFrame.data).toBe("string");
-  await attach.return?.();
 
   await padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` });
   let screen = "";
@@ -384,25 +391,13 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     expect(seenLines.some((l) => l.includes("endpoint link down"))).toBe(true);
     expect(seenLines.some((l) => l.includes("agent exited"))).toBe(false);
 
-    // AND THE DAEMON SURVIVES THE DEPENDENCY FLOAT. On the fraction of runs where the
-    // kill races the live `terminalAttach` teardown, oRPC floats its abandoned
-    // intermediate promise — the residual kolu cannot own (`ownReadAheadPull` removes
-    // the bulk; P5 for the remainder). The boundary (registered above, mirroring
-    // kolu-server's `index.ts`) SURVIVES that residual in EITHER shape it wears — the
-    // raw `SURFACE_STDIO_TRANSPORT_CLOSED`, or the re-serve relay's wrapped
-    // `SURFACE_RELAY_TRANSPORT_LOST` re-throw of it (post-#1822 the abandoned float
-    // carries the wrapped shape). A float of any OTHER shape would already have
-    // re-surfaced as an uncaughtException and failed this run. Reaching here — with
-    // `roundTripTerminal` having RECONNECTED — IS the honest guarantee: reconnect +
-    // survival, NOT zero floats (which would demand owning a promise kolu structurally
-    // cannot; P5). Drain a beat for a late float, then confirm every survived one is,
-    // by construction, one of those two shapes (belt-and-suspenders). REMOVE with the
-    // upstream oRPC fix.
-    await sleep(200);
-    for (const f of survivedFloats)
-      expect(
-        isSurfaceStdioTransportClosed(f) || isSurfaceRelayTransportLost(f),
-      ).toBe(true);
+    // Reaching here — a SECOND terminal round-tripped through the re-served surface
+    // after the bound padi died — IS the reconnect guarantee: the consumer re-subscribed
+    // across the transport-loss window (`roundTripTerminal`'s attach retry, the
+    // `STREAM_RETRY` mimic). The DAEMON's survival of the abandoned oRPC-internal float
+    // is the separate guarantee pinned in `reserveFloatBoundary.test.ts` (see the
+    // header note) — not re-asserted here, because under vitest that float surfaces as
+    // this retryable throw, not the process `unhandledRejection` the daemon survives.
   }, 90000);
 
   it("a kolu-server (binder) restart keeps padi's registry WARM — adopts, never respawns (done-criterion b)", async () => {

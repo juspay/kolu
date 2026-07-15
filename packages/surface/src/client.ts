@@ -134,8 +134,7 @@ export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
  *  abandoned transport teardown, never an app error — every OTHER shape stays fatal. */
 export function isSurfaceRelayTransportLost(reason: unknown): boolean {
   return (
-    reason instanceof ORPCError &&
-    reason.code === SURFACE_RELAY_TRANSPORT_LOST
+    reason instanceof ORPCError && reason.code === SURFACE_RELAY_TRANSPORT_LOST
   );
 }
 
