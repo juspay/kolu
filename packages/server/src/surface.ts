@@ -230,7 +230,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // AWAITS the pin before this call (padi live at build time), `processStartedAt` would seed
   // stale until the next event — seed both scans from a synchronous snapshot then, or keep
   // the pin async.
-  const padiRail = source<PadiRailState>((emit) => deps.onState(emit));
+  const padiRail = source<PadiRailState>(deps.onState);
   // Each push cell's honest pre-first-onState seed, typed EXACTLY as the cell's `T` (so the
   // scan's level is `DerivedCell<T>`, not a literal-widened `string`): `padiLink` at the
   // gate-closed `connecting`; `processStartedAt` with kolu-server's own boot epoch known
