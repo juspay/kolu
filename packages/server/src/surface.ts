@@ -209,13 +209,6 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     }
   };
 
-  // ONE `onState` subscription, shared by both PUSH cells. The push `source`'s tap is
-  // ref-counted (installed on the first `scan` subscriber, uninstalled on the last), so
-  // the two cells' scans multicast off a single `deps.onState` — the "single onState
-  // subscription" contract. PUSH (not poll): the reactor emits a push occurrence
-  // SYNCHRONOUSLY (`makeEmit`'s `batch` → the graph-node publish `effect`, no microtask),
-  // so a state change reaches the wire at once — deliberately NOT the deferred poll arm
-  // that the `captureLatest` snapshot exists to tame.
   // ONE push `source` over the bound padi's projected `onState` — the "single onState
   // subscription" both push cells share. The source's tap is ref-counted (installed on the
   // first `scan` subscriber, torn down on the last), so the two cells' scans multicast off a
