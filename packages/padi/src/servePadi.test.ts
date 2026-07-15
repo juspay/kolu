@@ -178,8 +178,11 @@ function terminalsBacking(): {
     lifetime: { kind: "forever" },
     stateRoot: "/tmp/padi-test-state-root",
   });
+  // `terminals` is an AUTHORED collection (the `readAll`/`readOne` arm), not a
+  // graph-owned `derived.collection`; narrow the dep union by the presence of the
+  // `readOne` read seam (the derived arm omits it) before reading it.
   const t = deps.collections?.terminals;
-  if (!t?.readOne || !t?.readAll) {
+  if (!t || !("readOne" in t) || !t.readOne || !t.readAll) {
     throw new Error("padi deps must serve the terminals collection reads");
   }
   return { readOne: t.readOne, readAll: t.readAll };

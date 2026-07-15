@@ -1022,3 +1022,119 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     expect(ctx.cells.temp.get()).toBe(200);
   });
 });
+
+describe("derived.collection — the keyed reconciler", () => {
+  const surface = defineSurface({
+    collections: {
+      items: {
+        keySchema: z.string(),
+        schema: z.object({ n: z.number() }),
+        // per-key value equality — the reconciler's diff predicate
+        equals: (a: { n: number }, b: { n: number }) => a.n === b.n,
+        verbs: ["keys", "get"],
+      },
+    },
+  });
+
+  it("reconciles a poll source's whole-map read into per-key upserts + removes", async () => {
+    let table = new Map<string, { n: number }>([
+      ["a", { n: 1 }],
+      ["b", { n: 2 }],
+    ]);
+    let tick!: () => void;
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => Promise.resolve(new Map(table)),
+            install: (t) => {
+              tick = t;
+              return () => {};
+            },
+          }),
+        ),
+      },
+    });
+    await flush(); // the T+0 seed read lands → reconcile upserts every key
+    expect(runtime.ctx.collections.items.readAll()).toEqual(
+      new Map([
+        ["a", { n: 1 }],
+        ["b", { n: 2 }],
+      ]),
+    );
+
+    // Change b's value, add c, drop a — the reconciler upserts b+c and removes a.
+    table = new Map([
+      ["b", { n: 5 }],
+      ["c", { n: 9 }],
+    ]);
+    tick();
+    await flush();
+    expect(runtime.ctx.collections.items.readAll()).toEqual(
+      new Map([
+        ["b", { n: 5 }],
+        ["c", { n: 9 }],
+      ]),
+    );
+    await runtime.close();
+  });
+
+  it("is graph-owned: ctx upsert/remove throw (the reconciler is the one writer)", async () => {
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => Promise.resolve(new Map<string, { n: number }>()),
+            install: () => () => {},
+          }),
+        ),
+      },
+    });
+    await flush();
+    expect(() => runtime.ctx.collections.items.upsert("x", { n: 1 })).toThrow(
+      /graph-owned/,
+    );
+    expect(() => runtime.ctx.collections.items.remove("x")).toThrow(
+      /graph-owned/,
+    );
+    await runtime.close();
+  });
+
+  it("an unchanged tick reconciles to NOTHING — same map in, no key churn (equals dedup)", async () => {
+    // A poll read that keeps yielding the SAME content (fresh object refs, equal
+    // `.n`) must not churn the collection: the reconciler's `equals` diff drops it.
+    let table = new Map<string, { n: number }>([["a", { n: 1 }]]);
+    let tick!: () => void;
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => Promise.resolve(new Map(table)),
+            install: (t) => {
+              tick = t;
+              return () => {};
+            },
+          }),
+        ),
+      },
+    });
+    await flush();
+    const afterSeed = runtime.ctx.collections.items.readAll();
+    // Same content, fresh object references — equal by `.n`.
+    table = new Map([["a", { n: 1 }]]);
+    tick();
+    tick();
+    await flush();
+    // The reconciler held: content is unchanged (an equals-changed value WOULD have
+    // replaced it — see the reconcile test above).
+    expect(runtime.ctx.collections.items.readAll()).toEqual(afterSeed);
+    // A genuinely changed value still lands, proving the tick loop is live.
+    table = new Map([["a", { n: 2 }]]);
+    tick();
+    await flush();
+    expect(runtime.ctx.collections.items.readAll()).toEqual(
+      new Map([["a", { n: 2 }]]),
+    );
+    await runtime.close();
+  });
+});

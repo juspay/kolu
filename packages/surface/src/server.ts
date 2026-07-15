@@ -71,7 +71,9 @@ import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 // only through `reactor.ts`: the walk itself never touches a signal.
 import {
   type DerivedCellBranded,
+  type DerivedCollectionBranded,
   isDerivedCellDeps,
+  isDerivedCollectionDeps,
   isDerivedComputeCellDeps,
   isDerivedPollCellDeps,
   type SiblingSource,
@@ -1434,9 +1436,17 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
     [K in keyof S["cells"] & string]: CellDepFor<S, NonNullable<S["cells"]>[K]>;
   };
   collections?: {
-    [K in keyof S["collections"] & string]: CollectionImplDeps<
-      NonNullable<S["collections"]>[K]
-    >;
+    // A collection's dep is either an ordinary {@link CollectionImplDeps} (its own
+    // reads + write seams) OR a `derived.collection(node)` — graph-owned, so it
+    // carries `readAll`/`readOne`/`connect` and no `upsert`/`remove` (the walk
+    // narrows the ctx to throw and drives the publishers from the reconciler). As
+    // with the compute-cell arm, drop the callback-bearing fields (`readOne`/
+    // `connect`/`dispose`) from the derived arm — the runtime reads those off the
+    // branded value directly, and keeping them in the union would de-contextualize
+    // a plain authored dep's own `readOne`/`upsert` callback params (infer `any`).
+    [K in keyof S["collections"] & string]:
+      | CollectionImplDeps<NonNullable<S["collections"]>[K]>
+      | Omit<DerivedCollectionBranded, "readOne" | "connect" | "dispose">;
   };
   streams?: {
     [K in keyof S["streams"] & string]: StreamImplDeps<
@@ -2068,14 +2078,29 @@ function walkSurface<const S extends SurfaceSpec>(
       | {
           readAll: () => Map<unknown, unknown>;
           readOne?: (k: unknown) => unknown;
-          upsert: (k: unknown, v: unknown) => void;
-          remove: (k: unknown) => void;
+          // Authored collections carry write seams; a graph-owned
+          // `derived.collection` does not (the walk narrows the ctx to throw and
+          // drives the publishers from the reconciler's `connect`), so both are
+          // optional here and resolved through `depUpsert`/`depRemove` below.
+          upsert?: (k: unknown, v: unknown) => void;
+          remove?: (k: unknown) => void;
           materializeSiblingView?: boolean;
         }
       | undefined;
     if (!collDeps) {
       throw new Error(`implementSurface: missing deps for collection "${key}"`);
     }
+    // A `derived.collection(node)` — graph-owned: its ctx `upsert`/`remove` throw,
+    // and its reconciler `connect` (fired as an owned source below) drives the
+    // surface's per-key publishers.
+    const derivedColl = isDerivedCollectionDeps(collDeps)
+      ? (collDeps as unknown as DerivedCollectionBranded)
+      : undefined;
+    // The backing write seams the wrapped publishers call. For an authored
+    // collection they are the dep's own persistence writes; for a derived
+    // collection they are no-ops (the registry IS the reconciler's `current` map).
+    const depUpsert = collDeps.upsert ?? (() => {});
+    const depRemove = collDeps.remove ?? (() => {});
     const keysBus = deps.channel<unknown[]>(collectionKeysetChannel(key));
     const perKeyBus = (k: unknown) =>
       deps.channel<unknown>(collectionKeyChannel(key, String(k)));
@@ -2162,7 +2187,7 @@ function walkSurface<const S extends SurfaceSpec>(
     );
     const broadcastKeys = new Set<unknown>(initialEntries.keys());
     const wrappedUpsert = (k: unknown, v: unknown) => {
-      collDeps.upsert(k, v);
+      depUpsert(k, v);
       siblingView?.set(k, v); // materialized view — the SINGLE write path (opt-in)
       if (!broadcastKeys.has(k)) {
         broadcastKeys.add(k);
@@ -2173,7 +2198,7 @@ function walkSurface<const S extends SurfaceSpec>(
       siblingChange[key]?.(); // version poke — a $-reader of this collection recomputes
     };
     const wrappedRemove = (k: unknown) => {
-      collDeps.remove(k);
+      depRemove(k);
       siblingView?.delete(k); // materialized view — the SINGLE write path (opt-in)
       if (broadcastKeys.delete(k)) {
         keysBus.publish(Array.from(collDeps.readAll().keys()));
@@ -2182,12 +2207,48 @@ function walkSurface<const S extends SurfaceSpec>(
       siblingChange[key]?.(); // version poke — a removal changes what a $-reader folds
     };
 
+    // A derived collection is graph-owned (one writer): its ctx `upsert`/`remove`
+    // THROW — a fail-fast one-writer guard mirroring a derived cell's, so a
+    // procedure handler that tries to mutate it gets a loud error, never a silent
+    // second writer. An authored collection keeps its real server-internal writes.
+    const derivedCollWriteGuard = (): never => {
+      throw new Error(
+        `implementSurface: collection "${key}" is graph-owned (a derived.collection) — the reconciler is its one writer; ctx.collections.${key}.upsert/remove is not a write path.`,
+      );
+    };
     collectionsCtx[key] = {
-      upsert: wrappedUpsert,
-      remove: wrappedRemove,
+      upsert: derivedColl ? derivedCollWriteGuard : wrappedUpsert,
+      remove: derivedColl ? derivedCollWriteGuard : wrappedRemove,
       readAll: collDeps.readAll,
       readOne: collDeps.readOne ?? ((k: unknown) => collDeps.readAll().get(k)),
     };
+
+    // A derived collection's reconciler is an OWNED SOURCE: fire its `connect` in
+    // the deferred `starts` pass (handing it the surface's per-key publishers + the
+    // spec's value `equals`, defaulting to "always changed" so an equals-less
+    // collection re-publishes every present key). Same lifecycle as a derived
+    // cell's connector — a fault reaches the runtime's `done` (a poll reconciler's
+    // first-read rejection included), and `close` disposes the node + subscription.
+    if (derivedColl) {
+      const dc = derivedColl;
+      const collEquals = collSpec.equals ?? (() => false);
+      starts.push(() => {
+        const settled = Promise.resolve(
+          dc.connect({
+            upsert: wrappedUpsert,
+            remove: wrappedRemove,
+            equals: collEquals as (a: unknown, b: unknown) => boolean,
+          }),
+        ).then(() => {});
+        return {
+          // The reconciler's node isn't abort-signal-aware; disposing it latches
+          // its `torn` flag, so a connect still resolving disposes its own loop.
+          abort: () => dc.dispose(),
+          settled,
+          dispose: async () => dc.dispose(),
+        };
+      });
+    }
 
     const handlers = collectionHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime

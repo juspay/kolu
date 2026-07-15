@@ -43,6 +43,8 @@ import {
 import type { SiblingRead, SurfaceSpec } from "./define";
 import {
   DERIVED_CELL_BRAND,
+  DERIVED_COLLECTION_BRAND,
+  type DerivedCollectionBranded,
   DERIVED_COMPUTE_BRAND,
   DERIVED_POLL_BRAND,
   type SiblingSourcesRuntime,
@@ -766,8 +768,126 @@ function computeCell<S extends SurfaceSpec, T>(
   };
 }
 
+/** `derived.collection(node)` — publish a keyed graph node (a poll `source`
+ *  reading a whole `Map`, or a `computed`/`$`-compute producing one) as a
+ *  COLLECTION. The RECONCILER is the wire adapter: it subscribes the node and diffs
+ *  each new map against the last by the collection's `equals`, driving the surface's
+ *  own per-key `upsert`/`remove` publishers for exactly the changed and removed
+ *  keys. The graph is the one writer — the boot walk narrows the ctx
+ *  `upsert`/`remove` to throw and fires this `connect`. */
+function derivedCollection<K, V>(
+  node: GraphNode<ReadonlyMap<K, V>>,
+): DerivedCollectionBranded {
+  const poll = isPollSource(node) ? node : undefined;
+  // The materialized current map — the wire snapshot a late subscriber reads, and
+  // the reconciler's "last" baseline. Empty until the first frame lands; mutated
+  // in place per key by the reconcile (never reassigned), so the `readAll` snapshot
+  // always reflects what has been published.
+  const current = new Map<K, V>();
+  let disposeReconcile: (() => void) | undefined;
+  let connected = false;
+  let torn = false;
+
+  const teardown = (): void => {
+    if (torn) return;
+    torn = true;
+    try {
+      disposeReconcile?.();
+    } finally {
+      node.dispose();
+    }
+  };
+
+  // Diff `next` against `current` by `equals`, drive the per-key publishers for the
+  // changed + removed keys, then adopt `next` as the new baseline. The default
+  // `equals` (`() => false`, injected by the walk when the spec declares none)
+  // makes every present key "changed" — the unconditional re-publish for a per-tick
+  // rate that always moves (drishti's `cpuCores`/`networkInterfaces`).
+  const reconcile = (
+    next: ReadonlyMap<K, V>,
+    pub: {
+      upsert(k: K, v: V): void;
+      remove(k: K): void;
+      equals(a: V, b: V): boolean;
+    },
+  ): void => {
+    // Update `current` BEFORE each publisher call, so the surface's own `readAll()`
+    // (which its `keys` broadcast reads) already reflects the key by the time the
+    // wrapped publisher fires. Snapshot the removal keys (spread) so deleting mid-
+    // iteration is safe.
+    for (const [k, v] of next) {
+      if (!current.has(k) || !pub.equals(current.get(k) as V, v)) {
+        current.set(k, v);
+        pub.upsert(k, v);
+      }
+    }
+    for (const k of [...current.keys()]) {
+      if (!next.has(k)) {
+        current.delete(k);
+        pub.remove(k);
+      }
+    }
+  };
+
+  return {
+    [DERIVED_COLLECTION_BRAND]: true,
+    readAll: () => new Map(current) as Map<unknown, unknown>,
+    readOne: (key) => current.get(key as K),
+    connect: (publishers) => {
+      if (torn) {
+        throw new Error(
+          "derived collection: connect() after dispose() — already torn down (one-shot lifecycle)",
+        );
+      }
+      if (connected) {
+        throw new Error(
+          "derived collection: connect() called twice — wires exactly one subscription",
+        );
+      }
+      connected = true;
+      const pub = {
+        upsert: (k: K, v: V) => publishers.upsert(k, v),
+        remove: (k: K) => publishers.remove(k),
+        equals: publishers.equals as (a: V, b: V) => boolean,
+      };
+      if (poll) {
+        // Async: `connectPoll`'s seed read gives the first whole map (reconciled
+        // against the empty baseline ⇒ every key upserted), then each tick's map
+        // reconciles. A first-read rejection faults the runtime's `done`.
+        return poll
+          .connectPoll((nextMap) => reconcile(nextMap, pub))
+          .then((loopDispose) => {
+            if (torn) {
+              loopDispose();
+              return () => {};
+            }
+            disposeReconcile = loopDispose;
+            return teardown;
+          });
+      }
+      // A non-poll node (a `computed`/`$`-compute producing a map): an engine effect
+      // reconciles on each change. Log-skip-continue on a compute throw (hold last).
+      disposeReconcile = effect(() => {
+        let nextMap: ReadonlyMap<K, V>;
+        try {
+          nextMap = node.value.value;
+        } catch (err) {
+          console.error(
+            "derived collection: recompute threw — holding last published keys",
+            err,
+          );
+          return;
+        }
+        reconcile(nextMap, pub);
+      });
+      return teardown;
+    },
+    dispose: teardown,
+  };
+}
+
 /** The reactor's wire exits. Phase 0 shipped the graph-node `cell`; SR7 adds the
- *  compute-fn overload (`derived.cell(($) => …)`); `collection` is a later phase.
+ *  compute-fn overload (`derived.cell(($) => …)`); SR8 adds `collection`.
  *  Namespaced (`derived.cell`) so the read-only-projection intent is legible at
  *  every declaration site. */
 interface DerivedApi {
@@ -785,6 +905,14 @@ interface DerivedApi {
   cell<S extends SurfaceSpec, T>(
     compute: (siblings: SiblingRead<S>) => T,
   ): DerivedComputeCell<S, T>;
+  /** Publish a keyed graph node — a poll `source({ read, install })` reading a
+   *  whole `Map`, or a `computed` producing one — as a COLLECTION. The reconciler
+   *  diffs each frame against the last by the collection's `equals` and publishes
+   *  only the changed + removed keys (the keyed-reconciler wire adapter). Wire-read-
+   *  only: the graph is the collection's one writer. */
+  collection<K, V>(
+    node: GraphNode<ReadonlyMap<K, V>>,
+  ): DerivedCollectionBranded;
 }
 
 export const derived: DerivedApi = {
@@ -793,5 +921,10 @@ export const derived: DerivedApi = {
     // biome-ignore lint/suspicious/noExplicitAny: the two overloads' return types are the public contract; the impl is intentionally loose
   ): any {
     return typeof arg === "function" ? computeCell(arg) : graphNodeCell(arg);
+  },
+  collection<K, V>(
+    node: GraphNode<ReadonlyMap<K, V>>,
+  ): DerivedCollectionBranded {
+    return derivedCollection(node);
   },
 };
