@@ -44,7 +44,7 @@ import {
 // The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
-import { ProcessRssSchema } from "@kolu/terminal-vocab/schema";
+import { type ProcessRss, ProcessRssSchema } from "@kolu/terminal-vocab/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -470,6 +470,34 @@ export function bytesToWholeMB(bytes: number): number {
   return Math.round(bytes / BYTES_PER_MB);
 }
 
+/** Two per-process RSS readings render the same whole-MB figure — same status and,
+ *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
+ *  to compare). */
+function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status === "ok" && b.status === "ok") {
+    return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);
+  }
+  return true;
+}
+
+/** Two readouts are equal when all three processes render the same whole-MB figure
+ *  — the `processMemory` cell's `equals`, so a sub-MB RSS wobble never re-publishes
+ *  to every connected client. Declared HERE at the spec (the derived poll cell is
+ *  the one writer, per the reactive bridge's "equals lives at the member, once"
+ *  law) and built on the shared {@link bytesToWholeMB} so the dedup boundary and the
+ *  client's rendered figure are one computation. */
+export function processMemoryMbEqual(
+  a: ProcessMemory,
+  b: ProcessMemory,
+): boolean {
+  return (
+    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
+    rssMbEqual(a.padi, b.padi) &&
+    rssMbEqual(a.kaval, b.kaval)
+  );
+}
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
@@ -546,10 +574,10 @@ export const koluSurface = defineSurface({
     },
 
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
-     *  The server's periodic sampler is the sole writer
-     *  (`koluSurfaceCtx.cells.processMemory.set`); clients read-only. It samples
-     *  kolu-server's own RSS and FOLDS IN padi's `{ padi, kaval }` reading off the
-     *  re-served padi surface — `padi`/`kaval` are `absent` until the first fold,
+     *  A DERIVED poll cell (`derived.cell(source(...))` in `server/src/index.ts`), so
+     *  the reactor graph is the one writer — no ctx `.set`; clients read-only. It
+     *  samples kolu-server's own RSS and FOLDS IN padi's `{ padi, kaval }` reading off
+     *  the re-served padi surface — `padi`/`kaval` are `absent` until the first fold,
      *  and whenever padi is down. */
     processMemory: {
       schema: ProcessMemorySchema,
@@ -558,6 +586,11 @@ export const koluSurface = defineSurface({
         padi: { status: "absent" },
         kaval: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
+      // Whole-MB dedup — a DERIVED poll cell (`derived.cell(source(...))` in
+      // `server/src/index.ts`), so the graph is the one writer and `equals` is the
+      // ONE wire dedup point, declared here at the member (the reactive bridge's law).
+      // A sub-MB RSS wobble never re-publishes to every connected client.
+      equals: processMemoryMbEqual,
       verbs: ["get"],
     },
 
@@ -592,8 +625,9 @@ export const koluSurface = defineSurface({
 
     /** The host-daemon inventory — every running kaval + padi on this host, each
      *  marked whether kolu's bound padi owns it (see {@link DaemonInventorySchema}).
-     *  Server-authored diagnostic readout (a dedicated read-only enumerator is the
-     *  sole writer via `koluSurfaceCtx.cells.daemonInventory.set`); clients read-only.
+     *  Server-authored diagnostic readout — a DERIVED poll cell
+     *  (`derived.cell(source(...))` in `server/src/index.ts`), so the reactor graph is
+     *  the one writer (no ctx `.set`); clients read-only.
      *  The Kaval/Padi dialogs list it so a LEAKED post-upgrade daemon — invisible in
      *  the UI before, surfaced only by a `kaval-tui` CLI error — is diagnosable at a
      *  glance. Presentation data, so it rides koluSurface like memory/uptime — NOT a
@@ -601,6 +635,13 @@ export const koluSurface = defineSurface({
     daemonInventory: {
       schema: DaemonInventorySchema,
       default: DEFAULT_DAEMON_INVENTORY,
+      // Structural dedup — a DERIVED poll cell (`derived.cell(source(...))` in
+      // `server/src/index.ts`), so the graph is the one writer and `equals` is the
+      // ONE wire dedup point, declared here at the member (the reactive bridge's law).
+      // A steady-state re-enumeration (the daemon set changes rarely) never
+      // re-publishes to every connected client — a shallow JSON compare is fine (the
+      // lists are tiny, a handful of daemons at most).
+      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
       verbs: ["get"],
     },
   },

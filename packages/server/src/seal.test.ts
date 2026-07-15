@@ -106,7 +106,12 @@ const WEB_SHELL_FILES = [
   "iframePreviewRoute",
   "index",
   "log",
+  // The pure process-memory poll READ behind koluSurface's derived `processMemory`
+  // cell (the retired sampler LOOP's read half — SR8.a). Web-shell code.
   "memorySampler",
+  // The fused cadence (`everyMs` + the bound-padi `onState` force-resample) both
+  // derived poll cells hand the reactor as their `install` (SR8.a). Web-shell glue.
+  "pollCadence",
   "pwaIdentity",
   // The web shell's catch-all `app.onError` logger — turns an uncaught route/
   // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
@@ -465,6 +470,33 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         ", ",
       )} — they belong in @kolu/padi.`,
     ).toEqual([]);
+  });
+
+  it("(a) no hand-rolled setInterval sampler remains in the web shell (SR8.a — zero allowlist)", () => {
+    // SR8 converted the campaign's three hand-rolled samplers to the framework poll
+    // cell (`derived.cell(source({ read, install }))`); SR8.a converts the last two
+    // kolu-server holdouts (`processMemory`, `daemonInventory`) and grounding found a
+    // SECOND structurally-identical hand-roll one seam over (`daemonInventory`), so the
+    // negative property ships with ZERO allowlist: NO non-test web-shell module drives a
+    // sampler with a raw `setInterval`. The reactor's `everyMs` owns every interval now
+    // (in `@kolu/surface`, not here), so a re-introduced `setInterval(` under
+    // `packages/server/src` is a resurrected hand-rolled cadence — the exact defect
+    // SR8.a closed. `pollCadence.ts` fuses `everyMs` with the `onState` force-resample;
+    // it calls neither `setInterval` nor `setTimeout`.
+    const offenders: string[] = [];
+    for (const rel of serverSrcTsFiles()) {
+      if (rel.endsWith(".test.ts") || rel.endsWith(".test-d.ts")) continue;
+      const src = readFileSync(resolve(SRC, rel), "utf8");
+      if (/\bsetInterval\s*\(/.test(src)) offenders.push(rel);
+    }
+    expect(
+      offenders,
+      `a web-shell module drives a raw setInterval: ${offenders.join(", ")}. ` +
+        `Sampler cadence rides the reactor's poll source (@kolu/surface's everyMs) ` +
+        `since SR8.a — a hand-rolled setInterval sampler is the retired defect.`,
+    ).toEqual([]);
+    // Non-vacuous: the walk actually read web-shell modules.
+    expect(serverSrcTsFiles().length).toBeGreaterThan(0);
   });
 
   it("(b) reaches @kolu/padi only through /assembly, /dial, /surface, /log — no deep src import", () => {
