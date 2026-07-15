@@ -16,7 +16,7 @@ import {
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { type ConnectionInfo, ConnectionInfoSchema } from "./connection";
+import { ConnectionInfoSchema, sessionConnection } from "./connection";
 import { buildRemotePool } from "./hostFanout";
 import {
   projectState,
@@ -57,12 +57,10 @@ const map = defineSurfaceMap({
   connection: ConnectionInfoSchema,
 });
 
-/** The SR9 fine-connection projection the padi call site injects — the entry's word.
- *  For this transport-only test the fine connection IS the raw frame (a `ConnectionInfo`
- *  by construction: the fake sessions are ssh-typed); a not-yet-seeded member projects the
- *  gate-closed "connecting", matching the coarse arm. */
-const connectionOf = (raw: SessionState<string> | undefined): ConnectionInfo =>
-  (raw ?? { phase: "connecting", log: [], sinceMs: 0 }) as ConnectionInfo;
+// The SR9 fine-connection projection the padi call site injects — the same shared
+// `sessionConnection` seam production uses (folds the gate-closed "connecting" for a
+// not-yet-seeded member, returns the frame otherwise).
+const connectionOf = sessionConnection;
 
 /** A test `failureOf` — classifies a DOWN state's transport `error` into the
  *  schema-valid failure. `failureOf` is only ever invoked on a genuinely-down state,

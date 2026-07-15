@@ -39,11 +39,7 @@ import {
   reServeSurface,
   serveHostMap,
 } from "@kolu/surface-remote";
-import {
-  type ConnectionInfo,
-  DEFAULT_CONNECTION,
-  projectConnection,
-} from "@kolu/surface-remote/connection";
+import { sessionConnection } from "@kolu/surface-remote/connection";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -530,16 +526,11 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   failureOf: (_host, session, state): PadiEntryFailure | null =>
     padiFailureOf(session.provisions, session.entryFailedDetail(), state),
   // SR9 — project the session frame → the entry's fine `connection` payload (the word),
-  // co-produced with the coarse dot from the SAME frame in `serveHostMap.resolve`. The
-  // padi pool's sessions are ssh (or the local `never` endpoint, `never extends SshProv`),
-  // so the erased `Prov=string` frame IS a `ConnectionInfo` — cast to the exported
-  // (identity) `projectConnection`'s own parameter type, which the entries wire schema
-  // (`ConnectionInfoSchema`) then validates. A member seen before its first frame projects
-  // the gate-closed `connecting`, matching the coarse `connecting` (no half-updated pair).
-  connectionOf: (raw): ConnectionInfo =>
-    raw === undefined
-      ? DEFAULT_CONNECTION
-      : projectConnection(raw as Parameters<typeof projectConnection>[0]),
+  // co-produced with the coarse dot from the SAME frame in `serveHostMap.resolve` (no
+  // half-updated pair). `sessionConnection` is the shared total projection for exactly this
+  // seam — it folds the gate-closed `connecting` for a not-yet-seeded member and returns
+  // the frame otherwise (the entries wire schema validates it).
+  connectionOf: sessionConnection,
 });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own

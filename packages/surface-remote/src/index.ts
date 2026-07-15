@@ -15,7 +15,7 @@ export { resolveSystem } from "./arch";
 // `projectConnection` + the `ConnectionInfo` type/schema — re-exported from the
 // browser-safe `@kolu/surface-remote/connection` subpath (its honest home).
 export type { ConnectionInfo, ConnectPhase } from "./connection";
-export { projectConnection } from "./connection";
+export { projectConnection, sessionConnection } from "./connection";
 export type {
   DaemonConvergence,
   DaemonSession,

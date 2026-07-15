@@ -139,3 +139,18 @@ export function projectConnection<Prov extends SshProv>(
 ): ConnectionInfo {
   return s;
 }
+
+/** The total projection a host-map consumer feeds to `serveHostMap`'s `connectionOf` —
+ *  `(raw: SessionState<string> | undefined) => ConnectionInfo`, shaped to that seam so no
+ *  consumer re-hand-assembles the undefined-arm + the erased-`Prov` cast. Folds the
+ *  gate-closed pending value for a not-yet-seeded member (matching the coarse `connecting`
+ *  arm, so the dot and word agree), and returns the frame otherwise. A host map serves
+ *  over `SessionState<string>` (Prov erased to the phase top) and its sessions are ssh (or
+ *  the `never` endpoint — `never extends SshProv`), so the frame IS a `ConnectionInfo`; the
+ *  entries wire schema validates it. This is the ONE home for that erased-Prov identity —
+ *  the strict `projectConnection` stays cast-free for a caller that holds a real `Prov`. */
+export function sessionConnection(
+  raw: SessionState<string> | undefined,
+): ConnectionInfo {
+  return raw === undefined ? DEFAULT_CONNECTION : (raw as ConnectionInfo);
+}
