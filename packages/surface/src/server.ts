@@ -2137,11 +2137,25 @@ function walkSurface<const S extends SurfaceSpec>(
     // The backing write seams the wrapped publishers call. For an authored
     // collection they are the dep's own persistence writes; for a derived
     // collection they are no-ops (the registry IS the reconciler's `current` map).
-    // Gate the no-op on the derived arm — the ONLY arm that legitimately has no
-    // write seam — so an authored collection that failed to provide `upsert`/
-    // `remove` stays a loud fault rather than a silently swallowed no-op.
-    const depUpsert = derivedColl ? () => {} : collDeps.upsert!;
-    const depRemove = derivedColl ? () => {} : collDeps.remove!;
+    // The derived arm is the ONLY one that legitimately has no write seam, so an
+    // authored collection that omitted `upsert`/`remove` must fail LOUD with a named
+    // error here — not via a `!` that defers to a cryptic "undefined is not a
+    // function" at the first publish (the boot-narrowing fail-fast law).
+    let depUpsert: (k: unknown, v: unknown) => void;
+    let depRemove: (k: unknown) => void;
+    if (derivedColl) {
+      depUpsert = () => {};
+      depRemove = () => {};
+    } else {
+      const { upsert, remove } = collDeps;
+      if (!upsert || !remove) {
+        throw new Error(
+          `implementSurface: authored collection "${key}" must provide upsert + remove write seams (its publishers persist through them) — only a graph-owned derived.collection may omit them.`,
+        );
+      }
+      depUpsert = upsert;
+      depRemove = remove;
+    }
     const keysBus = deps.channel<unknown[]>(collectionKeysetChannel(key));
     const perKeyBus = (k: unknown) =>
       deps.channel<unknown>(collectionKeyChannel(key, String(k)));

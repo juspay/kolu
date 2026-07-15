@@ -994,6 +994,53 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     }
   });
 
+  it("a LATER tick whose PUBLISHER throws is log-skip-continue — no unhandled rejection, holds last", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let value = 5;
+      let tick!: () => void;
+      const src = source<number>({
+        read: () => Promise.resolve(value),
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      // A cell whose `set` THROWS on the second publish (a later-tick publisher throw
+      // — a write hook / reconcile publisher failing). The seed publish (5) succeeds.
+      const published: number[] = [];
+      let boom = false;
+      const throwingCell = {
+        set: (v: number) => {
+          if (boom) throw new Error("publish blip");
+          published.push(v);
+        },
+      };
+      await dc.connect(throwingCell);
+      expect(published).toEqual([5]); // seed published
+
+      boom = true;
+      value = 6;
+      tick(); // the later read succeeds, but the publish throws
+      await flush();
+      // Log-skip-continue: the throw is logged and the last value HELD — NOT an
+      // unhandled rejection (nothing awaits tickRead's chain), and the poll lives on.
+      expect(published).toEqual([5]);
+      expect(spy).toHaveBeenCalledOnce();
+
+      // The poll is NOT wedged — a later good publish still lands (inFlight cleared).
+      boom = false;
+      value = 7;
+      tick();
+      await flush();
+      expect(published).toEqual([5, 7]);
+      dc.dispose();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("non-overlap guard COALESCES a tick during an in-flight read into ONE trailing read (not dropped)", async () => {
     let reads = 0;
     let resolveRead!: (n: number) => void;

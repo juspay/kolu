@@ -325,12 +325,15 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
 
   // One guarded, publishing read for a LATER tick: latch (don't drop) if a read is
   // in flight, skip if torn down; on success publish to the level (for `$` readers)
-  // and through `set` (the wire); on a throw LOG-SKIP-CONTINUE — hold the last
-  // published value, never tear down a long-lived poll. Route the call through
-  // `Promise.resolve().then(read)` so a SYNCHRONOUS throw from `read` (a throw-only
-  // fn is type-compatible via `never`) lands on the SAME logged-skip path as a
-  // rejected promise — a bare `read().then(...)` would let a sync throw escape the
-  // interval/event callback and wedge `inFlight` true forever.
+  // and through `set` (the wire). Route the call through `Promise.resolve().then(read)`
+  // so a SYNCHRONOUS throw from `read` (a throw-only fn is type-compatible via `never`)
+  // lands on the SAME logged-skip path as a rejected promise — a bare `read().then(...)`
+  // would let a sync throw escape the interval/event callback and wedge `inFlight` true.
+  // The trailing `.catch` covers BOTH a read rejection AND a publisher (`set`) throw —
+  // the later-tick fault class is LOG-SKIP-CONTINUE (hold the last published value, never
+  // tear down a long-lived poll), symmetric with the seed transaction's read+publish
+  // guard but NON-fatal here. Without it a publisher throw would become an UNHANDLED
+  // rejection, since nothing awaits this chain.
   const tickRead = (set: (next: T) => void): void => {
     if (disposed) return;
     if (inFlight) {
@@ -340,22 +343,20 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
     inFlight = true;
     Promise.resolve()
       .then(() => read(connSignal))
-      .then(
-        (v) => {
-          if (disposed) return;
-          level.value = v;
-          set(v);
-        },
-        (err) => {
-          // Suppress our own cancellation (a `close()` aborted this read); log a
-          // GENUINE later-read failure and hold the last published value.
-          if (isOwnedAbort()) return;
-          console.error(
-            "reactor: poll source read threw — holding last published value",
-            err,
-          );
-        },
-      )
+      .then((v) => {
+        if (disposed) return;
+        level.value = v;
+        set(v);
+      })
+      .catch((err) => {
+        // Suppress our own cancellation (a `close()` aborted this read); log a GENUINE
+        // later-tick failure (read OR publish) and hold the last published value.
+        if (isOwnedAbort()) return;
+        console.error(
+          "reactor: poll source tick threw — holding last published value",
+          err,
+        );
+      })
       .finally(() => {
         inFlight = false;
         // An edge that arrived mid-read latched `dirty` — do the trailing read now
