@@ -81,10 +81,10 @@ function describeError(err: unknown): string {
  *  pty-host past teardown, so the one-shot `exit` stream resolves immediately
  *  here (it only blocks while the PTY is alive, which it no longer is). */
 async function readExitCode(client: PtyTuiClient, id: string): Promise<number> {
-  // One-shot read of the yields-once `exit` stream — the framework's non-empty
-  // first-frame contract, not a hand-advanced iterator. An empty stream (never
-  // observed here: the PTY is gone, so its exit code has tombstoned) is a benign
-  // "no code" ⇒ 0.
+  // One-shot read of the yields-once `exit` stream via the shared first-frame
+  // helper, not a hand-advanced iterator. `firstFrameOrUndefined` (not the throwing
+  // variant) because an empty stream is benign here — never observed (the PTY is
+  // gone, so its exit code has tombstoned), and if it ever were, "no code" ⇒ 0.
   return (
     (await firstFrameOrUndefined(await client.surface.exit.get({ id })))
       ?.exitCode ?? 0

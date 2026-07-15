@@ -22,7 +22,6 @@
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */
 
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import type { PtyTuiClient } from "./connect.ts";
 
 /** The condition a `wait` blocks on, parsed from `--until`:
@@ -367,11 +366,19 @@ export async function awaitOutputCondition(
         { id: opts.id },
         { signal: abort.signal },
       );
-      // One-shot read of the yields-once `exit` stream: its first frame IS "the
-      // child exited" — the value is immaterial, only its arrival. The primitive
-      // closes the iterator after that frame, matching the old return-out-of-loop.
-      if ((await firstFrameOrUndefined(stream)) !== undefined)
+      // Deliberately NOT `firstFrameOrUndefined` (SR6 non-adoption): this settle
+      // is a side effect that must fire the INSTANT the first exit frame arrives,
+      // BEFORE the iterator's async close is awaited — because `consumeExit` races
+      // `consumeOutput` and the timeout in a `Promise.all`, and `settle` is
+      // first-wins. The primitive does `for await … return frame`, which awaits
+      // AsyncIteratorClose before it resolves, so it would move `settle` PAST that
+      // close and let a competing timer/feed event win the race first (and fold the
+      // close latency into `elapsedMs`). The open-coded loop keeps settle-then-close
+      // ordering, so it stays. (first-frame-guard:allow — ordering-sensitive.)
+      for await (const _msg of stream) {
         settle({ kind: "gone", elapsedMs: elapsed() });
+        return;
+      }
     } catch {
       // The exit stream is the PRECISE "child exited → gone" signal, but losing
       // it is NOT fatal, so — unlike consumeOutput — we deliberately neither
