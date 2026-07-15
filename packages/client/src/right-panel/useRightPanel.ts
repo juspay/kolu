@@ -384,6 +384,29 @@ export function useRightPanel() {
     selectedFile: (mode: CodeTabView): string | null =>
       activeState().selectedFileByMode?.[mode] ?? null,
     setSelectedFile: (mode: CodeTabView, path: string | null) => {
+      // [SHIMMER-DEBUG #1841] Every selection write funnels through here. Capture
+      // each with its call stack so a live repro of the shimmer reveals whether the
+      // loop is ONE writer echoing itself or TWO writers fighting. Remove before merge.
+      if (typeof window !== "undefined") {
+        const g = window as unknown as {
+          __selWrites?: Array<{
+            t: number;
+            mode: string;
+            path: string | null;
+            stack: string;
+          }>;
+        };
+        const buf = (g.__selWrites ??= []);
+        const stack = (new Error().stack || "")
+          .split("\n")
+          .slice(2, 10)
+          .map((l) => l.trim())
+          .join(" | ");
+        buf.push({ t: Math.round(performance.now()), mode, path, stack });
+        if (buf.length > 500) buf.shift();
+        if (buf.length <= 80)
+          console.log("[SEL-WRITE]", mode, JSON.stringify(path), stack);
+      }
       mutateActive((s) => {
         const cur = s.selectedFileByMode ?? {};
         if (path === null) {
