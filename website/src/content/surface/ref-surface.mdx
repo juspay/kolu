@@ -337,6 +337,19 @@ conjunction of transport-live and every readiness predicate; a subscription
 error stays in `subs` and is never folded into `live`. This is what lets the
 UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
 
+## Recognizing a transport-loss end (for reconnect retry)
+
+A re-serve relay ends a live downstream with one of two typed `ORPCError` codes on
+a transport loss: `SURFACE_STDIO_TRANSPORT_CLOSED` (the raw stdio close) or, when
+the relay catches an upstream death mid-stream and re-throws it wrapped, the
+**retryable** `SURFACE_RELAY_TRANSPORT_LOST`. A plugin-equipped client re-subscribes
+on the latter automatically via `STREAM_RETRY`; a consumer that dials the re-served
+router with a **raw** client (no retry plugin) recognizes them with
+`isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reason)` (both
+from `@kolu/surface/client` — brand-checked on `ORPCError` + the exact code) to retry
+the subscribe across a reconnect window. Both are deliberately tight; the relay
+re-throws genuine application errors UNCHANGED, so neither code is ever an app error.
+
 ## Cross-cutting invariants
 
 - **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry plugin re-invokes the source on each reconnect and a delta-first frame would silently lose state.
