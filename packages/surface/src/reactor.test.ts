@@ -1507,7 +1507,7 @@ describe("everyMsOr — the fused interval + edge cadence", () => {
     fireEdge();
     expect(tick).toHaveBeenCalledTimes(3);
 
-    cleanup();
+    cleanup?.();
   });
 
   it("the interval is unref'd so a live sampler never holds the process open on its own", () => {
@@ -1522,7 +1522,7 @@ describe("everyMsOr — the fused interval + edge cadence", () => {
     expect(setInterval).toHaveBeenCalledOnce();
     expect(unref).toHaveBeenCalledOnce();
 
-    cleanup();
+    cleanup?.();
     setInterval.mockRestore();
   });
 
@@ -1534,7 +1534,7 @@ describe("everyMsOr — the fused interval + edge cadence", () => {
     const cleanup = everyMsOr(5_000, subscribe)(tick);
     expect(subscribe).toHaveBeenCalledOnce();
 
-    cleanup();
+    cleanup?.();
     // The subscription is torn down …
     expect(off).toHaveBeenCalledOnce();
     // … and the interval no longer fires the tick.
