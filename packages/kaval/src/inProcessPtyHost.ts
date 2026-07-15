@@ -169,7 +169,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       // Preexec command marks — snapshot-then-deltas (streaming.md §2). The
       // last command replays first (`replayed: true`) so a sensor that attaches
-      // AFTER the mark (a lazily-attaching or restarted pulam) still learns it
+      // AFTER the mark (a lazily-attaching or restarted padi) still learns it
       // and resolves a command-only agent like codex; live marks follow with
       // `replayed: false`. The flag is load-bearing, NOT decorative: unlike
       // `foreground`, this stream's consumer has a LIVE-ONLY side effect

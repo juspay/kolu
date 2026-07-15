@@ -299,6 +299,48 @@ export function everyMs(ms: number): (tick: () => void) => SourceCleanup {
   };
 }
 
+/** A poll `source` `install` that fires on the fixed {@link everyMs} interval AND
+ *  the instant a caller-supplied change signal fires — the fused cadence for a poll
+ *  whose value can move faster than its coarse interval. `subscribe` is any
+ *  edge-source: it receives the source's `tick` and returns an unsubscribe (a
+ *  reconnect/state feed, a config-changed hook, an fs-watch — the reactor names no
+ *  domain). Both the interval and the subscription tear down on cleanup.
+ *
+ *  `source({ read, install: everyMsOr(5_000, onChange) })` re-reads every 5s AND the
+ *  moment `onChange` fires — so a change edge is reflected at once rather than up to a
+ *  full interval later, while the interval still covers drift the edge doesn't signal.
+ *  The one home for the interval-plus-edge fuse every such poll would otherwise
+ *  re-spell (previously duplicated as app-local `everyMsOrOnState`/
+ *  `everyMsOrOnDaemonChange` twins). */
+export function everyMsOr(
+  ms: number,
+  subscribe: (tick: () => void) => () => void,
+): (tick: () => void) => SourceCleanup {
+  return (tick) => {
+    const stopInterval = everyMs(ms)(tick);
+    // Transactional setup: the interval is live before `subscribe`, so if the edge
+    // subscription throws, roll the interval back rather than leaking a timer that
+    // wakes forever against a tick nothing owns.
+    let off: () => void;
+    try {
+      off = subscribe(tick);
+    } catch (err) {
+      stopInterval?.();
+      throw err;
+    }
+    // Cleanup tears down BOTH arms: `finally` runs `stopInterval` even if `off`
+    // throws, so a faulty unsubscribe can't strand the interval (the both-teardown
+    // contract this fuse documents).
+    return () => {
+      try {
+        off();
+      } finally {
+        stopInterval?.();
+      }
+    };
+  };
+}
+
 /** The POLL source (`source({ read, install })`). Owns the T+0-seed /
  *  non-overlap / log-skip-continue policy the note assigns to "the bridge"; a
  *  `derived.cell` drives it via {@link PollSource.connectPoll}. Unlike the push

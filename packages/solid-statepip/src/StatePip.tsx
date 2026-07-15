@@ -1,6 +1,9 @@
-/** The shared status indicator — kolu's on-canvas **Dock** and the **pulam-web**
- *  fleet dashboard both render THIS component, so a given (state, live, alert)
- *  triple shows the identical glyph, colour, and animation on both surfaces.
+/** The shared status indicator — kolu's on-canvas **Dock** renders THIS
+ *  component, and it stays renderer-agnostic so any fleet mirror shows the
+ *  identical glyph, colour, and animation for a given (state, live, alert)
+ *  triple. (It was first extracted to share with the **pulam-web** fleet
+ *  dashboard — since retired into padi at W2.3 — so the two-surface design
+ *  below outlives that one consumer.)
  *  Shape carries the state distinction (hollow ring vs muted dot vs ☾) so the
  *  rule survives reduced colour sensitivity and a peripheral glance — not colour
  *  and animation alone.
@@ -8,15 +11,15 @@
  *  Three nested axes in one glyph (R-activity-merge), so one look reads overall
  *  activity instead of scanning two or three separate dots:
  *    - `variant` (the CORE) — agent state, the precomputed `PipVariant`. Each
- *      surface owns its own state→variant mapping (the Dock's `pipVariant`,
- *      pulam-web's `pipVariantFor`), both folding the shared agent-paint classes
- *      through `pipForPaintClass`.
+ *      surface owns its own state→variant mapping (the Dock's `pipVariant`; a
+ *      fleet mirror maps its own rows the same way), both folding the shared
+ *      agent-paint classes through `pipForPaintClass`.
  *    - `live` (the RING) — this terminal is moving bytes right now: a thin green
  *      arc that gently sweeps around the core (the row/title live signal, folded
  *      into the indicator's edge; the glyph-only rail + sub-tabs keep the
  *      standalone `LiveActivityDot` corner dot, which has no core to ring).
  *    - `alert` (the BADGE) — a fired notification you haven't opened (the Dock's
- *      `unread`, pulam-web's notify-class): a small amber corner badge, NOT a
+ *      `unread`, or a fleet mirror's notify-class): a small amber corner badge, NOT a
  *      ring — a surrounding alert ring (especially nested with the live ring)
  *      read as overwhelming, so the two axes use different shapes and never
  *      compound into concentric circles. The state core stays fully visible.
@@ -33,7 +36,7 @@
  *  Accessibility: the overlay spans are decoration (`aria-hidden`), so the
  *  wrapper's `title` / `aria-label` carry the meaning of ALL THREE axes — the
  *  core's `PIP_TITLES` entry plus "live output" / the per-surface `alertLabel`
- *  ("unread alert" on the Dock, "needs attention" on pulam-web) when those props
+ *  ("unread alert" on the Dock, "needs attention" on a fleet mirror) when those props
  *  are set — so an alerting row still announces it (the old `attention` variant's
  *  "Needs attention" affordance, now one axis over) instead of reading only its
  *  core. When there's nothing to announce (an `empty` core with no outer axes)
@@ -59,13 +62,13 @@ export const StatePip: Component<{
   /** A fired notification not yet opened → a small amber `--color-attention`
    *  corner badge (top-right), NOT a ring, so it never compounds with the live
    *  ring into nested circles; the state core stays fully visible (the Dock's
-   *  `unread`, pulam-web's notify-class). Default off. */
+   *  `unread`, or a fleet mirror's notify-class). Default off. */
   alert?: boolean;
   /** What the alert badge MEANS on this surface, folded into the accessible
-   *  label / tooltip when `alert` is set. The two surfaces drive the badge off
+   *  label / tooltip when `alert` is set. Different surfaces drive the badge off
    *  DIFFERENT signals, so the wording can't be baked in here: the Dock's badge
-   *  is real read/unread terminal state ("unread alert"); pulam-web's is live
-   *  notify-class membership with no read tracking, so it says "needs attention"
+   *  is real read/unread terminal state ("unread alert"); a fleet mirror's may be
+   *  live notify-class membership with no read tracking, so it says "needs attention"
    *  rather than claiming an unread it can't clear. Default the generic "alert"
    *  so a caller that sets `alert` without a label still announces something. */
   alertLabel?: string;
@@ -98,9 +101,9 @@ export const StatePip: Component<{
   });
   return (
     // `data-testid="state-pip"` is the surface-neutral e2e selector for this
-    // shared leaf, spanning all three surfaces it renders on — the dock row pip,
-    // the canvas tile-title pip, and the pulam-web fleet row pip (see
-    // packages/tests/step_definitions). `data-live`/`data-alert` expose the outer
+    // shared leaf, spanning the surfaces it renders on — the dock row pip and
+    // the canvas tile-title pip (see packages/tests/step_definitions), plus any
+    // fleet mirror that adopts it. `data-live`/`data-alert` expose the outer
     // axes for tests/inspection.
     <span
       class={props.class ? `${INDICATOR_BASE} ${props.class}` : INDICATOR_BASE}

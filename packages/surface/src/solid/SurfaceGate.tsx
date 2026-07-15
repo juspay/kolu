@@ -24,7 +24,7 @@
  *
  * HARD-GATING (blank the surface the instant anything errors) is the harsher
  * policy, so it is the explicit OPT-IN: pass `ready={(h) => gateStatus(h) ===
- * "ready"}` (or a stricter app predicate, as pulam-web's fleet board does — a
+ * "ready"}` (or a stricter app predicate, as a fleet-board dashboard does — a
  * dashboard must not paint a stale roster over a broken link). A consumer that
  * overrides `ready` owns the whole not-ready surface via `fallback`; the default
  * `degraded` notice applies only under the default policy.

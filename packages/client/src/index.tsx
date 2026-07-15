@@ -27,7 +27,7 @@ import "./index.css";
 // caching worker — never just "no OS banner" while a legacy stale-serving worker
 // lingers. Either way the in-app dock + sound still fire. The register-or-retire
 // policy itself lives in `registerOrRetireServiceWorker` (`/lifecycle`), shared
-// with pulam-web. Run before any component — the framework-free `/lifecycle` subpath.
+// with other browser consumers. Run before any component — the framework-free `/lifecycle` subpath.
 void registerOrRetireServiceWorker();
 
 // Install `window.__kolu` debug hook (dev only) — one-line console access to

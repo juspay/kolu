@@ -62,33 +62,16 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import {
-  type DaemonInventory,
-  DEFAULT_DAEMON_INVENTORY,
-} from "kolu-common/surface";
-import { derived, source } from "@kolu/surface/reactor";
 import { type WebSocket, WebSocketServer } from "ws";
-import {
-  DAEMON_INVENTORY_SAMPLE_INTERVAL_MS,
-  enumerateDaemonInventoryOnce,
-} from "./padi/daemonInventory.ts";
-import {
-  serverHostname,
-  serverProcessId,
-  serverStartedAt,
-  serverVersion,
-} from "./hostname.ts";
+import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
+import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
   assembleRemotePreview,
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import {
-  MEMORY_SAMPLE_INTERVAL_MS,
-  sampleServerMemory,
-} from "./memorySampler.ts";
-import { captureLatest, everyMsOrOnState } from "./pollCadence.ts";
+import { captureLatest } from "./pollCadence.ts";
 import {
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -673,60 +656,60 @@ const padiBuildCommit = (): string | null => {
 // enumeration fault degrades this one cell instead of the process — the same "make the read
 // total" discipline the sibling `readPadiMemoryOnce` follows. Enumeration is designed not to
 // throw, so this is defence in depth.
-async function readDaemonInventoryOnce(): Promise<DaemonInventory> {
-  try {
-    return await enumerateDaemonInventoryOnce({
-      discoverKavals: discoverKavalDaemons,
-      discoverPadis: discoverPadiDaemons,
-      probe: probeKavalStatus,
-      activePadiSurfaceVersion: () => padiSurfaceVersion(),
-      activePadiBuildCommit: () => padiBuildCommit(),
-      activePadiConvergence: () => padiSession.convergence(),
-      // Under ALWAYS-MAP this describes the unremovable LOCAL default (`padiSession` binds
-      // it), so `boundHost` is null — the local default padi's `hostInventory` member
-      // already covers this machine, so no duplicate `localScan`.
-      boundHost: null,
-    });
-  } catch (err) {
-    log.error({ err }, "daemon-inventory sample failed");
-    return DEFAULT_DAEMON_INVENTORY;
-  }
-}
+// The RAW host-daemon enumeration — what only kolu-server knows (the binding host, its
+// own-machine scan under a remote binding, the bound padi's identity + convergence). Its
+// readouts ride `padiSession`, so it's built here and passed as a domain dep;
+// `implementKoluSurface` wraps it TOTAL (one home for the guard, beside the cell build).
+const readDaemonInventory = () =>
+  enumerateDaemonInventoryOnce({
+    discoverKavals: discoverKavalDaemons,
+    discoverPadis: discoverPadiDaemons,
+    probe: probeKavalStatus,
+    activePadiSurfaceVersion: () => padiSurfaceVersion(),
+    activePadiBuildCommit: () => padiBuildCommit(),
+    activePadiConvergence: () => padiSession.convergence(),
+    // Under ALWAYS-MAP this describes the unremovable LOCAL default (`padiSession` binds
+    // it), so `boundHost` is null — the local default padi's `hostInventory` member
+    // already covers this machine, so no duplicate `localScan`.
+    boundHost: null,
+  });
 
-// Serve kolu-server's own surface, injecting the two DERIVED poll cells. Each cell's
-// `install` fuses the coarse interval with `padiSession.onState`: the bound padi's
-// connection-state changes force-resample BOTH cells at once (a disconnect/rebind projects
-// into `onState` immediately, before the next coarse tick), so a padi drop reports `absent`
-// / refreshes the convergence banner without waiting up to a full interval (#1831's stale-MB
-// regression). `onState` also fires the current state synchronously on subscribe, so both
-// cells' T+0 seed reflects the live binding.
-const { router: koluSurfaceRouter, ctx: koluSurfaceCtx } = implementKoluSurface(
-  {
-    // Memory rail: kolu-server's OWN RSS + padi's folded `{ padi, kaval }` (kaval rides
-    // padi's readout now). The graph is the one writer; whole-MB `equals` at the spec.
-    processMemory: derived.cell(
-      source({
-        read: () => sampleServerMemory(readPadiMemoryOnce),
-        install: everyMsOrOnState(
-          MEMORY_SAMPLE_INTERVAL_MS,
-          padiSession.onState,
-        ),
+// Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
+// these plain domain deps — index.ts imports no reactor primitive, and no member is
+// ctx-written (the reactor graph is each one's writer). The `onState` dep projects each
+// bound-padi `SessionState` into the rail payload the PUSH cells (`padiLink` /
+// `processStartedAt`) derive from — `phase → link` (`mapConnectionToPadiLink`), the honest
+// padi boot time off `identity()` (`padiStartedAt`); it ALSO drives the two POLL cells'
+// fused cadence (a bare tick that ignores the payload). `onState` fires the current state
+// synchronously on subscribe, so each member's seed reflects the live binding.
+//
+// SEED INVARIANT, ENFORCED (SR8.c): `processStartedAt` seeds from the static
+// `{ padi: null }` and — because the two push cells share ONE ref-counted `onState`
+// source, and a second `scan` subscriber doesn't replay the install-time frame — that
+// seed is only correct while padi is still WARMING here. The local `pin()` above is
+// fire-and-forget (never awaited), so the dial cannot have completed and `padiStartedAt()`
+// is `null`. This is index.ts's ordering to keep, so index.ts asserts it: a future change
+// that awaits the pin before this point would seed the uptime rail stale until the next
+// event — crash loudly at boot instead of shipping that silent staleness (fail-fast; the
+// fix then is to seed both cells from a live snapshot, not to relax this).
+if (padiStartedAt() !== null) {
+  throw new Error(
+    "kolu boot invariant violated: padi must still be warming (padiStartedAt null) when " +
+      "implementKoluSurface runs — a pin() was awaited before the surface build, so " +
+      "processStartedAt would seed stale. Seed the push cells from a live snapshot instead.",
+  );
+}
+const { router: koluSurfaceRouter } = implementKoluSurface({
+  readPadiMemory: readPadiMemoryOnce,
+  readDaemonInventory,
+  onState: (cb) =>
+    padiSession.onState((s) =>
+      cb({
+        link: mapConnectionToPadiLink(s.phase),
+        padiStartedAt: padiStartedAt(),
       }),
     ),
-    // Kaval/Padi dialogs' host-daemon inventory: what only kolu-server knows — the binding
-    // host, its own-machine scan (remote binding only), and the bound padi's identity +
-    // convergence (see `readDaemonInventoryOnce`).
-    daemonInventory: derived.cell(
-      source({
-        read: readDaemonInventoryOnce,
-        install: everyMsOrOnState(
-          DAEMON_INVENTORY_SAMPLE_INTERVAL_MS,
-          padiSession.onState,
-        ),
-      }),
-    ),
-  },
-);
+});
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
 // siblings. `serveHostMap` returns a top-level single-surface router
@@ -1002,28 +985,9 @@ if (clientDist) {
   installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
-// Drive koluSurface's `padiLink` cell off the bound padi's connection state. koluSurface
-// is served DIRECTLY by kolu-server — never through the re-serve value-fold that HOLDS
-// STALE while padi is unbound — so its value is never a frozen-but-live-looking read.
-// The client folds `padiLink` into the warming/degraded canvas so a padi drop (the
-// re-targeted "restart kaval" drains padi) shows an honest connecting state over the
-// WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
-// the current state synchronously on subscribe, so the cell is seeded before the first
-// transition. `padiStartedAt` (the boot-time readout this handler publishes) is
-// defined up in the serve block, beside the `daemonInventory` poll cell that reads
-// the same `padiSession.identity()` sum.
-padiSession.onState((s) => {
-  koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.phase));
-  // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
-  // time (constant) plus the bound padi's honest boot time (`null` while unbound). A
-  // padi (re)connect refreshes padi's uptime and a drop clears it to the honest
-  // "unknown" at once — never a stale age. The cell's `equals` dedups a transition
-  // that moves neither boot time. kaval's uptime is NOT here (it rides `daemonStatus`).
-  koluSurfaceCtx.cells.processStartedAt.set({
-    server: serverStartedAt,
-    padi: padiStartedAt(),
-  });
-});
+// (SR8.c: `padiLink` + `processStartedAt` are now PUSH-source derived cells scanning the
+// bound padi's `onState` inside `surface.ts` — the reactor graph is their one writer, so
+// the hand-rolled `onState` → `ctx.set` handler that used to live here is retired.)
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

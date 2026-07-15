@@ -301,7 +301,7 @@ function prSearchFields(pr: PrResult | undefined): string[] {
     case "unsupported":
       return [pr.kind];
     default: {
-      // Exhaustiveness guard (matches `prValueText` in pulam-tui): a future
+      // Exhaustiveness guard (matches `prValueText` in padi-tui): a future
       // `PrResult` variant added without a case here is a compile error, not a
       // silent `undefined` return that crashes search on `...prSearchFields(...)`.
       const _exhaustive: never = pr;

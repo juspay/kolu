@@ -113,7 +113,8 @@ function registerAndInstall(id: TerminalId, entry: TerminalProcess): void {
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
 // The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-vocab`
-// (R6) so kolu (here, in-process) and pulam (remote) drive ONE impl. This
+// (R6) so padi drives ONE impl whether it serves the local host (here,
+// in-process) or a remote host. This
 // endpoint binds that impl to its `TerminalEndpoint`; the surface streams in
 // `surface.ts` read it off `localEndpoint.fs/git` byte-identically.
 const { fs: localFs, git: localGit } = createTerminalWorkspaceEndpoint(log);

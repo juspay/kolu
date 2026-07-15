@@ -24,7 +24,7 @@
  * mutator. kolu recomposes its full `TerminalMetadata` at the CLIENT by JOINING
  * the served `TerminalSnapshot` with a SEPARATE authored record (the app-owned
  * `location` + memory + client-persisted UI fields). That separation is what lets
- * `pulam` (the standalone daemon) and `pulam-tui` (the viewer) reuse the sensors
+ * `padi` (the standalone daemon) and `padi-tui` (the viewer) reuse the sensors
  * with zero dependency on any kolu-app package.
  */
 

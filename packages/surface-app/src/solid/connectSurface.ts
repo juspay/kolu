@@ -3,8 +3,8 @@
  * reconnecting socket, with the liveness watchdog wired in BY DEFAULT.
  *
  * This is the no-lifecycle counterpart to `createServerLifecycle`: an app with
- * no shared connection-status UI driven off the socket — pulam-web's per-host
- * fleet sockets, drishti's per-host sockets — builds its reactive client AND its
+ * no shared connection-status UI driven off the socket — drishti's per-host
+ * fleet sockets — builds its reactive client AND its
  * half-open watchdog in one call, instead of hand-rolling `createSurfaceSocket`
  * → `createLiveSignal` → `surfaceClient` (the steps every such app FORGOT — the
  * watchdog, and threading its handle). The heartbeat is default-on and probes the
@@ -79,7 +79,7 @@ export interface SurfaceConnection<S extends SurfaceSpec> {
    *  the watchdog's recovery is VISIBLE rather than silent. */
   status: Accessor<SurfaceConnectionStatus>;
   /** Stop the liveness heartbeat. A per-app-lifetime socket (cached for the
-   *  page's life, like pulam-web's per-host clients) needn't call this. */
+   *  page's life, like drishti's per-host clients) needn't call this. */
   dispose: () => void;
 }
 
