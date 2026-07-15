@@ -110,32 +110,6 @@ Behind that hello-world, the package owns the hazards kolu paid to learn:
   load/unload with in-microtask release — is the package's
   (<Cite file="packages/xterm-kit/src/solid/webgl.ts" />);
   the *policy* of which panes deserve a context stays the consumer's.</Footnote>
-  A mid-2026 corrupted-glyph investigation exonerated this boundary and traced the
-  real cause to a per-tile visible-transition gap, now fixed.<Footnote>A corrupted-glyph symptom — box-drawing worst,
-  clearing on selection or reload — reported under a busy split + maximized
-  workspace was investigated here. **Verdict: not a #1795/#1808 regression** —
-  diff-falsified (no dropped atlas-clear, logic-identical context-loss path, the
-  `@xterm/*` versions `pnpm.overrides`-pinned repo-wide so no skew) and confirmed
-  by field history (Linux always sporadic, macOS clustered under load, no Chrome
-  change); those PRs' behavior-neutral claims hold. **And the pinned
-  `@xterm/addon-webgl@0.20.0-beta.224` already owns context loss AND restore
-  in-renderer** — byte-verified against the installed lib: `webglcontextlost` →
-  `preventDefault()` + a 3s timeout that fires `onContextLoss`; `webglcontextrestored`
-  → `removeTerminalFromCache()` + `_initializeWebGLState()` + redraw (a full renderer
-  rebuild against the live context, the atlas included). So a *kit-level* restore
-  re-init would DUPLICATE that library boundary, not fill a gap — a first attempt
-  that added exactly that was reverted after the byte-check (reproduce-on-software-GL
-  had produced a false positive: SwiftShader doesn't visually recover from a synthetic
-  loss+restore even though the addon's handler runs). The real mechanism, then found
-  on a real-GPU venue: a tile returning from `display:none` (a switch-to-tile in
-  split/maximized) kept a STALE glyph atlas — while hidden it missed the resize/DPR
-  events that rebuild it, and on show a same-geometry `fit()` is a cols/rows no-op that
-  fires no `handleResize`, so every glyph drew from a wrong slot (a window-resize
-  cleared it, an un-hide did not). Fixed in `<Xterm>`'s visible effect: force
-  `clearTextureAtlas` on the per-tile show, sequenced post-layout — the per-tile twin of
-  `refitOnTabVisible`'s whole-tab clear (which never covered the `display:none`
-  toggle). `clearTextureAtlas` re-warms on the live context without routing through
-  `_refreshCharAtlas`, so it can't hit xterm's zero-dims atlas-skip.</Footnote>
 - **Version-pinned internals with tripwire tests.** Every reach into xterm's
   private `_core.*` is confined to the package, typed structurally, and pinned
   by contract tests that turn an xterm bump into red CI instead of silent

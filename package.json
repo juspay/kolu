@@ -26,8 +26,8 @@
       "shell-quote": "^1.8.4",
       "qs": "^6.15.2",
       "@anthropic-ai/sdk": "^0.91.1",
-      "@xterm/xterm": "6.1.0-beta.225",
-      "@xterm/addon-webgl": "0.20.0-beta.224"
+      "@xterm/xterm": "6.1.0-beta.289",
+      "@xterm/addon-webgl": "0.20.0-beta.288"
     }
   }
 }
