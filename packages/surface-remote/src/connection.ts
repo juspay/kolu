@@ -114,7 +114,7 @@ export type ConnectPhase = Exclude<
 >;
 
 /** The gate-closed pending value: `connecting`, no log, zero elapsed. The canonical
- *  "coming up, nothing measured yet" `ConnectionInfo` — the `connectionOf` projection
+ *  "coming up, nothing measured yet" `ConnectionInfo` — `sessionConnection`
  *  returns it for a member seen before its first frame (matching the coarse `connecting`),
  *  and a client renders it while a fresh entry has no fine state yet. */
 export const DEFAULT_CONNECTION: ConnectionInfo = {
@@ -140,7 +140,7 @@ export function projectConnection<Prov extends SshProv>(
   return s;
 }
 
-/** The total projection a host-map consumer feeds to `serveHostMap`'s `connectionOf` —
+/** The total projection a host-map consumer feeds to `serveHostMap`'s `connection.project` —
  *  `(raw: SessionState<string> | undefined) => ConnectionInfo`, shaped to that seam so no
  *  consumer re-hand-assembles the undefined-arm + the erased-`Prov` cast. Folds the
  *  gate-closed pending value for a not-yet-seeded member (matching the coarse `connecting`

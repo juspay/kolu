@@ -3,6 +3,7 @@ import {
   ConnectionInfoSchema,
   DEFAULT_CONNECTION,
   projectConnection,
+  sessionConnection,
 } from "./connection";
 import type { SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
@@ -16,7 +17,7 @@ import type { SshProv } from "./sshConnector";
 describe("ConnectionInfo — the browser-safe connection sum", () => {
   it("is gate-closed by default (connecting), a valid ConnectionInfo", () => {
     // The canonical pending value: `connecting`, no log, zero elapsed — what
-    // `connectionOf` returns for a member before its first frame, matching the coarse arm.
+    // `sessionConnection` returns for a member before its first frame, matching the coarse arm.
     expect(DEFAULT_CONNECTION.phase).toBe("connecting");
     expect(ConnectionInfoSchema.parse(DEFAULT_CONNECTION)).toEqual(
       DEFAULT_CONNECTION,
@@ -109,5 +110,58 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
     expect(projectConnection(up)).toBe(up);
     expect("error" in projectConnection(up)).toBe(false);
     expect(ConnectionInfoSchema.parse(up)).toEqual(up);
+  });
+});
+
+describe("sessionConnection — the erased-frame → ConnectionInfo seam", () => {
+  it("returns a valid frame BY REFERENCE (reference stability for the entries equals dedup)", () => {
+    const frame: SessionState<string> = {
+      phase: "connected",
+      clockOffset: 42,
+      log: [],
+      sinceMs: 0,
+    };
+    // Not a clone — the SAME object, so a re-projection of an unchanged cached frame is
+    // reference-equal and the entries `equals` can dedup it.
+    expect(sessionConnection(frame)).toBe(frame);
+  });
+
+  it("folds a not-yet-seeded member (undefined) to the gate-closed DEFAULT_CONNECTION", () => {
+    expect(sessionConnection(undefined)).toBe(DEFAULT_CONNECTION);
+  });
+
+  it("FAILS LOUD on a malformed known phase — `connected` without `clockOffset`", () => {
+    // The exact hole the phase-allowlist attempt missed: a KNOWN phase name whose
+    // arm-specific fields are absent. Whole-frame validation catches it.
+    const malformed = {
+      phase: "connected",
+      log: [],
+      sinceMs: 0,
+    } as unknown as SessionState<string>;
+    expect(() => sessionConnection(malformed)).toThrow(
+      /not a valid ConnectionInfo/,
+    );
+  });
+
+  it("FAILS LOUD on a down arm missing error/cause", () => {
+    const malformed = {
+      phase: "disconnected",
+      log: [],
+      sinceMs: 0,
+    } as unknown as SessionState<string>;
+    expect(() => sessionConnection(malformed)).toThrow(
+      /not a valid ConnectionInfo/,
+    );
+  });
+
+  it("FAILS LOUD on an unknown (non-ssh) provisioning phase", () => {
+    const alien = {
+      phase: "deploying",
+      log: [],
+      sinceMs: 0,
+    } as unknown as SessionState<string>;
+    expect(() => sessionConnection(alien)).toThrow(
+      /not a valid ConnectionInfo/,
+    );
   });
 });
