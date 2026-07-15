@@ -76,6 +76,10 @@ The plan notes stop hand-carrying the same facts: **the SR sequence table is gen
 4. The Astro component: the SR sequence table generated from data; the hand-authored ships/gate cells deleted from the markdown (the drift pair dies); per-node state chips available to any note via the `note:` back-edge.
 5. PR-body convention going forward: a `Ships: <track-id>` line, so assertion is one grep — recorded in the conventions, not enforced retroactively.
 
+### Prior art in-repo — PR #760's task-management proposal
+
+The open contributor proposal (<a href="https://github.com/juspay/kolu/pull/760">#760</a>, pre-Atlas era) independently articulated this note's governing law — *"Kolu has agency over IO; Kolu has no agency over semantics: the user is the brain, Kolu is the hands"* — and its mockup's "terminal canvas with task tags" is RM2's node-to-lane-terminal link, converged on from the other direction. The scopes are complementary, not competing: #760 is a **user's personal intent** layer (freeform kanban lanes, obsidian-format markdown — right for human tasks), this note is the **repo's adjudicated work graph** (a fixed lifecycle union, machine-checkable gates — right for dispatch). If both ship, the repo's roadmap renders as one project board in that UI.
+
 ### RM2 — the live surface *(gated on srid's go, after RM1 soaks)*
 
 Serve the computed graph as a surface collection: the frontier on the canvas, each node deep-linking (DL1's grammar) to its note section and — when a lane is live — its terminal. The dashboard's hand-maintained board shrinks to what only the coordinator knows (in-flight conversation state); everything the graph knows renders itself.
