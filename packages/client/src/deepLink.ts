@@ -56,16 +56,18 @@ const invalid = (reason: string): ParsedDeepLink => ({
 
 /** Parse a raw `location.hash` (with or without the leading `#`) into a verdict. */
 export function parseDeepLink(hash: string): ParsedDeepLink {
-  // Strip a single leading "#"; an empty or bare-slash fragment carries no route.
+  // Strip a single leading "#", then split the path from the query. Only the
+  // /code route reads the query; other families tolerate (ignore) a stray query
+  // rather than reject an otherwise fully-valid route.
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;
-  if (raw === "" || raw === "/") return { kind: "none" };
-
-  // Split the path from the query. Only the /code route reads the query; other
-  // families tolerate (ignore) a stray query rather than reject an otherwise
-  // fully-valid route.
   const qIndex = raw.indexOf("?");
   const pathPart = qIndex === -1 ? raw : raw.slice(0, qIndex);
   const queryPart = qIndex === -1 ? "" : raw.slice(qIndex + 1);
+
+  // An empty or bare-slash PATH carries no route — checked AFTER the query is
+  // split off, so a root hash with an incidental query (`#/?utm=x`, a bookmark
+  // saved with a trailing `?`) is `none`, not a false "invalid" toast.
+  if (pathPart === "" || pathPart === "/") return { kind: "none" };
 
   // Split into segments and decode each. A malformed %-escape is not a route we
   // ever produced — reject it whole. Strip EXACTLY ONE leading empty segment

@@ -73,7 +73,17 @@ describe("parseDeepLink — the valid grammar, one row per family", () => {
 });
 
 describe("parseDeepLink — 'none' (no route present, never a toast)", () => {
-  it.each(["", "#", "#/", "/"])("treats %j as none", (hash) => {
+  // A root hash with an incidental query (link-decoration, a saved trailing `?`)
+  // is a normal load, not a malformed route.
+  it.each([
+    "",
+    "#",
+    "#/",
+    "/",
+    "#/?utm=x",
+    "#?x=1",
+    "/?a=b",
+  ])("treats %j as none", (hash) => {
     expect(parseDeepLink(hash)).toEqual({ kind: "none" });
   });
 });

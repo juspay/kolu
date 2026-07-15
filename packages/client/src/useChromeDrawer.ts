@@ -4,9 +4,13 @@
  *  lives INSIDE this drawer (`MobileChromeSheet`), so a `#/settings` deep link
  *  must open the drawer before the popover has anything to anchor to.
  *
- *  Only `MobilePullChrome` renders when the drawer state matters (the
- *  `!isDesktop()` gate), so setting this on desktop is a harmless no-op — no
- *  `isDesktop` branch is needed at the call site. */
+ *  `MobilePullChrome` (touch only) is the sole renderer of this state. But it is
+ *  NOT safe to set on desktop: the layout is reactive, so a value written while
+ *  on desktop persists and would leave the drawer mounted already-open after a
+ *  resize into a touch layout. So a call site that can outlive a layout change
+ *  MUST gate the write on the current layout — `openSettings` (its one caller)
+ *  branches on `!isDesktop()` for exactly this reason (pinned by the F10
+ *  regression test in `useSettingsOpen.test.ts`). */
 
 import { createSignal } from "solid-js";
 

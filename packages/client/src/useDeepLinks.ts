@@ -225,20 +225,26 @@ export function useDeepLinks(): void {
       return;
     }
     if (store.listSub.pending()) return; // membership not settled — wait
-    if (store.listSub.error()) {
+    const listError = store.listSub.error();
+    if (listError) {
       // The list stream faulted — `pending()` is false but the value is stale
       // or absent, so we can't honestly say "gone". Fail the link loudly rather
-      // than invent a gone-verdict from a broken subscription.
+      // than invent a gone-verdict from a broken subscription — and surface the
+      // real error, not a generic message.
       setPending(null);
-      toast.error("Couldn't load this host's terminals to resolve the link.");
+      toast.error(
+        `Couldn't load this host's terminals to resolve the link: ${listError.message}`,
+      );
       return;
     }
     const id = route.terminalId;
     const inList = (store.listSub() ?? []).some((t) => t.id === id);
     if (!inList) {
       setPending(null);
+      // Name what the link pointed at (the host) — the host-gone path already
+      // names its host via wire.ts's reconcile toast, so the two agree.
       toast.error(
-        "That terminal is no longer here — it was closed or never existed. Staying on its host.",
+        `That terminal is no longer on "${route.host}" — it was closed or never existed. Staying on that host.`,
       );
       return;
     }
@@ -306,7 +312,11 @@ export function useDeepLinks(): void {
       try {
         hash = new URL(params.targetURL).hash;
       } catch {
-        return; // a malformed targetURL is not a route.
+        // A malformed launch URL is a real anomaly, not a no-op — surface it
+        // loudly like every other failure path here, rather than dropping the
+        // launch with no user-visible trace.
+        toast.error("Couldn't open that link — the launch URL was malformed.");
+        return;
       }
       if (hash && hash !== window.location.hash) {
         window.location.hash = hash;
