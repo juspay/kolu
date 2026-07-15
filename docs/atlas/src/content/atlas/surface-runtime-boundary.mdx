@@ -285,6 +285,50 @@ SR8.a shipped with a composition defect srid caught post-merge: `implementKoluSu
 
 `captureLatest` is deliberately **kept at app policy** — one consumer; its deeper cure (surface-remote's honest liveness during connecting) stays the separately-recorded follow-up, not swept into this move. The build's gauntlet surfaced two further reactor-depth candidates, **recorded with gates, not done**: a **hot push-source** (replay the current level to a late subscriber — would retire the shared-source seed invariant the build instead enforces fail-fast at boot; gate: a second late-subscriber consumer, or that boot assert ever firing in the wild) and **poll-seed totality lifted into the reactor** (log-skip-continue on the T+0 read, retiring per-cell total-wrappers; gate: a second total-wrapper appearing). Both are `@kolu/surface` changes with drishti drag — prove-then-extract holds them. Done-criteria, grep-shaped: no `Omit<ImplementSurfaceDeps` spelling anywhere (multiline-aware grep); no local cadence-fuse in kolu-server or padi (the reactor export is the only spelling); `index.ts` imports no `derived`/`source`; behavior-neutral — e2e + seal. **Gate:** none — schedulable. Provenance: srid's post-merge finding on <PrLink pr={1835} /> + the two lens runs.
 
+<a id="sr11"></a>
+
+### SR11 — a member declares its client policy *(candidate, unratified)*
+
+The campaign gave the **producer** side its DSL — a member declares its schema, its `equals`, its derivation, and the framework mints the serving. The **consumer** side never got the same treatment: client *policy* — which `onError`, floor-on-liveness or not, `authority`, coalescing, an `initial` — is still spelled per use-site, ~22 sites today, and the code confesses the pattern (`useDaemonStatus.ts:192`: *"Same singleton `app.cells.X.use(...)` pattern as `processMemory`"*).<Footnote>Surfaced by the LLM-and-DSLs discussion (the Fowler article read): kolu's honest app-glue DSL opening is not a string mini-language or a codegen step — the spec and the interpreter already live in the same language; what's missing is the declaration carrying the *consumer* half. Grounded 2026-07-15 against `wire.ts`, `HostDaemonChips.tsx`, `useDaemonStatus.ts`.</Footnote>
+
+**Before — real sites, quoted.** Every consumer re-decides policy at the call:
+
+```ts
+// wire.ts:277 — preferences
+const preferences = app.cells.preferences.use({
+  authority: "local",
+  initial: DEFAULT_PREFERENCES,
+  coalesceMs: 150,                 // the #1041 drag-frame debounce
+  onError: (err) => toast.error(`Preferences error: ${err.message}`),
+});
+
+// HostDaemonChips.tsx:146 — processMemory, per host
+return padiMap.entry(host).cells.processMemory.use({
+  onError: (err) => toast.error(`Padi/kaval memory error: ${err.message}`),
+});
+```
+
+**After — the policy moves into the declaration** (common/surface.ts, beside schema + equals), and the framework mints the hook:
+
+```ts
+// common — ONE spelling of the member, both halves:
+processMemory: {
+  schema: ProcessMemorySchema,
+  equals: processMemoryMbEqual,
+  client: { onError: "toast:Padi/kaval memory" },   // policy AS declaration
+},
+preferences: {
+  schema: PreferencesSchema,
+  client: { authority: "local", initial: DEFAULT_PREFERENCES,
+            coalesceMs: 150, onError: "toast:Preferences" },
+},
+
+// client — the use-site shrinks to the read; policy is unrepeatable:
+const mem = padiMap.entry(host).cells.processMemory.use();   // policy came with the member
+```
+
+What it deletes: the 22-site policy class, the same way `derived.cell` deleted the publish seams — a future consumer *can't* re-decide a member's error routing or floor, because there is no options bag left to spell it in. The open design questions a lens run must settle before this is a PR: policy values that are **client-side capabilities** (a toast function doesn't belong in `common` — the sketch's `"toast:…"` string implies a client-registered policy vocabulary, which needs its own one-writer story); per-site *legitimate* divergence (a site that genuinely wants a different floor must become a declared variant, not an override knob); and whether `initial`/`authority` are policy or wiring. **Gate:** lens-run-first (the design-bearing trigger applies in full) + srid's ratification; drishti-paired (a `@kolu/surface` declaration-shape change). Until ruled, the 22 sites stand — they are correct, just repetitious.
+
 The campaign is complete only when these negative properties hold — each is a grep or a test, not a judgment call:
 
 - No production consumer imports oRPC `implement` merely to finalize a Surface; no serving API accepts private mount material; child failure reaches `done`; repeated `close` is harmless.
