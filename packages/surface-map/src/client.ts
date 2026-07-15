@@ -110,28 +110,35 @@ export interface EntryClock {
 /** The liveness floor `foldState` applies to a per-key status, extracted PURE so the
  *  decision is unit-pinnable without a half-openable transport (a `directLink` is
  *  constant-live and a `LiveSignalHandle` is un-forgeable, so the dead-link branch is
- *  otherwise unreachable from a test). A server-published `connected` is only as
- *  trustworthy as OUR link to the publisher: with that link dead (`live === false`) we
- *  can no longer hear a demotion, so a stale `connected` must NOT keep presenting as
- *  connected — it downgrades to `warming` (#1568: no status renders green over a dead
- *  transport). Every other status (`failed` / `warming` / `not-a-member`) is already
- *  honest and passes through untouched, and a live link is a no-op. Making `live` a
+ *  otherwise unreachable from a test). This is the ONE floor and the ONE liveness
+ *  decision — both the coarse dot (`kind`) AND the fine word (`connection`) are floored
+ *  HERE, so every consumer (kolu + drishti) inherits them by construction, matching the
+ *  server's one-authority guarantee.
+ *
+ *  A server-published `connected` is only as trustworthy as OUR link to the publisher:
+ *  with that link dead (`live === false`) we can no longer hear a demotion, so a stale
+ *  `connected` must NOT keep presenting as connected — it downgrades to `warming` (#1568:
+ *  no status renders green over a dead transport). And the domain-opaque `connection` word
+ *  is just as stale over a dead link (a cell frozen at `building`/`copying` keeps narrating
+ *  a build that is no longer live), so it is DROPPED to `undefined` across EVERY session-
+ *  backed arm — `undefined` is domain-neutral, so surface-map stays volatility-neutral
+ *  (it never enumerates what a domain's connection states are). Membership identity rides
+ *  through untouched (the floor is about liveness, not identity), so the demoted `warming`
+ *  is still the SAME membership, keyed the same way (PR3). `not-a-member` carries neither
+ *  word nor identity and passes through as-is, and a live link is a no-op. Making `live` a
  *  REQUIRED argument is the point: `foldState` cannot forget to floor. */
 export function floorOnLiveness<Failure = unknown, Conn = unknown>(
   status: EntryState<Failure, Conn>,
   live: boolean,
 ): EntryState<Failure, Conn> {
-  // Downgrade the CLAIM (connected → warming) but carry the entry's opaque
-  // `membershipId` AND its fine `connection` payload (SR9) through untouched — the floor
-  // is about liveness, not identity or the fine connection state, so the demoted
-  // `warming` is still the SAME membership + connection, keyed the same way (PR3).
-  if (status.kind === "connected" && !live)
-    return {
-      kind: "warming",
-      membershipId: status.membershipId,
-      connection: status.connection,
-    };
-  return status;
+  // A live link is a no-op — the server's word stands. `not-a-member` carries no
+  // `connection`/`membershipId`, so there is nothing to floor.
+  if (live || status.kind === "not-a-member") return status;
+  // Demote the CLAIM (connected → warming), dropping the connected-only `clockOffset`,
+  // and drop the fine `connection` word on this and every other session-backed arm.
+  if (status.kind === "connected")
+    return { kind: "warming", membershipId: status.membershipId };
+  return { ...status, connection: undefined };
 }
 
 /** Floor a per-key `Subscription<EntryStatus>` on liveness with the SAME

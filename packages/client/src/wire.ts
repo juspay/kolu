@@ -52,7 +52,6 @@ import {
   createSignal,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
@@ -390,14 +389,15 @@ export const activePadiRpc = hostScoped.procedures;
  *  this accessor is only the carve-out reach. */
 export const activePadiStreams = hostScoped.streams;
 
-/** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
- *  before its first frame. Drives the connect overlay's copying/building narration. Floored
- *  (C') on the SAME map-transport liveness the chip's `EntryStatus` uses (`padiMap.live`):
- *  with our link to the publisher dead/half-open, a frozen `building`/`copying` cell stops
- *  asserting a live phase — mirroring surface-map's `floorOnLiveness` for `EntryStatus`, so the
- *  connection cell is no longer the one un-floored per-host authority (#1568 sibling). */
+/** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its
+ *  first frame. Drives the connect overlay's copying/building narration. Already floored on
+ *  the map's transport liveness at the ONE floor — `active.state()` runs through surface-map's
+ *  `floorOnLiveness`, which drops the fine `connection` word (as well as demoting the dot) when
+ *  our link to the publisher is dead/half-open, so a frozen `building`/`copying` phase stops
+ *  asserting a live phase (#1568). No client-side re-floor: the word inherits the SAME liveness
+ *  decision as the dot by construction, so the two can never disagree. */
 export const connectionInfo = (): ConnectionInfo | undefined =>
-  floorConnectionInfo(hostScoped.connection(), padiMap.live());
+  hostScoped.connection();
 
 // The per-host wire-view facades — recentRepos / recentAgents / savedSession /
 // savedSessionSub / terminalListSub — WINDOW the active host's RETAINED wire

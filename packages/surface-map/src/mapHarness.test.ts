@@ -973,17 +973,19 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 // is extracted PURE (`floorOnLiveness`) and pinned here — foldState routes every status
 // through it with the resolved transport `live()`, so this IS the state() decision.
 describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
-  it("downgrades a server-published 'connected' to 'warming' when our link is dead — membershipId preserved (PR3)", () => {
+  it("downgrades a server-published 'connected' to 'warming' when our link is dead — membershipId preserved, fine word dropped (PR3)", () => {
     // The D3 defect: state() published `connected` while `live() === false`, painting a
     // green chip over a transport that can no longer deliver a demotion. Floored → warming.
     // The floor is about LIVENESS, not identity: the entry's opaque `membershipId` rides
-    // through the demotion untouched, so the warming is still the SAME membership.
+    // through the demotion untouched, so the warming is still the SAME membership. The fine
+    // `connection` word is just as stale over a dead link, so it is dropped to undefined.
     expect(
       floorOnLiveness(
         {
           kind: "connected",
           membershipId: testMembershipId("m1"),
           clockOffset: 42,
+          connection: { phase: "connected" },
         },
         false,
       ),
@@ -993,13 +995,14 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
     });
   });
 
-  it("passes 'connected' through UNTOUCHED when the link is live (offset + membershipId preserved)", () => {
+  it("passes 'connected' through UNTOUCHED when the link is live (offset + membershipId + connection preserved)", () => {
     expect(
       floorOnLiveness(
         {
           kind: "connected",
           membershipId: testMembershipId("m1"),
           clockOffset: 42,
+          connection: { phase: "connected" },
         },
         true,
       ),
@@ -1007,6 +1010,42 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
       kind: "connected",
       membershipId: testMembershipId("m1"),
       clockOffset: 42,
+      connection: { phase: "connected" },
+    });
+  });
+
+  it("drops the fine `connection` word on a NON-connected arm when the link is dead (subsumes the old connectionFloor)", () => {
+    // The fine per-entry connection word (the connect overlay's narration) is floored by the
+    // SAME liveness decision as the dot: a `warming` arm frozen at `building`/`copying` over a
+    // dead link keeps narrating a build that is no longer live, so the word is dropped to
+    // undefined — the one floor every consumer inherits, replacing the client's separate
+    // `floorConnectionInfo`. A live link is a no-op and carries the word through.
+    expect(
+      floorOnLiveness(
+        {
+          kind: "warming",
+          membershipId: testMembershipId("m1"),
+          connection: { phase: "building" },
+        },
+        false,
+      ),
+    ).toEqual({
+      kind: "warming",
+      membershipId: testMembershipId("m1"),
+    });
+    expect(
+      floorOnLiveness(
+        {
+          kind: "warming",
+          membershipId: testMembershipId("m1"),
+          connection: { phase: "building" },
+        },
+        true,
+      ),
+    ).toEqual({
+      kind: "warming",
+      membershipId: testMembershipId("m1"),
+      connection: { phase: "building" },
     });
   });
 
