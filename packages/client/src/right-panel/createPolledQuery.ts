@@ -44,7 +44,7 @@
  * `active` config field.
  */
 
-import { unenrolledStreamCall } from "@kolu/surface/client";
+import { pollOnChange } from "@kolu/surface/poll-on-change";
 import {
   type StreamingProcedure,
   type Subscription,
@@ -172,26 +172,12 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     shownKey = null;
   }
 
-  let controller: AbortController | null = null;
-  function runQuery(i: Input, key: string): void {
-    controller?.abort();
-    const ctl = new AbortController();
-    controller = ctl;
-    void (async () => {
-      try {
-        const result = await query(i, ctl.signal);
-        if (ctl.signal.aborted) return;
-        writeWrappedValue<Result>(setStore, result);
-        shownKey = key;
-        if (pending()) setPending(false);
-        if (error()) setError(undefined);
-      } catch (err) {
-        if (ctl.signal.aborted) return;
-        surfaceError(err);
-      }
-    })();
-  }
-  onCleanup(() => controller?.abort());
+  // The requery-per-pulse-frame loop (subscribe pulse → requery → emit, with
+  // abort-supersede) is the framework-free `pollOnChange` core in `@kolu/surface`;
+  // this file keeps only the Solid ergonomics that wrap it — the reconciled store
+  // write, the `pending`/`error` signals, `shownKey`, and the #818/#1714 guard.
+  // The core's in-flight requery is torn down through the pulse `signal` below
+  // (aborted by the effect's `onCleanup` on every re-run and on owner dispose).
 
   // The input's VALUE identity — a canonical primitive key over (input, host).
   // `on` fires its callback on every INVALIDATION of its tracked source, not on a
@@ -225,23 +211,20 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // (The effect still re-runs when the ACTIVE host's `input` ticks while we are
       // paused, since `input` reads shared state; each such run is this same no-op.)
       if (!isActive) {
-        // ALSO tear down any in-flight REQUERY, not just the pulse: `onCleanup` aborts
-        // the pulse stream, but a `runQuery` already dispatched (its `controller` is
-        // separate) would otherwise land AFTER the switch and write THIS now-background
-        // host's retained store off the NOW-active host's reactive reads — e.g.
-        // `BrowseFileDispatcher`'s binary branch builds its URL from `activeHost()` AFTER
-        // its `filePreviewTag` await, so a late resolve would stamp the new host's URL
-        // with this host's tag into this host's store (a cross-host mix). Aborting makes
-        // the resolve early-return on `ctl.signal.aborted`; the held value + `pending` +
-        // `shownKey` stay frozen for the switch-BACK, so no blank and no late write.
-        controller?.abort();
-        controller = null;
+        // The previous run's pulse `onCleanup` (below) has already fired, aborting its
+        // `pollOnChange` signal — which tears down BOTH the pulse AND any in-flight
+        // requery the core dispatched. That matters: a requery already dispatched would
+        // otherwise land AFTER the switch and write THIS now-background host's retained
+        // store off the NOW-active host's reactive reads (e.g. `BrowseFileDispatcher`'s
+        // binary branch builds its URL from `activeHost()` AFTER its `filePreviewTag`
+        // await — a cross-host mix). The held value + `pending` + `shownKey` stay frozen
+        // for the switch-BACK, so no blank and no late write. Nothing to do but hold.
         return;
       }
 
       // ACTIVE. The resume/blank decision is "does `store.v` already hold THIS key?".
-      controller?.abort();
-      controller = null;
+      // (The previous run's pulse `onCleanup` already aborted its `pollOnChange` — pulse
+      // + in-flight requery — so a stale read can't land over this run.)
       setError(undefined);
       setComplete(false);
       if (i === null) {
@@ -271,24 +254,29 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // single per-host client to fold health into — and kolu ignores that fold anyway.
       const pulseCtl = new AbortController();
       onCleanup(() => pulseCtl.abort());
-      void (async () => {
-        try {
-          for await (const _frame of await unenrolledStreamCall(
-            pulseProc(),
-            pulseInput(i),
-            { signal: pulseCtl.signal },
-          )) {
-            runQuery(i, activeKey);
-          }
-          // Normal completion — the pulse iterable ended on its own (a typed end,
-          // e.g. the host/entry left membership), not an abort: an aborted loop
-          // never falls through the `for await` to here with `aborted` still
-          // false. Mirrors `createSubscription`'s own typed-end handling.
-          if (!pulseCtl.signal.aborted) setComplete(true);
-        } catch (err) {
-          if (!pulseCtl.signal.aborted) surfaceError(err);
-        }
-      })();
+      // The framework-free `pollOnChange` core owns the loop (subscribe pulse →
+      // requery per frame → abort-supersede → emit); this file supplies the query
+      // and the Solid landing. The `pulseCtl` signal owns the whole poll's lifetime
+      // — the effect's `onCleanup` aborts it on every re-run and on owner dispose,
+      // tearing down the pulse AND the in-flight requery.
+      pollOnChange<PulseInput, Pulse, Result>({
+        pulse: pulseProc(),
+        pulseInput: pulseInput(i),
+        query: (signal) => query(i, signal),
+        onResult: (result) => {
+          // A requery updates the value IN PLACE (reconciled — no blank), stamps the
+          // shown key, and clears `pending`/`error` on a fresh landing.
+          writeWrappedValue<Result>(setStore, result);
+          shownKey = activeKey;
+          if (pending()) setPending(false);
+          if (error()) setError(undefined);
+        },
+        onError: (err) => surfaceError(err),
+        // Normal completion — the pulse ended on its own (a typed end, e.g. the
+        // host/entry left membership). Mirrors `createSubscription`'s typed-end.
+        onComplete: () => setComplete(true),
+        signal: pulseCtl.signal,
+      });
     }),
   );
 

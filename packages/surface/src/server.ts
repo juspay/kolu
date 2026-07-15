@@ -71,8 +71,11 @@ import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 // only through `reactor.ts`: the walk itself never touches a signal.
 import {
   type DerivedCellBranded,
+  type DerivedCollectionBranded,
   isDerivedCellDeps,
+  isDerivedCollectionDeps,
   isDerivedComputeCellDeps,
+  isDerivedPollCellDeps,
   type SiblingSource,
   type SiblingSourcesRuntime,
 } from "./reactorBrand";
@@ -80,7 +83,7 @@ import {
 // used purely to type the cell deps slot. `import type` is fully erased under
 // this repo's `isolatedModules` + esbuild bundling, so it pulls NO engine value
 // into `server.ts`'s runtime graph (the leaf rationale above stands).
-import type { DerivedComputeCell } from "./reactor";
+import type { DerivedComputeCell, PollDerivedCell } from "./reactor";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -1225,6 +1228,26 @@ export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
         readOne?: (key: K) => T | undefined;
         upsert: (key: K, value: T) => void;
         remove: (key: K) => void;
+        /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
+         *  `readAll()` semantics). By default a compute reading `$.<coll>()`
+         *  re-runs `readAll()` on every access — correct for a registry
+         *  projection whose `readAll` reads a live external store, but for a
+         *  collection whose `readAll` is an EXPENSIVE per-key compose (padi's
+         *  `terminals`: `registryMap(composePadiTerminal)`), a derived member
+         *  folding `$.<coll>()` on a firehose re-composes ALL M entries per
+         *  poke = O(M²) composes/cycle (SR7's urgency regression). Set this and
+         *  the framework maintains a MATERIALIZED VIEW — a per-key cache seeded
+         *  from `readAll()` once at construction and updated per-key by the
+         *  SAME `upsert`/`remove` writes (which already carry the value) — so
+         *  the `$`-read returns the view WITHOUT recomposing (O(M²)→O(M)). Same
+         *  contents and same per-key `siblingChange` granularity as `readAll()`.
+         *
+         *  SAFE ONLY when EVERY mutation flows through the ctx `upsert`/`remove`
+         *  seam — that is the view's SINGLE write path, so it cannot diverge
+         *  from truth. Opting in is the author VOUCHING for that invariant. A
+         *  collection whose backing is mutated OUTSIDE `upsert`/`remove` (a live
+         *  external store its `readAll` re-reads) must NOT opt in. */
+        materializeSiblingView?: boolean;
       }
     : never;
 
@@ -1398,6 +1421,19 @@ type CellDepFor<
   ?
       | CellImplDeps<C>
       | Omit<DerivedComputeCell<S, T>, "connect" | "dispose" | "bindSiblings">
+      // A POLL-source `derived.cell(source(...))`: its synchronous face is honestly
+      // `T | undefined` (undefined until the seed), so it is NOT a `CellImplDeps<C>`
+      // (whose `store` is `CellStore<T>`). The walk seeds the private serving store
+      // from the spec default and drives it through `connect`, so the SERVED value is
+      // a `T` — the `T | undefined` dep face is never served. `connect`/`dispose`/
+      // `store` are dropped from the arm: the runtime reads `connect`/`dispose` off the
+      // branded value directly, and a second `connect` shape OR a `CellStore<T | undefined>`
+      // `store` in the union would de-contextualize a plain authored cell's own inline
+      // `connect`/`store.set` param types. The poll cell's `store: CellStore<T | undefined>`
+      // honesty lives on the {@link PollDerivedCell} return type (checked at the
+      // `derived.cell(...)` call site), not this slot — the slot only ACCEPTS the value,
+      // matched by its poll brand.
+      | Omit<PollDerivedCell<T>, "connect" | "dispose" | "store">
   : CellImplDeps<C>;
 
 export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
@@ -1413,9 +1449,17 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
     [K in keyof S["cells"] & string]: CellDepFor<S, NonNullable<S["cells"]>[K]>;
   };
   collections?: {
-    [K in keyof S["collections"] & string]: CollectionImplDeps<
-      NonNullable<S["collections"]>[K]
-    >;
+    // A collection's dep is either an ordinary {@link CollectionImplDeps} (its own
+    // reads + write seams) OR a `derived.collection(node)` — graph-owned, so it
+    // carries `readAll`/`readOne`/`connect` and no `upsert`/`remove` (the walk
+    // narrows the ctx to throw and drives the publishers from the reconciler). As
+    // with the compute-cell arm, drop the callback-bearing fields (`readOne`/
+    // `connect`/`dispose`) from the derived arm — the runtime reads those off the
+    // branded value directly, and keeping them in the union would de-contextualize
+    // a plain authored dep's own `readOne`/`upsert` callback params (infer `any`).
+    [K in keyof S["collections"] & string]:
+      | CollectionImplDeps<NonNullable<S["collections"]>[K]>
+      | Omit<DerivedCollectionBranded, "readOne" | "connect" | "dispose">;
   };
   streams?: {
     [K in keyof S["streams"] & string]: StreamImplDeps<
@@ -1846,8 +1890,16 @@ function walkSurface<const S extends SurfaceSpec>(
     // and re-seed it (eager pull) in the deferred bind pass below, before any
     // handler can read it — no wire reader exists until the runtime starts.
     const isComputeCell = isDerivedComputeCellDeps(cellDeps);
+    // A poll-source derived cell has no synchronous seed (its T+0 read is async),
+    // so — like a compute cell before its bind — seed the private store from the
+    // spec DEFAULT; the async `connect` publishes the first read over it. This is
+    // the value the hand-rolled sampler served pre-first-sample, so the conversion
+    // stays behavior-neutral (and `connect`'s first-read failure still propagates).
+    const isPollCell = isDerivedPollCellDeps(cellDeps);
     const rawStore: CellStore<unknown> = isDerivedCellDeps(cellDeps)
-      ? inMemoryStore(isComputeCell ? cellSpec.default : cellDeps.store.get())
+      ? inMemoryStore(
+          isComputeCell || isPollCell ? cellSpec.default : cellDeps.store.get(),
+        )
       : cellDeps.store;
     // The BRIDGE-OWNED store wrapper both cell write paths land in: `set` writes
     // the value, then fires this cell's post-equals change edge (the "mirror
@@ -1868,7 +1920,15 @@ function walkSurface<const S extends SurfaceSpec>(
     // derived-reads-derived chain is a pure computed graph, glitch-free by lazy
     // pull, per the bridge law. An AUTHORED cell is read as its post-equals mirror
     // (the store wrapper above is its change edge, bridged via a version signal).
-    if (isDerivedCellDeps(cellDeps)) {
+    //
+    // EXCEPTION — a POLL-source derived cell: its graph level is `undefined` until
+    // the async seed lands, so an engine-tracked `$`-read would hand a sibling
+    // compute `undefined` (not the spec default) at boot — a crash / invalid
+    // derivation. Register it as the private-store MIRROR instead: the store is
+    // seeded with the spec default and updated post-write, so a `$`-reader gets the
+    // default until the first read publishes, never `undefined`. Reading an async
+    // poll as a mirror is honest — it is a sampled source, not a synchronous computed.
+    if (isDerivedCellDeps(cellDeps) && !isPollCell) {
       const derivedDeps = cellDeps as unknown as DerivedCellBranded;
       registerSibling(key, () => derivedDeps.siblingRead(), true);
     } else {
@@ -2039,12 +2099,62 @@ function walkSurface<const S extends SurfaceSpec>(
       | {
           readAll: () => Map<unknown, unknown>;
           readOne?: (k: unknown) => unknown;
-          upsert: (k: unknown, v: unknown) => void;
-          remove: (k: unknown) => void;
+          // Authored collections carry write seams; a graph-owned
+          // `derived.collection` does not (the walk narrows the ctx to throw and
+          // drives the publishers from the reconciler's `connect`), so both are
+          // optional here and resolved through `depUpsert`/`depRemove` below.
+          upsert?: (k: unknown, v: unknown) => void;
+          remove?: (k: unknown) => void;
+          materializeSiblingView?: boolean;
         }
       | undefined;
     if (!collDeps) {
       throw new Error(`implementSurface: missing deps for collection "${key}"`);
+    }
+    // A `derived.collection(node)` — graph-owned: its ctx `upsert`/`remove` throw,
+    // and its reconciler `connect` (fired as an owned source below) drives the
+    // surface's per-key publishers.
+    const derivedColl = isDerivedCollectionDeps(collDeps)
+      ? (collDeps as unknown as DerivedCollectionBranded)
+      : undefined;
+    // Boot narrowing for a `derived.collection`: the reconciler is the member's
+    // ONE writer, so it is wire-read-only BY CONSTRUCTION. Crash loudly if it
+    // declares any wire WRITE verb (`upsert`/`delete`/`test__set`) — a wire
+    // mutation would otherwise reach `wrappedUpsert` and publish a value the graph
+    // never derived (a second writer over the wire). Mirror of the derived-cell
+    // narrowing above; the reconciled value still reaches the wire through
+    // `keys`/`get`/`deltas`.
+    if (derivedColl) {
+      const writeVerbs = resolveCollectionVerbs(collSpec).filter(
+        (v) => v === "upsert" || v === "delete" || v === "test__set",
+      );
+      if (writeVerbs.length > 0) {
+        throw new Error(
+          `implementSurface: derived collection "${key}" is wire-read-only (its reconciler is the one writer) but declares write verb(s) [${writeVerbs.join(", ")}] — declare only read verbs (keys/get/deltas).`,
+        );
+      }
+    }
+    // The backing write seams the wrapped publishers call. For an authored
+    // collection they are the dep's own persistence writes; for a derived
+    // collection they are no-ops (the registry IS the reconciler's `current` map).
+    // The derived arm is the ONLY one that legitimately has no write seam, so an
+    // authored collection that omitted `upsert`/`remove` must fail LOUD with a named
+    // error here — not via a `!` that defers to a cryptic "undefined is not a
+    // function" at the first publish (the boot-narrowing fail-fast law).
+    let depUpsert: (k: unknown, v: unknown) => void;
+    let depRemove: (k: unknown) => void;
+    if (derivedColl) {
+      depUpsert = () => {};
+      depRemove = () => {};
+    } else {
+      const { upsert, remove } = collDeps;
+      if (!upsert || !remove) {
+        throw new Error(
+          `implementSurface: authored collection "${key}" must provide upsert + remove write seams (its publishers persist through them) — only a graph-owned derived.collection may omit them.`,
+        );
+      }
+      depUpsert = upsert;
+      depRemove = remove;
     }
     const keysBus = deps.channel<unknown[]>(collectionKeysetChannel(key));
     const perKeyBus = (k: unknown) =>
@@ -2108,15 +2218,32 @@ function walkSurface<const S extends SurfaceSpec>(
     // "membership-change only" contract this stream promises, and untested.) The
     // published array is always the live `readAll()` set, so the seed only ever
     // suppresses a redundant snapshot, never a wrong one.
-    // Expose this collection to `$`: a sibling read returns its LIVE map
-    // (`readAll()`); its change edge fires on every accepted key change below (a
-    // version poke — a compute reading `$.<coll>()` re-runs, then its OWN member
-    // `equals` is the final wire dedup). Registered before the wrapped publishers
-    // so `siblingChange[key]` exists when they fire.
-    registerSibling(key, () => collDeps.readAll());
-    const broadcastKeys = new Set<unknown>(collDeps.readAll().keys());
+    // Expose this collection to `$`. Its change edge fires on every accepted key
+    // change below (a version poke — a compute reading `$.<coll>()` re-runs, then
+    // its OWN member `equals` is the final wire dedup). Registered before the
+    // wrapped publishers so `siblingChange[key]` exists when they fire.
+    //
+    // The sibling READ is `readAll()` by default (a fresh fold each access). When
+    // the collection opts into `materializeSiblingView`, the read instead returns
+    // a MATERIALIZED VIEW — a per-key cache of `readAll()` seeded once here and
+    // kept current by the wrapped publishers below (the view's single write path)
+    // — so a `$`-reader never re-runs an expensive `readAll()` recompose (the SR7
+    // urgency O(M²) fix; see `CollectionImplDeps.materializeSiblingView`). Same
+    // contents and same per-key poke granularity — a pure optimization behind the
+    // seam. One `readAll()` seeds BOTH the view and `broadcastKeys`, so opting in
+    // never doubles the boot fold.
+    const initialEntries = collDeps.readAll();
+    const siblingView = collDeps.materializeSiblingView
+      ? new Map<unknown, unknown>(initialEntries)
+      : undefined;
+    registerSibling(
+      key,
+      siblingView ? () => siblingView : () => collDeps.readAll(),
+    );
+    const broadcastKeys = new Set<unknown>(initialEntries.keys());
     const wrappedUpsert = (k: unknown, v: unknown) => {
-      collDeps.upsert(k, v);
+      depUpsert(k, v);
+      siblingView?.set(k, v); // materialized view — the SINGLE write path (opt-in)
       if (!broadcastKeys.has(k)) {
         broadcastKeys.add(k);
         keysBus.publish(Array.from(collDeps.readAll().keys()));
@@ -2126,7 +2253,8 @@ function walkSurface<const S extends SurfaceSpec>(
       siblingChange[key]?.(); // version poke — a $-reader of this collection recomputes
     };
     const wrappedRemove = (k: unknown) => {
-      collDeps.remove(k);
+      depRemove(k);
+      siblingView?.delete(k); // materialized view — the SINGLE write path (opt-in)
       if (broadcastKeys.delete(k)) {
         keysBus.publish(Array.from(collDeps.readAll().keys()));
       }
@@ -2134,12 +2262,68 @@ function walkSurface<const S extends SurfaceSpec>(
       siblingChange[key]?.(); // version poke — a removal changes what a $-reader folds
     };
 
+    // A derived collection is graph-owned (one writer): its ctx `upsert`/`remove`
+    // THROW — a fail-fast one-writer guard mirroring a derived cell's, so a
+    // procedure handler that tries to mutate it gets a loud error, never a silent
+    // second writer. An authored collection keeps its real server-internal writes.
+    const derivedCollWriteGuard = (): never => {
+      throw new Error(
+        `implementSurface: collection "${key}" is graph-owned (a derived.collection) — the reconciler is its one writer; ctx.collections.${key}.upsert/remove is not a write path.`,
+      );
+    };
     collectionsCtx[key] = {
-      upsert: wrappedUpsert,
-      remove: wrappedRemove,
+      upsert: derivedColl ? derivedCollWriteGuard : wrappedUpsert,
+      remove: derivedColl ? derivedCollWriteGuard : wrappedRemove,
       readAll: collDeps.readAll,
       readOne: collDeps.readOne ?? ((k: unknown) => collDeps.readAll().get(k)),
     };
+
+    // A derived collection's reconciler is an OWNED SOURCE: fire its `connect` in
+    // the deferred `starts` pass (handing it the surface's per-key publishers + the
+    // spec's value `equals`, defaulting to "always changed" so an equals-less
+    // collection re-publishes every present key). Same lifecycle as a derived
+    // cell's connector — a fault reaches the runtime's `done` (a poll reconciler's
+    // first-read rejection included), and `close` disposes the node + subscription.
+    if (derivedColl) {
+      const dc = derivedColl;
+      const collEquals = collSpec.equals ?? (() => false);
+      starts.push(() => {
+        const ctl = new AbortController();
+        // DEFER the connect to a microtask so a SYNCHRONOUS connect fault — a
+        // non-poll collection's initial reconcile whose publisher throws — becomes
+        // `settled`'s rejection reaching `done`, instead of escaping `start()` and
+        // orphaning sources that already started (the transactional-start guarantee).
+        // The connector's `signal` rides in so a poll reconciler cancels a seed a
+        // `close()` races; `dispose()` latches teardown for the non-poll effect too.
+        const settled = Promise.resolve()
+          .then(() => {
+            // `close()` in the same turn synchronously aborts `ctl` and disposes the
+            // collection BEFORE this microtask runs — so observe cancellation here and
+            // no-op cleanly, rather than calling `connect()` on a torn collection
+            // (which throws "connect() after dispose()" and faults `done` on an
+            // otherwise clean immediate close). A real synchronous connect fault still
+            // rejects `settled` because the microtask boundary is retained.
+            if (ctl.signal.aborted) return;
+            return dc.connect(
+              {
+                upsert: wrappedUpsert,
+                remove: wrappedRemove,
+                equals: collEquals as (a: unknown, b: unknown) => boolean,
+              },
+              { signal: ctl.signal },
+            );
+          })
+          .then(() => {});
+        return {
+          abort: () => {
+            ctl.abort();
+            dc.dispose();
+          },
+          settled,
+          dispose: async () => dc.dispose(),
+        };
+      });
+    }
 
     const handlers = collectionHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime

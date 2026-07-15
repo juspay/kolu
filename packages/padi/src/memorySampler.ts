@@ -1,6 +1,9 @@
 /**
- * padi's process-memory sampler — the sole writer of padi's `processMemory`
- * surface cell (padi's OWN RSS + its kaval daemon's).
+ * padi's process-memory read — the poll READ behind padi's DERIVED `processMemory`
+ * surface cell (padi's OWN RSS + its kaval daemon's). The cell is
+ * `derived.cell(source({ read: samplePadiMemory, install }))` in `servePadi.ts`:
+ * the reactor owns the T+0 seed, the non-overlap guard, and later-read
+ * log-skip-continue that the hand-rolled sampler used to spell by hand.
  *
  * padi owns kaval now (it supervises the kaval PROCESS), so padi is the source of
  * the rail's per-host memory readout — the axis kolu-server's in-process sampler
@@ -18,10 +21,9 @@
  */
 
 import { log } from "./log.ts";
-import { padiSurfaceCtx } from "./padiSurfaceCtx.ts";
 import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ptyHostClient } from "./ptyHost/index.ts";
-import type { ProcessRss } from "./vocab.ts";
+import type { PadiProcessMemory, ProcessRss } from "./vocab.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
 /** Cadence of padi's process-memory readout — the SAME 5s the retired kolu-server
@@ -50,31 +52,17 @@ async function pollKavalRss(): Promise<ProcessRss> {
   }
 }
 
-/** Take one reading and publish it — padi's own RSS (always `ok`, it measures
- *  itself) plus kaval's honest three-way. */
-export async function samplePadiMemoryOnce(): Promise<void> {
+/** Take one reading — padi's own RSS (always `ok`, it measures itself) plus
+ *  kaval's honest three-way. The poll READ of padi's derived `processMemory` cell
+ *  (`servePadi.ts`: `derived.cell(source({ read: samplePadiMemory, install }))`).
+ *  The reactor owns the loop the hand-rolled sampler used to: the T+0 seed read,
+ *  the non-overlap guard, and later-read log-skip-continue — so this is just the
+ *  pure read, and `MEMORY_SAMPLE_INTERVAL_MS` is the caller-owned cadence. */
+export async function samplePadiMemory(): Promise<PadiProcessMemory> {
   const padi: ProcessRss = {
     status: "ok",
     rssBytes: process.memoryUsage().rss,
   };
   const kaval = await pollKavalRss();
-  padiSurfaceCtx.cells.processMemory.set({ padi, kaval });
-}
-
-/** Start the periodic sampler. Fires once immediately (a T+0 anchor so the cell
- *  has a value before the first fold), then every {@link
- *  MEMORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a wedged kaval poll never doubles
- *  up ticks) and `unref`'d so the interval never holds padi's process open on its
- *  own (it serves forever; unref is the right hygiene). */
-export function startPadiMemorySampler(): void {
-  let inFlight = false;
-  const tick = (): void => {
-    if (inFlight) return;
-    inFlight = true;
-    void samplePadiMemoryOnce().finally(() => {
-      inFlight = false;
-    });
-  };
-  tick();
-  setInterval(tick, MEMORY_SAMPLE_INTERVAL_MS).unref();
+  return { padi, kaval };
 }

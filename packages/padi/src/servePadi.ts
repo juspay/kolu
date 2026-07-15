@@ -17,7 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { derived } from "@kolu/surface/reactor";
+import { derived, everyMs, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
@@ -40,6 +40,7 @@ import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
+  onDaemonStatusChange,
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
@@ -50,8 +51,6 @@ import {
   restoreSession,
 } from "./sessionRestore.ts";
 import {
-  DEFAULT_PADI_HOST_INVENTORY,
-  DEFAULT_PADI_PROCESS_MEMORY,
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
   type PadiIdentity,
@@ -72,6 +71,14 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import {
+  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+  samplePadiHostInventory,
+} from "./hostInventory.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  samplePadiMemory,
+} from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
@@ -142,9 +149,32 @@ export function buildPadiSurfaceDeps(deps: {
    *  seeded into the `identity` cell so the readout and the actual policy can't
    *  drift. */
   lifetime: DaemonLifetimeInfo;
+  /** padi's resolved state-root — the `hostInventory` poll read resolves the
+   *  held-kaval fallback address from it (`samplePadiHostInventory`). */
+  stateRoot: string;
 }): Omit<PadiDeps, "channel"> {
-  const { endpoint, log, startedAt, commit, lifetime } = deps;
+  const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
+
+  // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
+  // moment a daemon's status changes — so a fresh daemon's readout reflects its
+  // kaval the INSTANT it connects. A poll cell's connect fires at SERVE time, BEFORE
+  // the endpoint boots + spawns the kaval, so the interval alone would leave the
+  // first authoritative frame stale-but-valid (kaval `absent` / a host inventory
+  // without the just-spawned kaval) standing for a full cadence. Fusing an immediate
+  // re-sample onto the daemon-status change (available at serve time — unlike
+  // kolu-server's late `padiSession`, which is why that sampler defers to #1831)
+  // closes that startup window: the readout re-reads on connect, not one tick later.
+  const everyMsOrOnDaemonChange =
+    (ms: number) =>
+    (tick: () => void): (() => void) => {
+      const stopInterval = everyMs(ms)(tick);
+      const off = onDaemonStatusChange(tick);
+      return () => {
+        off();
+        stopInterval?.();
+      };
+    };
 
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
   // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
@@ -184,19 +214,31 @@ export function buildPadiSurfaceDeps(deps: {
       // daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
       // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
-      // leak diagnostic. In-memory (a live diagnostic has no on-disk slot); the
-      // periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
-      // is the sole writer via `padiSurfaceCtx.cells.hostInventory.set`; a fresh
-      // subscription reads the latest via `get`. No `equals` dedup: the coarse 10s
-      // cadence + small payload is cheap.
-      hostInventory: { store: inMemoryStore(DEFAULT_PADI_HOST_INVENTORY) },
-      // Live process-memory readout (padi's OWN RSS + its kaval's). In-memory —
-      // a live metric has no on-disk slot. The periodic sampler
-      // (`memorySampler.ts`, wired into daemon boot) is the sole writer via
-      // `padiSurfaceCtx.cells.processMemory.set`; a fresh subscription reads the
-      // latest via `get`. No `equals` dedup: the 5s cadence + small payload is
-      // cheap, and padi can't reuse kolu-common's whole-MB helper across the seal.
-      processMemory: { store: inMemoryStore(DEFAULT_PADI_PROCESS_MEMORY) },
+      // leak diagnostic. A DERIVED member fed by a POLL source: `samplePadiHostInventory`
+      // scans the host (reading padi's serve socket from the module global set at boot),
+      // and the reactor owns the T+0 seed (from the spec default until it lands), the
+      // non-overlap guard, and later-read log-skip-continue that the hand-rolled
+      // `startPadiHostInventorySampler` used to spell. `install` owns just the coarse
+      // 10s unref'd cadence (a live diagnostic never holds the process open).
+      hostInventory: derived.cell(
+        source({
+          read: () => samplePadiHostInventory(stateRoot),
+          install: everyMsOrOnDaemonChange(HOST_INVENTORY_SAMPLE_INTERVAL_MS),
+        }),
+      ),
+      // Live process-memory readout (padi's OWN RSS + its kaval's) — a DERIVED
+      // member fed by a POLL source: `samplePadiMemory` is the read, and the
+      // reactor owns the T+0 seed (seeded from the spec default until it lands),
+      // the non-overlap guard, and later-read log-skip-continue that the
+      // hand-rolled `startPadiMemorySampler` used to spell. `install` owns just the
+      // cadence: a 5s `unref`'d interval (a live metric never holds the process
+      // open). The graph is the one writer — no ctx `.set`, no store/equals here.
+      processMemory: derived.cell(
+        source({
+          read: samplePadiMemory,
+          install: everyMsOrOnDaemonChange(MEMORY_SAMPLE_INTERVAL_MS),
+        }),
+      ),
       // A DERIVED member — the urgency projection is `recomputeUrgency` folded off
       // the `terminals` collection through the reactive bridge's `$` sibling read.
       // The graph tracks the `terminals → urgency` edge, so no seam has to remember
@@ -259,6 +301,17 @@ export function buildPadiSurfaceDeps(deps: {
         },
         upsert: () => {},
         remove: () => {},
+        // The derived `urgency` cell folds `$.terminals()` on the ~150 ms agent
+        // firehose; a plain `readAll()` sibling read would re-compose ALL M
+        // terminals (`registryMap(composePadiTerminal)`) per poke = O(M²)
+        // composes/cycle (SR7's regression). Opt into the materialized view so
+        // the fold reads a per-key cache updated by these publish seams — O(M).
+        // SAFE here because EVERY terminals change flows through this collection's
+        // ctx `upsert`/`remove` (metadata.ts's `publishComposedTerminal` and
+        // `dropSnapshot` are the sole writers; the registry is the store, so
+        // `upsert`/`remove` above are no-ops and the composed value the seams pass
+        // is the view's single write path).
+        materializeSiblingView: true,
       },
 
       // Per-host kaval status — backed by padi's own `readDaemonStatuses` /
