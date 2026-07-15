@@ -682,6 +682,23 @@ const readDaemonInventory = () =>
 // padi boot time off `identity()` (`padiStartedAt`); it ALSO drives the two POLL cells'
 // fused cadence (a bare tick that ignores the payload). `onState` fires the current state
 // synchronously on subscribe, so each member's seed reflects the live binding.
+//
+// SEED INVARIANT, ENFORCED (SR8.c): `processStartedAt` seeds from the static
+// `{ padi: null }` and — because the two push cells share ONE ref-counted `onState`
+// source, and a second `scan` subscriber doesn't replay the install-time frame — that
+// seed is only correct while padi is still WARMING here. The local `pin()` above is
+// fire-and-forget (never awaited), so the dial cannot have completed and `padiStartedAt()`
+// is `null`. This is index.ts's ordering to keep, so index.ts asserts it: a future change
+// that awaits the pin before this point would seed the uptime rail stale until the next
+// event — crash loudly at boot instead of shipping that silent staleness (fail-fast; the
+// fix then is to seed both cells from a live snapshot, not to relax this).
+if (padiStartedAt() !== null) {
+  throw new Error(
+    "kolu boot invariant violated: padi must still be warming (padiStartedAt null) when " +
+      "implementKoluSurface runs — a pin() was awaited before the surface build, so " +
+      "processStartedAt would seed stale. Seed the push cells from a live snapshot instead.",
+  );
+}
 const { router: koluSurfaceRouter } = implementKoluSurface({
   readPadiMemory: readPadiMemoryOnce,
   readDaemonInventory,

@@ -226,10 +226,10 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // synchronously right after a fire-and-forget local `pin()`, so the async dial has not
   // completed, `padiStartedAt()` is `null`, and the install-time emission carries
   // `{ padi: null }` — byte-equal to `startedAtSeed`, so the second scan misses nothing.
-  // Both cells then track every LATER `onState` (both subscribed). If a future change ever
-  // AWAITS the pin before this call (padi live at build time), `processStartedAt` would seed
-  // stale until the next event — seed both scans from a synchronous snapshot then, or keep
-  // the pin async.
+  // Both cells then track every LATER `onState` (both subscribed). This warming precondition
+  // is not left to chance: `index.ts` ENFORCES it fail-fast (asserts `padiStartedAt()` is
+  // `null`) right before calling this — a future change that awaits the pin trips at boot,
+  // not silently. The fix then is to seed both scans from a live snapshot, not to relax it.
   const padiRail = source<PadiRailState>(deps.onState);
   // Each push cell's honest pre-first-onState seed, typed EXACTLY as the cell's `T` (so the
   // scan's level is `DerivedCell<T>`, not a literal-widened `string`): `padiLink` at the
