@@ -1,13 +1,18 @@
 /**
  * NEGATIVE-PROPERTY PIN (SR6 — adopt before you mint): no production consumer
- * open-codes a ONE-SHOT first-frame advance of an async stream where the existing
- * primitive fits. A snapshot-then-delta stream (a cell sub, a present-key
- * collection `get`, a `keys` stream, kaval's yields-once `exit` stream) OPENS with
- * its snapshot frame, so "read the first frame and stop" has one home:
- * `firstFrameOrThrow` / `firstFrameOrUndefined` (`@kolu/surface/first-frame`).
- * Hand-advancing the iterator instead — `for await (…) return frame` — is the
- * defect this adoption sweep deleted (kaval-tui's `readExitCode` and `consumeExit`,
- * SR6), and this test is the residual fence that keeps it deleted.
+ * spells a one-shot first-frame read as a `for await (…)` loop with a top-level
+ * `return`/`break` — the exact shape this adoption sweep deleted. This is a
+ * SPELLING fence, not a total property guard: it pins the deleted syntax, not every
+ * conceivable one-shot advance (a manual `iter.next()`, an
+ * `(await Array.fromAsync(s))[0]` advances one frame yet stays out of scope). A
+ * snapshot-then-delta stream (a cell sub, a present-key collection `get`, a `keys`
+ * stream, kaval's yields-once `exit` stream) OPENS with its snapshot frame, so
+ * "read the first frame and stop" has one home: `firstFrameOrThrow` /
+ * `firstFrameOrUndefined` (`@kolu/surface/first-frame`). Hand-advancing the
+ * iterator instead — `for await (…) return frame` — is the defect this sweep
+ * deleted (kaval-tui's `readExitCode` and `consumeExit`, and server's
+ * `readPadiMemoryOnce`, SR6), and this test is the residual fence that keeps it
+ * deleted.
  *
  * THE SHAPE THE GUARD FLAGS (precise, AST — not a regex that a nested `(` in the
  * header would fool): a `for await (X of Y)` loop whose body reaches an
@@ -25,14 +30,6 @@
  * The sweep confirmed padi/client hold no such site, and a purely-syntactic scan
  * of those large trees would risk flagging a NON-surface one-shot the primitive
  * doesn't serve — so the scope is the two trees the property actually lives in.
- *
- * ALLOW-LIST: a genuine one-shot the primitive CANNOT express marks itself with a
- * `first-frame-guard:allow — <reason>` comment on (or just above) the `for await`.
- * The one standing entry is `readPadiMemoryOnce` (server/src/index.ts): its
- * empty-stream case returns a typed `PADI_MEMORY_READ_ERROR` sentinel and logs a
- * distinct line — a branch neither `firstFrameOrThrow` (throw) nor
- * `firstFrameOrUndefined` (undefined) can carry. The snapshot-then-delta sites need
- * no marker: the AST rule already excludes them (their exits are conditional).
  */
 
 import { parse } from "@babel/parser";
@@ -44,11 +41,6 @@ import { describe, expect, it } from "vitest";
 const SERVER_SRC = dirname(fileURLToPath(import.meta.url)); // packages/server/src
 const PACKAGES = join(SERVER_SRC, "..", ".."); // packages/
 const SCANNED_TREES = [join(PACKAGES, "kaval-tui", "src"), SERVER_SRC];
-
-/** The sanctioned opt-out: a genuine one-shot the primitive can't express. Must
- *  carry a reason after the marker (the `—`), so an allow-list entry is never a
- *  silent mute. */
-const ALLOW_MARKER = /first-frame-guard:allow\s*[—-]/;
 
 /** A non-test `.ts`/`.tsx` source file. */
 const isSourceFile = (p: string): boolean =>
@@ -107,25 +99,11 @@ function isOneShotForAwait(node: Record<string, unknown>): boolean {
   );
 }
 
-/** The `for await` at 1-based `line` is allow-listed if the marker sits on that
- *  line or on the contiguous comment lines directly above it. */
-function isAllowListed(lines: string[], line: number): boolean {
-  if (ALLOW_MARKER.test(lines[line - 1] ?? "")) return true;
-  for (let i = line - 2; i >= 0; i--) {
-    const t = lines[i]?.trim() ?? "";
-    if (t === "") continue;
-    if (!(t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"))) break;
-    if (ALLOW_MARKER.test(t)) return true;
-  }
-  return false;
-}
-
 function findViolations(): string[] {
   const violations: string[] = [];
   for (const tree of SCANNED_TREES) {
     for (const file of listSourceFiles(tree)) {
       const text = readFileSync(file, "utf8");
-      const lines = text.split("\n");
       const ast = parse(text, {
         sourceType: "module",
         plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
@@ -135,7 +113,6 @@ function findViolations(): string[] {
         if (!isOneShotForAwait(node)) return;
         const line = (node.loc as { start: { line: number } } | undefined)
           ?.start.line;
-        if (line !== undefined && isAllowListed(lines, line)) return;
         violations.push(`${rel}:${line ?? "?"}`);
       });
     }
@@ -143,7 +120,7 @@ function findViolations(): string[] {
   return violations;
 }
 
-describe("first-frame one-shot guard — no open-coded one-shot first-frame advance where the primitive fits (SR6)", () => {
+describe("first-frame one-shot guard — no consumer spells a one-shot first-frame read as a `for await (…) return/break` loop, the shape this sweep deleted (SR6)", () => {
   it("kaval-tui/src + server/src open-code no one-shot `for await (…) return/break`; the yields-once first-frame read rides `firstFrameOrThrow`/`firstFrameOrUndefined`", () => {
     expect(findViolations()).toEqual([]);
   });
