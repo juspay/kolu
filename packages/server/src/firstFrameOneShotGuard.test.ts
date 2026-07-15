@@ -58,20 +58,23 @@ const PACKAGES = join(SERVER_SRC, "..", ".."); // packages/
 const SCANNED_TREES = [join(PACKAGES, "kaval-tui", "src"), SERVER_SRC];
 
 /** The sanctioned opt-out: a genuine one-shot the primitive can't express. The
- *  `\S` after the dash makes a NON-EMPTY reason mandatory — a bare
- *  `first-frame-guard:allow —` never mutes anything. */
-const ALLOW_MARKER = /first-frame-guard:allow\s*[—-]\s*\S/;
+ *  reason after the dash must START with a word character, so neither a bare
+ *  `first-frame-guard:allow —` nor a block comment whose only trailing glyph is its
+ *  closing star-slash delimiter counts as a reason. */
+const ALLOW_MARKER = /first-frame-guard:allow\s*[—-]\s*[A-Za-z0-9]/;
 
-/** A `continue`/`break` inside one of these re-targets to the NESTED construct — so
- *  an UNLABELED continue inside it can't prove anything about the `for await` we're
- *  inspecting. (A LABELED continue naming the inspected loop still targets it, even
- *  from within one of these — handled separately.) */
-const NESTED_TARGET_TYPES = new Set([
+/** A nested LOOP re-targets an UNLABELED `continue` to itself (so such a continue
+ *  can't prove anything about the outer `for await`); a nested FUNCTION is a hard
+ *  boundary for BOTH forms (a `continue` inside it — labeled or not — belongs to a
+ *  loop in that function, never the one we're inspecting). */
+const LOOP_TYPES = new Set([
   "ForStatement",
   "ForInStatement",
   "ForOfStatement",
   "WhileStatement",
   "DoWhileStatement",
+]);
+const FUNCTION_TYPES = new Set([
   "FunctionDeclaration",
   "FunctionExpression",
   "ArrowFunctionExpression",
@@ -90,36 +93,37 @@ function listSourceFiles(tree: string): string[] {
     .map((rel) => join(tree, rel));
 }
 
-/** Visit every `for await` loop, carrying the label that targets it (a
- *  `LabeledStatement` wrapping the loop) so a `continue <label>` can be recognized
- *  as self-targeting. A label binds only to its immediate child statement, so it is
- *  passed down exactly one hop. */
+/** Visit every `for await` loop, carrying the labels that target it so a
+ *  `continue <label>` can be recognized as self-targeting. A label binds to its
+ *  immediate child statement, and labels chain (`outer: inner: for await …` puts
+ *  BOTH on the loop), so the pending labels accumulate across a run of
+ *  `LabeledStatement`s and reset at any other node. */
 function forEachForAwait(
   node: unknown,
-  ownLabel: string | null,
-  cb: (loop: Record<string, unknown>, label: string | null) => void,
+  pending: readonly string[],
+  cb: (loop: Record<string, unknown>, labels: readonly string[]) => void,
 ): void {
   if (node === null || typeof node !== "object") return;
   if (Array.isArray(node)) {
-    for (const child of node) forEachForAwait(child, null, cb);
+    for (const child of node) forEachForAwait(child, [], cb);
     return;
   }
   const rec = node as Record<string, unknown>;
   if (rec.type === "LabeledStatement") {
-    const name = (rec.label as { name?: string } | undefined)?.name ?? null;
-    forEachForAwait(rec.body, name, cb);
+    const name = (rec.label as { name?: string } | undefined)?.name;
+    forEachForAwait(rec.body, name ? [...pending, name] : pending, cb);
     return;
   }
   if (rec.type === "ForOfStatement" && rec.await === true) {
-    cb(rec, ownLabel);
-    forEachForAwait(rec.body, null, cb);
-    forEachForAwait(rec.right, null, cb);
+    cb(rec, pending);
+    forEachForAwait(rec.body, [], cb);
+    forEachForAwait(rec.right, [], cb);
     return;
   }
   for (const key of Object.keys(rec)) {
     if (key === "loc" || key === "leadingComments" || key === "trailingComments")
       continue;
-    forEachForAwait(rec[key], null, cb);
+    forEachForAwait(rec[key], [], cb);
   }
 }
 
@@ -133,55 +137,60 @@ function bodyStatements(
   return [body];
 }
 
-/** Does the loop body contain a `continue` that targets THIS loop — an unlabeled
- *  `continue` not enclosed by a nested loop/function, OR a `continue <ownLabel>`
- *  anywhere (even inside a nested loop, since the label re-targets the outer loop)?
- *  Such a `continue` means the first iteration need not exit, so a top-level
- *  `return`/`break` no longer proves a one-shot. */
+/** Does the loop body contain a `continue` that targets THIS loop — meaning the
+ *  first iteration need not exit, so a top-level `return`/`break` no longer proves a
+ *  one-shot? An UNLABELED `continue` targets it when not enclosed by a nested loop
+ *  or function; a LABELED `continue` targets it when the label is one of this loop's
+ *  own labels AND it is not inside a nested function (a function is a hard scope
+ *  boundary — a `continue <label>` there belongs to a loop in that function). */
 function hasSelfContinue(
   body: Record<string, unknown>,
-  ownLabel: string | null,
+  ownLabels: readonly string[],
 ): boolean {
   let found = false;
-  const descend = (n: unknown, nested: boolean): void => {
+  const descend = (n: unknown, nestedLoop: boolean, inFn: boolean): void => {
     if (found || n === null || typeof n !== "object") return;
     if (Array.isArray(n)) {
-      for (const c of n) descend(c, nested);
+      for (const c of n) descend(c, nestedLoop, inFn);
       return;
     }
     const rec = n as Record<string, unknown>;
     const type = rec.type;
     if (type === "ContinueStatement") {
       const label = (rec.label as { name?: string } | null | undefined)?.name;
-      if (label == null ? !nested : label === ownLabel) {
+      const targetsThis =
+        label == null ? !nestedLoop && !inFn : !inFn && ownLabels.includes(label);
+      if (targetsThis) {
         found = true;
         return;
       }
     }
-    const childNested =
-      nested || (typeof type === "string" && NESTED_TARGET_TYPES.has(type));
+    const t = typeof type === "string" ? type : "";
+    const childNestedLoop = nestedLoop || LOOP_TYPES.has(t);
+    const childInFn = inFn || FUNCTION_TYPES.has(t);
     for (const key of Object.keys(rec)) {
       if (key === "loc" || key === "leadingComments" || key === "trailingComments")
         continue;
-      descend(rec[key], childNested);
+      descend(rec[key], childNestedLoop, childInFn);
     }
   };
-  descend(body, false);
+  descend(body, false, false);
   return found;
 }
 
 function isOneShotForAwait(
   node: Record<string, unknown>,
-  ownLabel: string | null,
+  ownLabels: readonly string[],
 ): boolean {
   const body = node.body as Record<string, unknown>;
   // A self-targeting `continue` can start a second iteration, so a top-level exit
   // no longer proves the loop reads exactly one frame.
-  if (hasSelfContinue(body, ownLabel)) return false;
+  if (hasSelfContinue(body, ownLabels)) return false;
+  // A top-level `return` always exits; a top-level `break` (labeled or not) can only
+  // target this loop or an enclosing one from here, so it too exits this loop's first
+  // iteration.
   return bodyStatements(body).some(
-    (s) =>
-      s.type === "ReturnStatement" ||
-      (s.type === "BreakStatement" && s.label == null),
+    (s) => s.type === "ReturnStatement" || s.type === "BreakStatement",
   );
 }
 
@@ -212,8 +221,8 @@ function findViolations(): string[] {
         plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
       });
       const rel = file.replace(`${PACKAGES}/`, "");
-      forEachForAwait(ast.program, null, (loop, label) => {
-        if (!isOneShotForAwait(loop, label)) return;
+      forEachForAwait(ast.program, [], (loop, labels) => {
+        if (!isOneShotForAwait(loop, labels)) return;
         const line = (loop.loc as { start: { line: number } } | undefined)?.start
           .line;
         if (line !== undefined && isAllowListed(lines, line)) return;
@@ -237,8 +246,8 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
     const collect = (src: string): string[] => {
       const ast = parse(src, { sourceType: "module", plugins: ["typescript"] });
       const hits: string[] = [];
-      forEachForAwait(ast.program, null, (loop, label) => {
-        if (isOneShotForAwait(loop, label))
+      forEachForAwait(ast.program, [], (loop, labels) => {
+        if (isOneShotForAwait(loop, labels))
           hits.push(String((loop.loc as { start: { line: number } }).start.line));
       });
       return hits;
@@ -290,6 +299,19 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
         "async function f(){ for await (const m of s) { for (const x of m) { if (x) continue; } return m; } }",
       ),
     ).toEqual(["1"]);
+    // F2 (chain): consecutive labels both bind the loop, so `continue outer` spares it.
+    expect(
+      collect(
+        "async function f(){ outer: inner: for await (const m of s) { if (x) continue outer; return m; } }",
+      ),
+    ).toEqual([]);
+    // F2 (function boundary): a same-named `continue outer` inside a NESTED function
+    // targets THAT function's loop, not ours → our loop is still the flagged one-shot.
+    expect(
+      collect(
+        "async function f(){ outer: for await (const m of s) { const g = () => { outer: for (const y of z) { if (y) continue outer; } }; return m; } }",
+      ),
+    ).toEqual(["1"]);
   });
 
   // F5: the allow-list marker must be non-empty AND directly attached, or it mutes
@@ -310,6 +332,14 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
         withMarker("// first-frame-guard:allow — reason\n\nfor await"),
         3,
       ),
+    ).toBe(false);
+    // block comment with a real reason → allow-listed…
+    expect(
+      isAllowListed(withMarker("/* first-frame-guard:allow — real */\nfor await"), 2),
+    ).toBe(true);
+    // …but a bare block-comment marker whose only trailing glyph is `*/` → NOT allowed.
+    expect(
+      isAllowListed(withMarker("/* first-frame-guard:allow — */\nfor await"), 2),
     ).toBe(false);
   });
 });
