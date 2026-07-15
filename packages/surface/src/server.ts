@@ -2269,16 +2269,23 @@ function walkSurface<const S extends SurfaceSpec>(
         // The connector's `signal` rides in so a poll reconciler cancels a seed a
         // `close()` races; `dispose()` latches teardown for the non-poll effect too.
         const settled = Promise.resolve()
-          .then(() =>
-            dc.connect(
+          .then(() => {
+            // `close()` in the same turn synchronously aborts `ctl` and disposes the
+            // collection BEFORE this microtask runs — so observe cancellation here and
+            // no-op cleanly, rather than calling `connect()` on a torn collection
+            // (which throws "connect() after dispose()" and faults `done` on an
+            // otherwise clean immediate close). A real synchronous connect fault still
+            // rejects `settled` because the microtask boundary is retained.
+            if (ctl.signal.aborted) return;
+            return dc.connect(
               {
                 upsert: wrappedUpsert,
                 remove: wrappedRemove,
                 equals: collEquals as (a: unknown, b: unknown) => boolean,
               },
               { signal: ctl.signal },
-            ),
-          )
+            );
+          })
           .then(() => {});
         return {
           abort: () => {

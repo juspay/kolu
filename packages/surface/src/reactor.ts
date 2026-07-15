@@ -122,11 +122,14 @@ const POLL_SOURCE_BRAND: unique symbol = Symbol.for(
 
 /** A POLL source — external input read on a caller-owned cadence rather than a
  *  push emitter. It is a graph node (a level + `dispose`) whose value is filled
- *  asynchronously by `connectPoll`, which `derived.cell` drives. Typed
- *  `GraphNode<T>` (not `T | undefined`) because every SERVED value is a `T`: the
- *  store seeds from the spec default and each read publishes a `T`. The level is
- *  `undefined` only in the pre-first-read window, which no typed consumer reads. */
-export interface PollSource<T> extends GraphNode<T> {
+ *  asynchronously by `connectPoll`, which `derived.cell`/`derived.collection`
+ *  drives. Its level is HONESTLY `T | undefined` — `undefined` in the pre-first-read
+ *  window — so `GraphNode<T | undefined>`, NOT `GraphNode<T>`: a poll source must
+ *  never masquerade as a synchronously-readable `T` (a `computed(() => poll.value)`
+ *  wrapper would then seed `undefined` under a `T`-typed member). The dedicated
+ *  `derived.cell`/`derived.collection` poll overloads recover the served `T` (the
+ *  store seeds the spec default; each read publishes a `T`). */
+export interface PollSource<T> extends GraphNode<T | undefined> {
   readonly [POLL_SOURCE_BRAND]: true;
   /** Do the T+0 seed read — its **first failure PROPAGATES** (the rejected
    *  promise faults the runtime's `done`, never a fabricated default) — publish it
@@ -154,8 +157,13 @@ export interface PollSourceOptions<T> {
 }
 
 /** Whether a graph node is a POLL source (so `derived.cell` wires its async
- *  connect instead of the synchronous publish effect). */
-function isPollSource<T>(node: GraphNode<T>): node is PollSource<T> {
+ *  connect instead of the synchronous publish effect). Parameter is
+ *  `GraphNode<T | undefined>` — a `PollSource<T>`'s honest base — so the predicate
+ *  type is assignable to it (a `PollSource<T>` is NOT a `GraphNode<T>`, its level
+ *  is `T | undefined`). */
+function isPollSource<T>(
+  node: GraphNode<T | undefined>,
+): node is PollSource<T> {
   return (
     (node as unknown as Record<PropertyKey, unknown>)[POLL_SOURCE_BRAND] ===
     true
@@ -298,6 +306,11 @@ export function everyMs(ms: number): (tick: () => void) => SourceCleanup {
 function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
   const level = signal<T | undefined>(undefined);
   let inFlight = false;
+  // A tick that arrived while a read was in flight LATCHES here instead of being
+  // dropped — the non-overlap guard coalesces a burst, but a trailing read after
+  // the current one lands so a genuine change edge (a `install` force-resample) is
+  // never lost to overlap.
+  let dirty = false;
   let uninstall: (() => void) | undefined;
   let disposed = false;
   // The owned connector's abort signal (threaded from `connectPoll`) — passed to
@@ -305,17 +318,25 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
   // so a `close()` during the seed read can't late-publish/install (and the read,
   // if it respects the signal, unblocks a `close()` waiting on it).
   let connSignal: AbortSignal | undefined;
+  // A read rejection caused by OUR OWN abort (a `close()` cancelling a cooperative
+  // read) is expected shutdown noise, not a poll failure — distinguished so it is
+  // neither logged nor propagated as a fault.
+  const isOwnedAbort = (): boolean => disposed || connSignal?.aborted === true;
 
-  // One guarded, publishing read for a LATER tick: skip if a read is in flight or
-  // the node is torn down; on success publish to the level (for `$` readers) and
-  // through `set` (the wire); on a throw LOG-SKIP-CONTINUE — hold the last
+  // One guarded, publishing read for a LATER tick: latch (don't drop) if a read is
+  // in flight, skip if torn down; on success publish to the level (for `$` readers)
+  // and through `set` (the wire); on a throw LOG-SKIP-CONTINUE — hold the last
   // published value, never tear down a long-lived poll. Route the call through
   // `Promise.resolve().then(read)` so a SYNCHRONOUS throw from `read` (a throw-only
   // fn is type-compatible via `never`) lands on the SAME logged-skip path as a
   // rejected promise — a bare `read().then(...)` would let a sync throw escape the
   // interval/event callback and wedge `inFlight` true forever.
   const tickRead = (set: (next: T) => void): void => {
-    if (inFlight || disposed) return;
+    if (disposed) return;
+    if (inFlight) {
+      dirty = true; // coalesce; a trailing read runs when the current one finishes
+      return;
+    }
     inFlight = true;
     Promise.resolve()
       .then(() => read(connSignal))
@@ -325,14 +346,24 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
           level.value = v;
           set(v);
         },
-        (err) =>
+        (err) => {
+          // Suppress our own cancellation (a `close()` aborted this read); log a
+          // GENUINE later-read failure and hold the last published value.
+          if (isOwnedAbort()) return;
           console.error(
             "reactor: poll source read threw — holding last published value",
             err,
-          ),
+          );
+        },
       )
       .finally(() => {
         inFlight = false;
+        // An edge that arrived mid-read latched `dirty` — do the trailing read now
+        // so a change is never lost to the non-overlap guard.
+        if (dirty && !disposed) {
+          dirty = false;
+          tickRead(set);
+        }
       });
   };
 
@@ -343,10 +374,10 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
   };
 
   return {
-    // The level is `T | undefined` internally (undefined until the first read),
-    // but a poll source presents as `GraphNode<T>` — see the interface doc. The
-    // cast is the one spot that boundary lives.
-    value: level as unknown as ReadonlySignal<T>,
+    // The level is HONESTLY `T | undefined` (undefined until the first read), and
+    // the public `PollSource<T> extends GraphNode<T | undefined>` says exactly that
+    // — no cast, so a caller can never read it as a synchronously-ready `T`.
+    value: level,
     [POLL_SOURCE_BRAND]: true,
     connectPoll: async (set, signal) => {
       // The owned connector's abort is the poll's teardown trigger: it LATCHES
@@ -363,23 +394,46 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
         { once: true },
       );
       if (signal?.aborted) return () => {};
-      // T+0 SEED read — its failure PROPAGATES (mirror-never-fabricate: no default
-      // stands in for an unread poll). `inFlight` fences a tick that would race the
-      // seed, though `install` runs only after the seed lands. The signal rides the
-      // read so a cooperative reader unblocks a `close()` waiting on a slow seed.
+      // Install the cadence + any change-listener BEFORE the T+0 seed, so a change
+      // edge (a kaval connect) that fires DURING the async seed is LATCHED (`dirty`,
+      // via `tickRead`'s in-flight branch) instead of lost to a not-yet-subscribed
+      // listener — a trailing read after the seed then reflects it (a DURABLE
+      // readiness edge, not one that survives only if it lands after `install`).
+      // `inFlight = true` fences those during-seed ticks so none races the seed's
+      // own publish; they coalesce into the single post-seed trailing read.
       inFlight = true;
+      uninstall = install(() => tickRead(set)) ?? undefined;
+      // T+0 SEED read — its failure PROPAGATES (mirror-never-fabricate: no default
+      // stands in for an unread poll). The signal rides the read so a cooperative
+      // reader unblocks a `close()` waiting on a slow seed.
       let seed: T;
       try {
         seed = await read(signal);
-      } finally {
+      } catch (err) {
         inFlight = false;
+        // Never leak the cadence installed above, whichever way the seed ends.
+        teardownLoop();
+        // An OWNED abort (a `close()` cancelling the seed) is a CLEAN close, not a
+        // seed failure — never fault `done`; hand back a no-op disposer. A GENUINE
+        // seed failure still propagates (first-failure-propagates).
+        if (isOwnedAbort()) return () => {};
+        throw err;
       }
-      // Disposed mid-seed (the runtime closed before the first read landed): do not
-      // publish or install — hand back a no-op disposer.
-      if (disposed) return () => {};
+      inFlight = false;
+      // Disposed mid-seed (the runtime closed before the first read landed): tear the
+      // cadence down and publish nothing — hand back a no-op disposer.
+      if (disposed) {
+        teardownLoop();
+        return () => {};
+      }
       level.value = seed;
       set(seed);
-      uninstall = install(() => tickRead(set)) ?? undefined;
+      // A change edge during the seed latched `dirty` — do the trailing read now so a
+      // kaval that connected mid-seed is reflected at once, not one cadence later.
+      if (dirty) {
+        dirty = false;
+        tickRead(set);
+      }
       return teardownLoop;
     },
     dispose: () => {
@@ -968,6 +1022,13 @@ interface DerivedApi {
    *  crash), and every level change flows through the member's own `equals →
    *  onWrite → store.set → bus.publish` gate via the `connect` setter, so the
    *  wire dedup point is unchanged. */
+  /** Publish a POLL `source({ read, install })` as a cell — the dedicated poll
+   *  overload, FIRST so a `PollSource<T>` binds `T` (not `T | undefined`): the
+   *  served value is a `T` (the store seeds the spec default; each read publishes
+   *  a `T`), even though the source's own level is honestly `T | undefined` until
+   *  the seed. Without this overload a poll source would fall to the graph-node
+   *  form below as `GraphNode<T | undefined>` and the cell would type `T | undefined`. */
+  cell<T>(node: PollSource<T>): DerivedCell<T>;
   cell<T>(node: GraphNode<T>): DerivedCell<T>;
   /** Publish a SIBLING derivation as a cell — `derived.cell(($) => f($.a(), …))`.
    *  `$` is the typed sibling-read face; reading a sibling is depending on it, so
@@ -982,6 +1043,12 @@ interface DerivedApi {
    *  diffs each frame against the last by the collection's `equals` and publishes
    *  only the changed + removed keys (the keyed-reconciler wire adapter). Wire-read-
    *  only: the graph is the collection's one writer. */
+  /** Poll overload, FIRST so a `PollSource<ReadonlyMap<K, V>>` binds `K`/`V` from
+   *  the served map (not `ReadonlyMap<K, V> | undefined`) — the seed reads the
+   *  first whole map. */
+  collection<K, V>(
+    node: PollSource<ReadonlyMap<K, V>>,
+  ): DerivedCollectionBranded;
   collection<K, V>(
     node: GraphNode<ReadonlyMap<K, V>>,
   ): DerivedCollectionBranded;
@@ -995,8 +1062,12 @@ export const derived: DerivedApi = {
     return typeof arg === "function" ? computeCell(arg) : graphNodeCell(arg);
   },
   collection<K, V>(
-    node: GraphNode<ReadonlyMap<K, V>>,
+    node: GraphNode<ReadonlyMap<K, V>> | PollSource<ReadonlyMap<K, V>>,
   ): DerivedCollectionBranded {
-    return derivedCollection(node);
+    // A `PollSource<ReadonlyMap>` is a `GraphNode<ReadonlyMap | undefined>`; the
+    // reconciler reads the whole map through `connectPoll` (never the level), so
+    // narrowing `undefined` away here is honest — `derivedCollection` re-detects the
+    // poll brand and drives the async seed.
+    return derivedCollection(node as GraphNode<ReadonlyMap<K, V>>);
   },
 };

@@ -18,6 +18,7 @@ import {
   batch,
   computed,
   derived,
+  type DerivedCell,
   type DerivedComputeCell,
   scan,
   source,
@@ -911,6 +912,31 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     expect(uninstalled).toBe(1); // the disposer uninstalls the caller's cadence
   });
 
+  it("a poll source's level is honestly T | undefined; the dedicated overload recovers the served T (compile-time)", () => {
+    const src = source<number>({
+      read: () => Promise.resolve(1),
+      install: () => () => {},
+    });
+    // The poll source's own level is HONESTLY `number | undefined` (undefined until
+    // the seed) — NOT a synchronously-readable `number`. This assignment is the
+    // assertion; it would fail to typecheck if `value` claimed `number`.
+    const level: number | undefined = src.value.value;
+    void level;
+    // Yet the DEDICATED poll overload recovers the SERVED `T`: `derived.cell(src)`
+    // is `DerivedCell<number>`, not `DerivedCell<number | undefined>`.
+    const cell: DerivedCell<number> = derived.cell(src);
+    void cell;
+    // The exploit F3 closes: wrapping the level in a `computed` yields a
+    // `GraphNode<number | undefined>` (honest), so the cell it makes is
+    // `DerivedCell<number | undefined>` — it can NOT masquerade as a `number` cell.
+    const wrapped = derived.cell(computed(() => src.value.value));
+    // @ts-expect-error — the wrapped cell is DerivedCell<number | undefined>; the
+    // undefined can't be silently laundered away under a `number` type.
+    const notNumber: DerivedCell<number> = wrapped;
+    void notNumber;
+    expect(typeof src).toBe("object");
+  });
+
   it("first-read failure PROPAGATES — the connect rejects (a boot crash)", async () => {
     const src = source<number>({
       read: () => Promise.reject(new Error("sensor down")),
@@ -956,7 +982,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     }
   });
 
-  it("non-overlap guard: a tick during an in-flight read is skipped", async () => {
+  it("non-overlap guard COALESCES a tick during an in-flight read into ONE trailing read (not dropped)", async () => {
     let reads = 0;
     let resolveRead!: (n: number) => void;
     let tick!: () => void;
@@ -981,12 +1007,20 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
 
     // `tick` sets `inFlight` synchronously, then defers the read a microtask (so a
     // SYNCHRONOUS throw from `read` takes the logged-skip path, not the callback).
-    tick(); // inFlight = true synchronously; read scheduled
-    tick(); // SKIPPED — inFlight is already true (the guard is synchronous)
-    await flush(); // let the one non-skipped read actually run
-    expect(reads).toBe(2); // seed (1) + one tick read (1); the second tick skipped
+    tick(); // inFlight = true synchronously; read A scheduled
+    tick(); // LATCHED (dirty) — inFlight is already true; NOT dropped
+    tick(); // still latched — a burst COALESCES to a single trailing read
+    await flush(); // let read A actually run
+    expect(reads).toBe(2); // seed (1) + read A (1); the burst is still latched, not yet read
+
+    // Resolving read A fires the ONE coalesced trailing read for the whole burst —
+    // the edge is remembered, not lost (F6), and exactly once (not per tick).
     resolveRead(2);
     await flush();
+    expect(reads).toBe(3); // the single trailing read — never 4+ (burst coalesced)
+    resolveRead(3);
+    await flush();
+    expect(reads).toBe(3); // nothing further latched → no extra read
     dc.dispose();
   });
 
@@ -1034,29 +1068,117 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     }
   });
 
-  it("close during the T+0 seed: no late publish/install, and connect settles", async () => {
+  it("an edge DURING the seed is latched and reflected by a trailing read (durable readiness)", async () => {
+    // The install (the change-listener) runs BEFORE the seed, so an edge that fires
+    // while the seed is still in flight is remembered — not lost to a not-yet-
+    // subscribed listener, the exact race a kaval connecting mid-inventory-seed hits.
+    let value = 1;
+    let resolveSeed!: (n: number) => void;
+    let seeded = false;
+    let tick!: () => void;
+    const src = source<number>({
+      read: () => {
+        if (!seeded) {
+          seeded = true;
+          return new Promise<number>((r) => {
+            resolveSeed = r;
+          }); // the seed — held until resolveSeed
+        }
+        return Promise.resolve(value); // later reads sample the live value
+      },
+      install: (t) => {
+        tick = t;
+        return () => {};
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(
+      inMemoryStore<number | undefined>(undefined),
+      (a, b) => a === b,
+    );
+    const connectP = dc.connect(ctx); // installs, then the seed goes in flight
+    tick(); // an edge fires WHILE the seed is in flight — latched as `dirty`
+    value = 2; // the state that edge signalled
+    resolveSeed(1); // the seed lands = the now-stale 1
+    await connectP;
+    await flush(); // the trailing read for the during-seed edge runs
+    // The seed published 1, then the latched trailing read corrected it to 2 at once
+    // — the mid-seed edge is honoured, not deferred to the next cadence.
+    expect(ctx.published).toEqual([1, 2]);
+    dc.dispose();
+  });
+
+  it("close during a LATER in-flight read: no failure log, no late publish (owned abort is silent)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let tick!: () => void;
+      let seeded = false;
+      const src = source<number>({
+        read: (signal) => {
+          if (!seeded) {
+            seeded = true;
+            return Promise.resolve(1);
+          }
+          // A later read that COOPERATES with the abort — it rejects when close aborts.
+          return new Promise<number>((_res, rej) => {
+            signal?.addEventListener("abort", () => rej(new Error("aborted")), {
+              once: true,
+            });
+          });
+        },
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+      const ctl = new AbortController();
+      await dc.connect(ctx, { signal: ctl.signal });
+      expect(ctx.published).toEqual([1]);
+
+      tick(); // a later read starts and is in flight
+      await flush();
+      ctl.abort(); // close() aborts the in-flight read cooperatively
+      await flush();
+      // The read rejects with the OWNED abort reason — clean shutdown, NOT a poll
+      // failure: nothing logged, nothing published.
+      expect(spy).not.toHaveBeenCalled();
+      expect(ctx.published).toEqual([1]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("close during the T+0 seed: no late publish, cadence torn down, connect settles", async () => {
     let resolveRead!: (n: number) => void;
-    let installed = false;
+    let installed = 0;
+    let uninstalled = 0;
     const src = source<number>({
       read: () =>
         new Promise<number>((r) => {
           resolveRead = r;
         }),
       install: (t) => {
-        installed = true;
+        installed++;
         void t;
-        return () => {};
+        return () => {
+          uninstalled++;
+        };
       },
     });
     const dc = derived.cell(src);
     const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
     const ctl = new AbortController();
-    const connectP = dc.connect(ctx, { signal: ctl.signal }); // seed read in flight
+    const connectP = dc.connect(ctx, { signal: ctl.signal }); // installs, seed in flight
     ctl.abort(); // close() races the seed
     resolveRead(7); // seed resolves AFTER the abort
     await connectP; // must SETTLE (not hang)
     expect(ctx.published).toEqual([]); // no late publish over a closing runtime
-    expect(installed).toBe(false); // no cadence installed
+    // The cadence is installed BEFORE the seed (so a during-seed edge isn't lost),
+    // so a close-during-seed must TEAR IT DOWN — no live listener leaks.
+    expect(installed).toBe(1);
+    expect(uninstalled).toBe(1);
   });
 
   it("rides implementSurface: a poll cell seeds the spec DEFAULT, then publishes reads", async () => {
@@ -1149,6 +1271,32 @@ describe("derived.collection — the keyed reconciler", () => {
       ]),
     );
     await runtime.close();
+  });
+
+  it("immediate same-turn close is clean — the deferred connect never runs on a torn collection (F4)", async () => {
+    let seedStarted = false;
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => {
+              seedStarted = true;
+              return Promise.resolve(new Map<string, { n: number }>());
+            },
+            install: () => () => {},
+          }),
+        ),
+      },
+    });
+    // Close in the SAME TURN — this synchronously aborts the connector and disposes
+    // the collection BEFORE the deferred connect microtask runs. That microtask must
+    // observe the abort and no-op; otherwise it calls `connect()` on a torn
+    // collection ("connect() after dispose()") and faults `done` on a clean close.
+    const closeP = runtime.close();
+    await flush(); // drain the deferred connect microtask
+    await expect(closeP).resolves.toBeUndefined();
+    await expect(runtime.done).resolves.toBeUndefined(); // clean, not a fault
+    expect(seedStarted).toBe(false); // connect was skipped — the seed never started
   });
 
   it("is graph-owned: ctx upsert/remove throw (the reconciler is the one writer)", async () => {
