@@ -77,18 +77,21 @@ function describeError(err: unknown): string {
   return message;
 }
 
-/** The PTY is gone — fetch its real exit code. Exit codes tombstone in the
- *  pty-host past teardown, so the one-shot `exit` stream resolves immediately
- *  here (it only blocks while the PTY is alive, which it no longer is). */
-async function readExitCode(client: PtyTuiClient, id: string): Promise<number> {
-  // One-shot read of the yields-once `exit` stream via the shared first-frame
-  // helper, not a hand-advanced iterator. `firstFrameOrUndefined` (not the throwing
-  // variant) because an empty stream is benign here — never observed (the PTY is
-  // gone, so its exit code has tombstoned), and if it ever were, "no code" ⇒ 0.
-  return (
-    (await firstFrameOrUndefined(await client.surface.exit.get({ id })))
-      ?.exitCode ?? 0
-  );
+/** The PTY is gone — fetch its real exit code, or `undefined` if the `exit` stream
+ *  ends without yielding one. Exit codes tombstone in the pty-host past teardown, so
+ *  the one-shot `exit` stream resolves immediately here (it only blocks while the PTY
+ *  is alive, which it no longer is); an EMPTY stream is a kaval contract violation
+ *  (`exit` yields exactly once), which the caller surfaces as an `error` outcome
+ *  rather than collapsing into a fabricated `exit 0`. */
+async function readExitCode(
+  client: PtyTuiClient,
+  id: string,
+): Promise<number | undefined> {
+  // One-shot read of the yields-once `exit` stream via the shared first-frame helper
+  // (`firstFrameOrUndefined`, not the throwing variant — the empty case is the
+  // caller's to classify), not a hand-advanced iterator.
+  return (await firstFrameOrUndefined(await client.surface.exit.get({ id })))
+    ?.exitCode;
 }
 
 export interface AttachOptions {
@@ -208,10 +211,18 @@ export async function runAttach(
   // A PTY that's gone is `not-found` if we never attached, else `exited` with
   // the tombstone code. The deltas stream ends identically for the inventory
   // miss and the isNotFound attach error, so both sites resolve it here.
-  const resolveGone = async (): Promise<AttachOutcome> =>
-    attachedOnce
-      ? { kind: "exited", exitCode: await readExitCode(client, id) }
-      : { kind: "not-found" };
+  const resolveGone = async (): Promise<AttachOutcome> => {
+    if (!attachedOnce) return { kind: "not-found" };
+    const exitCode = await readExitCode(client, id);
+    // A missing exit code is a kaval contract violation (`exit` yields once), not a
+    // real `exit 0` — surface it loudly instead of fabricating a clean exit.
+    return exitCode === undefined
+      ? {
+          kind: "error",
+          message: `attach(${id}): exit stream ended before yielding an exit code (kaval contract violation)`,
+        }
+      : { kind: "exited", exitCode };
+  };
 
   try {
     for (;;) {
