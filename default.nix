@@ -100,6 +100,7 @@ let
       ./packages/kaval-tui
       ./packages/padi
       ./packages/padi-tui
+      ./packages/mock-agent
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -268,9 +269,7 @@ let
       (padiPkgRoot ./packages/surface-daemon)
       (padiPkgRoot ./packages/surface-daemon-supervisor)
       # terminal-vocab — the browser-safe TerminalSnapshot vocabulary +
-      # agentProjection padi's closure reaches (L7 folded the node-only sensors +
-      # fold + fs/git endpoint INTO padi/src/terminalWorkspace, so what remains
-      # here is the shared leaf; the whole src still hashes into padi's key).
+      # agentProjection folds (L7 re-cut from the old terminal-workspace package).
       (padiPkgRoot ./packages/terminal-vocab)
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
       # integrations, transcripts, and the shared utilities. (`@kolu/surface` and
@@ -628,6 +627,33 @@ let
     agentDrvsJson = padiAgentDrvsJson;
   };
 
+  # kolu-mock-agent (W3.4): a stand-in coding agent the e2e harness runs INSIDE
+  # a kolu terminal. It writes real agent-state artifacts (claude JSONL · codex/
+  # opencode SQLite+WAL · grok events.jsonl) at the REAL default `$HOME` paths of
+  # WHATEVER box the terminal lives on, so agent-state scenarios run identically
+  # local and over an ssh bind — no test-side "where does padi live" branch (the
+  # old fixture-file mock couldn't cross the ssh boundary). One bin per kind, so
+  # the terminal invocation's head basename is `claude`/`codex`/`opencode`/`grok`
+  # — exactly what the preexec command-name detector keys on; the kind is baked
+  # as the first arg.
+  # Runs from the SAME built workspace closure as `kolu` under tsx, so `nix copy`
+  # onto a leased bind target transfers only this tiny wrapper (node + tsx + the
+  # closure are already there via padi's provisioning). Not a runtime dep of
+  # kolu/padi — a sibling output, built + shipped only by the remote-e2e lane.
+  mock-agent = pkgs.runCommand "kolu-mock-agent"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+    } ''
+    mkdir -p $out/bin
+    for kind in claude codex opencode grok; do
+      makeWrapper ${pkgs.nodejs}/bin/node $out/bin/$kind \
+        --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+        --add-flags "${kolu}/packages/mock-agent/src/bin.ts" \
+        --add-flags "$kind" \
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+    done
+  '';
+
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
   # so the fixed-output fetch is cached once.
@@ -679,5 +705,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui padi padi-tui mock-agent koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // fleetTop // docsiteExample // oduPackages

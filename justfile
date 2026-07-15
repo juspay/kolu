@@ -271,6 +271,12 @@ test: install
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
     cap=8; [ "$(uname)" = Darwin ] && cap=6
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
+    # The agent-state mocks run `kolu-mock-agent` INSIDE the terminal (by
+    # absolute store path). Build it and export its bin dir; hooks.ts refuses to
+    # boot (non-recording) without it. Under a remote padi bind the SAME store
+    # path must resolve on the bind target — the remote-e2e lane `nix copy`s it
+    # there (padi's closure already carries node/tsx, so only the wrapper ships).
+    export KOLU_MOCK_AGENT_BIN="${KOLU_MOCK_AGENT_BIN:-$(nix build .#mock-agent --no-link --print-out-paths)/bin}"
     cd packages/tests
     # Serialize the cucumber phase across CI runs sharing this host. odu fans
     # each PR's pipeline out independently, so several PRs' e2e lanes land on
@@ -350,15 +356,26 @@ test-quick *args: install
     # Without nix build there's no `kolu` binary, so we create a temp wrapper
     # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
     wrapper="$(mktemp)"
-    trap 'rm -f "$wrapper"' EXIT
+    mock_bin="$(mktemp -d)"
+    trap 'rm -f "$wrapper"; rm -rf "$mock_bin"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec "$PWD/packages/server/node_modules/.bin/tsx" "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
+    # Launch via `node --import` (same shape as the nix-built wrapper), NOT the
+    # `tsx` CLI: tsx spawns a worker process, so process.pid ≠ foreground pgid
+    # and Grok's active_sessions pid match fails (codex/opencode match on cwd).
+    for kind in claude codex opencode grok; do
+        cat > "$mock_bin/$kind" <<SCRIPT
+    #!/bin/sh
+    exec node --import "$PWD/packages/mock-agent/node_modules/tsx/dist/loader.mjs" "$PWD/packages/mock-agent/src/bin.ts" "$kind" "\$@"
+    SCRIPT
+        chmod +x "$mock_bin/$kind"
+    done
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
-    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
+    KOLU_SERVER="$wrapper" KOLU_MOCK_AGENT_BIN="$mock_bin" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
         {{ nix_shell_e2e }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}

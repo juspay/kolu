@@ -10,7 +10,7 @@
  */
 
 import type { ChildProcess } from "node:child_process";
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -58,23 +58,6 @@ const mkSubDir = (name: string) => {
   fs.mkdirSync(dir);
   return dir;
 };
-
-/** Per-worker temp dirs for the Claude Code mock harness — see
- *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
- *  workers (the previous setup, exported once before `pnpm test`) puts
- *  enough inotify pressure on the server's `fs.watch(SESSIONS_DIR)` that
- *  events get dropped under load and detection silently misses the mock
- *  session. Each worker getting its own dir eliminates the contention. */
-const claudeSessionsDir = mkSubDir("claude-sessions");
-const claudeProjectsDir = mkSubDir("claude-projects");
-
-/** Per-worker temp roots for the Codex and OpenCode mock harnesses —
- *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
- *  `state.cwd`, so the fixture DB rows carry a cwd that the scenario
- *  also `cd`s into so `findSessionByDirectory` returns the mock row. */
-const codexDir = mkSubDir("codex");
-const opencodeDbDir = mkSubDir("opencode");
-const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 
 /** The everyday-e2e vs recording (KOLU_X11CAP) divergence for the server's
  *  environment, decided ONCE here so no `if (KOLU_X11CAP)` has to be re-derived
@@ -131,67 +114,86 @@ const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
   "KOLU_CLAUDE_PROJECTS_DIR",
   "KOLU_CODEX_DIR",
+  "KOLU_OPENCODE_DB",
   "KOLU_GROK_DIR",
 ] as const;
-const grokDir = RECORDING ? undefined : mkSubDir("grok");
+
+/** W3.4: the mock-agent (packages/mock-agent) writes agent artifacts at the
+ *  terminal box's REAL `$HOME` defaults — it runs INSIDE the terminal, so wherever
+ *  the terminal lives (this box, or a leased ssh bind target) the files land in
+ *  that box's `$HOME`. So point the server's providers (and the padi they read
+ *  through) at the SAME `$HOME`-relative default paths under the sandboxed fixture
+ *  home — NOT arbitrary `testBaseDir` subdirs the mock-agent could never know.
+ *  Locally that keeps the read side on the same path the write side chose;
+ *  remotely the padi has no override at all and defaults to its own `$HOME`, which
+ *  the mock-agent also writes — the geography-free contract. Setting the claude
+ *  dirs (rather than unsetting) additionally keeps `SUMMARY_FETCH_ENABLED` OFF
+ *  (core.ts), so the e2e suite never invokes the Claude Agent SDK summary fetch. */
+const agentHomeDefaults = (home: string) => ({
+  KOLU_CLAUDE_SESSIONS_DIR: path.join(home, ".claude", "sessions"),
+  KOLU_CLAUDE_PROJECTS_DIR: path.join(home, ".claude", "projects"),
+  KOLU_CODEX_DIR: path.join(home, ".codex"),
+  KOLU_OPENCODE_DB: path.join(
+    home,
+    ".local",
+    "share",
+    "opencode",
+    "opencode.db",
+  ),
+  KOLU_GROK_DIR: path.join(home, ".grok"),
+});
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
-> & { HOME?: string } = RECORDING
-  ? {
-      KOLU_CLAUDE_SESSIONS_DIR: undefined,
-      KOLU_CLAUDE_PROJECTS_DIR: undefined,
-      KOLU_CODEX_DIR: undefined,
-      KOLU_GROK_DIR: undefined,
-    }
-  : {
-      KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-      KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-      KOLU_CODEX_DIR: codexDir,
-      KOLU_GROK_DIR: grokDir,
-      HOME: fixtureHome,
-    };
+> & { HOME?: string } =
+  // Recording launches the REAL agents off the developer's real `~`, so
+  // the overrides stay ABSENT and HOME inherited there.
+  RECORDING || fixtureHome === undefined
+    ? {
+        KOLU_CLAUDE_SESSIONS_DIR: undefined,
+        KOLU_CLAUDE_PROJECTS_DIR: undefined,
+        KOLU_CODEX_DIR: undefined,
+        KOLU_OPENCODE_DB: undefined,
+        KOLU_GROK_DIR: undefined,
+      }
+    : { ...agentHomeDefaults(fixtureHome), HOME: fixtureHome };
 for (const name of AGENT_DIR_VARS) {
   const value = serverModeEnv[name];
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
-process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
-/** Fake agent binaries the codex/opencode mock scenarios invoke by
- *  absolute path to bypass PATH resolution — the user's shell rc (e.g.
- *  ~/.bashrc) may prepend `~/.npm-global/bin` on startup and shadow any
- *  PATH override we set via the whitelist, so a real codex/opencode
- *  install on the host silently wins against the fake.
- *
- *  Each stub is a copy of `bash`, renamed to `codex` / `opencode`. The
- *  kernel's `/proc/<pid>/comm` (Linux) and sysctl KERN_PROC_PATHNAME
- *  (macOS) both reflect the execve basename, so a bash copy launched as
- *  `.../bin/codex -c "..."` shows up with comm="codex" — satisfying
- *  `readForegroundBasename() === "codex"` without requiring the real
- *  CLI to be installed.
- *
- *  `/bin/sleep` tempted as a simpler stub but fails on nixpkgs: coreutils
- *  ships as a multi-call binary that inspects argv[0] and errors with
- *  "unknown program 'codex'" when renamed. Bash is a single-purpose
- *  binary and copies cleanly.
- *
- *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN,
- *  KOLU_FAKE_OPENCODE_BIN, and KOLU_FAKE_GROK_BIN env vars (on this
- *  worker's process env, not forwarded to the spawned server — the step
- *  defs read them directly and type the absolute path into the pty). */
-const fakeBinDir = mkSubDir("bin");
-const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
-const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode", "grok"]) {
-  const target = path.join(fakeBinDir, name);
-  fs.copyFileSync(bashPath, target);
-  fs.chmodSync(target, 0o755);
-  fakeBins[name] = target;
+// Pre-create the (empty) agent home dirs BEFORE the server/padi starts. The
+// codex WAL watcher (`createWalSubscription`) attaches an fs.watch to
+// `~/.codex` at padi boot; if that dir doesn't exist yet — the mock-agent
+// creates it lazily on its first write, which is AFTER padi boots — the watch
+// silently never attaches and a second-turn token update is never re-read. Grok's
+// active_sessions watcher similarly wants `~/.grok` present at boot. The old
+// ventriloquist mock got this for free (its dirs were `mkSubDir`'d before the
+// server spawned). Remote runs pre-create the SAME dirs on the bind target as
+// part of box B's provisioning. No-op under recording (no fixture home).
+if (fixtureHome !== undefined) {
+  const d = agentHomeDefaults(fixtureHome);
+  fs.mkdirSync(d.KOLU_CLAUDE_SESSIONS_DIR, { recursive: true });
+  fs.mkdirSync(d.KOLU_CLAUDE_PROJECTS_DIR, { recursive: true });
+  fs.mkdirSync(d.KOLU_CODEX_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(d.KOLU_OPENCODE_DB), { recursive: true });
+  fs.mkdirSync(d.KOLU_GROK_DIR, { recursive: true });
 }
-process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
-process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
-process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
+
+// The agent mocks (claude/codex/opencode/grok) are now `kolu-mock-agent` run
+// INSIDE the terminal by absolute store path (support/mockAgent.ts) — the old
+// renamed-`bash` fakes + KOLU_FAKE_*_BIN are gone. The recipe builds
+// `.#mock-agent` (and `nix copy`s it to any bind target) and exports
+// `KOLU_MOCK_AGENT_BIN`; assert it here (non-recording) so a misconfigured run
+// fails loudly at boot rather than mid-scenario. Recording drives the REAL
+// agents, so it needs no mock bin.
+if (!RECORDING && !process.env.KOLU_MOCK_AGENT_BIN) {
+  throw new Error(
+    "KOLU_MOCK_AGENT_BIN is unset — the e2e recipe must build `.#mock-agent` and " +
+      "export its bin dir (the terminal invokes <dir>/{claude,codex,opencode,grok} by absolute path).",
+  );
+}
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -809,11 +811,12 @@ async function startServerChild(koluServer: string): Promise<void> {
           // Absence would leave the production `forever`.
           KOLU_DAEMON_BIND_PID: String(process.pid),
           // The everyday-e2e vs recording env divergence, decided once above:
-          // mock agent dirs + a throwaway HOME normally; agent dirs absent and
-          // HOME inherited (real) under X11CAP so the real claude/codex resolve
-          // their sessions + login from the real home. See `serverModeEnv`.
+          // agent dirs pinned at the fixture home's `$HOME` defaults + a throwaway
+          // HOME normally (so padi reads where the in-terminal mock-agent writes);
+          // agent dirs absent and HOME inherited (real) under X11CAP so the real
+          // claude/codex resolve their sessions + login from the real home. See
+          // `serverModeEnv` (KOLU_OPENCODE_DB is one of its keys now).
           ...serverModeEnv,
-          KOLU_OPENCODE_DB: opencodeDbPath,
           // W3.1 — the ssh leg: when KOLU_E2E_PADI_HOST is set, the server binds a
           // REMOTE padi over ssh (the whole canvas becomes that host) instead of
           // spawning a local one, so the SAME suite runs unchanged against a remote

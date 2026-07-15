@@ -3,9 +3,9 @@ Feature: Grok status detection
   When Grok Build (`grok`) is running in a terminal, the canvas tile chrome
   shows its current state (thinking, tool use, waiting, awaiting user).
 
-  Requires KOLU_GROK_DIR to point at a test-controlled directory and
-  PATH/fake binary so the foreground-basename check passes without a real
-  Grok install. Both are seeded by hooks.ts.
+  Driven by `kolu-mock-agent` inside the terminal (packages/mock-agent), which
+  writes real `~/.grok` artifacts at the box's `$HOME` defaults — geography-free
+  for local and remote padi. Hooks seed `KOLU_MOCK_AGENT_BIN` + fixture HOME.
 
   Background:
     Given the terminal is ready

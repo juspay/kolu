@@ -15,10 +15,22 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright";
 // them without `(window as any)` / `(this as any)` casts.
 import "kolu-common/test-hooks";
 
+/** W3.4 — under `KOLU_E2E_PADI_HOST` every padi-mediated op (file-tree read,
+ *  git diff/status, PTY create) is a full ssh round-trip instead of a unix-
+ *  socket call. The recorded reference (padi-latency-baseline, W3.1's ssh
+ *  typing-echo bench) put the ssh leg's p99 at ~3.3x the local p99 (14.38ms
+ *  vs 4.36ms); code-tab's renders chain several such round-trips per
+ *  assertion, so the *observed* wait-blowout (PR #1675's manual full-suite
+ *  run: 70 timeout failures, triaged as "behaviour correct, waits not") needs
+ *  more headroom than the raw per-op ratio. 3x is a reasoned margin, not a
+ *  measured ceiling — the burn-down that landed this constant is the
+ *  evidence it clears the ~70. */
+const REMOTE_TIMEOUT_MULTIPLIER = process.env.KOLU_E2E_PADI_HOST ? 3 : 1;
+
 /** Per-step / per-hook budget for interaction polls — `waitFor` /
  *  `waitForFunction` against a settled UI. Most step definitions reach
  *  for this. */
-export const POLL_TIMEOUT = 20_000;
+export const POLL_TIMEOUT = 20_000 * REMOTE_TIMEOUT_MULTIPLIER;
 
 /** Per-step budget for *hydration* polls — waiting for the app to mount
  *  enough state that interaction is meaningful (server WS up, savedSession
@@ -31,7 +43,7 @@ export const POLL_TIMEOUT = 20_000;
  *  here is on purpose — empirically the slow path hits 30 s on the
  *  darwin CI runner, and the safety-net Cucumber retry only absorbs
  *  one re-run per scenario. */
-export const HYDRATION_TIMEOUT = 60_000;
+export const HYDRATION_TIMEOUT = 60_000 * REMOTE_TIMEOUT_MULTIPLIER;
 
 const READY_TIMEOUT = HYDRATION_TIMEOUT;
 
