@@ -22,6 +22,7 @@
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */
 
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import type { PtyTuiClient } from "./connect.ts";
 
 /** The condition a `wait` blocks on, parsed from `--until`:
@@ -366,10 +367,11 @@ export async function awaitOutputCondition(
         { id: opts.id },
         { signal: abort.signal },
       );
-      for await (const _msg of stream) {
+      // One-shot read of the yields-once `exit` stream: its first frame IS "the
+      // child exited" — the value is immaterial, only its arrival. The primitive
+      // closes the iterator after that frame, matching the old return-out-of-loop.
+      if ((await firstFrameOrUndefined(stream)) !== undefined)
         settle({ kind: "gone", elapsedMs: elapsed() });
-        return;
-      }
     } catch {
       // The exit stream is the PRECISE "child exited → gone" signal, but losing
       // it is NOT fatal, so — unlike consumeOutput — we deliberately neither

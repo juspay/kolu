@@ -836,6 +836,10 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
       {},
       { signal: ctl.signal },
     );
+    // first-frame-guard:allow — a genuine one-shot the primitive can't express: the
+    // empty-stream case below returns a typed `PADI_MEMORY_READ_ERROR` sentinel and
+    // logs a distinct line, a branch neither `firstFrameOrThrow` (throw) nor
+    // `firstFrameOrUndefined` (undefined) can carry.
     for await (const frame of iterable) return frame;
     // The client was live but the cell yielded no frame — an operational anomaly,
     // not "no process to measure". Report `error`, not `absent`, and log at `error`
