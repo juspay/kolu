@@ -1,0 +1,66 @@
+---
+title: Deep Links — Every View Addressable by URL
+description: "A hash-based URL grammar that opens kolu at a host, a terminal, a file in the Code tab, or settings — reusing the W5 notification cold-start machinery; view-only by law; PWA link-capture via launch_handler."
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-15
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import architecture from "../../diagrams/deep-links-architecture.svg?raw";
+
+export const Url = (props) => (
+  <code style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:.15rem .5rem;display:inline-block;margin:.1rem 0">{props.children}</code>
+);
+
+## User-facing description
+
+Any place that can render a link — the orchestrator dashboard, an issue, a Slack message, a bookmark — can point **into** kolu: click it and the installed PWA window comes to the front already showing the right host, terminal, file, or dialog. No PWA? The same URL opens in any browser. The full grammar (v1 ships all of it):
+
+| URL | what you land on |
+|---|---|
+| <Url>#/h/&lt;host&gt;</Url> | the host binding switched to `<host>` |
+| <Url>#/t/&lt;host&gt;/&lt;terminalId&gt;</Url> | that host **and** the terminal tile focused |
+| <Url>#/t/&lt;host&gt;/&lt;terminalId&gt;/code?path=&lt;p&gt;&amp;line=&lt;n&gt;</Url> | the terminal's right panel on the **Code tab**, `<p>` open (optionally at line `<n>`) |
+| <Url>#/t/&lt;host&gt;/&lt;terminalId&gt;/inspector</Url> | the terminal's right panel on the **Inspector** tab |
+| <Url>#/settings</Url> | the settings dialog |
+
+`<host>` is the canonical encoded host key (`encodeHostKey` — the local host is `local`); `<terminalId>` is the terminal's UUID.<Footnote>The same two facts every attention-notification click already carries (`attentionNotify.ts`'s `AttentionClick`), validated the same way: a non-canonical host key or a non-UUID id is dropped, never routed.</Footnote>
+
+Behavior on the edges — always loud, never silent:
+
+- **Target gone** (terminal closed, host removed): a toast names what the link pointed at and that it no longer exists; you land on the nearest surviving ancestor (the host for a dead terminal; home for a dead host).
+- **Unknown route** (a future grammar, a typo): a toast + home. Old kolu never silently ignores a new link shape.
+- **Links are durable**: unlike a notification click (consumed once, stripped from the URL), a deep link is a bookmark — reload and it re-navigates.
+
+**What no URL can ever do: mutate.** No route creates a terminal, kills one, writes a file, or sends keys. This is a law, not a review item — the router has no mutating routes to hit, so a hostile link's worst case is a view change.<Footnote>The classic drive-by risk with URL handlers is a GET that acts. Kolu's grammar is view-only by construction; any future "action URL" proposal reopens this note's Decision, not a code review.</Footnote>
+
+## Architecture-level changes
+
+<Svg svg={architecture} wide caption="One new leaf. Three URL entry points (boot, hashchange, PWA launchQueue) feed one parser; every route lands on an EXISTING action seam — host switch, tile focus, right panel, settings. The law strip: mutation is unrepresentable." />
+
+- **A leaf in `packages/client`, no new package.** Parsing a hash and calling four existing actions hides no hard volatility — no transport, no lifetime, no reconnect. The three receptacle tests all say leaf.<Footnote>The nearest electricity is already built: the W5 notification seam (`@kolu/surface-app/notify`) owns the genuinely volatile part — service-worker delivery, multi-window dedup, cold-start handoff. Deep links deliberately do NOT ride it: its payload param is consume-once by design (a click must not re-fire on reload), which is the opposite of a bookmark. Same validation *pattern*, different channel.</Footnote>
+- **Reuse, not invention:** the route actions are the exact seams W5's notification click already drives — `setActiveHost` + `store.activate` (via `useHostAttention`'s switch-then-focus, which solved the "id routes against the wrong host" trap) — plus the right panel's per-terminal `showCode`/`showInspector` and the settings dialog. The router adds **zero** new capability, only addressability.
+- **PWA link capture** is manifest configuration, not code: `launch_handler: { client_mode: "focus-existing" }` + the app's scope makes an in-scope https link focus the already-open PWA window, handing the URL through `launchQueue`. Custom schemes are rejected: a PWA can only register `web+`-prefixed handlers, and the browser rewrites those to an https URL anyway — pure indirection, dead on uninstalled machines, and it loses the origin (which *is* the "which kolu instance" fact, load-bearing since srid runs several).
+- **Hash, not path:** `#/…` needs no server routing change (kolu-server keeps serving one page), works file-identically across local/remote origins, and `hashchange` gives live in-app navigation for free.
+
+## Implementation details
+
+### DL1 — the router + the full menu (one PR)
+
+1. **Manifest:** add `launch_handler: { client_mode: "focus-existing" }` to the PWA manifest (`packages/surface-app` owns the manifest seam — confirm at the tree; if the manifest is kolu-owned, it's a kolu file change only).
+2. **`packages/client/src/deepLink.ts`** — the grammar as a discriminated union, parse-don't-validate: split the hash, validate `<host>` with `isEncodedHostKey` and `<terminalId>` with `TerminalIdSchema` (the `attentionNotify.ts` pattern, verbatim bar the shape), `?line=` a positive int. Output `DeepLink | { kind: "invalid"; reason }` — never a partially-valid route.
+3. **Wire three entry points** in `App.tsx` boot: (a) parse `location.hash` once at startup; (b) `hashchange` listener; (c) `window.launchQueue?.setConsumer` reading the launch `targetURL` (Chromium; on browsers without it the plain boot parse of the same URL covers the case — one grammar, two delivery paths, no knob).
+4. **Route** through the existing actions: `#/h` → `setActiveHost`; `#/t` → switch-then-focus (reuse `useHostAttention`'s ordering — host first, then `focusTerminal`, never the reverse); `/code` → right panel `showCode` + select `path` (+ scroll to `line` **if** the Code tab exposes line targeting — ground `CodeTab`'s `selectedPath`/viewer at build time; if line-scroll needs new Code-tab capability, ship path-only and record `?line=` as accepted-but-inert with a pointer here, one line);<Footnote>The right panel is per-terminal state (`useRightPanel`, persisted via session restore) — which is why file links anchor on a terminal: `#/t/…/code?path=…`, never a bare `#/f/…`. A file link without a terminal has no panel to open in.</Footnote> `/inspector` → `showInspector`; `#/settings` → open the dialog.
+5. **Loud edges:** gone-target and invalid-route toasts (the existing toast seam); after a handled route, leave the hash in place (durability); never `history.replaceState`-strip it (that is the notification param's semantic, not ours).
+6. **Tests:** parser unit table (valid × each family, invalid host/id/route/line); an e2e that boots with `#/t/<host>/<id>` and asserts the tile is focused, plus a live `hashchange` navigation; the negative pin — grep-shaped — that no route handler calls a mutating client verb.
+7. **Dashboard integration** (rides free): the orchestrator dashboard's terminal tags become `href`s in this grammar.
+
+Risks, named: `launchQueue` is Chromium-only — the fallback is the boot parse of the same URL (safe: same truth, not a degraded mode). Host keys in URLs expose ssh targets on screenshares — accepted for v1 (they're already visible in the host chips); revisit under DL2's privacy note. The `?line=` fork is pinned in step 4 so the implementer never stalls on it.
+
+### DL2 — the address bar follows focus *(planned, gated on srid's go)*
+
+Write the hash on focus/panel change so the URL always deep-links to the current view — every session becomes bookmarkable and shareable mid-flow. Costs to weigh at the gate: history noise (mitigate with `replaceState`, no history entries), and terminal IDs + host keys permanently visible in the address bar (the screenshare consideration). Not started until ruled; DL1 is complete without it.
