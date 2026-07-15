@@ -213,7 +213,7 @@ export interface KoluDerivedCells {
  *  sibling into `.router.surface` and drives the store cells (`padiLink`/
  *  `processStartedAt`) off `padiSession.onState` through `.ctx`. Call exactly once,
  *  after `padiSession`. */
-export function implementKoluSurface(derived: KoluDerivedCells) {
+export function implementKoluSurface(pollCells: KoluDerivedCells) {
   // Typed against `koluSurface.spec` so every cell `store`/`equals`/`onMutate` is
   // inferred (`implementSurfaces` itself `any`-specs its heterogeneous entry deps, so
   // we type-check kolu's deps HERE and cast only at the entry boundary below — the
@@ -249,7 +249,7 @@ export function implementKoluSurface(derived: KoluDerivedCells) {
       // Live metric — a DERIVED poll cell (graph is the one writer, whole-MB `equals`
       // at the spec). Built in boot: its read folds padi's `{ padi, kaval }` off the
       // re-serve mirror, its install fuses the 5s tick with `padiSession.onState`.
-      processMemory: derived.processMemory,
+      processMemory: pollCells.processMemory,
       padiLink: {
         // Live signal; the in-memory store has no persistent slot. The bound-padi
         // `onState` subscription (`index.ts`) is the sole writer via
@@ -271,7 +271,7 @@ export function implementKoluSurface(derived: KoluDerivedCells) {
       // `equals` at the spec). Built in boot: its read enumerates the host daemons +
       // the bound padi's identity/convergence, its install fuses the 10s tick with
       // `padiSession.onState`.
-      daemonInventory: derived.daemonInventory,
+      daemonInventory: pollCells.daemonInventory,
     },
   };
 
