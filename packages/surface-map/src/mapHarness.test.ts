@@ -14,6 +14,7 @@ import { defineSurface } from "@kolu/surface/define";
 import { directLink } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import type { AnyContractRouter } from "@orpc/contract";
+import type { createRouterClient } from "@orpc/server";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -674,6 +675,82 @@ describe("surface-map mock-entry e2e harness", () => {
       view?.byKey(A);
       await settle();
       expect(fires.length).toBe(1);
+      dispose();
+    });
+  });
+
+  it("(15) honest cost — a sibling's frame does NOT re-emit an unchanged member (condition-2 equals-gate)", async () => {
+    // The republish fires on EVERY registry change (SR9 folds the fine connection onto
+    // the entry, so the family fires on every session frame). Without a gate, one
+    // member's frame re-emits ALL members — O(M²) across a streaming pool. Count the
+    // SERVER's per-key emits on a RAW client, BENEATH the high-level client's own dedup,
+    // so this pins the republish gate itself (not the client's).
+    await createRoot(async (dispose) => {
+      const { served, addSession, setState } = setup();
+      // `directLink<AnyContractRouter>` types the client loosely (no `.surface`), so
+      // narrow to the one streaming call this test drives.
+      const raw = directLink<AnyContractRouter>(
+        served.router as Parameters<typeof createRouterClient>[0],
+      ) as unknown as {
+        surface: {
+          entries: {
+            get: (
+              input: { key: string },
+              opts?: { signal?: AbortSignal },
+            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
+          };
+        };
+      };
+      addSession(
+        A,
+        makeEntry({ awaiting: 1, awaitingIds: [] }).link,
+        connected(100),
+      );
+      addSession(
+        B,
+        makeEntry({ awaiting: 1, awaitingIds: [] }).link,
+        connected(200),
+      );
+
+      // Open A's per-key status stream and drain it in the background, tallying emits.
+      const ac = new AbortController();
+      const aEmits: EntryStatus<TestFailure>[] = [];
+      const stream = (await raw.surface.entries.get(
+        { key: "a" },
+        { signal: ac.signal },
+      )) as AsyncIterable<EntryStatus<TestFailure>>;
+      const pump = (async () => {
+        try {
+          for await (const s of stream) aEmits.push(s);
+        } catch {
+          // aborted at teardown — expected
+        }
+      })();
+      await settle();
+      const snapshot = aEmits.length; // just the initial snapshot yield
+      expect(snapshot).toBe(1);
+
+      // A sibling (B) frames twice — A is untouched, so A must NOT re-emit.
+      setState(B, connected(201));
+      setState(B, connected(202));
+      await settle();
+      expect(aEmits.length).toBe(snapshot);
+
+      // Re-set A to the SAME published value — equals-gated, still no re-emit.
+      setState(A, connected(100));
+      await settle();
+      expect(aEmits.length).toBe(snapshot);
+
+      // A REAL change to A DOES emit (the gate never swallows a true change).
+      setState(A, connected(999));
+      await settle();
+      expect(aEmits.length).toBe(snapshot + 1);
+      expect(
+        (aEmits.at(-1) as { clockOffset?: number | null }).clockOffset,
+      ).toBe(999);
+
+      ac.abort();
+      await pump;
       dispose();
     });
   });

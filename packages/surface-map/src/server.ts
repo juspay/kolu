@@ -620,8 +620,34 @@ export function serveSurfaceMap<
     get: t.surface.entries.get.handler(entriesHandlers.get),
   };
 
-  // One writer publishes membership + status together — fire on every registry
-  // change (add/remove membership AND per-session status transitions).
+  // One writer publishes membership + status together, fired on every registry
+  // change (add/remove membership AND per-session status transitions). But a
+  // registry change is COARSE — it says "something changed", not WHICH member —
+  // and SR9 folds the fine connection onto the entry, so the family now fires on
+  // EVERY session frame of EVERY member. Publishing all members every time would
+  // re-emit an unchanged entry on a sibling's frame: O(M) wire frames per frame,
+  // O(M²) across a pool all streaming. So gate each re-emit on a real change of
+  // the PUBLISHED value ("honest cost"): the keyset only on a membership change,
+  // a per-key status only when that member's own EntryStatus actually changed.
+  let lastKeyset: readonly string[] | undefined;
+  const lastPublished = new Map<string, EntryStatus<Failure, Conn>>();
+  // Structural equality over the PUBLISHED EntryStatus fields (the arm shape in
+  // `define.ts`): `connection` is the cached `SessionState` frame, reference-stable
+  // per frame (`projectConnection` is identity), so `===` is exactly "did the source
+  // hand a new frame" — the fine word's change signal. `clockOffset`/`failure` are
+  // the only other published fields; comparing them by `===` errs toward RE-emitting
+  // a rebuilt-but-equal value (safe — it never MISSES a real change).
+  const samePublished = (
+    a: EntryStatus<Failure, Conn>,
+    b: EntryStatus<Failure, Conn>,
+  ): boolean =>
+    a.kind === b.kind &&
+    a.membershipId === b.membershipId &&
+    a.connection === b.connection &&
+    (a as { clockOffset?: number | null }).clockOffset ===
+      (b as { clockOffset?: number | null }).clockOffset &&
+    (a as { failure?: Failure }).failure ===
+      (b as { failure?: Failure }).failure;
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();
     const encoded = ks.map((k) => map.codec.encode(k));
@@ -629,8 +655,33 @@ export function serveSurfaceMap<
     // from `members()` here, so dropping its id now means the next re-add lazily
     // mints a FRESH one (the same-key remove/re-add → new-membershipId path).
     pruneDepartedIds(encoded);
-    keysBus.publish(encoded);
-    for (const k of ks) perKeyBus(map.codec.encode(k)).publish(statusOf(k));
+    // Keyset: publish ONLY on a real membership change (member order is stable
+    // across a status-only frame — the family never coalesces a remove/re-add — so
+    // a positional compare never spuriously re-emits the same keyset).
+    if (
+      lastKeyset === undefined ||
+      lastKeyset.length !== encoded.length ||
+      encoded.some((e, i) => e !== lastKeyset?.[i])
+    ) {
+      lastKeyset = encoded;
+      keysBus.publish(encoded);
+    }
+    // Forget departed members so a re-add re-emits its (fresh-membershipId) status.
+    const present = new Set(encoded);
+    for (const enc of [...lastPublished.keys()])
+      if (!present.has(enc)) lastPublished.delete(enc);
+    // Per-key: publish a member ONLY when its own published EntryStatus changed, so
+    // a sibling's session frame never re-emits an unchanged entry (a new member has
+    // no cached prior → its first status always publishes).
+    for (const k of ks) {
+      const enc = map.codec.encode(k);
+      const st = statusOf(k);
+      const prev = lastPublished.get(enc);
+      if (prev === undefined || !samePublished(prev, st)) {
+        lastPublished.set(enc, st);
+        perKeyBus(enc).publish(st);
+      }
+    }
   });
 
   // Same shape `implementSurface` returns: a `{ surface: <router> }` fragment.
