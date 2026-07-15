@@ -82,13 +82,11 @@ export function useDeepLinks(): void {
       .with({ kind: "terminal" }, () => {})
       .with({ kind: "inspector" }, () => rightPanel.showInspector())
       .with({ kind: "code" }, (r) => {
+        // The settle effect defers a `code` route until `git.repoRoot` is
+        // sensed, so it is present here by construction — this guard only
+        // narrows the type (it is not a reachable "no repo" path).
         const repoRoot = meta.git?.repoRoot;
-        if (!repoRoot) {
-          toast.error(
-            `Can't open ${r.path}: that terminal isn't in a git repository.`,
-          );
-          return;
-        }
+        if (!repoRoot) return;
         openInCodeTab({
           ref: { path: r.path, startLine: r.line, endLine: r.line },
           repoRoot,
@@ -146,6 +144,14 @@ export function useDeepLinks(): void {
     }
     const meta = store.getMetadata(id);
     if (!meta) return; // in the list but its record hasn't composed yet — wait
+    // A `/code` route needs the terminal's repo root — a THIRD async fact (the
+    // git sensor) that settles INDEPENDENTLY of membership, and `git` is `null`
+    // both for "no repo" and "not sensed yet". Wait for it too (the 8s backstop
+    // still bounds the wait), so a real-repo terminal whose git hasn't sensed
+    // yet — a fresh terminal, or the cold-boot window before the watcher
+    // re-resolves — doesn't get a false "not a git repository". The effect
+    // re-runs when the git fact lands (getMetadata is reactive).
+    if (route.kind === "code" && !meta.git?.repoRoot) return;
     setPending(null);
     enact(route, meta);
   });
