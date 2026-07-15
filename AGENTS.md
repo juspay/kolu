@@ -169,21 +169,17 @@ The disk shape is one schema, one migration ladder, one source of truth. `Persis
 
 **Host-map membership rides this store too — it is not a special case.** The fleet you add via the selector strip persists as the `hosts` field of `PersistedStateSchema`, owned by `hostPersistence.ts` (its `getPersistedHosts()` reader + `savePoolMembership()` persist-hook shaper) and carried by the SAME schema + migration ladder as every other domain. It IS real user data (unlike `preferences`, a silent reset would eat the fleet), so it must never be silently emptied — and `conf` already guarantees that: a corrupt/unparseable store **THROWS on read** (`clearInvalidConfig` is false, conf 15's default), it does NOT reset to defaults. That fail-fast is exactly why `hosts` belongs in this store rather than a hand-rolled file. An invalid-but-parseable value (a hand-edited `local`, a duplicate) additionally fails loud where it's read — `getPersistedHosts` re-validates through `PersistedHostsSchema` (in `kolu-common/hostKey`) and throws, never silently normalizing. Changing the `hosts` shape takes a migration + `SCHEMA_VERSION` bump like any other domain.
 
-## Files matching `{packages/terminal-vocab/src/agentProjection.ts,packages/client/src/canvas/**,packages/pulam-web/**}`
+## Files matching `{packages/terminal-vocab/src/agentProjection.ts,packages/client/src/canvas/**}`
 
-## The Dock ⇄ fleet-mirror contract
+## The Dock's agent-state folds
 
-kolu surfaces agent state in **two** places that are meant to read **identically**: the on-canvas **Dock** (`packages/client/src/canvas/dock`), and its fleet **mirror** — **`pulam-web`** (the browser dashboard). pulam-web exists to *mirror the Dock's agent-state UX* in the browser; it is not an independent design. Treat the two as one feature with two renderers.
+kolu's on-canvas **Dock** (`packages/client/src/canvas/dock`) renders agent state through fenced folds that live **once** in **`@kolu/terminal-vocab/agentProjection`**.
 
-(**`padi-tui` is not a paint mirror.** padi-tui — pulam-tui's replacement — is a thin `status`/`watch`/`wait`/`create` CLI that renders an *uncoloured* workspace snapshot — no needs-you sort, no paint classes, no alert — so it carries none of the folds below. The rich, colour-coded fleet glance is pulam-web's.)
-
-- **One source of truth.** The agent-state vocabulary — how `AgentInfo['state']` folds to a coarse class — lives **once** in **`@kolu/terminal-vocab/agentProjection`**, as `state satisfies never`-fenced folds: `agentUrgency` (needs-you ranking), `agentPaintClass` (pip/glyph colour), `alertClass` (notify membership). **Never re-derive any of these** in the Dock or the mirror with a hand-rolled switch over the state literals — import the fold. A new state literal must force one decision, in the fenced fold, not silently route through a copy.
-
-- **Keep both in sync.** When you change how the **Dock** treats an agent state — its rank, its pip paint, its alert — the change belongs in the shared fold, and the **mirror must move with it**: mirror it in `pulam-web` in the **same PR**, or file the deferred fill-in as a phase in `pulam-web.mdx` and say so explicitly. The reverse holds too — the mirror must not invent agent-state semantics the Dock doesn't have.
-
-- **A fold the mirror hasn't adopted yet is a GAP, not "kolu-only."** If `agentProjection` exports a fold only the Dock consumes today (as `agentPaintClass`/`alertClass` once were), that is the mirror still being built up — **not** evidence the fold is misplaced or should leave the shared package. Don't "tidy" it back into a kolu-local module; fill the mirror in (or record the gap). Judging a fold's home by *today's* consumer count, rather than the two-surface contract, is the exact mistake to avoid.
+- **One source of truth.** The agent-state vocabulary — how `AgentInfo['state']` folds to a coarse class — lives **once** in `agentProjection`, as `state satisfies never`-fenced folds: `agentUrgency` (needs-you ranking), `agentPaintClass` (pip/glyph colour), `alertClass` (notify membership). **Never re-derive any of these** with a hand-rolled switch over the state literals — import the fold. A new state literal must force one decision, in the fenced fold, not silently route through a copy.
 
 - **The order≠colour split is load-bearing — don't collapse it.** A just-finished `waiting` agent **RANKS** idle (`agentUrgency`) but **PAINTS** awaiting (`agentPaintClass`) — the lingering "it just finished" cue. Every surface keeps that decoupling: **sort** by urgency, **colour** the pip/glyph by paint. `awaiting_user` (genuinely blocked) is what floats to the top; `waiting` (the post-turn lull) does not.
+
+- **The folds' home is settled — don't repatriate them.** They live in the shared `@kolu/terminal-vocab` package even though the Dock is today their only paint consumer. That is history, not misplacement: the browser fleet mirror (`pulam-web`) they once also served **died with the pulam world** (the W2.3 burial deleted every `pulam*` package), and `padi-tui` is deliberately *not* a paint mirror. Judging a fold's home by *today's* consumer count and "tidying" it into a kolu-local module is churn, not structure — and if a fleet mirror ever returns, it consumes these same folds, and the old two-surface sync contract (git history) revives with it.
 
 ---
 *This file was generated by APM CLI. Do not edit manually.*

@@ -4,7 +4,7 @@ description: >-
   How a downstream app consumes the shared @kolu/surface stack (@kolu/surface ·
   surface-app · surface-remote · surface-mcp) — declaring a typed reactive surface,
   serving it, consuming it (SolidJS hooks or a CLI), and mirroring a remote surface over
-  ssh. Grounded in the real consumers: kolu, pulam-web, drishti, odu, and the TUIs. Load
+  ssh. Grounded in the real consumers: kolu, drishti, odu, and the TUIs. Load
   when wiring a surface server/client/mirror, or reaching for makeSession / a link /
   the `.use()` hooks. CHANGING the framework is gated separately —
   `.claude/rules/surface.md` (a paired, CI-green drishti PR pinned to final kolu HEAD).
@@ -21,7 +21,6 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 | Consumer | Shape | Notable |
 | --- | --- | --- |
 | **kolu** (`client`+`server`) | one browser ⇄ one Node server, ONE ws | single-tier; two sibling surfaces; uses `surface`+`surface-app` only (**not** `-remote`) |
-| **pulam-web** | browser ⇄ Node ⇄ ssh fleet mirror | one ws per host (`/rpc/ws?host=`); `connectSurface`; re-serves `terminalWorkspaceSurface` |
 | **drishti** (`srid/drishti`) | browser ⇄ Node ⇄ ssh agent mirror | the canonical twin; 3 workspaces (common/agent/app) |
 | **odu** (`juspay/odu`) | CI runner: stdio lanes → unix-socket fan-in → CLI/MCP | serve+consume+mirror over every transport at once; `surface-mcp` projection |
 | **padi-tui / kaval-tui** | one-shot CLI/TUI, no browser | transport-blind `{client,dispose}`; unix-socket local, ssh remote; **no `.use()` hooks** |
