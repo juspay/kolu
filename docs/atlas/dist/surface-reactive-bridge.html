@@ -381,6 +381,11 @@
 <td>keyed sources joining/leaving under a membership reconcile, as a collection member — under the bridge, <code>reactiveFamily</code> feeding a <code>derived.collection</code> if that face ever earns a consumer.</td>
 </tr>
 <tr>
+<td><em>(no reflex analog — a <strong>resource</strong> merge, not an event merge)</em> <code>mergeInstalls</code></td>
+<td>ADD-DEFER</td>
+<td>N-ary tick-install composition (<code>everyMsOr</code> generalized). Trigger: a third tick source, or a non-interval pair. Ships with the bracket-informed error policy (acquisition error wins; cleanup errors attach as context, never mask; LIFO release) and <strong>deletes <code>everyMsOr</code></strong> per the fate-of-names rule (it becomes <code>mergeInstalls(everyMs(ms), subscribe)</code> — a composition). Until then the install contract <code>(tick) =&gt; cleanup</code> is the general primitive and the fused name is the one composition with receipts (two consumers, exception-safety gauntlet-proven, SR8.c).</td>
+</tr>
+<tr>
 <td><code>behaviorCoercion</code> etc.</td>
 <td>N/A</td>
 <td>TS structural typing makes coercions free.</td>
