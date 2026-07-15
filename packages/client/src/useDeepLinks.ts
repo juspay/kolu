@@ -32,6 +32,7 @@ import {
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { type DeepLink, type ParsedDeepLink, parseDeepLink } from "./deepLink";
+import { setDeepLinkFocusIntent } from "./deepLinkFocusIntent";
 import { openInCodeTab } from "./right-panel/openInCodeTab";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { openSettings } from "./settings/useSettingsOpen";
@@ -129,9 +130,13 @@ export function useDeepLinks(): void {
   /** Switch to the link's host first (switch-then-focus — the id must route
    *  against ITS host, never whatever padi is active), then arm the settle
    *  effect — ATOMICALLY, so the effect never runs against a half-updated
-   *  (new pending, old host) state. */
+   *  (new pending, old host) state. Also record the target as the deep-link
+   *  focus intent, so a COLD-BOOT session restore picks it as the active tile
+   *  instead of racing the settle effect for the `activeId` write (see
+   *  `deepLinkFocusIntent`). */
   function routeToTerminal(route: TerminalRoute): void {
     setActiveHost(decodeHostKey(route.host));
+    setDeepLinkFocusIntent(route.terminalId);
     setPending(route);
   }
 
