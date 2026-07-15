@@ -142,9 +142,8 @@ export interface CellSpec<T = unknown, P = T> {
    *  This is the runtime sibling of {@link equals}: the GENERIC mechanism lives in
    *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
    *  literal or any domain vocabulary), while the predicate itself (`v.state ===
-   *  "connected"`) is declared on the cell where its schema lives (e.g.
-   *  `surface-remote`'s `connectionCell`) — the same mechanism/vocabulary split
-   *  as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
+   *  "connected"`) is declared on the cell where its schema lives — the same
+   *  mechanism/vocabulary split as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
    *  and every `health()` read), and ensure the cell's `default` does NOT satisfy
    *  it (gate-closed cold start), so a freshly-composed surface reads `connecting`
    *  until a genuine "ready" frame arrives — `DEFAULT_CONNECTION` already complies. */

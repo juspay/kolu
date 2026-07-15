@@ -19,7 +19,10 @@
  */
 
 import { padiSurface } from "@kolu/padi/surface";
-import { mirroredSurface } from "@kolu/surface-remote/connection";
+import {
+  type ConnectionInfo,
+  ConnectionInfoSchema,
+} from "@kolu/surface-remote/connection";
 import {
   defineSurfaceMap,
   type EntryStatus,
@@ -39,13 +42,14 @@ import { surfaces } from "./surface.ts";
 // them here beside the map so consumers still reach them through one module.
 export { type HostKey, HostKeySchema, LOCAL_HOST } from "./hostKey.ts";
 
-// The per-host `connection` cell's value type — re-exported here so a consumer reading
-// `padiMap.entry(host).cells.connection` types the readout through kolu-common (the
-// map's home) rather than reaching into `@kolu/surface-remote` directly. (The log-tail
-// element type is reachable as `ConnectionInfo["log"][number]` for the rare consumer
-// that needs it, so no separate `LogEntry` re-export.) See {@link padiEntrySurface}.
-// `ConnectPhase` (the up-but-not-yet-connected phase subset a connect/progress UI narrates)
-// rides the same re-export so the client's overlay imports it through this established path.
+// The entry's fine `connection` payload value type — re-exported here so a consumer
+// reading `padiMap.entry(host).state().connection` (SR9: the fine word rides the entry,
+// not a per-host cell) types the readout through kolu-common (the map's home) rather than
+// reaching into `@kolu/surface-remote` directly. (The log-tail element type is reachable as
+// `ConnectionInfo["log"][number]` for the rare consumer that needs it, so no separate
+// `LogEntry` re-export.) `ConnectPhase` (the up-but-not-yet-connected phase subset a
+// connect/progress UI narrates) rides the same re-export so the client's overlay imports it
+// through this established path.
 export type {
   ConnectionInfo,
   ConnectPhase,
@@ -153,17 +157,16 @@ export type EntryFailedCause = PadiEntryFailure["cause"];
  *  `state.failure.reason` (and `state.failure.running/expected` on the skew arm)
  *  with full narrowing — no cast, and the wire value is validated against the
  *  schema, not waved through as loose unknown extras. */
-export type PadiEntryStatus = EntryStatus<PadiEntryFailure>;
+export type PadiEntryStatus = EntryStatus<PadiEntryFailure, ConnectionInfo>;
 
-/** The per-host entry surface — `padiSurface` MIRRORED with the get-only `connection`
- *  cell (the same seam kolu-server's `reServeSurface` composes per host). Exposing the
- *  cell on the MAP's entry surface is what lets the client read each host's honest link
- *  health — the copying/building provisioning phase + the live `log` tail — per entry
- *  (`padiMap.entry(host).cells.connection.use()`), the fine signal the coarse
- *  `EntryStatus` chip (warming/connected/failed) folds away. The server already serves
- *  this cell per host (its re-serve mirrors the same base); declaring it here is what
- *  forwards it through the map to the browser (W6 — "the honest connect"). */
-export const padiEntrySurface = mirroredSurface(padiSurface);
+/** The per-host entry surface — `padiSurface`, served verbatim. SR9: the honest link
+ *  health (the copying/building provisioning phase + the live `log` tail the coarse
+ *  `EntryStatus` chip folds away) is NO LONGER a separate get-only `connection` cell on
+ *  this surface — it rides the map ENTRY's fine `connection` payload
+ *  ({@link padiHostMap}'s `connection: ConnectionInfoSchema`), the ONE authority both the
+ *  dot and the word derive from. So a client reads `padiMap.entry(host).state().connection`
+ *  (the same entry it reads the dot from), never a second per-host subscription. */
+export const padiEntrySurface = padiSurface;
 
 /** The keyed map of padi surfaces — ONE entry surface ({@link padiEntrySurface}) served
  *  N times, keyed by host. kolu-server serves it (`serveHostMap` over the warm ssh pool)
@@ -181,6 +184,11 @@ export const padiHostMap = defineSurfaceMap({
   entry: padiEntrySurface,
   codec: hostKeyCodec,
   failure: PadiEntryFailureSchema,
+  // SR9 — the FINE connection payload rides every entry (the ONE connection authority):
+  // `serveHostMap` produces the coarse dot and this fine word from the SAME session frame,
+  // so the client derives the connect overlay / status word from `state().connection`
+  // without a second per-host subscription (fixes the dot-vs-word split, drishti#102).
+  connection: ConnectionInfoSchema,
   // The sibling key this map is mounted + served under (`surface.padi.*`), single-sourced
   // through {@link PADI_SURFACE_NAME} (PR3): `connectSurfaceMap(padiHostMap, transport)`
   // slices this name from the combined socket, and both server splice sites mount under

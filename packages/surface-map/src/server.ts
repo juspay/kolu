@@ -111,15 +111,23 @@ export type EntryConnectionState<
 export interface EntrySession<
   Prov extends "copying" | never = "copying",
   Failure = unknown,
+  Conn = unknown,
 > {
   /** The sum tag — switch on this, never on bare field-presence. */
   readonly kind: "session";
   /** The entry-surface oRPC client/link the map forwards member calls to
    *  (`link.surface.<member>.<verb>(input)`). */
   readonly link: unknown;
-  /** The session's current connection state — read fresh on each publish; the
-   *  registry re-fires `subscribe` when it changes so `entries` re-projects. */
+  /** The session's current COARSE connection state (the dot) — read fresh on each
+   *  publish; the registry re-fires `subscribe` when it changes so `entries`
+   *  re-projects. */
   readonly state: EntryConnectionState<Prov, Failure>;
+  /** SR9: the FINE connection payload (the word) — the rich per-host connection state
+   *  the coarse `state` folds away, carried opaquely onto the published `EntryStatus`.
+   *  Produced by the SAME per-frame projection as `state`, from the SAME `SessionState`
+   *  frame (never a second pipe), so the dot and the word can never disagree. Absent for
+   *  a map that carries no fine connection. */
+  readonly connection?: Conn;
 }
 
 /** A terminal, no-session entry — a structural fault (the mock harness's failed
@@ -155,15 +163,16 @@ export interface MapRegistry<
   K,
   Prov extends "copying" | never = "copying",
   Failure = unknown,
+  Conn = unknown,
 > {
   members(): K[];
   subscribe(onChange: () => void): () => void;
   has(key: K): boolean;
-  resolve(key: K): EntrySession<Prov, Failure> | EntryFault<Failure>;
+  resolve(key: K): EntrySession<Prov, Failure, Conn> | EntryFault<Failure>;
 }
 
-function isFault<Failure>(
-  r: EntrySession<"copying", Failure> | EntryFault<Failure>,
+function isFault<Failure, Conn>(
+  r: EntrySession<"copying", Failure, Conn> | EntryFault<Failure>,
 ): r is EntryFault<Failure> {
   return r.kind === "fault";
 }
@@ -188,19 +197,25 @@ function isFault<Failure>(
  *  `failed` state ALWAYS carries a real failure — the arm is typed to REQUIRE it,
  *  so "failed with no failure" is unconstructible, refused loud at the producer's
  *  classification seam (`serveHostMap`) rather than here. */
-function projectStatus<Failure>(
+function projectStatus<Failure, Conn>(
   state: EntryConnectionState<"copying", Failure>,
   membershipId: MembershipId,
-): EntryStatus<Failure> {
+  // SR9: the FINE connection payload, carried onto EVERY arm. `projectStatus` is the ONE
+  // place the coarse `kind` is decided, so threading the fine `connection` THROUGH it
+  // (rather than a second assembly site) is what keeps the dot and the word co-produced
+  // from one frame — the drishti#102 divergence has no construction path.
+  connection?: Conn,
+): EntryStatus<Failure, Conn> {
   switch (state.kind) {
     case "copying":
     case "connecting":
-      return { kind: "warming", membershipId };
+      return { kind: "warming", membershipId, connection };
     case "connected":
       return {
         kind: "connected",
         membershipId,
         clockOffset: state.clockOffset,
+        connection,
       };
     // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
     //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
@@ -216,14 +231,24 @@ function projectStatus<Failure>(
     // specificity: a refuse carries one, a transient drop carries none.
     case "disconnected":
       return state.failure === undefined
-        ? { kind: "warming", membershipId }
-        : { kind: "failed", membershipId, failure: state.failure };
+        ? { kind: "warming", membershipId, connection }
+        : {
+            kind: "failed",
+            membershipId,
+            failure: state.failure,
+            connection,
+          };
     // A terminal give-up (the reconnect loop stopped for good) — always a red
     // `failed` chip carrying the domain failure the arm is now typed to REQUIRE
     // (the illegal "failed with no failure" is unconstructible; the producer's
     // classification seam in `serveHostMap` fails loud before it can arise here).
     case "failed":
-      return { kind: "failed", membershipId, failure: state.failure };
+      return {
+        kind: "failed",
+        membershipId,
+        failure: state.failure,
+        connection,
+      };
   }
 }
 
@@ -308,9 +333,10 @@ export function serveSurfaceMap<
   KS extends z.ZodType,
   ES extends SurfaceSpec,
   Failure = unknown,
+  Conn = unknown,
 >(
-  map: SurfaceMap<KS, ES, Failure>,
-  registry: MapRegistry<z.infer<KS>, "copying", Failure>,
+  map: SurfaceMap<KS, ES, Failure, Conn>,
+  registry: MapRegistry<z.infer<KS>, "copying", Failure, Conn>,
 ): ServeSurfaceMapResult {
   type K = z.infer<KS>;
   const keySchema = map.keySchema;
@@ -356,12 +382,15 @@ export function serveSurfaceMap<
   // entry does (PR4 — no `"other"` fabrication); the registry that mints the
   // fault owns classifying it. `resolve` that cannot classify a fault has no
   // business minting one — it fails loud instead (see `serveHostMap`).
-  const statusOf = (mapKey: K): EntryStatus<Failure> => {
+  const statusOf = (mapKey: K): EntryStatus<Failure, Conn> => {
     const membershipId = membershipIdFor(map.codec.encode(mapKey));
     const r = resolve(mapKey);
+    // A structural fault has NO session, so no fine `connection` (the harness's failed
+    // member — never `connected`, so the joint invariant holds trivially). A session-
+    // backed entry threads its co-produced fine `connection` through `projectStatus`.
     return isFault(r)
       ? { kind: "failed", membershipId, failure: r.failure }
-      : projectStatus<Failure>(r.state, membershipId);
+      : projectStatus<Failure, Conn>(r.state, membershipId, r.connection);
   };
 
   // ── Forward one streaming member call, ending TYPED on membership loss ──
@@ -544,9 +573,14 @@ export function serveSurfaceMap<
   const channel = inMemoryChannelByName();
   const keysBus = channel<string[]>(collectionKeysetChannel("entries"));
   const perKeyBus = (encoded: string) =>
-    channel<EntryStatus<Failure>>(collectionKeyChannel("entries", encoded));
+    channel<EntryStatus<Failure, Conn>>(
+      collectionKeyChannel("entries", encoded),
+    );
 
-  const entriesDeps: CollectionHandlerDeps<string, EntryStatus<Failure>> = {
+  const entriesDeps: CollectionHandlerDeps<
+    string,
+    EntryStatus<Failure, Conn>
+  > = {
     // The snapshot is built ONLY from the current `members()`, so a departed id in
     // `membershipIds` can never enter it; and the republish subscription below prunes on
     // EVERY membership change (CLAUSE 1 fires synchronously after a departure), so the id
@@ -558,7 +592,7 @@ export function serveSurfaceMap<
           (k) =>
             [map.codec.encode(k), statusOf(k)] as [
               string,
-              EntryStatus<Failure>,
+              EntryStatus<Failure, Conn>,
             ],
         ),
       ),
@@ -571,21 +605,49 @@ export function serveSurfaceMap<
     perKeyBus,
     keysBus,
   };
-  const entriesDescriptor = collection<"entries", string, EntryStatus<Failure>>(
-    {
-      name: "entries",
-      keySchema: map.entriesSpec.keySchema,
-      schema: map.entriesSpec.schema,
-    },
-  );
+  const entriesDescriptor = collection<
+    "entries",
+    string,
+    EntryStatus<Failure, Conn>
+  >({
+    name: "entries",
+    keySchema: map.entriesSpec.keySchema,
+    schema: map.entriesSpec.schema,
+  });
   const entriesHandlers = collectionHandlers(entriesDescriptor, entriesDeps);
   inner.entries = {
     keys: t.surface.entries.keys.handler(entriesHandlers.keys),
     get: t.surface.entries.get.handler(entriesHandlers.get),
   };
 
-  // One writer publishes membership + status together — fire on every registry
-  // change (add/remove membership AND per-session status transitions).
+  // One writer publishes membership + status together, fired on every registry
+  // change (add/remove membership AND per-session status transitions). But a
+  // registry change is COARSE — it says "something changed", not WHICH member —
+  // and SR9 folds the fine connection onto the entry, so the family now fires on
+  // EVERY session frame of EVERY member. Publishing all members every time would
+  // re-emit an unchanged entry on a sibling's frame: O(M) wire frames per frame,
+  // O(M²) across a pool all streaming. So gate each re-emit on a real change of
+  // the PUBLISHED value ("honest cost"): the keyset only on a membership change,
+  // a per-key status only when that member's own EntryStatus actually changed.
+  let lastKeyset: readonly string[] | undefined;
+  const lastPublished = new Map<string, EntryStatus<Failure, Conn>>();
+  // Structural equality over the PUBLISHED EntryStatus fields (the arm shape in
+  // `define.ts`): `connection` is the cached `SessionState` frame, reference-stable
+  // per frame (`projectConnection` is identity), so `===` is exactly "did the source
+  // hand a new frame" — the fine word's change signal. `clockOffset`/`failure` are
+  // the only other published fields; comparing them by `===` errs toward RE-emitting
+  // a rebuilt-but-equal value (safe — it never MISSES a real change).
+  const samePublished = (
+    a: EntryStatus<Failure, Conn>,
+    b: EntryStatus<Failure, Conn>,
+  ): boolean =>
+    a.kind === b.kind &&
+    a.membershipId === b.membershipId &&
+    a.connection === b.connection &&
+    (a as { clockOffset?: number | null }).clockOffset ===
+      (b as { clockOffset?: number | null }).clockOffset &&
+    (a as { failure?: Failure }).failure ===
+      (b as { failure?: Failure }).failure;
   const unsubRepublish = registry.subscribe(() => {
     const ks = members();
     const encoded = ks.map((k) => map.codec.encode(k));
@@ -593,8 +655,33 @@ export function serveSurfaceMap<
     // from `members()` here, so dropping its id now means the next re-add lazily
     // mints a FRESH one (the same-key remove/re-add → new-membershipId path).
     pruneDepartedIds(encoded);
-    keysBus.publish(encoded);
-    for (const k of ks) perKeyBus(map.codec.encode(k)).publish(statusOf(k));
+    // Keyset: publish ONLY on a real membership change (member order is stable
+    // across a status-only frame — the family never coalesces a remove/re-add — so
+    // a positional compare never spuriously re-emits the same keyset).
+    if (
+      lastKeyset === undefined ||
+      lastKeyset.length !== encoded.length ||
+      encoded.some((e, i) => e !== lastKeyset?.[i])
+    ) {
+      lastKeyset = encoded;
+      keysBus.publish(encoded);
+    }
+    // Forget departed members so a re-add re-emits its (fresh-membershipId) status.
+    const present = new Set(encoded);
+    for (const enc of [...lastPublished.keys()])
+      if (!present.has(enc)) lastPublished.delete(enc);
+    // Per-key: publish a member ONLY when its own published EntryStatus changed, so
+    // a sibling's session frame never re-emits an unchanged entry (a new member has
+    // no cached prior → its first status always publishes).
+    for (const k of ks) {
+      const enc = map.codec.encode(k);
+      const st = statusOf(k);
+      const prev = lastPublished.get(enc);
+      if (prev === undefined || !samePublished(prev, st)) {
+        lastPublished.set(enc, st);
+        perKeyBus(enc).publish(st);
+      }
+    }
   });
 
   // Same shape `implementSurface` returns: a `{ surface: <router> }` fragment.

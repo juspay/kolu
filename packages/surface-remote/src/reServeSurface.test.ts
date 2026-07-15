@@ -19,7 +19,6 @@ import { directLink } from "@kolu/surface/links/direct";
 import type { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { mirroredSurface } from "./connection";
 import { type Controllable, controllable } from "./controllableStream.testutil";
 import type { RelayPolicy } from "./relayStream";
 import { reServeSurface } from "./reServeSurface";
@@ -85,8 +84,9 @@ const toyPolicy = {
   ctl: "value",
 } as const satisfies RelayPolicy;
 
-const mirroredToy = mirroredSurface(toySurface);
-type ToyContract = typeof mirroredToy.contract;
+// SR9: `reServeSurface` serves the base surface verbatim now (no `mirroredSurface`
+// connection cell), so the downstream contract IS the toy surface's.
+type ToyContract = typeof toySurface.contract;
 
 // ── A fake upstream agent over hand-driven, signal-aware streams ────────────
 
@@ -289,7 +289,7 @@ async function teardown(
 }
 
 describe("reServeSurface — end-to-end over a toy surface", () => {
-  it("re-serves the cell, collection, procedure, and connection cell downstream", async () => {
+  it("re-serves the cell, collection, and procedure downstream", async () => {
     const { session, upstream, done, downstream } = setup(7, { a: 1, b: 2 });
     await delay(15); // let the pump bind + mirror the first spawn
 
@@ -308,12 +308,9 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
       msg: "echo:hi",
     });
     expect(upstream.echoes).toEqual(["hi"]);
-    // The composed connection cell reads `connected` once the first frame landed.
-    const [conn] = await take(
-      await downstream.surface.connection.get(undefined),
-      1,
-    );
-    expect(conn?.phase).toBe("connected");
+    // SR9: there is no downstream `connection` cell to read — link health rides the
+    // host-map entry now (the `serveHostMap` joint-invariant suite pins it), not this
+    // re-served surface.
 
     await teardown(session, done, upstream);
   });

@@ -2784,8 +2784,8 @@ export function extendSurface<
   ext: ServedSurface<Ext>,
 ): ExtendedSurface<Base, Ext> {
   // The combined surface descriptor — a flat spec merge (loud on collision). The
-  // documented cast mirrors `mirroredSurface`: `defineSurface`'s const inference
-  // over the dynamic merge doesn't line up structurally with `ComposedSurfaceSpec`,
+  // documented cast is the standard dynamic-spec-merge pattern: `defineSurface`'s const
+  // inference over the dynamic merge doesn't line up structurally with `ComposedSurfaceSpec`,
   // but the runtime IS that surface (every base + extension member).
   const combined = defineSurface(
     mergeSurfaceSpecs(base.surface.spec, ext.surface.spec),
