@@ -2116,8 +2116,11 @@ function walkSurface<const S extends SurfaceSpec>(
     // The backing write seams the wrapped publishers call. For an authored
     // collection they are the dep's own persistence writes; for a derived
     // collection they are no-ops (the registry IS the reconciler's `current` map).
-    const depUpsert = collDeps.upsert ?? (() => {});
-    const depRemove = collDeps.remove ?? (() => {});
+    // Gate the no-op on the derived arm — the ONLY arm that legitimately has no
+    // write seam — so an authored collection that failed to provide `upsert`/
+    // `remove` stays a loud fault rather than a silently swallowed no-op.
+    const depUpsert = derivedColl ? () => {} : collDeps.upsert!;
+    const depRemove = derivedColl ? () => {} : collDeps.remove!;
     const keysBus = deps.channel<unknown[]>(collectionKeysetChannel(key));
     const perKeyBus = (k: unknown) =>
       deps.channel<unknown>(collectionKeyChannel(key, String(k)));
