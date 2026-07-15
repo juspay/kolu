@@ -7,31 +7,32 @@
  * awaiting_user, waiting}) with a `state satisfies never` fence, so a literal
  * added to `AgentInfoSchema` compile-fails HERE — beside the schema — rather
  * than in a hand-copied switch downstream. It depends on nothing but the
- * `AgentInfo['state']` type: no transport, no renderer, no `@kolu/pulam-tui`.
+ * `AgentInfo['state']` type: no transport, no renderer, no `@kolu/padi-tui`.
  *
- * This is the shared agent-state VOCABULARY that kolu's on-canvas **Dock** and
- * its two fleet MIRRORS — `pulam-web` (browser) and `pulam-tui` (terminal) — all
- * draw from: the mirrors render the same agent-state UX the Dock does, so each
- * fold lives here once and the three stay in lockstep. A mirror that hasn't
+ * This is the shared agent-state VOCABULARY that kolu's on-canvas **Dock** draws
+ * from, kept renderer-agnostic so every fleet surface reads the SAME folds
+ * instead of re-deriving them. The browser fleet mirror it was built alongside —
+ * **pulam-web** — has since retired into padi, and `padi-tui` (the terminal
+ * viewer, pulam-tui's replacement) draws only the coarse `agentBucket` here; a
+ * downstream fleet mirror (drishti) can read the rest. A surface that hasn't
  * adopted a fold yet is a GAP to fill, not a sign the fold is kolu-only. The
  * three folds:
  *  - `agentUrgency` (→ {need, work, idle}) + `URGENCY_RANK` — the needs-you
- *    ordering. Read by all three (Dock rows, pulam-web, pulam-tui).
+ *    ordering. Read by the Dock rows (and any fleet mirror that ranks needs-you).
  *  - `agentPaintClass` (→ {awaiting, working, none}) — the pip/glyph paint
- *    class. Read by the Dock pip AND both fleet mirrors' agent glyph. It
+ *    class. Read by the Dock pip (and a fleet mirror's agent glyph). It
  *    deliberately differs from urgency on `waiting`: a just-finished agent
  *    paints `awaiting` (the lingering dot) but RANKS idle — order≠colour.
  *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership.
- *    Read by kolu's `useTerminalAlerts` today; pulam-web fleet notifications are
- *    the next mirror to fill in (see `pulam-web.mdx`). It notifies on a finished
+ *    Read by kolu's `useTerminalAlerts` today; a downstream fleet mirror's
+ *    notifications are the next consumer to fill in. It notifies on a finished
  *    agent (`waiting`) too — "notify me something happened" ≠ "rank by what
  *    needs my action".
  *
- * Each consumer keeps only its PRESENTATION over this core: the TUI maps
- * urgency/paint→tone (`agentTone`/`URGENCY`) and labels "awaiting you"; the web
- * folds paint → the shared `StatePip` for each ROW pip (`pipVariantFor`) and
- * keeps `URGENCY` only for the needs-you strip + footer aggregate colours and
- * the "needs you" labels.
+ * Each consumer keeps only its PRESENTATION over this core: a TUI maps
+ * urgency/paint → its own tones and labels ("awaiting you"); a browser mirror
+ * folds paint → the shared `StatePip` for each ROW pip and keeps urgency only
+ * for the needs-you strip + footer aggregate colours and the "needs you" labels.
  */
 
 import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
@@ -231,7 +232,7 @@ function urgencyRankDelta(
 }
 
 /** Order two agents by urgency alone, then a stable id tiebreak — the HOST-SAFE
- *  ordering a dashboard (pulam-web / pulam-tui) uses. It reads only the
+ *  ordering a memoryless dashboard uses. It reads only the
  *  `TerminalSnapshot` (no recency), so a memoryless host that serves `TerminalSnapshot` —
  *  which has no `lastActivityAt` — can sort its fleet without a fold. The recency
  *  tiebreak is kolu's alone ({@link compareAgents}); a dashboard that reached for
