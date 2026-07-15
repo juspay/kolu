@@ -57,8 +57,6 @@ import {
   inMemoryCollection,
   superviseTerminalSource,
 } from "@kolu/surface/server";
-import { mirroredSurface, type WithConnection } from "./connection";
-import { seedConnectionCell } from "./connectionPipe";
 import {
   type LiveSpawnHolder,
   observableHolder,
@@ -120,8 +118,10 @@ export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
 }
 
 export interface ReServedSurface<S extends SurfaceSpec> {
-  /** The re-served surface — `source` + the get-only `connection` health cell. */
-  surface: Surface<WithConnection<S>>;
+  /** The re-served surface — the agent's base surface, served verbatim. SR9 removed the
+   *  per-host `connection` health cell: link health now rides the host-map entry's fine
+   *  `connection` payload (the ONE authority), not a second cell on this surface. */
+  surface: Surface<S>;
   /** The per-binding oRPC router (flattened for a handler / `directLink`). */
   router: unknown;
   /** Settles when the pump loop exits (the session was destroyed, or `close`
@@ -171,8 +171,9 @@ export function reServeSurface<S extends SurfaceSpec>(
   const log = opts.log ?? (() => {});
   const { source, policy, session } = opts;
   const spec = source.spec;
-  // The downstream surface = the agent's base + the gate-closed `connection` cell.
-  const surface = mirroredSurface(source);
+  // The downstream surface = the agent's base surface, served verbatim (SR9: no
+  // `connection` cell composed here — link health rides the host-map entry).
+  const surface = source;
 
   // A source surface must declare at least one CELL. `markConnected` (below) fires
   // on the first folded value of EITHER kind (a cell frame OR a collection upsert),
@@ -304,9 +305,6 @@ export function reServeSurface<S extends SurfaceSpec>(
       },
     };
   }
-  // The connection cell IS written locally — by the pump, off `session.onState`
-  // (server-internal, via `ctx`), not by a wire client — so it keeps a normal store.
-  cellsDeps.connection = seedConnectionCell();
 
   // Collections (always folded as value) → per-key caches the mirror sink folds into.
   // Each cache is kept per key so the sink can hand the mirror its carry-over keys
@@ -390,16 +388,16 @@ export function reServeSurface<S extends SurfaceSpec>(
   }
 
   // implementSurface is fail-fast: a member missing from deps throws at build, so
-  // the walk above must cover EVERY member of the mirrored surface (it does — one
-  // pass per kind, plus `connection`). The dynamic build is cast once at this
-  // boundary, exactly as the framework's own dynamic walks cast.
+  // the walk above must cover EVERY member of the source surface (it does — one pass
+  // per kind). The dynamic build is cast once at this boundary, exactly as the
+  // framework's own dynamic walks cast.
   const deps = {
     cells: cellsDeps,
     collections: collectionsDeps,
     streams: streamsDeps,
     events: eventsDeps,
     procedures: proceduresDeps,
-  } as unknown as ImplementSurfaceDeps<WithConnection<S>>;
+  } as unknown as ImplementSurfaceDeps<S>;
 
   // The re-serve owns a SHARED, bounded channel (used by both the surface deps
   // and the cell fold), so it serves on the caller-provided-channel constructor
@@ -419,14 +417,6 @@ export function reServeSurface<S extends SurfaceSpec>(
       | undefined
     >;
   };
-  // The composed connection cell is guaranteed by `mirroredSurface`; capture it
-  // once (fail-fast if the seam ever changes) for the pump to write link health.
-  const connectionCell = ctx.cells.connection;
-  if (!connectionCell) {
-    throw new Error(
-      "reServeSurface: mirroredSurface did not compose a connection cell",
-    );
-  }
   // `implementSurfaceOnPublisher` already returns the FINAL top-level router
   // (no re-flatten needed — the double-prefix is gone at the framework seam).
   const router = runtime.router;
@@ -521,10 +511,6 @@ export function reServeSurface<S extends SurfaceSpec>(
     makeSink,
     liveProcedures,
     liveClient,
-    // Passing `connection` makes the pump carry link health onto the cell itself
-    // (subscribes `session.onState` once) — the wiring #1564 says a re-serve
-    // can't forget.
-    connection: { set: connectionCell.set },
     signal: pumpAbort.signal,
     log,
   });

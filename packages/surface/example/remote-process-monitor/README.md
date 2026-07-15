@@ -25,7 +25,7 @@ The browser's `app.cells.system.use(...)` and `app.collections.processes.use(...
 
 | Primitive | Path | Purpose |
 |---|---|---|
-| **Cell** | `system` | Load averages, memory used/total, uptime, OS, hostname, connection state (the parent overrides during connect/copy/disconnect). |
+| **Cell** | `system` | Load averages, memory used/total, uptime, OS, hostname. (SR9: this re-serve carries no per-host `connection` cell — connection presentation is a host-map concept; see `common/surface.ts`.) |
 | **Collection** | `processes` | Keyed by PID. Each value: `{ user, cpuPct, memPct, command }`. The first yield is the full current snapshot; subsequent yields are per-PID upserts/removes (snapshot-then-delta). |
 | **Procedure** | `process.kill` | `kill(pid, signal)` — the only mutation. Signals: `TERM`, `KILL`, `HUP`, `INT`. |
 

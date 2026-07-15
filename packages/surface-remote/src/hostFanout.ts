@@ -33,8 +33,6 @@ import {
   type SurfaceSink,
 } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import type { ConnectionInfo } from "./connection";
-import { pipeSessionStateToCell } from "./connectionPipe";
 import type { DestroyableSession, Session } from "./session";
 import type { SshProv } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
@@ -148,14 +146,6 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
    *  rebuild from the fresh snapshot rather than inherit stale. A read-only mirror
    *  with no standing local fold omits it. */
   onLinkDown?: () => void;
-  /** Carry the SESSION's link health onto a browser-facing `connection` cell —
-   *  the default-on mirror-seam wiring (#1564). When set, the pump subscribes
-   *  `session.onState` ONCE for the session's lifetime (via
-   *  `pipeSessionStateToCell`) and writes each projected frame through `set`,
-   *  tearing the subscription down when the pump loop exits (the session was
-   *  destroyed). `set` is the framework-wrapped `ctx.cells.connection.set` of the
-   *  re-served surface. Omit for a re-serve that carries no link-health cell. */
-  connection?: { set: (info: ConnectionInfo) => void };
   /** Optional supervision signal. Aborting it STOPS the pump WITHOUT destroying
    *  the caller-owned session: the active spawn's mirror is aborted (its per-key
    *  pumps settle via `signal.reason` — the #1719 ownership doctrine), the
@@ -190,13 +180,10 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   session.pin().catch(() => {
     /* failure surfaces via the session's state cell; the loop recovers */
   });
-  // Default-on link-health: subscribe the session ONCE for its lifetime (NOT
-  // per-spawn — `onState` outlives any single client) and write each projected
-  // frame onto the re-served `connection` cell; torn down in the `finally` when
-  // the loop exits (session destroyed).
-  const unsubConnection = opts.connection
-    ? pipeSessionStateToCell(session, opts.connection.set)
-    : undefined;
+  // SR9: the pump no longer carries link health onto a `connection` cell — that cell is
+  // gone, and link health rides the host-map entry's fine `connection` payload (produced
+  // by `serveHostMap` from the pool's `session.onState`, the ONE authority). The pump's
+  // sole job is mirroring the agent's data surface.
   try {
     const cursor = makeClientCursor(session);
     let seq = 0;
@@ -260,7 +247,7 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       log(`pump: mirror ended for client #${seq} — awaiting next client`);
     }
   } finally {
-    unsubConnection?.();
+    /* SR9: no per-session connection subscription to tear down here anymore. */
   }
   // The loop exits on EITHER the session's own destruction OR a supervision
   // `close()` (which aborts `opts.signal` but deliberately PRESERVES the

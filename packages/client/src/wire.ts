@@ -255,21 +255,21 @@ const hostScoped = createRoot(() => {
       }
     });
   }
-  // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
-  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
-  // cold remote provision narrates its real phase instead of a mute "Connecting…".
-  // Deliberately ACTIVE-HOST-ONLY (not retained per host in `createHostWire`): a background
-  // host's connect-phase narration is not a fact to hold warm — only the host you are
-  // looking at needs its overlay live. `useEntry` re-keys the subscription on a host switch
-  // AND on a same-key membership RE-JOIN: the server ends the per-entry connection stream
-  // TYPED when the host flaps out of membership (a re-add mints a fresh session; the
-  // captured forward correctly orphans), and the entry's opaque `membershipId` changes on
-  // that re-add, so the keyed lens disposes the stranded stream and opens a fresh one BY
-  // CONSTRUCTION (PR3 — this is what retired the hand-rolled `createRejoinKeyedSub` rearm).
-  const connection = active.cells.connection.use({
-    onError: (err: Error) =>
-      toast.error(`Connection subscription error: ${err.message}`),
-  }).value;
+  // The ACTIVE host's link health (W6 — "the honest connect"): its `phase`
+  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a cold
+  // remote provision narrates its real phase instead of a mute "Connecting…".
+  //
+  // SR9 — ONE connection authority. This is NO LONGER a second `connection` cell
+  // subscription (that cell is gone). It is the FINE `connection` payload the host map
+  // publishes on the ENTRY — the SAME `active.state()` the dot reads — so the dot and the
+  // word derive from ONE subscription and can never disagree (the drishti#102 divergence
+  // has no encoding left). `useEntry` already re-keys the entry on a host switch AND a
+  // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
+  // Active-host-only falls out for free: only the active entry's state is read here.
+  const connection = (): ConnectionInfo | undefined => {
+    const s = active.state();
+    return s.kind === "not-a-member" ? undefined : s.connection;
+  };
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader

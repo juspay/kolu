@@ -20,12 +20,10 @@ import {
   type AgentClient,
   makeSession,
   pumpRemoteSurface,
-  seedConnectionCell,
   type Session,
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
-import { mirroredSurface } from "@kolu/surface-remote/connection";
 import { z } from "zod";
 
 // ── The agent's base surface (what it serves over stdio) ─────────────────
@@ -67,9 +65,13 @@ export function buildMirror() {
   const processes = new Map<Pid, Proc>();
 
   // #region pump
-  const source = mirroredSurface(base); // adds + reserves the `connection` cell
+  // Re-serve the agent's base surface verbatim. (SR9: per-host connection health is a
+  // host-map concept — a `@kolu/surface-map` map's `entries` channel carries the fine
+  // connection payload, produced by `serveHostMap`; a standalone re-serve like this
+  // carries no `connection` cell.)
+  const source = base;
   const runtime = implementSurface(source, {
-    cells: { load: { store: loadStore }, connection: seedConnectionCell() },
+    cells: { load: { store: loadStore } },
     collections: {
       processes: {
         readAll: () => processes,
@@ -96,9 +98,6 @@ export function buildMirror() {
         },
       },
     }),
-    // The parent is the sole writer of `connection`: the pump projects the
-    // session's lifecycle onto it off `session.onState`.
-    connection: { set: (info) => runtime.ctx.cells.connection.set(info) },
   });
   // #endregion pump
 
@@ -115,11 +114,10 @@ export function buildMirror() {
 // A compact end-to-end mirror — the `@kolu/surface-remote` reference block.
 export function mirrorEndToEnd() {
   // #region endtoend
-  const src = mirroredSurface(base);
+  const src = base;
   const runtime = implementSurface(src, {
     cells: {
       load: { store: inMemoryStore(DEFAULT_LOAD) },
-      connection: seedConnectionCell(),
     },
     collections: {
       processes: {

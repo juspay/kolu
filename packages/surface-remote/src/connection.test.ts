@@ -1,82 +1,35 @@
-import { defineSurface } from "@kolu/surface/define";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   ConnectionInfoSchema,
-  connectionCell,
   DEFAULT_CONNECTION,
-  mirroredSurface,
-  type WithConnection,
+  projectConnection,
 } from "./connection";
-import { projectConnection } from "./connectionPipe";
 import type { SessionState } from "./session";
 import type { SshProv } from "./sshConnector";
 
-/** A minimal base surface to mirror — one cell, one collection. */
-const baseSurface = defineSurface({
-  cells: {
-    version: { schema: z.object({ v: z.string() }), default: { v: "1" } },
-  },
-  collections: {
-    items: { keySchema: z.string(), schema: z.object({ n: z.number() }) },
-  },
-});
+// SR9 — one connection authority. The per-host `connection` CELL (and its
+// `mirroredSurface`/`WithConnection` seam + `pipeSessionStateToCell` pump) is gone: link
+// health rides the host-map entry's fine `connection` payload (see `serveHostMap.test.ts`'s
+// joint-invariant suite). What survives here is the browser-safe TYPE/schema + the pure
+// `projectConnection` leaf a consumer derives the word from the entry with.
 
-// ── Compile-time regression: a CELL-LESS base mirrors to EXACTLY `{ connection }`.
-// A collection/stream-only surface has no `cells` member, so `S["cells"]` is
-// absent; `WithConnection` must model that as `{}` and add only `connection` —
-// NOT widen through `SurfaceSpec`'s `Record<string, CellSpec>` constraint (which
-// would type the mirror as carrying arbitrary string-keyed cells). These assertions
-// fail to compile if the type regrows the widened shape.
-const cellLessBase = defineSurface({
-  collections: {
-    items: { keySchema: z.string(), schema: z.object({ n: z.number() }) },
-  },
-});
-type CellLessSpec = typeof cellLessBase.spec;
-type MirroredCells = WithConnection<CellLessSpec>["cells"];
-// `connection` is present and is exactly `connectionCell`.
-const _connPresent: MirroredCells["connection"] = connectionCell;
-// The cell map has NO arbitrary string index — a bogus key must NOT typecheck.
-// @ts-expect-error — a cell-less base's mirror carries ONLY `connection`, not an
-// open string index of `CellSpec`s.
-const _noArbitraryKey: MirroredCells["someOtherCell"] = connectionCell;
-void _connPresent;
-void _noArbitraryKey;
-
-describe("connection cell", () => {
-  it("is gate-closed by default (connecting) — a fresh cell never reads connected", () => {
-    // The load-bearing invariant: a composed cell starts `connecting`, so
-    // "healthy-empty before the first frame" is structurally unrepresentable.
+describe("ConnectionInfo — the browser-safe connection sum", () => {
+  it("is gate-closed by default (connecting), a valid ConnectionInfo", () => {
+    // The canonical pending value: `connecting`, no log, zero elapsed — what
+    // `connectionOf` returns for a member before its first frame, matching the coarse arm.
     expect(DEFAULT_CONNECTION.phase).toBe("connecting");
     expect(ConnectionInfoSchema.parse(DEFAULT_CONNECTION)).toEqual(
       DEFAULT_CONNECTION,
     );
-    expect(connectionCell.default).toBe(DEFAULT_CONNECTION);
-    expect(connectionCell.schema).toBe(ConnectionInfoSchema);
   });
 
-  it("is read-only over the wire — verbs is ['get'], never 'set'", () => {
-    // The parent host OWNS this cell (it writes it server-side off
-    // `session.onState`). A cell with no `patchSchema` would otherwise default to
-    // `["get", "set"]` and leak `set` onto the browser-facing surface — letting a
-    // remote client forge the host's health to `connected` and defeat the
-    // stale-health gate. Pin the verbs so the contract can't silently regrow `set`.
-    expect([...connectionCell.verbs]).toEqual(["get"]);
-    expect(connectionCell.verbs).not.toContain("set");
-  });
-
-  it("mirrors the session sum: the up phases carry only `log` + `sinceMs` (connected also `clockOffset`), the down phases require error+cause", () => {
+  it("mirrors the session sum: up phases carry only `log` + `sinceMs` (connected also `clockOffset`), down phases require error+cause", () => {
     // UP arms except `connected` (incl. the ssh connector's `probing` opening phase)
     // — parse with only `log` + `sinceMs`, no error fields.
     for (const phase of ["probing", "copying", "building", "connecting"]) {
       expect(
         ConnectionInfoSchema.parse({ phase, log: [], sinceMs: 0 }),
-      ).toEqual({
-        phase,
-        log: [],
-        sinceMs: 0,
-      });
+      ).toEqual({ phase, log: [], sinceMs: 0 });
     }
     // `connected` ALSO carries `clockOffset` (the admit `system.clockNow` reading),
     // nullable until measured — a required field, so a connected value without it is
@@ -129,10 +82,10 @@ describe("connection cell", () => {
     ).toThrow();
   });
 
-  it("projectConnection is the IDENTITY on the session sum (the cell IS SessionState<SshProv>)", () => {
-    // Post-remediation the cell value IS `SessionState<SshProv>`, so the projection is a
-    // provable identity — no arm-by-arm re-box, no runtime zod-throw drift risk. A DOWN
-    // frame passes through unchanged, its unified provenance-tagged log intact.
+  it("projectConnection is the IDENTITY on the session sum (ConnectionInfo IS SessionState<SshProv>)", () => {
+    // The value IS `SessionState<SshProv>`, so the projection is a provable identity — no
+    // arm-by-arm re-box, no runtime zod-throw drift risk. A DOWN frame passes through
+    // unchanged, its unified provenance-tagged log intact.
     const s: SessionState<SshProv> = {
       phase: "failed",
       error: "exited with code 1",
@@ -156,40 +109,5 @@ describe("connection cell", () => {
     expect(projectConnection(up)).toBe(up);
     expect("error" in projectConnection(up)).toBe(false);
     expect(ConnectionInfoSchema.parse(up)).toEqual(up);
-  });
-});
-
-describe("mirroredSurface", () => {
-  it("augments the base with a get-only `connection` cell, preserving the rest", () => {
-    const mirrored = mirroredSurface(baseSurface);
-    // The connection cell is added…
-    expect(Object.keys(mirrored.spec.cells ?? {})).toEqual(
-      expect.arrayContaining(["version", "connection"]),
-    );
-    // …and the base's other primitives survive untouched.
-    expect(Object.keys(mirrored.spec.collections ?? {})).toEqual(["items"]);
-    expect(mirrored.spec.cells?.connection).toBe(connectionCell);
-  });
-
-  it("exposes `connection.get` over the wire but NOT `connection.set` (unforgeable)", () => {
-    // The cell is read-only over RPC: the parent writes it server-side off
-    // `session.onState`; a wire client must never `connection.set` to forge the
-    // host's health. The contract is the wire shape a client can reach.
-    const connection = (
-      mirroredSurface(baseSurface).contract as {
-        surface: { connection: Record<string, unknown> };
-      }
-    ).surface.connection;
-    expect(connection.get).toBeTruthy();
-    expect("set" in connection).toBe(false);
-  });
-
-  it("THROWS on a base that already declares a `connection` cell (reserved name)", () => {
-    const collides = defineSurface({
-      cells: {
-        connection: { schema: z.object({ x: z.string() }), default: { x: "" } },
-      },
-    });
-    expect(() => mirroredSurface(collides)).toThrow(/reserved/i);
   });
 });

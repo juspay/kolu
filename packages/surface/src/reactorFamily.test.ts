@@ -30,7 +30,9 @@ function makeFamily<S>(
     attach: (key, set) => {
       setters.set(key, set);
       if (opts.seed) set(opts.seed(key));
-      return () => disposed.push(key);
+      return () => {
+        disposed.push(key);
+      };
     },
     onEvict: (key) => evicted.push(key),
   });
