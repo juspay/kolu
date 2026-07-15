@@ -17,7 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { derived, source } from "@kolu/surface/reactor";
+import { derived, everyMs, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
@@ -202,11 +202,7 @@ export function buildPadiSurfaceDeps(deps: {
       hostInventory: derived.cell(
         source({
           read: () => samplePadiHostInventory(stateRoot),
-          install: (tick) => {
-            const iv = setInterval(tick, HOST_INVENTORY_SAMPLE_INTERVAL_MS);
-            iv.unref();
-            return () => clearInterval(iv);
-          },
+          install: everyMs(HOST_INVENTORY_SAMPLE_INTERVAL_MS),
         }),
       ),
       // Live process-memory readout (padi's OWN RSS + its kaval's) — a DERIVED
@@ -219,11 +215,7 @@ export function buildPadiSurfaceDeps(deps: {
       processMemory: derived.cell(
         source({
           read: samplePadiMemory,
-          install: (tick) => {
-            const iv = setInterval(tick, MEMORY_SAMPLE_INTERVAL_MS);
-            iv.unref();
-            return () => clearInterval(iv);
-          },
+          install: everyMs(MEMORY_SAMPLE_INTERVAL_MS),
         }),
       ),
       // A DERIVED member — the urgency projection is `recomputeUrgency` folded off

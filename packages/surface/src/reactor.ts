@@ -270,6 +270,20 @@ export function source<T>(
   };
 }
 
+/** The cadence half of a poll `source` — a fixed-interval `install` that never
+ *  holds the process open. `everyMs(ms)` returns the `install` closure a poll
+ *  source reads: `source({ read, install: everyMs(5_000) })`. The interval is
+ *  `unref`'d so a live sampler is not a reason to keep the event loop alive, and
+ *  the returned cleanup clears it. This is the one home for the unref'd-interval
+ *  hygiene every interval-driven poll source would otherwise re-spell. */
+export function everyMs(ms: number): (tick: () => void) => SourceCleanup {
+  return (tick) => {
+    const iv = setInterval(tick, ms);
+    iv.unref();
+    return () => clearInterval(iv);
+  };
+}
+
 /** The POLL source (`source({ read, install })`). Owns the T+0-seed /
  *  non-overlap / log-skip-continue policy the note assigns to "the bridge"; a
  *  `derived.cell` drives it via {@link PollSource.connectPoll}. Unlike the push
