@@ -9,12 +9,14 @@
  * engine's deep import is lint-banned outside this file (`biome.jsonc`), so this
  * wrapper is the graph's only exit by construction, not by review.
  *
- * Exports today: `source` + `scan` (phase 0), and — SR7 — the typed `$`
- * sibling-read face, `computed`, `batch`, and both `derived.cell` forms (a
- * graph-node `derived.cell(node)` and a compute-fn `derived.cell(($) => …)`).
- * Still ahead: `derived.collection` and the poll `source({ read, install })`
- * shape. The full model, laws, and worked examples live in the reactive-bridge
- * note (`docs/atlas/.../surface-reactive-bridge.mdx`).
+ * Exports: `source` (push + poll `{ read, install }` shapes) + `scan` (phase 0);
+ * SR7's typed `$` sibling-read face, `computed`, `batch`, and both `derived.cell`
+ * forms (a graph-node `derived.cell(node)` and a compute-fn `derived.cell(($) =>
+ * …)`); and — SR8 — `derived.collection(node)` (the keyed-reconciler wire adapter)
+ * and the poll source shape. Still ahead: SR9/SR10's keyed machinery
+ * (`reactiveFamily`, `derived.registry`, `signalMap`). The full model, laws, and
+ * worked examples live in the reactive-bridge note
+ * (`docs/atlas/.../surface-reactive-bridge.mdx`).
  *
  * Three guarantees ride every `derived.cell`:
  *   - **one writer, structural** — a `derived.cell(...)` dep is branded so the
