@@ -155,37 +155,29 @@ export function projectConnection<Prov extends SshProv>(
  *
  *  The `Prov`-restore cast is GUARDED, not blind: a host map serving a `connection`
  *  payload is served over ssh-typed sessions by the pool's construction, but the erased
- *  `SessionState<string>` structurally admits any phase, so before the cast the phase is
- *  checked against the ConnectionInfo vocabulary and a non-ssh phase FAILS LOUD (a producer
- *  defect) rather than casting a lie the wire schema would only catch downstream. The check
- *  is a cheap discriminant `Set.has` (no parse-clone — the frame's reference stability is
- *  what the entries `equals` dedup rests on). */
+ *  `SessionState<string>` structurally admits any phase (and a known phase-name without its
+ *  arm-specific fields — a `connected` frame missing `clockOffset`). So the WHOLE frame is
+ *  validated against {@link ConnectionInfoSchema} before the cast, and a malformed / non-ssh
+ *  frame FAILS LOUD (a producer defect) rather than casting a lie the wire schema would only
+ *  catch downstream. On success the ORIGINAL frame is returned (never the parsed clone) —
+ *  reference stability is what the entries `equals` dedup rests on, and `makeSession` stamps
+ *  every arm field, so this validation never trips in steady state; it is the fail-fast
+ *  belt for a future producer that forgets. */
 export function sessionConnection(
   raw: SessionState<string> | undefined,
 ): ConnectionInfo {
   if (raw === undefined) return DEFAULT_CONNECTION;
-  if (!CONNECTION_PHASES.has(raw.phase)) {
+  const parsed = ConnectionInfoSchema.safeParse(raw);
+  if (!parsed.success) {
     throw new Error(
-      `sessionConnection: session frame carries phase "${raw.phase}", which is not a ` +
-        "ConnectionInfo phase — a host map declaring a `connection` payload must be served " +
-        "over ssh-typed sessions (the pool's construction guarantees it). A non-ssh phase " +
-        "is a producer defect; failing loud rather than casting it to ConnectionInfo.",
+      "sessionConnection: session frame is not a valid ConnectionInfo — a host map " +
+        "declaring a `connection` payload must be served over ssh-typed sessions producing " +
+        "valid ConnectionInfo frames (`makeSession` stamps every arm field). Failing loud " +
+        `rather than casting a malformed/non-ssh frame. ${parsed.error.message}`,
     );
   }
+  // The frame IS a valid ConnectionInfo (validated above) — return it, not the clone, so
+  // the reference stays stable for the entries `equals` dedup. `projectConnection` names
+  // the (now-validated) identity.
   return projectConnection(raw as SessionState<SshProv>);
 }
-
-/** The ConnectionInfo phase vocabulary — the ssh connector's provisioning phases plus the
- *  lifecycle, mirroring {@link ConnectionInfoSchema}'s discriminated arms (the
- *  `connectionInfoIdentity` type-d pin guards the schema↔type equivalence; a phase added
- *  there is added here). {@link sessionConnection} checks the erased frame's discriminant
- *  against it before the `Prov`-restore cast. */
-const CONNECTION_PHASES: ReadonlySet<string> = new Set([
-  "probing",
-  "copying",
-  "building",
-  "connecting",
-  "connected",
-  "disconnected",
-  "failed",
-]);
