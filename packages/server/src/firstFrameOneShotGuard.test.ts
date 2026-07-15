@@ -14,20 +14,21 @@
  * this test is the residual fence that keeps it deleted.
  *
  * THE SHAPE THE GUARD FLAGS (precise, AST — not a regex that a nested `(` in the
- * header would fool): a `for await (X of Y)` loop whose body BOTH (a) reaches an
+ * header would fool): a `for await (X of Y)` loop whose body BOTH (a) reaches a
  * `return` or unlabeled `break` as a TOP-LEVEL statement (a direct child of the
  * loop body, not nested inside an `if`/`switch`/`try`) AND (b) has NO `continue`
- * targeting this loop anywhere in its body. Both are needed to prove a one-shot:
- * a top-level exit alone is not enough if a `continue` can start a second
- * iteration first — `for await (const m of s) { if (m.kind === "snapshot")
- * continue; return m; }` reaches a top-level `return` yet consumes MULTIPLE frames
- * (it skips the snapshot to read a delta), a filter-first shape the primitive
- * doesn't serve. So a body with a self-targeting `continue` is spared. A
- * snapshot-then-delta consumer never trips this either way: its exits are
- * CONDITIONAL (`if (msg.kind === "overflow") break`, `if (m !== null) return`),
- * nested inside a conditional, so no TOP-LEVEL exit exists — the loop keeps
- * iterating, exactly why the primitive (which closes the iterator after one frame)
- * can't fit it, and why the guard must not flag it.
+ * targeting this loop anywhere in its body — neither an unlabeled `continue` outside
+ * a nested loop, nor a `continue <thisLoopsLabel>` (which re-targets this loop even
+ * from inside a nested one). Both are needed to prove a one-shot: a top-level exit
+ * alone is not enough if a `continue` can start a second iteration first — `for
+ * await (const m of s) { if (m.kind === "snapshot") continue; return m; }` reaches a
+ * top-level `return` yet consumes MULTIPLE frames (it skips the snapshot to read a
+ * delta), a filter-first shape the primitive doesn't serve. So a body with a
+ * self-targeting `continue` is spared. A snapshot-then-delta consumer never trips
+ * this either way: its exits are CONDITIONAL (`if (msg.kind === "overflow") break`,
+ * `if (m !== null) return`), nested inside a conditional, so no TOP-LEVEL exit
+ * exists — the loop keeps iterating, exactly why the primitive (which closes the
+ * iterator after one frame) can't fit it, and why the guard must not flag it.
  *
  * SCOPE: `kaval-tui/src` + `server/src` — the two consumer trees where a surface
  * one-shot read occurs (kaval-tui's `exit` reads; server's `readPadiMemoryOnce`).
@@ -36,13 +37,14 @@
  * doesn't serve — so the scope is the two trees the property actually lives in.
  *
  * ALLOW-LIST: a genuine one-shot the primitive CANNOT express marks itself with a
- * `first-frame-guard:allow — <reason>` comment on (or just above) the `for await`.
- * The one standing entry is `consumeExit` (kaval-tui/src/wait.ts): its `settle`
- * side effect must fire at frame-arrival, BEFORE the iterator's async close is
- * awaited, because it races `consumeOutput` + the timeout in a `Promise.all` and
- * `settle` is first-wins — an ordering the primitive (which awaits close before it
- * resolves) would change. The reason must follow the marker (the `—`), so an
- * allow-list entry is never a silent mute.
+ * `first-frame-guard:allow — <reason>` comment on, or in the comment block DIRECTLY
+ * above (no blank line between), the `for await`. The reason after the `—` is
+ * mandatory and non-empty, so an allow-list entry is never a silent mute. The one
+ * standing entry is `consumeExit` (kaval-tui/src/wait.ts): its `settle` side effect
+ * must fire at frame-arrival, BEFORE the iterator's async close is awaited, because
+ * it races `consumeOutput` + the timeout in a `Promise.all` and `settle` is
+ * first-wins — an ordering the primitive (which awaits close before it resolves)
+ * would change.
  */
 
 import { parse } from "@babel/parser";
@@ -55,13 +57,15 @@ const SERVER_SRC = dirname(fileURLToPath(import.meta.url)); // packages/server/s
 const PACKAGES = join(SERVER_SRC, "..", ".."); // packages/
 const SCANNED_TREES = [join(PACKAGES, "kaval-tui", "src"), SERVER_SRC];
 
-/** The sanctioned opt-out: a genuine one-shot the primitive can't express. Must
- *  carry a reason after the marker (the `—`), so an allow-list entry is never a
- *  silent mute. */
-const ALLOW_MARKER = /first-frame-guard:allow\s*[—-]/;
+/** The sanctioned opt-out: a genuine one-shot the primitive can't express. The
+ *  `\S` after the dash makes a NON-EMPTY reason mandatory — a bare
+ *  `first-frame-guard:allow —` never mutes anything. */
+const ALLOW_MARKER = /first-frame-guard:allow\s*[—-]\s*\S/;
 
-/** A `continue`/`break` inside one of these re-targets to the NESTED construct, so
- *  it can't prove anything about the `for await` we're inspecting. */
+/** A `continue`/`break` inside one of these re-targets to the NESTED construct — so
+ *  an UNLABELED continue inside it can't prove anything about the `for await` we're
+ *  inspecting. (A LABELED continue naming the inspected loop still targets it, even
+ *  from within one of these — handled separately.) */
 const NESTED_TARGET_TYPES = new Set([
   "ForStatement",
   "ForInStatement",
@@ -86,26 +90,36 @@ function listSourceFiles(tree: string): string[] {
     .map((rel) => join(tree, rel));
 }
 
-/** Recursively visit every AST node reachable through object/array properties. */
-function walk(
+/** Visit every `for await` loop, carrying the label that targets it (a
+ *  `LabeledStatement` wrapping the loop) so a `continue <label>` can be recognized
+ *  as self-targeting. A label binds only to its immediate child statement, so it is
+ *  passed down exactly one hop. */
+function forEachForAwait(
   node: unknown,
-  visit: (n: Record<string, unknown>) => void,
+  ownLabel: string | null,
+  cb: (loop: Record<string, unknown>, label: string | null) => void,
 ): void {
   if (node === null || typeof node !== "object") return;
   if (Array.isArray(node)) {
-    for (const child of node) walk(child, visit);
+    for (const child of node) forEachForAwait(child, null, cb);
     return;
   }
   const rec = node as Record<string, unknown>;
-  if (typeof rec.type === "string") visit(rec);
+  if (rec.type === "LabeledStatement") {
+    const name = (rec.label as { name?: string } | undefined)?.name ?? null;
+    forEachForAwait(rec.body, name, cb);
+    return;
+  }
+  if (rec.type === "ForOfStatement" && rec.await === true) {
+    cb(rec, ownLabel);
+    forEachForAwait(rec.body, null, cb);
+    forEachForAwait(rec.right, null, cb);
+    return;
+  }
   for (const key of Object.keys(rec)) {
-    if (
-      key === "loc" ||
-      key === "leadingComments" ||
-      key === "trailingComments"
-    )
+    if (key === "loc" || key === "leadingComments" || key === "trailingComments")
       continue;
-    walk(rec[key], visit);
+    forEachForAwait(rec[key], null, cb);
   }
 }
 
@@ -120,11 +134,14 @@ function bodyStatements(
 }
 
 /** Does the loop body contain a `continue` that targets THIS loop — an unlabeled
- *  `continue` not enclosed by a nested loop/function? Such a `continue` means the
- *  first iteration need not exit, so a top-level `return`/`break` no longer proves
- *  a one-shot. (Descends manually so it can stop at a nested-loop/function
- *  boundary, which `walk` doesn't track.) */
-function hasSelfContinue(body: Record<string, unknown>): boolean {
+ *  `continue` not enclosed by a nested loop/function, OR a `continue <ownLabel>`
+ *  anywhere (even inside a nested loop, since the label re-targets the outer loop)?
+ *  Such a `continue` means the first iteration need not exit, so a top-level
+ *  `return`/`break` no longer proves a one-shot. */
+function hasSelfContinue(
+  body: Record<string, unknown>,
+  ownLabel: string | null,
+): boolean {
   let found = false;
   const descend = (n: unknown, nested: boolean): void => {
     if (found || n === null || typeof n !== "object") return;
@@ -134,9 +151,12 @@ function hasSelfContinue(body: Record<string, unknown>): boolean {
     }
     const rec = n as Record<string, unknown>;
     const type = rec.type;
-    if (type === "ContinueStatement" && rec.label == null && !nested) {
-      found = true;
-      return;
+    if (type === "ContinueStatement") {
+      const label = (rec.label as { name?: string } | null | undefined)?.name;
+      if (label == null ? !nested : label === ownLabel) {
+        found = true;
+        return;
+      }
     }
     const childNested =
       nested || (typeof type === "string" && NESTED_TARGET_TYPES.has(type));
@@ -150,12 +170,14 @@ function hasSelfContinue(body: Record<string, unknown>): boolean {
   return found;
 }
 
-function isOneShotForAwait(node: Record<string, unknown>): boolean {
-  if (node.type !== "ForOfStatement" || node.await !== true) return false;
+function isOneShotForAwait(
+  node: Record<string, unknown>,
+  ownLabel: string | null,
+): boolean {
   const body = node.body as Record<string, unknown>;
   // A self-targeting `continue` can start a second iteration, so a top-level exit
   // no longer proves the loop reads exactly one frame.
-  if (hasSelfContinue(body)) return false;
+  if (hasSelfContinue(body, ownLabel)) return false;
   return bodyStatements(body).some(
     (s) =>
       s.type === "ReturnStatement" ||
@@ -164,13 +186,16 @@ function isOneShotForAwait(node: Record<string, unknown>): boolean {
 }
 
 /** The `for await` at 1-based `line` is allow-listed if the marker sits on that
- *  line or on the contiguous comment lines directly above it. */
+ *  line or in the comment block DIRECTLY above it. The upward scan stops at the
+ *  first blank line or non-comment line, so a marker in a SEPARATED block never
+ *  reaches down to mute an unrelated loop. */
 function isAllowListed(lines: string[], line: number): boolean {
   if (ALLOW_MARKER.test(lines[line - 1] ?? "")) return true;
   for (let i = line - 2; i >= 0; i--) {
     const t = lines[i]?.trim() ?? "";
-    if (t === "") continue;
-    if (!(t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"))) break;
+    if (t === "") return false; // a blank line breaks the "directly above" block
+    if (!(t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")))
+      return false;
     if (ALLOW_MARKER.test(t)) return true;
   }
   return false;
@@ -187,10 +212,10 @@ function findViolations(): string[] {
         plugins: file.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
       });
       const rel = file.replace(`${PACKAGES}/`, "");
-      walk(ast.program, (node) => {
-        if (!isOneShotForAwait(node)) return;
-        const line = (node.loc as { start: { line: number } } | undefined)
-          ?.start.line;
+      forEachForAwait(ast.program, null, (loop, label) => {
+        if (!isOneShotForAwait(loop, label)) return;
+        const line = (loop.loc as { start: { line: number } } | undefined)?.start
+          .line;
         if (line !== undefined && isAllowListed(lines, line)) return;
         violations.push(`${rel}:${line ?? "?"}`);
       });
@@ -204,17 +229,17 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
     expect(findViolations()).toEqual([]);
   });
 
-  // The detector's own competence: it flags a genuine one-shot, IGNORES a
-  // conditional-exit delta loop, and — the F2 refinement — IGNORES a top-level
-  // return that a `continue` can skip past (a multi-frame filter shape the
-  // primitive doesn't serve). A false-either-way detector would pass this empty.
+  // The detector's own competence: it flags a genuine one-shot, spares a
+  // conditional-exit delta loop, and — the F2 refinement — spares a top-level return
+  // a `continue` (labeled or not) can skip past, while still flagging when a nested
+  // loop's `continue` can't reach the outer one-shot.
   it("flags an unconditional one-shot; spares a conditional-exit or continue-guarded loop", () => {
     const collect = (src: string): string[] => {
       const ast = parse(src, { sourceType: "module", plugins: ["typescript"] });
       const hits: string[] = [];
-      walk(ast.program, (n) => {
-        if (isOneShotForAwait(n))
-          hits.push(String((n.loc as { start: { line: number } }).start.line));
+      forEachForAwait(ast.program, null, (loop, label) => {
+        if (isOneShotForAwait(loop, label))
+          hits.push(String((loop.loc as { start: { line: number } }).start.line));
       });
       return hits;
     };
@@ -228,9 +253,7 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
       collect("async function f(){ for await (const m of s) return m; }"),
     ).toEqual(["1"]);
     expect(
-      collect(
-        "async function f(){ for await (const _m of s) { g(); return; } }",
-      ),
+      collect("async function f(){ for await (const _m of s) { g(); return; } }"),
     ).toEqual(["1"]);
     // delta loop: every exit is nested in an `if` → no top-level exit → NOT flagged.
     expect(
@@ -243,17 +266,50 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
         "async function f(){ for await (const m of s) { if (m!==null) return m; buf+=m; } }",
       ),
     ).toEqual([]);
-    // F2: a top-level return a `continue` can skip → multi-frame → NOT flagged.
+    // F2: a top-level return an UNLABELED `continue` can skip → multi-frame → spared.
     expect(
       collect(
         "async function f(){ for await (const m of s) { if (m.kind==='snapshot') continue; return m; } }",
       ),
     ).toEqual([]);
-    // …but a `continue` in a NESTED loop does NOT spare the outer one-shot.
+    // F2: a LABELED `continue` targeting this loop — even the plain form — also spares it.
+    expect(
+      collect(
+        "async function f(){ outer: for await (const m of s) { if (m.kind==='snapshot') continue outer; return m; } }",
+      ),
+    ).toEqual([]);
+    // …a `continue outer` from INSIDE a nested loop still re-targets the outer one → spared.
+    expect(
+      collect(
+        "async function f(){ outer: for await (const m of s) { for (const x of m) { if (x) continue outer; } return m; } }",
+      ),
+    ).toEqual([]);
+    // …but a `continue` confined to a NESTED loop does NOT spare the outer one-shot.
     expect(
       collect(
         "async function f(){ for await (const m of s) { for (const x of m) { if (x) continue; } return m; } }",
       ),
     ).toEqual(["1"]);
+  });
+
+  // F5: the allow-list marker must be non-empty AND directly attached, or it mutes
+  // nothing — a bare marker and a blank-separated marker do NOT allow-list.
+  it("allow-list requires a non-empty reason in the comment block directly above", () => {
+    const withMarker = (l: string): string[] => l.split("\n");
+    // directly-attached, with a reason → allow-listed.
+    expect(
+      isAllowListed(withMarker("// first-frame-guard:allow — real reason\nfor await"), 2),
+    ).toBe(true);
+    // bare marker, no reason after the dash → NOT allow-listed.
+    expect(
+      isAllowListed(withMarker("// first-frame-guard:allow —\nfor await"), 2),
+    ).toBe(false);
+    // separated by a blank line → NOT allow-listed (not "directly above").
+    expect(
+      isAllowListed(
+        withMarker("// first-frame-guard:allow — reason\n\nfor await"),
+        3,
+      ),
+    ).toBe(false);
   });
 });
