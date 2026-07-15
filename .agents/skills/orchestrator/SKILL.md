@@ -58,12 +58,18 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 
 - Atlas edits authored by the coordinator go through ONE workflow: the branch
   is NAMED `atlas`, checked out in the coordinator's own working directory, and
-  there is EXACTLY ONE atlas branch/PR at any moment. Reuse it if it exists;
-  else cut `atlas` fresh off latest master, in place. The branch is kept
+  there is EXACTLY ONE atlas branch/PR at any moment. The FIRST act of any
+  atlas task is the PR-liveness check, in this order: (1) `git fetch origin
+  --prune`; (2) an OPEN atlas PR exists → reuse its branch; (3) otherwise the
+  previous atlas PR merged (or none exists) and any leftover `atlas` branch —
+  local or remote — is DEAD: reset it to latest origin/master (delete the
+  stale remote if left over) and cut `atlas` FRESH, in place. Never
+  reuse-if-exists without the PR check — a stale local `atlas` surviving a
+  merged PR gets built on and ships dead history (the recorded failure).
+  The branch is kept
   CONTINUOUSLY up to date with master: whenever master moves, merge
   origin/master into `atlas` promptly (never rebase, never force) — staleness
-  is a defect, not a review-time chore. After its PR merges, the branch is deleted and the next atlas task
-  cuts it anew. Batch atlas work there; the PR is opened IMMEDIATELY
+  is a defect, not a review-time chore. Batch atlas work there; the PR is opened IMMEDIATELY
   when the branch is cut (draft), and the human merges when ready. The atlas PR follows
   /forge-pr, and its title/body are RE-WRITTEN after every push — the PR
   always describes its current full contents, never just its first commit. Atlas edits never ride a
