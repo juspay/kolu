@@ -2,6 +2,10 @@
 version: Unreleased
 ---
 
+### Fixed
+
+- <Change title="The Code tab no longer flickers between two files in a runaway loop" pr={1843} tags={["code tab"]}>Clicking around files in the Code tab could suddenly latch into a **runaway loop** — the selection flickered between two neighbouring files many times a second, pegging a CPU core, and only stopped when you switched terminals. The cause: revealing the selected row also **dragged the tree's keyboard focus**, which made the tree re-pick the *neighbour*, which re-revealed it, and so on. Revealing a row now keeps it on-screen **without** moving focus, so the loop can't start. Affected both **All files** and **Branch/Local** diff views.</Change>
+
 ### Changed
 
 - <Change title="Upload larger bug-repro videos to agents" pr={1760} tags={["terminal"]}>Dropped files can now be up to **50 MB**, up from 10 MB. That leaves room for a useful app screen recording while keeping the current whole-file upload path bounded. The same limit applies to every allowed file type and to pasted clipboard images, with matching checks in the browser and padi.</Change>
