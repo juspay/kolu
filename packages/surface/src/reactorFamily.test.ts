@@ -97,8 +97,12 @@ describe("reactiveFamily — per-key disposal + per-member error isolation", () 
     f.family.dispose();
   });
 
-  it("isolates a throwing attach — the member is skipped, siblings unaffected", () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("fails LOUD on a throwing attach (never a silently-dropped member) yet isolates siblings", () => {
+    // A failed attach must NOT collapse an authoritative member to absent (fail-fast):
+    // it rethrows out-of-band. Capture the rethrow deterministically; assert siblings
+    // still attach and the family keeps working.
+    const microtasks: Array<() => void> = [];
+    vi.stubGlobal("queueMicrotask", (cb: () => void) => microtasks.push(cb));
     let emitMembers!: (keys: string[]) => void;
     const members = source<readonly string[]>(
       (emit) => {
@@ -115,14 +119,18 @@ describe("reactiveFamily — per-key disposal + per-member error isolation", () 
         return () => {};
       },
     });
-    // "bad" was skipped (its attach threw) but "good" attached and seeded fine.
+    // "good" attached + seeded fine (sibling isolation); "bad"'s throw was rolled back
+    // (no ghost `latest` entry) and rethrown out-of-band (fail-loud, not a dropped member).
     expect(family.get("good")).toBe(1);
-    expect(errSpy).toHaveBeenCalled();
+    expect(family.get("bad")).toBeUndefined();
+    expect(family.has("bad")).toBe(false);
+    expect(microtasks.length).toBeGreaterThanOrEqual(1);
+    expect(() => microtasks[0]?.()).toThrow(/attach for a member threw/);
     // The family keeps working — a later membership frame still reconciles.
     emitMembers(["good"]);
     expect(family.keys()).toEqual(["good"]);
+    vi.unstubAllGlobals();
     family.dispose();
-    errSpy.mockRestore();
   });
 });
 

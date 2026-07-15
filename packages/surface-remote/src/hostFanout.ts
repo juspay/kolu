@@ -183,71 +183,68 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   // SR9: the pump no longer carries link health onto a `connection` cell — that cell is
   // gone, and link health rides the host-map entry's fine `connection` payload (produced
   // by `serveHostMap` from the pool's `session.onState`, the ONE authority). The pump's
-  // sole job is mirroring the agent's data surface.
-  try {
-    const cursor = makeClientCursor(session);
-    let seq = 0;
-    while (!session.isDestroyed() && !opts.signal?.aborted) {
-      let client: SurfaceClientLike;
-      try {
-        client = await cursor.next(opts.signal);
-      } catch (err) {
-        // A supervision `close()` aborts `opts.signal` while the pump is WAITING
-        // for a fresh client (the link is down, no spawn coming) — `cursor.next`
-        // then rejects with the signal's reason. That is a clean, requested stop,
-        // NOT a failure: log it as such and exit quietly.
-        if (opts.signal?.aborted) {
-          log("pump: supervision stop while waiting for next client — exiting");
-          break;
-        }
-        log(`pump: waiting for next client failed: ${(err as Error).message}`);
+  // sole job is mirroring the agent's data surface. (SR9 removed the per-session
+  // connection subscription that used to need an outer try/finally teardown here.)
+  const cursor = makeClientCursor(session);
+  let seq = 0;
+  while (!session.isDestroyed() && !opts.signal?.aborted) {
+    let client: SurfaceClientLike;
+    try {
+      client = await cursor.next(opts.signal);
+    } catch (err) {
+      // A supervision `close()` aborts `opts.signal` while the pump is WAITING
+      // for a fresh client (the link is down, no spawn coming) — `cursor.next`
+      // then rejects with the signal's reason. That is a clean, requested stop,
+      // NOT a failure: log it as such and exit quietly.
+      if (opts.signal?.aborted) {
+        log("pump: supervision stop while waiting for next client — exiting");
         break;
       }
-      seq += 1;
-      log(`agent client ready (client #${seq}); starting mirror`);
-      // Thread the supervision signal into the mirror: on `close()`'s abort the
-      // active spawn's per-key pumps reject their pulls with `signal.reason`
-      // (swallowed) and settle, so `mirror.done` resolves and the loop's guard
-      // above exits — composing WITH #1719's per-key ownership, not around it.
-      const mirror = mirrorRemoteSurface(
-        opts.source,
-        client,
-        opts.makeSink({ seq }),
-        { log, signal: opts.signal },
-      );
-      // Publish this spawn's forwarding stubs + live client; clear them the
-      // instant the link dies so a forward in the gap fails honestly rather than
-      // calling a dead client. `onChange` wakes any forwarder holding open across
-      // reconnects (an observable holder's `whenChanged()` waiters) — both on the
-      // set (rebind to this spawn) and the clear (the link just died).
+      log(`pump: waiting for next client failed: ${(err as Error).message}`);
+      break;
+    }
+    seq += 1;
+    log(`agent client ready (client #${seq}); starting mirror`);
+    // Thread the supervision signal into the mirror: on `close()`'s abort the
+    // active spawn's per-key pumps reject their pulls with `signal.reason`
+    // (swallowed) and settle, so `mirror.done` resolves and the loop's guard
+    // above exits — composing WITH #1719's per-key ownership, not around it.
+    const mirror = mirrorRemoteSurface(
+      opts.source,
+      client,
+      opts.makeSink({ seq }),
+      { log, signal: opts.signal },
+    );
+    // Publish this spawn's forwarding stubs + live client; clear them the
+    // instant the link dies so a forward in the gap fails honestly rather than
+    // calling a dead client. `onChange` wakes any forwarder holding open across
+    // reconnects (an observable holder's `whenChanged()` waiters) — both on the
+    // set (rebind to this spawn) and the clear (the link just died).
+    if (opts.liveProcedures) {
+      opts.liveProcedures.current = mirror.procedures;
+      opts.liveProcedures.onChange?.();
+    }
+    if (opts.liveClient) {
+      opts.liveClient.current = client;
+      opts.liveClient.onChange?.();
+    }
+    try {
+      await mirror.done;
+    } finally {
       if (opts.liveProcedures) {
-        opts.liveProcedures.current = mirror.procedures;
+        opts.liveProcedures.current = null;
         opts.liveProcedures.onChange?.();
       }
       if (opts.liveClient) {
-        opts.liveClient.current = client;
+        opts.liveClient.current = null;
         opts.liveClient.onChange?.();
       }
-      try {
-        await mirror.done;
-      } finally {
-        if (opts.liveProcedures) {
-          opts.liveProcedures.current = null;
-          opts.liveProcedures.onChange?.();
-        }
-        if (opts.liveClient) {
-          opts.liveClient.current = null;
-          opts.liveClient.onChange?.();
-        }
-        // The link to this spawn is down: let the consumer drop any per-link local
-        // state (e.g. a re-serve's awareness fold) so the NEXT spawn rebuilds from
-        // the fresh snapshot instead of painting a stale row across the reconnect.
-        opts.onLinkDown?.();
-      }
-      log(`pump: mirror ended for client #${seq} — awaiting next client`);
+      // The link to this spawn is down: let the consumer drop any per-link local
+      // state (e.g. a re-serve's awareness fold) so the NEXT spawn rebuilds from
+      // the fresh snapshot instead of painting a stale row across the reconnect.
+      opts.onLinkDown?.();
     }
-  } finally {
-    /* SR9: no per-session connection subscription to tear down here anymore. */
+    log(`pump: mirror ended for client #${seq} — awaiting next client`);
   }
   // The loop exits on EITHER the session's own destruction OR a supervision
   // `close()` (which aborts `opts.signal` but deliberately PRESERVES the

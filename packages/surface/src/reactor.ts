@@ -1097,63 +1097,123 @@ export function reactiveFamily<K, S>(
   // still a member (its `get` is `undefined`), mirroring the old adapter reporting a
   // pool member before its first `onState` frame (→ `projectState(undefined)`).
   const disposers = new Map<K, Disposer>();
+  // Per-attachment generation token. Each `attach` mints a fresh object; the member's
+  // `set` callback is honoured ONLY while its token is still the current one for that key
+  // AND the family is live. A late frame from a torn-down / superseded attachment (a racy
+  // session whose `onState` fires after its disposer, or after a detach + same-key re-add,
+  // or after `dispose()`) is then a fenced no-op — it can never corrupt a detached or
+  // re-added key's state nor resurrect an evicted member. (The push-`source`'s generation
+  // fence, applied per member.)
+  const tokens = new Map<K, object>();
+  // The pull-face's DIRECT listeners — fired synchronously, once per completed change edge
+  // (the old hand-rolled `fire()` fan-out). They are NOT driven off the `version` signal:
+  // a Preact effect over `version` COALESCES two edges that land in one outer batch, which
+  // would fold a same-key remove + re-add into a single notification and leave `members()`
+  // showing the key continuously present — violating the map's clause-3 (the `membershipId`
+  // mint, and the client's per-key lifecycle, rest on remove and re-add being TWO observable
+  // edges). The direct fan-out cannot coalesce. `version` stays ONLY for the lazy GraphNode
+  // `.value` face (a future `derived.collection` consumer), where coalescing is harmless.
+  const listeners = new Set<() => void>();
   const version = signal(0);
   let disposed = false;
+  // While a `reconcile` runs, per-member seed frames DON'T fire individually — the one
+  // trailing `fire()` covers the whole membership frame (all its seeds + the membership
+  // delta) as a SINGLE edge. A state frame OUTSIDE a reconcile fires on its own. So one
+  // membership frame is one edge, and two membership frames (remove, then re-add) are two.
+  let reconciling = false;
 
-  const poke = (): void => {
-    version.value++;
+  // Fail LOUD, out-of-band — NEVER `console.error`-and-continue. A reactiveFamily producer
+  // defect (a failed `attach` that would make an authoritative member silently vanish, a
+  // teardown leak, a republish throw) must crash the process on the next microtask, not
+  // degrade to an empty or stale-but-healthy state (the design philosophy's fail-fast /
+  // caught-error-must-not-collapse-to-empty). Sibling isolation is preserved: the current
+  // frame finishes and siblings are untouched, THEN the invariant surfaces.
+  const failLoud = (msg: string, err: unknown): void => {
+    queueMicrotask(() => {
+      throw new Error(`reactor: reactiveFamily ${msg}`, { cause: err });
+    });
   };
 
-  // Attach ONE key: subscribe its state (a snapshot-then-delta source seeds
-  // synchronously here), caching each frame and poking. Idempotent (an already-attached
-  // key is a no-op). PER-MEMBER ERROR ISOLATION: a throw from `attach` (or the seeding
-  // `set` it drives synchronously) is contained + logged, so one member's defect neither
-  // aborts the membership frame nor tears a sibling down.
-  const attachKey = (key: K): void => {
-    if (disposers.has(key)) return;
-    try {
-      const off = opts.attach(key, (state) => {
-        // Cache FIRST — the poke's readers must never miss the frame — then poke.
-        latest.set(key, state);
-        poke();
-      });
-      disposers.set(key, off);
-    } catch (err) {
-      console.error(
-        "reactor: reactiveFamily attach threw — member skipped, siblings unaffected",
-        err,
-      );
+  // ONE change edge: bump the (coalescing) `.value`-face version, then fan out to the
+  // pull-face listeners directly and synchronously. A listener throw is contained (a
+  // sibling still fires) and rethrown out-of-band.
+  const fire = (): void => {
+    version.value++;
+    for (const l of [...listeners]) {
+      try {
+        l();
+      } catch (err) {
+        failLoud("change listener threw — an invariant/producer defect", err);
+      }
     }
   };
 
-  // Detach ONE key: run its disposer (contained), evict its cached state, fire the
-  // caller's `onEvict` (contained). Symmetric per-key teardown.
+  // Attach ONE key: subscribe its state (a snapshot-then-delta source seeds synchronously
+  // here). Idempotent (an already-attached key is a no-op). PER-MEMBER ERROR ISOLATION +
+  // FAIL-FAST: a throw from `attach` (or the seeding `set` it drives synchronously) rolls
+  // back any partial state, invalidates the token, and FAILS LOUD — a producer defect, not
+  // a silently-dropped member — while leaving siblings' attachment untouched.
+  const attachKey = (key: K): void => {
+    if (disposers.has(key)) return;
+    const token = {};
+    tokens.set(key, token);
+    const set = (state: S): void => {
+      // Fence: honour a frame ONLY from the CURRENT attachment of a LIVE family.
+      if (disposed || tokens.get(key) !== token) return;
+      latest.set(key, state);
+      if (!reconciling) fire(); // during a reconcile, the trailing fire covers the seed
+    };
+    let off: Disposer;
+    try {
+      off = opts.attach(key, set);
+    } catch (err) {
+      tokens.delete(key);
+      latest.delete(key); // roll back a synchronous seed the throwing attach left behind
+      failLoud(
+        "attach for a member threw — a producer defect (an authoritative member must " +
+          "never silently vanish)",
+        err,
+      );
+      return;
+    }
+    disposers.set(key, off);
+  };
+
+  // Detach ONE key: invalidate its token FIRST (so a late frame is fenced), run its
+  // disposer, evict its cached state, fire `onEvict`. A disposer / `onEvict` throw fails
+  // loud (a teardown leak is a defect), never a silent swallow.
   const detachKey = (key: K): void => {
     const off = disposers.get(key);
     disposers.delete(key);
+    tokens.delete(key);
     latest.delete(key);
     try {
       off?.();
     } catch (err) {
-      console.error("reactor: reactiveFamily member disposer threw", err);
+      failLoud("member disposer threw during detach — a teardown leak", err);
     }
     try {
       opts.onEvict?.(key);
     } catch (err) {
-      console.error("reactor: reactiveFamily onEvict threw", err);
+      failLoud("onEvict threw during detach", err);
     }
   };
 
   // Diff a membership frame against the live set: attach entrants, detach leavers, then
-  // poke ONE edge. `members` fires one occurrence per transition (never coalescing), so
-  // each frame is a single-transition delta and the poke is a single observable edge.
+  // fire ONE edge for the whole frame. `members` fires one occurrence per pool transition
+  // (never coalescing), so each frame is a single-transition delta and one observable edge.
   const reconcile = (keys: readonly K[]): void => {
     const next = new Set(keys);
-    for (const key of next) attachKey(key);
-    for (const key of [...disposers.keys()]) {
-      if (!next.has(key)) detachKey(key);
+    reconciling = true;
+    try {
+      for (const key of next) attachKey(key);
+      for (const key of [...disposers.keys()]) {
+        if (!next.has(key)) detachKey(key);
+      }
+    } finally {
+      reconciling = false;
     }
-    poke();
+    fire();
   };
 
   // Subscribe the membership source (installs its tap), THEN reconcile the current
@@ -1174,39 +1234,24 @@ export function reactiveFamily<K, S>(
     keys: () => [...disposers.keys()],
     has: (key) => disposers.has(key),
     get: (key) => latest.get(key),
+    // The pull-face change edge: a DIRECT listener registration (fired synchronously by
+    // `fire`, once per completed change edge — never on subscribe, and never coalesced
+    // across membership frames). Returns an unsubscribe.
     subscribe(onChange) {
-      let first = true;
-      return effect(() => {
-        version.value; // track every change edge
-        if (first) {
-          first = false; // skip the synchronous initial run — report only transitions
-          return;
-        }
-        try {
-          onChange();
-        } catch (err) {
-          // Contained + rethrown OUT-OF-BAND (the old adapter's `fire()` doctrine): a
-          // republish throw is an invariant/producer defect, so fail LOUD after the
-          // frame rather than degrade to a stale-but-healthy status stream — and never
-          // abort a sibling listener's effect or the writer's stack.
-          queueMicrotask(() => {
-            throw new Error(
-              "reactor: reactiveFamily change listener threw — an invariant/producer " +
-                "defect; failing loud rather than degrading to a stale status stream",
-              { cause: err },
-            );
-          });
-        }
-      });
+      listeners.add(onChange);
+      return () => {
+        listeners.delete(onChange);
+      };
     },
     dispose() {
       if (disposed) return;
-      disposed = true;
+      disposed = true; // fences any late `set` callback from a member being torn down
       offMembers();
-      // Detach every member (disposer + onEvict). NO final poke — a change edge after
+      // Detach every member (disposer + onEvict). NO final fire — a change edge after
       // teardown would fire a still-subscribed listener into a torn-down family; the
       // listeners' owners release them (`subscribe` returns their disposer).
       for (const key of [...disposers.keys()]) detachKey(key);
+      listeners.clear();
     },
   };
 }

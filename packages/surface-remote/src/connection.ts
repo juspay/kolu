@@ -151,11 +151,41 @@ export function projectConnection<Prov extends SshProv>(
  *  restores the real `Prov` and delegates the identity to the strict, cast-free
  *  {@link projectConnection}, so the provable-identity insight lives in exactly ONE place
  *  and `projectConnection` is the leaf every session→ConnectionInfo projection routes
- *  through (a real production consumer, not just the type-d pin). */
+ *  through (a real production consumer, not just the type-d pin).
+ *
+ *  The `Prov`-restore cast is GUARDED, not blind: a host map serving a `connection`
+ *  payload is served over ssh-typed sessions by the pool's construction, but the erased
+ *  `SessionState<string>` structurally admits any phase, so before the cast the phase is
+ *  checked against the ConnectionInfo vocabulary and a non-ssh phase FAILS LOUD (a producer
+ *  defect) rather than casting a lie the wire schema would only catch downstream. The check
+ *  is a cheap discriminant `Set.has` (no parse-clone — the frame's reference stability is
+ *  what the entries `equals` dedup rests on). */
 export function sessionConnection(
   raw: SessionState<string> | undefined,
 ): ConnectionInfo {
-  return raw === undefined
-    ? DEFAULT_CONNECTION
-    : projectConnection(raw as SessionState<SshProv>);
+  if (raw === undefined) return DEFAULT_CONNECTION;
+  if (!CONNECTION_PHASES.has(raw.phase)) {
+    throw new Error(
+      `sessionConnection: session frame carries phase "${raw.phase}", which is not a ` +
+        "ConnectionInfo phase — a host map declaring a `connection` payload must be served " +
+        "over ssh-typed sessions (the pool's construction guarantees it). A non-ssh phase " +
+        "is a producer defect; failing loud rather than casting it to ConnectionInfo.",
+    );
+  }
+  return projectConnection(raw as SessionState<SshProv>);
 }
+
+/** The ConnectionInfo phase vocabulary — the ssh connector's provisioning phases plus the
+ *  lifecycle, mirroring {@link ConnectionInfoSchema}'s discriminated arms (the
+ *  `connectionInfoIdentity` type-d pin guards the schema↔type equivalence; a phase added
+ *  there is added here). {@link sessionConnection} checks the erased frame's discriminant
+ *  against it before the `Prov`-restore cast. */
+const CONNECTION_PHASES: ReadonlySet<string> = new Set([
+  "probing",
+  "copying",
+  "building",
+  "connecting",
+  "connected",
+  "disconnected",
+  "failed",
+]);

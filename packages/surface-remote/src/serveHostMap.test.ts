@@ -16,9 +16,14 @@ import {
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ConnectionInfoSchema, sessionConnection } from "./connection";
+import {
+  type ConnectionInfo,
+  ConnectionInfoSchema,
+  sessionConnection,
+} from "./connection";
 import { buildRemotePool } from "./hostFanout";
 import {
+  ConnectionAuthorityMismatchError,
   projectState,
   serveHostMap,
   UnclassifiedHostFailureError,
@@ -57,10 +62,13 @@ const map = defineSurfaceMap({
   connection: ConnectionInfoSchema,
 });
 
-// The SR9 fine-connection projection the padi call site injects — the same shared
-// `sessionConnection` seam production uses (folds the gate-closed "connecting" for a
-// not-yet-seeded member, returns the frame otherwise).
-const connectionOf = sessionConnection;
+// The SR9 fine-connection option the padi call site injects — `sessionConnection` (the
+// shared seam production uses) plus the connected-discriminant serveHostMap asserts the
+// coarse dot against.
+const connection = {
+  project: sessionConnection,
+  isConnected: (c: ConnectionInfo) => c.phase === "connected",
+};
 
 /** A test `failureOf` — classifies a DOWN state's transport `error` into the
  *  schema-valid failure. `failureOf` is only ever invoked on a genuinely-down state,
@@ -416,7 +424,7 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
       const served = serveHostMap(map, pf.pool, {
         linkFor: () => ({ surface: {} }),
         failureOf: classify,
-        connectionOf,
+        connection,
       });
       const link = directLink<AnyContractRouter>(served.router as never);
       pf.add("h", fakeSession(c.state));
@@ -431,4 +439,33 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
       served.dispose();
     });
   }
+
+  it("FAILS LOUD (never publishes) when the dot and word disagree — a divergent projection", async () => {
+    // The invariant is enforced STRUCTURALLY at the producer: a `connection.project` that
+    // contradicts the coarse dot (here it reports `connecting` for a genuinely `connected`
+    // session) can never publish the half-updated pair — `resolve` throws before the entry
+    // reaches the wire. This is what makes the drishti#102 divergence unconstructible-on-wire.
+    // A STATIC pool (subscribe never fires) so the throw surfaces through the client's read,
+    // not a background republish (which would fail loud out-of-band, as designed).
+    const { session } = fakeSession(connected(42));
+    const staticPool = {
+      hosts: () => ["h"],
+      has: (host: string) => host === "h",
+      getSession: (host: string) => (host === "h" ? session : undefined),
+      subscribe: () => () => {},
+    } as unknown as ReturnType<typeof fakePool>["pool"];
+    const served = serveHostMap(map, staticPool, {
+      linkFor: () => ({ surface: {} }),
+      failureOf: classify,
+      connection: {
+        project: () =>
+          ({ phase: "connecting", log: [], sinceMs: 0 }) as ConnectionInfo,
+        isConnected: (c) => c.phase === "connected",
+      },
+    });
+    const link = directLink<AnyContractRouter>(served.router as never);
+    const iter = await entriesGet(link, "h"); // dot → connected, word → connecting: a lie
+    await expect(iter.next()).rejects.toThrow(ConnectionAuthorityMismatchError);
+    served.dispose();
+  });
 });

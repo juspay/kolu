@@ -86,6 +86,30 @@ export class UnclassifiedHostFailureError extends Error {
   }
 }
 
+/** Thrown (SR9) when a connection-bearing map's coarse dot and fine word DISAGREE on
+ *  connected-ness for one member — the drishti#102 divergence ("green dot + permanent
+ *  connecting"). Both are projected from the SAME `SessionState` frame in one `resolve`, so
+ *  a well-behaved `connection.project` never trips this; a firing means the injected
+ *  projection contradicts `projectState` (a producer defect). serveHostMap fails loud
+ *  BEFORE publication so the mismatched pair can never reach the wire — one authority,
+ *  enforced at the seam, not by convention. */
+export class ConnectionAuthorityMismatchError extends Error {
+  constructor(
+    encodedKey: string,
+    dotConnected: boolean,
+    wordConnected: boolean,
+  ) {
+    super(
+      `serveHostMap: host "${encodedKey}" — the coarse dot and the fine connection word ` +
+        `disagree on connected-ness (dot connected=${dotConnected}, word ` +
+        `connected=${wordConnected}). Both derive from ONE SessionState frame, so a ` +
+        "divergence is a producer defect in `connection.project`/`isConnected` — failing " +
+        "loud before publication rather than shipping the drishti#102 dot-vs-word split.",
+    );
+    this.name = "ConnectionAuthorityMismatchError";
+  }
+}
+
 /** {@link projectState}'s PRE-classification output: the phase only. The down arms
  *  (`disconnected`/`failed`) carry NO domain `failure` yet — classification happens
  *  at the map's `resolve` seam via the injected `failureOf`. This is the raw,
@@ -157,17 +181,29 @@ export interface ServeHostMapOptions<K, S, Failure = unknown, Conn = unknown> {
    *  injected). Called once per host; the result is cached here and evicted on
    *  removal, so a re-serve mirror is never built twice for a host. */
   linkFor: (host: K, session: S) => unknown;
-  /** SR9 — project the session's cached frame → the FINE connection payload the entry
-   *  publishes (padi's `ConnectionInfo`: the rich phase + log tail + elapsed the coarse
-   *  `EntryStatus.kind` folds away). Injected because the fine connection's TYPE is domain
-   *  knowledge (`@kolu/surface-remote` is transport-only, the same reason `failureOf` is
-   *  injected). It is called on the SAME `raw` frame, in the SAME `resolve`, as the coarse
-   *  projection — so the dot (`kind`) and the word (`connection`) are co-produced from ONE
-   *  `SessionState` frame and can never disagree (drishti#102 made unspellable). `raw` is
-   *  `undefined` only pre-first-frame (a member seen before its first `onState`); return a
-   *  gate-closed "connecting" connection then, matching the coarse `connecting`. Omit for a
-   *  map that carries no fine connection (the entry then has no `connection` field). */
-  connectionOf?: (raw: SessionState<string> | undefined) => Conn;
+  /** SR9 — the FINE connection payload the entry publishes (padi's `ConnectionInfo`: the
+   *  rich phase + log tail + elapsed the coarse `EntryStatus.kind` folds away), plus its
+   *  connected-discriminant. Injected because the fine connection's TYPE is domain
+   *  knowledge (`@kolu/surface-remote` is transport-only — the same reason `failureOf` is
+   *  injected). Omit for a map that carries no fine connection (the entry then has no
+   *  `connection` field).
+   *
+   *  Both halves are called on the SAME `raw` frame, in the SAME `resolve`, as the coarse
+   *  projection, and serveHostMap ASSERTS they agree: `project` yields the word, and if the
+   *  coarse dot (`kind === "connected"`) and the fine word (`isConnected(word)`) ever
+   *  disagree, `resolve` fails loud ({@link ConnectionAuthorityMismatchError}) BEFORE the
+   *  entry is published — so a half-updated dot/word pair (the drishti#102 divergence) has
+   *  no construction path that reaches the wire, not merely a convention. */
+  connection?: {
+    /** Project the session's cached frame → the fine connection payload. `raw` is
+     *  `undefined` only pre-first-frame (a member seen before its first `onState`); return
+     *  a gate-closed "connecting" payload then, matching the coarse `connecting`. */
+    project: (raw: SessionState<string> | undefined) => Conn;
+    /** Whether the fine payload represents a CONNECTED link — the map's own connected
+     *  discriminant (padi: `c.phase === "connected"`). The invariant serveHostMap enforces
+     *  against the coarse dot. */
+    isConnected: (connection: Conn) => boolean;
+  };
   /** Classify a DOWN session into the map's schema-valid domain `failure` — this
    *  adapter is transport-only (it projects a bare {@link DownSessionState}, which
    *  carries only the transport-axis `cause`, "network" vs "remote"); a domain
@@ -347,16 +383,32 @@ export function serveHostMap<
           "(see juspay/kolu#1716)",
       );
     }
+    // SR9 — the FINE connection payload (the word), projected from the SAME `raw` frame
+    // that produced `state` (the dot) above, in this SAME `resolve`. Absent when no
+    // `connection` option is injected (a map that carries no fine connection).
+    const connection = opts.connection?.project(raw);
+    // Enforce the one-authority invariant STRUCTURALLY, at the producer: the coarse dot and
+    // the fine word MUST agree on connected-ness. `projectState`/`state.kind` and the
+    // injected `project` both read the SAME `raw`, so for a well-behaved projection they
+    // agree by construction — but a divergent `project` (or a future edit) could construct
+    // a "connected dot, connecting word" pair (the drishti#102 divergence). Fail LOUD here,
+    // BEFORE publication, so that pair can never reach the wire — not a convention, a seam.
+    if (opts.connection !== undefined) {
+      const dotConnected = state.kind === "connected";
+      const wordConnected = opts.connection.isConnected(connection as Conn);
+      if (dotConnected !== wordConnected) {
+        throw new ConnectionAuthorityMismatchError(
+          enc,
+          dotConnected,
+          wordConnected,
+        );
+      }
+    }
     return {
       kind: "session",
       link: linkFor(k, session),
       state,
-      // SR9 — the FINE connection payload, projected from the SAME `raw` frame that
-      // produced `state` above, in this SAME `resolve`. One frame → both the dot (`state`
-      // → `kind`) and the word (`connection`); there is no construction path for a
-      // half-updated pair, so the drishti#102 divergence is unspellable. Absent when no
-      // `connectionOf` is injected (a map that carries no fine connection).
-      connection: opts.connectionOf?.(raw),
+      connection,
     };
   };
 

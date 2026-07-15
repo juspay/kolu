@@ -6,9 +6,8 @@
  * dials one remote agent over a {@link HostSession} and re-serves that agent's
  * surface to its own downstream clients (a browser, a TUI). This assembles the
  * whole re-serve from parts the shared stack already owns — the reconnect-mirror
- * loop ({@link pumpRemoteSurface}), the connection-health seam ({@link
- * mirroredSurface} + {@link seedConnectionCell}), and `implementSurface` — and
- * routes EACH member by the surface's forwarding policy ({@link RelayPolicy},
+ * loop ({@link pumpRemoteSurface}) and `implementSurface` — and routes EACH member
+ * by the surface's forwarding policy ({@link RelayPolicy},
  * W1's per-member classification):
  *
  *   - **cells** + **collections** (always `value`) — folded into per-binding
@@ -129,8 +128,8 @@ export interface ReServedSurface<S extends SurfaceSpec> {
    *  `SinkError` (a broken local fold), a client/surface mismatch, or an owned
    *  runtime fault (a cell connector rejecting) — which STOPS the pump (no
    *  further reconnect). A consumer MUST observe `done` and surface such a fault
-   *  loudly (e.g. drive the `connection` cell to failed); dropping it leaks a
-   *  silently-dead binding. (#1661 candidate 9; consumer wiring is W2.2.) */
+   *  loudly (e.g. via its own error surface / the host-map entry's connection payload);
+   *  dropping it leaks a silently-dead binding. (#1661 candidate 9; consumer wiring is W2.2.) */
   done: Promise<void>;
   /** Stop this re-serve: abort the pump (WITHOUT destroying the caller-owned
    *  session — the active mirror's per-key pumps settle via `signal.reason`,

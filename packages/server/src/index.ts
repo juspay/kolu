@@ -525,12 +525,16 @@ const padiMap = serveHostMap(padiHostMap, pool, {
   // seam. So a genuinely-failed entry always classifies.
   failureOf: (_host, session, state): PadiEntryFailure | null =>
     padiFailureOf(session.provisions, session.entryFailedDetail(), state),
-  // SR9 — project the session frame → the entry's fine `connection` payload (the word),
-  // co-produced with the coarse dot from the SAME frame in `serveHostMap.resolve` (no
-  // half-updated pair). `sessionConnection` is the shared total projection for exactly this
-  // seam — it folds the gate-closed `connecting` for a not-yet-seeded member and returns
-  // the frame otherwise (the entries wire schema validates it).
-  connectionOf: sessionConnection,
+  // SR9 — the entry's fine `connection` payload (the word), co-produced with the coarse dot
+  // from the SAME frame in `serveHostMap.resolve`. `project` is the shared `sessionConnection`
+  // total projection (folds the gate-closed `connecting` for a not-yet-seeded member);
+  // `isConnected` is padi's connected-discriminant, which serveHostMap asserts AGAINST the
+  // coarse dot — so a "connected dot, connecting word" pair fails loud before publication
+  // (drishti#102 made structurally unspellable, not merely a convention).
+  connection: {
+    project: sessionConnection,
+    isConnected: (c) => c.phase === "connected",
+  },
 });
 
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
