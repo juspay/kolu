@@ -18,25 +18,44 @@
  *       tags={["terminal"]}>A WebSocket that died without notice … resumes
  *     without a reload.</Change>
  *
- * Used as the content of a Markdown list item (`- <Change …>…</Change>`), so the
- * `<ul>/<li>` come from `.prose-changelog`; this component owns the whole row —
- * its own `→` bullet (which swings to `↓` while expanded), the metadata
- * cluster, and the collapse. Auto-injected into changelog MDX (see
- * `changelog.astro`'s `components` prop), so entries need no import.
- * `repo` / `state` pass straight through to `<PR>` (default: a merged
- * juspay/kolu pull).
+ * One entry can cite MORE than one PR. When an unreleased feature or fix is
+ * iterated across several PRs, they fold into a SINGLE entry that carries every
+ * contributing PR — `prs={[…]}` renders a chip per PR:
+ *
+ *   - <Change title="Work across multiple machines" prs={[1675, 1714, 1743]}
+ *       tags={["multi-host"]}>Point kolu at another machine over ssh …</Change>
+ *
+ * `pr={n}` stays the shorthand for the common single-PR entry; pass `pr` OR
+ * `prs`, never both. Used as the content of a Markdown list item
+ * (`- <Change …>…</Change>`), so the `<ul>/<li>` come from `.prose-changelog`;
+ * this component owns the whole row — its own `→` bullet (which swings to `↓`
+ * while expanded), the metadata cluster, and the collapse. Auto-injected into
+ * changelog MDX (see `changelog.astro`'s `components` prop), so entries need no
+ * import. `repo` / `state` pass straight through to every `<PR>` (default: a
+ * merged juspay/kolu pull).
  */
 import PR from "./PR.astro";
 
 interface Props {
   title: string;
   pr?: number;
+  prs?: number[];
   repo?: string;
   state?: "merged" | "open" | "closed";
   tags?: string[];
 }
 
-const { title, pr, repo, state, tags = [] } = Astro.props;
+const { title, pr, prs, repo, state, tags = [] } = Astro.props;
+
+// One id list, whether the entry used the single-PR shorthand `pr` or the
+// multi-PR `prs`. Fail loud on misuse rather than silently rendering a wrong or
+// empty chip cluster: both props at once is ambiguous, and an empty `prs` is a
+// forgotten value, not "no PR".
+if (pr !== undefined && prs !== undefined)
+  throw new Error(`<Change title="${title}">: pass either \`pr\` or \`prs\`, not both`);
+if (prs !== undefined && prs.length === 0)
+  throw new Error(`<Change title="${title}">: \`prs\` is empty — give at least one PR, or use \`pr\``);
+const prIds = prs ?? (pr !== undefined ? [pr] : []);
 ---
 
 <div class="cl-change" tabindex="0" data-tags={tags.join("|")}>
@@ -51,7 +70,7 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
           </button>
         ))
       }
-      {pr !== undefined && <PR id={pr} repo={repo} state={state} />}
+      {prIds.map((id) => <PR id={id} repo={repo} state={state} />)}
     </span>
   </p>
   <div class="cl-change-reveal">
