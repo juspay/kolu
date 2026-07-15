@@ -217,9 +217,15 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
     });
-    const store = deps.cells?.identity?.store;
+    // White-box read of the authored cell's backing store. The cell-dep slot is a
+    // union whose poll arm carries no `store`, so narrow to the store-bearing shape.
+    const store = (
+      deps.cells?.identity as
+        | { store?: { get: () => PadiIdentity } }
+        | undefined
+    )?.store;
     if (!store) throw new Error("padi deps must back the identity cell");
-    return store.get() as PadiIdentity;
+    return store.get();
   }
 
   it("reuses the caller's startedAt/commit VERBATIM — the same constants `hello` reads, never re-derived", () => {
@@ -421,9 +427,14 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
     });
-    const s = deps.cells?.session?.store;
+    // White-box read of the authored cell's backing store (see `identityBacking`).
+    const s = (
+      deps.cells?.session as
+        | { store?: { get: () => SavedSession | null } }
+        | undefined
+    )?.store;
     if (!s) throw new Error("padi deps must back the session cell");
-    return s as { get: () => SavedSession | null };
+    return s;
   }
 
   afterEach(() => __resetPadiSurfaceCtxForTest());

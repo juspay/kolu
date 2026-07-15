@@ -83,7 +83,7 @@ import {
 // used purely to type the cell deps slot. `import type` is fully erased under
 // this repo's `isolatedModules` + esbuild bundling, so it pulls NO engine value
 // into `server.ts`'s runtime graph (the leaf rationale above stands).
-import type { DerivedComputeCell } from "./reactor";
+import type { DerivedComputeCell, PollDerivedCell } from "./reactor";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -1421,6 +1421,19 @@ type CellDepFor<
   ?
       | CellImplDeps<C>
       | Omit<DerivedComputeCell<S, T>, "connect" | "dispose" | "bindSiblings">
+      // A POLL-source `derived.cell(source(...))`: its synchronous face is honestly
+      // `T | undefined` (undefined until the seed), so it is NOT a `CellImplDeps<C>`
+      // (whose `store` is `CellStore<T>`). The walk seeds the private serving store
+      // from the spec default and drives it through `connect`, so the SERVED value is
+      // a `T` — the `T | undefined` dep face is never served. `connect`/`dispose`/
+      // `store` are dropped from the arm: the runtime reads `connect`/`dispose` off the
+      // branded value directly, and a second `connect` shape OR a `CellStore<T | undefined>`
+      // `store` in the union would de-contextualize a plain authored cell's own inline
+      // `connect`/`store.set` param types. The poll cell's `store: CellStore<T | undefined>`
+      // honesty lives on the {@link PollDerivedCell} return type (checked at the
+      // `derived.cell(...)` call site), not this slot — the slot only ACCEPTS the value,
+      // matched by its poll brand.
+      | Omit<PollDerivedCell<T>, "connect" | "dispose" | "store">
   : CellImplDeps<C>;
 
 export interface ImplementSurfaceDeps<S extends SurfaceSpec> {

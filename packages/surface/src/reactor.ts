@@ -403,38 +403,43 @@ function pollSource<T>({ read, install }: PollSourceOptions<T>): PollSource<T> {
       // own publish; they coalesce into the single post-seed trailing read.
       inFlight = true;
       uninstall = install(() => tickRead(set)) ?? undefined;
-      // T+0 SEED read — its failure PROPAGATES (mirror-never-fabricate: no default
-      // stands in for an unread poll). The signal rides the read so a cooperative
-      // reader unblocks a `close()` waiting on a slow seed.
-      let seed: T;
+      // The whole seed TRANSACTION is guarded — the T+0 read AND its publication:
+      // `install` ran above, so the cadence must be rolled back on EVERY non-success
+      // exit, not just a read rejection. A read failure PROPAGATES (mirror-never-
+      // fabricate: no default stands in for an unread poll); a publisher throw at
+      // `set(seed)` (a cell write hook / a collection reconcile publisher) is the SAME
+      // fault class — connect must reject with the cadence already torn down, never
+      // leave it polling a failed publisher with the disposer never adopted.
       try {
-        seed = await read(signal);
+        // The signal rides the read so a cooperative reader unblocks a `close()`
+        // waiting on a slow seed.
+        const seed = await read(signal);
+        inFlight = false;
+        // Disposed mid-seed (the runtime closed before the first read landed): tear the
+        // cadence down and publish nothing — hand back a no-op disposer.
+        if (disposed) {
+          teardownLoop();
+          return () => {};
+        }
+        level.value = seed;
+        set(seed); // a throwing publisher lands in the catch below → cadence torn down
+        // A change edge during the seed latched `dirty` — do the trailing read now so a
+        // kaval that connected mid-seed is reflected at once, not one cadence later.
+        if (dirty) {
+          dirty = false;
+          tickRead(set);
+        }
+        return teardownLoop;
       } catch (err) {
         inFlight = false;
-        // Never leak the cadence installed above, whichever way the seed ends.
+        // Roll back the cadence installed above, whichever way the transaction ended.
         teardownLoop();
         // An OWNED abort (a `close()` cancelling the seed) is a CLEAN close, not a
-        // seed failure — never fault `done`; hand back a no-op disposer. A GENUINE
-        // seed failure still propagates (first-failure-propagates).
+        // fault — never fault `done`; hand back a no-op disposer. A GENUINE seed read
+        // OR publisher failure still propagates (first-failure-propagates).
         if (isOwnedAbort()) return () => {};
         throw err;
       }
-      inFlight = false;
-      // Disposed mid-seed (the runtime closed before the first read landed): tear the
-      // cadence down and publish nothing — hand back a no-op disposer.
-      if (disposed) {
-        teardownLoop();
-        return () => {};
-      }
-      level.value = seed;
-      set(seed);
-      // A change edge during the seed latched `dirty` — do the trailing read now so a
-      // kaval that connected mid-seed is reflected at once, not one cadence later.
-      if (dirty) {
-        dirty = false;
-        tickRead(set);
-      }
-      return teardownLoop;
     },
     dispose: () => {
       disposed = true;
@@ -562,6 +567,25 @@ export interface DerivedCell<T> {
    *  graph, glitch-free by lazy pull (never the push-lagging mirror). */
   siblingRead(): T;
   readonly [DERIVED_CELL_BRAND]: true;
+}
+
+/** A POLL-source derived cell — the shape `derived.cell(source({ read, install }))`
+ *  returns. It is a {@link DerivedCell} whose SYNCHRONOUS face is honestly
+ *  `T | undefined`, NOT `T`: a poll source has no value until its async T+0 seed
+ *  lands, so `store.get()` and `siblingRead()` read `undefined` before the seed —
+ *  and this type SAYS so, rather than laundering `undefined` into `T`. The wire is
+ *  never served this `undefined`: the boot walk seeds the private serving store from
+ *  the spec DEFAULT (a `T`) and registers the `$` sibling as that mirror, so the
+ *  served value and every `$`-read are a `T`; the `connect` seam publishes a `T` on
+ *  each read. The two `T | undefined` methods are the honest declaration of what the
+ *  DEP's own facade returns pre-seed — the server path does not consult them for a
+ *  poll cell (it uses the spec-default mirror), and no consumer legitimately reads a
+ *  dep's internal store, but the type must not lie about them. */
+export interface PollDerivedCell<T>
+  extends Omit<DerivedCell<T>, "store" | "siblingRead"> {
+  readonly store: CellStore<T | undefined>;
+  siblingRead(): T | undefined;
+  readonly [DERIVED_POLL_BRAND]: true;
 }
 
 /** The COMPUTE-FN form of a derived cell — `derived.cell(($) => …)`. It reads
@@ -1027,8 +1051,11 @@ interface DerivedApi {
    *  served value is a `T` (the store seeds the spec default; each read publishes
    *  a `T`), even though the source's own level is honestly `T | undefined` until
    *  the seed. Without this overload a poll source would fall to the graph-node
-   *  form below as `GraphNode<T | undefined>` and the cell would type `T | undefined`. */
-  cell<T>(node: PollSource<T>): DerivedCell<T>;
+   *  form below as `GraphNode<T | undefined>` and the cell would type `T | undefined`.
+   *  Returns a {@link PollDerivedCell} — its synchronous `store.get()`/`siblingRead()`
+   *  face is honestly `T | undefined` (undefined until the seed), while its `connect`
+   *  publishes `T` and the served value is the spec default until the first read. */
+  cell<T>(node: PollSource<T>): PollDerivedCell<T>;
   cell<T>(node: GraphNode<T>): DerivedCell<T>;
   /** Publish a SIBLING derivation as a cell — `derived.cell(($) => f($.a(), …))`.
    *  `$` is the typed sibling-read face; reading a sibling is depending on it, so

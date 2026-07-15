@@ -922,10 +922,22 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     // assertion; it would fail to typecheck if `value` claimed `number`.
     const level: number | undefined = src.value.value;
     void level;
-    // Yet the DEDICATED poll overload recovers the SERVED `T`: `derived.cell(src)`
-    // is `DerivedCell<number>`, not `DerivedCell<number | undefined>`.
-    const cell: DerivedCell<number> = derived.cell(src);
-    void cell;
+    // The dedicated poll overload returns a `PollDerivedCell<number>` whose CONNECTOR
+    // publishes a `number` (the served value), but whose SYNCHRONOUS dep face is
+    // honestly `number | undefined` — the type does NOT launder pre-seed undefined
+    // into `number`. These assignments are the assertion (F3):
+    const cell = derived.cell(src);
+    const preSeedGet: number | undefined = cell.store.get();
+    const preSeedSibling: number | undefined = cell.siblingRead();
+    void preSeedGet;
+    void preSeedSibling;
+    // @ts-expect-error — `store.get()` is `number | undefined`, NOT `number`: a poll
+    // dep's facade has no value before the seed, and the type says so.
+    const launderedGet: number = cell.store.get();
+    void launderedGet;
+    // @ts-expect-error — `siblingRead()` is `number | undefined`, NOT `number`.
+    const launderedSibling: number = cell.siblingRead();
+    void launderedSibling;
     // The exploit F3 closes: wrapping the level in a `computed` yields a
     // `GraphNode<number | undefined>` (honest), so the cell it makes is
     // `DerivedCell<number | undefined>` — it can NOT masquerade as a `number` cell.
@@ -1106,6 +1118,37 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     // — the mid-seed edge is honoured, not deferred to the next cadence.
     expect(ctx.published).toEqual([1, 2]);
     dc.dispose();
+  });
+
+  it("a throwing seed PUBLISHER tears down the cadence before connect rejects — no leak (F8)", async () => {
+    // Install-before-seed puts the cadence into the seed's publication lifetime, so a
+    // publisher throw (a cell write hook / a collection reconcile publisher) at
+    // `set(seed)` — the SAME fault class as a read failure — must roll the cadence
+    // back immediately, not leave it polling a failed publisher until an external
+    // dispose.
+    let installed = 0;
+    let uninstalled = 0;
+    const src = source<number>({
+      read: () => Promise.resolve(1),
+      install: (t) => {
+        installed++;
+        void t;
+        return () => {
+          uninstalled++;
+        };
+      },
+    });
+    const dc = derived.cell(src);
+    // A cell whose seed publish THROWS.
+    const throwingCell = {
+      set: () => {
+        throw new Error("publisher boom");
+      },
+    };
+    await expect(dc.connect(throwingCell)).rejects.toThrow("publisher boom");
+    // Cadence rolled back at once — no dispose() call, no leaked interval.
+    expect(installed).toBe(1);
+    expect(uninstalled).toBe(1);
   });
 
   it("close during a LATER in-flight read: no failure log, no late publish (owned abort is silent)", async () => {
