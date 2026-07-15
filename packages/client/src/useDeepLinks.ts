@@ -65,8 +65,18 @@ export function useDeepLinks(): void {
 
   /** Enact a terminal route once its target is known to exist. View-only:
    *  activate the tile, walk the split chain for a sub-terminal, open the
-   *  requested right-panel tab. Calls NO mutating verb. */
-  function enact(route: TerminalRoute, meta: TerminalMeta): void {
+   *  requested right-panel tab. Calls NO mutating verb.
+   *
+   *  `repoRoot` carries the git repo root the settle gate has already PROVEN
+   *  present for a `code` route (null for the terminal/inspector kinds, which
+   *  never read it). It is passed in — not re-read from `meta.git` here — so the
+   *  old "code route but no repoRoot" path is gone by construction rather than
+   *  diverted into a silent `return`. */
+  function enact(
+    route: TerminalRoute,
+    meta: TerminalMeta,
+    repoRoot: string | null,
+  ): void {
     const id = route.terminalId;
     const parentId = meta.parentId ?? null;
     if (parentId) {
@@ -82,11 +92,14 @@ export function useDeepLinks(): void {
       .with({ kind: "terminal" }, () => {})
       .with({ kind: "inspector" }, () => rightPanel.showInspector())
       .with({ kind: "code" }, (r) => {
-        // The settle effect defers a `code` route until `git.repoRoot` is
-        // sensed, so it is present here by construction — this guard only
-        // narrows the type (it is not a reachable "no repo" path).
-        const repoRoot = meta.git?.repoRoot;
-        if (!repoRoot) return;
+        // The settle effect only calls enact for a `code` route once
+        // `git.repoRoot` is sensed, and hands it in here — a null is an
+        // internal invariant break (crash loudly), never a reachable
+        // "no repo" case (that path toasts from the backstop below).
+        if (repoRoot === null)
+          throw new Error(
+            "deep-link: code route enacted without a sensed repoRoot",
+          );
         openInCodeTab({
           ref: { path: r.path, startLine: r.line, endLine: r.line },
           repoRoot,
@@ -151,19 +164,44 @@ export function useDeepLinks(): void {
     // yet — a fresh terminal, or the cold-boot window before the watcher
     // re-resolves — doesn't get a false "not a git repository". The effect
     // re-runs when the git fact lands (getMetadata is reactive).
+    //
+    // LEDGER (deferred): this `null` conflates "git not sensed yet" with
+    // "terminal has no repo" because `git` is `GitInfoSchema.nullable()` in
+    // terminal-vocab/src/schema.ts — the ONE snapshot field that doesn't model
+    // its async resolution as a discriminated union the way its siblings `pr`
+    // (PrResultSchema) and `agent` do. The ideal fix aligns git's schema shape
+    // with them — `{ kind: "sensing" } | { kind: "none" } | { kind: "repo";
+    // info }` — so the code route enacts only on the `repo` arm and toasts
+    // immediately on `none`. That is a cross-package + wire migration; deferred.
+    // Until then the backstop below hedges the no-repo case with a
+    // git-specific message instead of the host-unreachable one.
     if (route.kind === "code" && !meta.git?.repoRoot) return;
     setPending(null);
-    enact(route, meta);
+    enact(route, meta, meta.git?.repoRoot ?? null);
   });
 
-  // Bounded backstop: if membership never settles (host unreachable / stuck
-  // warming), give up loudly rather than wait forever.
+  // Bounded backstop: if the wait never resolves, give up loudly rather than
+  // wait forever. Two DIFFERENT reasons land here, and the message must tell
+  // them apart: (1) membership never settled — host unreachable / stuck warming
+  // — the plain "couldn't reach the host" case; (2) a `code` route whose host
+  // WAS reached and whose terminal exists, but whose `git` never resolved to a
+  // repo root — because `git: null` is both "not sensed yet" and "no repo"
+  // (see the settle-effect ledger), we can't prove which, so hedge with a
+  // git-specific message rather than falsely blame the host. The git wording is
+  // gated on `route.kind === "code"` so a terminal/inspector route that timed
+  // out via the membership path never masquerades as a "no git repo".
   createEffect(() => {
     const route = pending();
     if (!route) return;
     const timer = setTimeout(() => {
-      if (pending() === route) {
-        setPending(null);
+      if (pending() !== route) return;
+      setPending(null);
+      const meta = store.getMetadata(route.terminalId);
+      if (route.kind === "code" && meta && !meta.git?.repoRoot) {
+        toast.error(
+          "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
+        );
+      } else {
         toast.error("Couldn't reach the host for that link in time.");
       }
     }, MEMBERSHIP_BOUND_MS);
