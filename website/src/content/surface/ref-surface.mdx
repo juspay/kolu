@@ -304,6 +304,18 @@ application error that must **not** retry.
 | `deadTransportError(code, message)` | mint a non-retriable dead-transport `ORPCError` |
 | `isDeadTransportError(err)` | recognize those dead-transport codes — the recognition twin of `deadTransportError` |
 
+### `pollOnChange` (`@kolu/surface/poll-on-change`) — the client pulse-then-requery core
+
+The framework-free CLIENT dual of the server's `pollOnEvent`: subscribe a
+value-bearing `{seq}` PULSE stream (over `unenrolledStreamCall`, so it carries
+`STREAM_RETRY`), re-run a request/response procedure on every frame (initial
+snapshot + each change + each post-reconnect snapshot), abort-supersede a slow
+read, and emit through `onResult` / `onError` / `onComplete`. Zero Solid/kolu
+imports — the loop only. The SolidJS ergonomics (a reconciled store, `.pending()`,
+the #818 selection-stability guard) wrap it in `packages/client`'s
+`createPolledQuery`; a consumer needing the same pattern reaches for the wrapper,
+not this engine directly.
+
 ## Liveness and health
 
 Liveness is on by construction. `surface.system.live` (`@kolu/surface/liveness`)
