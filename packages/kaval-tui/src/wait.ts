@@ -366,6 +366,15 @@ export async function awaitOutputCondition(
         { id: opts.id },
         { signal: abort.signal },
       );
+      // Deliberately NOT `firstFrameOrUndefined` (SR6 non-adoption): this settle
+      // is a side effect that must fire the INSTANT the first exit frame arrives,
+      // BEFORE the iterator's async close is awaited — because `consumeExit` races
+      // `consumeOutput` and the timeout in a `Promise.all`, and `settle` is
+      // first-wins. The primitive does `for await … return frame`, which awaits
+      // AsyncIteratorClose before it resolves, so it would move `settle` PAST that
+      // close and let a competing timer/feed event win the race first (and fold the
+      // close latency into `elapsedMs`). The open-coded loop keeps settle-then-close
+      // ordering, so it stays. (first-frame-guard:allow — ordering-sensitive.)
       for await (const _msg of stream) {
         settle({ kind: "gone", elapsedMs: elapsed() });
         return;
