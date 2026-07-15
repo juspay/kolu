@@ -21,8 +21,8 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.2.10",
-    "@pierre/trees": "^1.0.0-beta.4",
+    "@pierre/diffs": "^1.2.12",
+    "@pierre/trees": "^1.0.0-beta.5",
     "solid-js": "^1.9.0"
   }
 }
