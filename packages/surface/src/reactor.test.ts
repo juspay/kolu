@@ -304,7 +304,7 @@ describe("derived.cell", () => {
       inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
-    dc.connect(ctx);
+    void dc.connect(ctx);
     // The first (synchronous) connect run pushes the seed, deduped against the
     // identical store seed → nothing published at wiring.
     expect(ctx.published).toEqual([]);
@@ -330,7 +330,7 @@ describe("derived.cell", () => {
       inMemoryStore(dc.store.get()),
       (a: { level: string }, b: { level: string }) => a.level === b.level,
     );
-    dc.connect(ctx);
+    void dc.connect(ctx);
     expect(ctx.published).toEqual([]); // seed deduped
 
     emit(85); // ok -> alert
@@ -418,7 +418,7 @@ describe("derived.cell", () => {
     const count = scan(src, 0, (n) => n + 1);
     const dc = derived.cell(count);
 
-    dc.connect({ set: () => {} });
+    void dc.connect({ set: () => {} });
     expect(() => dc.connect({ set: () => {} })).toThrow(/twice/);
     dc.dispose();
   });
@@ -451,7 +451,7 @@ describe("computed", () => {
     );
     // Eager seed from the computed's current value (count 0 → 0), never a default.
     expect(dc.store.get()).toBe(0);
-    dc.connect(ctx);
+    void dc.connect(ctx);
     expect(ctx.published).toEqual([]); // seed deduped at wiring
 
     emit(0); // count → 1 → doubled 2
@@ -816,7 +816,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
-    dc.connect(ctx);
+    void dc.connect(ctx);
 
     emit(0); // count 1 → 2
     expect(ctx.published).toEqual([2]);
@@ -871,5 +871,154 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
     });
     expect(ctx.cells.mirror.get()).toBe(7);
+  });
+});
+
+describe("source (poll shape) — derived.cell(source({ read, install }))", () => {
+  it("seeds from the T+0 read, then re-reads and publishes on each tick", async () => {
+    let value = 1;
+    let tick!: () => void;
+    let uninstalled = 0;
+    const src = source({
+      read: () => Promise.resolve(value),
+      install: (t) => {
+        tick = t;
+        return () => {
+          uninstalled++;
+        };
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(
+      inMemoryStore<number | undefined>(undefined),
+      (a, b) => a === b,
+    );
+    // The connect is ASYNC for a poll source — it awaits the T+0 seed read.
+    const dispose = await dc.connect(ctx);
+    expect(ctx.published).toEqual([1]); // T+0 seed published
+
+    value = 2;
+    tick();
+    await flush();
+    expect(ctx.published).toEqual([1, 2]); // re-read on tick
+
+    value = 2; // unchanged value — the member `equals` dedups it
+    tick();
+    await flush();
+    expect(ctx.published).toEqual([1, 2]);
+
+    dispose();
+    expect(uninstalled).toBe(1); // the disposer uninstalls the caller's cadence
+  });
+
+  it("first-read failure PROPAGATES — the connect rejects (a boot crash)", async () => {
+    const src = source<number>({
+      read: () => Promise.reject(new Error("sensor down")),
+      install: () => () => {},
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+    await expect(dc.connect(ctx)).rejects.toThrow("sensor down");
+    expect(ctx.published).toEqual([]); // nothing served — never a fabricated default
+  });
+
+  it("a LATER read that throws is log-skip-continue (holds the last value)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "ok" | "boom" = "ok";
+      let tick!: () => void;
+      const src = source<number>({
+        read: () =>
+          mode === "ok"
+            ? Promise.resolve(5)
+            : Promise.reject(new Error("blip")),
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(
+        inMemoryStore<number | undefined>(undefined),
+        (a, b) => a === b,
+      );
+      await dc.connect(ctx);
+      expect(ctx.published).toEqual([5]);
+
+      mode = "boom";
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5]); // held — no new publish, no throw out
+      expect(spy).toHaveBeenCalledOnce();
+      dc.dispose();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("non-overlap guard: a tick during an in-flight read is skipped", async () => {
+    let reads = 0;
+    let resolveRead!: (n: number) => void;
+    let tick!: () => void;
+    const src = source<number>({
+      read: () => {
+        reads++;
+        return new Promise<number>((r) => {
+          resolveRead = r;
+        });
+      },
+      install: (t) => {
+        tick = t;
+        return () => {};
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+    const connectP = dc.connect(ctx); // T+0 seed read in flight (reads === 1)
+    expect(reads).toBe(1);
+    resolveRead(1);
+    await connectP;
+
+    tick(); // re-read in flight (reads === 2)
+    tick(); // SKIPPED — a read is already in flight
+    expect(reads).toBe(2);
+    resolveRead(2);
+    await flush();
+    dc.dispose();
+  });
+
+  it("rides implementSurface: a poll cell seeds the spec DEFAULT, then publishes reads", async () => {
+    let value = 100;
+    let tick!: () => void;
+    const src = source({
+      read: () => Promise.resolve(value),
+      install: (t) => {
+        tick = t;
+        return () => {};
+      },
+    });
+    const surface = defineSurface({
+      cells: {
+        temp: {
+          schema: z.number(),
+          default: -1,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { ctx, done } = implementSurface(surface, {
+      cells: { temp: derived.cell(src) },
+    });
+    void done;
+    // The seed read resolves on a microtask; before it lands the cell serves the
+    // spec DEFAULT (behavior-neutral with the hand-rolled sampler), never undefined.
+    await flush();
+    expect(ctx.cells.temp.get()).toBe(100); // first read published over the default
+
+    value = 200;
+    tick();
+    await flush();
+    expect(ctx.cells.temp.get()).toBe(200);
   });
 });

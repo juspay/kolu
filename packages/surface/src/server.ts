@@ -73,6 +73,7 @@ import {
   type DerivedCellBranded,
   isDerivedCellDeps,
   isDerivedComputeCellDeps,
+  isDerivedPollCellDeps,
   type SiblingSource,
   type SiblingSourcesRuntime,
 } from "./reactorBrand";
@@ -1866,8 +1867,16 @@ function walkSurface<const S extends SurfaceSpec>(
     // and re-seed it (eager pull) in the deferred bind pass below, before any
     // handler can read it — no wire reader exists until the runtime starts.
     const isComputeCell = isDerivedComputeCellDeps(cellDeps);
+    // A poll-source derived cell has no synchronous seed (its T+0 read is async),
+    // so — like a compute cell before its bind — seed the private store from the
+    // spec DEFAULT; the async `connect` publishes the first read over it. This is
+    // the value the hand-rolled sampler served pre-first-sample, so the conversion
+    // stays behavior-neutral (and `connect`'s first-read failure still propagates).
+    const isPollCell = isDerivedPollCellDeps(cellDeps);
     const rawStore: CellStore<unknown> = isDerivedCellDeps(cellDeps)
-      ? inMemoryStore(isComputeCell ? cellSpec.default : cellDeps.store.get())
+      ? inMemoryStore(
+          isComputeCell || isPollCell ? cellSpec.default : cellDeps.store.get(),
+        )
       : cellDeps.store;
     // The BRIDGE-OWNED store wrapper both cell write paths land in: `set` writes
     // the value, then fires this cell's post-equals change edge (the "mirror

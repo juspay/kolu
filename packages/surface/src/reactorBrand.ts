@@ -108,3 +108,27 @@ export function isDerivedComputeCellDeps(
       true
   );
 }
+
+/** Property key branding a `derived.cell(source({ read, install }))` — a derived
+ *  cell backed by a POLL source, whose graph node has NO synchronous seed value:
+ *  the T+0 read is async, so the node's level is `undefined` until the first read
+ *  lands (published through the async `connect`). The boot walk reads this brand
+ *  to seed the private serving store from the member's SPEC DEFAULT (the value the
+ *  hand-rolled sampler served pre-first-sample — behavior-neutral) rather than an
+ *  eager `store.get()` pull that would seed `undefined` and break serialization
+ *  before the first read. `Symbol.for` for the same duplicate-module reason as
+ *  {@link DERIVED_CELL_BRAND}. A poll cell is always a derived cell, so it carries
+ *  BOTH brands; it is NOT a compute cell (no `$` bind). */
+export const DERIVED_POLL_BRAND: unique symbol = Symbol.for(
+  "kolu.surface.reactor.derivedPollCell",
+);
+
+/** Whether a cell dep is a POLL-source derived cell (so the walk seeds its store
+ *  from the spec default — the node has no synchronous seed until the first read). */
+export function isDerivedPollCellDeps(deps: unknown): boolean {
+  return (
+    isDerivedCellDeps(deps) &&
+    (deps as unknown as Record<PropertyKey, unknown>)[DERIVED_POLL_BRAND] ===
+      true
+  );
+}
