@@ -67,18 +67,24 @@ export function parseDeepLink(hash: string): ParsedDeepLink {
   const pathPart = qIndex === -1 ? raw : raw.slice(0, qIndex);
   const queryPart = qIndex === -1 ? "" : raw.slice(qIndex + 1);
 
-  // Decode each non-empty path segment; a malformed %-escape is not a route we
-  // ever produced — reject it whole.
+  // Split into segments and decode each. A malformed %-escape is not a route we
+  // ever produced — reject it whole. Strip EXACTLY ONE leading empty segment
+  // (the leading "/"); any OTHER empty segment — a repeated "//", a trailing
+  // "/" — is malformed, not a member of the grammar, so reject rather than
+  // silently collapse it (the reject-whole contract). "" / "#" / "#/" already
+  // returned `none` above.
+  const rawSegments = pathPart.split("/");
+  if (rawSegments[0] === "") rawSegments.shift();
+  if (rawSegments.length === 0) return { kind: "none" };
+  if (rawSegments.some((s) => s === "")) {
+    return invalid("empty path segment (a repeated or trailing slash)");
+  }
   let segments: string[];
   try {
-    segments = pathPart
-      .split("/")
-      .filter((s) => s.length > 0)
-      .map((s) => decodeURIComponent(s));
+    segments = rawSegments.map((s) => decodeURIComponent(s));
   } catch {
     return invalid("malformed URL-encoding in the path");
   }
-  if (segments.length === 0) return { kind: "none" };
 
   const [family, ...rest] = segments;
 
@@ -124,11 +130,14 @@ export function parseDeepLink(hash: string): ParsedDeepLink {
       const lineRaw = params.get("line");
       let line: number | null = null;
       if (lineRaw !== null) {
-        // A positive integer only — reject 0, negatives, decimals, non-numerics.
-        if (!/^[0-9]+$/.test(lineRaw) || Number(lineRaw) < 1) {
+        // A positive SAFE integer only — reject 0, negatives, decimals,
+        // non-numerics, AND digit strings that overflow to Infinity or round
+        // past Number.MAX_SAFE_INTEGER to a different line.
+        const n = Number(lineRaw);
+        if (!/^[0-9]+$/.test(lineRaw) || !Number.isSafeInteger(n) || n < 1) {
           return invalid(`?line must be a positive integer: ${lineRaw}`);
         }
-        line = Number(lineRaw);
+        line = n;
       }
       return { kind: "code", host, terminalId, path, line };
     }

@@ -42,7 +42,7 @@ describe("deep-link router is view-only (the negative pin)", () => {
       "setActiveSubTab",
       "showInspector",
       "openInCodeTab",
-      "setSettingsOpen",
+      "openSettings",
     ]) {
       expect(routerSrc).toContain(allowed);
     }

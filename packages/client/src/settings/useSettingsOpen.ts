@@ -9,5 +9,16 @@
  *  accessor/setter pair rather than threading props through the shell. */
 
 import { createSignal } from "solid-js";
+import { setChromeDrawerOpen } from "../useChromeDrawer";
 
 export const [settingsOpen, setSettingsOpen] = createSignal(false);
+
+/** Open the settings view from anywhere (the `#/settings` deep link). On touch
+ *  the popover lives inside the pull-down chrome drawer, so open that first;
+ *  on desktop the drawer signal has no live consumer, so this is just
+ *  "show settings". One canonical action so a caller can't open the popover
+ *  without the surface that hosts it. */
+export function openSettings(): void {
+  setChromeDrawerOpen(true);
+  setSettingsOpen(true);
+}

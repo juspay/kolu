@@ -20,18 +20,24 @@
  *  the file list, applied here to terminal membership. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { decodeHostKey } from "kolu-common/hostKey";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  batch,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { type DeepLink, type ParsedDeepLink, parseDeepLink } from "./deepLink";
 import { openInCodeTab } from "./right-panel/openInCodeTab";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { setSettingsOpen } from "./settings/useSettingsOpen";
+import { openSettings } from "./settings/useSettingsOpen";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { setActiveHost } from "./wire";
+import { activeHost, setActiveHost } from "./wire";
 
 /** How long a terminal deep link waits for the target host's membership to
  *  settle before giving up loudly (step 4b) — covers a cold boot where the host
@@ -67,15 +73,19 @@ export function useDeepLinks(): void {
    *  activate the tile, walk the split chain for a sub-terminal, open the
    *  requested right-panel tab. Calls NO mutating verb.
    *
-   *  `repoRoot` carries the git repo root the settle gate has already PROVEN
-   *  present for a `code` route (null for the terminal/inspector kinds, which
-   *  never read it). It is passed in — not re-read from `meta.git` here — so the
-   *  old "code route but no repoRoot" path is gone by construction rather than
-   *  diverted into a silent `return`. */
+   *  `anchorMeta` is the metadata of the tile that OWNS the right panel — the
+   *  parent tile for a sub-terminal, else the target itself. The right panel is
+   *  per-TILE (`useRightPanel` keys off the active tile), so a `code`/`inspector`
+   *  route on a split addresses the parent tile's panel, and `code` resolves its
+   *  path against THAT tile's repo (`anchorMeta.git.repoRoot`, which the settle
+   *  gate has already proven present) — never the split's, which the panel can't
+   *  represent. A null repoRoot at a `code` enact is an internal invariant break
+   *  (crash loudly), not a reachable "no repo" path (that toasts from the
+   *  backstop). */
   function enact(
     route: TerminalRoute,
     meta: TerminalMeta,
-    repoRoot: string | null,
+    anchorMeta: TerminalMeta,
   ): void {
     const id = route.terminalId;
     const parentId = meta.parentId ?? null;
@@ -90,20 +100,23 @@ export function useDeepLinks(): void {
     }
     match(route)
       .with({ kind: "terminal" }, () => {})
-      .with({ kind: "inspector" }, () => rightPanel.showInspector())
+      .with({ kind: "inspector" }, () => {
+        // `showInspector` only selects the tab — `reveal` is the separate
+        // visibility action, so a collapsed desktop panel / closed touch drawer
+        // needs both to actually surface the Inspector.
+        rightPanel.showInspector();
+        rightPanel.reveal();
+      })
       .with({ kind: "code" }, (r) => {
-        // The settle effect only calls enact for a `code` route once
-        // `git.repoRoot` is sensed, and hands it in here — a null is an
-        // internal invariant break (crash loudly), never a reachable
-        // "no repo" case (that path toasts from the backstop below).
-        if (repoRoot === null)
+        const repoRoot = anchorMeta.git?.repoRoot;
+        if (!repoRoot)
           throw new Error(
             "deep-link: code route enacted without a sensed repoRoot",
           );
         openInCodeTab({
           ref: { path: r.path, startLine: r.line, endLine: r.line },
           repoRoot,
-          cwd: meta.cwd,
+          cwd: anchorMeta.cwd,
           targetMode: "browse",
           // A deep-link path is explicit (GitHub-style exact), never a bare
           // terminal-printed basename — resolve it exactly or fail loud.
@@ -114,8 +127,9 @@ export function useDeepLinks(): void {
   }
 
   /** Switch to the link's host first (switch-then-focus — the id must route
-   *  against ITS host, never whatever padi is active), then defer to the settle
-   *  effect. */
+   *  against ITS host, never whatever padi is active), then arm the settle
+   *  effect — ATOMICALLY, so the effect never runs against a half-updated
+   *  (new pending, old host) state. */
   function routeToTerminal(route: TerminalRoute): void {
     setActiveHost(decodeHostKey(route.host));
     setPending(route);
@@ -123,19 +137,29 @@ export function useDeepLinks(): void {
 
   /** Route a parsed link. Host/settings act immediately; a terminal target
    *  defers. `none` is silent (no route present); `invalid` toasts + stays home
-   *  (never silently ignores a new link shape). */
+   *  (never silently ignores a new link shape).
+   *
+   *  Batched, and clears any still-armed terminal route FIRST: a newer
+   *  navigation always supersedes an older pending one, so a stale route can't
+   *  enact or toast after the user has moved on (a later host/settings switch,
+   *  or a second link). */
   function navigate(link: ParsedDeepLink): void {
-    match(link)
-      .with({ kind: "none" }, () => {})
-      .with({ kind: "invalid" }, ({ reason }) =>
-        toast.error(`That link doesn't point anywhere kolu knows: ${reason}`),
-      )
-      .with({ kind: "settings" }, () => setSettingsOpen(true))
-      .with({ kind: "host" }, ({ host }) => setActiveHost(decodeHostKey(host)))
-      .with({ kind: "terminal" }, (l) => routeToTerminal(l))
-      .with({ kind: "code" }, (l) => routeToTerminal(l))
-      .with({ kind: "inspector" }, (l) => routeToTerminal(l))
-      .exhaustive();
+    batch(() => {
+      setPending(null);
+      match(link)
+        .with({ kind: "none" }, () => {})
+        .with({ kind: "invalid" }, ({ reason }) =>
+          toast.error(`That link doesn't point anywhere kolu knows: ${reason}`),
+        )
+        .with({ kind: "settings" }, () => openSettings())
+        .with({ kind: "host" }, ({ host }) =>
+          setActiveHost(decodeHostKey(host)),
+        )
+        .with({ kind: "terminal" }, (l) => routeToTerminal(l))
+        .with({ kind: "code" }, (l) => routeToTerminal(l))
+        .with({ kind: "inspector" }, (l) => routeToTerminal(l))
+        .exhaustive();
+    });
   }
 
   // The settle-then-verdict effect (CodeTab's `pendingOpen` precedent, over
@@ -145,7 +169,21 @@ export function useDeepLinks(): void {
   createEffect(() => {
     const route = pending();
     if (!route) return;
+    // Only decide once the ACTIVE host IS the route's host: `setActiveHost`
+    // re-windows the list sub to the new host, so deciding before the switch has
+    // landed would read the WRONG host's membership. Guards the stale-settle /
+    // cross-host race (a second link to another host, or a manual switch while
+    // this route is armed).
+    if (encodeHostKey(activeHost()) !== route.host) return;
     if (store.listSub.pending()) return; // membership not settled — wait
+    if (store.listSub.error()) {
+      // The list stream faulted — `pending()` is false but the value is stale
+      // or absent, so we can't honestly say "gone". Fail the link loudly rather
+      // than invent a gone-verdict from a broken subscription.
+      setPending(null);
+      toast.error("Couldn't load this host's terminals to resolve the link.");
+      return;
+    }
     const id = route.terminalId;
     const inList = (store.listSub() ?? []).some((t) => t.id === id);
     if (!inList) {
@@ -157,6 +195,13 @@ export function useDeepLinks(): void {
     }
     const meta = store.getMetadata(id);
     if (!meta) return; // in the list but its record hasn't composed yet — wait
+    // The right panel is per-TILE, so a `code`/`inspector` route addresses the
+    // tile that OWNS the panel — the parent tile for a sub-terminal, else the
+    // target itself. Resolve its record; `code` waits on and resolves against
+    // THAT tile's repo, not the split's (which the panel can't represent).
+    const anchorId = meta.parentId ?? id;
+    const anchorMeta = anchorId === id ? meta : store.getMetadata(anchorId);
+    if (!anchorMeta) return; // the owning tile's record hasn't composed yet
     // A `/code` route needs the terminal's repo root — a THIRD async fact (the
     // git sensor) that settles INDEPENDENTLY of membership, and `git` is `null`
     // both for "no repo" and "not sensed yet". Wait for it too (the 8s backstop
@@ -175,9 +220,9 @@ export function useDeepLinks(): void {
     // immediately on `none`. That is a cross-package + wire migration; deferred.
     // Until then the backstop below hedges the no-repo case with a
     // git-specific message instead of the host-unreachable one.
-    if (route.kind === "code" && !meta.git?.repoRoot) return;
+    if (route.kind === "code" && !anchorMeta.git?.repoRoot) return;
     setPending(null);
-    enact(route, meta, meta.git?.repoRoot ?? null);
+    enact(route, meta, anchorMeta);
   });
 
   // Bounded backstop: if the wait never resolves, give up loudly rather than
@@ -196,8 +241,13 @@ export function useDeepLinks(): void {
     const timer = setTimeout(() => {
       if (pending() !== route) return;
       setPending(null);
+      // The repo fact lives on the tile that owns the panel (the parent for a
+      // sub), same as the settle gate reads it.
       const meta = store.getMetadata(route.terminalId);
-      if (route.kind === "code" && meta && !meta.git?.repoRoot) {
+      const anchorMeta = meta
+        ? store.getMetadata(meta.parentId ?? route.terminalId)
+        : undefined;
+      if (route.kind === "code" && anchorMeta && !anchorMeta.git?.repoRoot) {
         toast.error(
           "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
         );
@@ -209,15 +259,23 @@ export function useDeepLinks(): void {
   });
 
   onMount(() => {
-    // (a) boot parse — a bookmark opened cold.
-    navigate(parseDeepLink(window.location.hash));
     // (c) PWA launch (Chromium): a focus-existing launch hands the URL here,
-    // WITHOUT navigating the already-open window. Reflect its hash into the
+    // WITHOUT navigating an already-open window. Reflect its hash into the
     // address bar (durability — a later reload re-navigates), letting the
     // `hashchange` listener act; navigate directly only when the hash is
     // identical/empty (no event would fire).
+    //
+    // Registered BEFORE the boot parse: on a COLD installed launch the browser
+    // both loads the target URL (so `location.hash` is set) AND queues the same
+    // LaunchParams, which `setConsumer` drains synchronously here — so running
+    // the boot parse unconditionally would route the same hash TWICE (a double
+    // toast on an invalid link). `launchHandled` records that the queued launch
+    // already covered the initial navigation, so the boot parse runs only when
+    // it didn't (a normal load, or a browser without `launchQueue`).
+    let launchHandled = false;
     const lq = (window as unknown as { launchQueue?: LaunchQueue }).launchQueue;
     lq?.setConsumer((params) => {
+      launchHandled = true;
       if (!params.targetURL) return;
       let hash: string;
       try {
@@ -231,6 +289,9 @@ export function useDeepLinks(): void {
       }
       navigate(parseDeepLink(hash));
     });
+    // (a) boot parse — a bookmark opened cold (skipped if the launch consumer
+    // already handled this load's initial launch).
+    if (!launchHandled) navigate(parseDeepLink(window.location.hash));
   });
 
   // (b) live in-app navigation — a `#/…` link clicked while kolu is open. The

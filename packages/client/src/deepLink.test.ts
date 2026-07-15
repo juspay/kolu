@@ -103,6 +103,21 @@ describe("parseDeepLink — 'invalid' (toast + home, never silent)", () => {
     [`#/t/local/${ID}/code/extra`, "extra segment after code"],
     [`#/settings/extra`, "settings with extra segment"],
     [`#/unknown`, "unknown family"],
+    // malformed slashes — repeated / trailing empty segments are not the grammar
+    [`#/h//local`, "double slash before host"],
+    [`#/settings/`, "trailing slash on settings"],
+    [`#/h/local/`, "trailing slash on host"],
+    [`#/t//local/${ID}`, "double slash in a terminal route"],
+    [`#/t/local/${ID}/`, "trailing slash on a terminal route"],
+    // line must be a positive SAFE integer
+    [
+      `#/t/local/${ID}/code?path=x&line=99999999999999999999`,
+      "line overflows to Infinity",
+    ],
+    [
+      `#/t/local/${ID}/code?path=x&line=9007199254740992`,
+      "line past MAX_SAFE_INTEGER",
+    ],
   ];
 
   it.each(cases)("rejects %s (%s)", (hash) => {

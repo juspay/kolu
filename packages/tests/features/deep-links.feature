@@ -50,7 +50,26 @@ Feature: Deep links — every view addressable by a #/… URL
     And the selected file should show content "beta"
     And line 2 should be selected in the file content
 
+  Scenario: A #/t/.../inspector link to a split opens the tile's Inspector and focuses the sub
+    # The right panel is per-TILE, so a sub-terminal's /inspector addresses the
+    # parent tile's panel — and it must REVEAL (showInspector only selects the
+    # tab). Assert the Inspector is showing/active AND the sub pane is live.
+    When I create a sub-terminal via command palette
+    And I remember the sub-terminal's id
+    And I create a terminal
+    And I follow the live deep link "#/t/local/{sub}/inspector"
+    Then the Inspector tab should be active
+    And the sub pane should be the active pane
+
   Scenario: A #/settings link opens the settings popover
+    When I follow the live deep link "#/settings"
+    Then the settings popover should be visible
+
+  @mobile
+  Scenario: A #/settings link opens settings on a phone, drawer and all
+    # On touch the settings popover lives inside the pull-down chrome drawer,
+    # which is closed by default — the route must open that drawer first, or the
+    # popover has nothing to anchor to.
     When I follow the live deep link "#/settings"
     Then the settings popover should be visible
 
