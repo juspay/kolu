@@ -71,9 +71,32 @@ export function getPadiServeSocketPath(): string | undefined {
   return padiServeSocketPath;
 }
 
+// Listeners fired when a daemon's status changes (a kaval connect/disconnect).
+// padi's derived poll cells (`processMemory`, `hostInventory`) fuse a re-sample
+// onto their cadence through this, so a fresh daemon re-reads the INSTANT its kaval
+// connects — instead of publishing a stale-but-valid startup frame (kaval absent /
+// inventory without the just-spawned kaval) that would stand authoritative for a
+// full interval, since a poll cell's connect fires at serve time, before the
+// endpoint boots the kaval.
+const statusChangeListeners = new Set<() => void>();
+
+/** Subscribe to daemon-status changes — a kaval connect/disconnect/re-arm. Returns
+ *  an unsubscribe. Used to FUSE an immediate re-sample onto a fixed poll cadence
+ *  (the padi memory/host-inventory poll cells), so the readout reflects a
+ *  just-connected endpoint at once rather than up to one interval later. */
+export function onDaemonStatusChange(listener: () => void): () => void {
+  statusChangeListeners.add(listener);
+  return () => {
+    statusChangeListeners.delete(listener);
+  };
+}
+
 function publishFullDaemonStatus(hostId: string, status: DaemonStatus): void {
   store.set(hostId, status);
   padiSurfaceCtx.collections.daemonStatus.upsert(hostId, status);
+  // Notify AFTER the store + surface update so a fused re-sample reads the fresh
+  // status. Snapshot the set so a listener that (un)subscribes mid-fan-out is safe.
+  for (const listener of [...statusChangeListeners]) listener();
 }
 
 /** Record + publish a host's daemon status. The endpoint's `onStatus` sink. Folds
