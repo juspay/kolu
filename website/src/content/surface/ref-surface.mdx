@@ -142,26 +142,41 @@ teardown `reServeSurface` used to hand-roll, and the seam both `reServeSurface` 
 sync-abort pump wrapped as one `close`) and `extendSurface` (a full re-served base
 runtime) route through.
 
-## The reactor (reactive bridge, phase 0)
+## The reactor (reactive bridge)
 
 `@kolu/surface/reactor` is the one exit from a backend signal graph into the
 cell machinery — state is a signal, derived state a computed, and the wire is
 the signal boundary that snapshots and replays. The signals engine
 (`@preact/signals-core`) is wrapped here and lint-banned everywhere else, so this
-wrapper is the graph's only exit by construction. Phase 0 exports exactly three
-symbols.
+wrapper is the graph's only exit by construction.
 
 | Export                      | Signature                                           | Role                                                                                                                                                                                                             |
 | --------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `source(install, initial?)` | `(SourceInstall<T>, T?) → Source<T>`                | an external push input; `install(emit)` returns an uninstall fn, installed lazily on the first subscriber and torn down when the last leaves. `initial` seeds the level (else `undefined` until the first frame) |
 | `scan(src, initial, step)`  | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes                                        |
-| `derived.cell(node)`        | `(GraphNode<T>) → DerivedCell<T>`                   | publish a graph node as a cell — the `{ store, connect }` deps for an `implementSurface` `cells.<key>` slot                                                                                                      |
+| `computed(fn)`              | `(() => T) → GraphNode<T>`                           | a derived value reading OTHER graph nodes — a private intermediate several wire members can share without any becoming a wire member. Glitch-free by the engine's version-checked lazy pull; nothing to dispose  |
+| `batch(fn)`                 | `(() => void) → void`                               | group several graph writes into ONE frame so derivations recompute once — the one knob an app reaches for to coalesce a multi-member burst of ctx writes                                                        |
+| `derived.cell(node)`        | `(GraphNode<T>) → DerivedCell<T>`                   | publish a pre-built graph node (a `scan`, a `computed`) as a cell — the deps for an `implementSurface` `cells.<key>` slot                                                                                        |
+| `derived.cell(($) => …)`    | `(($: SiblingRead<S>) => T) → DerivedComputeCell<S, T>` | publish a SIBLING derivation as a cell; `$` is the typed sibling-read face (`$.someCell(): T`, `$.someCollection(): ReadonlyMap<K, T>`). Reading a sibling is depending on it — the cell recomputes when a sibling it read changed |
 
-Three guarantees ride phase 0:
+The `$` face is a plain mapped type over the surface spec (`SiblingRead<S>` in
+`@kolu/surface/define`), typed at the declaration site by the deps slot — no
+`keyof` union explosion. An authored sibling's graph face is a mirror the bridge
+pokes **post-spec-equals**, riding a bridge-owned store wrapper both cell write
+paths pass through (so a missed poke is unwritable, not a rider held by tests); a
+derived sibling reads as its own `computed`, so every chain is a pure computed
+graph — glitch-free by the engine's lazy pull even across a diamond, and a
+suppressed write never pokes. Declaration order is irrelevant: the boot walk
+builds every derived node before it seeds any, so a `derived.cell` may read a
+sibling `derived.cell` via `$` whether declared before or after it — only a
+genuine cycle fails.
+
+Guarantees a `derived.cell` rides:
 
 - **Wire-read-only by construction.** A `derived.cell` dep is branded; the boot walk crashes if that cell declares any write verb (`set` / `patch` / `test__set`). The graph is the member's only writer.
-- **Dedup at the member's `equals`, once.** A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire.
-- **Never fabricates.** The cell seeds from its node's current level by an eager pull at wiring (a throw at seed time is a boot crash) — truth, never a fabricated default served before the value exists.
+- **Dedup at the member's `equals`, once.** A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire. `equals` lives on the member's spec.
+- **Never fabricates.** The cell seeds from its node's current level by an eager pull at wiring (a throw at seed time is a boot crash) — truth, never a fabricated default served before the value exists. A compute cell's node is built after every sibling mirror exists, then eager-pulled.
+- **Compute error policy: log-skip-continue.** A throw in a `derived.cell(($) => …)` recompute is logged and the last published value HELD; the next successful recompute heals it (contrast `scan`'s stop-hold, which carries state).
 
 `scan` carries the **stop-hold error law**: a step that throws stops the
 derivation (its source subscription is disposed), holds the last value (never a

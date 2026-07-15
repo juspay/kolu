@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { derived } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { ORPCError } from "@orpc/server";
@@ -89,7 +90,7 @@ import {
 } from "./terminals.ts";
 import { exportTranscriptHtml } from "./transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
-import { recomputeUrgency, urgencyEqual } from "./urgency.ts";
+import { recomputeUrgency } from "./urgency.ts";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —
@@ -196,13 +197,16 @@ export function buildPadiSurfaceDeps(deps: {
       // latest via `get`. No `equals` dedup: the 5s cadence + small payload is
       // cheap, and padi can't reuse kolu-common's whole-MB helper across the seal.
       processMemory: { store: inMemoryStore(DEFAULT_PADI_PROCESS_MEMORY) },
-      // In-memory urgency store, seeded from the registry fold. The metadata seam
-      // (`terminalEndpoint/metadata.ts`) re-folds `.set(recomputeUrgency())` on the
-      // agent firehose through the padi ctx; `equals` dedups the redundant fires.
-      urgency: {
-        store: inMemoryStore(recomputeUrgency()),
-        equals: urgencyEqual,
-      },
+      // A DERIVED member — the urgency projection is `recomputeUrgency` folded off
+      // the `terminals` collection through the reactive bridge's `$` sibling read.
+      // The graph tracks the `terminals → urgency` edge, so no seam has to remember
+      // to refold: urgency recomputes exactly when a terminals upsert/remove fires,
+      // and the spec's `equals` (`urgencyEqual`) is the ONE wire dedup point. This
+      // deletes the old `publishUrgency` rider on every composed publish (worked
+      // example 1 of the reactive-bridge note). No `store`/`equals` here — the graph
+      // is the one writer (a write verb would crash the boot walk) and `equals`
+      // lives on the spec.
+      urgency: derived.cell(($) => recomputeUrgency($.terminals())),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The

@@ -445,6 +445,22 @@ export const PadiUrgencySchema = z.object({
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 
+/** Two urgency readings are equal when they carry the same awaiting ids in the
+ *  same order — the urgency cell's `equals`, so the ~150 ms agent firehose (the
+ *  `terminals` collection's write-triggers, which the derived `urgency` cell
+ *  recomputes off) can't re-publish an unchanged projection. The count is derived
+ *  (`awaitingIds.length`), so comparing ids alone is already complete. Lives here
+ *  beside the value schema (it is a property of the `PadiUrgency` VALUE) so the
+ *  spec can declare it directly — the bridge's "equals lives at the member, once"
+ *  law — without `surface.ts` reaching into the fold module. */
+export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
+  if (a.awaitingIds.length !== b.awaitingIds.length) return false;
+  for (let i = 0; i < a.awaitingIds.length; i++) {
+    if (a.awaitingIds[i] !== b.awaitingIds[i]) return false;
+  }
+  return true;
+}
+
 // ── Procedure I/O schemas (padiSurface's own — NOT the dying root ones) ────
 //
 // These are the NEW contract shapes lifecycle/chrome/screen/bytes/session
@@ -657,11 +673,15 @@ export const padiSurface = defineSurface({
       default: DEFAULT_PADI_IDENTITY,
       verbs: ["get"],
     },
-    /** The recency-free urgency projection — read-only on the client; padi's
-     *  registry fold is the sole writer. */
+    /** The recency-free urgency projection — read-only on the client; a DERIVED
+     *  member (`derived.cell(($) => recomputeUrgency($.terminals()))` in
+     *  `servePadi.ts`), so the graph is its one writer: it recomputes whenever the
+     *  `terminals` collection it reads changes, and `equals` is the ONE wire dedup
+     *  point (declared here at the member, per the reactive bridge's law). */
     urgency: {
       schema: PadiUrgencySchema,
       default: { awaitingIds: [] } satisfies PadiUrgency,
+      equals: urgencyEqual,
       verbs: ["get"],
     },
     /** Host-side build-currency facts — today the `expectedKaval` axis (the kaval

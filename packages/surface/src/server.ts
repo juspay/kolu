@@ -63,11 +63,24 @@ import {
 } from "./identity";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
-// The derived-cell brand lives in its own import-free leaf so the boot walk can
-// spot a reactor `derived.cell(...)` dep WITHOUT importing `reactor.ts` (which
-// imports the signals engine) — no import cycle, and the engine stays reachable
-// only through `reactor.ts`.
-import { isDerivedCellDeps } from "./reactorBrand";
+// The derived-cell brands live in their own import-free leaf so the boot walk
+// can spot a reactor `derived.cell(...)` dep — and its compute-fn variant —
+// WITHOUT importing `reactor.ts` (which imports the signals engine). The walk
+// bridges each sibling into the graph through plain `SiblingSource` closures
+// (read + a synchronous post-equals change edge), so the engine stays reachable
+// only through `reactor.ts`: the walk itself never touches a signal.
+import {
+  type DerivedCellBranded,
+  isDerivedCellDeps,
+  isDerivedComputeCellDeps,
+  type SiblingSource,
+  type SiblingSourcesRuntime,
+} from "./reactorBrand";
+// Type-only: the compute-cell carrier is the return of `derived.cell(($) => …)`,
+// used purely to type the cell deps slot. `import type` is fully erased under
+// this repo's `isolatedModules` + esbuild bundling, so it pulls NO engine value
+// into `server.ts`'s runtime graph (the leaf rationale above stands).
+import type { DerivedComputeCell } from "./reactor";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -1446,6 +1459,27 @@ export type ProcedureImpl<
 
 // ── ImplementSurfaceDeps ────────────────────────────────────────────────
 
+/** A cell's implementation dep: an ordinary {@link CellImplDeps} (its own store,
+ *  or a graph-node `derived.cell(node)` — which is structurally a `CellImplDeps`
+ *  with a `connect`), OR the compute-fn `derived.cell(($) => …)` carrier, whose
+ *  `S` phantom flows the surface's sibling types back to the `$` parameter at the
+ *  declaration site. The compute arm drops `connect`/`dispose`/`bindSiblings` — the
+ *  runtime reads those off the branded value directly; keeping the callback
+ *  `connect` in the union would de-contextualize a plain cell dep's own `connect`
+ *  callback (its `cell` param would infer `any`). What survives carries what the
+ *  slot needs: the brands, the `store` (its `T` validates the compute's return
+ *  against the cell schema), and the `S` phantom. */
+type CellDepFor<
+  S extends SurfaceSpec,
+  C extends CellSpec<unknown, unknown>,
+> = C extends {
+  schema: ZodType<infer T>;
+}
+  ?
+      | CellImplDeps<C>
+      | Omit<DerivedComputeCell<S, T>, "connect" | "dispose" | "bindSiblings">
+  : CellImplDeps<C>;
+
 export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
   /** Default subsequent-read error handler for poll-shape streams (those
    *  declared with `{ read, install, isEqual }` rather than a raw `source`).
@@ -1456,7 +1490,7 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
   onStreamReadError?: (err: unknown, info: { stream: string }) => void;
 
   cells?: {
-    [K in keyof S["cells"] & string]: CellImplDeps<NonNullable<S["cells"]>[K]>;
+    [K in keyof S["cells"] & string]: CellDepFor<S, NonNullable<S["cells"]>[K]>;
   };
   collections?: {
     [K in keyof S["collections"] & string]: CollectionImplDeps<
@@ -1751,6 +1785,72 @@ function walkSurface<const S extends SurfaceSpec>(
   // runtime supervises the started sources via `done` / `close`.
   const starts: SurfaceSourceStart[] = [];
 
+  // ── Reactor sibling-read (`$`) machinery ───────────────────────────────
+  // A compute-fn `derived.cell(($) => …)` reads its siblings through `$`. The
+  // walk bridges each cell/collection into the graph with a plain
+  // `SiblingSource`: `read()` returns the sibling's CURRENT value, and
+  // `subscribe(cb)` registers a synchronous change edge fired by the sibling's
+  // post-equals write. The walk never touches a signal — `reactor.ts` wraps each
+  // source in a version signal when a compute cell binds, so the engine stays
+  // reachable only through the reactor.
+  //
+  // A `siblingChange[key]` fan-out is the "post-equals mirror poke": the
+  // bridge-owned store wrapper both cell write paths pass through calls it AFTER
+  // the value lands (so only accepted writes fire), and the wrapped collection
+  // publishers call it on every key change — a missed poke is unwritable by
+  // construction, not a rider held by pinning tests.
+  // NULL-prototype dictionaries: member names are arbitrary `Record<string, …>`
+  // keys, so a cell legitimately named `toString` / `constructor` / `valueOf` must
+  // not collide with an inherited `Object.prototype` property — that would make the
+  // duplicate-key guard below fire falsely, and would leak an inherited function as
+  // a "source" to the `$` Proxy (`sources[name]`). A null prototype means a lookup
+  // is truthy ONLY for a genuinely registered member.
+  const siblingSources: SiblingSourcesRuntime = Object.create(null);
+  const siblingChange: Record<string, () => void> = Object.create(null);
+  // A cell/collection registers its live read + change fan-out here. Subscribers
+  // are held per key; `subscribe` returns an unsubscribe the compute cell runs on
+  // dispose. `engineTracked` marks a DERIVED member (its `read` is a reactor-made
+  // closure over its `computed`, held here opaquely — the walk never touches a
+  // signal): the `$` face reads it directly, so a derived-reads-derived chain is a
+  // pure computed graph, glitch-free. An AUTHORED member leaves it false and rides
+  // the version-signal bridge fed by `siblingChange`.
+  const registerSibling = (
+    key: string,
+    read: () => unknown,
+    engineTracked = false,
+  ): void => {
+    // Cell and collection names are disjoint by construction — `defineSurface`
+    // rejects a name declared as both (the `$` flat-namespace invariant is checked
+    // at definition, where the spec lives), so no key is ever registered twice here.
+    const subscribers = new Set<() => void>();
+    siblingSources[key] = {
+      read,
+      subscribe: (cb) => {
+        subscribers.add(cb);
+        return () => {
+          subscribers.delete(cb);
+        };
+      },
+      engineTracked,
+    } satisfies SiblingSource;
+    siblingChange[key] = () => {
+      for (const cb of subscribers) cb();
+    };
+  };
+  // Compute cells cannot build their node until every sibling source exists (a
+  // sibling collection is walked AFTER the cells), so their bind + eager seed is
+  // deferred to one pass after both loops.
+  // Compute-cell wiring, split into two independent phases so the deferred build
+  // is a TWO-PASS walk: `bind` builds the (lazy) `engineComputed` node; `seed`
+  // eager-pulls it into the private store. Pass A runs every `bind`, then pass B
+  // runs every `seed` — so a compute cell that reads a DERIVED sibling via `$`
+  // finds that sibling's node already built regardless of declaration order (the
+  // engine's lazy DAG orders the pull). No upstream-before-downstream contract.
+  const bindComputeCells: Array<{
+    bind: (sources: SiblingSourcesRuntime) => void;
+    seed: () => void;
+  }> = [];
+
   // ── Cells ────────────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
     const cellSpec = rawSpec as CellSpec<unknown, unknown>;
@@ -1819,9 +1919,58 @@ function walkSurface<const S extends SurfaceSpec>(
     // and drives it exclusively through the `connect` seam below, so `cellHandlers.get`
     // and `ctxApply` read/write this closure-private store, never anything on the dep.
     // A non-derived cell uses its own `store` directly.
-    const store: CellStore<unknown> = isDerivedCellDeps(cellDeps)
-      ? inMemoryStore(cellDeps.store.get())
+    //
+    // A COMPUTE-fn derived cell's node does not exist until `bindSiblings` (a
+    // sibling collection is walked AFTER the cells), so its facade `get` throws
+    // before bind. Seed the private store with the spec DEFAULT as a placeholder
+    // and re-seed it (eager pull) in the deferred bind pass below, before any
+    // handler can read it — no wire reader exists until the runtime starts.
+    const isComputeCell = isDerivedComputeCellDeps(cellDeps);
+    const rawStore: CellStore<unknown> = isDerivedCellDeps(cellDeps)
+      ? inMemoryStore(isComputeCell ? cellSpec.default : cellDeps.store.get())
       : cellDeps.store;
+    // The BRIDGE-OWNED store wrapper both cell write paths land in: `set` writes
+    // the value, then fires this cell's post-equals change edge (the "mirror
+    // poke"). `applyAndPublish` and `ctxApply` both check `equals` BEFORE calling
+    // `set`, so the poke is POST-equals by construction — a suppressed write never
+    // pokes, and a third write path would poke for free. Reads pass straight
+    // through. `siblingChange[key]` is populated by `registerSibling` just below.
+    const store: CellStore<unknown> = {
+      get: () => rawStore.get(),
+      set: (next) => {
+        rawStore.set(next);
+        siblingChange[key]?.();
+      },
+    };
+    // Expose this cell to `$`. A DERIVED cell (either `derived.cell` form) is read
+    // as its graph node's computed — an ENGINE-TRACKED read (a reactor-made closure,
+    // `siblingRead`, held opaquely here — the walk touches no signal), so a
+    // derived-reads-derived chain is a pure computed graph, glitch-free by lazy
+    // pull, per the bridge law. An AUTHORED cell is read as its post-equals mirror
+    // (the store wrapper above is its change edge, bridged via a version signal).
+    if (isDerivedCellDeps(cellDeps)) {
+      const derivedDeps = cellDeps as unknown as DerivedCellBranded;
+      registerSibling(key, () => derivedDeps.siblingRead(), true);
+    } else {
+      registerSibling(key, () => store.get());
+    }
+    // Defer a compute cell's node build (`bind`) and eager seed (`seed`) until
+    // every sibling source exists, and keep them as SEPARATE phases: `bindSiblings`
+    // builds the (lazy) node — evaluating nothing — while the eager pull re-seeds
+    // the private store (a throw is a boot crash — mirror-never-fabricate) WITHOUT
+    // firing the poke (a seed is not a change; no subscriber exists yet). The two
+    // deferred loops run all binds before any seed, so every derived sibling's node
+    // already exists by the time any seed pulls it — order-independent.
+    if (isComputeCell) {
+      const computeDeps = cellDeps as unknown as DerivedComputeCell<
+        SurfaceSpec,
+        unknown
+      >;
+      bindComputeCells.push({
+        bind: (sources) => computeDeps.bindSiblings(sources),
+        seed: () => rawStore.set(computeDeps.store.get()),
+      });
+    }
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
@@ -2039,6 +2188,12 @@ function walkSurface<const S extends SurfaceSpec>(
     // "membership-change only" contract this stream promises, and untested.) The
     // published array is always the live `readAll()` set, so the seed only ever
     // suppresses a redundant snapshot, never a wrong one.
+    // Expose this collection to `$`: a sibling read returns its LIVE map
+    // (`readAll()`); its change edge fires on every accepted key change below (a
+    // version poke — a compute reading `$.<coll>()` re-runs, then its OWN member
+    // `equals` is the final wire dedup). Registered before the wrapped publishers
+    // so `siblingChange[key]` exists when they fire.
+    registerSibling(key, () => collDeps.readAll());
     const broadcastKeys = new Set<unknown>(collDeps.readAll().keys());
     const wrappedUpsert = (k: unknown, v: unknown) => {
       collDeps.upsert(k, v);
@@ -2048,6 +2203,7 @@ function walkSurface<const S extends SurfaceSpec>(
       }
       perKeyBus(k).publish(v);
       coalescer?.upsert(k, v);
+      siblingChange[key]?.(); // version poke — a $-reader of this collection recomputes
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
@@ -2055,6 +2211,7 @@ function walkSurface<const S extends SurfaceSpec>(
         keysBus.publish(Array.from(collDeps.readAll().keys()));
       }
       coalescer?.remove(k);
+      siblingChange[key]?.(); // version poke — a removal changes what a $-reader folds
     };
 
     collectionsCtx[key] = {
@@ -2281,6 +2438,20 @@ function walkSurface<const S extends SurfaceSpec>(
       epochMs: Date.now(),
     })),
   };
+
+  // ── Bind compute cells ($ read face) ───────────────────────────────────
+  // Every member has validated and every cell/collection sibling source now
+  // exists, so build each compute-fn `derived.cell(($) => …)` node and eager-seed
+  // its private store — the last synchronous step before the walk returns, so a
+  // seed's dependency graph is whole. TWO passes: pass A builds every (lazy) node,
+  // pass B eager-seeds every store. Because every node exists before any seed pulls,
+  // a compute cell that reads another compute sibling via `$` works in ANY
+  // declaration order (a diamond across compute cells too) — the engine's lazy DAG
+  // orders the pull, only a genuine cycle fails. A seed throw here is a boot crash
+  // (mirror-never-fabricate); the graph subscriptions it installs are walk-local
+  // closures, discarded with the walk if a throw unwinds it.
+  for (const { bind } of bindComputeCells) bind(siblingSources);
+  for (const { seed } of bindComputeCells) seed();
 
   return { namespaces, ctx: ctx as SurfaceCtx<S>, starts };
 }
