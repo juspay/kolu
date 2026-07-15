@@ -13,9 +13,11 @@
  * SR7's typed `$` sibling-read face, `computed`, `batch`, and both `derived.cell`
  * forms (a graph-node `derived.cell(node)` and a compute-fn `derived.cell(($) =>
  * …)`); and — SR8 — `derived.collection(node)` (the keyed-reconciler wire adapter)
- * and the poll source shape. Still ahead: SR9/SR10's keyed machinery
- * (`reactiveFamily`, `derived.registry`, `signalMap`). The full model, laws, and
- * worked examples live in the reactive-bridge note
+ * and the poll source shape; and — SR9 — the keyed `reactiveFamily` (a keyed
+ * family of member states as a graph source: membership diff, last-frame hold,
+ * per-key disposal, per-member error isolation) plus `derived.registry` (its
+ * pull-face `MapRegistry` exit). Still ahead: SR10's `signalMap`. The full model,
+ * laws, and worked examples live in the reactive-bridge note
  * (`docs/atlas/.../surface-reactive-bridge.mdx`).
  *
  * Three guarantees ride every `derived.cell`:
@@ -1034,8 +1036,294 @@ function derivedCollection<K, V>(
   };
 }
 
+// ── reactiveFamily — a keyed family of member states as a graph source ─────
+
+/** What {@link reactiveFamily} needs from its caller. */
+export interface ReactiveFamilyOptions<K, S> {
+  /** Emits the CURRENT member-key list on every membership change; its level
+   *  (`source`'s `initial`) seeds the T+0 set. ONE occurrence per transition — the
+   *  family diffs each frame against the live set (never coalescing a remove+re-add,
+   *  which is the map's clause-3 the `membershipId` mint rests on). */
+  readonly members: Source<readonly K[]>;
+  /** Subscribe ONE member's state: `set(state)` caches the frame (last-frame hold)
+   *  and pokes the family's change edge. Called once per key ENTRY; a
+   *  snapshot-then-delta source seeds synchronously (its `set` fires inside `attach`).
+   *  Returns the member's disposer, run on key EXIT and on family dispose.
+   *
+   *  Return `undefined` to signal "NOTHING TO SUBSCRIBE YET — retry me" (a transient race,
+   *  e.g. a member present in the key list before its backing session has landed). The
+   *  family then does NOT mark the key attached, so the next membership frame RETRIES the
+   *  attach — a self-heal, NOT a defect (never fabricate a no-op disposer that freezes the
+   *  member as un-seeded forever). Return a real disposer once the subscription is live. */
+  readonly attach: (key: K, set: (state: S) => void) => Disposer | undefined;
+  /** Per-key disposal hook, run AFTER the member disposer on key exit (and on family
+   *  dispose) — the seam an app hangs per-key cleanup on (a memo eviction, a link
+   *  cache delete). Optional; contained (a throw is logged, never aborts teardown). */
+  readonly onEvict?: (key: K) => void;
+}
+
+/** A keyed family of member states — the graph SOURCE the SR9 `serveHostMap` reshape
+ *  stands on. Owns, ONCE and for every consumer: membership diff (attach entrants,
+ *  detach+evict leavers), last-frame hold (each member's latest state cached),
+ *  per-key disposal, and per-member error isolation (one member's `attach`/`set`
+ *  throw is contained + logged, never aborting a sibling or the membership frame).
+ *
+ *  Exposes BOTH faces the fate-of-the-seven-names split names: the pull accessors
+ *  `derived.registry` reads (`keys`/`has`/`get`/`subscribe`) AND a GraphNode `.value`
+ *  map signal (the face a future `derived.collection` consumer would read — no
+ *  consumer today, so its fresh-copy recompute is a lazy computed nobody pulls). */
+export interface ReactiveFamily<K, S> extends GraphNode<ReadonlyMap<K, S>> {
+  /** The live member keys (attached membership — includes a key whose first state
+   *  frame has not landed yet; its `get` is `undefined` until it does). */
+  keys(): K[];
+  /** Whether a key is a live member. */
+  has(key: K): boolean;
+  /** One member's cached last-frame state, or `undefined` (absent, or attached but
+   *  not yet seeded — a source whose `onState` has not fired its first frame). */
+  get(key: K): S | undefined;
+  /** Fire `onChange` on every family change — a membership transition OR any member's
+   *  state frame — but NOT on subscribe (a reader reads the current set via
+   *  `keys`/`get`; the change edge reports only transitions). Returns an unsubscribe.
+   *  A throwing `onChange` is contained and rethrown out-of-band (fail-loud, never a
+   *  silent degrade), so one listener's defect neither aborts a sibling nor tears down
+   *  the writer's stack. */
+  subscribe(onChange: () => void): () => void;
+}
+
+export function reactiveFamily<K, S>(
+  opts: ReactiveFamilyOptions<K, S>,
+): ReactiveFamily<K, S> {
+  // The live member states, keyed by the family's own key and mutated IN PLACE
+  // (last-frame hold). A version signal — NOT a fresh map per change — is the change
+  // edge, so a firehose of state frames costs O(1) per poke, never O(M) re-allocating
+  // the whole map (the SR7/SR8 compose-fold lesson, applied to the source side).
+  const latest = new Map<K, S>();
+  // The current MEMBERSHIP — the last membership frame's key set. This (NOT the attached
+  // set below) is what `keys`/`has` report: a member is reported the moment the source lists
+  // it, even before its `attach` has installed a subscription (its `get` is `undefined` then,
+  // and a not-yet-attached member is retried on the next frame). This mirrors the old adapter
+  // reporting a pool member before its first `onState` frame (→ `projectState(undefined)`),
+  // and — crucially — keeps a member whose source is *permanently* absent VISIBLE so the
+  // consumer's `resolve` fails loud on it, rather than silently dropping it.
+  let memberSet = new Set<K>();
+  // Attached subset: key → its member disposer. A member in `memberSet` but not here is
+  // present-but-not-yet-subscribed (its `attach` returned `undefined` — retried each frame).
+  const disposers = new Map<K, Disposer>();
+  // Per-attachment generation token. Each `attach` mints a fresh object; the member's
+  // `set` callback is honoured ONLY while its token is still the current one for that key
+  // AND the family is live. A late frame from a torn-down / superseded attachment (a racy
+  // session whose `onState` fires after its disposer, or after a detach + same-key re-add,
+  // or after `dispose()`) is then a fenced no-op — it can never corrupt a detached or
+  // re-added key's state nor resurrect an evicted member. (The push-`source`'s generation
+  // fence, applied per member.)
+  const tokens = new Map<K, object>();
+  // The pull-face's DIRECT listeners — fired synchronously, once per completed change edge
+  // (the old hand-rolled `fire()` fan-out). They are NOT driven off the `version` signal:
+  // a Preact effect over `version` COALESCES two edges that land in one outer batch, which
+  // would fold a same-key remove + re-add into a single notification and leave `members()`
+  // showing the key continuously present — violating the map's clause-3 (the `membershipId`
+  // mint, and the client's per-key lifecycle, rest on remove and re-add being TWO observable
+  // edges). The direct fan-out cannot coalesce. `version` stays ONLY for the lazy GraphNode
+  // `.value` face (a future `derived.collection` consumer), where coalescing is harmless.
+  const listeners = new Set<() => void>();
+  const version = signal(0);
+  let disposed = false;
+  // While a `reconcile` runs, per-member seed frames DON'T fire individually — the one
+  // trailing `fire()` covers the whole membership frame (all its seeds + the membership
+  // delta) as a SINGLE edge. A state frame OUTSIDE a reconcile fires on its own. So one
+  // membership frame is one edge, and two membership frames (remove, then re-add) are two.
+  let reconciling = false;
+
+  // Fail LOUD, out-of-band — NEVER `console.error`-and-continue. A reactiveFamily producer
+  // defect (a failed `attach` that would make an authoritative member silently vanish, a
+  // teardown leak, a republish throw) must crash the process on the next microtask, not
+  // degrade to an empty or stale-but-healthy state (the design philosophy's fail-fast /
+  // caught-error-must-not-collapse-to-empty). Sibling isolation is preserved: the current
+  // frame finishes and siblings are untouched, THEN the invariant surfaces.
+  const failLoud = (msg: string, err: unknown): void => {
+    queueMicrotask(() => {
+      throw new Error(`reactor: reactiveFamily ${msg}`, { cause: err });
+    });
+  };
+
+  // ONE change edge: bump the (coalescing) `.value`-face version, then fan out to the
+  // pull-face listeners directly and synchronously. A listener throw is contained (a
+  // sibling still fires) and rethrown out-of-band.
+  const fire = (): void => {
+    version.value++;
+    for (const l of [...listeners]) {
+      try {
+        l();
+      } catch (err) {
+        failLoud("change listener threw — an invariant/producer defect", err);
+      }
+    }
+  };
+
+  // Attach ONE key: subscribe its state (a snapshot-then-delta source seeds synchronously
+  // here). Idempotent (an already-attached key is a no-op). PER-MEMBER ERROR ISOLATION +
+  // FAIL-FAST: a throw from `attach` (or the seeding `set` it drives synchronously) rolls
+  // back any partial state, invalidates the token, and FAILS LOUD — a producer defect, not
+  // a silently-dropped member — while leaving siblings' attachment untouched.
+  const attachKey = (key: K): void => {
+    if (disposers.has(key)) return;
+    const token = {};
+    tokens.set(key, token);
+    const set = (state: S): void => {
+      // Fence: honour a frame ONLY from the CURRENT attachment of a LIVE family.
+      if (disposed || tokens.get(key) !== token) return;
+      latest.set(key, state);
+      if (!reconciling) fire(); // during a reconcile, the trailing fire covers the seed
+    };
+    let off: Disposer | undefined;
+    try {
+      off = opts.attach(key, set);
+    } catch (err) {
+      tokens.delete(key);
+      latest.delete(key); // roll back a synchronous seed the throwing attach left behind
+      failLoud(
+        "attach for a member threw — a producer defect (an authoritative member must " +
+          "never silently vanish)",
+        err,
+      );
+      return;
+    }
+    if (off === undefined) {
+      // `attach` signalled "nothing to subscribe yet — retry me" (a transient race, e.g. a
+      // member present before its session lands). Do NOT mark the key attached: leave it out
+      // of `disposers` so the NEXT membership frame re-runs `attachKey` for it (a self-heal),
+      // and roll back the token + any synchronous seed. Never fabricate a no-op disposer —
+      // that would freeze the member as un-seeded forever (the drishti#102 class of bug).
+      tokens.delete(key);
+      latest.delete(key);
+      return;
+    }
+    disposers.set(key, off);
+  };
+
+  // Detach ONE key: invalidate its token FIRST (so a late frame is fenced), run its
+  // disposer, evict its cached state, fire `onEvict`. A disposer / `onEvict` throw fails
+  // loud (a teardown leak is a defect), never a silent swallow.
+  const detachKey = (key: K): void => {
+    const off = disposers.get(key);
+    disposers.delete(key);
+    tokens.delete(key);
+    latest.delete(key);
+    try {
+      off?.();
+    } catch (err) {
+      failLoud("member disposer threw during detach — a teardown leak", err);
+    }
+    try {
+      opts.onEvict?.(key);
+    } catch (err) {
+      failLoud("onEvict threw during detach", err);
+    }
+  };
+
+  // Diff a membership frame against the live set: adopt it as the new `memberSet`, attach
+  // entrants (retrying any that are present-but-not-yet-subscribable), detach departed
+  // ATTACHED members, then fire ONE edge. `members` fires one occurrence per pool transition
+  // (never coalescing), so each frame is a single-transition delta and one observable edge.
+  const reconcile = (keys: readonly K[]): void => {
+    const next = new Set(keys);
+    reconciling = true;
+    try {
+      memberSet = next; // membership = the frame (a present-but-unattached member is retried)
+      for (const key of next) attachKey(key);
+      for (const key of [...disposers.keys()]) {
+        if (!next.has(key)) detachKey(key);
+      }
+    } finally {
+      reconciling = false;
+    }
+    fire();
+  };
+
+  // Subscribe the membership source (installs its tap), THEN reconcile the current
+  // level as the T+0 seed — an occurrence that fires during install is idempotent
+  // against the seed (attach is a no-op for a live key; detach handles a leaver).
+  const offMembers = opts.members.subscribe((keys) => reconcile(keys));
+  reconcile(opts.members.value.peek() ?? []);
+
+  return {
+    // The GraphNode value face: a FRESH copy per recompute so a downstream `!==`
+    // consumer detects a change (the in-place `latest` never changes ref). Lazy — the
+    // O(M) copy is paid only if a `.value.value` consumer (a future `derived.collection`
+    // over the family) exists; the pull-face `derived.registry` never reads it.
+    value: engineComputed(() => {
+      version.value; // track
+      return new Map(latest);
+    }),
+    keys: () => [...memberSet],
+    has: (key) => memberSet.has(key),
+    get: (key) => latest.get(key),
+    // The pull-face change edge: a DIRECT listener registration (fired synchronously by
+    // `fire`, once per completed change edge — never on subscribe, and never coalesced
+    // across membership frames). Returns an unsubscribe.
+    subscribe(onChange) {
+      listeners.add(onChange);
+      return () => {
+        listeners.delete(onChange);
+      };
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true; // fences any late `set` callback from a member being torn down
+      offMembers();
+      // Detach every member (disposer + onEvict). NO final fire — a change edge after
+      // teardown would fire a still-subscribed listener into a torn-down family; the
+      // listeners' owners release them (`subscribe` returns their disposer).
+      for (const key of [...disposers.keys()]) detachKey(key);
+      memberSet = new Set();
+      listeners.clear();
+    },
+  };
+}
+
+// ── derived.registry — the pull-face MapRegistry exit over a family ────────
+
+/** The pull-face exit over a {@link ReactiveFamily} — SR9's split of the old
+ *  `registryFromFamily` along the source/exit axis (`reactiveFamily` the graph source,
+ *  this the pull face). Resolves each member's entry ON DEMAND from the family's cached
+ *  state (never materializing the whole entry map — the map's `resolve(k)` is per-key),
+ *  and fires `subscribe` on every family change. */
+export interface DerivedRegistry<K, Entry> {
+  members(): K[];
+  has(key: K): boolean;
+  /** Resolve one member's entry from its cached state (which may be `undefined`
+   *  pre-first-frame — the `resolve` fn handles that arm). Throws if the key is not a
+   *  member (a caller resolving a non-member is a defect, not an empty result). */
+  resolve(key: K): Entry;
+  subscribe(onChange: () => void): () => void;
+  /** Tear down the backing family (its membership sub + every member disposer). */
+  dispose(): void;
+}
+
+function derivedRegistry<K, S, Entry>(
+  family: ReactiveFamily<K, S>,
+  resolve: (key: K, state: S | undefined) => Entry,
+): DerivedRegistry<K, Entry> {
+  return {
+    members: () => family.keys(),
+    has: (key) => family.has(key),
+    resolve: (key) => {
+      if (!family.has(key)) {
+        throw new Error(
+          `derived.registry: resolve of non-member key ${String(key)} — the caller ` +
+            "asked to resolve a key that is not a live member.",
+        );
+      }
+      return resolve(key, family.get(key));
+    },
+    subscribe: (onChange) => family.subscribe(onChange),
+    dispose: () => family.dispose(),
+  };
+}
+
 /** The reactor's wire exits. Phase 0 shipped the graph-node `cell`; SR7 adds the
- *  compute-fn overload (`derived.cell(($) => …)`); SR8 adds `collection`.
+ *  compute-fn overload (`derived.cell(($) => …)`); SR8 adds `collection`; SR9 adds
+ *  the keyed `registry` (the pull-face exit over a `reactiveFamily`).
  *  Namespaced (`derived.cell`) so the read-only-projection intent is legible at
  *  every declaration site. */
 interface DerivedApi {
@@ -1077,6 +1365,14 @@ interface DerivedApi {
   collection<K, V>(
     node: GraphNode<ReadonlyMap<K, V>>,
   ): DerivedCollectionBranded;
+  /** The pull-face exit over a {@link ReactiveFamily} — `derived.registry(family,
+   *  (key, state) => entry)`. Resolves each member's entry on demand from the
+   *  family's cached state and fires `subscribe` on every family change; the split
+   *  of the old `registryFromFamily` along the source/exit axis. */
+  registry<K, S, Entry>(
+    family: ReactiveFamily<K, S>,
+    resolve: (key: K, state: S | undefined) => Entry,
+  ): DerivedRegistry<K, Entry>;
 }
 
 export const derived: DerivedApi = {
@@ -1095,4 +1391,5 @@ export const derived: DerivedApi = {
     // poll brand and drives the async seed.
     return derivedCollection(node as GraphNode<ReadonlyMap<K, V>>);
   },
+  registry: derivedRegistry,
 };

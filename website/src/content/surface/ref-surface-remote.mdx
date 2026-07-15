@@ -93,7 +93,7 @@ own) that does **not** persist, so a membership store re-seeds the host next boo
 each verb labels its own WebSocket close reason and log line (`host removed` vs
 `host retired`). A pool with no `persist` hook makes them behave the same on disk —
 neither writes — though the close reason and log still name the verb.
-`serveHostMap` takes `{ linkFor, failureOf }`; `linkFor(host, session)` is built
+`serveHostMap` takes `{ linkFor, failureOf, connection? }`; `linkFor(host, session)` is built
 once per host and evicted on **either** removal or retirement (both drop live membership).
 There is no `offsetOf` option: `makeSession` measures the far-end clock offset off the
 framework-reserved `system.clockNow` at admit and carries it on the session's own
@@ -115,11 +115,22 @@ they are the server half
 of a host map — see
 [How to serve a map](/surface/serve-a-map).
 
-## The connection cell
+## Connection health — the host-map entry's fine payload
 
 Connection health is state the remote agent cannot report (it can't observe the
-link *to* itself), so the parent authors it. This is the one graduated exception —
-the cell ships browser-safe from `@kolu/surface-remote/connection`.
+link *to* itself), so the parent authors it. It rides the **host map's entry** as a
+fine `connection` payload — the ONE authority the coarse dot (`EntryStatus.kind`) and
+the fine word both derive from. `serveHostMap` produces the coarse status and the fine
+`connection` from the **same** `SessionState` frame in one `resolve` (its injected
+`connection: { project, isConnected }` — `project` yields the word, and `serveHostMap`
+**asserts** the coarse dot and `isConnected(word)` agree, failing loud before publication on
+disagreement), so a "dot connected, word connecting" split has no construction path.
+A consumer reads the word off the same entry it reads the dot from
+(`map.entry(host).state().connection`) — never a second subscription. (There is no
+per-host `connection` *cell* anymore: it was a second wire channel a browser subscribed
+independently, and the two could latch out of step.) `ConnectionInfo` and its browser-safe
+schema ship from `@kolu/surface-remote/connection`, along with the pure `projectConnection`
+leaf a consumer applies to the entry's frame.
 
 `ConnectionInfo` is the discriminated **mirror** of the session's `SessionState`
 sum, keyed on `phase`: the up arms (`probing` / `copying` / `building` — the ssh
@@ -152,11 +163,11 @@ is the `source` field.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `mirroredSurface(base)` | `/connection` | the public composition path: adds the gate-closed, get-only `connection` cell and reserves the name (throws on a base that already declares one) |
-| `connectionCell` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the exported fragment — read to seed a store or assert the shape, not to spread yourself |
+| `projectConnection(s)` | `/connection` | the pure, browser-safe leaf a consumer applies to a `SessionState` frame → `ConnectionInfo` (a provable identity: `ConnectionInfo` **is** `SessionState<SshProv>`). The one named projection both the server (via `sessionConnection`, `serveHostMap`'s `connection.project`) and a client use — never a second server-side subscription |
+| `sessionConnection(raw)` | `/connection` | the total `(raw: SessionState<string> \| undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`: folds the gate-closed pending value for a not-yet-seeded member, validates the erased frame against `ConnectionInfoSchema` (fail-loud on a non-ssh / malformed frame), and returns the frame (reference-stable) otherwise |
+| `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the browser-safe type + wire schema (the host map validates the entry's `connection` payload against it) + the gate-closed pending value |
 | `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
 | `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — the browser type of a `SessionState.log` line |
-| `pipeSessionStateToCell(session, set)` | `/connection` | the node-side pump that drives the cell off `session.onState` (`pumpRemoteSurface` wires it for you when the mirrored surface carries `connection`) |
 
 ## A mirror, end to end
 

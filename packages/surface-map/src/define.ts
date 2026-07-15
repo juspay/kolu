@@ -111,22 +111,39 @@ export const PENDING_MEMBERSHIP_ID: MembershipId =
  *  an invented reason" is unrepresentable, not merely discouraged. Defaults to
  *  `unknown` so generic library code carries the value opaquely; a domain
  *  narrows it at its own map. */
-export type EntryStatus<Failure = unknown> =
-  | { kind: "warming"; membershipId: MembershipId }
+/** `Conn` is the FINE connection payload carried on every session-backed arm (SR9):
+ *  the domain's rich per-host connection state (padi's `ConnectionInfo` — the phase +
+ *  log tail + elapsed the coarse `kind` folds away). Parameterized exactly like
+ *  `Failure` — `@kolu/surface-map` carries the value and validates it against the map's
+ *  OWN `connection` schema, but never enumerates what a domain's connection states ARE
+ *  (dependency-arrow-out). It is the ONE authority the coarse `kind` (the dot) and the
+ *  fine word both derive from, so a "dot connected, word connecting" split (drishti#102)
+ *  has no encoding: `serveHostMap` produces `kind` and `connection` from the SAME
+ *  `SessionState` frame in one projection. Optional so a structural fault (no session)
+ *  and a connection-less map (the harness) omit it; every session-backed entry carries
+ *  it by construction. */
+export type EntryStatus<Failure = unknown, Conn = unknown> =
+  | { kind: "warming"; membershipId: MembershipId; connection?: Conn }
   | {
       kind: "connected";
       membershipId: MembershipId;
       clockOffset: number | null;
+      connection?: Conn;
     }
-  | { kind: "failed"; membershipId: MembershipId; failure: Failure };
+  | {
+      kind: "failed";
+      membershipId: MembershipId;
+      failure: Failure;
+      connection?: Conn;
+    };
 
 /** The total state of an entry lens — the published {@link EntryStatus} when the key IS a
  *  member, plus the explicit `not-a-member` value the client fold returns when it is not. It
  *  lives HERE (the contract module, solid-free), not in the client, so a NODE consumer that
  *  re-exports it type-only through `index.ts` never drags the Solid/DOM client into its
  *  typecheck (surface-remote would otherwise fail on onWake's `window`/`document`). */
-export type EntryState<Failure = unknown> =
-  | EntryStatus<Failure>
+export type EntryState<Failure = unknown, Conn = unknown> =
+  | EntryStatus<Failure, Conn>
   | { kind: "not-a-member" };
 
 /** The wire/zod schema for {@link EntryStatus}, built from the map's OWN domain
@@ -142,24 +159,40 @@ export type EntryState<Failure = unknown> =
  *  BRANDED here so this parse is (with `serveSurfaceMap`'s mint) one of the only two
  *  producers of a `MembershipId`; a status decoded off the wire is branded by
  *  construction. */
-export function entryStatusSchema<Failure>(
+export function entryStatusSchema<Failure, Conn = unknown>(
   failureSchema: ZodType<Failure>,
-): ZodType<EntryStatus<Failure>> {
+  // SR9: the FINE connection payload's schema. Optional — a map that carries no fine
+  // connection (the in-process harness) omits it and its arms carry no `connection`
+  // field. When present, every arm gains `connection: <schema>.optional()` (a structural
+  // fault has no session, so it publishes no connection; every session-backed entry
+  // does). The domain provides the schema; this package validates against it, never
+  // enumerating it — the same volatility-neutral posture as `failure`.
+  connectionSchema?: ZodType<Conn>,
+): ZodType<EntryStatus<Failure, Conn>> {
+  const conn = connectionSchema
+    ? { connection: connectionSchema.optional() }
+    : {};
   return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("warming"), membershipId: MembershipIdSchema }),
+    z.object({
+      kind: z.literal("warming"),
+      membershipId: MembershipIdSchema,
+      ...conn,
+    }),
     z.object({
       kind: z.literal("connected"),
       membershipId: MembershipIdSchema,
       // `null` = not-yet-measured (ONE meaning); readiness is link-liveness, so a
       // connected entry stays connected whether or not the offset has landed.
       clockOffset: z.number().nullable(),
+      ...conn,
     }),
     z.object({
       kind: z.literal("failed"),
       membershipId: MembershipIdSchema,
       failure: failureSchema,
+      ...conn,
     }),
-  ]) as unknown as ZodType<EntryStatus<Failure>>;
+  ]) as unknown as ZodType<EntryStatus<Failure, Conn>>;
 }
 
 // ── Key-fold contract builders (mirror @kolu/surface/define, +mapKey) ───
@@ -381,6 +414,7 @@ export interface SurfaceMap<
   KS extends ZodType,
   ES extends SurfaceSpec = SurfaceSpec,
   Failure = unknown,
+  Conn = unknown,
 > {
   /** The key schema — `keySchema.parse` (paired with `codec.decode`) is the sole
    *  producer of a validated key from a wire string. */
@@ -410,7 +444,7 @@ export interface SurfaceMap<
    *  string), read-only. Backs both the server's `entries` handlers and the
    *  client's bound collection; both decode through {@link codec} at their own
    *  API boundary. */
-  readonly entriesSpec: CollectionSpec<string, EntryStatus<Failure>>;
+  readonly entriesSpec: CollectionSpec<string, EntryStatus<Failure, Conn>>;
   /** The string <-> key codec — see {@link KeyCodec}. */
   readonly codec: KeyCodec<z.infer<KS>>;
 }
@@ -427,21 +461,30 @@ export function defineSurfaceMap<
   KS extends ZodType,
   const ES extends SurfaceSpec,
   Failure,
+  Conn = unknown,
 >(opts: {
   key: KS;
   entry: Surface<ES>;
   codec: KeyCodec<z.infer<KS>>;
   failure: ZodType<Failure>;
+  /** The FINE connection payload schema (SR9) — the rich per-host connection state the
+   *  coarse `EntryStatus.kind` folds away (padi's `ConnectionInfoSchema`). `Conn` is
+   *  INFERRED from it, so a domain map that carries a fine connection needs no explicit
+   *  type argument. Omit for a map that carries no fine connection (the in-process
+   *  harness); its entries then have no `connection` field. Validated against on the
+   *  wire, never enumerated here — the same volatility-neutral posture as `failure`. */
+  connection?: ZodType<Conn>;
   /** The sibling key this map is mounted under in a combined surface (see
    *  {@link SurfaceMap.name}). Omit for a standalone/at-root map. */
   name?: string;
-}): SurfaceMap<KS, ES, Failure> {
-  const { key: keySchema, entry, codec, failure, name } = opts;
+}): SurfaceMap<KS, ES, Failure, Conn> {
+  const { key: keySchema, entry, codec, failure, connection, name } = opts;
   const members = foldedMembers(entry.spec);
-  // Build the EntryStatus schema from the map's `failure` ONCE, then thread the SAME
-  // instance to both homes that need it — the `entries.get` contract output and the
-  // `entriesSpec` collection value — rather than deriving the identical schema twice.
-  const statusSchema = entryStatusSchema(failure);
+  // Build the EntryStatus schema from the map's `failure` (and, SR9, its `connection`)
+  // ONCE, then thread the SAME instance to both homes that need it — the `entries.get`
+  // contract output and the `entriesSpec` collection value — rather than deriving the
+  // identical schema twice.
+  const statusSchema = entryStatusSchema(failure, connection);
   // Keep the `.surface` fragment as a named value so it backs BOTH the full `contract`
   // and the first-class `surfaceContract` field a host splices — one dynamic fragment,
   // one library-side cast, no `as any` at any connection site.
@@ -454,7 +497,7 @@ export function defineSurfaceMap<
   } as unknown as AnyContractRouter) as AnyContractRouter;
   const surfaceContract = surfaceFragment as unknown as AnyContractRouter;
 
-  const entriesSpec: CollectionSpec<string, EntryStatus<Failure>> = {
+  const entriesSpec: CollectionSpec<string, EntryStatus<Failure, Conn>> = {
     keySchema: z.string(),
     schema: statusSchema,
     verbs: ["keys", "get"],

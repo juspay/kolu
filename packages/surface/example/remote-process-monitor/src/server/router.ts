@@ -1,20 +1,16 @@
 /**
  * Parent-side router — bridges browser ↔ remote agent.
  *
- * The agent serves the connection-free base `surface`. The parent re-serves the
- * MIRRORED surface — `monitorSurface = mirroredSurface(surface)`, i.e. the base
- * plus the get-only `connection` cell — and the browser subscribes to THAT. The
- * parent doesn't re-define a different base; it implements the base primitives
- * locally by *forwarding* every read to the remote stdio client, and owns the
- * extra `connection` cell itself. On a fresh subscriber, the parent:
+ * The agent serves the base `surface`; the parent re-serves it VERBATIM
+ * (`monitorSurface = surface`) and the browser subscribes to THAT. The parent
+ * doesn't re-define a different base; it implements the base primitives locally by
+ * *forwarding* every read to the remote stdio client. SR9: there is no per-host
+ * `connection` cell here — connection presentation is a host-map concept (see
+ * `common/surface.ts`). On a fresh subscriber, the parent:
  *
- *   1. Synchronously yields the seeded, gate-closed `connection` cell — link
- *      health (state = "copying" / "connecting" / etc.) lives in its OWN cell,
- *      not folded into the `system` snapshot.
- *   2. Once the agent's link is up, mirrors the agent's `system` and
- *      `processes` updates into the parent's local store/collection, and the
- *      session pump writes link health into the `connection` cell.
- *   3. Per-key process upserts/removes from the agent flow through to
+ *   1. Once the agent's link is up, mirrors the agent's `system` and
+ *      `processes` updates into the parent's local store/collection.
+ *   2. Per-key process upserts/removes from the agent flow through to
  *      the framework's channels and on to the browser.
  *
  * `kill` forwards directly to the agent — the parent has no business
@@ -32,9 +28,7 @@ import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type AgentClient,
   makeClientCursor,
-  pipeSessionStateToCell,
   type Session,
-  seedConnectionCell,
   type SshProv,
 } from "@kolu/surface-remote";
 import {
@@ -55,18 +49,14 @@ export interface BuildRouterOptions {
   session: Session<AgentClient<typeof surface.contract>, SshProv>;
 }
 
-/** Build the parent's oRPC router. The session's connection state
- *  drives the `system.state` field exposed to the browser; agent data
- *  flows through once the link is live. */
+/** Build the parent's oRPC router. Agent data flows through once the link is live.
+ *  SR9: this re-serve carries no per-host `connection` cell — connection presentation
+ *  is a host-map concept (see `surface.ts`'s note on `monitorSurface`). */
 export function buildRouter(opts: BuildRouterOptions) {
   const session = opts.session;
   const systemStore: CellStore<SystemInfo> = inMemoryStore({
     ...DEFAULT_SYSTEM,
   });
-  // The seeded, gate-closed connection cell — the shared `seedConnectionCell()`,
-  // not a hand-rolled store. Written below by `pipeSessionStateToCell` off the
-  // session's `onState`, exactly as pulam-web's re-serve does.
-  const connection = seedConnectionCell();
   const processCache = new Map<Pid, Process>();
   const coreCache = new Map<CoreId, CpuCore>();
   // Local snapshot bus — every msg the parent receives from the
@@ -76,14 +66,11 @@ export function buildRouter(opts: BuildRouterOptions) {
   const browserSnapshotBus: Channel<ProcessesSnapshotMsg> =
     inMemoryChannel<ProcessesSnapshotMsg>();
 
-  // Implements the MIRRORED surface (base + the get-only `connection` cell). The
-  // base primitives are forwarded/folded from the agent; `connection` is the
-  // seeded local store the session pump writes — the agent's surface stays
-  // connection-free.
+  // Implements the re-served surface. The base primitives are forwarded/folded from
+  // the agent (SR9: no `connection` cell composed here — see `surface.ts`).
   const runtime = implementSurface(monitorSurface, {
     cells: {
       system: { store: systemStore },
-      connection,
     },
     collections: {
       processes: {
@@ -154,19 +141,6 @@ export function buildRouter(opts: BuildRouterOptions) {
       },
     },
   });
-
-  // ── Mirror session connection state → parent's `connection` cell ──
-  // The shared `pipeSessionStateToCell` (projects every `onState` frame onto the
-  // cell), not a hand-rolled `onState` → `{ state }` mapping — so the full
-  // `ConnectionInfo` (lastError / failureCause / progress) reaches the browser,
-  // single-sourced with pulam-web. This is the MANUAL form of the production
-  // wiring: a re-serve that drives the parent surface via `pumpRemoteSurface`
-  // passes `connection: { set }` and the pump calls this for you (the default-on
-  // path pulam-web uses). This example runs its own `bridgeAgentToParent` pump,
-  // so it wires the same mapping by hand here.
-  pipeSessionStateToCell(session, (info) =>
-    runtime.ctx.cells.connection.set(info),
-  );
 
   // ── Bridge remote agent surface → parent's local surface ──────────
   // Start a background pump that pins the session, then loops over each

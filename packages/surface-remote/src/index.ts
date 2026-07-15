@@ -7,20 +7,15 @@
  */
 
 export { resolveSystem } from "./arch";
-// The connection-health cell + its node-side pump. The cell fragment
-// (`connectionCell`, schema, default) is ALSO exported from the browser-safe
-// `@kolu/surface-remote/connection` subpath — a surface composes it from
-// there; node consumers (the pump) read it from the root. The root surfaces only
-// the NODE-side pump + the `ConnectionInfo` it produces; the browser-safe cell
-// members (`connectionCell`, `ConnectionInfoSchema`, `DEFAULT_CONNECTION`,
-// `LogEntry`, …) live solely on the `@kolu/surface-remote/connection` subpath,
-// which is where a surface composes them.
+// SR9 — one connection authority. Link health is no longer a per-host `connection`
+// CELL (that second wire channel + its `pipeSessionStateToCell` pump + the
+// `mirroredSurface`/`seedConnectionCell` seam are gone); it rides the host-map entry's
+// fine `connection` payload, projected by `serveHostMap`. What survives on the root is
+// the PURE, browser-safe leaf a consumer derives the word from the entry with —
+// `projectConnection` + the `ConnectionInfo` type/schema — re-exported from the
+// browser-safe `@kolu/surface-remote/connection` subpath (its honest home).
 export type { ConnectionInfo, ConnectPhase } from "./connection";
-export {
-  pipeSessionStateToCell,
-  projectConnection,
-  seedConnectionCell,
-} from "./connectionPipe";
+export { projectConnection, sessionConnection } from "./connection";
 export type {
   DaemonConvergence,
   DaemonSession,

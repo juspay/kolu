@@ -23,16 +23,8 @@
  * checklist for the full mapping.)
  */
 
-// The shared, gate-closed connection cell + the seam that composes it — the
-// SAME source of truth pulam-web uses, instead of a hand-rolled parallel copy.
-import { mirroredSurface } from "@kolu/surface-remote/connection";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
-
-export {
-  type ConnectionInfo,
-  DEFAULT_CONNECTION,
-} from "@kolu/surface-remote/connection";
 
 const PidSchema = z.number().int().nonnegative();
 const ProcessSchema = z.object({
@@ -100,9 +92,6 @@ export const surface = defineSurface({
       schema: SystemSchema,
       default: DEFAULT_SYSTEM,
     },
-    // NOTE: no `connection` cell here. Link health is composed ONLY at the
-    // remote re-serve seam via `mirroredSurface(surface)` below — the agent
-    // serves this connection-free base; the parent mirrors it and adds the cell.
   },
   collections: {
     processes: {
@@ -140,10 +129,18 @@ export const surface = defineSurface({
 });
 
 /** The surface the BROWSER consumes and the PARENT re-serves: the agent's base
- *  `surface` augmented at the mirror seam with the gate-closed `connection` cell.
- *  The agent serves the base; the parent mirrors it and writes `connection` from
- *  `session.onState` — exactly pulam-web's split, on the shared combinator. */
-export const monitorSurface = mirroredSurface(surface);
+ *  `surface`, served verbatim. This example teaches RE-SERVE MECHANICS + process
+ *  monitoring — not connection PRESENTATION.
+ *
+ *  Note (SR9): **connection presentation is a host-map concept.** A single re-served
+ *  surface like this carries no per-host connection state — the honest link health
+ *  (copying/building/connecting + the log tail) rides a `@kolu/surface-map` host map's
+ *  `entries` channel as its fine `connection` payload, produced by `serveHostMap` from
+ *  the SAME session frame as the coarse dot (one authority; see
+ *  `@kolu/surface-remote`'s `serveHostMap`). A standalone re-serve that genuinely needs
+ *  connection state would reintroduce that seam via prove-then-extract with a real
+ *  consumer in hand — this example does not pretend the capability exists. */
+export const monitorSurface = surface;
 
 type SF = SurfaceTypes<typeof surface.spec>;
 

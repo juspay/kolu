@@ -52,7 +52,6 @@ import {
   createSignal,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { floorConnectionInfo } from "./host/connectionFloor.ts";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
@@ -255,21 +254,21 @@ const hostScoped = createRoot(() => {
       }
     });
   }
-  // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
-  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
-  // cold remote provision narrates its real phase instead of a mute "Connecting…".
-  // Deliberately ACTIVE-HOST-ONLY (not retained per host in `createHostWire`): a background
-  // host's connect-phase narration is not a fact to hold warm — only the host you are
-  // looking at needs its overlay live. `useEntry` re-keys the subscription on a host switch
-  // AND on a same-key membership RE-JOIN: the server ends the per-entry connection stream
-  // TYPED when the host flaps out of membership (a re-add mints a fresh session; the
-  // captured forward correctly orphans), and the entry's opaque `membershipId` changes on
-  // that re-add, so the keyed lens disposes the stranded stream and opens a fresh one BY
-  // CONSTRUCTION (PR3 — this is what retired the hand-rolled `createRejoinKeyedSub` rearm).
-  const connection = active.cells.connection.use({
-    onError: (err: Error) =>
-      toast.error(`Connection subscription error: ${err.message}`),
-  }).value;
+  // The ACTIVE host's link health (W6 — "the honest connect"): its `phase`
+  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a cold
+  // remote provision narrates its real phase instead of a mute "Connecting…".
+  //
+  // SR9 — ONE connection authority. This is NO LONGER a second `connection` cell
+  // subscription (that cell is gone). It is the FINE `connection` payload the host map
+  // publishes on the ENTRY — the SAME `active.state()` the dot reads — so the dot and the
+  // word derive from ONE subscription and can never disagree (the drishti#102 divergence
+  // has no encoding left). `useEntry` already re-keys the entry on a host switch AND a
+  // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
+  // Active-host-only falls out for free: only the active entry's state is read here.
+  const connection = (): ConnectionInfo | undefined => {
+    const s = active.state();
+    return s.kind === "not-a-member" ? undefined : s.connection;
+  };
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader
@@ -390,14 +389,15 @@ export const activePadiRpc = hostScoped.procedures;
  *  this accessor is only the carve-out reach. */
 export const activePadiStreams = hostScoped.streams;
 
-/** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
- *  before its first frame. Drives the connect overlay's copying/building narration. Floored
- *  (C') on the SAME map-transport liveness the chip's `EntryStatus` uses (`padiMap.live`):
- *  with our link to the publisher dead/half-open, a frozen `building`/`copying` cell stops
- *  asserting a live phase — mirroring surface-map's `floorOnLiveness` for `EntryStatus`, so the
- *  connection cell is no longer the one un-floored per-host authority (#1568 sibling). */
+/** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its
+ *  first frame. Drives the connect overlay's copying/building narration. Already floored on
+ *  the map's transport liveness at the ONE floor — `active.state()` runs through surface-map's
+ *  `floorOnLiveness`, which drops the fine `connection` word (as well as demoting the dot) when
+ *  our link to the publisher is dead/half-open, so a frozen `building`/`copying` phase stops
+ *  asserting a live phase (#1568). No client-side re-floor: the word inherits the SAME liveness
+ *  decision as the dot by construction, so the two can never disagree. */
 export const connectionInfo = (): ConnectionInfo | undefined =>
-  floorConnectionInfo(hostScoped.connection(), padiMap.live());
+  hostScoped.connection();
 
 // The per-host wire-view facades — recentRepos / recentAgents / savedSession /
 // savedSessionSub / terminalListSub — WINDOW the active host's RETAINED wire

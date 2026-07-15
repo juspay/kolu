@@ -1,33 +1,26 @@
 /**
- * `@kolu/surface-remote/connection` — the BROWSER-SAFE connection-health
- * cell, composable into any surface mirrored over a `HostSession`.
+ * `@kolu/surface-remote/connection` — the BROWSER-SAFE connection-health TYPE and
+ * its ONE pure projection.
  *
- * A re-served / mirrored surface (drishti, pulam-web) needs the browser to see
- * the backend↔remote link's health — copying / connecting / connected /
- * disconnected / failed — so a dead mirror renders honestly instead of as a
- * healthy-but-empty surface. That health is `HostSession`'s volatility; this
- * module is its consume-facing projection. THIS module imports only `zod` (and
- * `@kolu/surface/define`), so it can ride the browser bundle; the node-side pump
- * that drives the cell from a live session (`projectConnection` /
- * `pipeSessionStateToCell`) lives on the package root, which spawns ssh and must
- * not.
+ * A re-served / mirrored surface (drishti, kolu) needs the browser to see the
+ * backend↔remote link's health — copying / connecting / connected / disconnected /
+ * failed — so a dead mirror renders honestly instead of as a healthy-but-empty
+ * surface. That health is `HostSession`'s volatility; this module is its consume-facing
+ * TYPE.
  *
- * The cell is composed ONLY at the remote re-serve seam — via `mirroredSurface`
- * (below), never hand-spread onto a base surface. So the base surface an agent /
- * daemon serves directly (or a one-shot dial reaches) stays connection-FREE: a
- * direct / local link carries no cell at all — NOT an inert stub — because it has
- * no remote to be down. Parent-only write authority follows: the cell is
- * read-only over the wire, and only the re-serving PARENT writes it (off
- * `session.onState`), so a wire client can never forge the host's health.
+ * SR9 — one connection authority. This health is NO LONGER a separate per-host
+ * `connection` cell (a second wire channel a browser subscribed independently of the
+ * host-map dot — the two could latch out of step, drishti#102). It now rides the map's
+ * entry as its FINE `connection` payload, produced by the SAME per-frame projection as
+ * the coarse dot (see `serveHostMap`). This module keeps only the browser-safe TYPE +
+ * schema + the pure {@link projectConnection} leaf a consumer derives the word from the
+ * entry with; the cell, its gate-closed seed, its readiness `liveWhen`, and the
+ * `mirroredSurface` seam that composed it are gone. THIS module imports only `zod` (and
+ * type-only session shapes), so it rides the browser bundle.
  */
 
-import {
-  defineSurface,
-  type Surface,
-  type SurfaceSpec,
-} from "@kolu/surface/define";
 import { z } from "zod";
-// TYPE-ONLY (erased at runtime): the cell value IS `SessionState<SshProv>`, so this
+// TYPE-ONLY (erased at runtime): the connection value IS `SessionState<SshProv>`, so this
 // module keeps ONE connection-state type family. Neither import pulls the node/server
 // code those modules carry — `import type` emits nothing.
 import type { SessionState } from "./session";
@@ -46,15 +39,15 @@ export type LogEntry = z.infer<typeof LogEntrySchema>;
 
 const logSchema = z.array(LogEntrySchema).readonly();
 
-/** The browser-facing connection-health cell value. NOT a separate mirror type: the
- *  cell IS the session sum on the wire — `ConnectionInfo = SessionState<SshProv>`
- *  (below), so there is exactly ONE connection-state type family. This zod schema
- *  must exist (a wire cell needs a concrete browser-safe validator, which a
- *  TS-generic type is not), so it hand-restates the same arms — but the drift risk
- *  is closed by a COMPILE-TIME pin (`connectionInfoIdentity.test-d.ts`) asserting
- *  `z.infer<typeof ConnectionInfoSchema>` ≡ `SessionState<SshProv>`: add a phase or
- *  change an invariant on one and the build fails until the other agrees, rather
- *  than a runtime zod throw. Discriminated on `phase`:
+/** The browser-facing connection-health value. NOT a separate mirror type: it IS the
+ *  session sum on the wire — `ConnectionInfo = SessionState<SshProv>` (below), so there
+ *  is exactly ONE connection-state type family. This zod schema must exist (a wire value
+ *  needs a concrete browser-safe validator, which a TS-generic type is not), so it
+ *  hand-restates the same arms — but the drift risk is closed by a COMPILE-TIME pin
+ *  (`connectionInfoIdentity.test-d.ts`) asserting `z.infer<typeof ConnectionInfoSchema>`
+ *  ≡ `SessionState<SshProv>`: add a phase or change an invariant on one and the build
+ *  fails until the other agrees, rather than a runtime zod throw. Discriminated on
+ *  `phase`:
  *
  *   - UP (the ssh connector's `probing`/`copying`/`building` provisioning phases
  *     plus `connecting`/`connected`): carries the `log` tail + `sinceMs`, no error
@@ -65,9 +58,9 @@ const logSchema = z.array(LogEntrySchema).readonly();
  *   - `failed`: terminal, `cause` is the `"remote"` literal — a `network` fault
  *     never gives up, so `failed`+`network` is unrepresentable (mirroring the pin).
  *
- *  The provisioning phase NAMES are the ssh connector's own vocabulary; the cell is
- *  composed only at the remote re-serve seam ({@link mirroredSurface}), which mirrors
- *  exactly those ssh sessions, so naming them here is honest. */
+ *  The provisioning phase NAMES are the ssh connector's own vocabulary; the value is
+ *  carried on the host map's entry (whose sessions are exactly those ssh sessions), so
+ *  naming them here is honest. */
 const upArm = <P extends string>(phase: P) =>
   z.object({ phase: z.literal(phase), log: logSchema, sinceMs: z.number() });
 
@@ -98,11 +91,10 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
   }),
 ]);
 
-/** The connection cell's value IS the session sum at the ssh connector's `Prov` —
- *  one type family, not a parallel mirror. Kept as a TYPE-ONLY alias (both imports
- *  are `import type`, fully erased, so this browser-safe module still pulls no
- *  node/server code at runtime), with the zod schema above pinned structurally
- *  equal to it. */
+/** The connection value IS the session sum at the ssh connector's `Prov` — one type
+ *  family, not a parallel mirror. Kept as a TYPE-ONLY alias (both imports are `import
+ *  type`, fully erased, so this browser-safe module still pulls no node/server code at
+ *  runtime), with the zod schema above pinned structurally equal to it. */
 export type ConnectionInfo = SessionState<SshProv>;
 
 /** The up-but-not-yet-connected phases — what a connect/progress UI narrates (the connect
@@ -121,98 +113,84 @@ export type ConnectPhase = Exclude<
   "connected" | "disconnected" | "failed"
 >;
 
-/** Gate-closed by default: a freshly-composed cell reads `connecting`, so
- *  "healthy-empty before the first remote frame" is structurally
- *  unrepresentable. The parent overwrites it from the live session; the agent
- *  never does. */
+/** The gate-closed pending value: `connecting`, no log, zero elapsed. The canonical
+ *  "coming up, nothing measured yet" `ConnectionInfo` — `sessionConnection`
+ *  returns it for a member seen before its first frame (matching the coarse `connecting`),
+ *  and a client renders it while a fresh entry has no fine state yet. */
 export const DEFAULT_CONNECTION: ConnectionInfo = {
   phase: "connecting",
   log: [],
   sinceMs: 0,
 };
 
-/** The composable cell descriptor — composed onto a surface ONLY by
- *  {@link mirroredSurface} (the mirror seam), never hand-spread. One source of
- *  truth for the schema AND the gate-closed default, so every mirror inherits both.
- *
- *  Read-only over the wire (`verbs: ["get"]`): the parent host OWNS this cell —
- *  it writes it server-side from `session.onState` (`pipeSessionStateToCell`,
- *  which goes through the server-internal `ctx.cells.connection.set`, NOT a wire
- *  verb). A remote RPC client must never be able to `connection.set` the host's
- *  health to `connected` (or anything) — that would forge the very signal the
- *  stale-health gate trusts. Without this, a cell with no `patchSchema` would
- *  default to `["get", "set"]` and leak `set` onto the browser-facing surface. */
-export const connectionCell = {
-  schema: ConnectionInfoSchema,
-  default: DEFAULT_CONNECTION,
-  verbs: ["get"],
-  // The READINESS GATE (round-5 "complete the fact"): the browser's
-  // `client.health().live` AND-folds this predicate over the cell's live value,
-  // so a mirror reading anything but `connected` flips the fact not-live BY
-  // CONSTRUCTION — the client-side symmetry to `pumpRemoteSurface` auto-wiring the
-  // server WRITE. Every surface that composes this cell (drishti, pulam-web, the
-  // teaching example, any future viewer) inherits the fold by building a
-  // `surfaceClient` over the mirrored surface, so no consumer hand-ANDs
-  // `connection.state === "connected"` — they read `health().live`, which already
-  // carries the leg. And no SHIPPED widget paints a dot green from the raw cell
-  // state: every connection dot is the fact-gated `<HostStatusPip>`, whose green is
-  // emitted only from the ready verdict. That last guarantee is by CONVENTION, not
-  // construction — nothing structurally stops a NEW widget from reading the raw
-  // `.phase` — so the rule for a new one is: paint via `<HostStatusPip>`, never
-  // colour a dot from `.phase`. The ssh
-  // VOCABULARY (`"connected"`, the phase sum) stays HERE beside the schema;
-  // `@kolu/surface` only invokes the predicate (the `resolveCellVerbs`-style
-  // mechanism/vocabulary split). `DEFAULT_CONNECTION` is `connecting` — gate-closed
-  // — so a freshly-composed cell reads not-live until a genuine `connected` frame.
-  liveWhen: (v: ConnectionInfo) => v.phase === "connected",
-} as const;
+/** Project a session frame → the browser-facing {@link ConnectionInfo} — the ONE pure
+ *  leaf a consumer derives the WORD from the entry with (SR9: "surface-remote exports
+ *  only the projection"). A PROVABLE IDENTITY, not a re-box: `ConnectionInfo` IS
+ *  `SessionState<SshProv>`, and `SessionState<Prov>` for any `Prov extends SshProv` (the
+ *  ssh arm's `SshProv`, or a `never` endpoint — `never extends SshProv`) is a subtype by
+ *  `Prov`-covariance, so `s` is already a `ConnectionInfo`. No arm-by-arm reconstruction,
+ *  no casts, no runtime zod-throw risk — the two sums can't drift (the
+ *  `connectionInfoIdentity` type-d pin enforces the schema tracks the type). Kept as a
+ *  named function (rather than inlined) so every consumer that reads the entry's fine
+ *  connection names the one projection — the browser-safe leaf both kolu and drishti
+ *  import (never a second server-side subscription). */
+export function projectConnection<Prov extends SshProv>(
+  s: SessionState<Prov>,
+): ConnectionInfo {
+  return s;
+}
 
-/** A base spec with the reserved get-only `connection` cell added.
- *
- *  The cell part is taken CONDITIONALLY — `S extends { cells: infer C } ? C : {}`
- *  — so a cell-less base (a valid collection/stream-only surface, where `S["cells"]`
- *  is absent/`undefined`) models its existing cells as exactly `{}`, and the result
- *  is precisely `{ connection: typeof connectionCell }` rather than widening through
- *  `SurfaceSpec`'s `Record<string, CellSpec<...>>` constraint (which `NonNullable`
- *  would resolve to, typing the mirror as carrying arbitrary string-keyed cells). */
-export type WithConnection<S extends SurfaceSpec> = Omit<S, "cells"> & {
-  cells: (S extends { cells: infer C } ? C : unknown) & {
-    connection: typeof connectionCell;
-  };
-};
+/** Frames already validated by {@link sessionConnection}, keyed by REFERENCE so the entry is
+ *  auto-evicted when the family replaces the frame — the validate-once-per-frame memo. */
+const validatedFrames = new WeakSet<SessionState<string>>();
 
-/**
- * Augment a base surface with the gate-closed, get-only `connection` cell — the
- * "mirrored over a HostSession" seam's entry ticket.
+/** The total projection a host-map consumer feeds to `serveHostMap`'s `connection.project` —
+ *  `(raw: SessionState<string> | undefined) => ConnectionInfo`, shaped to that seam so no
+ *  consumer re-hand-assembles the undefined-arm + the erased-`Prov` cast. Folds the
+ *  gate-closed pending value for a not-yet-seeded member (matching the coarse `connecting`
+ *  arm, so the dot and word agree), and returns the frame otherwise. A host map serves
+ *  over `SessionState<string>` (Prov erased to the phase top) and its sessions are ssh (or
+ *  the `never` endpoint — `never extends SshProv`), so the frame IS a `ConnectionInfo`; the
+ *  entries wire schema validates it. This is the ONE home for that erased-Prov CAST — it
+ *  restores the real `Prov` and delegates the identity to the strict, cast-free
+ *  {@link projectConnection}, so the provable-identity insight lives in exactly ONE place
+ *  and `projectConnection` is the leaf every session→ConnectionInfo projection routes
+ *  through (a real production consumer, not just the type-d pin).
  *
- * The BROWSER consumes `mirroredSurface(base)` and the re-serving parent serves
- * it; the BASE surface (what an agent/daemon serves directly, or a one-shot dial
- * reaches) stays connection-free, so a direct/local link carries no inert stub
- * and no contract-version dance. Composing link health is then **structurally
- * entailed for `pumpRemoteSurface` consumers** — passing `connection` makes the
- * pump wire `pipeSessionStateToCell` itself, so they can't forget it (the
- * omission that was #1564), exactly as `defineSurface` entails `system.live`. A
- * re-serve that runs its OWN pump (the remote-process-monitor example) is not
- * covered by that guarantee and must call `pipeSessionStateToCell` explicitly.
+ *  The `Prov`-restore cast is GUARDED, not blind: a host map serving a `connection`
+ *  payload is served over ssh-typed sessions by the pool's construction, but the erased
+ *  `SessionState<string>` structurally admits any phase (and a known phase-name without its
+ *  arm-specific fields — a `connected` frame missing `clockOffset`). So the WHOLE frame is
+ *  validated against {@link ConnectionInfoSchema} before the cast, and a malformed / non-ssh
+ *  frame FAILS LOUD (a producer defect) rather than casting a lie the wire schema would only
+ *  catch downstream. On success the ORIGINAL frame is returned (never the parsed clone) —
+ *  reference stability is what the entries `equals` dedup rests on, and `makeSession` stamps
+ *  every arm field, so this validation never trips in steady state; it is the fail-fast
+ *  belt for a future producer that forgets.
  *
- * Throws if `base` already declares a `connection` cell: `connection` is a
- * reserved name at this seam (mirroring `defineSurface`'s duplicate-`live` claim),
- * so a collision is loud rather than a silent `{...spread}` overwrite.
- */
-export function mirroredSurface<S extends SurfaceSpec>(
-  base: Surface<S>,
-): Surface<WithConnection<S>> {
-  if (base.spec.cells && "connection" in base.spec.cells) {
-    throw new Error(
-      'mirroredSurface: the base surface already declares a "connection" cell. ' +
-        "`connection` is reserved for the mirror seam's link-health cell — rename the base cell.",
-    );
+ *  VALIDATE-ONCE-PER-FRAME: `serveHostMap` re-projects the SAME cached frame on every
+ *  republish (O(M) per change, O(M²) per pool burst) — a `safeParse` on each would re-walk
+ *  unchanged frames on the status hot path. The frame is reference-stable until its next
+ *  `onState`, so the validation is memoised by frame REFERENCE ({@link validatedFrames}, a
+ *  `WeakMap` auto-evicted when the frame is replaced): only a genuinely-new frame parses. */
+export function sessionConnection(
+  raw: SessionState<string> | undefined,
+): ConnectionInfo {
+  if (raw === undefined) return DEFAULT_CONNECTION;
+  if (!validatedFrames.has(raw)) {
+    const parsed = ConnectionInfoSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        "sessionConnection: session frame is not a valid ConnectionInfo — a host map " +
+          "declaring a `connection` payload must be served over ssh-typed sessions producing " +
+          "valid ConnectionInfo frames (`makeSession` stamps every arm field). Failing loud " +
+          `rather than casting a malformed/non-ssh frame. ${parsed.error.message}`,
+      );
+    }
+    validatedFrames.add(raw);
   }
-  return defineSurface({
-    ...base.spec,
-    cells: { ...base.spec.cells, connection: connectionCell },
-    // The documented cast: `defineSurface`'s const-inference over the spread spec
-    // doesn't line up with `WithConnection<S>` structurally, but the runtime IS
-    // that surface (base primitives + the connection cell).
-  }) as unknown as Surface<WithConnection<S>>;
+  // The frame IS a valid ConnectionInfo (validated above) — return it, not the clone, so
+  // the reference stays stable for the entries `equals` dedup. `projectConnection` names
+  // the (now-validated) identity.
+  return projectConnection(raw as SessionState<SshProv>);
 }
