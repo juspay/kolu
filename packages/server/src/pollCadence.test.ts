@@ -111,7 +111,7 @@ describe("captureLatest — the synchronous liveness snapshot for the deferred p
       () => s.currentClient(),
     );
     // Boot / after a drop: padi is not live.
-    expect(liveness.get()).toBe(false);
+    expect(liveness()).toBe(false);
 
     // Reconnect attempt starts: onState('connecting') fires while the client is STILL not
     // live (pre-assignment) — the snapshot captures `false` at this instant.
@@ -121,7 +121,7 @@ describe("captureLatest — the synchronous liveness snapshot for the deferred p
 
     // The DEFERRED read (a microtask later) consults the snapshot, not the live accessor:
     // it stays `false` → the cell reports `absent`, never the stale mirror during connecting.
-    expect(liveness.get()).toBe(false);
+    expect(liveness()).toBe(false);
     // Control: the pre-fix gate (a live read) would now be truthy → the stale-read regression.
     expect(s.currentClient()).toBe(true);
   });
@@ -132,29 +132,16 @@ describe("captureLatest — the synchronous liveness snapshot for the deferred p
       (onChange) => s.onState(onChange),
       () => s.currentClient(),
     );
-    expect(liveness.get()).toBe(false);
+    expect(liveness()).toBe(false);
 
     // A genuine connect: the client is assigned, THEN onState('connected') fires.
     s.setClientLive(true);
     s.poke();
-    expect(liveness.get()).toBe(true);
+    expect(liveness()).toBe(true);
 
     // A later transition to a down (no-live-client) state re-snapshots `false`.
     s.setClientLive(false);
     s.poke();
-    expect(liveness.get()).toBe(false);
-  });
-
-  it("stop() unsubscribes — no further snapshotting after teardown", () => {
-    const s = fakeSession();
-    const liveness = captureLatest(
-      (onChange) => s.onState(onChange),
-      () => s.currentClient(),
-    );
-    liveness.stop();
-    // A post-stop state change must not update the snapshot.
-    s.setClientLive(true);
-    s.poke();
-    expect(liveness.get()).toBe(false);
+    expect(liveness()).toBe(false);
   });
 });

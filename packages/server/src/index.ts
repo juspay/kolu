@@ -581,7 +581,7 @@ const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
 // live `currentClient()` at the deferred moment would read the primed mirror's stale RSS
 // during `connecting`. The snapshot fixes the read's liveness to the state-change instant,
 // byte-identical to the retired synchronous `startMemorySampler`.
-const padiLiveness = captureLatest(
+const padiIsLive = captureLatest(
   (onChange) => padiSession.onState(onChange),
   () => padiSession.currentClient() !== null,
 );
@@ -592,7 +592,7 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
   // flip-to-absent both ride this snapshot exactly as the old synchronous read did off the
   // live accessor; a fresh rebind still has the bounded stale-read window until the mirror
   // re-folds (see above, Ledger L14).
-  if (!padiLiveness.get()) return null;
+  if (!padiIsLive()) return null;
   const ctl = new AbortController();
   try {
     // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
@@ -653,7 +653,7 @@ const padiBuildCommit = (): string | null => {
 // to a full interval (#1831's stale-MB regression). `onState` also fires the current
 // state synchronously on subscribe, so both cells' T+0 seed reflects the live binding.
 const onPadiStateChange = (tick: () => void): (() => void) =>
-  padiSession.onState(() => tick());
+  padiSession.onState(tick);
 
 // Serve kolu-server's own surface, injecting the two DERIVED poll cells.
 const { router: koluSurfaceRouter, ctx: koluSurfaceCtx } = implementKoluSurface(

@@ -56,15 +56,18 @@ export function everyMsOrOnState(
  *  state-change instant.
  *
  *  `subscribe` is expected to fire its callback once on subscribe (seeding) and on each
- *  later change; the initial `read()` seeds regardless. Returns the current snapshot and
- *  the unsubscribe. */
+ *  later change; the initial `read()` seeds regardless. Returns the snapshot getter. The
+ *  subscription is process-lifetime (the caller reads the snapshot forever), so its
+ *  unsubscribe is intentionally not surfaced — returning a teardown nobody calls would be
+ *  a dead knob, and discarding it matches every other process-lifetime `onState`
+ *  subscription in the boot. */
 export function captureLatest<T>(
   subscribe: (onChange: () => void) => () => void,
   read: () => T,
-): { get: () => T; stop: () => void } {
+): () => T {
   let latest = read();
-  const stop = subscribe(() => {
+  subscribe(() => {
     latest = read();
   });
-  return { get: () => latest, stop };
+  return () => latest;
 }
