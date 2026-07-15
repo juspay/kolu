@@ -168,7 +168,9 @@ function hasSelfContinue(
     if (type === "ContinueStatement") {
       const label = (rec.label as { name?: string } | null | undefined)?.name;
       const targetsThis =
-        label == null ? !nestedLoop && !inFn : !inFn && ownLabels.includes(label);
+        label == null
+          ? !nestedLoop && !inFn
+          : !inFn && ownLabels.includes(label);
       if (targetsThis) {
         found = true;
         return;
@@ -177,7 +179,8 @@ function hasSelfContinue(
     const t = typeof type === "string" ? type : "";
     const childNestedLoop = nestedLoop || LOOP_TYPES.has(t);
     const childInFn = inFn || FUNCTION_TYPES.has(t);
-    for (const key of childKeys(rec)) descend(rec[key], childNestedLoop, childInFn);
+    for (const key of childKeys(rec))
+      descend(rec[key], childNestedLoop, childInFn);
   };
   descend(body, false, false);
   return found;
@@ -228,8 +231,8 @@ function findViolations(): string[] {
       const rel = file.replace(`${PACKAGES}/`, "");
       forEachForAwait(ast.program, [], (loop, labels) => {
         if (!isOneShotForAwait(loop, labels)) return;
-        const line = (loop.loc as { start: { line: number } } | undefined)?.start
-          .line;
+        const line = (loop.loc as { start: { line: number } } | undefined)
+          ?.start.line;
         if (line !== undefined && isAllowListed(lines, line)) return;
         violations.push(`${rel}:${line ?? "?"}`);
       });
@@ -253,7 +256,9 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
       const hits: string[] = [];
       forEachForAwait(ast.program, [], (loop, labels) => {
         if (isOneShotForAwait(loop, labels))
-          hits.push(String((loop.loc as { start: { line: number } }).start.line));
+          hits.push(
+            String((loop.loc as { start: { line: number } }).start.line),
+          );
       });
       return hits;
     };
@@ -267,7 +272,9 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
       collect("async function f(){ for await (const m of s) return m; }"),
     ).toEqual(["1"]);
     expect(
-      collect("async function f(){ for await (const _m of s) { g(); return; } }"),
+      collect(
+        "async function f(){ for await (const _m of s) { g(); return; } }",
+      ),
     ).toEqual(["1"]);
     // delta loop: every exit is nested in an `if` → no top-level exit → NOT flagged.
     expect(
@@ -331,7 +338,10 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
     const withMarker = (l: string): string[] => l.split("\n");
     // directly-attached, with a reason → allow-listed.
     expect(
-      isAllowListed(withMarker("// first-frame-guard:allow — real reason\nfor await"), 2),
+      isAllowListed(
+        withMarker("// first-frame-guard:allow — real reason\nfor await"),
+        2,
+      ),
     ).toBe(true);
     // bare marker, no reason after the dash → NOT allow-listed.
     expect(
@@ -346,11 +356,17 @@ describe("first-frame one-shot guard — no consumer spells a one-shot first-fra
     ).toBe(false);
     // block comment with a real reason → allow-listed…
     expect(
-      isAllowListed(withMarker("/* first-frame-guard:allow — real */\nfor await"), 2),
+      isAllowListed(
+        withMarker("/* first-frame-guard:allow — real */\nfor await"),
+        2,
+      ),
     ).toBe(true);
     // …but a bare block-comment marker whose only trailing glyph is `*/` → NOT allowed.
     expect(
-      isAllowListed(withMarker("/* first-frame-guard:allow — */\nfor await"), 2),
+      isAllowListed(
+        withMarker("/* first-frame-guard:allow — */\nfor await"),
+        2,
+      ),
     ).toBe(false);
   });
 });
