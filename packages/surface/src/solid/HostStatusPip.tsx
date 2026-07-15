@@ -15,7 +15,7 @@
  *   - the not-ready color comes from {@link HostStatusPipProps.notReadyTone},
  *     whose ARGUMENT is typed `Exclude<GateStatus, "ready">`. The type stops the
  *     green from the argument, but the RETURN is an unconstrained string, so an app
- *     CAN hand back the ready color (the round-5-found hole — pulam-web's
+ *     CAN hand back the ready color (the round-5-found hole — the retired pulam-web's
  *     transport∘mirror-only tone was green for a connected link). So the component
  *     ENFORCES the invariant: a not-ready tone equal to `readyColor` is REFUSED
  *     (it throws) rather than painted — green is fact-only by construction, not by
@@ -53,7 +53,7 @@ export interface HostStatusPipProps {
    *  dot's green and `<SurfaceGate>`'s "show it" can't diverge. Default:
    *  `gateStatus(h) === "ready"` (fully ready: live ∧ no pending ∧ no error). An
    *  app whose gate ignores `pending` (a body with its own internal loading
-   *  states, like pulam-web) passes the SAME predicate it gives `<SurfaceGate
+   *  states) passes the SAME predicate it gives `<SurfaceGate
    *  ready>` — e.g. `(h) => h.live && !h.subs.some((s) => s.error)` — so dot and
    *  gate agree. Whatever the predicate, it reads the FACT (`h.live` carries the
    *  mirror leg by construction); there is no raw-cell input, so green is never
@@ -92,7 +92,7 @@ export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
   const ready = createMemo(() => {
     // Green requires a LIVE fact, FLOORED here so it can't be overridden: a custom
     // `ready` predicate may only REFINE the verdict WITHIN a live link (withhold
-    // green — pulam-web ignores `pending`), NEVER claim ready over a `live:false`
+    // green — e.g. an app that ignores `pending`), NEVER claim ready over a `live:false`
     // fact. The default branch (`gateStatus(h) === "ready"`) already implies live;
     // the explicit `h.live` floor catches a CUSTOM predicate that dropped the
     // conjunct (or a blunt `() => true`), so green is fact-FLOORED, not merely
@@ -115,7 +115,7 @@ export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
     if (display() === "ready") return readyColor;
     // The `notReadyTone` ARGUMENT is typed `Exclude<GateStatus,"ready">`, but its
     // RETURN is an unconstrained string — so an app CAN hand back the ready color
-    // here (the round-5-found hole: pulam-web's transport∘mirror-only tone was
+    // here (the round-5-found hole: the retired pulam-web's transport∘mirror-only tone was
     // green for a connected link, so a degraded host with a pending sibling painted
     // a green dot while a sub was silently dead). The type stops the green from the
     // ARGUMENT, not the RETURN — so the component enforces it: a not-ready tone that

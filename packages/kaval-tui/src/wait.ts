@@ -4,7 +4,7 @@
  * The data side of the `wait` verb, factored out of `main.ts` so it is testable
  * against a real pty-host over a real socket with no `process.exit` — `cmdWait`
  * is the thin glue that maps the outcome to output + exit code (mirroring
- * `pulam-tui`'s `read.ts:awaitAgentState` / `main.ts:cmdWait` split).
+ * `padi-tui`'s `read.ts:awaitAgentState` / `main.ts:cmdWait` split).
  *
  * The signal source is the SAME raw PTY output the daemon already serves on the
  * `terminalAttach` stream (snapshot-then-`delta` frames — `ptyHostSurface.ts`):
@@ -17,7 +17,7 @@
  * not a new volatility receptacle in the daemon. It works over `--socket` and
  * `--host` for free because `terminalAttach`/`exit` already do.
  *
- * This is explicitly NOT `pulam-tui wait`'s hooked agent-state path: that keys on
+ * This is explicitly NOT `padi-tui wait`'s hooked agent-state path: that keys on
  * OSC marks a *hooked* shell emits; this keys on raw output bytes from ANY
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */

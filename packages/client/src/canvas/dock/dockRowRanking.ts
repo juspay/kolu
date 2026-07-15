@@ -13,8 +13,8 @@
  *
  *  The agent-state core — awaiting/working/idle and their needs-you-first
  *  rank — is the shared `agentProjection` (`agentUrgency` · `URGENCY_RANK`),
- *  so the dock ranks a given agent state identically to pulam-tui and
- *  pulam-web (one source, pinned by the cross-consumer differential test).
+ *  so the dock ranks a given agent state identically to every `agentProjection`
+ *  consumer (one source, pinned by the dock ⇄ agentProjection parity test).
  *  The dock then layers its OWN overlays on top: `sleeping` (a deliberate
  *  dormant state), `parked` (the staleness window), and `none` (a
  *  never-touched plain shell) — the quieter tail below the three shared
@@ -54,7 +54,7 @@ export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
  *  carry no recency signal at all, so the result stays deterministic.
  *  Lower number = shown first. The three agent-state buckets inherit the
  *  shared needs-you-first rank (`need=0 < work=1 < idle=2`) so the dock can't
- *  drift from the pulam-tui / pulam-web ordering; `sleeping`/`parked`/`none`
+ *  drift from the shared `agentProjection` ordering; `sleeping`/`parked`/`none`
  *  are the dock's own quieter tail below them. */
 export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: URGENCY_RANK.need,
@@ -90,8 +90,8 @@ function classifyDockRow(
   const overlay = dockOverlayBucket(meta, parked);
   if (overlay) return overlay;
   // The agent-state core IS the shared needs-you projection, so the dock ranks
-  // a given state identically to pulam-tui / pulam-web (pinned by the
-  // differential test). `awaiting_user` → need, the working states → work, and
+  // a given state identically to every `agentProjection` consumer (pinned by the
+  // parity test). `awaiting_user` → need, the working states → work, and
   // everything else — a `waiting` post-turn agent, an unknown state, or no
   // agent at all — → idle. A never-touched plain shell (`lastActivityAt === 0`,
   // no agent) keeps its quieter `none` bucket below idle.

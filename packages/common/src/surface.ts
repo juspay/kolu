@@ -60,7 +60,7 @@ export type {
 } from "@kolu/terminal-vocab/agentProjection";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
 // rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
-// pulam-tui and pulam-web already share. The kolu client reaches it through the
+// padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the
 // SAME door it already uses for the awareness schema (this module) rather than a
 // second, direct `@kolu/terminal-vocab` edge, so the Dock joins as a third
 // consumer of the same definition instead of re-deriving "needs-you".
@@ -595,31 +595,37 @@ export const koluSurface = defineSurface({
     },
 
     /** kolu-server's live view of its binding to the local padi (see
-     *  {@link PadiLinkSchema}). Server-authored — kolu-server is the sole writer,
-     *  driving it off the bound padi session's connection state
-     *  (`server/src/index.ts` via `koluSurfaceCtx.cells.padiLink.set`); clients
-     *  read-only. The client folds it into the warming/degraded canvas so a padi drop
-     *  shows an honest connecting state, never a frozen-but-live-looking world (#1034).
-     *  Gate-closed default `connecting`, so a fresh subscription reads "coming up"
-     *  before the first transition rather than a premature `connected`. */
+     *  {@link PadiLinkSchema}). Server-authored — a DERIVED PUSH cell scanning the bound
+     *  padi's `onState` (`server/src/surface.ts`), so the reactor graph is the one writer
+     *  (no ctx `.set`); clients read-only. The client folds it into the warming/degraded
+     *  canvas so a padi drop shows an honest connecting state, never a frozen-but-live
+     *  world (#1034). Gate-closed default `connecting`, so a fresh subscription reads
+     *  "coming up" before the first transition rather than a premature `connected`. */
     padiLink: {
       schema: PadiLinkSchema,
       default: "connecting" satisfies PadiLink,
+      // The derived cell's one wire dedup point: a repeated same-link transition
+      // (onState fires once per endpoint status, several map to the same padiLink) never
+      // re-publishes to every connected client.
+      equals: (a, b) => a === b,
       verbs: ["get"],
     },
 
     /** Live boot-time readout (kolu-server + padi) for the rail's uptime (see
-     *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off
-     *  the bound padi session's connection state, the SAME `onState` that drives
-     *  `padiLink` (`server/src/index.ts` via `koluSurfaceCtx.cells.processStartedAt.set`);
-     *  clients read-only. The `{ server: null, padi: null }` default is the honest
-     *  pre-yield "unknown" for BOTH legs — no `0` sentinel (the rail gates a `null` out
-     *  rather than rendering a bogus uptime off a fabricated boot time). */
+     *  {@link ProcessStartedAtSchema}). Server-authored — a DERIVED PUSH cell scanning the
+     *  SAME padi `onState` that drives `padiLink` (`server/src/surface.ts`), so the graph
+     *  is the one writer (no ctx `.set`); clients read-only. The `{ server: null, padi:
+     *  null }` default is the honest pre-yield "unknown" for BOTH legs — no `0` sentinel
+     *  (the rail gates a `null` out rather than rendering a bogus uptime off a fabricated
+     *  boot time). */
     processStartedAt: {
       schema: ProcessStartedAtSchema,
       default: { server: null, padi: null } satisfies z.infer<
         typeof ProcessStartedAtSchema
       >,
+      // The derived cell's one wire dedup point: a transition that leaves both boot times
+      // unchanged never re-publishes.
+      equals: (a, b) => a.server === b.server && a.padi === b.padi,
       verbs: ["get"],
     },
 

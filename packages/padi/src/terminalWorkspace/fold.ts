@@ -11,7 +11,7 @@
  *
  * Pure and host-agnostic: kolu's in-process fold (R9.0) and a remote fold (R9.3)
  * are the SAME function. `foldSnapshot` (the snapshot-only half) is shared with
- * the dashboard producers (pulam), which remember nothing — the one source of
+ * the memoryless dashboard consumers, which remember nothing — the one source of
  * truth for "apply an observation to the snapshot state."
  */
 
@@ -38,7 +38,7 @@ import type {
 export const RECENCY_THROTTLE_MS = 60_000;
 
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
- *  full {@link fold} and a memory-less dashboard accumulator (pulam), so "apply an
+ *  full {@link fold} and a memory-less dashboard accumulator, so "apply an
  *  observation to the snapshot state" lives once. The agent's `Known<>` rule
  *  lives here: `"unknown"` (mid-resolution, OR a defined non-shell foreground whose
  *  session is unresolvable — W12's can't-tell-ended-from-lost-observer) returns the

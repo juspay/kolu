@@ -7,7 +7,7 @@
  * twin for the other half of "is this surface usable right now?": *is any
  * subscription erroring, or still waiting for its first frame?* Without that
  * twin, every mirror consumer hand-folds it — and that hand-fold is exactly
- * where pulam-web's stale-"Internal server error" latch lived (#1564 follow-up):
+ * where the retired pulam-web's stale-"Internal server error" latch lived (#1564 follow-up):
  * a one-shot `onError` funneled into `setError(prev ?? msg)` that never cleared.
  * drishti, gating on the cell's live value instead, dodged it — two consumers,
  * two divergent folds, one coin-flip each.
@@ -23,7 +23,7 @@
  *      human copy. Policy — why liveness outranks a sub error, whether one
  *      erroring stream is "degraded" or "dead" — is the consumer's (`SurfaceGate`
  *      owns the default), because two consumers legitimately disagree:
- *      stale-while-degraded (drishti) vs hard-gate (pulam-web). Braiding the two
+ *      stale-while-degraded (drishti) vs hard-gate (the retired pulam-web). Braiding the two
  *      is what forced every consumer to re-derive both.
  *
  *   2. It folds each sub's OWN self-clearing `error()` / `pending()` LEVEL

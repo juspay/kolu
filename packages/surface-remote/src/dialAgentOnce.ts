@@ -15,7 +15,7 @@
  * defaults to the reserved `system.live` round-trip (`probeSurfaceLive`) — the
  * same receptacle HostSession's periodic watchdog plugs into — so no CLI
  * nominates its own liveness verb. A CLI overrides `probe` only for a protocol
- * assertion that goes beyond liveness (pulam-tui's `version` first-frame check).
+ * assertion that goes beyond liveness (padi-tui's padiSurface contract-version gate).
  *
  * This is the *one-shot* shape: it fires `markConnected()` itself and discards
  * the `HostSession`, because a one-shot CLI needs no copying/connecting overlay
@@ -113,15 +113,15 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  `process.env.FOO` property that could silently drift. */
   agentDrvsJson: string | undefined;
   /** Noun for the "no <noun> derivation baked for system=…" error (e.g.
-   *  `kaval`, `pulam`). */
+   *  `kaval`, `padi`). */
   drvNoun: string;
   /** The EXACT stderr prefix the remote agent writes before its fatal message,
-   *  right before exiting (e.g. `pulam:`, `kaval --stdio:`). Required and
+   *  right before exiting (e.g. the retired pulam's `pulam:`, or `kaval --stdio:`). Required and
    *  caller-supplied because it is NOT always `${drvNoun}:` — kaval's `--stdio`
    *  front writes `kaval --stdio:`, not `kaval:`. The agent's fatal is the LAST
    *  thing it writes, so `dialAgentOnce` surfaces everything from the last line
    *  carrying this prefix through the end of the remote stderr as the dial's
-   *  failure reason — capturing a multi-line block (e.g. pulam's "more than one
+   *  failure reason — capturing a multi-line block (e.g. the retired pulam's "more than one
    *  kaval" error listing each `--kaval <socket>` candidate), not just the
    *  prefixed first line. */
   fatalPrefix: string;
@@ -130,15 +130,15 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  framework-reserved `system.live` round-trip (`probeSurfaceLive`), the same
    *  receptacle HostSession's periodic watchdog plugs into, so every
    *  `defineSurface` agent is provable without nominating an app verb. Override
-   *  ONLY for a genuine protocol assertion that goes BEYOND liveness — pulam-tui
-   *  asserts its `version` cell yields a first frame, which is a contract check,
+   *  ONLY for a genuine protocol assertion that goes BEYOND liveness — padi-tui
+   *  gates the padiSurface contract version, which is a contract check,
    *  not merely "is the link alive". The result is discarded; a rejection fails
    *  the dial (and destroys the session). */
   probe?: (client: AgentClient<C>) => Promise<unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
-   *  the caller's concern (see the pulam-tui `--kaval` call site). */
+   *  the caller's concern (see the remote padi binding's `--state-root` call site). */
   extraArgs?: readonly string[];
   /** Diagnostic-line sink, forwarded to `HostSessionOptions.onLog`. Omit and the
    *  session writes its `nix copy` progress / connection transitions / forwarded
@@ -203,7 +203,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // the agent's last stderr (the REMOTE-origin lines of the session's `log` —
   // `log` entries with `source === "remote"`) is the real reason. The agent writes
   // its fatal as `<fatalPrefix> <message>` to its own stderr right before exiting
-  // (see pulam's / kaval's bin.ts), forwarded onto those remote-origin `log` lines,
+  // (see padi's / kaval's bin.ts), forwarded onto those remote-origin `log` lines,
   // already separated (by the `source` field) from the session's OWN local
   // lifecycle chatter ("agent exited", "reconnecting in 2000ms…"). Reading them BY
   // ORIGIN (`source === "remote"`) rather than re-parsing an in-band tag keeps the
@@ -214,7 +214,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // The fatal is the LAST thing the agent writes, so it is the TAIL of the
   // remote-origin lines (never evicted by the `MAX_PROGRESS_LINES` cap, which drops
   // the oldest) — captured FROM the last prefixed line THROUGH the end, not just
-  // that one line. pulam's ambiguity error is multi-line (the "more than one kaval"
+  // that one line. The retired pulam's ambiguity error was multi-line (the "more than one kaval"
   // header plus each `--kaval <socket>` candidate the user needs to recover):
   // `forEachLine` splits it into separate remote `log` entries where only the first
   // carries the prefix, so matching a single prefixed line would drop the
@@ -256,7 +256,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // any real command. Default to the framework-reserved `system.live` probe —
     // the receptacle HostSession's periodic watchdog also plugs into — so a CLI
     // need not nominate its own liveness verb; only a deliberate protocol
-    // assertion (pulam-tui's first-frame check) overrides it.
+    // assertion (padi-tui's contract-version gate) overrides it.
     const probe = opts.probe ?? probeSurfaceLive;
     await probe(client);
     session.markConnected();

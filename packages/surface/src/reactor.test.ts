@@ -10,7 +10,7 @@
  * `reactorEngineLaws.test.ts`.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
@@ -20,6 +20,7 @@ import {
   derived,
   type DerivedCell,
   type DerivedComputeCell,
+  everyMsOr,
   scan,
   source,
 } from "./reactor";
@@ -1473,5 +1474,104 @@ describe("derived.collection — the keyed reconciler", () => {
       new Map([["a", { n: 2 }]]),
     );
     await runtime.close();
+  });
+});
+
+describe("everyMsOr — the fused interval + edge cadence", () => {
+  // These pin the graduated cadence fuse at its HOME (SR8.c): the interval+edge
+  // `install` moved here out of kolu-server's app-local `everyMsOrOnState` twin, and
+  // its contract — edge-fire, unref'd interval, both-teardown — is asserted where it
+  // lives. Fake timers are scoped to this block so the async poll-source tests above
+  // keep their real-timer `flush`.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("fires the tick when the subscribed edge fires (the force-resample), not just on the interval", () => {
+    let fireEdge!: () => void;
+    const subscribe = (tick: () => void): (() => void) => {
+      fireEdge = tick;
+      return () => {};
+    };
+    const tick = vi.fn();
+
+    const cleanup = everyMsOr(5_000, subscribe)(tick);
+
+    // No interval elapsed yet — but an edge force-resamples immediately.
+    expect(tick).not.toHaveBeenCalled();
+    fireEdge();
+    expect(tick).toHaveBeenCalledTimes(1);
+
+    // The interval still ticks independently.
+    vi.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(2);
+    fireEdge();
+    expect(tick).toHaveBeenCalledTimes(3);
+
+    cleanup?.();
+  });
+
+  it("the interval is unref'd so a live sampler never holds the process open on its own", () => {
+    const unref = vi.fn();
+    const setInterval = vi
+      .spyOn(globalThis, "setInterval")
+      .mockReturnValue({ unref } as unknown as ReturnType<
+        typeof globalThis.setInterval
+      >);
+
+    const cleanup = everyMsOr(5_000, () => () => {})(() => {});
+    expect(setInterval).toHaveBeenCalledOnce();
+    expect(unref).toHaveBeenCalledOnce();
+
+    cleanup?.();
+    setInterval.mockRestore();
+  });
+
+  it("cleanup unsubscribes the edge AND clears the interval — both, not one", () => {
+    const off = vi.fn();
+    const subscribe = vi.fn((_tick: () => void) => off);
+    const tick = vi.fn();
+
+    const cleanup = everyMsOr(5_000, subscribe)(tick);
+    expect(subscribe).toHaveBeenCalledOnce();
+
+    cleanup?.();
+    // The subscription is torn down …
+    expect(off).toHaveBeenCalledOnce();
+    // … and the interval no longer fires the tick.
+    vi.advanceTimersByTime(20_000);
+    expect(tick).not.toHaveBeenCalled();
+  });
+
+  it("rolls the interval back if subscribe throws during setup — no orphaned timer", () => {
+    const clearInterval = vi.spyOn(globalThis, "clearInterval");
+    const boom = new Error("edge source unavailable");
+    const subscribe = () => {
+      throw boom;
+    };
+
+    // The interval is live before subscribe runs; a throwing subscribe must clear it, not leak it.
+    expect(() => everyMsOr(5_000, subscribe)(() => {})).toThrow(boom);
+    expect(clearInterval).toHaveBeenCalledOnce();
+
+    // No orphaned timer survives to fire.
+    const tick = vi.fn();
+    everyMsOr(5_000, () => () => {})(tick);
+    vi.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+
+    clearInterval.mockRestore();
+  });
+
+  it("clears the interval even when unsubscribe throws during cleanup — finally, not sequence", () => {
+    const off = () => {
+      throw new Error("unsubscribe failed");
+    };
+    const tick = vi.fn();
+    const cleanup = everyMsOr(5_000, () => off)(tick);
+
+    // A throwing unsubscribe propagates, but the interval is still torn down (finally).
+    expect(() => cleanup?.()).toThrow("unsubscribe failed");
+    vi.advanceTimersByTime(20_000);
+    expect(tick).not.toHaveBeenCalled();
   });
 });

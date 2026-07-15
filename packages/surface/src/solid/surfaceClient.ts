@@ -510,7 +510,7 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
    *  `liveWhen`-cell readiness subs `surfaceClient` opens so the mirror-liveness
    *  leg folds into `health().live` by construction (not at `.use()` time). A
    *  client with no `liveWhen` cell opens none, so `dispose()` is a no-op. A
-   *  page-lifetime cached client (pulam-web/drishti per-host) never needs to call
+   *  page-lifetime cached client (drishti's per-host) never needs to call
    *  it; the `connectSurface`/`connectSurfaces` seams fold it into THEIR dispose
    *  so a torn-down socket doesn't leak its readiness consume loop. */
   dispose(): void;

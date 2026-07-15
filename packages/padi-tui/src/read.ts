@@ -7,7 +7,7 @@
  * `activity` live-byte stream, driven by `mirrorRemoteSurface`.
  *
  * padi's compatibility is gated at DIAL (`connectPadi` refuses a contract skew
- * loudly), so — unlike pulam-tui — there is no separate `assertCompatible` read.
+ * loudly), so — unlike the retired pulam-tui — there is no separate `assertCompatible` read.
  */
 
 import { padiSurface, type PadiTerminal } from "@kolu/padi/surface";
@@ -57,7 +57,7 @@ function isResolved(v: PadiTerminal): boolean {
  *  enough for the sensors, then lingers `graceMs` to catch siblings landing in the
  *  same burst — capping the whole wait at `maxMs`. A terminal the sensors
  *  legitimately resolve to "nothing" never flips `isResolved`, so it falls through
- *  at `maxMs` — bounded, never a hang. Mirrors pulam-tui's `settledSnapshot`. */
+ *  at `maxMs` — bounded, never a hang. Mirrors the retired pulam-tui's `settledSnapshot`. */
 export async function settledSnapshot(
   client: PadiTuiClient,
   opts: { maxMs?: number; graceMs?: number } = {},

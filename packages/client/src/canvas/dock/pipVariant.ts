@@ -4,7 +4,7 @@
  *
  *  The three agent-paint buckets route through the SHARED `pipForPaintClass`, so
  *  the pip a given agent paint class shows is defined ONCE — the same fold
- *  pulam-web's `pipVariantFor` calls — and can't drift between the two surfaces.
+ *  a fleet mirror's `pipVariantFor` calls — and can't drift between surfaces.
  *  This function adds only the dock-only `idle`/`sleeping`/`parked` triage
  *  buckets that have no agent paint to share.
  *
@@ -29,7 +29,7 @@ export function pipVariant(bucket: DockRowBucket): PipVariant {
     case "working":
     case "none":
       return pipForPaintClass(bucket);
-    // The dock's own triage tail — no agent paint to share with pulam-web.
+    // The dock's own triage tail — no agent paint to share with a fleet mirror.
     case "idle":
       return "idle";
     case "sleeping":

@@ -48,7 +48,7 @@ import {
  *  was created to kill). Slashes group the arrow cluster; `send.test.ts` guards
  *  that every token here resolves via `encodeKey` and that every byte in
  *  `NAMED_KEY_BYTES` is reachable from it, so adding a key to the table without
- *  listing it here fails CI — the same protection pulam's `WAIT_STATES` enjoys. */
+ *  listing it here fails CI — the same protection padi-tui's `WAIT_STATES` enjoys. */
 export const ACCEPTED_KEY_NAMES =
   "Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space, Shift-Tab";
 

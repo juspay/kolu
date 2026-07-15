@@ -20,8 +20,8 @@
  *     becomes a session + an oRPC handler) and an optional `persist` hook.
  *
  * Both are lifted verbatim-in-shape from drishti's `bridgeAgentToParent` +
- * `hostRegistry.ts` — the two consumers (drishti's process monitor, pulam-web's
- * terminal awareness) differ only in *which* surface/sink and *how* a host
+ * `hostRegistry.ts` — the two consumers (drishti's process monitor, kolu-server's
+ * remote-padi terminal awareness) differ only in *which* surface/sink and *how* a host
  * resolves its `.drv`, so the mechanism is shared and the surface-specific
  * knowledge stays in the app's `makeSink` / `buildEntry`.
  */
