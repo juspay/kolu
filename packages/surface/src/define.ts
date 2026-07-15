@@ -661,6 +661,32 @@ export type SurfaceEventPayload<
   K extends keyof SurfaceTypes<S>["events"] & string,
 > = SurfaceTypes<S>["events"][K] extends { Payload: infer P } ? P : never;
 
+/** The typed `$` SIBLING-READ face handed to a compute-fn `derived.cell` /
+ *  `derived.collection` — a plain mapped type over the spec (no `keyof` union
+ *  explosion), so `$.someCell()` reads a sibling cell's value and
+ *  `$.someCollection()` reads a sibling collection's live map. Reading is
+ *  depending: the reactor tracks each `$.<sibling>()` read as a graph edge, so a
+ *  derivation recomputes exactly when a sibling it read changed. A derived
+ *  sibling reads as its own computed value (never a half-updated mirror) — every
+ *  derivation chain stays a pure computed graph, glitch-free by the engine's lazy
+ *  pull, even across a diamond. Declaration order is irrelevant: the boot walk
+ *  builds every derived node before it seeds any, so a `derived.cell` may read a
+ *  sibling `derived.cell` via `$` whether declared before or after it — only a
+ *  genuine cycle fails.
+ *
+ *  Cells and collections share the one flat `$` namespace; a name declared as
+ *  both would intersect their two accessor signatures. */
+export type SiblingRead<S extends SurfaceSpec> = {
+  [K in keyof NonNullable<S["cells"]> & string]: () => z.infer<
+    NonNullable<S["cells"]>[K]["schema"]
+  >;
+} & {
+  [K in keyof NonNullable<S["collections"]> & string]: () => ReadonlyMap<
+    z.infer<NonNullable<S["collections"]>[K]["keySchema"]>,
+    z.infer<NonNullable<S["collections"]>[K]["schema"]>
+  >;
+};
+
 // ── Type oracles for per-primitive contract entry shape ────────────────
 //
 // Each `build*` here is a runtime-dead type oracle: TypeScript reads
@@ -839,6 +865,21 @@ export function defineSurface<const S extends SurfaceSpec>(
   }
   for (const [key, s] of Object.entries(spec.collections ?? {})) {
     claim(key, collectionContractEntries(s));
+  }
+  // The `$` sibling-read face is one FLAT namespace over cells AND collections, so
+  // a name that is BOTH is ambiguous — `$.<name>()`'s two accessors intersect to
+  // the cell arm while the runtime would return the collection map. That is a
+  // static property of the spec, so reject it HERE, at definition, for every
+  // consumer (a contract-only client as much as a server), not just when a server
+  // implements the surface. (`Object.hasOwn`, so a member legitimately named
+  // `toString`/`constructor` isn't mistaken for an inherited key.)
+  const collectionsSpec = spec.collections ?? {};
+  for (const key of Object.keys(spec.cells ?? {})) {
+    if (Object.hasOwn(collectionsSpec, key)) {
+      throw new Error(
+        `defineSurface: "${key}" is declared as BOTH a cell and a collection — member names must be disjoint (the $ sibling-read face is one flat namespace, and the two accessors would collide).`,
+      );
+    }
   }
   for (const [key, s] of Object.entries(spec.streams ?? {})) {
     claim(key, streamContractEntries(s));
