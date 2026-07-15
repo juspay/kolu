@@ -48,7 +48,10 @@ import {
   createEndpoint,
   daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
-import { isSurfaceStdioTransportClosed } from "@kolu/surface/client";
+import {
+  isSurfaceRelayTransportLost,
+  isSurfaceStdioTransportClosed,
+} from "@kolu/surface/client";
 import { ConnectError, reServeSurface } from "@kolu/surface-remote";
 import { createRouterClient } from "@orpc/server";
 import {
@@ -383,18 +386,23 @@ describe("kolu-server padi binder — cutover acceptance", () => {
 
     // AND THE DAEMON SURVIVES THE DEPENDENCY FLOAT. On the fraction of runs where the
     // kill races the live `terminalAttach` teardown, oRPC floats its abandoned
-    // intermediate promise as the typed transport-closed rejection — the residual kolu
-    // cannot own (7 seams measured; `ownReadAheadPull` removes ~67%). The boundary
-    // (registered above, mirroring kolu-server's `index.ts`) SURVIVES that ONE typed
-    // shape; a float of any OTHER shape would already have re-surfaced as an
-    // uncaughtException and failed this run. Reaching here — with `roundTripTerminal`
-    // having RECONNECTED — IS the honest guarantee: reconnect + survival, NOT zero
-    // floats (which would demand owning a promise kolu structurally cannot; P5). Drain
-    // a beat for a late float, then confirm every survived one is, by construction, the
-    // ONE typed shape (belt-and-suspenders). REMOVE with the upstream oRPC fix.
+    // intermediate promise — the residual kolu cannot own (`ownReadAheadPull` removes
+    // the bulk; P5 for the remainder). The boundary (registered above, mirroring
+    // kolu-server's `index.ts`) SURVIVES that residual in EITHER shape it wears — the
+    // raw `SURFACE_STDIO_TRANSPORT_CLOSED`, or the re-serve relay's wrapped
+    // `SURFACE_RELAY_TRANSPORT_LOST` re-throw of it (post-#1822 the abandoned float
+    // carries the wrapped shape). A float of any OTHER shape would already have
+    // re-surfaced as an uncaughtException and failed this run. Reaching here — with
+    // `roundTripTerminal` having RECONNECTED — IS the honest guarantee: reconnect +
+    // survival, NOT zero floats (which would demand owning a promise kolu structurally
+    // cannot; P5). Drain a beat for a late float, then confirm every survived one is,
+    // by construction, one of those two shapes (belt-and-suspenders). REMOVE with the
+    // upstream oRPC fix.
     await sleep(200);
     for (const f of survivedFloats)
-      expect(isSurfaceStdioTransportClosed(f)).toBe(true);
+      expect(
+        isSurfaceStdioTransportClosed(f) || isSurfaceRelayTransportLost(f),
+      ).toBe(true);
   }, 90000);
 
   it("a kolu-server (binder) restart keeps padi's registry WARM — adopts, never respawns (done-criterion b)", async () => {

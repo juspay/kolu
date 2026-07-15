@@ -15,6 +15,19 @@
  * policy (`index.ts`) that would CRASH the whole server on a benign dependency
  * teardown float.
  *
+ * ## The residual wears TWO shapes (one mechanism)
+ * The float carries whatever value reaches that abandoned intermediate promise:
+ * - `SURFACE_STDIO_TRANSPORT_CLOSED` — the raw stdio close, when the relay's own
+ *   parked pull is what floats ({@link isSurfaceStdioTransportClosed}).
+ * - `SURFACE_RELAY_TRANSPORT_LOST` — the SAME stdio close after the re-serve relay
+ *   (`failThroughStreamCore`, `@kolu/surface-remote`) CATCHES it mid-stream and
+ *   re-throws it WRAPPED as its retryable middle-hop end (`RelayTransportLostError`,
+ *   so a LIVE client re-subscribes end-to-end). Post-#1822 the abandoned float
+ *   surfaces as this wrapped shape ({@link isSurfaceRelayTransportLost}).
+ * Both are the one un-ownable oRPC-internal residual; the boundary survives EITHER,
+ * via {@link isSurvivableReserveFloat}, and nothing else. The relay re-throws genuine
+ * application errors UNCHANGED, so neither survivable code can ever be an app error.
+ *
  * kolu proved it cannot OWN that promise from any of its own layers — seven
  * public-API ownership seams were measured (the reServe handler pull IS owned, via
  * `@kolu/surface`'s `ownReadAheadPull`, which removes ~67% of these floats; the
@@ -29,9 +42,9 @@
  * disproportionate standing maintenance tax on a core dep; srid ruled it out.
  *
  * ## Why this is NOT a fail-fast hole
- * - **NARROW.** {@link isSurfaceStdioTransportClosed} matches nothing but that one
- *   owned typed error; a rejection of ANY other shape stays fatal (the caller keeps
- *   its `process.exit(1)`). And narrow BY CONSTRUCTION: `unhandledRejection` fires
+ * - **NARROW.** {@link isSurvivableReserveFloat} matches nothing but those two owned
+ *   typed transport-teardown codes; a rejection of ANY other shape stays fatal (the
+ *   caller keeps its `process.exit(1)`). And narrow BY CONSTRUCTION: `unhandledRejection` fires
  *   ONLY for ABANDONED rejections — a LIVE consumer's typed error is handled by that
  *   consumer and never reaches here, so a fail-through relay's re-throw (which a
  *   browser's `consumeReattachingStream` re-attaches on) is untouched. Only the
@@ -52,7 +65,25 @@
  * upstream issue and tracked as a drishti follow-up, out of scope here.)
  */
 
-import { isSurfaceStdioTransportClosed } from "@kolu/surface/client";
+import {
+  isSurfaceRelayTransportLost,
+  isSurfaceStdioTransportClosed,
+} from "@kolu/surface/client";
+
+/** The two shapes the ONE residual float wears — both benign abandoned re-serve
+ *  transport-teardown signals, never an application error:
+ *  - {@link isSurfaceStdioTransportClosed}: the raw stdio close (the padi link dying).
+ *  - {@link isSurfaceRelayTransportLost}: SR5's re-serve relay CATCHING that stdio
+ *    close mid-stream and re-throwing it WRAPPED as the retryable relay end
+ *    (`RelayTransportLostError`). Post-#1822 the residual floats carrying THIS shape.
+ *  Both are the SAME un-ownable oRPC-internal residual (P5); the boundary survives
+ *  either and NOTHING else. Both codes are removed together when the upstream oRPC
+ *  fix lands. */
+function isSurvivableReserveFloat(reason: unknown): boolean {
+  return (
+    isSurfaceStdioTransportClosed(reason) || isSurfaceRelayTransportLost(reason)
+  );
+}
 
 /** The greppable marker every survived float carries. Grep CI logs / the server log
  *  for it to enumerate every oRPC-upstream float this boundary kept kolu-server alive
@@ -81,7 +112,7 @@ export function surviveReserveTransportFloat(
   log: FloatBoundaryLog,
   onCaught?: (reason: unknown) => void,
 ): boolean {
-  if (!isSurfaceStdioTransportClosed(reason)) return false;
+  if (!isSurvivableReserveFloat(reason)) return false;
   log.error(
     {
       marker: RESERVE_TRANSPORT_FLOAT_MARKER,

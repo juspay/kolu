@@ -117,6 +117,28 @@ export function isSurfaceStdioTransportClosed(reason: unknown): boolean {
   );
 }
 
+/** Is `reason` the reServe relay's RETRYABLE middle-hop transport-loss end —
+ *  `RelayTransportLostError` (`@kolu/surface-remote`), an `ORPCError` with the
+ *  {@link SURFACE_RELAY_TRANSPORT_LOST} code? Brand-checked on `ORPCError` + the exact
+ *  code, like {@link isSurfaceStdioTransportClosed}, and just as tight.
+ *
+ *  This is the SECOND shape the same padiBinding "reconnects when padi dies" residual
+ *  wears: a re-serve relay (`failThroughStreamCore`) CATCHES an upstream stdio close
+ *  mid-stream and re-throws it WRAPPED as this retryable relay end (so a live client
+ *  re-subscribes end-to-end). When that re-throw lands on the oRPC-internal
+ *  intermediate promise kolu can't own (P5), it floats carrying THIS code instead of
+ *  the raw {@link SURFACE_STDIO_TRANSPORT_CLOSED}. The consumer-side survival boundary
+ *  recognizes both. It stays NARROW: the relay re-throws genuine application errors
+ *  UNCHANGED (only a real middle-hop transport death is wrapped as
+ *  `SURFACE_RELAY_TRANSPORT_LOST`), so a float of this exact code is ALWAYS a benign
+ *  abandoned transport teardown, never an app error — every OTHER shape stays fatal. */
+export function isSurfaceRelayTransportLost(reason: unknown): boolean {
+  return (
+    reason instanceof ORPCError &&
+    reason.code === SURFACE_RELAY_TRANSPORT_LOST
+  );
+}
+
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application
