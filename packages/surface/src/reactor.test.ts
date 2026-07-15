@@ -979,12 +979,84 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     resolveRead(1);
     await connectP;
 
-    tick(); // re-read in flight (reads === 2)
-    tick(); // SKIPPED — a read is already in flight
-    expect(reads).toBe(2);
+    // `tick` sets `inFlight` synchronously, then defers the read a microtask (so a
+    // SYNCHRONOUS throw from `read` takes the logged-skip path, not the callback).
+    tick(); // inFlight = true synchronously; read scheduled
+    tick(); // SKIPPED — inFlight is already true (the guard is synchronous)
+    await flush(); // let the one non-skipped read actually run
+    expect(reads).toBe(2); // seed (1) + one tick read (1); the second tick skipped
     resolveRead(2);
     await flush();
     dc.dispose();
+  });
+
+  it("a later read that throws SYNCHRONOUSLY is log-skip-continue — inFlight never wedges", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "ok" | "throw" = "ok";
+      let val = 5;
+      let tick!: () => void;
+      const src = source<number>({
+        // A THROW-ONLY read is type-compatible; this returns before its Promise.
+        read: () => {
+          if (mode === "throw") throw new Error("sync boom");
+          return Promise.resolve(val);
+        },
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(
+        inMemoryStore<number | undefined>(undefined),
+        (a, b) => a === b,
+      );
+      await dc.connect(ctx);
+      expect(ctx.published).toEqual([5]);
+
+      mode = "throw";
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5]); // held, not crashed
+      expect(spy).toHaveBeenCalled();
+
+      // NOT wedged: a subsequent good read still publishes (inFlight was cleared even
+      // though the previous read threw synchronously).
+      mode = "ok";
+      val = 9;
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5, 9]);
+      dc.dispose();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("close during the T+0 seed: no late publish/install, and connect settles", async () => {
+    let resolveRead!: (n: number) => void;
+    let installed = false;
+    const src = source<number>({
+      read: () =>
+        new Promise<number>((r) => {
+          resolveRead = r;
+        }),
+      install: (t) => {
+        installed = true;
+        void t;
+        return () => {};
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+    const ctl = new AbortController();
+    const connectP = dc.connect(ctx, { signal: ctl.signal }); // seed read in flight
+    ctl.abort(); // close() races the seed
+    resolveRead(7); // seed resolves AFTER the abort
+    await connectP; // must SETTLE (not hang)
+    expect(ctx.published).toEqual([]); // no late publish over a closing runtime
+    expect(installed).toBe(false); // no cadence installed
   });
 
   it("rides implementSurface: a poll cell seeds the spec DEFAULT, then publishes reads", async () => {

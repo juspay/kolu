@@ -161,11 +161,14 @@ export interface DerivedCollectionBranded {
    *  against the last by `equals`, driving the surface's per-key publishers. The
    *  walk fires it (a poll node connects async, so it may return a
    *  `Promise<Disposer>`); the returned disposer joins the runtime's ownership. */
-  connect(publishers: {
-    upsert(key: unknown, value: unknown): void;
-    remove(key: unknown): void;
-    equals(a: unknown, b: unknown): boolean;
-  }): (() => void) | Promise<() => void>;
+  connect(
+    publishers: {
+      upsert(key: unknown, value: unknown): void;
+      remove(key: unknown): void;
+      equals(a: unknown, b: unknown): boolean;
+    },
+    opts?: { signal?: AbortSignal },
+  ): (() => void) | Promise<() => void>;
   /** Tear down the backing node + the reconcile subscription. Idempotent. */
   dispose(): void;
 }

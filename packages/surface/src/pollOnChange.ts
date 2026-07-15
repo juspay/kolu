@@ -63,11 +63,15 @@ export function pollOnChange<PulseInput, Pulse, Result>(
       }
     })();
   };
+  // Abort whatever requery is in flight — used at teardown and before every
+  // terminal pulse callback (a function boundary so it reads the closure-mutated
+  // `queryCtl`, not the flow-narrowed initial `null`).
+  const abortInFlightQuery = (): void => {
+    queryCtl?.abort();
+  };
   // Teardown aborts the in-flight requery too (not just the pulse) — the caller's
   // `signal` is the single owner of the whole poll's lifetime.
-  opts.signal.addEventListener("abort", () => queryCtl?.abort(), {
-    once: true,
-  });
+  opts.signal.addEventListener("abort", abortInFlightQuery, { once: true });
 
   void (async () => {
     try {
@@ -80,8 +84,18 @@ export function pollOnChange<PulseInput, Pulse, Result>(
       }
       // Normal completion — the pulse iterable ended on its own, not an abort (an
       // aborted loop never falls through the `for await` here with `aborted` false).
+      // Abort any in-flight requery FIRST: the pulse owns the query's lifetime, so a
+      // late result must not call `onResult` AFTER `onComplete` has latched (the
+      // subscription's value must not change once complete). The entry is gone, so
+      // the discarded final requery would only have surfaced a stale/erroring read.
+      abortInFlightQuery();
       if (!opts.signal.aborted) opts.onComplete();
     } catch (err) {
+      // Pulse failure — abort the in-flight requery FIRST, for the SAME reason: a
+      // query that resolves after `onError` would call `onResult` and clear the
+      // just-recorded failure, presenting a dead watcher (e.g. inotify ENOSPC) as
+      // healthy stale data. The terminal error must own the query.
+      abortInFlightQuery();
       if (!opts.signal.aborted) opts.onError(err);
     }
   })();

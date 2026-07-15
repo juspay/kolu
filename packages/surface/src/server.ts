@@ -1907,7 +1907,15 @@ function walkSurface<const S extends SurfaceSpec>(
     // derived-reads-derived chain is a pure computed graph, glitch-free by lazy
     // pull, per the bridge law. An AUTHORED cell is read as its post-equals mirror
     // (the store wrapper above is its change edge, bridged via a version signal).
-    if (isDerivedCellDeps(cellDeps)) {
+    //
+    // EXCEPTION — a POLL-source derived cell: its graph level is `undefined` until
+    // the async seed lands, so an engine-tracked `$`-read would hand a sibling
+    // compute `undefined` (not the spec default) at boot — a crash / invalid
+    // derivation. Register it as the private-store MIRROR instead: the store is
+    // seeded with the spec default and updated post-write, so a `$`-reader gets the
+    // default until the first read publishes, never `undefined`. Reading an async
+    // poll as a mirror is honest — it is a sampled source, not a synchronous computed.
+    if (isDerivedCellDeps(cellDeps) && !isPollCell) {
       const derivedDeps = cellDeps as unknown as DerivedCellBranded;
       registerSibling(key, () => derivedDeps.siblingRead(), true);
     } else {
@@ -2253,17 +2261,30 @@ function walkSurface<const S extends SurfaceSpec>(
       const dc = derivedColl;
       const collEquals = collSpec.equals ?? (() => false);
       starts.push(() => {
-        const settled = Promise.resolve(
-          dc.connect({
-            upsert: wrappedUpsert,
-            remove: wrappedRemove,
-            equals: collEquals as (a: unknown, b: unknown) => boolean,
-          }),
-        ).then(() => {});
+        const ctl = new AbortController();
+        // DEFER the connect to a microtask so a SYNCHRONOUS connect fault — a
+        // non-poll collection's initial reconcile whose publisher throws — becomes
+        // `settled`'s rejection reaching `done`, instead of escaping `start()` and
+        // orphaning sources that already started (the transactional-start guarantee).
+        // The connector's `signal` rides in so a poll reconciler cancels a seed a
+        // `close()` races; `dispose()` latches teardown for the non-poll effect too.
+        const settled = Promise.resolve()
+          .then(() =>
+            dc.connect(
+              {
+                upsert: wrappedUpsert,
+                remove: wrappedRemove,
+                equals: collEquals as (a: unknown, b: unknown) => boolean,
+              },
+              { signal: ctl.signal },
+            ),
+          )
+          .then(() => {});
         return {
-          // The reconciler's node isn't abort-signal-aware; disposing it latches
-          // its `torn` flag, so a connect still resolving disposes its own loop.
-          abort: () => dc.dispose(),
+          abort: () => {
+            ctl.abort();
+            dc.dispose();
+          },
           settled,
           dispose: async () => dc.dispose(),
         };

@@ -40,6 +40,7 @@ import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
+  onDaemonStatusChange,
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
@@ -155,6 +156,26 @@ export function buildPadiSurfaceDeps(deps: {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
+  // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
+  // moment a daemon's status changes — so a fresh daemon's readout reflects its
+  // kaval the INSTANT it connects. A poll cell's connect fires at SERVE time, BEFORE
+  // the endpoint boots + spawns the kaval, so the interval alone would leave the
+  // first authoritative frame stale-but-valid (kaval `absent` / a host inventory
+  // without the just-spawned kaval) standing for a full cadence. Fusing an immediate
+  // re-sample onto the daemon-status change (available at serve time — unlike
+  // kolu-server's late `padiSession`, which is why that sampler defers to #1831)
+  // closes that startup window: the readout re-reads on connect, not one tick later.
+  const everyMsOrOnDaemonChange =
+    (ms: number) =>
+    (tick: () => void): (() => void) => {
+      const stopInterval = everyMs(ms)(tick);
+      const off = onDaemonStatusChange(tick);
+      return () => {
+        off();
+        stopInterval?.();
+      };
+    };
+
   // The kaval THIS padi would spawn — its OWN baked identity (a build constant,
   // read from kaval's `currentPtyHostIdentity`). Mirrors the guard the server's
   // retired surface-app buildInfo axis used: off-nix the id is "" (no baked
@@ -202,7 +223,7 @@ export function buildPadiSurfaceDeps(deps: {
       hostInventory: derived.cell(
         source({
           read: () => samplePadiHostInventory(stateRoot),
-          install: everyMs(HOST_INVENTORY_SAMPLE_INTERVAL_MS),
+          install: everyMsOrOnDaemonChange(HOST_INVENTORY_SAMPLE_INTERVAL_MS),
         }),
       ),
       // Live process-memory readout (padi's OWN RSS + its kaval's) — a DERIVED
@@ -215,7 +236,7 @@ export function buildPadiSurfaceDeps(deps: {
       processMemory: derived.cell(
         source({
           read: samplePadiMemory,
-          install: everyMs(MEMORY_SAMPLE_INTERVAL_MS),
+          install: everyMsOrOnDaemonChange(MEMORY_SAMPLE_INTERVAL_MS),
         }),
       ),
       // A DERIVED member — the urgency projection is `recomputeUrgency` folded off
