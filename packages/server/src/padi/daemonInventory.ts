@@ -1,6 +1,8 @@
 /**
- * The web shell's host-daemon inventory publisher — the sole writer of koluSurface's
- * `daemonInventory` cell that the Kaval + Padi info dialogs read.
+ * The web shell's host-daemon inventory read — the poll READ behind koluSurface's
+ * DERIVED `daemonInventory` cell (`derived.cell(source(...))` in `index.ts`) that the
+ * Kaval + Padi info dialogs read. The reactor graph is the cell's one writer (no ctx
+ * `.set`); this module is just the pure read.
  *
  * The BOUND host's daemons no longer live here: padi serves its OWN host's running
  * kaval + padi daemons on `padiSurface.hostInventory` (the one scanner, homed in
@@ -34,12 +36,12 @@ import type {
   DaemonInventory,
   PadiConvergence,
 } from "kolu-common/surface";
-import { log } from "../log.ts";
 
-/** The seams the publisher reads/writes through — injected so the wiring is one call
- *  and a test can drive it without a real host. `discover*`/`probe` are the read-only
- *  scan seams (used only for the LOCAL scan under a remote binding); the `activePadi*`
- *  readouts are the bound session's honest identity; `publish` sets the cell. */
+/** The seams the read pulls through — injected so the wiring is one call and a test
+ *  can drive it without a real host. `discover*`/`probe` are the read-only scan seams
+ *  (used only for the LOCAL scan under a remote binding); the `activePadi*` readouts
+ *  are the bound session's honest identity. The read RETURNS the assembled inventory
+ *  (the reactor graph publishes it — no `publish` seam). */
 export interface DaemonInventoryDeps {
   /** Read-only discovery of every running kaval daemon (`discoverKavalDaemons`). */
   discoverKavals: () => KavalDaemon[];
@@ -65,18 +67,17 @@ export interface DaemonInventoryDeps {
    *  `boundPadi.convergence` so
    *  the Padi dialog surfaces a degraded bind as a visible state, not a swallowed log. */
   activePadiConvergence: () => PadiConvergence | null;
-  /** Publish the assembled inventory — `koluSurfaceCtx.cells.daemonInventory.set`. */
-  publish: (inv: DaemonInventory) => void;
 }
 
-/** Take one read-only reading and publish it: under a REMOTE binding, scan the local
+/** Take one read-only reading and RETURN it: under a REMOTE binding, scan the local
  *  machine (marking nothing active) into `localScan`; always read the bound padi's honest
- *  identity + convergence into `boundPadi`; set the cell. Each PROBE folds its own failure
- *  to the empty probe, but this is NOT total — a discovery fs-walk, a session readout, or
- *  the `publish` schema-validate can throw; the sampler's `.catch` makes that legible. */
+ *  identity + convergence into `boundPadi`. Each PROBE folds its own failure to the empty
+ *  probe, but this is NOT total — a discovery fs-walk or a session readout can throw; a
+ *  later-read throw is caught by the reactor's poll loop (log-skip-continue, holds the
+ *  last value), and the T+0 seed throw propagates to the runtime's `done`. */
 export async function enumerateDaemonInventoryOnce(
   deps: DaemonInventoryDeps,
-): Promise<void> {
+): Promise<DaemonInventory> {
   // The binding + (remote-only) own-machine scan, as ONE discriminated value so the
   // coupling is a type, not a convention: a LOCAL binding carries no scan (the bound
   // padi's `hostInventory` member already describes this machine — a second copy would
@@ -104,7 +105,7 @@ export async function enumerateDaemonInventoryOnce(
   const padiSurfaceVersion = deps.activePadiSurfaceVersion();
   const padiBuildCommit = deps.activePadiBuildCommit();
   const padiConvergence = deps.activePadiConvergence();
-  deps.publish({
+  return {
     binding,
     // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
     // though no LOCAL padi is `active` under a remote binding. Plus a STANDING convergence
@@ -122,55 +123,13 @@ export async function enumerateDaemonInventoryOnce(
             buildCommit: padiBuildCommit,
             convergence: padiConvergence,
           },
-  });
+  };
 }
 
 /** Cadence of the inventory readout. Coarser than the 5s memory tick — the binding
  *  state + local daemon set change rarely, and a remote tick dials every local kaval,
- *  so a 10s poll is plenty live without chattering. */
+ *  so a 10s poll is plenty live without chattering. The `unref`'d interval hygiene (a
+ *  live sampler never holds the process open) and the non-overlap / coalesce guard (a
+ *  resample landing mid-read runs a trailing read, never dropped) both live in the
+ *  reactor's poll `source`, which the cell's fused `install` reads. */
 export const DAEMON_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
-
-/** Start the periodic inventory publisher. Fires once immediately (a T+0 anchor so the
- *  cell has a value before the first dialog open), then every {@link
- *  DAEMON_INVENTORY_SAMPLE_INTERVAL_MS}. Non-overlapping (a slow tick never doubles up)
- *  and `unref`'d so the interval never holds the process open on its own. An optional
- *  `subscribeResample` force-samples on a signal (padi (re)bind), so the bound padi's
- *  `surfaceVersion` and convergence banner refresh at once. */
-export function startDaemonInventorySampler(
-  deps: DaemonInventoryDeps,
-  subscribeResample?: (resample: () => void) => void,
-): void {
-  let inFlight = false;
-  let pending = false;
-  const tick = (): void => {
-    // A resample that lands while a prior enumeration is in flight (a bind-state transition
-    // firing `padiSession.onState` mid-tick — e.g. an adopt-stale / skew / link-failure) must
-    // NOT be dropped, else the fresh `boundPadi.convergence` banner waits for the next COARSE
-    // interval. Coalesce it: mark pending, and re-run ONCE when the in-flight tick settles.
-    if (inFlight) {
-      pending = true;
-      return;
-    }
-    inFlight = true;
-    void enumerateDaemonInventoryOnce(deps)
-      .catch((err) => {
-        // Each PROBE folds its own failure, but the surrounding readout is NOT total — a
-        // remote-arm discovery fs-walk, a `publish` schema-validate, or a session readout
-        // can throw. That surprise must be LEGIBLE, not an unlogged unhandled rejection
-        // that silently reverts the cell to its local default (and drops the local-scan
-        // leak diagnostic). The cell keeps its last value; the next tick retries. Mirrors
-        // the padi sampler's own `.catch` (`@kolu/padi`'s `hostInventory.ts`).
-        log.error({ err }, "daemon-inventory sample failed");
-      })
-      .finally(() => {
-        inFlight = false;
-        if (pending) {
-          pending = false;
-          tick();
-        }
-      });
-  };
-  tick();
-  setInterval(tick, DAEMON_INVENTORY_SAMPLE_INTERVAL_MS).unref();
-  subscribeResample?.(tick);
-}

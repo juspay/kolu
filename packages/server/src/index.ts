@@ -61,8 +61,12 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
+import { derived, source } from "@kolu/surface/reactor";
 import { type WebSocket, WebSocketServer } from "ws";
-import { startDaemonInventorySampler } from "./padi/daemonInventory.ts";
+import {
+  DAEMON_INVENTORY_SAMPLE_INTERVAL_MS,
+  enumerateDaemonInventoryOnce,
+} from "./padi/daemonInventory.ts";
 import {
   serverHostname,
   serverProcessId,
@@ -75,7 +79,11 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  sampleServerMemory,
+} from "./memorySampler.ts";
+import { everyMsOrOnState } from "./pollCadence.ts";
 import {
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -96,7 +104,7 @@ import {
   claimLocalSupervisor,
   supervisorConflictError,
 } from "./padi/supervisorClaim.ts";
-import { koluSurfaceCtx, koluSurfaceRouter } from "./surface.ts";
+import { implementKoluSurface } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -526,6 +534,151 @@ const padiMap = serveHostMap(padiHostMap, pool, {
     padiFailureOf(session.provisions, session.entryFailedDetail(), state),
 });
 
+// ── SR8.a: serve kolu-server's OWN surface HERE, after padiSession ───────
+//
+// kolu-server's own two siblings (kolu + surfaceApp) are served NOW — in the async
+// boot, after `padiSession` exists — not at `surface.ts` module load. The reason is
+// the two DERIVED poll cells below: their read + install seams (`readPadiMemoryOnce`
+// off the re-serve mirror, the padi-identity closures, and `padiSession.onState`) all
+// exist only here. Serving is a single straight-line call whose returned router/ctx
+// are used immediately (the splice + the onState wiring), so the rejected late-bind
+// registrar slot (an override-knob) is unnecessary — control flow IS the fail-fast.
+
+// The reading returned when padi is BELIEVED up (a live bound client) yet its
+// memory read fails — a link drop mid-read, a schema/protocol fault, an empty
+// subscription. Both processes fold to the honest `error` (not `absent`): padi's
+// `ProcessRss` schema keeps `error` distinct from `absent` precisely so a failed
+// read never renders identically to "no process to measure" (the
+// `caught-error-must-not-collapse-to-empty` rule). `absent` is reserved for the
+// true no-client case (padi genuinely down), returned as `null` below.
+const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
+  padi: { status: "error" },
+  kaval: { status: "error" },
+};
+
+// Read padi's `{ padi, kaval }` memory pair off the RE-SERVE MIRROR — a one-shot
+// read of the mirror's own `processMemory` cell (a snapshot-first subscription; take
+// the first frame — the value the re-serve already folded into its per-binding store
+// — and stop). This is the SAME reading the browser sees on `/surface/padi/*`, so
+// the rail consumes the source of truth once folded rather than re-dialing padi on a
+// second transport. Returns `null` when padi is DOWN (no live client), so a down padi
+// folds to the honest `absent` — the liveness GATE decides down-ness, NOT the mirror
+// store, which deliberately HOLDS its last value across an upstream drop (reading the
+// store alone would report a dead process's stale-but-live figure). The one window the
+// gate does not cover is a fresh REBIND: `currentClient()` flips live the instant padi
+// reconnects, a beat before the mirror re-folds, so a resample in that beat can briefly
+// surface the last-known reading until the next fold/tick overwrites it — bounded to one
+// fold cycle and self-correcting on the coarse rail (a named, accepted residual; Ledger
+// L14). A read that FAILS through a live mirror returns the `error` reading instead
+// (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
+// padi process now, so padi (not kolu-server) is the source of that pair; the
+// `processMemory` poll cell folds it in below.
+async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
+  // The bound padi's liveness is the gate — no live client → honest `absent` (the gate,
+  // not the held store, decides down-ness). M2 (a standing skew nulls the client) and
+  // the onState flip-to-absent both ride this exactly as the old bound-session read did;
+  // a fresh rebind has a bounded stale-read window until the mirror re-folds (see above).
+  if (!padiSession.currentClient()) return null;
+  const ctl = new AbortController();
+  try {
+    // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
+    // this reads the folded store with no socket/ssh hop and the same cell verb.
+    const iterable = await reServedPadiClient.surface.processMemory.get(
+      {},
+      { signal: ctl.signal },
+    );
+    const frame = await firstFrameOrUndefined(iterable);
+    // The client was live but the cell yielded no frame — an operational anomaly,
+    // not "no process to measure". Report `error`, not `absent`, and log at `error`
+    // (a live-client read that produced nothing is a failed read, not a degraded-but-
+    // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
+    if (frame === undefined) {
+      log.error({}, "padi memory read yielded no frame through the mirror");
+      return PADI_MEMORY_READ_ERROR;
+    }
+    return frame;
+  } catch (err) {
+    // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
+    // honest `error` state, distinct from `absent`, rather than collapsing a caught
+    // error to the empty "no process" reading. padi's liveness still rides the
+    // re-serve's own `connection` cell; this only affects the memory rail's three-way
+    // readout. A caught read failure is a real error, not `warn`
+    // (errors-must-log-at-error).
+    log.error({ err }, "padi memory read failed through the mirror");
+    return PADI_MEMORY_READ_ERROR;
+  } finally {
+    ctl.abort();
+  }
+}
+
+// Map the base `session.identity()` sum onto the daemon-inventory readouts the dialog
+// reads (uptime · contract version · navigable commit). `identity()` is TOTAL
+// (disconnected | anonymous | identified); padi always DECLARES its build, so a bound
+// padi is always `identified`, a mid-reconnect gap is `disconnected` (never
+// `anonymous`). `padiStartedAt` also feeds the `processStartedAt` cell off `onState`
+// below; `padiSurfaceVersion`/`padiBuildCommit` feed the `daemonInventory` poll cell.
+const padiStartedAt = (): number | null => {
+  const id = padiSession.identity();
+  return id.kind === "disconnected" ? null : id.startedAt;
+};
+const padiSurfaceVersion = (): string | null => {
+  const id = padiSession.identity();
+  return id.kind === "identified" ? id.baked.contractVersion : null;
+};
+const padiBuildCommit = (): string | null => {
+  const id = padiSession.identity();
+  // A navigable commit → its sha; a dev build (or unidentified) → null (honest "—").
+  return id.kind === "identified" && id.baked.commit.kind === "commit"
+    ? id.baked.commit.sha
+    : null;
+};
+
+// The bound padi's connection-state changes force-resample BOTH poll cells at once (a
+// disconnect/rebind projects into `onState` immediately, before the next coarse tick),
+// so a padi drop reports `absent` / refreshes the convergence banner without waiting up
+// to a full interval (#1831's stale-MB regression). `onState` also fires the current
+// state synchronously on subscribe, so both cells' T+0 seed reflects the live binding.
+const onPadiStateChange = (tick: () => void): (() => void) =>
+  padiSession.onState(() => tick());
+
+// Serve kolu-server's own surface, injecting the two DERIVED poll cells.
+const { router: koluSurfaceRouter, ctx: koluSurfaceCtx } = implementKoluSurface(
+  {
+    // Memory rail: kolu-server's OWN RSS + padi's folded `{ padi, kaval }` (kaval rides
+    // padi's readout now). The graph is the one writer; whole-MB `equals` at the spec.
+    processMemory: derived.cell(
+      source({
+        read: () => sampleServerMemory(readPadiMemoryOnce),
+        install: everyMsOrOnState(MEMORY_SAMPLE_INTERVAL_MS, onPadiStateChange),
+      }),
+    ),
+    // Kaval/Padi dialogs' host-daemon inventory: what only kolu-server knows — the
+    // binding host, its OWN machine's scan (only under a REMOTE binding, marking none
+    // active), and the bound padi's honest identity + a standing convergence anomaly off
+    // its control-core `hello`. Under ALWAYS-MAP this describes the unremovable LOCAL
+    // default (`padiSession` binds it), so `boundHost` is null — the local default padi's
+    // `hostInventory` member already covers this machine, so no duplicate `localScan`.
+    daemonInventory: derived.cell(
+      source({
+        read: () =>
+          enumerateDaemonInventoryOnce({
+            discoverKavals: discoverKavalDaemons,
+            discoverPadis: discoverPadiDaemons,
+            probe: probeKavalStatus,
+            activePadiSurfaceVersion: () => padiSurfaceVersion(),
+            activePadiBuildCommit: () => padiBuildCommit(),
+            activePadiConvergence: () => padiSession.convergence(),
+            boundHost: null,
+          }),
+        install: everyMsOrOnState(
+          DAEMON_INVENTORY_SAMPLE_INTERVAL_MS,
+          onPadiStateChange,
+        ),
+      }),
+    ),
+  },
+);
+
 // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
 // siblings. `serveHostMap` returns a top-level single-surface router
 // (`{ surface: { <folded members>, entries } }`), so nesting its `.surface` under `padi`
@@ -794,88 +947,6 @@ if (clientDist) {
   installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
-// The reading returned when padi is BELIEVED up (a live bound client) yet its
-// memory read fails — a link drop mid-read, a schema/protocol fault, an empty
-// subscription. Both processes fold to the honest `error` (not `absent`): padi's
-// `ProcessRss` schema keeps `error` distinct from `absent` precisely so a failed
-// read never renders identically to "no process to measure" (the
-// `caught-error-must-not-collapse-to-empty` rule). `absent` is reserved for the
-// true no-client case (padi genuinely down), returned as `null` below.
-const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
-  padi: { status: "error" },
-  kaval: { status: "error" },
-};
-
-// Read padi's `{ padi, kaval }` memory pair off the RE-SERVE MIRROR — a one-shot
-// read of the mirror's own `processMemory` cell (a snapshot-first subscription; take
-// the first frame — the value the re-serve already folded into its per-binding store
-// — and stop). This is the SAME reading the browser sees on `/surface/padi/*`, so
-// the rail consumes the source of truth once folded rather than re-dialing padi on a
-// second transport. Returns `null` when padi is DOWN (no live client), so a down padi
-// folds to the honest `absent` — the liveness GATE decides down-ness, NOT the mirror
-// store, which deliberately HOLDS its last value across an upstream drop (reading the
-// store alone would report a dead process's stale-but-live figure). The one window the
-// gate does not cover is a fresh REBIND: `currentClient()` flips live the instant padi
-// reconnects, a beat before the mirror re-folds, so a resample in that beat can briefly
-// surface the last-known reading until the next fold/tick overwrites it — bounded to one
-// fold cycle and self-correcting on the coarse rail (a named, accepted residual; Ledger
-// L14). A read that FAILS through a live mirror returns the `error` reading instead
-// (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
-// padi process now, so padi (not kolu-server) is the source of that pair; the sampler
-// folds it in below.
-async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
-  // The bound padi's liveness is the gate — no live client → honest `absent` (the gate,
-  // not the held store, decides down-ness). M2 (a standing skew nulls the client) and
-  // the onState flip-to-absent both ride this exactly as the old bound-session read did;
-  // a fresh rebind has a bounded stale-read window until the mirror re-folds (see above).
-  if (!padiSession.currentClient()) return null;
-  const ctl = new AbortController();
-  try {
-    // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
-    // this reads the folded store with no socket/ssh hop and the same cell verb.
-    const iterable = await reServedPadiClient.surface.processMemory.get(
-      {},
-      { signal: ctl.signal },
-    );
-    const frame = await firstFrameOrUndefined(iterable);
-    // The client was live but the cell yielded no frame — an operational anomaly,
-    // not "no process to measure". Report `error`, not `absent`, and log at `error`
-    // (a live-client read that produced nothing is a failed read, not a degraded-but-
-    // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
-    if (frame === undefined) {
-      log.error({}, "padi memory read yielded no frame through the mirror");
-      return PADI_MEMORY_READ_ERROR;
-    }
-    return frame;
-  } catch (err) {
-    // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
-    // honest `error` state, distinct from `absent`, rather than collapsing a caught
-    // error to the empty "no process" reading. padi's liveness still rides the
-    // re-serve's own `connection` cell; this only affects the memory rail's three-way
-    // readout. A caught read failure is a real error, not `warn`
-    // (errors-must-log-at-error).
-    log.error({ err }, "padi memory read failed through the mirror");
-    return PADI_MEMORY_READ_ERROR;
-  } finally {
-    ctl.abort();
-  }
-}
-
-// Feed the chrome bar's memory readout: sample kolu-server's OWN RSS on a fixed
-// cadence, fold in padi's `{ padi, kaval }` reading, and publish all three on the
-// `processMemory` cell (the client adds its own JS heap locally). kaval runs inside
-// the padi process now, so its RSS rides padi's readout, folded in here.
-startMemorySampler(
-  liveSamplerDeps({
-    publish: (m) => koluSurfaceCtx.cells.processMemory.set(m),
-    readPadiMemory: readPadiMemoryOnce,
-  }),
-  // The bound padi's own liveness: a disconnect projects into `onState` IMMEDIATELY
-  // (before the next 5s tick), so a resample runs at once and the rail reports padi +
-  // its kaval as `absent` right away — never a frozen RSS for an already-gone process.
-  (resample) => padiSession.onState(() => resample()),
-);
-
 // Drive koluSurface's `padiLink` cell off the bound padi's connection state. koluSurface
 // is served DIRECTLY by kolu-server — never through the re-serve value-fold that HOLDS
 // STALE while padi is unbound — so its value is never a frozen-but-live-looking read.
@@ -883,29 +954,9 @@ startMemorySampler(
 // re-targeted "restart kaval" drains padi) shows an honest connecting state over the
 // WHOLE drain window instead of a frozen re-served daemonStatus (#1034). `onState` fires
 // the current state synchronously on subscribe, so the cell is seeded before the first
-// transition.
-// Map the base `session.identity()` sum onto the three daemon-inventory readouts the
-// dialog reads (uptime · contract version · navigable commit). `identity()` is TOTAL
-// (disconnected | anonymous | identified); padi always DECLARES its build, so a bound
-// padi is always `identified`, a mid-reconnect gap is `disconnected` (never
-// `anonymous`). This REPLACES the six bespoke `padiStartedAt`/`padiSurfaceVersion`/…
-// readouts with one universal member (S4).
-const padiStartedAt = (): number | null => {
-  const id = padiSession.identity();
-  return id.kind === "disconnected" ? null : id.startedAt;
-};
-const padiSurfaceVersion = (): string | null => {
-  const id = padiSession.identity();
-  return id.kind === "identified" ? id.baked.contractVersion : null;
-};
-const padiBuildCommit = (): string | null => {
-  const id = padiSession.identity();
-  // A navigable commit → its sha; a dev build (or unidentified) → null (honest "—").
-  return id.kind === "identified" && id.baked.commit.kind === "commit"
-    ? id.baked.commit.sha
-    : null;
-};
-
+// transition. `padiStartedAt` (the boot-time readout this handler publishes) is
+// defined up in the serve block, beside the `daemonInventory` poll cell that reads
+// the same `padiSession.identity()` sum.
 padiSession.onState((s) => {
   koluSurfaceCtx.cells.padiLink.set(mapConnectionToPadiLink(s.phase));
   // Publish the rail's uptime source off the SAME onState: kolu-server's own boot
@@ -918,37 +969,6 @@ padiSession.onState((s) => {
     padi: padiStartedAt(),
   });
 });
-
-// Feed the Kaval + Padi dialogs' host-daemon inventory. The BOUND host's daemons now
-// ride padiSurface's `hostInventory` member (padi scans its OWN host — the one scanner,
-// homed in @kolu/padi — and marks the kaval it holds + itself active); that member rides
-// the re-served surface straight to the client, so the dialog's bound-host list works
-// identically local and remote. Here kolu-server publishes only what IT knows on
-// koluSurface's `daemonInventory`: the binding host, its OWN machine's scan (only under a
-// remote binding, where that machine is not the bound host — so a leak on the machine
-// you're actually using stays visible; the SAME `enumerateHostDaemons` the member uses,
-// marking none active), and the bound padi's honest identity + a standing convergence
-// anomaly off its control-core `hello`. A padi (re)bind force-samples so version +
-// convergence refresh at once.
-startDaemonInventorySampler(
-  {
-    discoverKavals: discoverKavalDaemons,
-    discoverPadis: discoverPadiDaemons,
-    probe: probeKavalStatus,
-    activePadiSurfaceVersion: () => padiSurfaceVersion(),
-    activePadiBuildCommit: () => padiBuildCommit(),
-    activePadiConvergence: () => padiSession.convergence(),
-    // Under ALWAYS-MAP the host this sampler describes is the unremovable LOCAL default
-    // (`padiSession` binds it), so `boundHost` is null — a local bind. daemonInventory
-    // derives `boundLocally = boundHost === null`, and the local default padi's
-    // `hostInventory` member already covers this machine, so no duplicate `localScan` is
-    // published. The per-host inventories of any guest hosts ride the map's members, not
-    // this kolu-server-own sampler.
-    boundHost: null,
-    publish: (inv) => koluSurfaceCtx.cells.daemonInventory.set(inv),
-  },
-  (resample) => padiSession.onState(() => resample()),
-);
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

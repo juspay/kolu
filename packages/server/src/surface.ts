@@ -46,21 +46,16 @@ import { surfaceAppServer } from "@kolu/surface-app/server";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
+import type { PollDerivedCell } from "@kolu/surface/reactor";
 import type {
   DaemonInventory,
   KoluBuildInfo,
   PadiLink,
   Preferences,
   ProcessMemory,
-  ProcessRss,
   ProcessStartedAt,
 } from "kolu-common/surface";
-import {
-  bytesToWholeMB,
-  DEFAULT_DAEMON_INVENTORY,
-  type koluSurface,
-  surfaces,
-} from "kolu-common/surface";
+import { type koluSurface, surfaces } from "kolu-common/surface";
 import {
   PADI_SURFACE_NAME,
   padiHostMap,
@@ -130,59 +125,15 @@ const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
   "preferences",
 );
 
-// ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
+// ── processMemory cell: a DERIVED poll cell (built in `index.ts`'s async boot) ──
 //
-// Defined here beside the cell entry, not in `memorySampler.ts`: the cell's
-// storage shape and dedup predicate are the surface layer's concern. The sampler
-// only reads+publishes via the injected `publish` (→ `koluSurfaceCtx.cells.
-// processMemory.set` → `set` below).
-//
-// W2.2 re-scope: the cell now carries kolu-server's OWN RSS plus padi's folded-in
-// `{ padi, kaval }` reading (kaval lives inside the padi PROCESS now, so padi —
-// not kolu-server — polls it; the sampler reads padi's readout off the re-serve).
-// Each is the honest three-way, so `absent`/`error` never collapse to a fake zero.
-
-/** Two per-process RSS readings render the same whole-MB figure — same status and,
- *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
- *  to compare). */
-function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
-  if (a.status !== b.status) return false;
-  if (a.status === "ok" && b.status === "ok") {
-    return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);
-  }
-  return true;
-}
-
-/** Two readouts are equal when all three processes render the same whole-MB figure
- *  — the cell's `equals`, so a sub-MB RSS wobble never re-publishes to every
- *  connected client. Built on the shared {@link bytesToWholeMB} so the dedup
- *  boundary and the client's rendered figure are one computation. */
-export function processMemoryMbEqual(
-  a: ProcessMemory,
-  b: ProcessMemory,
-): boolean {
-  return (
-    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
-    rssMbEqual(a.padi, b.padi) &&
-    rssMbEqual(a.kaval, b.kaval)
-  );
-}
-
-/** In-memory backing for the `processMemory` cell. The sampler writes through
- *  `koluSurfaceCtx.cells.processMemory.set` (→ `set` here, then publish); a fresh
- *  subscription reads the latest via `get`. No persistence — a live metric has
- *  no on-disk slot. */
-let currentProcessMemory: ProcessMemory = {
-  serverRssBytes: 0,
-  padi: { status: "absent" },
-  kaval: { status: "absent" },
-};
-const memoryCellStore = {
-  get: (): ProcessMemory => currentProcessMemory,
-  set: (value: ProcessMemory): void => {
-    currentProcessMemory = value;
-  },
-};
+// The cell is `derived.cell(source({ read: () => sampleServerMemory(readPadiMemoryOnce),
+// install: everyMsOrOnState(...) }))` — assembled in `index.ts` after `padiSession`
+// exists (SR8.a: the read needs `readPadiMemoryOnce`/the re-serve mirror and the
+// `install` needs `padiSession.onState`, all boot-only) and injected into
+// `implementKoluSurface` below. The reactor graph is the one writer (no ctx `.set`, no
+// store here); its whole-MB `equals` (`processMemoryMbEqual`) lives at the spec
+// (`kolu-common/surface`), the one wire dedup point for the derived member.
 
 // ── padiLink cell: kolu-server's live view of its binding to padi ────────
 //
@@ -221,99 +172,104 @@ const processStartedAtCellStore = {
   },
 };
 
-// ── daemonInventory cell: the host-daemon inventory (kaval + padi enumeration) ──
+// ── daemonInventory cell: a DERIVED poll cell (built in `index.ts`'s async boot) ──
 //
-// Server-authored diagnostic readout — the read-only inventory sampler
-// (`daemonInventory.ts`, wired in `index.ts`) is the sole writer via
-// `koluSurfaceCtx.cells.daemonInventory.set`; clients read-only. A live signal, so the
-// backing is in-memory (no on-disk slot); a fresh subscription reads the latest via
-// `get`, seeded at the honest empty-lists default before the first sample.
-let currentDaemonInventory: DaemonInventory = DEFAULT_DAEMON_INVENTORY;
-const daemonInventoryCellStore = {
-  get: (): DaemonInventory => currentDaemonInventory,
-  set: (value: DaemonInventory): void => {
-    currentDaemonInventory = value;
-  },
-};
+// The cell is `derived.cell(source({ read: () => enumerateDaemonInventoryOnce(deps),
+// install: everyMsOrOnState(...) }))` — assembled in `index.ts` after `padiSession`
+// exists (SR8.a: its identity/convergence read seams and the `install`'s
+// `padiSession.onState` are boot-only) and injected into `implementKoluSurface` below.
+// The reactor graph is the one writer (no ctx `.set`, no store here); its structural
+// `equals` lives at the spec (`kolu-common/surface`), the one wire dedup point.
 
-// ── kolu's own-surface implementation deps (concretely typed) ───────────
+/** The two DERIVED poll cells kolu-server can only build after boot — injected into
+ *  {@link implementKoluSurface}. Keyed + typed exactly as the spec so
+ *  `implementSurfaces` type-checks each: a `derived.cell(source({ read, install }))`
+ *  node whose read/install seams (`padiSession`, the re-serve mirror,
+ *  `padiSession.onState`) exist only in `index.ts`'s async boot. */
+export interface KoluDerivedCells {
+  processMemory: PollDerivedCell<ProcessMemory>;
+  daemonInventory: PollDerivedCell<DaemonInventory>;
+}
+
+// ── Surface implementation (SR8.a: served in boot, not at module load) ───
 //
-// Typed against `koluSurface.spec` so every stream `read(input)` / collection
-// reader / cell `store` is inferred. `implementSurfaces` itself `any`-specs its
-// entry deps (the surface map is heterogeneous, so it can't carry each spec
-// through), so we type-check kolu's deps HERE at construction and cast only at
-// the entry boundary below — the same pattern the example server and the
-// `implementSurfaces` test use.
-const koluDeps: Omit<
-  ImplementSurfaceDeps<typeof koluSurface.spec>,
-  "channel"
-> = {
-  cells: {
-    preferences: {
-      store: preferencesStore,
-      // Content-level dedup, mirroring the `session` cell below. Defence in
-      // depth behind the client's coalescing + no-op drop (#1041): a patch
-      // that doesn't change the value skips the `state.json` write and the
-      // bus publish, so it can't contend with the session autosave on the
-      // shared Conf store. `JSON.stringify` is fine — Preferences is small
-      // and writes are rare once the client stops storming.
-      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
-      // Log only patched keys — values may carry user-identifying state
-      // (themes, file paths in rightPanel.tab) that have no business in
-      // operator logs.
-      onMutate: (patch) =>
-        log.info(
-          {
-            keys: Object.keys(patch),
-            rightPanel: patch.rightPanel
-              ? Object.keys(patch.rightPanel)
-              : undefined,
-          },
-          "preferences update",
-        ),
+// Serving kolu-server's own two siblings is the ONE place a connect fires (the
+// surface-app buildInfo connector). It happens HERE, called once from `index.ts`'s
+// async boot AFTER `padiSession` exists — not at module load — because the two
+// DERIVED poll cells (`processMemory`, `daemonInventory`) read/install through
+// boot-only seams. Ordering is enforced by straight-line boot control flow (the
+// caller uses the returned router/ctx immediately), so the rejected late-bind
+// registrar slot (an override-knob) is unnecessary and absent. `t`/`servedContract`
+// (module-level above) are pure contract builders that fire no connects, so
+// `router.ts`'s app-router assembly against `t` keeps working unchanged.
+/** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
+ *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return
+ *  the built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi`
+ *  sibling into `.router.surface` and drives the store cells (`padiLink`/
+ *  `processStartedAt`) off `padiSession.onState` through `.ctx`. Call exactly once,
+ *  after `padiSession`. */
+export function implementKoluSurface(derived: KoluDerivedCells) {
+  // Typed against `koluSurface.spec` so every cell `store`/`equals`/`onMutate` is
+  // inferred (`implementSurfaces` itself `any`-specs its heterogeneous entry deps, so
+  // we type-check kolu's deps HERE and cast only at the entry boundary below — the
+  // pattern the example server + the `implementSurfaces` test use). The store cells
+  // read the module-singleton stores above; the two DERIVED poll cells are injected
+  // (built in `index.ts`'s boot off `padiSession`).
+  const koluDeps: Omit<
+    ImplementSurfaceDeps<typeof koluSurface.spec>,
+    "channel"
+  > = {
+    cells: {
+      preferences: {
+        store: preferencesStore,
+        // Content-level dedup, mirroring the `session` cell. Defence in depth behind
+        // the client's coalescing + no-op drop (#1041): a patch that doesn't change
+        // the value skips the `state.json` write and the bus publish, so it can't
+        // contend with the session autosave on the shared Conf store. `JSON.stringify`
+        // is fine — Preferences is small and writes are rare once the client settles.
+        equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        // Log only patched keys — values may carry user-identifying state (themes,
+        // file paths in rightPanel.tab) that have no business in operator logs.
+        onMutate: (patch) =>
+          log.info(
+            {
+              keys: Object.keys(patch),
+              rightPanel: patch.rightPanel
+                ? Object.keys(patch.rightPanel)
+                : undefined,
+            },
+            "preferences update",
+          ),
+      },
+      // Live metric — a DERIVED poll cell (graph is the one writer, whole-MB `equals`
+      // at the spec). Built in boot: its read folds padi's `{ padi, kaval }` off the
+      // re-serve mirror, its install fuses the 5s tick with `padiSession.onState`.
+      processMemory: derived.processMemory,
+      padiLink: {
+        // Live signal; the in-memory store has no persistent slot. The bound-padi
+        // `onState` subscription (`index.ts`) is the sole writer via
+        // `koluSurfaceCtx.cells.padiLink.set`. `equals` dedups so a repeated same-state
+        // transition (onState fires once per endpoint status, several map to the same
+        // padiLink) never re-publishes to every connected client.
+        store: padiLinkCellStore,
+        equals: (a, b) => a === b,
+      },
+      processStartedAt: {
+        // Live signal; the in-memory store has no persistent slot. The bound-padi
+        // `onState` subscription (`index.ts`) is the sole writer via
+        // `koluSurfaceCtx.cells.processStartedAt.set`. `equals` dedups so a transition
+        // that leaves both boot times unchanged never re-publishes to every client.
+        store: processStartedAtCellStore,
+        equals: (a, b) => a.server === b.server && a.padi === b.padi,
+      },
+      // Live diagnostic — a DERIVED poll cell (graph is the one writer, structural
+      // `equals` at the spec). Built in boot: its read enumerates the host daemons +
+      // the bound padi's identity/convergence, its install fuses the 10s tick with
+      // `padiSession.onState`.
+      daemonInventory: derived.daemonInventory,
     },
-    processMemory: {
-      // Live metric; the in-memory store has no persistent slot. The sampler
-      // (`memorySampler.ts`) is the sole writer via `koluSurfaceCtx.cells.
-      // processMemory.set`. `equals` dedups at whole-MB granularity so a sub-MB
-      // RSS wobble never re-publishes to every connected client.
-      store: memoryCellStore,
-      equals: processMemoryMbEqual,
-    },
-    padiLink: {
-      // Live signal; the in-memory store has no persistent slot. The bound-padi
-      // `onState` subscription (`index.ts`) is the sole writer via
-      // `koluSurfaceCtx.cells.padiLink.set`. `equals` dedups so a repeated
-      // same-state transition (onState fires once per endpoint status, and several
-      // map to the same padiLink) never re-publishes to every connected client.
-      store: padiLinkCellStore,
-      equals: (a, b) => a === b,
-    },
-    processStartedAt: {
-      // Live signal; the in-memory store has no persistent slot. The bound-padi
-      // `onState` subscription (`index.ts`) is the sole writer via
-      // `koluSurfaceCtx.cells.processStartedAt.set`. `equals` dedups so a transition
-      // that leaves both boot times unchanged (onState fires per endpoint status;
-      // several keep the same connected padi) never re-publishes to every client.
-      store: processStartedAtCellStore,
-      equals: (a, b) => a.server === b.server && a.padi === b.padi,
-    },
-    daemonInventory: {
-      // Live diagnostic signal; the in-memory store has no persistent slot. The
-      // read-only inventory sampler (`daemonInventory.ts`, `index.ts`) is the sole
-      // writer via `koluSurfaceCtx.cells.daemonInventory.set`. `equals` dedups a
-      // structurally-identical re-enumeration (the daemon set changes rarely) so a
-      // steady-state tick never re-publishes to every connected client — a shallow
-      // JSON compare is fine (the lists are tiny, a handful of daemons at most).
-      store: daemonInventoryCellStore,
-      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
-    },
-  },
-};
+  };
 
-// ── Surface implementation ─────────────────────────────────────────────
-
-const koluSurfaces =
   // The two SIBLING surfaces kolu-server OWNS, multiplexed over one transport
   // (kolu#1197): kolu's own primitives under the `kolu` key, and surface-app's
   // COMPLETE surface (the buildInfo cell + the `identity.info` restart probe) under
@@ -333,7 +289,7 @@ const koluSurfaces =
   // cross-channel microtask order is load-bearing — the terminal-list vs.
   // per-terminal-exit ordering pinned by `kill.feature`), so the runtime does
   // NOT own the channel's lifetime. Distinct constructor, not a mode flag.
-  implementSurfacesOnPublisher(
+  const koluSurfaces = implementSurfacesOnPublisher(
     // The padi-LESS `surfaces` map (`{ kolu, surfaceApp }`) — kolu-server implements
     // only its own two siblings; the `padi` sibling's IMPL comes from the re-serve
     // (spliced in `index.ts`), and the client's wire contract stays unchanged
@@ -375,44 +331,44 @@ const koluSurfaces =
       }),
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
-      // Just the `preferences` + `processMemory` cells — every terminal-derived
-      // member rides the re-served `padi` sibling.
+      // The store cells (`preferences`/`padiLink`/`processStartedAt`) + the two
+      // injected DERIVED poll cells (`processMemory`/`daemonInventory`). Every
+      // terminal-derived member rides the re-served `padi` sibling.
       kolu: koluDeps,
     },
   );
 
-// Observe the surface runtime's `done` and route it into kolu-server's EXISTING
-// deliberately-fatal fault policy (the same disposition a floated cell-connector
-// rejection reached via the process `unhandledRejection` handler before, and the
-// same fatal treatment the default padi re-serve's `done` gets in `index.ts`): an
-// owned surface fault is unrecoverable for the web shell, so crash loud. The
-// DISPOSITION is unchanged — only the route (owned `done` instead of a floated
-// rejection). Byte-identical in the no-fault steady state.
-koluSurfaces.done.catch((err) => {
-  log.fatal({ err }, "kolu surface runtime faulted — unrecoverable");
-  process.exit(1);
-});
+  // Observe the surface runtime's `done` and route it into kolu-server's EXISTING
+  // deliberately-fatal fault policy (the same disposition a floated cell-connector
+  // rejection reached via the process `unhandledRejection` handler before, and the
+  // same fatal treatment the default padi re-serve's `done` gets in `index.ts`): an
+  // owned surface fault is unrecoverable for the web shell, so crash loud. The
+  // DISPOSITION is unchanged — only the route (owned `done` instead of a floated
+  // rejection). Byte-identical in the no-fault steady state.
+  koluSurfaces.done.catch((err) => {
+    log.fatal({ err }, "kolu surface runtime faulted — unrecoverable");
+    process.exit(1);
+  });
 
-// The kolu+surfaceApp FINAL surface router. Its `.surface` is the built
-// `{ kolu, surfaceApp }` sibling map — exported so `index.ts`'s async boot can
-// splice the RE-SERVED `padi` sibling in beside them
-// (`{ surface: { ...koluSurfaceRouter.surface, padi } }`) and assemble the final
-// host router. padi is async (an `await`ed binding), so it cannot be composed
-// here at module-eval — hence the split.
-export const koluSurfaceRouter = koluSurfaces.router as {
-  surface: Record<string, unknown>;
-};
-// The kolu surface ctx (`implementSurfacesOnPublisher(...).ctx.kolu`) — exported so
-// the memory sampler (`index.ts`) writes `processMemory` through it. Only
-// kolu-server's own web shell writes koluSurface now (padi domain code lives in
-// padi's process), so a plain export off the built ctx suffices.
-export const koluSurfaceCtx = koluSurfaces.ctx.kolu;
-// NB: the runtime's `close` is intentionally NOT exported. kolu-server's web-shell
-// runtime is process-lifetime (a module-eval singleton that lives exactly as long
-// as the process), and its graceful shutdown is a SYNCHRONOUS signal handler
-// (`index.ts` → `process.exit(0)`). For a process-lifetime owner, process death IS
-// the teardown; the runtime's only owned source (the surface-app buildInfo
-// connector) is released by process exit. Exporting a `close` nobody calls would be
-// a dead knob, and awaiting it inside the sync signal handler would add a
-// shutdown-hang risk (a parked connector) for zero real benefit. `done` (above) is
-// still observed — the fault channel is what matters here, not teardown.
+  // NB: the runtime's `close` is intentionally NOT returned. kolu-server's web-shell
+  // runtime is process-lifetime (built once in boot, lives exactly as long as the
+  // process), and its graceful shutdown is a SYNCHRONOUS signal handler
+  // (`index.ts` → `process.exit(0)`). For a process-lifetime owner, process death IS
+  // the teardown; the runtime's only owned source (the surface-app buildInfo
+  // connector) is released by process exit. Returning a `close` nobody calls would be
+  // a dead knob, and awaiting it inside the sync signal handler would add a
+  // shutdown-hang risk (a parked connector) for zero real benefit. `done` (above) is
+  // still observed — the fault channel is what matters here, not teardown.
+  return {
+    // The kolu+surfaceApp FINAL surface router. Its `.surface` is the built
+    // `{ kolu, surfaceApp }` sibling map — `index.ts`'s async boot splices the
+    // RE-SERVED `padi` sibling in beside them
+    // (`{ surface: { ...router.surface, padi } }`) and assembles the final host
+    // router. padi is async (an `await`ed binding), so it can't be composed here.
+    router: koluSurfaces.router as { surface: Record<string, unknown> },
+    // The kolu surface ctx — `index.ts` drives the store cells (`padiLink`/
+    // `processStartedAt`) through it off `padiSession.onState`. The two DERIVED poll
+    // cells have NO ctx entry (the graph is their one writer — the bridge's law).
+    ctx: koluSurfaces.ctx.kolu,
+  };
+}
