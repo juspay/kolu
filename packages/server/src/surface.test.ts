@@ -1,7 +1,10 @@
 import type { ProcessMemory } from "kolu-common/surface";
-import { BYTES_PER_MB as MB, surfaces } from "kolu-common/surface";
+import {
+  BYTES_PER_MB as MB,
+  processMemoryMbEqual,
+  surfaces,
+} from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { processMemoryMbEqual } from "./surface.ts";
 
 /** A readout with all three processes `ok`; override per test. */
 function mem(over: Partial<ProcessMemory> = {}): ProcessMemory {
