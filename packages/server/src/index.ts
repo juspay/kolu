@@ -589,7 +589,15 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
   // such — no accessor pointer stands in for it. A fresh rebind still has one bounded fold
   // cycle where the mirror hasn't re-folded the newest reading yet (Ledger L14, orthogonal
   // to the gate).
-  if (!padiMemoryReadable(padiSession.currentState())) return null;
+  //
+  // `isDestroyed()` folds to `absent` too: `currentState()` is the honest published FRAME
+  // (there is no "destroyed" phase — its last frame may still read `connected`), so a
+  // torn-down session's liveness is a separate fact the frame can't carry. The retired
+  // `currentClient()` gate folded it (via `destroyed ? null`); preserving that keeps the
+  // ONLY behavior change the intended phase-tightening, and the mirror read below can't run
+  // against a destroyed re-serve.
+  if (padiSession.isDestroyed() || !padiMemoryReadable(padiSession.currentState()))
+    return null;
   const ctl = new AbortController();
   try {
     // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so

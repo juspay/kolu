@@ -175,10 +175,11 @@ export interface Session<
    *  the same value `onState` publishes, so honest liveness is
    *  `currentState().phase === "connected"`.
    *
-   *  FRESHNESS BY DESIGN: `onState` delivery is microtask-deferred (a fire-and-forget
-   *  `for await` per subscriber), and a synchronous frame can drive TWO transitions
+   *  FRESHNESS BY DESIGN: `onState`'s *delta* delivery is microtask-deferred (a
+   *  fire-and-forget `for await` per subscriber; the initial snapshot on subscribe
+   *  fires synchronously), and a synchronous frame can drive TWO transitions
    *  (e.g. `disconnected` → give-up `failed`). So a listener that was delivered one
-   *  frame may, at the same turn, read a LATER frame here — `currentState()` always
+   *  delta frame may, at the same turn, read a LATER frame here — `currentState()` always
    *  returns the freshest cell truth, never the frame that woke the reader. That is
    *  the point: a deferred reader gated on `currentClient()` observes a stale pointer
    *  reassigned mid-frame; a reader gated on `currentState().phase` cannot. */
@@ -1287,7 +1288,7 @@ export function makeSession<
     },
     currentState() {
       // The freshest cell truth — the same value `onState` publishes, read
-      // synchronously (`onState` delivery is microtask-deferred, so a deferred
+      // synchronously (`onState`'s DELTA delivery is microtask-deferred, so a deferred
       // reader gets the CURRENT frame, never the one that woke it).
       return stateCell.current();
     },
