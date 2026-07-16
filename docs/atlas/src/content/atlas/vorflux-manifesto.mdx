@@ -1,0 +1,47 @@
+---
+title: The Vorflux Manifesto, Read From Kolu
+description: "A study of vorflux.com/manifesto — the Great Flattening thesis, its six bottlenecks, tokenmaxxing — mapped honestly onto what kolu already is, what it should adopt, and where its doctrine disagrees."
+parents: [analysis]
+maturity: seedling
+updated: 2026-07-15
+---
+
+import Footnote from "../../components/Footnote.astro";
+
+A reading of [the Vorflux manifesto](https://vorflux.com/manifesto) ("The Great Flattening"), kept honest in both directions: where kolu is already the thing it describes, and where kolu's doctrine deliberately disagrees.
+
+## What it claims
+
+- **The models woke up.** Frontier models are "genuinely superhuman" at programming (SWE-bench Verified 33%→88.2% in two years; Codeforces 99.8th percentile) — and they've outgrown laptops, but "the cloud they were offered is **blind**": agents can't *run and watch* the application, so humans get dragged back for verification.
+- **The Great Flattening.** Organizations collapse from layered hierarchy toward a **harness** — one system encoding company judgment. The human's job "goes meta": *"you stop solving the task in front of you and start solving why the organism couldn't solve it itself."* The **human cell boundary** survives at the outward-facing edge (sales, relationships); everything internal — planning, design, review, execution — flattens.
+- **Six bottlenecks** on the way: the Machine (real multi-repo environments, not sandboxes) · Planning (a plan of plans) · Orchestration (route work to the right model per task) · Testing (live app testing, browser automation, recordings) · Review (**cross-lab adversarial review** — competitor models judging) · the Merge (automated conflict resolution + flags).
+- **Tokenmaxxing.** "The seat is the wrong unit of compute. The token is the right one." And once execution is cheap, **backlogs are obsolete**: don't prioritize — *"build them all and find out which ones matter."* Stay vendor-neutral across model families to avoid lock-in.
+
+## Kolu is already most of this — literally, this week
+
+The manifesto describes, as a future, the shape of an ordinary kolu campaign. The six bottlenecks against kolu's shipped stack:
+
+| Vorflux bottleneck | kolu today |
+|---|---|
+| the Machine | padi hosts + the pu box pool — real repos, real daemons, leased per PR, egress-checked |
+| Planning | the Atlas plan-of-record: id-first phase trees, dep-sequenced rows, gates, done-criteria |
+| Orchestration | the coordinator's model rule ("fable judges, opus grounds"), lens-run workflows, per-lane briefs |
+| Testing | e2e + seal on the exact shipping SHA, two platforms; agents drive chrome-devtools against the live app |
+| Review | **the gauntlet** — lens-debate, /codex-debate (a competitor lab's model adversarially reviewing, warm-session, to consensus), code-police |
+| the Merge | **deliberately human** — srid merges; see the disagreement below |
+
+And the "job goes meta" line is kolu's operating culture already: every coordinator failure this campaign became an encoded rule the same day (the atlas-branch liveness check, the `/goal` pin, the blocking-ask rule, the design-bearing lens trigger).<Footnote>All in `/orchestrator` and the surface rule, each carrying its recorded failure as the rationale — the manifesto's "solve why the organism couldn't solve it itself," practiced as skill-writing.</Footnote> The manifesto's sharpest observation — the **blind cloud** — names kolu's exact differentiator: kolu is the anti-blind-cloud, a canvas where agents *and* the human watch the same live terminals, the same running app, the same dashboards.
+
+## What to adopt
+
+1. **Say the thesis out loud.** Kolu's story is scattered across notes; the manifesto compresses it: *the harness is the product*. A kolu built for one user today is a company-judgment harness at any scale — the orchestrator skill, the gauntlet, the Atlas graph *are* the encoded judgment. Positioning, docs, and the website should claim this frame.
+2. **Cross-lab review as a first-class feature, not a skill.** /codex-debate proves the pattern (a rival lab's model arguing to consensus); kolu terminals already host codex, opencode, grok. Generalize: a reviewer-panel primitive where N *different-vendor* agents debate a diff on the canvas — the manifesto's bottleneck 5 as a product surface. (The debate skill's `--orchestrate` mode is the seed.)
+3. **Vendor neutrality as architecture.** Kolu already runs mixed-vendor agents in PTYs — the neutral-harness claim is true by construction. Keep it structural: nothing in padi/kaval may assume one agent CLI (the `prohibitedKeybinds` registry is the pattern — per-tool facts as data, not baked-in assumptions).
+4. **Token accounting where seat accounting was.** "Tokenmaxxing" needs meters: per-lane token/cost visibility on the dashboard and in reports (this week's 81%-of-weekly-limit moment was discovered *incidentally*, in a terminal footer). A harness that routes work by cost needs cost as a first-class fact.
+5. **Recordings as evidence.** Bottleneck 4's "recordings" names a gap: kolu's evidence class is screenshots + test output; a padi-native "record this lane's screen for the PR" would make visual evidence one verb.
+
+## Where kolu disagrees
+
+- **"Backlogs are obsolete — build them all."** Kolu's doctrine says the opposite, with receipts: prove-then-extract, parked-with-gate, declined-dated-with-revive-triggers. SR10 was *declined* this week precisely because building it was cheap but **owning it wasn't** — the constraint that survives cheap execution is not "what to build" but *what to maintain, verify, and keep coherent*. "Build them all" maximizes exactly the accidental complexity the design philosophy exists to kill. The roadmap-graph work keeps the gate discipline; it does not replace prioritization with spray.
+- **The fully-automated Merge.** Kolu keeps the human at merge — not as a bottleneck but as the *adjudication seat*: this campaign's record shows the human catching what every automated layer missed (the composition smell in a merged PR, a mis-clicked adjudication, a lying rules doc). The manifesto's own "human cell boundary" is drawn at sales; kolu draws it at **judgment** — the flattening stops where accountability starts.
+- **Benchmark triumphalism.** The 88.2%-therefore-superhuman framing is marketing shorthand; kolu's culture is evidence-per-claim (a fix isn't done at "CI green" but at real-GPU soak, live acceptance, exact-SHA proof). Adopt the thesis, not the epistemics.

@@ -1,0 +1,85 @@
+---
+title: The Roadmap Graph
+description: "The coordinator's dispatch substrate for agent fleets — one yaml of inputs (deps, gates, human lifecycle, asserted ships), everything else computed: ripe answers what the coordinator dispatches next, a node becomes a brief becomes a lane, and the human's whole view is the judgment-gate queue plus the merge queue."
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-15
+---
+
+import Footnote from "../../components/Footnote.astro";
+
+This is infrastructure for exactly one operating model: [**agent fleets**](https://kolu.dev/agent-fleets) — one coordinator (running /orchestrator) dispatching worktree'd implementing agents, the human one layer up. The graph is **the coordinator's dispatch substrate**, not a project-management tool: its one reader is the coordinator, a ripe node becomes a brief becomes a lane, and the human touches it at exactly two points — **judgment gates** (the decisions only the human can make, surfaced as a queue) and **merges**. The SR campaign proved the thesis: when the graph is explicit (ids, dep edges, gates), the coordinator dispatches work without the human ordering it. What failed was that the graph's *facts* lived in prose and the coordinator's head — "what's dispatchable?" hand-recomputed, gates checked by memory, odu's drift invisible for a whole campaign. The cure is not a tracker; it is **one small file of inputs, and everything else computed**.<Footnote>The schema below is the *second* draft: a lens run (`wf_f751c3e0-f75`, 13 raw → 10 confirmed findings) gutted the first. The three biggest kills: a single `status` field had **two writers** (a sync tool could silently flip SR10's dated decline to "shipped"); `ships[]` was specced as forge-derived, but the run verified **all ten campaign PRs carry zero PR-closes-issue edges** — the edge doesn't exist to walk; and storing `ripe`/`shipped` at all was a cached derivation read back as truth (P1). Every field below exists in its corrected, one-writer form because of that run.</Footnote>
+
+## User-facing description
+
+Per the fleet model's three layers, "user" splits in two. **The human sees:** the judgment-gate queue (`ripe`'s `JUDGMENT` rows — DL2 below — are *your* inbox) and the merge queue; nothing else requires you. **The coordinator operates:** `ripe` answers "what do I dispatch next," each ripe node's `note:` section is the brief's plan-of-record, dispatch makes a lane (terminal + worktree + token — live facts the coordinator holds, never committed to the graph), a merged `Ships:` PR flips delivery. One file: `docs/atlas/src/data/roadmap.yaml` — **inputs only**, one writer per field:
+
+```yaml
+- id: SR8.b
+  title: incremental per-key urgency fold
+  note: surface-runtime-boundary#sr8b          # prose design; lint asserts it resolves
+  deps: [SR8]
+  state: { kind: parked,                       # HUMAN-owned lifecycle union:
+           gate: { kind: fact,                 #   active | parked | declined
+                   text: a real workload where the scan matters,
+                   check: roadmap/checks/sr8b.sh } }
+  ships: []                                    # HUMAN-asserted PR list; sync only VERIFIES
+
+- id: DL2
+  title: the address bar follows focus
+  note: deep-links
+  deps: [DL1]
+  state: { kind: parked, gate: { kind: judgment, text: "srid's go — history noise + IDs-on-screenshare accepted" } }
+  ships: []
+
+- id: SR10
+  title: the padi registry as signalMap
+  note: surface-runtime-boundary#sr10
+  deps: [SR7, SR8, SR9]
+  state: { kind: declined, date: 2026-07-15,
+           revive: [{ kind: fact, text: a second writable-keyed-store consumer },
+                    { kind: gate-of, id: SR8.b },       # cross-node edge, machine-visible
+                    { kind: fact, text: a stale-tile incident }] }
+  ships: []
+```
+
+**Nothing derived is ever written back.** `ripe`, `in-flight`, `shipped` are computed at every read from `deps` + `ships` + forge merge-state + the gate verdict:
+
+```
+$ just roadmap::ripe          # forge snapshot: 2026-07-15T16:20Z (12m old)
+RIPE      DL1        deps ✓ (—)          gate —            in-flight: #1840
+RIPE      liveness   deps ✓ (SR8.c ✓)    gate —
+JUDGMENT  DL2        deps ✓ (DL1 …)      awaiting: srid's go
+PARKED    SR8.b      deps ✓ (SR8 ✓)      gate closed (sr8b.sh)
+DECLINED  SR10       2026-07-15          3 revive triggers (1 = gate-of SR8.b)
+```
+
+The plan notes stop hand-carrying the same facts: **the SR sequence table is generated from this yaml** (an Astro component renders the whole table — id, title, deps, computed state chip stamped "as of `<sync date>`", pairing column<Footnote>Renamed from the old table's "gate" column ("drishti pair"/"none") — that word now means exactly one thing: a ripeness precondition. The pairing requirement is a different fact and keeps its own name.</Footnote>); prose keeps what prose is for — the design, the reasoning, the honest costs.
+
+## Architecture-level changes
+
+- **One writer per field (P3), the run's headline fix:** humans own `state` (a discriminated union — `parked` *requires* a gate, `declined` *requires* date+revive: the contradictions are unspellable, P4) and assert `ships`; `roadmap::sync` owns exactly two things — the forge merge-verdict *cache* for asserted PRs and one `synced: {at}` timestamp. Sync can never demote an adjudication; a human can never fake a merge.
+- **Staleness is honest (P3, whose-clock):** every rendered state chip carries "as of `<synced.at>`"; `ripe` prints the snapshot age. No freshness knob — just the date, the corpus's own `checked 2026-07-15` pattern.
+- **Gate checks are tristate and fail-fast (SR4's doctrine applied):** a valid verdict is exit 0 + stdout `open`|`closed`; *anything else* (missing script, nonzero, garbage) **aborts** `ripe` with the node id — a bit-rotted check can never silently read as "gate closed". CI executes every declared check once per run, so breakage fails at commit time. A `kind: fact` gate without a `check` is a lint error (it's a judgment wearing a fact label).
+- **Cross-node edges are machine-visible (P5):** `gate-of`/`revival` references (SR10 ⇄ SR8.b's mutual edge, today spelled only in English) join the graph; the lint rejects a dep or gate reference to a declined node unless the referencing arm declares it, and asserts both directions of a mutual reference resolve.
+- **The lint closes the referential edges:** dangling dep ids; `note:` anchors that don't resolve in the rendered output; one PR number asserted under two nodes; plus the union's own requirements. Sibling to `atlas::check-sync`, same CI posture.
+- **GitHub keeps what it owns:** issues stay the substrate for bugs and ledgers (odu#43); the yaml doesn't mirror the forge — it holds the judgment facts the forge *can't* express (gates, dated declines, revive triggers) and asserts the PR edge the forge provably doesn't have.
+
+## Implementation details
+
+### RM1 — the file, the commands, the generated table (one PR)
+
+1. `roadmap.yaml` seeded with the live graph (the SR ledger, SR8.b, SR10, DL1/DL2, the liveness fix, pesu B0/B1) — a transcription pass, no invention.
+2. `just roadmap::ripe` (compute frontier; tristate gate protocol; snapshot-age header) and `just roadmap::sync` (verify asserted ships against the forge; write the merge-verdict cache + `synced.at`; committed, so the Atlas build stays deterministic — no network at build time).
+3. The lint (`ci::roadmap`), covering every check named above, wired beside `atlas-sync`.
+4. The Astro component: the SR sequence table generated from data; the hand-authored ships/gate cells deleted from the markdown (the drift pair dies); per-node state chips available to any note via the `note:` back-edge.
+5. PR-body convention going forward: a `Ships: <track-id>` line, so assertion is one grep — recorded in the conventions, not enforced retroactively.
+
+### Prior art in-repo — PR #760's task-management proposal
+
+The open contributor proposal (<a href="https://github.com/juspay/kolu/pull/760">#760</a>, pre-Atlas era) independently articulated this note's governing law — *"Kolu has agency over IO; Kolu has no agency over semantics: the user is the brain, Kolu is the hands"* — and its mockup's "terminal canvas with task tags" is RM2's node-to-lane-terminal link, converged on from the other direction. The scopes are complementary, not competing: #760 is a **user's personal intent** layer (freeform kanban lanes, obsidian-format markdown — right for human tasks), this note is the **repo's adjudicated work graph** (a fixed lifecycle union, machine-checkable gates — right for dispatch). If both ship, the repo's roadmap renders as one project board in that UI.
+
+### RM2 — the live surface *(gated on srid's go, after RM1 soaks)*
+
+The fleet page's shape, rendered: serve the computed graph as a surface collection and join it with padi's live agent-state — the frontier on the canvas, each node deep-linking (DL1's grammar) to its note section and, when its lane is live, its terminal with the real `working`/`awaiting`/`waiting` state beside it. Observation flows out freely (the human watches the whole fleet through the graph); action still flows in through the coordinator's one door. The hand-maintained dashboard shrinks to what only the coordinator knows (in-flight conversation state); everything the graph and padi know renders itself.
