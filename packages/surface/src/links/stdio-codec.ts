@@ -125,9 +125,9 @@ export function framedSend(
  *  The `'close'` edge is part of the declared contract, not an accident: a
  *  `destroy()` with no error emits neither `'end'` nor `'error'` — only
  *  `'close'` — so without it the promise would hang forever. Peer-server's
- *  benign write-death funnel load-bears on exactly this edge (it destroys
- *  the read stream error-free so a peer-gone EPIPE settles as
- *  `reason: "end"`); do not drop the `'close'` handler in a refactor.
+ *  error-free `endServing()` teardown (the `onPeerGone` path) load-bears on
+ *  exactly this edge — it is how a callback-only write death settles as
+ *  `reason: "end"`; do not drop the `'close'` handler in a refactor.
  *
  *  Why hand-roll instead of `readline`: `readline` adds another async
  *  layer and obscures the framing assumption. The whole protocol is

@@ -37,11 +37,7 @@ import type {
 import { ClientPeer } from "@orpc/standard-server-peer";
 import { deadTransportError, SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
-import {
-  framedSend,
-  isBenignWriteError,
-  readFramedLines,
-} from "./stdio-codec";
+import { framedSend, isBenignWriteError, readFramedLines } from "./stdio-codec";
 
 /** A `Readable`/`Writable` pair the link reads and writes from. */
 export interface StdioLinkOptions {
@@ -76,14 +72,16 @@ export class LinkStdioClient<T extends ClientContext>
   private closed = false;
 
   constructor(opts: StdioLinkOptions) {
-    // `onPeerGone` mirrors the server's funnel closure (peer-server.ts): a
+    // `onPeerGone` mirrors the server's `endServing` (peer-server.ts): a
     // `write()` on a stream `destroy()`ed without an error reports
     // `ERR_STREAM_DESTROYED` only to the write callback — no 'error' event —
     // so without this the link never learns the transport died and every
     // in-flight call hangs. `handleTransportClosed` is idempotent, so the
-    // 'error'-event path below converging on it is safe.
+    // 'error'-event path below converging on it is safe. A stable reference,
+    // not an inline arrow — the sender runs per frame.
+    const onPeerGone = () => this.handleTransportClosed();
     this.peer = new ClientPeer((message) =>
-      framedSend(opts.write, message, () => this.handleTransportClosed()),
+      framedSend(opts.write, message, onPeerGone),
     );
     // The write half needs its own 'error' sink. A failed `write()` already
     // rejects the in-flight frame through the callback above, but Node ALSO

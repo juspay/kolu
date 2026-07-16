@@ -25,10 +25,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import {
-  setImmediate as macrotask,
-  setTimeout as delay,
-} from "node:timers/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
@@ -70,30 +67,47 @@ function spawnAgent(...modeArgs: string[]): ChildProcessWithoutNullStreams {
   return child;
 }
 
-/** Resolve when `marker` has appeared on the child's stderr. Rejects on
- *  'close' (all stdio drained — 'exit' can fire with stderr bytes still in
- *  the pipe) if the marker never arrived; pre-caught so an unawaited
- *  instance (used only via `seen()`) can never float an unhandled
- *  rejection, while awaiting callers still see the rejection through their
- *  own reference. */
-function stderrMarker(
-  child: ChildProcessWithoutNullStreams,
-  marker: string,
-): { seen: () => string; until: Promise<void> } {
+/** One buffered stderr watcher per child: a single 'data' listener and one
+ *  accumulator, with `waitFor(marker)` promises sharing it. `waitFor`
+ *  rejects on 'close' (all stdio drained — 'exit' can fire with stderr
+ *  bytes still in the pipe) if the marker never arrived; every returned
+ *  promise is awaited by its creator, so no floating rejections. */
+function watchStderr(child: ChildProcessWithoutNullStreams): {
+  seen: () => string;
+  waitFor: (marker: string) => Promise<void>;
+} {
   let buf = "";
-  const until = new Promise<void>((resolve, reject) => {
-    child.stderr.on("data", (chunk: Buffer) => {
-      buf += chunk.toString();
-      if (buf.includes(marker)) resolve();
-    });
-    child.once("close", () =>
-      reject(
-        new Error(`child closed before stderr marker "${marker}": ${buf}`),
-      ),
-    );
+  const waiters: Array<{
+    marker: string;
+    resolve: () => void;
+    reject: (err: Error) => void;
+  }> = [];
+  child.stderr.on("data", (chunk: Buffer) => {
+    buf += chunk.toString();
+    for (let i = waiters.length - 1; i >= 0; i--) {
+      const w = waiters[i];
+      if (w && buf.includes(w.marker)) {
+        w.resolve();
+        waiters.splice(i, 1);
+      }
+    }
   });
-  until.catch(() => {});
-  return { seen: () => buf, until };
+  child.once("close", () => {
+    for (const w of waiters.splice(0)) {
+      w.reject(
+        new Error(`child closed before stderr marker "${w.marker}": ${buf}`),
+      );
+    }
+  });
+  return {
+    seen: () => buf,
+    waitFor: (marker) =>
+      buf.includes(marker)
+        ? Promise.resolve()
+        : new Promise((resolve, reject) =>
+            waiters.push({ marker, resolve, reject }),
+          ),
+  };
 }
 
 /** Await the child's 'close' (exit AND stdio drained — the stderr
@@ -121,8 +135,8 @@ async function waitExit(
 describe("serveOverStdio lifetime — default transport (the process IS the agent)", () => {
   it("exits 0 when the parent closes the link, despite a live interval", async () => {
     const child = spawnAgent();
-    const stderr = stderrMarker(child, "fixture: settled reason=end");
-    await stderrMarker(child, "fixture: serving").until;
+    const stderr = watchStderr(child);
+    await stderr.waitFor("fixture: serving");
 
     child.stdin.end(); // parent death, read half: EOF on the agent's stdin
 
@@ -134,8 +148,8 @@ describe("serveOverStdio lifetime — default transport (the process IS the agen
 
   it("exits 0 when the parent's read side dies mid-push (benign write EPIPE)", async () => {
     const child = spawnAgent();
-    const stderr = stderrMarker(child, "fixture: settled reason=end");
-    await stderrMarker(child, "fixture: serving").until;
+    const stderr = watchStderr(child);
+    await stderr.waitFor("fixture: serving");
 
     // Subscribe the forever-stream so the agent is continuously PUSHING,
     // then kill the parent's read side only: the agent's next push EPIPEs
@@ -157,7 +171,7 @@ describe("serveOverStdio lifetime — default transport (the process IS the agen
 
   it("exits 1 on a genuinely abnormal read-stream error", async () => {
     const child = spawnAgent("--self-error");
-    await stderrMarker(child, "fixture: serving").until;
+    await watchStderr(child).waitFor("fixture: serving");
 
     const { code } = await waitExit(child, EXIT_WAIT_MS);
     expect(code).toBe(1);
@@ -184,10 +198,9 @@ describe("serveOverStdio lifetime — explicit transport override (caller owns l
       const end = await serving;
       expect(end.reason).toBe("end");
 
-      // Drain past where the default arm schedules its exit fork
-      // (setImmediate) — nothing may fire here. (Promisified setImmediate
-      // resolves after the callback-form setImmediate the fork would use.)
-      await macrotask();
+      // Drain well past where the default arm schedules its exit fork
+      // (setImmediate) — a 20ms timer crosses many full event-loop turns,
+      // so any pending exit callback would have fired. Nothing may.
       await delay(20);
       expect(exitSpy).not.toHaveBeenCalled();
     } finally {

@@ -198,55 +198,40 @@ export function serveOverStdio<T extends Context>(
   const handler = new StandardRPCHandler<T>(opts.router, opts.handlerOptions);
   let firstRequestSeen = false;
 
+  // ONE teardown: convert a write-side death into the read stream's settle,
+  // carrying NO classification — the terminal seam below is the single place
+  // `reason` is decided, for every stream shape and both directions.
+  // `endServing(err)` settles via the read 'error' (classified below);
+  // `endServing()` settles error-free via 'close' → `reason: "end"` (the
+  // codec's declared resolve-on-'close' edge). Guarded so a torn pipe that
+  // kills both halves at once doesn't double-destroy.
+  //
+  // Honest limit: a real write failure that arrives only AFTER the read side
+  // already settled is absorbed — the read stream ending is the definition
+  // of serving ending, and re-opening a settled result for a late
+  // writer-side fault would be a second source of truth.
+  const endServing = (error?: Error) => {
+    if (!transport.read.destroyed) transport.read.destroy(error);
+  };
+
   // Symmetric to the client link's write guard (`links/stdio.ts`). A failed
   // `write()` rejects the in-flight frame (the `writeFramedMessage` Promise
-  // below), but Node also emits 'error' on the write stream, and an unhandled
-  // 'error' is a hard crash — the very `process.exit(1)`-on-unhandled footgun
-  // this module already closes for the *read* side (see `ServeOverStdioEnd`).
-  // When our stdout pipe breaks (the parent died, the unix-socket peer reset),
-  // serving must end the same way a read-side death ends it, not crash the
-  // agent. Funnel the write error into the read stream's teardown — one
-  // classified teardown path, both directions: a benign peer-gone code ends
-  // cleanly (`reason: "end"`), any other write error carries its cause
-  // (`reason: "error", error`). Guarded so a torn pipe that kills both
-  // halves at once doesn't double-destroy.
-  //
-  // This 'error' lifecycle guard stays here, not in the codec's
-  // `writeFramedMessage` (which is framing-only on purpose): the teardown
-  // response is consumer-specific (the client closes its link instead).
-  //
-  // The funnel branches on the codec's own write-death classifier: a benign
-  // write failure (EPIPE / ERR_STREAM_DESTROYED) IS clean peer-gone teardown
-  // — on a parent death, an agent pushing frames often sees stdout-EPIPE
-  // before stdin delivers EOF, and carrying that race as an *error* would
-  // nondeterministically flip the same clean teardown between
-  // `reason: "end"` and `reason: "error"` (and, on the default arm, between
-  // exit 0 and exit 1 — which ssh propagates to Restart=on-failure units and
-  // CI wrappers). Destroy without an error → 'close' → `reason: "end"`; a
-  // real write failure still carries its error → `reason: "error"`.
-  //
-  // Honest limit: that error-carrying holds for a real write failure that
-  // PRECEDES the read side's settle. One arriving after a clean EOF has
-  // already resolved the promise is absorbed — the read stream ending is
-  // the definition of serving ending, and re-opening a settled result for
-  // a late writer-side fault would be a second source of truth.
-  transport.write.on("error", (err) => {
-    if (transport.read.destroyed) return;
-    transport.read.destroy(isBenignWriteError(err) ? undefined : err);
-  });
+  // in the codec), but Node also emits 'error' on the write stream, and an
+  // unhandled 'error' is a hard crash — the very
+  // `process.exit(1)`-on-unhandled footgun this module already closes for
+  // the *read* side (see `ServeOverStdioEnd`). This lifecycle guard stays
+  // here, not in the codec (framing-only on purpose): the teardown response
+  // is consumer-specific (the client closes its link instead).
+  transport.write.on("error", endServing);
 
-  // `onPeerGone` closes the funnel's blind spot: a `write()` on a stream
-  // that was `destroy()`ed WITHOUT an error reports `ERR_STREAM_DESTROYED`
-  // only to the write callback — no 'error' event ever fires, so the guard
-  // above never runs and a swallow-only send would leave the serve promise
+  // `onPeerGone` (= `endServing`, error-free) closes the 'error'-event blind
+  // spot: a `write()` on a stream `destroy()`ed WITHOUT an error reports
+  // `ERR_STREAM_DESTROYED` only to the write callback — no 'error' event
+  // ever fires — and a swallow-only send would leave the serve promise
   // pending forever (on the default arm: the immortal orphan, re-spelled).
-  // Route it into the same teardown: destroy the read stream error-free →
-  // 'close' → `reason: "end"`. Idempotent with the 'error'-event path via
-  // the destroyed guard.
+  // A stable reference, not an inline arrow: the sender runs per frame.
   const peer = new ServerPeer((message) =>
-    framedSend(transport.write, message, () => {
-      if (!transport.read.destroyed) transport.read.destroy();
-    }),
+    framedSend(transport.write, message, endServing),
   );
 
   const settled = readFramedLines(transport.read, (frame) => {
@@ -278,16 +263,20 @@ export function serveOverStdio<T extends Context>(
   })
     .then(
       (): ServeOverStdioEnd => ({ reason: "end" }),
-      // The benign classification must ALSO run here, not only in the write
-      // funnel above: when read and write are the SAME Duplex (the canonical
-      // `serveOverUnixSocket` transport — one `net.Socket` for both), Node
-      // marks the stream destroyed BEFORE emitting 'error', so the funnel's
-      // destroyed-guard defers and the identical peer-gone EPIPE arrives as
-      // this rejection instead. Without this branch the shared-duplex shape
-      // would reclassify the same clean teardown the separate-stream shape
-      // reads as "end" — the arm- and shape-independent contract in
-      // `ServeOverStdioEnd` is enforced at the one terminal seam every path
-      // flows through.
+      // THE one classification point — every death, every shape, both
+      // directions, flows through this rejection arm: a read error directly;
+      // a write death via `endServing(err)`; a shared-duplex death (the
+      // canonical `serveOverUnixSocket` one-socket transport, where Node
+      // marks the stream destroyed BEFORE emitting 'error', bypassing the
+      // funnel) as the read 'error' itself. A benign peer-gone code
+      // (EPIPE / ERR_STREAM_DESTROYED) IS clean teardown: on a parent
+      // death, a pushing agent often sees stdout-EPIPE before stdin
+      // delivers EOF, and carrying that race as an *error* would
+      // nondeterministically flip the same clean teardown between exit 0
+      // and exit 1 on the default arm — which ssh propagates to
+      // Restart=on-failure units and CI wrappers. Classifying ONLY here
+      // keeps the contract in `ServeOverStdioEnd` shape-independent by
+      // construction.
       (error: unknown): ServeOverStdioEnd =>
         isBenignWriteError(error)
           ? { reason: "end" }
