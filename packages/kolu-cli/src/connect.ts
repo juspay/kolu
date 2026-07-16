@@ -84,18 +84,19 @@ export function mountStreamRetry(client: PadiSurfaceClient): PadiSurfaceClient {
           ) {
             return value;
           }
+          // Invoke the leaf DIRECTLY — never `value.call(...)`: an oRPC leaf
+          // is itself a callable path-proxy whose property access mints
+          // SUBPATHS, so `.call` would dispatch the RPC at `<verb>/call` (a
+          // 404), not bind `this`.
+          const leaf = value as (i: unknown, o: unknown) => unknown;
           return (
             input: unknown,
             opts?: { signal?: AbortSignal; context?: unknown },
           ) =>
-            (value as (i: unknown, o: unknown) => unknown).call(
-              nodeTarget,
-              input,
-              {
-                ...opts,
-                context: opts?.context ?? STREAM_RETRY,
-              },
-            );
+            leaf(input, {
+              ...opts,
+              context: opts?.context ?? STREAM_RETRY,
+            });
         },
       });
     },

@@ -32,33 +32,40 @@ import { serverVersion } from "kolu-server/src/hostname.ts";
 import { connectKoluCliLocal } from "./connect.ts";
 import { connectKoluCliViaHost } from "./hostConnect.ts";
 
-export async function runKoluMcp(opts: {
-  host: string | undefined;
-}): Promise<void> {
-  const dial =
-    opts.host === undefined
-      ? connectKoluCliLocal
-      : () => connectKoluCliViaHost(opts.host as string);
-
-  const connect = async (): Promise<KoluMcpConnection> => {
+/** Wrap a dial with the face's failure policy — exported so the two arms are
+ *  unit-testable apart from a real socket:
+ *   - a CONTRACT SKEW is not a transient (every redial hits the same wall) →
+ *     the honest "upgrade" line on stderr and a loud non-zero exit, never a
+ *     server left serving a surface it can't represent;
+ *   - anything else is the transport gap (padi down, restarting, socket
+ *     moved) → rethrown fast with the typed `padi transport down:` prefix so
+ *     the agent's tool call fails retryable — never queued. */
+export function guardedMcpConnect(
+  dial: () => Promise<KoluMcpConnection>,
+): () => Promise<KoluMcpConnection> {
+  return async (): Promise<KoluMcpConnection> => {
     try {
       return await dial();
     } catch (err) {
-      // A contract skew is not a transient: the daemon and this binary are out
-      // of step, and every future redial hits the same wall. Fail the whole
-      // face loudly (stderr — stdout is the protocol channel) rather than
-      // serving a surface we can't honestly represent.
       if (err instanceof DaemonContractSkewError) {
         process.stderr.write(`kolu mcp: ${err.message}\n`);
         process.exit(1);
       }
-      // Anything else is the transport gap (padi down, restarting, socket
-      // moved): fail fast + typed so the agent retries — never queue.
       throw new Error(
         `padi transport down: ${(err as Error).message} (retryable — kolu mcp queues nothing; retry once padi is reachable)`,
       );
     }
   };
+}
+
+export async function runKoluMcp(opts: {
+  host: string | undefined;
+}): Promise<void> {
+  const connect = guardedMcpConnect(
+    opts.host === undefined
+      ? connectKoluCliLocal
+      : () => connectKoluCliViaHost(opts.host as string),
+  );
 
   const { server } = await serveKoluMcp({
     connect,

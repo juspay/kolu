@@ -30,9 +30,7 @@ describe("resolveSendInputData — the arg-legality matrix", () => {
   });
 
   it("an unknown key is a loud error, never a silent no-op", () => {
-    expect(() => resolveSendInputData({ key: "Bogus" })).toThrow(
-      /unknown key/,
-    );
+    expect(() => resolveSendInputData({ key: "Bogus" })).toThrow(/unknown key/);
   });
 
   it("neither text nor key is a loud error", () => {

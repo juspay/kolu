@@ -80,7 +80,10 @@ describe("KOLU_MCP_DENIED — every denial is real, absent, and unreachable", ()
   it("each denied member exists on the spec (a denial naming nothing is stale)", () => {
     const members = specMembers();
     for (const { member } of KOLU_MCP_DENIED) {
-      expect(members.has(member), `denied member "${member}" is not on padiSurface — stale denial`).toBe(true);
+      expect(
+        members.has(member),
+        `denied member "${member}" is not on padiSurface — stale denial`,
+      ).toBe(true);
     }
   });
 

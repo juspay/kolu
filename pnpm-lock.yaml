@@ -692,6 +692,9 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
