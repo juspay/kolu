@@ -384,9 +384,12 @@ ${blocks}
 Return one \`checks\` entry per finding id.`
 }
 
+// The finding-as-prompt core is findingLine's — this only appends the thread
+// extras: the ≡-pair note, the pair mate's framing, and the extracted hunks.
 function contestedLine(item) {
-  const pairNote = item.pairId ? ` (≡ ${item.pairId} — both lenses raised this issue independently)` : ''
-  return `### ${item.id}${pairNote} — ${item.f.title}\n  at ${item.f.location}; raised by ${item.f.origin} as ${item.f.disposition} (severity: ${item.f.severity})\n  problem: ${item.f.problem}\n  suggestion: ${item.f.suggestion}${item.pairF ? `\n  ${item.pairF.origin}'s framing — ${item.pairF.title}: ${item.pairF.problem}\n  ${item.pairF.origin}'s suggestion: ${item.pairF.suggestion}` : ''}\n\nRelevant hunks:\n\`\`\`\n${item.excerpt}\n\`\`\``
+  const pairNote = item.pairId ? `\n  (≡ ${item.pairId} — both lenses raised this issue independently)` : ''
+  const pairFraming = item.pairF ? `\n  ${item.pairF.origin}'s framing — ${item.pairF.title}: ${item.pairF.problem}\n  ${item.pairF.origin}'s suggestion: ${item.pairF.suggestion}` : ''
+  return `${findingLine({ ...item.f, id: item.id })}${pairNote}${pairFraming}\n\nRelevant hunks:\n\`\`\`\n${item.excerpt}\n\`\`\``
 }
 
 function threadTurnBrief(lens, opp, file, activeItems, oppPos, settledList, roundNum) {
