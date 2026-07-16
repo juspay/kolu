@@ -1,0 +1,84 @@
+---
+title: The Dock
+description: "kolu's left-edge navigator: one row per live terminal, a status indicator that folds agent state and activity into one glyph, recency ordering, per-repo grouping, and the filters that keep a busy workspace scannable."
+order: 45
+section: Use Kolu
+koluHero:
+  eyebrow: the navigator
+  headline: Every terminal, {at a glance}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+The **dock** is the canonical live-terminal navigator down the left edge of the
+canvas. Where the canvas is spatial — tiles wherever you dragged them — the dock
+is a single ordered list, so a glance answers "what do I have open, and which one
+needs me?" without hunting across the plane.
+
+## Two levels of detail
+
+The dock has two densities. **Rail** is a narrow strip of one chip per terminal.
+**Cards** (the default) groups rows by repo, each row reading
+`indicator · branch · pips · time`. Toggle between them with
+<kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd>.
+
+Rows are grouped by repo, and each repo section carries a continuous
+repo-coloured **spine** down its left edge with a faintly tinted header that
+stays **pinned** while you scroll that repo's rows — so which repo a terminal
+belongs to is obvious without reading a label that has scrolled away. Per-branch
+row colours still tell branches apart within a repo.
+
+## One indicator per row
+
+The first-column **status indicator** folds three signals into one glyph, so a
+sweep down the dock reads overall activity without three separate marks fighting
+for space:
+
+- the **core** shape is the agent's state — the same vocabulary as
+  [Agent detection](/agent-detection): working, awaiting you, idle, or a ☾ for a
+  sleeping shell;
+- a thin green **live ring** sweeps around the core while the terminal is moving
+  bytes right now (any output, agent or not);
+- a small amber **corner badge** appears when a background ping fired that you
+  haven't seen — beside the core, so a pending alert never hides the live state.
+
+Rows sort by **pure recency**: the terminal that just changed floats to the top,
+and clicking a row centres its tile on the canvas. A terminal running one
+long-lived agent session stays fresh on its *output*, not only when the agent's
+identity changes, so a busy week-old session doesn't sink to the bottom reading
+"24h ago".
+
+<Aside type="note" title="Attention rolls up here first">
+  Only an agent genuinely **awaiting you** rides the needs-you group — a
+  just-finished agent drops to the quieter idle group rather than sitting where
+  something is blocked on your input. The badge, the app-icon count, and the
+  cross-machine story live in [Notifications &amp; Attention](/notifications).
+</Aside>
+
+## The Filters row — keep it to what matters
+
+The dock's footer carries a **Filters** row with two independent chips over the
+same list:
+
+- an **activity window** (`All / 4h / 12h / 24h / 48h`) hides rows you haven't
+  touched inside the cutoff. It defaults to **All** — nothing is hidden until you
+  narrow it — and the choice persists per device. A hidden terminal stops
+  counting toward the app badge, but a fresh agent transition surfaces it again,
+  so nothing important stays buried.
+- a **☾ sleeping** chip hides terminals you deliberately put to
+  [sleep](/sessions). The window filters by *staleness*, the ☾ chip by
+  *dormancy* — and the activity window also compresses away *old* sleeping
+  tiles, timed from when you slept them.
+
+A single **`N hidden · show all`** reports what both filters hide together and
+clears them in one click.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Notifications & Attention" href="/notifications" description="the badge, OS notifications, and cross-machine needs-you reach" />
+  <LinkCard title="Agent Detection" href="/agent-detection" description="the state vocabulary the indicator draws from" />
+  <LinkCard title="Sessions, Sleep & Wake" href="/sessions" description="park a terminal and bring its conversation back" />
+</CardGrid>

@@ -1,0 +1,71 @@
+---
+title: The Canvas
+description: "kolu's infinite 2D workspace: pan and zoom, opening terminals in place, maximizing, arranging by repo, the minimap, and the motion language tiles use to show agent state."
+order: 41
+section: Use Kolu
+koluHero:
+  eyebrow: the workspace
+  headline: Terminals on {an infinite plane}.
+---
+
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+The desktop workspace is an infinite, mode-less 2D plane. Terminals are tiles
+you arrange freely — spread them out like Figma or Excalidraw, cluster them by
+repo, or maximize one and cycle. There is no separate edit mode: the canvas is
+always live.
+
+## Moving around
+
+- **Pan** with two-finger scroll; hold <kbd>Shift</kbd> to force pan even when
+  the cursor is over a tile.
+- **Zoom** with pinch or <kbd>Ctrl</kbd> + scroll. Text selection, link
+  hovering, and mouse input forwarded to TUI apps all land on the cell under
+  your cursor at any zoom level.
+- Tiles **snap to a 24px grid** on drag and resize.
+
+## Opening terminals in place
+
+- **Double-click any empty spot** on the canvas to open the command palette
+  pre-drilled into the **New terminal** group — the same menu the dock's `+`
+  button reaches, so you can pick a repo, name a worktree, or start in the
+  current directory without leaving the plane.
+- A new tile opens at the **size of the terminal you're currently in** — the
+  active one, not whichever was created last — so a layout you've tuned carries
+  forward. Only the size carries over, not where the tile lands.
+
+## Maximize
+
+Double-click a tile's title bar to maximize it. That posture persists across
+reloads, and switching terminals while maximized — from the dock,
+<kbd>Cmd/Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>, or cycling — is a pure
+show/hide: no reflow, no repaint, no shell resize.
+
+## Arranging
+
+Run **Arrange canvas by repo** from the palette to cluster each repo's tiles
+into an island.
+
+## Agent state as motion
+
+Each live tile wears its agent's run-state as **motion on its border**, in the
+tile's repo color: a working tile runs a calm marching-ants outline, one that
+needs you sweeps a comet (faster the fresher the wait), and a missed alert
+throbs. Idle tiles stay dark; `prefers-reduced-motion` collapses every aura to
+a static ring.
+
+## The minimap
+
+The minimap in the corner is both overview and heatmap: it marks tiles whose
+agents are waiting or thinking, and carries the zoom / arrange /
+activity-window controls. The bigger multi-agent workflow lives in
+[Power Features](/power-features).
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Inside a Tile" href="/tiles" description="splits, font zoom, rendering, and the plumbing that keeps output flowing" />
+  <LinkCard title="The Dock" href="/dock" description="the ordered, glanceable counterpart to the spatial canvas" />
+  <LinkCard title="Core concepts" href="/concepts" description="the vocabulary behind the canvas and everything else" />
+</CardGrid>

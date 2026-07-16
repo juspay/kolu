@@ -161,8 +161,9 @@ export interface PadiRailState {
  *  reactor primitive. Each seam needs `padiSession` (the re-serve mirror, the liveness
  *  snapshot, the identity sum), which exists only in the async boot. */
 export interface KoluSurfaceDeps {
-  /** padi's `{ padi, kaval }` memory reading off the re-serve mirror (gated on the
-   *  `captureLatest` liveness snapshot in `index.ts`), or `null` when padi is down. */
+  /** padi's `{ padi, kaval }` memory reading off the re-serve mirror (gated in
+   *  `index.ts` on padi's honest connected phase, `padiSession.currentState().phase
+   *  === "connected"`), or `null` when padi is down. */
   readPadiMemory: () => Promise<PadiProcessMemory | null>;
   /** The RAW host-daemon enumeration — may throw (a discovery fs-walk / session
    *  readout). `implementKoluSurface` wraps it TOTAL (below) so a fault degrades only
@@ -214,7 +215,8 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // first `scan` subscriber, torn down on the last), so the two cells' scans multicast off a
   // single `deps.onState`. A push occurrence emits SYNCHRONOUSLY (the reactor's `makeEmit`
   // `batch` → the graph-node publish `effect`, no microtask) — deliberately the PUSH arm,
-  // never the deferred poll arm the `captureLatest` snapshot exists to tame. The source has
+  // never the reactor's microtask-deferred POLL arm, whose read must gate on padi's honest
+  // `currentState().phase` (never a `currentClient()` pointer reassigned mid-frame). The source has
   // no `initial` (its bare level is honestly `T | undefined`); each cell's SCAN carries its
   // own exact-`T` honest seed below, so no fabricated `undefined` ever reaches the wire.
   //

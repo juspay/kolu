@@ -93,9 +93,10 @@ export function padiFailureOf(
  *  could report `"copying"`, even though the local endpoint connector (no
  *  nix-copy, the daemon is already here) can never produce it. `PadiSession<Prov>`
  *  intersects the daemon's supervision members onto the `Prov`-NARROWED base
- *  `Session<PadiSurfaceClient, Prov>`'s `onState` instead of `DaemonSession`'s own
- *  (always-full) one — so `PadiSession<never>` (the local arm, see
- *  `padiBinding.ts`) makes `"copying"`/`"building"` a compile error here too, the
+ *  `Session<PadiSurfaceClient, Prov>`'s `onState` (and its synchronous twin
+ *  `currentState`, which returns the same `SessionState<Prov>` frame) instead of
+ *  `DaemonSession`'s own (always-full) ones — so `PadiSession<never>` (the local arm,
+ *  see `padiBinding.ts`) makes `"copying"`/`"building"` a compile error here too, the
  *  LAST consumer in this split's chain. The remote ssh arm keeps the default (the
  *  ssh connector's `SshProv` = `"copying" | "building"`); the heterogeneous
  *  local+remote pool (`index.ts`'s `buildRemotePool<PadiSession, …>`) still needs
@@ -105,9 +106,9 @@ export function padiFailureOf(
  *  silent one buried inside this alias. */
 export type PadiSession<Prov extends string = SshProv> = Omit<
   DaemonSession<PadiSurfaceClient, PadiConvergence>,
-  "onState"
+  "onState" | "currentState"
 > &
-  Pick<Session<PadiSurfaceClient, Prov>, "onState"> & {
+  Pick<Session<PadiSurfaceClient, Prov>, "onState" | "currentState"> & {
     /** The D1+D2 domain-cause detail for the map's `EntryStatus` (see
      *  {@link PadiEntryFailedDetail}) — kolu-server's OWN extra member (not part of
      *  the generic `@kolu/surface-remote` `DaemonSession` role, which knows nothing

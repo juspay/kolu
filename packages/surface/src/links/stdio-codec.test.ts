@@ -50,25 +50,31 @@ describe("isBenignWriteError", () => {
 });
 
 describe("framedSend", () => {
-  it("resolves when the write dies with EPIPE — the #32 teardown race", async () => {
+  it("resolves AND notifies onPeerGone when the write dies with EPIPE — the #32 teardown race", async () => {
+    let peerGone = 0;
     await expect(
-      framedSend(failingWrite("EPIPE"), "hello"),
+      framedSend(failingWrite("EPIPE"), "hello", () => peerGone++),
     ).resolves.toBeUndefined();
+    expect(peerGone).toBe(1);
   });
 
-  it("resolves when the write dies with ERR_STREAM_DESTROYED", async () => {
+  it("resolves AND notifies onPeerGone when the write dies with ERR_STREAM_DESTROYED", async () => {
+    let peerGone = 0;
     await expect(
-      framedSend(failingWrite("ERR_STREAM_DESTROYED"), "bye"),
+      framedSend(failingWrite("ERR_STREAM_DESTROYED"), "bye", () => peerGone++),
     ).resolves.toBeUndefined();
+    expect(peerGone).toBe(1);
   });
 
-  it("still rejects a non-benign write error (it's a real failure)", async () => {
-    await expect(framedSend(failingWrite("ENOSPC"), "x")).rejects.toThrow(
-      /ENOSPC/,
-    );
+  it("still rejects a non-benign write error (it's a real failure) — no peer-gone notification", async () => {
+    let peerGone = 0;
+    await expect(
+      framedSend(failingWrite("ENOSPC"), "x", () => peerGone++),
+    ).rejects.toThrow(/ENOSPC/);
+    expect(peerGone).toBe(0);
   });
 
-  it("resolves normally on a healthy write", async () => {
+  it("resolves normally on a healthy write — no peer-gone notification", async () => {
     const written: string[] = [];
     const ok = new Writable({
       write(chunk, _enc, cb) {
@@ -76,8 +82,12 @@ describe("framedSend", () => {
         cb();
       },
     });
-    await expect(framedSend(ok, "payload")).resolves.toBeUndefined();
+    let peerGone = 0;
+    await expect(
+      framedSend(ok, "payload", () => peerGone++),
+    ).resolves.toBeUndefined();
     // The frame went out as one base64 line + newline (framing unchanged).
     expect(written.join("")).toMatch(/\n$/);
+    expect(peerGone).toBe(0);
   });
 });

@@ -71,7 +71,6 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import { captureLatest } from "./pollCadence.ts";
 import {
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -92,6 +91,7 @@ import {
   claimLocalSupervisor,
   supervisorConflictError,
 } from "./padi/supervisorClaim.ts";
+import { padiMemoryReadable } from "./padiMemoryGate.ts";
 import { implementKoluSurface } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
@@ -571,26 +571,29 @@ const PADI_MEMORY_READ_ERROR: PadiProcessMemory = {
 // (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
 // padi process now, so padi (not kolu-server) is the source of that pair; the
 // `processMemory` poll cell folds it in below.
-// The bound padi's liveness, captured SYNCHRONOUSLY at each `onState` (via `captureLatest`)
-// — the gate the memory poll read consults, NOT a live `padiSession.currentClient()` read.
-// The derived `processMemory` cell's read is DEFERRED a microtask by the reactor, and a
-// reconnect assigns `clientPromise = attempt()` in the SAME synchronous frame that fired
-// `onState("connecting")` (see `captureLatest`'s doc + `surface-remote/session.ts`), so a
-// live `currentClient()` at the deferred moment would read the primed mirror's stale RSS
-// during `connecting`. The snapshot fixes the read's liveness to the state-change instant,
-// byte-identical to the retired synchronous `startMemorySampler`.
-const padiIsLive = captureLatest(
-  padiSession.onState,
-  () => padiSession.currentClient() !== null,
-);
-
 async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
-  // No live client at the last state change → honest `absent` (the gate, not the held
-  // store, decides down-ness). M2 (a standing skew nulls the client) and the onState
-  // flip-to-absent both ride this snapshot exactly as the old synchronous read did off the
-  // live accessor; a fresh rebind still has the bounded stale-read window until the mirror
-  // re-folds (see above, Ledger L14).
-  if (!padiIsLive()) return null;
+  // LIVENESS GATE — read padi's HONEST published phase, not `currentClient()`. The
+  // reactor defers this poll read a microtask; `padiSession.currentState()` returns the
+  // freshest connection frame (the same value `onState` publishes), so the deferred read
+  // sees the true phase at the read instant. Only `connected` means the mirror holds a
+  // live reading; every up-but-not-connected phase (connecting/probing/…) and every down
+  // phase (disconnected/failed) folds to the honest `absent` (`null`), the gate — not the
+  // held store — deciding down-ness.
+  //
+  // This TIGHTENS the old `currentClient() !== null` gate, which meant "dialing-OR-
+  // connected": it read truthy through `connecting` AND — because `scheduleReconnect`
+  // retains the rejected `clientPromise` across the backoff wait — through entire
+  // reconnect backoff windows, republishing the mirror's held stale RSS the whole time.
+  // Reading the phase closes that: liveness is now `phase === "connected"`, which is app
+  // POLICY (`padiMemoryReadable`: "a live reading exists only when connected AND not
+  // destroyed"), named as such — no accessor pointer stands in for it. A fresh rebind still
+  // has one bounded fold cycle where the mirror hasn't re-folded the newest reading yet
+  // (Ledger L14, orthogonal to the gate).
+  //
+  // The whole gate — the phase-tightening AND the `isDestroyed()` fold (the frame can't
+  // carry destroyed-ness; see `padiMemoryReadable`'s module doc) — is the named leaf now, so
+  // the mirror read below can't run against a destroyed re-serve.
+  if (!padiMemoryReadable(padiSession)) return null;
   const ctl = new AbortController();
   try {
     // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
