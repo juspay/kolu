@@ -1,5 +1,5 @@
 import GithubSlugger from "github-slugger";
-import { toString as mdastToString } from "mdast-util-to-string";
+import { toString } from "mdast-util-to-string";
 import type { Nodes, Root } from "mdast";
 import type {
   MdxJsxAttribute,
@@ -64,7 +64,7 @@ const headingStats = (tree: Root): ChangelogStat[] => {
 
   for (const node of tree.children) {
     if (node.type === "heading" && node.depth === 3) {
-      const label = mdastToString(node).trim();
+      const label = toString(node).trim();
       active = { label, key: slugger.slug(label), count: 0 };
       stats.push(active);
     } else if (node.type === "list" && active) {
@@ -89,7 +89,7 @@ export function remarkChangelog() {
     const headingSlugger = new GithubSlugger();
     const prefix = changelogReleaseKey(version);
     visit(tree, "heading", (node) => {
-      const id = `${prefix}-${headingSlugger.slug(mdastToString(node))}`;
+      const id = `${prefix}-${headingSlugger.slug(toString(node))}`;
       node.data ??= {};
       node.data.hProperties = { ...node.data.hProperties, id };
     });
