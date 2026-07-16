@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-16T15:16:07.797598+00:00'
+generated_at: '2026-07-16T15:47:25.491491+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agents
@@ -1269,7 +1269,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:28d3fc9f9fa570ed556004333f512ee3e429c3d54d683210639deb7ad2c2871a
+  content_hash: sha256:9d5707fe8b0d6dfd7b7ee0ad5de9f9207dad94e4e7555753f68fcd4f1f118743
 - kind: project-relative
   target: claude
   value: .claude/skills/architecture-first-principles
@@ -2237,7 +2237,7 @@ local_deployed_file_hashes:
   .claude/rules/surface-reference.md: sha256:0aa3ed458596b2482dea3c6218241755dae429d70b65f89a4d85f1677e21ecbe
   .claude/rules/surface.md: sha256:6d2e97b254d03b09dca64f058a02a97ba56c00c251c4792fd2dbe3378fc0b122
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/rules/website-docs.md: sha256:28d3fc9f9fa570ed556004333f512ee3e429c3d54d683210639deb7ad2c2871a
+  .claude/rules/website-docs.md: sha256:9d5707fe8b0d6dfd7b7ee0ad5de9f9207dad94e4e7555753f68fcd4f1f118743
   .claude/skills/atlas/SKILL.md: sha256:6ba8ba4a147b450cbf8b51ea5d71999f9592bd40279fd005b2c982bab3296689
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/dev-server/SKILL.md: sha256:f1a8947e78b4c42744a1d49be9f607ed67a2d403e0bb673159fd18599461992a
