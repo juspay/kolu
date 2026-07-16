@@ -103,13 +103,23 @@ import { resolveTlsOptions } from "./tls.ts";
 // result.
 export type { KoluBootFlags } from "./bootFlags.ts";
 
+/** "Runs once per process" was mechanical while this was a top-level script
+ *  (the module cache); the function form re-enforces it here — a second call
+ *  would double-register the process-global signal/fatal handlers and
+ *  double-boot, so it crashes loudly instead. */
+let booted = false;
+
 /** Boot the kolu web server — everything that used to be this module's
  *  top-level script, parameterized on the parsed flags. `packages/server`
  *  stopped being the bin at kolu-cli PR1: the `kolu` binary lives in
  *  `packages/kolu-cli`, whose `web` arm calls this. The returned promise
  *  resolves once the boot sequence has run; the server's live handles keep
- *  the process up, exactly as the script form did. */
+ *  the process up, exactly as the script form did. Call-at-most-once (see
+ *  `booted` above). */
 export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
+  if (booted) throw new Error("bootKoluWeb called twice in one process");
+  booted = true;
+
   const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
   // CSWSH defense: extra browser origins (beyond same-origin) allowed to reach
