@@ -1,0 +1,166 @@
+---
+title: kolu-tui — the padiSurface canvas in a terminal
+description: A tmux-like TUI canvas plus an agent-facing MCP, both pure padiSurface clients over socket/ssh with no kolu-server — the graduation proof that padi serves a second frontend.
+parents: [padi, feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-16
+---
+
+import Svg from "../../components/Svg.astro";
+import Terminal from "../../components/Terminal.astro";
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import arch from "../../diagrams/kolu-tui-arch.svg?raw";
+
+kolu-tui is the **second frontend** — the app that proves `padiSurface` serves
+someone other than kolu-server. It is *not* a scripting CLI: `padi-tui` and
+`kaval-tui` keep their verbs as their daemons' scripting faces.<Footnote>The
+subsume-the-CLIs option was considered and rejected at ratification: verb
+parity would drag a kaval dependency into kolu-tui and blur the proof. Agents
+that want verbs get them through the MCP face below — derived from
+`padiSurface`, not reimplemented.</Footnote> Ratified scope: **canvas + attach
++ create/kill, single host, plus an MCP face** (srid, 2026-07-16).
+
+## User-facing description
+
+One binary, two faces.
+
+**The canvas (humans).** `kolu-tui` connects to the local padi socket —
+`kolu-tui --host user@zest` pipes over ssh — and renders that host's live
+canvas: one tile per terminal, title, agent badge, urgency mark. The same
+arrangement the browser shows for this host, in a terminal.
+
+<Terminal
+  title="kolu-tui — zest"
+  lines={[
+    "┌─ RT-fable-main ● ─────────┐ ┌─ flake-5x ✳ ──────────────┐",
+    "│ ❯ kaval-tui list          │ │ · Baking… (14m 27s)       │",
+    "│ ec5f7bae  ⠂ RT-fable-main │ │   695 passed, 0 failed    │",
+    "└───────────────────────────┘ └───────────────────────────┘",
+    "┌─ sr11-policy ─────────────┐ ┌─ (empty — c to create) ───┐",
+    "│ ❯                         │ │                           │",
+    "└───────────────────────────┘ └───────────────────────────┘",
+    "# focus: hjkl/arrows · Enter attach · c create · x kill · q quit",
+  ]}
+/>
+
+- **Focus** moves with `hjkl`/arrows; the focused tile shows a live screen
+  preview (the `screen` collection), not a frozen snapshot.
+- **Enter attaches**: full-screen raw passthrough to that terminal — keystrokes
+  in, bytes out, exactly the `kaval-tui attach` UX (same detach chord, same
+  resize-then-attach discipline) but riding `padiSurface`'s `terminalAttach`
+  stream. Detach returns to the canvas.
+- **`c` creates** a terminal (prompted command, default shell); **`x` kills**
+  the focused one, with a confirm. Both are `padiSurface` procedure calls — the
+  same intents the browser sends.
+- Urgency (`awaiting` badge) reorders nothing and blinks nothing; it renders
+  the daemon's own `urgency` cell, so a padi-side change appears without a
+  kolu-tui release.
+
+**The MCP face (agents).** `kolu-tui mcp [--host …]` serves the *same
+connected surface* to a coding agent over stdio via
+`serveSurfaceAsMcp` (`@kolu/surface-mcp`): cells and collections
+(`terminals`, `screen`, `activity`, `urgency`) become subscribable resources;
+`create`/`kill`/`send`-class procedures become tools, **default-deny** — the
+expose map names every tool, `mutates` flagged.<Footnote>This is how "agents
+can drive padi/kaval verbs through kolu-tui" lands without kolu-tui growing a
+verb CLI: the verbs are `padiSurface`'s own procedures, re-exposed by the
+existing adapter. Nothing is reimplemented; `padi-tui`/`kaval-tui` remain the
+human scripting faces.</Footnote>
+
+**Out of scope, deliberately:** multi-host (the host map is kolu-server's job;
+a later phase may dial N padis if demand shows), provisioning (kolu-tui dials
+a padi that already runs — if none listens it fails fast with the socket/ssh
+error, never a silent retry loop), and any `padi-tui`/`kaval-tui` verb.
+
+## Architecture-level changes
+
+<Svg svg={arch} caption="kolu-tui: two faces over one surfaceClient, two transports, zero kolu-server. kaval stays behind padi." />
+
+- **A pure `padiSurface` client.** The load-bearing grounding: `terminalAttach`
+  is a `padiSurface` collection — terminal byte streams ride the surface
+  itself. So kolu-tui needs **no kaval import and no kolu app import**; its
+  dependencies are `@kolu/surface` (client), `@kolu/surface-mcp`, and
+  `@kolu/padi`'s surface *definition* (the contract module kolu-server already
+  imports). This keeps padi's restart hash clean of app churn — the arrow rule
+  `padi.mdx` records ("kolu-tui exists to prove padi needs no kolu") is
+  honored by construction.
+- **The graduation criterion, owned here** (moved from `padi.mdx`, which now
+  links): the unit of done is **the named path** — `padiSurface` consumed
+  through `surfaceClient`, *including the `terminalAttach` `{seq}` stream*,
+  over **both** transports (unix socket and ssh stdio), rendering a live
+  canvas. A feature built any other way (raw mirror iteration, a value-bearing
+  cell read) satisfies the words and proves nothing — the pin below can only
+  go green through the real path.
+- **Boundary verdict, conditioned on the build** (the loop, not a waterfall):
+  kolu-tui is a **leaf app package** (`packages/kolu-tui`), not electricity —
+  *because* the renderer is raw ANSI with no engine dependency (decision
+  below) and every hard volatility it touches (transport, reconnect, stream
+  retry, MCP lifecycle) already lives in its receptacle (`@kolu/surface`,
+  `@kolu/surface-mcp`). If the renderer choice ever escalates to an engine
+  owning alternate-screen/context-loss recovery, that engine wrapper — not
+  kolu-tui — would be the extraction candidate.
+- **Transport = the sibling CLIs' pattern, not `@kolu/surface-remote`.** ssh
+  is a dumb stdio pipe to the remote surface endpoint, the `hostConnect.ts`
+  shape `padi-tui`/`kaval-tui` already ship. `surface-remote` (provision,
+  realise, reconnect supervision) is kolu-server's dial and stays out — no
+  provisioning is the *point* of the fail-fast rule above.
+- **One `surfaceClient`, `STREAM_RETRY` mounted.** The flaky-tracker's #1827
+  lesson binds: a raw client without the retry plugin flakes on
+  attach-vs-reconnect races that production consumers survive. kolu-tui mounts
+  the same plugin production mounts — both faces share the one client, so the
+  MCP face inherits it.
+
+## Implementation details
+
+One PR.<Footnote>No real sequencing constraint splits this: the MCP face is a
+thin `serveSurfaceAsMcp` call over the client the canvas already needs, and
+the pin needs create/attach/kill anyway. Splitting would be staging for
+appearance.</Footnote> Steps, in build order:
+
+1. **Scaffold `packages/kolu-tui`** on the sibling pattern (`cleye` arg
+   parsing, `bin.ts`, nix packaging in-closure like `padi-tui`). Subcommands:
+   default (canvas), `mcp`.
+2. **Connect**: local socket resolution copied from `padi-tui/connect.ts`'s
+   discipline; `--host` via the `hostConnect.ts` ssh-stdio shape. Build the
+   one `surfaceClient` with `STREAM_RETRY`.
+3. **Canvas model**: subscribe `terminals` + `urgency` + `status`; derive the
+   tile grid purely from the collection (no local arrangement state — the
+   arrangement lives on the host, same as the browser).
+4. **Renderer**: raw ANSI to the alternate screen, `kaval-tui/render.ts`
+   idiom — **no OpenTUI, no Bun** (the `pulam-tui` shed-the-engine precedent
+   is the binding decision; a TUI engine is the one dependency that could
+   flip the boundary verdict above).
+5. **Attach loop**: full-screen passthrough pumping stdin → send intent and
+   `terminalAttach` `{seq}` frames → stdout; resize-then-attach, detach chord,
+   and exit-stream discrimination lifted from `kaval-tui/attach.ts` +
+   `escape.ts` (the tty-less test harness pattern comes with them).
+6. **create/kill** as canvas gestures calling the surface procedures; confirm
+   on kill.
+7. **`mcp` subcommand**: `serveSurfaceAsMcp({ surface, client, expose })` with
+   an explicit default-deny expose map (resources: `terminals`, `screen`,
+   `activity`, `urgency`; tools: create/kill/send, `mutates: true`).
+8. **The pin (e2e, red-if-broken)**: spawn a real padi, run kolu-tui against
+   it over the unix socket **and** over `ssh localhost` — script: create a
+   terminal through the canvas gesture, attach, assert bytes round-trip
+   through the `{seq}` stream, kill, assert the tile leaves the canvas. This
+   test is the graduation proof; it cannot pass through any path but the
+   named one.
+
+**Risks, named with mitigations:**
+
+- *Attach passthrough vs canvas rendering fight over the tty* → strict modal
+  split: canvas owns the alternate screen; attach tears it down before raw
+  mode and restores after detach (the `kaval-tui` snapshot-reciprocal reset
+  already encodes the discipline — reuse, don't rewrite).
+- *`{seq}` gaps under reconnect* → `STREAM_RETRY` from day one (step 2), and
+  the pin's ssh leg kills the pipe mid-attach once to assert the re-subscribe
+  path (that's the #1827 class, pinned at the consumer this time).
+- *MCP stdio discipline vs canvas stdout* → the two faces never share a
+  process mode: `mcp` is its own subcommand, no canvas rendering; stdout is
+  the protocol channel (`@kolu/surface-mcp` owns the discipline).
+- *padi.mdx drift* → same PR edits `padi.mdx`'s future-work items to link
+  here (the criterion moves, one owner), and the §207 wait-helper upstream
+  item becomes actionable once this ships — recorded there as the follow-up,
+  gated on this PR merging, not part of it.
