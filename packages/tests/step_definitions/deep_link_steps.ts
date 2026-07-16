@@ -101,3 +101,19 @@ Then(
     );
   },
 );
+
+/** Browser-history traversal — the mouse-back/forward gesture. Driven via
+ *  `history.back()/forward()` (a same-document hash traversal; `hashchange`
+ *  fires exactly as for the real buttons), with a settle beat for the router's
+ *  reaction (or deliberate non-reaction) to land. */
+When("I go back in browser history", async function (this: KoluWorld) {
+  await this.page.evaluate(() => history.back());
+  await this.page.waitForTimeout(500);
+  await this.waitForFrame();
+});
+
+When("I go forward in browser history", async function (this: KoluWorld) {
+  await this.page.evaluate(() => history.forward());
+  await this.page.waitForTimeout(500);
+  await this.waitForFrame();
+});

@@ -187,6 +187,15 @@ export function useDeepLinks(): void {
         )
         .exhaustive();
     });
+    // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's command
+    // handled, so a later back/forward traversal RESTORING it does not
+    // re-route (the `hashchange` gate below) — mouse-back must revert the URL
+    // silently, never teleport the view to an old link (DL3). Uniform for
+    // every verdict incl. `invalid` (traversing onto a bad-link entry must not
+    // re-toast) and `none` (harmless). A same-URL `replaceState` — the hash
+    // stays in the bar (durability), no entry is added, and a RELOAD still
+    // re-routes because the boot parse never reads this gate.
+    history.replaceState({ koluRouted: true }, "");
   }
 
   /** Resolve a route's target record AND the tile that OWNS its right panel —
@@ -375,7 +384,20 @@ export function useDeepLinks(): void {
 
   // (b) live in-app navigation — a `#/…` link clicked while kolu is open. The
   // hash is left in place after a handled route (durability); we never strip it.
-  makeEventListener(window, "hashchange", () =>
-    navigate(parseDeepLink(window.location.hash)),
-  );
+  //
+  // THE TRAVERSAL GATE (DL3): `hashchange` also fires when the browser RESTORES
+  // an old hash during a back/forward traversal — and routing that replay is
+  // the "mouse-back teleports to a previous link's terminal" bug (reproduced on
+  // the deployed build: every hash-bearing entry was a live teleport). A
+  // traversal lands on an entry whose command `navigate` already consumed — its
+  // state carries `koluRouted` — so skip it: the URL reverts silently and the
+  // view stays put. A FRESH navigation (a typed hash, an in-page `#/…` anchor,
+  // a script push) creates a NEW entry with null state and routes exactly as
+  // before. Entries from before this fix self-heal: their first traversal
+  // routes once (unstamped) and `navigate` stamps them.
+  makeEventListener(window, "hashchange", () => {
+    const state = history.state as { koluRouted?: boolean } | null;
+    if (state?.koluRouted === true) return;
+    navigate(parseDeepLink(window.location.hash));
+  });
 }
