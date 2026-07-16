@@ -89,15 +89,19 @@ unix socket). The transports differ only in the holds:</p>
 </tr>
 </tbody>
 </table>
-<p>The recorded follow-up is therefore <strong>one tenure harness in
-<code>@kolu/surface-daemon</code></strong> — assemblies declare their holds; the harness owns
-the chain (<em>stop accepting → end established peers → dispose → exit</em>) and the
-<code>process.exit</code> — rather than per-transport patches. Prove-then-extract
-sequencing: STDIO1 is the first instance (population one, shipping as-is);
-<strong><code>daemonMain</code> adoption is the second consumer that earns the extraction</strong>;
-<code>serveOverUnixSocket</code>’s missing teardown chain rides the harness instead of
-a bespoke patch. Naming this is a recorded opportunity, not a blocker — the
-gate is the second consumer arriving.</p>
+<p>The follow-up this recommends: <strong>one shared piece of machinery in
+<code>@kolu/surface-daemon</code></strong> where a daemon declares what holds it alive, and the
+framework runs the whole shutdown sequence (<em>stop accepting → disconnect
+remaining clients → release resources → exit the process</em>) when the last hold
+releases. But not yet — the house rule says don’t build shared machinery
+until two real things need it. So, in order: <strong>(1)</strong> the stdio-agent fix
+(#1858) ships now as a direct fix, no new abstraction. <strong>(2)</strong> When we fix
+the same “returns done-as-a-value instead of exiting” problem in the daemon
+binaries (<code>daemonMain</code>), that’s the second place needing identical logic —
+THAT is when the shared machinery gets built, extracted from the two working
+fixes. <strong>(3)</strong> The unix-socket gap (closing a daemon doesn’t disconnect
+already-connected clients) then gets fixed <em>using</em> that machinery instead of
+as a third one-off.</p>
 <h2 id="what-this-buys">What this buys</h2>
 <p>The census turns future lifetime questions from archaeology into lookup: a
 new consumer (kolu-cli’s faces, a fourth stdio agent) can be checked against
