@@ -34,6 +34,12 @@ const MODEL = 'opus'
 // would spend more than the debate turns it deletes on small diffs; Haiku
 // false-pairs. Not an input — a binding, like MODEL.
 const MATCH_MODEL = 'sonnet'
+// The mechanical tier. The lenses' reviews + objection checks + the per-thread
+// debate + applying an agreed fix all do real reasoning → `model` (Opus,
+// load-bearing for the lenses). The merge-base resolver and the hunk extractor
+// are mechanical git/text work → this tier. Not an input — a binding, like
+// MODEL.
+const MECH_MODEL = 'haiku'
 
 // ---------------------------------------------------------------------------
 // Inputs (passed via the Workflow tool's `args`)
@@ -59,9 +65,15 @@ let base = a.base || 'origin/master'
 // runs until consensus; this just keeps a pathologically oscillating thread from
 // running unbounded. Hitting it is reported as `unresolved` (needs human), never
 // `deadlock`, and should essentially never happen between two good-faith lenses.
-// Raise freely. (The escalation valve is separate and softer: a thread passing 3
-// rounds keeps debating but is surfaced in `escalations` — see runThread.)
+// Raise freely. (The escalation valve is separate and softer: a thread passing
+// ESCALATE_AFTER_ROUNDS rounds keeps debating but is surfaced in `escalations`
+// — see runThread.)
 const maxRounds = a.maxRounds || 12
+// The escalation-valve threshold: past this many rounds a disagreement is
+// usually about values or scope, not evidence (SKILL.md), so the thread is
+// surfaced in `escalations` for a warmer venue while it keeps debating. Not an
+// input — a binding, like MODEL.
+const ESCALATE_AFTER_ROUNDS = 3
 // Apply agreed `fix` findings as individual commits (default on). `--no-commit`
 // still applies the edits to the working tree, it just leaves them uncommitted.
 // No-op when `apply` is false — the apply:false path returns plans in `fixes`
@@ -82,12 +94,6 @@ const rationale = (a.rationale || '').trim()
 // Model every lens/agent runs on; defaults to MODEL (see top of file). Overridable
 // via args to mirror the file's input pattern and to make a model bump a one-liner.
 const model = a.model || MODEL
-// Mechanical tier (Haiku). The lenses' reviews + objection checks + the
-// per-thread debate + applying an agreed fix all do real reasoning → `model`
-// (Opus, load-bearing for the lenses). The merge-base resolver and the hunk
-// extractor are mechanical git/text work → `mechModel`.
-// Defaults match a direct invocation; /be-review passes it.
-const mechModel = a.mechModel || 'haiku'
 // Per-worktree scratch for commit-message files; gitignored so it never shows up
 // in the diff the lenses review, and parallel debates in different worktrees
 // never collide. Only the commit-message files land here.
@@ -118,8 +124,16 @@ const EMPTY_RESULT = { settled: [], unresolved: [], applied: [], applyGaps: [], 
 // Per-stage agent-call counts, returned as `turns` — the benchmarkable measure
 // of how much work a run spent (the old engine's cost was 2 × rounds full-diff
 // debate turns; the point of the reconcile/thread shape is to shrink exactly
-// this). Incremented at each agent() call site.
+// this). Incremented by the `call` wrapper below, which every agent invocation
+// goes through.
 const turns = { mech: 0, review: 0, match: 0, objection: 0, debate: 0, apply: 0 }
+// EVERY agent invocation goes through this wrapper so the per-stage count is
+// paid at the only place a call can be made — an uncounted agent call is
+// unwritable, not merely forbidden by convention.
+const call = (kind, prompt, opts) => {
+  turns[kind]++
+  return agent(prompt, opts)
+}
 
 // Resolve the diff base to the merge-base of (base, HEAD) BEFORE building DIFF
 // (which interpolates `base` eagerly), so the lenses review only what this branch
@@ -127,10 +141,10 @@ const turns = { mech: 0, review: 0, match: 0, objection: 0, debate: 0, apply: 0 
 // agent (the workflow can't run git itself); grouped under the Review phase.
 // Idempotent when `base` is already a merge-base SHA (caller resolved it).
 const rawBase = base
-turns.mech++
-const baseRes = await agent(
+const baseRes = await call(
+  'mech',
   `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
-  { label: 'resolve:merge-base', phase: 'Review', model: mechModel, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
+  { label: 'resolve:merge-base', phase: 'Review', model: MECH_MODEL, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
 )
 // Fail loud on a bad base. Falling back to the raw `${base}` tip would make the
 // lenses review the base branch's drift since the fork as if this change made it —
@@ -370,9 +384,12 @@ ${blocks}
 Return one \`checks\` entry per finding id.`
 }
 
+// The finding-as-prompt core is findingLine's — this only appends the thread
+// extras: the ≡-pair note, the pair mate's framing, and the extracted hunks.
 function contestedLine(item) {
-  const pairNote = item.pairId ? ` (≡ ${item.pairId} — both lenses raised this issue independently)` : ''
-  return `### ${item.id}${pairNote} — ${item.f.title}\n  at ${item.f.location}; raised by ${item.f.origin} as ${item.f.disposition} (severity: ${item.f.severity})\n  problem: ${item.f.problem}\n  suggestion: ${item.f.suggestion}${item.pairF ? `\n  ${item.pairF.origin}'s framing — ${item.pairF.title}: ${item.pairF.problem}\n  ${item.pairF.origin}'s suggestion: ${item.pairF.suggestion}` : ''}\n\nRelevant hunks:\n\`\`\`\n${item.excerpt}\n\`\`\``
+  const pairNote = item.pairId ? `\n  (≡ ${item.pairId} — both lenses raised this issue independently)` : ''
+  const pairFraming = item.pairF ? `\n  ${item.pairF.origin}'s framing — ${item.pairF.title}: ${item.pairF.problem}\n  ${item.pairF.origin}'s suggestion: ${item.pairF.suggestion}` : ''
+  return `${findingLine({ ...item.f, id: item.id })}${pairNote}${pairFraming}\n\nRelevant hunks:\n\`\`\`\n${item.excerpt}\n\`\`\``
 }
 
 function threadTurnBrief(lens, opp, file, activeItems, oppPos, settledList, roundNum) {
@@ -434,6 +451,9 @@ Return one \`applied\` entry per fix (same order): its id, a one-line summary, t
 // Helpers
 // ---------------------------------------------------------------------------
 const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.id, p]))
+// A finding's suggestion becomes its plan iff its disposition is fix — the one
+// projection every settle/opener site uses to turn a finding into a plan.
+const planOf = (f) => (f.disposition === 'fix' ? f.suggestion : undefined)
 // The file a finding anchors to — the grouping key for threads and for the
 // real-only rule. Region = file: deterministic, and matches how reviewers cite
 // locations ("file:line"). A vaguer location ("multiple files") groups under its
@@ -495,10 +515,10 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     const nonDup = settledOut.filter((s) => !s.duplicateOf)
     const viaCount = (via) => nonDup.filter((s) => s.agreed && s.via === via).length
     const parts = []
-    const reconciled = viaCount('reconciled')
-    const autoMinor = viaCount('auto-minor')
-    const unopposed = viaCount('no-objection') + viaCount('objection-agreed')
-    const debated = viaCount('debated')
+    const reconciled = viaCount(VIA.reconciled)
+    const autoMinor = viaCount(VIA.autoMinor)
+    const unopposed = viaCount(VIA.noObjection) + viaCount(VIA.objectionAgreed)
+    const debated = viaCount(VIA.debated)
     if (reconciled) parts.push(`${reconciled} reconciled (raised by both lenses)`)
     if (autoMinor) parts.push(`${autoMinor} auto-settled minor`)
     if (unopposed) parts.push(`${unopposed} unopposed`)
@@ -515,7 +535,7 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     const cleanlyApplied = outcome.items.filter((a) => !gapIds.has(a.id))
     if (cleanlyApplied.length) {
       lines.push('', `### Applied (${cleanlyApplied.length})`)
-      cleanlyApplied.forEach((a) => lines.push(`- \`${a.id}\`${a.pairedWith ? ` ≡ \`${a.pairedWith}\`` : ''} ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+      cleanlyApplied.forEach((a) => lines.push(`- \`${a.id}\`${pairTag(a)} ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
     }
     if (applyGaps.length) {
       lines.push('', `### Apply incomplete — needs reconcile (${applyGaps.length})`)
@@ -539,7 +559,7 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     drops.forEach((d) => lines.push(`- \`${d.id}\`${pairTag(d)} ${d.title} (${d.location})`))
   }
   if (escalations.length) {
-    lines.push('', `### Escalated threads — ran past 3 rounds (${escalations.length})`)
+    lines.push('', `### Escalated threads — ran past ${ESCALATE_AFTER_ROUNDS} rounds (${escalations.length})`)
     escalations.forEach((e) => lines.push(`- \`${e.file}\` (${e.findingIds.map((i) => `\`${i}\``).join(', ')}) — ${e.rounds} rounds, ${e.resolved ? 'self-resolved' : 'UNRESOLVED'}`))
   }
   if (unresolved.length) {
@@ -572,8 +592,7 @@ phase('Review')
 
 const reviews = await parallel(
   REVIEWERS.map((r) => () => {
-    turns.review++
-    return agent(reviewBrief(r.lens, r.framework, r.probe), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA })
+    return call('review', reviewBrief(r.lens, r.framework, r.probe), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA })
   }),
 )
 
@@ -582,7 +601,7 @@ const combined = []
 REVIEWERS.forEach((r, idx) => {
   const findings = reviews[idx]?.findings ?? []
   reviewByLens[r.lens] = findings
-  findings.forEach((f, i) => combined.push({ id: `${r.lens}-${i + 1}`, origin: r.lens, severity: f.severity || 'major', ...f }))
+  findings.forEach((f, i) => combined.push({ ...f, id: `${r.lens}-${i + 1}`, origin: r.lens, severity: f.severity || 'major' }))
 })
 log(`Independent findings: ${REVIEWERS.map((r) => `${r.lens}=${reviewByLens[r.lens].length}`).join(', ')}`)
 
@@ -613,13 +632,23 @@ if (combined.length === 0) {
 phase('Reconcile')
 
 const byId = Object.fromEntries(combined.map((f) => [f.id, f]))
+// The settle-path vocabulary (how a finding settled) — one socket for the `via`
+// axis, referenced at every settle site and in renderComment's audit counts, so
+// adding or renaming a path is a single edit and a typo can't silently miscount.
+const VIA = Object.freeze({ reconciled: 'reconciled', autoMinor: 'auto-minor', noObjection: 'no-objection', objectionAgreed: 'objection-agreed', debated: 'debated' })
 const settled = {} // id -> { disposition, plan, via, lowy?, hickey?, duplicateOf? }
-const pairOf = {} // secondary (hickey) id -> primary (lowy) id, for matched pairs
-const mateOf = {} // both directions of a matched pair, for rendering
 const contested = [] // [{ id, findingIds, f, pairF?, pairId?, openLowy?, openHickey?, excerpt }]
 
 const settleAsRaised = (f, via) => {
-  settled[f.id] = { disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, via }
+  settled[f.id] = { disposition: f.disposition, plan: planOf(f), via }
+}
+// Settle a matched pair as ONE issue: the primary record carries the plan, the
+// secondary is a plan-less duplicate pointing back at it — the shape that keeps
+// `settled` total over `combined` while fixes/unresolved dedupe. One writer, so
+// the two-record invariant can't drift between the reconcile and debate sites.
+const settlePair = (primaryId, secondaryId, disposition, plan, via, extra = {}) => {
+  settled[primaryId] = { disposition, plan, via, pairedWith: secondaryId, ...extra }
+  settled[secondaryId] = { disposition, plan: undefined, via, duplicateOf: primaryId, pairedWith: primaryId }
 }
 
 // -- 2.1 matcher: cross-lens duplicate reconciliation ------------------------
@@ -629,8 +658,7 @@ const matchedIds = new Set()
 // Skip the matcher outright when either lens raised nothing — there is nothing
 // cross-lens to match, and "at most one cheap matcher agent" includes zero.
 if (lowyFindings.length && hickeyFindings.length) {
-  turns.match++
-  const matchRes = await agent(matchBrief(lowyFindings, hickeyFindings), {
+  const matchRes = await call('match', matchBrief(lowyFindings, hickeyFindings), {
     label: 'reconcile:match',
     phase: 'Reconcile',
     model: MATCH_MODEL,
@@ -655,12 +683,12 @@ if (lowyFindings.length && hickeyFindings.length) {
     if (m.compatible === true && !compatible) log(`Matcher pair ${m.a} ≡ ${m.b} claimed compatible but ${planOk ? 'dispositions differ' : 'carries no canonical plan'} — demoted to contested.`)
     matchedIds.add(m.a)
     matchedIds.add(m.b)
-    pairOf[m.b] = m.a
-    mateOf[m.a] = m.b
-    mateOf[m.b] = m.a
+    // The pair lives on the findings themselves (one relation, no parallel
+    // indexes); the lowy side is always the primary by construction.
+    byId[m.a].pairedWith = m.b
+    byId[m.b].pairedWith = m.a
     if (compatible) {
-      settled[m.a] = { disposition: fa.disposition, plan: bothFix ? m.plan.trim() : undefined, via: 'reconciled', pairedWith: m.b }
-      settled[m.b] = { disposition: fb.disposition, plan: undefined, via: 'reconciled', duplicateOf: m.a, pairedWith: m.a }
+      settlePair(m.a, m.b, fa.disposition, bothFix ? m.plan.trim() : undefined, VIA.reconciled)
       log(`Reconciled ${m.a} ≡ ${m.b} (${fa.disposition}) — settled with zero debate turns.`)
     } else {
       // Both raised it, but they genuinely disagree (disposition or plan) —
@@ -672,8 +700,8 @@ if (lowyFindings.length && hickeyFindings.length) {
         f: fa,
         pairF: fb,
         pairId: m.b,
-        openLowy: { id: m.a, disposition: fa.disposition, plan: fa.disposition === 'fix' ? fa.suggestion : undefined, reasoning: fa.problem },
-        openHickey: { id: m.a, disposition: fb.disposition, plan: fb.disposition === 'fix' ? fb.suggestion : undefined, reasoning: fb.problem },
+        openLowy: { id: m.a, disposition: fa.disposition, plan: planOf(fa), reasoning: fa.problem },
+        openHickey: { id: m.a, disposition: fb.disposition, plan: planOf(fb), reasoning: fb.problem },
       })
       log(`Pair ${m.a} ≡ ${m.b} raised by both but ${fa.disposition === fb.disposition ? 'plans differ' : `dispositions differ (${fa.disposition}/${fb.disposition})`} — contested.`)
     }
@@ -699,7 +727,7 @@ for (const f of combined) {
   }
   const opp = otherDebater(f.origin)
   if (f.severity === 'minor' && !flaggedFiles[opp].has(fileOf(f.location))) {
-    settleAsRaised(f, 'auto-minor')
+    settleAsRaised(f, VIA.autoMinor)
     log(`Auto-settled ${f.id} (minor, ${fileOf(f.location)} untouched by ${opp}) as ${f.disposition}.`)
   } else {
     objectionQueue[opp].push(f.id)
@@ -723,8 +751,7 @@ for (const lens of DEBATERS) for (const id of objectionQueue[lens]) queueHunk(id
 
 const excerpts = {}
 if (needHunks.length) {
-  turns.mech++
-  const hunkRes = await agent(hunksBrief(needHunks), { label: 'reconcile:hunks', phase: 'Reconcile', model: mechModel, schema: HUNKS_SCHEMA })
+  const hunkRes = await call('mech', hunksBrief(needHunks), { label: 'reconcile:hunks', phase: 'Reconcile', model: MECH_MODEL, schema: HUNKS_SCHEMA })
   for (const h of hunkRes?.hunks ?? []) {
     if (seenHunkIds.has(h.id) && typeof h.excerpt === 'string' && h.excerpt.trim()) excerpts[h.id] = h.excerpt
   }
@@ -749,9 +776,8 @@ if (objectionQueue.lowy.length || objectionQueue.hickey.length) {
     DEBATERS.map((lens) => () => {
       const ids = objectionQueue[lens]
       if (!ids.length) return Promise.resolve(null)
-      turns.objection++
       const items = ids.map((id) => ({ f: byId[id], excerpt: excerpts[id] }))
-      return agent(objectionBrief(lens, otherDebater(lens), items), {
+      return call('objection', objectionBrief(lens, otherDebater(lens), items), {
         label: `objection:${lens}`,
         phase: 'Reconcile',
         model,
@@ -781,20 +807,20 @@ for (const f of combined) {
     const lMissing = !lc
     const hMissing = !hc
     if (!lObj && !hObj && !lMissing && !hMissing) {
-      settleAsRaised(f, 'no-objection')
+      settleAsRaised(f, VIA.noObjection)
       log(`Settled ${f.id} (police, neither debater objected) as ${f.disposition}.`)
     } else if (lObj && hObj && lc.disposition && lc.disposition === hc.disposition && lc.disposition !== 'fix') {
       // Both debaters object the same non-fix way — that IS lowy ⇄ hickey
       // consensus (two fix objections still debate: their plans never met).
-      settled[f.id] = { disposition: lc.disposition, plan: undefined, via: 'objection-agreed', lowy: objectionPosition(f, lc), hickey: objectionPosition(f, hc) }
+      settled[f.id] = { disposition: lc.disposition, plan: undefined, via: VIA.objectionAgreed, lowy: objectionPosition(f, lc), hickey: objectionPosition(f, hc) }
       log(`Settled ${f.id} (police, both debaters object → ${lc.disposition}).`)
     } else {
       contested.push({
         id: f.id,
         findingIds: [f.id],
         f,
-        openLowy: lObj || lMissing ? objectionPosition(f, lc) : { id: f.id, disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, reasoning: `no objection to ${f.origin}'s finding as raised` },
-        openHickey: hObj || hMissing ? objectionPosition(f, hc) : { id: f.id, disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, reasoning: `no objection to ${f.origin}'s finding as raised` },
+        openLowy: lObj || lMissing ? objectionPosition(f, lc) : { id: f.id, disposition: f.disposition, plan: planOf(f), reasoning: `no objection to ${f.origin}'s finding as raised` },
+        openHickey: hObj || hMissing ? objectionPosition(f, hc) : { id: f.id, disposition: f.disposition, plan: planOf(f), reasoning: `no objection to ${f.origin}'s finding as raised` },
       })
       log(`Contested ${f.id} (police, ${[lMissing && 'lowy check missing', lObj && 'lowy objects', hMissing && 'hickey check missing', hObj && 'hickey objects'].filter(Boolean).join(', ')}).`)
     }
@@ -803,13 +829,13 @@ for (const f of combined) {
   const opp = otherDebater(f.origin)
   const check = (opp === 'lowy' ? lowyChecks : hickeyChecks)[f.id]
   if (check && check.objects === false) {
-    settleAsRaised(f, 'no-objection')
+    settleAsRaised(f, VIA.noObjection)
     log(`Settled ${f.id} (${opp} has no objection) as ${f.disposition}.`)
   } else {
     // Objection — or a check the lens dropped from its batch, which must NOT
     // silently settle (absence of an answer is not agreement).
     if (!check) log(`Objection check for ${f.id} missing from ${opp}'s batch — contested, not settled.`)
-    const raiserPos = { id: f.id, disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, reasoning: f.problem }
+    const raiserPos = { id: f.id, disposition: f.disposition, plan: planOf(f), reasoning: f.problem }
     contested.push({
       id: f.id,
       findingIds: [f.id],
@@ -820,8 +846,12 @@ for (const f of combined) {
     if (check) log(`Contested ${f.id}: ${opp} objects (${check.disposition || 'no disposition given'}).`)
   }
 }
+// Invariant: every contested id was queueHunk'd (matcher-contested items at the
+// contested loop, everything else via the objection queues), and the extraction
+// block above fills a loud pointer for any id the extractor missed — so
+// `excerpts` is total over the contested set.
 contested.forEach((c) => {
-  c.excerpt = excerpts[c.id] || `(no hunk excerpt — Read the file(s) at ${c.f.location} under ${repoPath} yourself)`
+  c.excerpt = excerpts[c.id]
 })
 log(`Reconcile done: ${Object.keys(settled).length}/${combined.length} finding(s) settled without debate; ${contested.length} contested item(s) go to threads.`)
 
@@ -835,8 +865,9 @@ log(`Reconcile done: ${Object.keys(settled).length}/${combined.length} finding(s
 // so wall clock = the deepest single disagreement, not rounds × 2 × turn-time
 // across every finding. NO deadlock exit: a thread runs until every finding is
 // agreed (maxRounds stays the pathology backstop). The escalation valve is
-// softer than either: a thread passing 3 rounds KEEPS DEBATING but is recorded
-// in `escalations` so the caller can hand that one thread to a warmer venue.
+// softer than either: a thread passing ESCALATE_AFTER_ROUNDS rounds KEEPS
+// DEBATING but is recorded in `escalations` so the caller can hand that one
+// thread to a warmer venue.
 // ---------------------------------------------------------------------------
 const escalations = []
 const history = []
@@ -845,6 +876,12 @@ let rounds = 0
 
 async function runThread(thread) {
   const { file, items } = thread
+  // Seed the final-position map from the openers gathered at reconcile (review
+  // stances / objection positions) so a thread whose agent dies before
+  // completing a round still surfaces both lenses' ON-RECORD positions in the
+  // unresolved report, instead of disposition '?' with no reasoning. The
+  // per-round update below overwrites these with real turn positions.
+  for (const it of items) finalPos[it.id] = { lowy: it.openLowy, hickey: it.openHickey }
   let active = [...items]
   let hickeyPrev = null
   // Seed round 1 with the openers gathered at reconcile (review stances /
@@ -856,16 +893,14 @@ async function runThread(thread) {
   for (let r = 1; r <= maxRounds && active.length > 0; r++) {
     threadRounds = r
     const settledList = items.filter((it) => settled[it.id]).map((it) => ({ id: it.id, disposition: settled[it.id].disposition }))
-    turns.debate++
-    const lowyRes = await agent(threadTurnBrief('lowy', 'hickey', file, active, hickeyPrev, settledList, r), {
+    const lowyRes = await call('debate', threadTurnBrief('lowy', 'hickey', file, active, hickeyPrev, settledList, r), {
       label: `lowy:${file}:r${r}`,
       phase: 'Debate',
       model,
       schema: POSITION_SCHEMA,
     })
     const lowyPos = posMap(lowyRes)
-    turns.debate++
-    const hickeyRes = await agent(threadTurnBrief('hickey', 'lowy', file, active, lowyPos, settledList, r), {
+    const hickeyRes = await call('debate', threadTurnBrief('hickey', 'lowy', file, active, lowyPos, settledList, r), {
       label: `hickey:${file}:r${r}`,
       phase: 'Debate',
       model,
@@ -897,22 +932,26 @@ async function runThread(thread) {
       per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed })
       if (agreed) {
         // Endorsement guarantees l.plan is the converged text; no arbitrary fallback.
-        settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan : undefined, via: 'debated', lowy: l, hickey: h, pairedWith: item.pairId }
-        if (item.pairId) settled[item.pairId] = { disposition: l.disposition, plan: undefined, via: 'debated', duplicateOf: id, pairedWith: id }
+        const plan = l.disposition === 'fix' ? l.plan : undefined
+        if (item.pairId) settlePair(id, item.pairId, l.disposition, plan, VIA.debated, { lowy: l, hickey: h })
+        else settled[id] = { disposition: l.disposition, plan, via: VIA.debated, lowy: l, hickey: h }
         active = active.filter((x) => x.id !== id)
       }
     }
     history.push({ thread: file, round: r, per })
     log(`Thread ${file} round ${r}: ${per.map((p) => `${p.id} ${p.lowy}/${p.hickey}${p.agreed ? '✓' : '✗'}`).join('  ')} | ${items.length - active.length}/${items.length} settled`)
   }
-  // The escalation valve: >3 rounds is NOT ground to stop (the thread above
-  // kept debating to consensus or the backstop) — it IS ground to tell the
-  // caller, who can hand this one thread to warm /debate terminals next time.
-  if (threadRounds > 3) {
+  // The escalation valve: >ESCALATE_AFTER_ROUNDS rounds is NOT ground to stop
+  // (the thread above kept debating to consensus or the backstop) — it IS
+  // ground to tell the caller, who can hand this one thread to warm /debate
+  // terminals next time.
+  if (threadRounds > ESCALATE_AFTER_ROUNDS) {
     escalations.push({ file, findingIds: items.flatMap((it) => it.findingIds), rounds: threadRounds, resolved: active.length === 0 })
   }
   rounds = Math.max(rounds, threadRounds)
-  return { file, rounds: threadRounds, unsettled: active.map((it) => it.id) }
+  // No return value: the thread's output channel is the shared state above
+  // (settled/history/escalations/finalPos/rounds), deliberately, for
+  // crash-resilience — see the parallel() call site.
 }
 
 let status = 'consensus'
@@ -940,9 +979,11 @@ const settledOut = combined.map((f) => {
   if (s) {
     return { ...common, agreed: true, disposition: s.disposition, plan: s.plan, via: s.via, duplicateOf: s.duplicateOf, pairedWith: s.pairedWith, lowy: s.lowy, hickey: s.hickey }
   }
-  const primary = pairOf[f.id]
+  // For a paired finding the primary is always the lowy id by construction
+  // (see the matcher loop), so the hickey side dedupes under its mate.
+  const primary = f.origin === 'hickey' && f.pairedWith ? f.pairedWith : undefined
   const pos = finalPos[primary ?? f.id]
-  return { ...common, agreed: false, disposition: 'unresolved', plan: undefined, via: undefined, duplicateOf: primary, pairedWith: mateOf[f.id], lowy: pos?.lowy, hickey: pos?.hickey }
+  return { ...common, agreed: false, disposition: 'unresolved', plan: undefined, via: undefined, duplicateOf: primary, pairedWith: f.pairedWith, lowy: pos?.lowy, hickey: pos?.hickey }
 })
 // Pairs count once everywhere a human reads (unresolved list, fixes) — the
 // secondary id carries duplicateOf and is skipped.
@@ -972,8 +1013,7 @@ let applied = []
 const applyGaps = []
 if (apply && fixes.length) {
   phase('Apply')
-  turns.apply++
-  const res = await agent(applyAllBrief(fixes, commit), { label: 'apply:all', phase: 'Apply', model, schema: APPLY_SCHEMA })
+  const res = await call('apply', applyAllBrief(fixes, commit), { label: 'apply:all', phase: 'Apply', model, schema: APPLY_SCHEMA })
   const applyById = Object.fromEntries((res?.applied ?? []).map((x) => [x.id, x]))
   // Re-key off the agreed `fixes` (not the agent's array) so a fix the agent
   // dropped from its output still surfaces — as 0 files / uncommitted — instead
@@ -1031,8 +1071,8 @@ return {
   fixes,
   reviews: reviewByLens,
   history,
-  // Threads that ran past 3 rounds (kept debating — this is a valve, not an
-  // exit). The caller/coordinator can hand an escalated thread's findings to
+  // Threads that ran past ESCALATE_AFTER_ROUNDS rounds (kept debating — this
+  // is a valve, not an exit). The caller/coordinator can hand an escalated thread's findings to
   // warm /debate terminals instead of another cold engine run — see SKILL.md.
   escalations,
   // Per-stage agent-call counts — the benchmarkable cost measure.
