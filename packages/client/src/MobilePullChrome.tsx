@@ -18,11 +18,15 @@
  *  reads cleanly without a stale terminal title. */
 
 import Drawer from "@corvu/drawer";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import {
+  chromeDrawerOpen as chromeOpen,
+  setChromeDrawerOpen as setChromeOpen,
+} from "./useChromeDrawer";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
@@ -43,7 +47,9 @@ const MobilePullChrome: Component<{
   onOpenPalette: () => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const [chromeOpen, setChromeOpen] = createSignal(false);
+  // The open state is a module singleton (`useChromeDrawer`, imported aliased
+  // above) so the `#/settings` deep link can raise the drawer that hosts the
+  // settings popover on touch.
   // Every dismiss path — backdrop tap, drag-to-close (both via Corvu's
   // onOpenChange) and the in-sheet buttons (`onClose`, routed through
   // `handler(false)`) — funnels through this so the soft keyboard never lingers
