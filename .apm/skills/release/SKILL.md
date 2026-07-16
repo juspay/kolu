@@ -23,7 +23,7 @@ Do the **what** below in order; figure out the **how** yourself. Use **`AskUserQ
 - **`AskUserQuestion`** to proceed. `No` leaves the tree untouched — nothing has been written yet.
 
 ## 4. Apply the release commit
-- **Promote the changelog** — write `website/src/content/changelog/<X-Y-Z>.mdx` with `{ version, date }` frontmatter from the current `unreleased.mdx` body. **Normalize first**: `merge=union` lets concurrent PRs each add the same `### [Product Area](/docs-page)` heading, so consolidate duplicate product-area headings in first-seen order and merge their `<Change kind="…">` bullets before stamping. Never regroup by `kind`; Added / Changed / Fixed / Heads-up belong on each entry and one product area intentionally mixes them. Then reset `unreleased.mdx` to an empty open section (just the `version: Unreleased` frontmatter).
+- **Promote the changelog** — write `website/src/content/changelog/<X-Y-Z>.mdx` with `{ version, date }` frontmatter from the current `unreleased.mdx` body. **Normalize first**: `merge=union` lets concurrent PRs each add the same product-area heading (for example, `### [Core Concepts](/concepts)`), so consolidate duplicate product-area headings in first-seen order and merge their `<Change kind="…">` bullets before stamping. Never regroup by `kind`; Added / Changed / Fixed / Heads-up belong on each entry and one product area intentionally mixes them. Then reset `unreleased.mdx` to an empty open section (just the `version: Unreleased` frontmatter).
 - **Set the version** — set `packages/server/package.json` `version` to `${version}` (the single source — Nix and the runtime both read it; nothing else to bump).
 - **Commit + push** — commit (`release ${version}`) and push `master`. **Do not tag yet.**
 
