@@ -201,6 +201,24 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // is consumed by the first emit that follows; a safety disarm on the next
   // animation frame clears it if a click selects an already-selected row (no
   // emit), so no stale token survives for a later echo to consume.
+  //
+  // Known limitation: the token authorizes by interaction-*adjacency*, not
+  // selection-*causation*. It records only THAT a user touched the tree, not
+  // WHICH selection they meant. An interaction that arms the token but emits no
+  // selection of its own to consume it — a dead-space/scrollbar click, a
+  // non-selecting keydown, or (only when `search` is true) a Pierre search-box
+  // keystroke — can, during agent churn, leave the token armed for the *next
+  // autonomous echo*, which is then forwarded to the host as ONE adjacent file
+  // the user never picked. A file OR folder click is NOT such a leak: it emits
+  // its own path and self-consumes the token at the `userGesture = false` line
+  // below before the fileSet filter runs, so it can't leak into a later echo.
+  // Single-use consumption bounds the leak to a single self-correcting jump —
+  // never a loop. The causal alternative (suppress echoes around the wrapper's
+  // OWN `batch()`/`select()`/`deselect()` writes) is deferred: it must survive
+  // Pierre's deferred-microtask emit the same way this gesture window does, and
+  // there is one controlled consumer today — extract a shared provenance
+  // primitive when a second controlled bridge forces it (dovetails with the
+  // solidjs.md graduation candidate).
   let userGesture = false;
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
