@@ -141,8 +141,10 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // `.finally` waits on the returned promise) — rather than a fire-and-forget
     // `void ptyHost.close()` off an abort listener that an ALREADY-aborted input
     // signal could register too late to ever fire — makes the release ordered
-    // and unmissable. Inert today (the ptyHost surface declares no cell
-    // connectors), but the daemon owns its runtime's lifetime by construction.
+    // and unmissable. `close` disposes every live PTY (so a shutting-down daemon
+    // reaps its node-pty children instead of orphaning them to init) and then
+    // closes the surface runtime — the daemon owning its runtime's lifetime by
+    // construction.
     return ptyHost.close();
   });
 }

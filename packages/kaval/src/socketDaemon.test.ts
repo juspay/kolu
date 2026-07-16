@@ -332,22 +332,27 @@ describe("kaval daemon — process-boundary behaviour", () => {
     await reap(c);
   }, 30000);
 
-  it("graceful shutdown reaps live PTY children — no orphaned spawn-helper", async () => {
-    // A daemon that is asked to stop (SIGTERM here; in production the detached
-    // daemon self-exits the same way when its bound run pid vanishes) must reap
-    // the node-pty children it owns. node-pty `setsid`s each PTY into its own
+  it("graceful shutdown reaps a non-tty-aware PTY leader — no orphaned spawn-helper", async () => {
+    // A daemon asked to stop (SIGTERM here; in production the detached daemon
+    // self-exits the same way when its bound run pid vanishes) must reap the
+    // node-pty children it owns. node-pty `setsid`s each PTY into its own
     // session, so the daemon dying can NEVER let a process-group kill reach them
-    // — only the host disposing each entry does. Before the shutdown path was
-    // wired to dispose, a SIGTERM'd daemon left its `spawn-helper`/shell subtree
-    // reparented to init and alive, leaking across CI runs (aged orphans found
-    // on rasam) and loading the box — the darwin-under-load flake substrate.
+    // — only the host disposing each entry (SIGHUP to the leader) does. Before
+    // shutdown was wired to dispose, a SIGTERM'd daemon left the `spawn-helper`
+    // subtree reparented to init and alive, leaking across CI runs (aged orphans
+    // found on rasam) and loading the box — the darwin-under-load flake substrate.
+    //
+    // The pin is a DIRECTLY-spawned, non-tty-aware leader (a bare `sleep`): it
+    // neither reads the pty (so it can't self-exit on the master's EOF) nor
+    // watches the tty (so, unlike a SHELL leader, it can't self-reap on the
+    // master's hangup). Only the daemon's explicit dispose removes it. A leader
+    // that HAS foreground descendants is reaped whole anyway — the leader's death
+    // hangs up its foreground group (kernel), so the descendants go with it — and
+    // a real shell leader self-reaps on the hangup regardless. Both were verified
+    // on rasam: every shell-involved topology passes even WITHOUT the fix, so the
+    // honest reproduction is this non-self-reaping leader.
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
-    // A long-lived child that does NOT read the pty — so it can't self-exit on
-    // the master's EOF when the daemon dies; only an explicit reap (dispose's
-    // per-entry kill) removes it. This is the shape the real leaked children
-    // have (agents/sleeps, not pty readers). `sleep` is resolved off PATH so it
-    // works on both the linux pool and darwin.
     const { pid } = await conn.client.surface.terminal.spawn({
       argv: ["sleep", "100000"],
       cwd: makeCwd(),
@@ -359,17 +364,16 @@ describe("kaval daemon — process-boundary behaviour", () => {
 
     try {
       // Graceful stop — daemonMain's shutdown `.finally` awaits the host close,
-      // which must reap the PTY before the process exits.
+      // which must dispose (SIGHUP) the PTY leader before the process exits.
       await reap(d);
 
-      // SIGHUP delivery to the reaped child is async; poll briefly. RED before
-      // the fix: the child stays alive past the window (leaked). GREEN after: it
-      // is gone.
+      // Reaping is async; poll briefly. RED before the fix: the leader stays
+      // alive past the window (leaked). GREEN after: it is gone.
       for (let i = 0; i < 50 && isAlive(pid); i++) await sleep(100);
       expect(isAlive(pid)).toBe(false);
     } finally {
-      // Never let THIS test strand the child (e.g. on a RED assertion) — that
-      // would leak exactly the process the test is guarding against.
+      // Never let THIS test strand the leader (e.g. on a RED assertion) — that
+      // would leak exactly the process the test guards against.
       if (isAlive(pid)) {
         try {
           process.kill(pid, "SIGKILL");

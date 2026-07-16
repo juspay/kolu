@@ -406,8 +406,9 @@ export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
  *   - `router` — the same final router, for advanced in-process use;
  *   - `done` / `close` — the surface runtime's supervision handles. The
  *     ptyHost surface declares no cell connectors, so `done` is inert (nothing
- *     to fault) and `close` releases nothing today — exposed so the daemon owns
- *     shutdown by construction, not as a behavior change.
+ *     to fault); `close` disposes every live PTY and then closes the surface
+ *     runtime, so a shutting-down daemon reaps its node-pty children instead of
+ *     orphaning them — the daemon owning shutdown by construction.
  *  Call once per process; calling twice spawns two independent hosts. */
 export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   router: PtyHostRouter;
@@ -418,7 +419,8 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   terminalCount: () => number;
   /** Rejects on an owned surface fault (inert today — no cell connectors). */
   done: Promise<void>;
-  /** Release the surface runtime's owned sources. Idempotent. */
+  /** Dispose every live PTY, then release the surface runtime's owned sources.
+   *  Idempotent. This is what makes daemon shutdown reap its node-pty children. */
   close(): Promise<void>;
 } {
   const served = servePtyHost(deps);
