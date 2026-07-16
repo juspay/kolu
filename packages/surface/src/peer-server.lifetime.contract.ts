@@ -1,5 +1,5 @@
 /**
- * Contract shared by `peer-server.lifetime.fixture.ts` (the child agent) and
+ * Contract shared by `peer-server.lifetime.fixture.testlib.ts` (the child agent) and
  * `peer-server.lifetime.test.ts` (the parent). A module of its own so the
  * test never has any reason to import the fixture at all: a VALUE import
  * would run the fixture's top-level code and serve the importing process's

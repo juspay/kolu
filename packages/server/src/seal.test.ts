@@ -97,6 +97,11 @@ const WEB_SHELL_FILES = [
   // ownership; runs no terminal domain), so it lives beside the binder.
   "padi/supervisorClaim",
   // ── the serving shell + true leaves (top-level) ──
+  // The web face's boot contract — the ONE flag artifact (cleye schema +
+  // derived `KoluBootFlags`), a LEAF importing only kolu-common/config so the
+  // kolu-cli parse deep-imports it without loading index.ts's runtime graph.
+  // Web-shell code (it names how the web face boots), not terminal domain.
+  "bootFlags",
   "hostname",
   // W10 host-membership persistence — the pool (the web shell's authority for map
   // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives

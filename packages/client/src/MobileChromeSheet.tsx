@@ -17,7 +17,7 @@
  *  action so the parent can close the drawer. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import MobileHostRow from "./host/MobileHostRow";
@@ -25,6 +25,7 @@ import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
+import { setSettingsOpen, settingsOpen } from "./settings/useSettingsOpen";
 import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
@@ -41,7 +42,6 @@ const MobileChromeSheet: Component<{
   const rightPanel = useRightPanel();
   const pwa = useSurfaceApp();
   let settingsTriggerRef!: HTMLButtonElement;
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
     <div data-testid="mobile-chrome-sheet" class="flex flex-col">

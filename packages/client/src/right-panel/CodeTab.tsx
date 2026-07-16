@@ -62,6 +62,7 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
@@ -1112,6 +1113,10 @@ const CodeTab: Component<{
                           onOpenExternal={(url) =>
                             window.open(url, "_blank", "noopener,noreferrer")
                           }
+                          // A kolu deep link clicked in the preview routes the
+                          // app through the SAME pipeline a typed `#/…` URL
+                          // takes (safe: the router is view-only by law).
+                          onDeepLink={requestDeepLinkNavigation}
                         />
                       );
                     })()}

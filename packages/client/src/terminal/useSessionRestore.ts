@@ -4,6 +4,7 @@ import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
 import { resumableCommand, type TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
 import { activeScope } from "../hostScope/hostScopes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
@@ -141,10 +142,22 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // for "which terminal was active". `entries` arrives in the server's
     // Map insertion order, which is the canonical ordering.
     const topIds = entries.filter(({ m }) => !m.parentId).map(({ t }) => t.id);
+    // A deep link opened on this cold boot names the terminal to focus. Honor it
+    // over the server's last-active — resolved to its OWNING tile for a split —
+    // so a bookmark wins the `activeId` write here instead of racing the
+    // deep-link router's settle effect for it. Only when the target is a member
+    // of THIS host's list (else a stale cross-host intent is ignored).
+    const intent = deepLinkFocusIntent();
+    const intentTile =
+      intent !== null
+        ? (entries.find((e) => e.t.id === intent)?.m.parentId ?? intent)
+        : null;
     const picked =
-      serverActiveId && topIds.includes(serverActiveId as TerminalId)
-        ? (serverActiveId as TerminalId)
-        : (topIds[0] ?? null);
+      intentTile && topIds.includes(intentTile as TerminalId)
+        ? (intentTile as TerminalId)
+        : serverActiveId && topIds.includes(serverActiveId as TerminalId)
+          ? (serverActiveId as TerminalId)
+          : (topIds[0] ?? null);
     // `setActiveSilently`: the canvas's first-mount fallback effect pans
     // the viewport to the picked active when restoring at default origin —
     // calling `activate` here would double-pan and racing the still-

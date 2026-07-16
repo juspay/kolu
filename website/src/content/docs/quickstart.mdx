@@ -63,6 +63,19 @@ For another device, prefer the private HTTPS setup in
 [Remote Access](/remote-access); plain LAN HTTP does not unlock install prompts,
 badges, or notifications.
 
+## Subcommands
+
+The bare command is an alias of `kolu web` — the two spellings accept the same
+flags and boot the same server, so everything above works spelled either way:
+
+```sh
+nix --refresh run github:juspay/kolu -- web --host 0.0.0.0 --port 8080
+```
+
+`kolu tui` (a terminal-side canvas) and `kolu mcp` (an agent face) are
+**reserved**: today they exit with a pointer at the plan instead of running.
+`kolu --help` lists the subcommands.
+
 <Aside type="tip" title="Create the first terminal">
   Double-click any empty spot on the canvas to open the New terminal menu. The
   dock's `+` button opens the same flow. The first full walkthrough is
