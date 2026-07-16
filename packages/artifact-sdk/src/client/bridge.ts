@@ -20,7 +20,7 @@
  */
 
 import { match, P } from "ts-pattern";
-import { isHttpUrl } from "../core/url";
+import { isDeepLinkHash, isHttpUrl } from "../core/url";
 import type {
   IframeToParent,
   Locator,
@@ -222,7 +222,7 @@ export function observeIframeDeepLink(
     (msg) =>
       match(msg)
         .with({ type: "kolu-artifact-sdk:deep-link", hash: P.string }, (m) =>
-          m.hash.startsWith("#/") ? m.hash : null,
+          isDeepLinkHash(m.hash) ? m.hash : null,
         )
         .otherwise(() => null),
     onDeepLink,

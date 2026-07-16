@@ -3,7 +3,7 @@
  *  node-env unit suite can pin it without importing the iframe entry (whose
  *  module-level boot touches `document`). */
 
-import { isHttpUrl } from "../core/url";
+import { isDeepLinkHash, isHttpUrl } from "../core/url";
 
 /** The `#/…` deep-link hash carried by `anchor`, or null when the click is not
  *  a kolu deep link. A deep link is a SAME-ORIGIN anchor whose fragment starts
@@ -26,7 +26,7 @@ export function koluDeepLinkHash(
   if (!isHttpUrl(anchor.href)) return null;
   const url = new URL(anchor.href);
   if (url.origin !== loc.origin) return null;
-  if (!url.hash.startsWith("#/")) return null;
+  if (!isDeepLinkHash(url.hash)) return null;
   const isFileNav = url.pathname !== "/" && url.pathname !== loc.pathname;
   return isFileNav ? null : url.hash;
 }
