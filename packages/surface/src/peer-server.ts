@@ -269,8 +269,27 @@ export function serveOverStdio<T extends Context>(
       (): ServeOverStdioEnd => ({ reason: "end" }),
       (error: unknown): ServeOverStdioEnd => ({ reason: "error", error }),
     )
-    .finally(() => {
-      peer.close();
+    // Teardown close, as a fulfilled-only stage — NOT `.finally`. After the
+    // classification stage above the chain is always fulfilled, so this one
+    // handler runs the close on BOTH the end and error paths (the same
+    // coverage `.finally` gave). The difference is what happens if
+    // `peer.close()` throws synchronously (an in-flight request's abort
+    // listener — the exact class the client link guards in `links/stdio.ts`):
+    // a `.finally` would re-reject the chain, breaking the NEVER-rejects
+    // contract the exit fork below and every `serveOverStdio` caller
+    // load-bear on. Guarding the close here makes never-rejects structural —
+    // `settled` cannot reject by construction.
+    .then((end) => {
+      try {
+        peer.close();
+      } catch (err) {
+        process.stderr.write(
+          `[@kolu/surface/peer-server] peer.close() threw during teardown: ${
+            (err as Error).message
+          }\n`,
+        );
+      }
+      return end;
     });
 
   if (processIsTheAgent) {
