@@ -88,7 +88,7 @@ Feature: Deep links — every view addressable by a #/… URL
     And I run "git init /tmp/kolu-dl2-pill && cd /tmp/kolu-dl2-pill"
     And I run "git commit --allow-empty -m init"
     And I run "echo DEEP-PILL-MARKER"
-    And I run "printf '<a href=\"/#/t/local/%s\">jump to agent</a> <a href=\"/#/settings\">open settings</a>\n' \"$KAVAL_TERMINAL_ID\" > pill.html"
+    And I run "printf '<a href=\"/#/t/local/%s\">jump to agent</a>\n' \"$KAVAL_TERMINAL_ID\" > pill.html"
     And I run "git add pill.html && git commit -m pill"
     And I create a terminal
     And I run "cd /tmp/kolu-dl2-pill"
@@ -97,9 +97,9 @@ Feature: Deep links — every view addressable by a #/… URL
     Then the file preview iframe should be visible
     # Routing a deep link must push NO history entries — mouse-back must never
     # replay a stale teleport (srid's dogfood finding; the bug was one push PER
-    # routed link, so one routed link pins it). The second pill stays unclicked
-    # on purpose: this click activates the authoring terminal, and the Code-tab
-    # panel is per-terminal, so the preview it lives in is gone afterwards.
+    # routed link, so one routed link pins it). A second pill can't be
+    # click-tested here: routing the first activates the authoring terminal and
+    # the per-terminal preview is gone afterwards (#/settings has its own scenario).
     When I note the page history length
     And I click the link "jump to agent" in the file preview iframe
     Then the active terminal should show "DEEP-PILL-MARKER"
