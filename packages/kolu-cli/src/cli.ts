@@ -12,61 +12,26 @@
  * `kolu mcp` are reserved — they fail fast with a pointer at the plan (PR3 and
  * PR2 respectively) instead of pretending to exist.
  *
- * This module is the PARSE only — deliberately free of runtime `kolu-server`
- * imports (the type below is erased), so the pin suite drives it without
- * loading the server's module graph. The `web` arm's boot import lives in
+ * This module is the PARSE only — its `kolu-server` imports are LEAVES
+ * (`src/bootFlags.ts`, `package.json`) that never touch the server's runtime
+ * module graph (`index.ts`), so the pin suite drives it without loading that
+ * graph. The `web` arm's boot import lives in
  * `main.ts`, behind the dispatch. (The tui/mcp faces themselves arrive as
  * separate packages in PR2/PR3 — their manifests, which list no kolu app
  * package, are the structural fence.)
  */
 
 import { cli, command } from "cleye";
-import { DEFAULT_PORT } from "kolu-common/config";
-import type { KoluBootFlags } from "kolu-server";
+// The web face's ONE flag artifact — the cleye schema and the `KoluBootFlags`
+// contract DERIVED from it, co-located in `kolu-server/src/bootFlags.ts`. A
+// deep LEAF import (like the package.json one below): it skips the server's
+// runtime module graph (`index.ts`), so the parse stays server-free.
+import { type KoluBootFlags, webFlags } from "kolu-server/src/bootFlags.ts";
 // The app version's single source of truth is packages/server/package.json
 // (`/release` bumps it; nix reads the same file for the derivation version).
 // Read it straight from that file — same value `serverVersion` carries inside
 // the server — without pulling the server's runtime graph into the parse.
 import serverPkg from "kolu-server/package.json" with { type: "json" };
-
-/** The web face's flags — today's `kolu` flag set, verbatim. Declared once and
- *  bound to BOTH the root CLI (bare `kolu`) and the `web` subcommand, which is
- *  what makes the alias byte-for-byte rather than kept-in-sync. */
-const webFlags = {
-  host: {
-    type: String,
-    description: "Address to listen on",
-    default: "127.0.0.1",
-  },
-  port: {
-    type: Number,
-    description: "Port to listen on",
-    default: DEFAULT_PORT,
-  },
-  tls: {
-    type: Boolean,
-    description: "Enable HTTPS with auto-generated self-signed certificate",
-    default: false,
-  },
-  tlsCert: {
-    type: String,
-    description: "Path to TLS certificate file (PEM)",
-  },
-  tlsKey: {
-    type: String,
-    description: "Path to TLS private key file (PEM)",
-  },
-  verbose: {
-    type: Boolean,
-    description: "Enable debug-level logging",
-    default: false,
-  },
-  allowNixShellWithEnvWhitelist: {
-    type: String,
-    description:
-      "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
-  },
-} as const;
 
 const RESERVED_FACES = ["tui", "mcp"] as const;
 type ReservedFace = (typeof RESERVED_FACES)[number];
@@ -85,18 +50,6 @@ export type KoluCliParse =
   // (cleye has no strict-commands mode: an unknown first positional falls
   // through to the root command with the word left in `_`).
   | { face: "unknown-command"; args: string[] };
-
-/** Two-way drift guard: the hand-written `KoluBootFlags` boot contract and the
- *  cleye schema must carry the SAME keys — a flag added to one and not the
- *  other is a type error here (value-type drift is caught by `parseKoluCli`'s
- *  return assignment). */
-type AssertTrue<T extends true> = T;
-type _BootContractCoversSchema = AssertTrue<
-  keyof typeof webFlags extends keyof KoluBootFlags ? true : false
->;
-type _SchemaCoversBootContract = AssertTrue<
-  keyof KoluBootFlags extends keyof typeof webFlags ? true : false
->;
 
 /** Parse the kolu argv into a face. Pure — no exits beyond cleye's own
  *  `--help`/`--version`/unknown-flag handling — so the flag-matrix test can

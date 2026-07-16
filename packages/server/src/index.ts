@@ -61,6 +61,7 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import { type WebSocket, WebSocketServer } from "ws";
+import type { KoluBootFlags } from "./bootFlags.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
@@ -93,20 +94,14 @@ import { padiMemoryReadable } from "./padiMemoryGate.ts";
 import { implementKoluSurface } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
-/** The web face's boot contract — the flag shape bare `kolu` / `kolu web`
- *  boots with. The PARSE lives in `packages/kolu-cli` (the composition root
- *  owning the cleye subcommand dispatch — kolu-cli PR1,
- *  docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
- *  result. */
-export type KoluBootFlags = {
-  host: string;
-  port: number;
-  tls: boolean;
-  tlsCert: string | undefined;
-  tlsKey: string | undefined;
-  verbose: boolean;
-  allowNixShellWithEnvWhitelist: string | undefined;
-};
+// The web face's boot contract — the flag shape bare `kolu` / `kolu web`
+// boots with, derived from the ONE flag schema in `bootFlags.ts` (the leaf
+// module `packages/kolu-cli`'s parse also imports, so schema and contract
+// can't drift). The PARSE lives in `packages/kolu-cli` (the composition root
+// owning the cleye subcommand dispatch — kolu-cli PR1,
+// docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
+// result.
+export type { KoluBootFlags } from "./bootFlags.ts";
 
 /** Boot the kolu web server — everything that used to be this module's
  *  top-level script, parameterized on the parsed flags. `packages/server`
