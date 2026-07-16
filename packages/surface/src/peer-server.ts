@@ -69,6 +69,12 @@
  * the caller-owned arm — make the combination unrepresentable, don't ignore
  * it or throw at runtime).
  *
+ * Sibling at the daemon layer: `@kolu/surface-daemon`'s `daemonProcessMain`
+ * (tenure.ts) — the same framework-owned exit for a daemon BIN, aligned by
+ * doctrine (settle first, exit on `setImmediate`, a caught error never
+ * blocks the exit) rather than by import: the dependency arrow points
+ * surface-daemon → surface, so the two cures share shape, not code.
+ *
  * ## Deferred heartbeat
  *
  * `serveOverStdio` does not start any heartbeat. Heartbeat is a

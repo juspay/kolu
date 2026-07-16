@@ -37,7 +37,7 @@ import { serveOverStdio } from "./peer-server";
 import type { lifetimeContract } from "./peer-server.lifetime.contract";
 
 const FIXTURE = fileURLToPath(
-  new URL("./peer-server.lifetime.fixture.ts", import.meta.url),
+  new URL("./peer-server.lifetime.fixture.testlib.ts", import.meta.url),
 );
 
 /** A healthy framework exit is near-instant; 4s bounds it without flaking on
