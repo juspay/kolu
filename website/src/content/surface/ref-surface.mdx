@@ -337,6 +337,16 @@ per transport; see [How to choose a link](/surface/choose-a-link).
 Matching serve-side entry points: `serveOverStdio`, `serveOverUnixSocket`, and
 oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
 
+`serveOverUnixSocket`'s listener `close()` runs the whole ordered teardown:
+it stops accepting, **disconnects every established peer** — each destroyed
+connection settles its own serve, so in-flight subscriptions finalize and
+their timers clear — and removes the socket file. A closed host cannot go on
+serving live peers; a wedged half-open peer is destroyed without drain
+negotiation (its unflushed frames are dropped — a host that closed is
+closed). The peer index is per-listener, so closing one listener never
+touches another's connections. `close()` stays synchronous, idempotent, and
+safe from a `process.on("exit")` handler.
+
 ### `serveOverStdio` lifetime — selected by construction
 
 `serveOverStdio({ router })` never rejects: it resolves a discriminated

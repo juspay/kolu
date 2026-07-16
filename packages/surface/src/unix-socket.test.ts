@@ -11,6 +11,7 @@
  * `$TMPDIR`-dependent and so diverge between a launchd-spawned server
  * (`/var/folders/.../T`) and a `nix run` CLI (`/tmp`).
  */
+import { once } from "node:events";
 import {
   chmodSync,
   existsSync,
@@ -20,14 +21,17 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createConnection, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Router } from "@orpc/server";
+import { setTimeout as delay } from "node:timers/promises";
+import { eventIterator, oc } from "@orpc/contract";
+import { implement, type Router } from "@orpc/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { unixSocketLink } from "./links/unix-socket";
+import type { lifetimeContract } from "./peer-server.lifetime.contract";
 import { implementSurface } from "./server";
 import {
   getRuntimeSocketPath,
@@ -282,5 +286,123 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
     l.close();
     expect(existsSync(p)).toBe(false);
     expect(() => l.close()).not.toThrow();
+  });
+});
+
+describe("close() disconnects established peers (surface-lifetime-audit step 3)", () => {
+  const freshListener = async (tag: string) => {
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), `surface-usock-${tag}-`)),
+      "a.sock",
+    );
+    const listener = await serveOverUnixSocket({
+      socketPath,
+      router: buildRouter(),
+    });
+    expect(listener.outcome).toEqual({ kind: "listening" });
+    return { socketPath, listener };
+  };
+
+  it("a call that succeeded before close() is REFUSED after it — the established peer is destroyed", async () => {
+    const { socketPath, listener } = await freshListener("drop");
+    const { client, dispose } = await unixSocketLink<typeof surface.contract>({
+      socketPath,
+    });
+    // Established and served: the peer is real, not merely accepted.
+    expect(await client.surface.math.double({ x: 21 })).toEqual({ y: 42 });
+
+    listener.close();
+
+    // RED today: server.close() only stops ACCEPTING — the established
+    // connection keeps serving and this call still resolves { y: 42 }
+    // (the illegal state "a closed host still serving live peers", made
+    // visible). After the fix the destroyed link rejects.
+    await expect(client.surface.math.double({ x: 2 })).rejects.toThrow();
+    dispose();
+  });
+
+  it("tears down an in-flight subscription handler — its generator finalizes with the peer", async () => {
+    // An interval-free forever-generator whose finally flips a test-local
+    // flag: the serve runs in-process, so handler teardown is directly
+    // observable. The teardown path under test is the reused settle chain:
+    // socket.destroy() → serveOverStdio settles → peer.close() → the
+    // handler's abort signal fires → the generator's finally runs.
+    let finalized = false;
+    const t = implement({
+      tick: oc.output(eventIterator(z.object({ n: z.number() }))),
+    });
+    const router = t.router({
+      tick: t.tick.handler(async function* () {
+        try {
+          for (let n = 0; ; n++) {
+            yield { n };
+            await delay(10);
+          }
+        } finally {
+          finalized = true;
+        }
+      }),
+    });
+    const socketPath = join(
+      mkdtempSync(join(tmpdir(), "surface-usock-sub-")),
+      "a.sock",
+    );
+    const listener = await serveOverUnixSocket({ socketPath, router });
+    expect(listener.outcome).toEqual({ kind: "listening" });
+
+    const { client, dispose } = await unixSocketLink<{
+      tick: (typeof lifetimeContract)["tick"];
+    }>({ socketPath });
+    const ticks = await client.tick();
+    const it1 = ticks[Symbol.asyncIterator]();
+    expect((await it1.next()).value).toEqual({ n: 0 }); // live subscription
+
+    listener.close();
+
+    // RED today: the generator keeps yielding forever (nothing ends the
+    // peer), so `finalized` never flips. After the fix the settle chain
+    // aborts the handler and the finally runs promptly.
+    await expect
+      .poll(() => finalized, { timeout: 2_000, interval: 25 })
+      .toBe(true);
+    dispose();
+  });
+
+  it("destroys a half-open peer that never wrote a byte", async () => {
+    const { socketPath, listener } = await freshListener("halfopen");
+    const raw = createConnection(socketPath); // wedged: connects, never writes
+    await once(raw, "connect");
+    let closed = false;
+    raw.once("close", () => {
+      closed = true;
+    });
+
+    listener.close();
+
+    // RED today: nothing ever ends the wedged peer. After the fix,
+    // destroy() is unconditional — no drain negotiation with a peer that
+    // never spoke.
+    await expect
+      .poll(() => closed, { timeout: 2_000, interval: 25 })
+      .toBe(true);
+  });
+
+  it("stays idempotent with peers connected; a peer that already left is shed, not double-destroyed", async () => {
+    const { socketPath, listener } = await freshListener("shed");
+    const a = await unixSocketLink<typeof surface.contract>({ socketPath });
+    const b = await unixSocketLink<typeof surface.contract>({ socketPath });
+    expect(await a.client.surface.math.double({ x: 1 })).toEqual({ y: 2 });
+    expect(await b.client.surface.math.double({ x: 3 })).toEqual({ y: 6 });
+
+    // Peer A leaves on its own: the tracked set sheds it via its 'close'.
+    a.dispose();
+    await delay(50);
+
+    expect(() => listener.close()).not.toThrow();
+    expect(() => listener.close()).not.toThrow(); // still idempotent
+
+    // Peer B was disconnected by the close.
+    await expect(b.client.surface.math.double({ x: 4 })).rejects.toThrow();
+    b.dispose();
   });
 });
