@@ -421,13 +421,19 @@ and /kolu skills gain their MCP path with CLI fallback — and it carries none
 of the canvas’s renderer/attach risk. Each PR has its own complete pin, so
 neither is staging for appearance.</span></span></span></p>
 <ul>
-<li><strong>PR1 — the CLI restructure</strong> (srid’s sequencing): today’s flag-only
-<code>kolu</code> grows subcommand dispatch — <code>kolu web</code> names today’s behavior, bare
-<code>kolu</code> stays its alias (byte-for-byte: same flags, same boot), <code>tui</code>/<code>mcp</code>
-reserved with a clear not-yet-shipped error. Small, zero new capability,
-and it makes every later face a pure addition. Pin: bare <code>kolu</code> and
-<code>kolu web</code> are behaviorally identical (flag matrix test) + the reserved
-subcommands fail with the named message.</li>
+<li><strong>PR1 — the CLI restructure</strong> (srid’s sequencing + placement): the <code>kolu</code>
+bin MOVES to a new <strong><code>packages/kolu-cli</code></strong> — the composition root owning
+cleye subcommand dispatch — and <code>packages/server</code> stops being the bin,
+exporting its boot as a function the <code>web</code> arm calls (dispatch in
+packages/server would braid the product’s argv face with the web server’s
+boot; the volatility is in the set of faces, and only a dedicated package
+encapsulates it). <code>kolu web</code> names today’s behavior, bare <code>kolu</code> stays its
+alias (byte-for-byte: same flags, same boot), <code>tui</code>/<code>mcp</code> reserved with a
+clear not-yet-shipped error. The nix <code>koluBin</code> entry moves with the bin.
+Pin: bare <code>kolu</code> and <code>kolu web</code> behaviorally identical (flag matrix test) +
+the reserved subcommands fail with the named message. A composition root is
+the one module allowed to import everything — kolu-cli importing
+packages/server is main() doing its job, not a leak.</li>
 <li><strong>PR2 — the MCP face</strong> (<code>kolu mcp</code>): package scaffold, both transports +
 the one <code>surfaceClient</code>, <code>serveSurfaceAsMcp</code> + the expose map, the
 composite <code>wait.*</code> tools (extracting the shared WaitOutcome scaffold — the
@@ -445,21 +451,27 @@ over the same path.</li>
 <p><strong>The binary is <code>kolu</code>, not a new <code>kolu-tui</code> executable</strong> (ratified): today’s
 <code>kolu</code> cleye definition has flags and NO subcommands, so the namespace is
 free — <code>kolu tui</code> opens the canvas, <code>kolu mcp</code> serves agents, and bare <code>kolu</code>
-keeps meaning what it means today (the web server). The CODE lives in
-<code>packages/kolu-cli</code> (location is structure; the app binary imports the CLI
-package — the arrow points the right way, since kolu-cli imports only
-padi/surface libraries and never the reverse). The graduation proof is about
+keeps meaning what it means today (the web server). The bin AND the face
+code live in <code>packages/kolu-cli</code> (location is structure). The dependency
+discipline is per-module, because the package is a composition root: the
+DISPATCH may import <code>packages/server</code> (the <code>web</code> arm boots it), but the
+tui/mcp FACE modules import only <code>@kolu/padi</code>/<code>@kolu/surface*</code> — enforced by
+an import-guard test (the SR11 negative-property style) asserting the face
+modules’ import graphs never reach a kolu app package. That module-level
+fence is what keeps the graduation proof honest inside a package that also
+routes to the server; a separate faces-package stays available if they grow,
+but would be a receptacle ahead of its population today. The graduation proof is about
 the RUNTIME path — no kolu-server <em>process</em> behind <code>kolu tui</code>/<code>kolu mcp</code> —
 not the shipping closure; <code>p2p-kolu.mdx</code> already records this client shipping
 in-closure.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The one cost: a padi-only remote host wanting a local
 <code>kolu mcp</code> pulls the kolu closure. Demand-gated escape hatch, recorded not
 built: a thin standalone bin target for the CLI package if that host profile
 ever materializes.</span></span></span></p>
-<p>Steps, in build order (PR1 = the subcommand dispatch; PR2 = steps 1–3 + 8; PR3 = the rest):</p>
+<p>Steps, in build order (PR1 = the kolu-cli package + dispatch + boot-function extraction; PR2 = steps 1–3 + 8; PR3 = the rest):</p>
 <ol>
-<li><strong>Scaffold <code>packages/kolu-cli</code></strong> on the sibling pattern (<code>cleye</code> arg
-parsing, <code>bin.ts</code>, nix packaging in-closure like <code>padi-tui</code>). Subcommands:
-default (canvas), <code>mcp</code>.</li>
+<li><strong>The face modules join <code>packages/kolu-cli</code></strong> (the package PR1 created):
+connect/client/canvas/mcp modules beside the dispatch, guarded by the
+import-fence test from day one.</li>
 <li><strong>Connect</strong>: local socket resolution via <code>resolveRunningPadiSocket</code> +
 <code>connectPadi</code> (<code>@kolu/padi/dial</code> — the resolution never lived in
 <code>connect.ts</code>; the TUIs’ connect files only dial an already-resolved path);
