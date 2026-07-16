@@ -109,16 +109,11 @@ export type CollectionDelta<K, T> = Extract<
  *
  *  The default `TPolicy = never` makes `onError` unfillable for every existing
  *  `defineSurface` caller — no policy VALUE is assignable — so the slot costs
- *  nothing until a surface opts in via {@link defineSurfaceWithPolicy}.
- *
- *  `_T`/`_P` (the cell's value + patch types) are carried for POSITIONAL SYMMETRY
- *  with `CellSpec<T, P, TPolicy>` — the slot references `ClientCellPolicy<T, P,
- *  TPolicy>` — but are unused today: the local seed is `CellSpec.default` (no
- *  `initial`), so no field is `T`/`P`-shaped. Underscore-prefixed so the unused-
- *  parameter lint reads them as deliberately reserved, not forgotten. */
-export type ClientCellPolicy<_T, _P, TPolicy> =
-  | { authority?: "server"; onError?: TPolicy }
-  | { authority: "local"; coalesceMs?: number; onError?: TPolicy };
+ *  nothing until a surface opts in via {@link defineSurfaceWithPolicy}. */
+export type ClientCellPolicy<TPolicy> = { onError?: TPolicy } & (
+  | { authority?: "server" }
+  | { authority: "local"; coalesceMs?: number }
+);
 
 /** A CLIENT-side error policy declared on a collection spec — the collection
  *  sibling of {@link ClientCellPolicy}, but `onError` ONLY. A collection has no
@@ -186,7 +181,7 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  declared value to the app's registered `onClientError` when this cell's
    *  client subscription fails. Unfillable unless the surface was built with a
    *  non-`never` `TPolicy` via {@link defineSurfaceWithPolicy}. */
-  client?: ClientCellPolicy<T, P, TPolicy>;
+  client?: ClientCellPolicy<TPolicy>;
 }
 
 export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {

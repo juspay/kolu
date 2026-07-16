@@ -71,9 +71,9 @@ pins `TPolicy` explicitly while the spec keeps its precise `const S` inference).
 Plain `defineSurface` is the `TPolicy = never` case — its `client` slot is
 **unfillable**, so existing callers pay nothing.
 
-- **`ClientCellPolicy<T, P, TPolicy>`** — a cell's `client` slot. Discriminated on
-  `authority`: `{ authority?: "server"; onError?: TPolicy }` or `{ authority: "local";
-  coalesceMs?: number; onError?: TPolicy }`. There is **no `initial`** — a
+- **`ClientCellPolicy<TPolicy>`** — a cell's `client` slot. The `onError` policy
+  sits flat, intersected with an `authority` discriminant: `{ onError?: TPolicy } & ({
+  authority?: "server" } | { authority: "local"; coalesceMs?: number })`. There is **no `initial`** — a
   local-authority cell seeds its store from the mandatory `CellSpec.default`, so
   "local-authority without a seed" is a type error, not a runtime surprise. The
   client runtime **sources `authority` and `coalesceMs` from this declaration**, so a
