@@ -521,7 +521,7 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     const cleanlyApplied = outcome.items.filter((a) => !gapIds.has(a.id))
     if (cleanlyApplied.length) {
       lines.push('', `### Applied (${cleanlyApplied.length})`)
-      cleanlyApplied.forEach((a) => lines.push(`- \`${a.id}\`${a.pairedWith ? ` ≡ \`${a.pairedWith}\`` : ''} ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+      cleanlyApplied.forEach((a) => lines.push(`- \`${a.id}\`${pairTag(a)} ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
     }
     if (applyGaps.length) {
       lines.push('', `### Apply incomplete — needs reconcile (${applyGaps.length})`)
