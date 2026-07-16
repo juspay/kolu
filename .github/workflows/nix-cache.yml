@@ -41,9 +41,20 @@ jobs:
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
             accept-flake-config = true
 
-      # Installs attic, logs in, uses the cache as a substituter, and at job
-      # end pushes every store path this run produced. Needs a Nix new enough
-      # for `nix profile add` (hence v35 above — v31's 2.29 only had
+      # attic-action installs attic by resolving UNPINNED nixpkgs-unstable
+      # through the GitHub API at run time — one API 503 fails the job (it
+      # did, repo-wide, 2026-07-16), and even green runs re-fetch an unpinned
+      # rev. The action skips its install when `attic` is already on PATH, so
+      # pre-install it from the repo's own npins-pinned nixpkgs: the exact
+      # tarball URL nix/nixpkgs.nix builds from (no ref resolution, no
+      # api.github.com), with attic-client substituted from cache.nixos.org.
+      - name: Install attic from pinned nixpkgs
+        run: nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
+
+      # Logs in, uses the cache as a substituter, and at job end pushes every
+      # store path this run produced. Its attic install is a no-op — the step
+      # above already put a pinned attic on PATH. Needs a Nix new enough for
+      # `nix profile add` (hence v35 above — v31's 2.29 only had
       # `profile install`, which is why #1731 dropped this action).
       - uses: ryanccn/attic-action@5635a15ef0c5462194ffbd05d1daeddc74625c3a # v0.5.0
         with:
