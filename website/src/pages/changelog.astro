@@ -1,13 +1,17 @@
 ---
 import { type CollectionEntry, getCollection, render } from "astro:content";
-import { readChangelogStats } from "../changelog";
+import {
+  changelogInstallCommand,
+  changelogReleaseKey,
+  readChangelogStats,
+} from "../changelog";
 import Change from "../components/Change.astro";
 import InstallCommand from "../components/InstallCommand.astro";
 import PR from "../components/PR.astro";
 import BaseLayout from "../layouts/BaseLayout.astro";
 
 const mdxComponents = { PR, Change };
-const masterCommand = "nix run github:juspay/kolu";
+const masterCommand = changelogInstallCommand();
 const repositoryUrl = "https://github.com/juspay/kolu";
 const versionOrder = new Intl.Collator("en", { numeric: true });
 
@@ -22,12 +26,25 @@ const fmtDate = (date: Date) =>
     .toUpperCase();
 
 type ChangelogEntry = CollectionEntry<"changelog">;
-type ReleasedEntry = ChangelogEntry & { data: ChangelogEntry["data"] & { date: Date } };
+type UnreleasedEntry = ChangelogEntry & {
+  data: ChangelogEntry["data"] & { version: "Unreleased"; date?: undefined };
+};
+type ReleasedEntry = ChangelogEntry & {
+  data: ChangelogEntry["data"] & { version: string; date: Date };
+};
+const isUnreleased = (entry: ChangelogEntry): entry is UnreleasedEntry =>
+  entry.data.version === "Unreleased";
 const isReleased = (entry: ChangelogEntry): entry is ReleasedEntry =>
-  entry.data.date !== undefined;
+  entry.data.version !== "Unreleased" && entry.data.date instanceof Date;
 
 const all = await getCollection("changelog");
-const unreleased = all.find((entry) => !entry.data.date);
+const unreleasedEntries = all.filter(isUnreleased);
+const unreleased = unreleasedEntries.at(0);
+if (unreleasedEntries.length !== 1 || !unreleased)
+  throw new Error(
+    `Changelog requires exactly one Unreleased entry, found ${unreleasedEntries.length}`,
+  );
+
 const released = all
   .filter(isReleased)
   .sort(
@@ -36,17 +53,23 @@ const released = all
       versionOrder.compare(b.data.version, a.data.version) ||
       a.id.localeCompare(b.id),
   );
+const releasedVersions = new Set<string>();
+for (const entry of released) {
+  if (releasedVersions.has(entry.data.version))
+    throw new Error(`Changelog has duplicate release version ${entry.data.version}`);
+  releasedVersions.add(entry.data.version);
+}
 
-const unreleasedHasBody = !!unreleased?.body?.trim();
-const renderedUnreleased = unreleased ? await render(unreleased) : undefined;
-const unreleasedStats = renderedUnreleased
-  ? readChangelogStats(renderedUnreleased.remarkPluginFrontmatter.changelogStats)
-  : [];
+const unreleasedHasBody = !!unreleased.body?.trim();
+const renderedUnreleased = await render(unreleased);
+const unreleasedStats = readChangelogStats(
+  renderedUnreleased.remarkPluginFrontmatter.changelogStats,
+);
 const unreleasedChangeCount = unreleasedStats.reduce(
   (total, section) => total + section.count,
   0,
 );
-const UnreleasedBody = renderedUnreleased?.Content;
+const UnreleasedBody = renderedUnreleased.Content;
 
 const releases = await Promise.all(
   released.map(async (entry) => {
@@ -59,9 +82,9 @@ const releases = await Promise.all(
       tag,
       date,
       dateLabel: fmtDate(date),
-      anchor: `v${entry.data.version.replace(/\./g, "-")}`,
+      anchor: changelogReleaseKey(entry.data.version),
       releaseUrl: `${repositoryUrl}/releases/tag/${tag}`,
-      installCommand: `nix run github:juspay/kolu/${tag}`,
+      installCommand: changelogInstallCommand(tag),
       changeCount: stats.reduce((total, section) => total + section.count, 0),
       stats,
       Body: rendered.Content,
@@ -823,55 +846,6 @@ const previousVersion = releases[0]?.version;
     color: var(--color-kolu-primary);
   }
 
-  .changelog :global(.prose-changelog h4) {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    margin: 1.5rem 0 0.3rem;
-    color: var(--color-ink-dim);
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    font-weight: 550;
-    letter-spacing: 0.1em;
-    line-height: 1.3;
-    text-transform: uppercase;
-    scroll-margin-top: 8.5rem;
-  }
-
-  .changelog :global(.prose-changelog h3 + h4) {
-    margin-top: 0;
-  }
-
-  .changelog :global(.prose-changelog h4::before) {
-    content: "";
-    width: 1.35rem;
-    height: 1px;
-    flex: none;
-    background: var(--color-rule-strong);
-  }
-
-  .changelog :global(.prose-changelog h4 a) {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.45rem;
-    color: inherit;
-    border: 0;
-    text-decoration: none;
-    transition: color 150ms ease;
-  }
-
-  .changelog :global(.prose-changelog h4 a::after) {
-    content: "guide ↗";
-    color: var(--color-ink-muted);
-    font-size: 0.56rem;
-    letter-spacing: 0.04em;
-    opacity: 0.8;
-  }
-
-  .changelog :global(.prose-changelog h4 a:hover) {
-    color: var(--color-kolu-primary);
-  }
-
   .changelog :global(.prose-changelog ul) {
     display: block;
     margin: 0;
@@ -1059,11 +1033,6 @@ const previousVersion = releases[0]?.version;
       scroll-margin-top: 9.5rem;
     }
 
-    .changelog :global(.prose-changelog h4) {
-      margin-top: 1.4rem;
-      scroll-margin-top: 9.5rem;
-    }
-
     .release-past {
       margin-top: 4rem;
     }
@@ -1202,22 +1171,26 @@ const previousVersion = releases[0]?.version;
 <script>
   import { type ChangeKind, isChangeKind } from "../changelog";
 
+  const normalizeSearch = (value: string) => value.toLocaleLowerCase("en-US");
+
   // The build plugin owns heading IDs. This pass only carries each product-area
   // label onto its notes so a category name is part of the searchable corpus.
   for (const body of document.querySelectorAll<HTMLElement>(".release-body")) {
-    let categoryLabel = "";
+    let categoryLabel: string | undefined;
     for (const child of body.children) {
       if (child instanceof HTMLHeadingElement && child.tagName === "H3") {
         if (!child.id) throw new Error("A changelog heading is missing its build-time id");
-        categoryLabel = child.textContent?.trim() ?? "";
-        if (!categoryLabel) throw new Error("A changelog category has no label");
+        const candidate = child.textContent?.trim();
+        if (!candidate) throw new Error("A changelog category has no label");
+        categoryLabel = candidate;
         child.setAttribute("aria-label", categoryLabel);
       }
 
       if (child instanceof HTMLUListElement) {
         for (const item of child.children) {
           if (!(item instanceof HTMLLIElement) || !item.querySelector(".cl-change")) continue;
-          if (!categoryLabel) throw new Error("A changelog note appears before its category");
+          if (categoryLabel === undefined)
+            throw new Error("A changelog note appears before its category");
           item.dataset.category = categoryLabel;
         }
       }
@@ -1253,10 +1226,10 @@ const previousVersion = releases[0]?.version;
           change,
           kind,
           preview,
-          titleText: title.textContent?.toLocaleLowerCase() ?? "",
-          categoryText: item.dataset.category?.toLocaleLowerCase() ?? "",
+          titleText: normalizeSearch(title.textContent ?? ""),
+          categoryText: normalizeSearch(item.dataset.category ?? ""),
           bodyText,
-          searchableBodyText: bodyText.toLocaleLowerCase(),
+          searchableBodyText: normalizeSearch(bodyText),
         };
       });
     const lists = [...body.querySelectorAll<HTMLUListElement>("ul")];
@@ -1320,7 +1293,7 @@ const previousVersion = releases[0]?.version;
     };
 
     const applyFilter = () => {
-      const query = search.value.trim().toLocaleLowerCase();
+      const query = normalizeSearch(search.value.trim());
       let visibleCount = 0;
 
       for (const note of notes) {

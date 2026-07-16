@@ -1,11 +1,17 @@
 import GithubSlugger from "github-slugger";
 import { toString } from "mdast-util-to-string";
-import type { Root } from "mdast";
+import type { Nodes, Root } from "mdast";
+import type {
+  MdxJsxAttribute,
+  MdxJsxFlowElement,
+  MdxJsxTextElement,
+} from "mdast-util-mdx-jsx";
 import { visit } from "unist-util-visit";
 import {
   CHANGE_KINDS,
   type ChangeKind,
   type ChangelogStat,
+  changelogReleaseKey,
   isChangeKind,
 } from "./changelog";
 
@@ -13,32 +19,20 @@ interface AstroFileData {
   astro?: { frontmatter?: Record<string, unknown> };
 }
 
-interface MdxAttribute {
-  type: string;
-  name?: string;
-  value?: unknown;
-}
+type MdxElement = MdxJsxFlowElement | MdxJsxTextElement;
 
-interface MdxElement {
-  type: string;
-  name?: string;
-  attributes?: MdxAttribute[];
-}
+const isChangeElement = (node: Nodes): node is MdxElement =>
+  (node.type === "mdxJsxTextElement" || node.type === "mdxJsxFlowElement") &&
+  node.name === "Change";
 
-const changelogPrefix = (version: string) =>
-  version === "Unreleased" ? "unreleased" : `v${version.replaceAll(".", "-")}`;
+const changeKind = (node: Nodes): ChangeKind | undefined => {
+  if (!isChangeElement(node)) return undefined;
 
-const changeKind = (node: MdxElement): ChangeKind | undefined => {
-  if (
-    (node.type !== "mdxJsxTextElement" && node.type !== "mdxJsxFlowElement") ||
-    node.name !== "Change"
-  )
-    return undefined;
-
-  const value = node.attributes?.find(
-    (attribute) =>
+  const kindAttribute = node.attributes.find(
+    (attribute): attribute is MdxJsxAttribute =>
       attribute.type === "mdxJsxAttribute" && attribute.name === "kind",
-  )?.value;
+  );
+  const value = kindAttribute?.value;
   if (!isChangeKind(value))
     throw new Error(
       `<Change> requires a known string \`kind\`, received ${String(value)}`,
@@ -52,7 +46,7 @@ const typedStats = (tree: Root): ChangelogStat[] => {
   ) as Record<ChangeKind, number>;
 
   visit(tree, (node) => {
-    const kind = changeKind(node as MdxElement);
+    const kind = changeKind(node);
     if (kind) counts[kind] += 1;
   });
 
@@ -93,7 +87,7 @@ export function remarkChangelog() {
     const version = frontmatter.version;
 
     const headingSlugger = new GithubSlugger();
-    const prefix = changelogPrefix(version);
+    const prefix = changelogReleaseKey(version);
     visit(tree, "heading", (node) => {
       const id = `${prefix}-${headingSlugger.slug(toString(node))}`;
       node.data ??= {};

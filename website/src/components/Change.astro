@@ -25,20 +25,30 @@ import { CHANGE_KIND_LABELS, type ChangeKind } from "../changelog";
 interface ChangeProps {
   kind: ChangeKind;
   title: string;
+}
+
+interface ProvenanceProps {
   repo?: string;
   state?: "merged" | "open" | "closed";
 }
 
 type Props = ChangeProps &
   (
-    | { pr?: never; prs?: never }
-    | { pr: number; prs?: never }
-    | { pr?: never; prs: readonly [number, ...number[]] }
+    | { pr?: never; prs?: never; repo?: never; state?: never }
+    | ({ pr: number; prs?: never } & ProvenanceProps)
+    | ({ pr?: never; prs: readonly [number, ...number[]] } & ProvenanceProps)
   );
 
-const { kind, title, repo, state } = Astro.props;
+const { kind, title, pr, prs, repo, state } = Astro.props;
+if (pr !== undefined && prs !== undefined)
+  throw new Error(`<Change title="${title}"> cannot receive both \`pr\` and \`prs\``);
+if (prs !== undefined && prs.length === 0)
+  throw new Error(`<Change title="${title}"> requires at least one item in \`prs\``);
+if (pr === undefined && prs === undefined && (repo !== undefined || state !== undefined))
+  throw new Error(`<Change title="${title}"> cannot receive provenance without a PR`);
+
 const kindLabel = CHANGE_KIND_LABELS[kind];
-const prIds = Astro.props.prs ?? (Astro.props.pr === undefined ? [] : [Astro.props.pr]);
+const prIds = prs ?? (pr === undefined ? [] : [pr]);
 
 const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
 ---

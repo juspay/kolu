@@ -18,6 +18,14 @@ export interface ChangelogStat {
   count: number;
 }
 
+const KOLU_FLAKE = "github:juspay/kolu";
+
+export const changelogReleaseKey = (version: string) =>
+  version === "Unreleased" ? "unreleased" : `v${version.replaceAll(".", "-")}`;
+
+export const changelogInstallCommand = (tag?: string) =>
+  `nix run ${KOLU_FLAKE}${tag ? `/${tag}` : ""}`;
+
 export const isChangeKind = (value: unknown): value is ChangeKind =>
   typeof value === "string" && Object.hasOwn(CHANGE_KIND_LABELS, value);
 
