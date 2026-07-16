@@ -667,6 +667,9 @@ importers:
       kolu-server:
         specifier: workspace:*
         version: link:../server
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

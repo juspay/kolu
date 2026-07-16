@@ -5,6 +5,12 @@ The `kolu` binary — the product's entry point and its **composition root**
 dispatch and boots whichever face the user asked for; the faces themselves
 live elsewhere.
 
+It owns dispatch and **nothing else**: no server, web, or terminal state lives
+here, and no domain logic — a face's actual behavior is entirely its own
+package's to own (`kolu-server` for the web face today; the future `mcp`/`tui`
+packages for theirs). Precisely because a composition root *may* import
+everything, this boundary is what keeps it from re-accreting scope.
+
 ```
 kolu [flags]         the web server (bare kolu = alias of `kolu web`)
 kolu web [flags]     the same web server, by name
@@ -19,8 +25,10 @@ kolu mcp             reserved — the MCP agent face (a later PR)
 - **Reserved subcommands fail fast** with a named not-shipped-yet message
   (exit 1) — as does a typo'd subcommand (`kolu tuii`), which would otherwise
   silently boot a server.
-- **`--version`** reads `packages/server/package.json`, the app version's
-  single source of truth (`/release` bumps it; nix reads the same file).
+- **`--version`** reads the server's one `serverVersion` accessor (whose
+  source of truth is `packages/server/package.json` — `/release` bumps it; nix
+  reads the same file), so the binary and the running server can never report
+  different versions.
 
 The plan of record is the kolu-cli Atlas note
 ([kolu.dev/atlas/kolu-cli.html](https://kolu.dev/atlas/kolu-cli.html)): this

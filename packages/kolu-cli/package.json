@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "cleye": "^2.3.0",
-    "kolu-server": "workspace:*"
+    "kolu-server": "workspace:*",
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

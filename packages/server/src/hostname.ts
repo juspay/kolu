@@ -23,9 +23,9 @@ export const serverCommit = process.env.KOLU_COMMIT_HASH ?? "";
 
 /** The app version — single source of truth is `packages/server/package.json`.
  *  `/release` bumps it before tagging; Nix reads the *same* file for the
- *  derivation version (no nix literal to drift), and the `kolu` binary's
- *  `--version` (packages/kolu-cli) reads the same package.json directly. It's a
- *  committed, bundled file, so it's always present — no env var, nothing to
- *  "propagate" or fail hard on. This accessor feeds the rail's `srv` column
- *  (`vX.Y.Z · <hash>`), the startup log, and the pty's `TERM_PROGRAM_VERSION`. */
+ *  derivation version (no nix literal to drift). It's a committed, bundled
+ *  file, so it's always present — no env var, nothing to "propagate" or fail
+ *  hard on. This ONE accessor feeds the rail's `srv` column (`vX.Y.Z ·
+ *  <hash>`), the startup log, the pty's `TERM_PROGRAM_VERSION`, and the `kolu`
+ *  binary's `--version` (packages/kolu-cli imports it as a leaf). */
 export const serverVersion = pkg.version;

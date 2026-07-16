@@ -31,6 +31,7 @@ import { type KoluBootFlags, webFlags } from "kolu-server/src/bootFlags.ts";
 // server's package.json, which `/release` bumps and nix reads too) — so
 // `kolu --version` can never diverge from the version the server reports.
 import { serverVersion } from "kolu-server/src/hostname.ts";
+import { match, P } from "ts-pattern";
 
 const RESERVED_FACES = ["tui", "mcp"] as const;
 type ReservedFace = (typeof RESERVED_FACES)[number];
@@ -98,6 +99,12 @@ export function parseKoluCli(
   if (parsed.command === "tui" || parsed.command === "mcp") {
     return { face: parsed.command };
   }
+  // Drift guard (type-level): the literals above must cover every registered
+  // non-web command. If a new face is added to the `commands` array without a
+  // matching arm in the cascade, the leftover command type here stops
+  // satisfying `"web" | undefined` and this line is a COMPILE error — a
+  // missed edit cannot silently fall through to booting the web server.
+  parsed.command satisfies "web" | undefined;
   // Neither bare `kolu` nor `kolu web` takes positionals, so a leftover one is
   // a typo'd subcommand (`kolu tuii`) — fail fast rather than boot a server the
   // user didn't ask for.
@@ -110,18 +117,21 @@ export function parseKoluCli(
 
 /** The dispatch seam `main.ts` parses through: returns the web face's flags, or
  *  fails fast (a named message on stderr, exit 1) on a reserved subcommand or a
- *  positional that matches no command. */
+ *  positional that matches no command. `exhaustive()` is load-bearing: a new
+ *  face added to `KoluCliParse` without an arm here is a compile error, where
+ *  the previous `!== "web"` catch-all would have silently mislabeled it. */
 export function koluWebFlagsOrExit(argv?: string[]): KoluBootFlags {
-  const parsed = parseKoluCli(argv);
-  if (parsed.face === "unknown-command") {
-    process.stderr.write(
-      `kolu: unknown command "${parsed.args[0]}" — commands: web (the default), tui, mcp. See kolu --help.\n`,
-    );
-    process.exit(1);
-  }
-  if (parsed.face !== "web") {
-    process.stderr.write(`${reservedFaceMessage(parsed.face)}\n`);
-    process.exit(1);
-  }
-  return parsed.flags;
+  return match(parseKoluCli(argv))
+    .with({ face: "web" }, (p) => p.flags)
+    .with({ face: P.union("tui", "mcp") }, (p): never => {
+      process.stderr.write(`${reservedFaceMessage(p.face)}\n`);
+      process.exit(1);
+    })
+    .with({ face: "unknown-command" }, (p): never => {
+      process.stderr.write(
+        `kolu: unknown command "${p.args[0]}" — commands: web (the default), tui, mcp. See kolu --help.\n`,
+      );
+      process.exit(1);
+    })
+    .exhaustive();
 }

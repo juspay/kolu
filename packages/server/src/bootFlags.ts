@@ -5,10 +5,11 @@
  *
  * A deliberate LEAF: it imports only `kolu-common/config` (the schema is a
  * plain object literal — cleye consumes it, but no cleye import is needed to
- * declare it), so `packages/kolu-cli`'s parse can import the schema VALUE via
- * the legacy deep path `kolu-server/src/bootFlags.ts` without loading the
- * server's runtime module graph (`index.ts`), exactly as its
- * `kolu-server/package.json` version import already does.
+ * declare it; the `TypeFlag` import below is type-only, erased), so
+ * `packages/kolu-cli`'s parse can import the schema VALUE via the legacy deep
+ * path `kolu-server/src/bootFlags.ts` without loading the server's runtime
+ * module graph (`index.ts`) — the same deep-leaf pattern as its
+ * `kolu-server/src/hostname.ts` version import.
  */
 
 // Type-only: erased at compile time, so the leaf stays runtime-free. cleye
