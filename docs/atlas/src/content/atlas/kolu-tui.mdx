@@ -153,7 +153,9 @@ for the edge.</Footnote>
 | tool, read-only | `fs.listAll` · `fs.readFile` | workspace file listing / file contents |
 | tool, `mutates` | `lifecycle.create` | spawn a terminal (command, cwd) — returns the TerminalInfo |
 | tool, `mutates` | `lifecycle.kill` | kill one terminal by id |
-| tool, `mutates` | `lifecycle.sendInput` | write input bytes/keys to a terminal |
+| tool, `mutates` | `lifecycle.sendInput` | write input to a terminal — text AND the named-key vocabulary (`Enter`, `Escape`, `Backspace`, `C-u`-style chords), because the skills' three-step submit protocol sends text and Enter as SEPARATE calls |
+| tool, composite (MCP-face-local) | `wait.outputSettled` | block until a terminal's output is idle for N ms (with timeout) — the `kaval-tui wait --until idle:<ms>` done-signal, watched client-side off the `terminalAttach` stream |
+| tool, composite (MCP-face-local) | `wait.agentState` | block until a terminal's detected agent state enters a target bucket — the `padi-tui wait --until <buckets>` done-signal, watched off the `terminals` collection |
 
 **Deliberately denied in v1** (each an explicit non-entry, not an oversight):
 `terminalAttach` (a raw `{seq}` byte stream is the wrong shape for MCP
@@ -166,6 +168,33 @@ hazardous to script); `git.worktreeCreate`/`worktreeRemove` and
 demand, one row at a time); `session.restore` + every `test__set` verb
 (admin/test). Widening the map is a one-row diff with a review, never a
 default.
+
+### Skill parity — the /orchestrator · /kolu migration contract
+
+The end state (ratified): the **/orchestrator and /kolu skills drive agents
+through this MCP when it's available, falling back to `kaval-tui`/`padi-tui`
+when it isn't** — so the expose map is not a menu, it's a parity contract with
+what those skills do today. The audit of their actual verb usage:
+
+| skill verb today (uses) | MCP equivalent | parity notes |
+| --- | --- | --- |
+| `kaval-tui wait --until idle:<ms>` (28×) + `padi-tui wait --until <state>` (20×) | `wait.outputSettled` / `wait.agentState` | THE core done-signal — the send → settle → Enter → settle loop is the whole dispatch protocol; without blocking wait tools the MCP face fails the skills on their most-used verb |
+| `kaval-tui send "text"` / `send --key Enter` (24×) | `lifecycle.sendInput` | the named-key vocabulary is load-bearing: submit is its OWN Enter after an observed settle, never text+newline fused |
+| `kaval-tui list` (12×) | `terminals` resource | must carry id, title, cwd, and idle-time — the coordinator re-finds terminals BY TITLE after daemon re-keys |
+| `kaval-tui`/`padi-tui create [--parent --repo]` (10×) | `lifecycle.create` | parameter parity: command, cwd/repo, parent — and the returned TerminalInfo must include the id the skills capture |
+| `kaval-tui snapshot [--viewport]` (10×) | `screen.text` | viewport/tail modes, so "read the last N lines" stays one cheap call |
+| `kaval-tui kill` | `lifecycle.kill` | with the canvas's blast-radius text available to the agent too |
+
+Two consequences worth naming. First, the composite `wait.*` tools are
+**client-side scaffolding, not padiSurface procedures** — the same
+WaitOutcome/abort-chain scaffold `padi-tui/read.ts` and `kaval-tui/wait.ts`
+each hand-roll today. kolu-tui's MCP face is therefore the *third consumer* of
+that scaffold, which meets the unification gate `padi.mdx` records: the shared
+scaffold gets extracted (a small leaf) as part of this PR rather than a third
+copy. Second, `wait.outputSettled` consumes the `terminalAttach` `{seq}`
+stream *without rendering it* — a second, non-canvas consumer of the named
+graduation path, which strengthens the pin (the stream must serve a
+byte-watcher and a renderer from one subscription discipline).
 
 ### Across padi/kaval restarts
 
