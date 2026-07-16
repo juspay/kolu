@@ -18,7 +18,6 @@
  */
 
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
 import { app } from "../wire";
 
 // `server` is genuinely host-independent (kolu-server's own boot time, one process
@@ -29,11 +28,7 @@ import { app } from "../wire";
 // torn down a microtask after load with no owner to keep its listener count above zero.
 // Wrapped in an app-lifetime `createRoot` so it survives for the session (the
 // `useDaemonStatus.ts`/`useHostInventory.ts` idiom).
-const sub = createRoot(() =>
-  app.cells.processStartedAt.use({
-    onError: (err) => toast.error(`Uptime readout error: ${err.message}`),
-  }),
-);
+const sub = createRoot(() => app.cells.processStartedAt.use());
 
 /** kolu-server's boot time (ms epoch), or `null` before the first server yield (the
  *  `0` seed maps to `null` so a consumer never renders `now − 0` as an uptime). The

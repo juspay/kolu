@@ -34,8 +34,14 @@
 // `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
 // the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
 // `kolu-common/surface` importers are unchanged.
-import { HostDaemonInventorySchema } from "@kolu/padi/surface";
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  HostDaemonInventorySchema,
+  type ToastOnlyPolicy,
+} from "@kolu/padi/surface";
+import {
+  defineSurfaceWithPolicy,
+  type SurfaceTypes,
+} from "@kolu/surface/define";
 import {
   type BuildInfo,
   defineBuildInfo,
@@ -53,6 +59,12 @@ import { z } from "zod";
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
 // them here — the schema home moved to the daemon-domain package, the consumers didn't.
 export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
+// kolu's app-owned client-error-policy union (SR11) — its home is `@kolu/padi`
+// (so `padiSurface`'s members can reference it without the seal-forbidden
+// `@kolu/padi → kolu-common` import); re-exported HERE so `koluSurface` above and
+// the kolu client (`interpretClientError` in `wire.ts`) reach it through their
+// usual `kolu-common/surface` door.
+export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
@@ -558,7 +570,7 @@ export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
  *  (injected INTO padi at boot) until W2.2 gives padi its own state-root. So this
  *  surface serves NO collections and NO events. surface-app's buildInfo/identity
  *  ride the sibling surface above, not here. */
-export const koluSurface = defineSurface({
+export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
      *  on disk. Storage is flat (no discriminated-union subtrees), so the
@@ -571,6 +583,15 @@ export const koluSurface = defineSurface({
       patch: applyPreferencesPatch,
       // `test__set` exposed for e2e fixtures.
       verbs: ["get", "patch", "test__set"],
+      // Local-authority on the client (optimistic writes, server-canonical on disk);
+      // the coalesce window trailing-debounces size drags (#1041). NO `initial` — the
+      // local store seeds from the mandatory `default` above. `onError` covers both a
+      // subscription drop and a coalesced-flush failure.
+      client: {
+        authority: "local",
+        coalesceMs: 150,
+        onError: { kind: "toast", label: "Preferences" },
+      },
     },
 
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
@@ -592,6 +613,7 @@ export const koluSurface = defineSurface({
       // A sub-MB RSS wobble never re-publishes to every connected client.
       equals: processMemoryMbEqual,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Memory readout" } },
     },
 
     /** kolu-server's live view of its binding to the local padi (see
@@ -609,6 +631,7 @@ export const koluSurface = defineSurface({
       // re-publishes to every connected client.
       equals: (a, b) => a === b,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "padi link status" } },
     },
 
     /** Live boot-time readout (kolu-server + padi) for the rail's uptime (see
@@ -627,6 +650,7 @@ export const koluSurface = defineSurface({
       // unchanged never re-publishes.
       equals: (a, b) => a.server === b.server && a.padi === b.padi,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Uptime readout" } },
     },
 
     /** The host-daemon inventory — every running kaval + padi on this host, each
@@ -649,6 +673,7 @@ export const koluSurface = defineSurface({
       // lists are tiny, a handful of daemons at most).
       equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Daemon inventory" } },
     },
   },
 });
