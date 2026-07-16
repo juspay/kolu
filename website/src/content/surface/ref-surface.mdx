@@ -339,23 +339,27 @@ oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
 
 ### `serveOverStdio` lifetime — selected by construction
 
-`serveOverStdio({ router })` never rejects: it resolves `{ reason: "end" |
-"error", error? }` when the read stream ends. What happens *next* is selected
-by the same construction that picks the transport:
+`serveOverStdio({ router })` never rejects: it resolves a discriminated
+`{ reason: "end" } | { reason: "error", error }` when the read stream ends.
+The `reason` classification is **arm-independent**: clean teardown reads as
+`"end"` from *both* directions — a clean EOF (the peer closed its end) and a
+benign write death (`EPIPE`/`ERR_STREAM_DESTROYED`, the peer's read side
+vanishing mid-push) — while `"error"` is reserved for a genuinely abnormal
+death (a read error, a decode failure, a non-benign write failure). What
+happens *after* the resolve is selected by the same construction that picks
+the transport:
 
 - **No `transport` override** (the default `process.stdin`/`stdout` — the
   subprocess-agent case): the process IS the agent, and the framework owns
   its lifetime. After the returned promise settles — every synchronous
   post-settle continuation (an `await`-site's `dispose()` + log) still runs —
-  the framework **exits the process**: `0` for a clean end, `1` for a
-  transport error. There is no opt-out: a live handle (a poll interval, a
-  watcher) can no longer keep an agent alive after its link died. Clean
-  teardown reads as `"end"`/exit 0 from *both* directions — stdin EOF and a
-  benign write death (`EPIPE`/`ERR_STREAM_DESTROYED`) when the parent's read
-  side vanishes mid-push.
+  the framework **exits the process**: `0` for `"end"`, `1` for `"error"`.
+  There is no opt-out: a live handle (a poll interval, a watcher) can no
+  longer keep an agent alive after its link died.
 - **Explicit `transport`** (loopback pairs in tests, a socket, any embedded
   peer): the promise resolves the value and the **caller** owns the process
-  lifetime — unchanged.
+  lifetime, as before. *(The resolved value itself did change: a benign
+  write death used to read `"error"` here and now reads `"end"`.)*
 
 ### The retry contract (`@kolu/surface/client`)
 

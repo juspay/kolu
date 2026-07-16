@@ -16,6 +16,7 @@
  *                     stdin because a parent closing its pipe end is a clean
  *                     EOF, not an error.
  */
+import { setTimeout as delay } from "node:timers/promises";
 import { implement } from "@orpc/server";
 import { serveOverStdio } from "./peer-server";
 import { lifetimeContract } from "./peer-server.lifetime.contract";
@@ -26,7 +27,7 @@ const router = t.router({
   tick: t.tick.handler(async function* () {
     for (let n = 0; ; n++) {
       yield { n };
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await delay(25);
     }
   }),
 });

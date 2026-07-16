@@ -17,15 +17,14 @@
  * see the deliberately-broken `--broken-stdout-log` variant in the
  * remote-process-monitor example's agent.
  *
- * **Defensive measure**: when `transport` is unset *and* this module
- * detects it's running as an stdio agent (the typical case — explicit
- * `--stdio` arg or no TTY on stdout), it preemptively redirects
- * `console.log` to `process.stderr`. This catches the most common
- * accidental writes; consumers that use third-party loggers (pino, etc.)
- * must still configure them to fd 2 themselves. The detection is
- * intentionally tight (explicit signal only) so the function stays safe
- * to call from non-agent contexts (e.g. tests using a `LoopbackPair`)
- * without surprising stderr redirection.
+ * **Defensive measure**: when `transport` is unset — the one and only
+ * discriminant, the same construction-time flag that drives the Lifetime
+ * section below; there is no argv or TTY detection — this module
+ * preemptively redirects `console.log` to `process.stderr`. This catches
+ * the most common accidental writes; consumers that use third-party
+ * loggers (pino, etc.) must still configure them to fd 2 themselves.
+ * Non-agent contexts (tests using a `LoopbackPair`, unix-socket per-peer
+ * serves) pass an explicit `transport` and are untouched.
  *
  * ## Pass the router directly — no wrapping
  *
@@ -54,9 +53,11 @@
  * alive, link dead" is not a spellable state.
  *
  * An explicit `transport` override (loopback pairs in tests, a unix-socket
- * connection, any embedded peer) keeps today's semantics: the promise
- * resolves with how serving ended and the **caller** owns the process
- * lifetime.
+ * connection, any embedded peer): the promise resolves with how serving
+ * ended and the **caller** owns the process lifetime. (The `reason`
+ * classification itself — including benign write deaths reading as `"end"`,
+ * see `ServeOverStdioEnd` — is arm-independent; only lifetime ownership
+ * differs between the arms.)
  *
  * Post-settle work on the default arm: everything reachable from the settled
  * promise's microtask cascade (an `await serveOverStdio(…)` continuation
@@ -109,21 +110,29 @@ export interface StdioTransport {
 /** How a `serveOverStdio` call ended. `serveOverStdio` NEVER rejects —
  *  serving ends when the read stream does, and both ways it does so are
  *  ordinary peer-lifecycle events, not exceptional states for the serving
- *  process: `"end"` is a clean EOF (the peer closed its end / the parent
- *  exited), `"error"` is an abrupt transport death (peer reset, a pipe torn
- *  mid-frame), with the cause in `error`.
+ *  process. `"end"` is clean teardown from EITHER direction: a clean EOF
+ *  (the peer closed its end / the parent exited) or a benign write death
+ *  (`EPIPE`/`ERR_STREAM_DESTROYED` — the peer's read side vanished
+ *  mid-push; the funnel below classifies it with the codec's
+ *  `isBenignWriteError`). `"error"` is a genuinely abnormal death — a read
+ *  error, a malformed-frame decode failure, or a non-benign write failure
+ *  — with the cause in `error`. This classification applies on BOTH arms
+ *  (default and explicit transport); the arms differ only in who owns the
+ *  process lifetime afterwards.
  *
  *  Rejecting on transport error was a crash footgun: a host serving many
  *  short-lived peers (e.g. `serveOverUnixSocket`'s per-connection serves)
  *  fires one of these promises per peer, and an un-`.catch()`-ed rejection
  *  from any flaky client became an unhandled rejection — fatal under
  *  `process.exit(1)`-on-unhandledRejection policies. A settled result makes
- *  the no-crash path the default; callers that care inspect `reason`. */
-export interface ServeOverStdioEnd {
-  reason: "end" | "error";
-  /** The read-stream error when `reason === "error"`. */
-  error?: unknown;
-}
+ *  the no-crash path the default; callers that care inspect `reason`.
+ *
+ *  A discriminated union, so "a clean end carrying an error" and "an
+ *  abnormal death with no cause" are unrepresentable — narrowing on
+ *  `reason` is the one honest way to ask "did it fail?". */
+export type ServeOverStdioEnd =
+  | { reason: "end" }
+  | { reason: "error"; error: unknown };
 
 export interface ServeOverStdioOptions<T extends Context> {
   /** Top-level router accepted by `StandardRPCHandler`. An
@@ -214,6 +223,12 @@ export function serveOverStdio<T extends Context>(
   // exit 0 and exit 1 — which ssh propagates to Restart=on-failure units and
   // CI wrappers). Destroy without an error → 'close' → `reason: "end"`; a
   // real write failure still carries its error → `reason: "error"`.
+  //
+  // Honest limit: that error-carrying holds for a real write failure that
+  // PRECEDES the read side's settle. One arriving after a clean EOF has
+  // already resolved the promise is absorbed — the read stream ending is
+  // the definition of serving ending, and re-opening a settled result for
+  // a late writer-side fault would be a second source of truth.
   transport.write.on("error", (err) => {
     if (transport.read.destroyed) return;
     transport.read.destroy(isBenignWriteError(err) ? undefined : err);

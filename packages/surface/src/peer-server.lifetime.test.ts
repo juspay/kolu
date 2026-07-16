@@ -24,6 +24,11 @@
  */
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
+import {
+  setImmediate as macrotask,
+  setTimeout as delay,
+} from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
@@ -65,7 +70,12 @@ function spawnAgent(...modeArgs: string[]): ChildProcessWithoutNullStreams {
   return child;
 }
 
-/** Resolve when `marker` has appeared on the child's stderr. */
+/** Resolve when `marker` has appeared on the child's stderr. Rejects on
+ *  'close' (all stdio drained — 'exit' can fire with stderr bytes still in
+ *  the pipe) if the marker never arrived; pre-caught so an unawaited
+ *  instance (used only via `seen()`) can never float an unhandled
+ *  rejection, while awaiting callers still see the rejection through their
+ *  own reference. */
 function stderrMarker(
   child: ChildProcessWithoutNullStreams,
   marker: string,
@@ -76,32 +86,36 @@ function stderrMarker(
       buf += chunk.toString();
       if (buf.includes(marker)) resolve();
     });
-    child.once("exit", () =>
+    child.once("close", () =>
       reject(
-        new Error(`child exited before stderr marker "${marker}": ${buf}`),
+        new Error(`child closed before stderr marker "${marker}": ${buf}`),
       ),
     );
   });
+  until.catch(() => {});
   return { seen: () => buf, until };
 }
 
-function waitExit(
+/** Await the child's 'close' (exit AND stdio drained — the stderr
+ *  assertions that follow must see the final flush; 'exit' does not
+ *  guarantee it), bounded by a deadline. Only the deadline is translated
+ *  into the drishti#109 diagnostic; any other rejection (e.g. a spawn
+ *  'error') surfaces as itself. */
+async function waitExit(
   child: ChildProcessWithoutNullStreams,
   ms: number,
 ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(
-        new Error(
-          `child (pid ${child.pid}) did not exit within ${ms}ms — the immortal-orphan class (drishti#109)`,
-        ),
-      );
-    }, ms);
-    child.once("exit", (code, signal) => {
-      clearTimeout(timer);
-      resolve({ code, signal });
-    });
-  });
+  try {
+    const [code, signal] = (await once(child, "close", {
+      signal: AbortSignal.timeout(ms),
+    })) as [number | null, NodeJS.Signals | null];
+    return { code, signal };
+  } catch (err) {
+    if ((err as { code?: unknown }).code !== "ABORT_ERR") throw err;
+    throw new Error(
+      `child (pid ${child.pid}) did not exit within ${ms}ms — the immortal-orphan class (drishti#109)`,
+    );
+  }
 }
 
 describe("serveOverStdio lifetime — default transport (the process IS the agent)", () => {
@@ -171,9 +185,10 @@ describe("serveOverStdio lifetime — explicit transport override (caller owns l
       expect(end.reason).toBe("end");
 
       // Drain past where the default arm schedules its exit fork
-      // (setImmediate) — nothing may fire here.
-      await new Promise((resolve) => setImmediate(resolve));
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // (setImmediate) — nothing may fire here. (Promisified setImmediate
+      // resolves after the callback-form setImmediate the fork would use.)
+      await macrotask();
+      await delay(20);
       expect(exitSpy).not.toHaveBeenCalled();
     } finally {
       exitSpy.mockRestore();

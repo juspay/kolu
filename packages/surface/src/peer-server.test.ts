@@ -54,22 +54,41 @@ describe("serveOverStdio — settled-result contract", () => {
     await expect(serving).resolves.toEqual({ reason: "error", error: reset });
   });
 
-  it("resolves — never rejects — when the WRITE stream errors (broken stdout pipe)", async () => {
-    // The write half is the symmetric footgun to the read half above: our
-    // stdout pipe can break (the parent exited, the unix-socket peer reset)
-    // while the read half is still open. A failed write emits 'error' on the
-    // write stream, and an 'error' with no listener is a hard crash — the
-    // same `process.exit(1)`-on-unhandled death the read side already guards.
-    // Serving must end the same way a read death ends it: a settled
-    // `{ reason: "error", error }`, never a crash.
+  it("resolves — never rejects — on a NON-benign write failure (reason 'error')", async () => {
+    // The write half is the symmetric footgun to the read half above: a
+    // failed write emits 'error' on the write stream, and an 'error' with no
+    // listener is a hard crash — the same `process.exit(1)`-on-unhandled
+    // death the read side already guards. A write failure that is NOT a
+    // benign peer-gone death (no EPIPE/ERR_STREAM_DESTROYED code — e.g. an
+    // EIO/EACCES on a redirected stdout) is genuinely abnormal: serving ends
+    // as a settled `{ reason: "error", error }`, never a crash.
     const read = new PassThrough();
     const write = new PassThrough();
     const serving = serveOverStdio({
       router: buildRouter(),
       transport: { read, write },
     });
-    const broken = new Error("write EPIPE");
+    const broken = Object.assign(new Error("write EIO"), { code: "EIO" });
     write.destroy(broken);
     await expect(serving).resolves.toEqual({ reason: "error", error: broken });
+  });
+
+  it("resolves with reason 'end' on a BENIGN write death (peer-gone EPIPE)", async () => {
+    // The other write-error arm: a real broken pipe (the parent exited, the
+    // unix-socket peer reset) carries code EPIPE, which the codec's
+    // `isBenignWriteError` classifies as clean peer-gone teardown. The
+    // funnel destroys the read stream WITHOUT the error, so the serve
+    // settles `{ reason: "end" }` — exactly like a clean EOF, on BOTH arms
+    // (this pins the override arm at the unit level; the default arm's
+    // exit-0 twin lives in peer-server.lifetime.test.ts).
+    const read = new PassThrough();
+    const write = new PassThrough();
+    const serving = serveOverStdio({
+      router: buildRouter(),
+      transport: { read, write },
+    });
+    const gone = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    write.destroy(gone);
+    await expect(serving).resolves.toEqual({ reason: "end" });
   });
 });
