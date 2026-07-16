@@ -204,8 +204,18 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  fail-fast rule rejects. Its consequence is the graceful padi-ONLY drain every
  *  code-change deploy already pays (a newer binder drains the straddling 3.x padi —
  *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
- *  padi-surface bump does not touch the kaval contract. */
-export const PADI_SURFACE_VERSION = "4.0";
+ *  padi-surface bump does not touch the kaval contract.
+ *
+ *  4.1 (additive · minor): the `activity` stream's input LOOSENS from
+ *  `z.object({})` to `z.object({}).optional()` — the stream carries no
+ *  parameters, and the kolu MCP face (`kolu mcp`, the kolu-cli plan's PR2)
+ *  reads a no-input stream as a subscribable static resource via
+ *  `.get(undefined)`, which the bare object schema would reject. Loosening is
+ *  one-directional: every existing `{}` caller still validates against a 4.1
+ *  padi, while a 4.1 client that SENDS `undefined` against a 4.0 padi would be
+ *  rejected — exactly the old-daemon/new-client skew a minor bump gates (the
+ *  4.1 client refuses the 4.0 padi with the honest "upgrade" line). */
+export const PADI_SURFACE_VERSION = "4.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -786,9 +796,13 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
   streams: {
     /** The set of terminals producing output RIGHT NOW — snapshot-then-deltas,
      *  each frame the full current live set. DELTA/fail-through: a mid-chain
-     *  disconnect terminates the downstream stream so a fresh snapshot re-seeds. */
+     *  disconnect terminates the downstream stream so a fresh snapshot re-seeds.
+     *  The input accepts `undefined` beside the historical `{}` (4.1): the
+     *  stream carries no parameters, and the MCP face reads a no-input stream
+     *  as a static resource via `.get(undefined)` — a bare `z.object({})`
+     *  would reject that read at the boundary. */
     activity: {
-      inputSchema: z.object({}),
+      inputSchema: z.object({}).optional(),
       outputSchema: z.array(TerminalIdSchema),
     },
     /** Live change-pulses for a repo's working tree + git dir. Value-bearing
