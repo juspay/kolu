@@ -98,6 +98,7 @@ let
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
+      ./packages/kolu-cli
       ./packages/padi
       ./packages/padi-tui
       ./packages/server
@@ -460,7 +461,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
-      --add-flags "${koluStamped}/packages/server/src/index.ts" \
+      --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \

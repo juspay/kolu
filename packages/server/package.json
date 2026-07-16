@@ -6,7 +6,6 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
     "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" vitest run --fileParallelism=false"
   },
@@ -31,7 +30,6 @@
     "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
-    "cleye": "^2.3.0",
     "conf": "^15.1.0",
     "hono": "^4.12.25",
     "hono-pino": "^0.10.3",
@@ -57,6 +55,7 @@
     "@babel/parser": "^7.29.2",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
+    "cleye": "^2.3.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

@@ -396,8 +396,11 @@ hides — decide where code lives, so a capability that hides transport, or GPU
 context, or persistence is its own package with the dependency arrow pointing
 _out_. The map, grouped:
 
-- **Faces** — `client` (SolidJS + xterm.js + Tailwind) and `server` (the Hono web
-  shell that serves the SPA, the preview route, and the websocket, and binds padi).
+- **Faces** — `client` (SolidJS + xterm.js + Tailwind), `server` (the Hono web
+  shell that serves the SPA, the preview route, and the websocket, and binds padi),
+  and `kolu-cli` (the `kolu` binary itself — the composition root that owns
+  subcommand dispatch and boots the server's web face; `kolu tui` and `kolu mcp`
+  are reserved for later faces).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
   terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
   PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
