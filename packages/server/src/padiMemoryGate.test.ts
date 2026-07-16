@@ -13,37 +13,46 @@
  *    still reads `connected` (the frame carries no "destroyed" phase), so the named leaf
  *    covers the whole decision and no caller must AND in `!isDestroyed()` by hand.
  */
-import type { SessionState } from "@kolu/surface-remote";
+import type { SessionState, SshProv } from "@kolu/surface-remote";
+import { match } from "ts-pattern";
 import { describe, expect, it } from "vitest";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
 
-/** A minimal valid `SessionState` for any phase (only `.phase` is read). Typed at the
- *  `SessionState<string>` phase top so it also covers the remote arm's provisioning phases
- *  (`probing`/`copying`/`building`) a `PadiSession<SshProv>` can pass into the gate — the
- *  provisioning phases are up-arms with the same shape as `connecting`. */
-const at = (phase: SessionState<string>["phase"]): SessionState<string> => {
-  switch (phase) {
-    case "connected":
-      return { phase, clockOffset: null, log: [], sinceMs: 0 };
-    case "disconnected":
-      return {
-        phase,
-        error: "link down",
-        cause: "network",
-        log: [],
-        sinceMs: 0,
-      };
-    case "failed":
-      return { phase, error: "gave up", cause: "remote", log: [], sinceMs: 0 };
-    default:
-      return { phase, log: [], sinceMs: 0 };
-  }
-};
+/** A minimal valid `SessionState` for any phase. Typed at the REMOTE arm `SshProv`
+ *  (`SessionState<SshProv>` — a closed 7-phase union), which is assignable to the gate's
+ *  `SessionState<string>` param, so the fixture also covers the provisioning phases
+ *  (`probing`/`copying`/`building`) a `PadiSession<SshProv>` passes in. `.exhaustive()` over
+ *  the closed union means a new phase forces this fixture to compile-fail until handled. */
+const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
+  match<typeof phase, SessionState<SshProv>>(phase)
+    .with("connected", (p) => ({ phase: p, clockOffset: null, log: [], sinceMs: 0 }))
+    .with("disconnected", (p) => ({
+      phase: p,
+      error: "link down",
+      cause: "network",
+      log: [],
+      sinceMs: 0,
+    }))
+    .with("failed", (p) => ({
+      phase: p,
+      error: "gave up",
+      cause: "remote",
+      log: [],
+      sinceMs: 0,
+    }))
+    // The up-but-not-connected arms (local `connecting` + the remote provisioning phases)
+    // share one shape — collapsed with a multi-pattern `.with`.
+    .with("connecting", "probing", "copying", "building", (p) => ({
+      phase: p,
+      log: [],
+      sinceMs: 0,
+    }))
+    .exhaustive();
 
 /** A two-line fake session carrying just the two accessors the leaf reads. */
 const session = (opts: {
   destroyed: boolean;
-  phase: SessionState<string>["phase"];
+  phase: SessionState<SshProv>["phase"];
 }) => ({
   isDestroyed: () => opts.destroyed,
   currentState: () => at(opts.phase),
