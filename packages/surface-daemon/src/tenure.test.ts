@@ -11,7 +11,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -30,6 +30,7 @@ const FIXTURE = fileURLToPath(
 const EXIT_WAIT_MS = 4_000;
 
 const children: ChildProcessWithoutNullStreams[] = [];
+const tmpDirs: string[] = [];
 afterEach(() => {
   // Exact-handle teardown only: kill the PIDs we spawned, never a pattern.
   for (const child of children.splice(0)) {
@@ -37,10 +38,17 @@ afterEach(() => {
       child.kill("SIGKILL");
     }
   }
+  // And the per-child tmpdirs, so repeated runs don't silt up /tmp. Safe even
+  // when the SIGKILL above hasn't reaped yet: the fixture only ever touches
+  // its dir at boot (gate + socket bind), long past by teardown.
+  for (const dir of tmpDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function spawnBin(mode: string): ChildProcessWithoutNullStreams {
   const dir = mkdtempSync(join(tmpdir(), "tenure-pin-"));
+  tmpDirs.push(dir);
   const child = spawn(
     process.execPath,
     ["--import", "tsx", FIXTURE, mode, dir],

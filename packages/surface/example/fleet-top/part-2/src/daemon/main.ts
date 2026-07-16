@@ -39,20 +39,24 @@ daemonProcessMain({
     const top = createTop();
     top.start();
 
-    const exit = await daemonMain({
-      gatePath: GATE_PATH,
-      socketPath: SOCKET_PATH,
-      router: top.router,
-      lifetime: { kind: "forever" },
-      log: stderrLogger(),
-      onReady: ({ socketPath, pid }) =>
-        process.stderr.write(
-          `fleet-top daemon listening on ${socketPath} (pid ${pid})\n`,
-        ),
-    });
-
-    // Release resources BEFORE returning: the exit runs strictly after.
-    top.dispose();
-    return exit;
+    // `finally`, not fulfilled-only: the release stage must run on the crash
+    // arm too (a daemonMain rejection reaches daemonProcessMain AFTER the
+    // sampler is disposed) — the same wrapper-finally teardown ordering
+    // kaval and padi use. The exit runs strictly after either way.
+    try {
+      return await daemonMain({
+        gatePath: GATE_PATH,
+        socketPath: SOCKET_PATH,
+        router: top.router,
+        lifetime: { kind: "forever" },
+        log: stderrLogger(),
+        onReady: ({ socketPath, pid }) =>
+          process.stderr.write(
+            `fleet-top daemon listening on ${socketPath} (pid ${pid})\n`,
+          ),
+      });
+    } finally {
+      top.dispose();
+    }
   },
 });

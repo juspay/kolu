@@ -249,20 +249,32 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     // means an invalid `boundToPid` pid (the guard throw) crashes BEFORE
     // ready is ever announced — a daemon that cannot arm its lifetime must
     // not claim to be up.
-    const { shutdown, disarm } = waitForShutdown(lifetime, signal);
+    const { shutdown, disarm, alreadyOver } = waitForShutdown(lifetime, signal);
 
-    try {
-      log.info({ socketPath, gatePath, pid: process.pid }, "daemon listening");
-      spec.onReady?.({ socketPath, pid: process.pid });
-    } catch (err) {
-      // The announcement threw — the daemon never became visible, so the
-      // armed lifetime must not outlive this call: `disarm` removes the
-      // signal handlers and poll timers that would otherwise leak across a
-      // test running many daemons (the exact leak `waitForShutdown`'s
-      // cleanup discipline exists to prevent). The outer `finally` still
-      // releases the socket and gate.
-      disarm();
-      throw err;
+    // Shutdown can win DURING arming (an already-aborted external signal, an
+    // already-dead bound pid): the daemon was never meaningfully up, so it
+    // must not claim to be — skip the announcement and fall through to the
+    // ordinary teardown. Announcing here would advertise an UNARMED process
+    // (`finish` already stood the triggers down): an announcement-triggered
+    // SIGTERM would meet the kernel's default disposition and kill the
+    // process before the wrapper release stages (observed as exit 143).
+    if (!alreadyOver) {
+      try {
+        log.info(
+          { socketPath, gatePath, pid: process.pid },
+          "daemon listening",
+        );
+        spec.onReady?.({ socketPath, pid: process.pid });
+      } catch (err) {
+        // The announcement threw — the daemon never became visible, so the
+        // armed lifetime must not outlive this call: `disarm` removes the
+        // signal handlers and poll timers that would otherwise leak across a
+        // test running many daemons (the exact leak `waitForShutdown`'s
+        // cleanup discipline exists to prevent). The outer `finally` still
+        // releases the socket and gate.
+        disarm();
+        throw err;
+      }
     }
 
     const reason = await shutdown;
@@ -295,6 +307,12 @@ function waitForShutdown(
 ): {
   shutdown: Promise<"signal" | "abort" | "idle" | "pid-gone">;
   disarm: () => void;
+  /** Shutdown won DURING arming (an already-aborted external signal, an
+   *  already-dead bound pid): `shutdown` is already resolved and the triggers
+   *  already stood down. The caller must NOT announce readiness — the daemon
+   *  was never meaningfully up, and an announcement-triggered signal would
+   *  meet the kernel's default disposition (observed as exit 143). */
+  alreadyOver: boolean;
 } {
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
   // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
@@ -405,5 +423,7 @@ function waitForShutdown(
       }
     },
   );
-  return { shutdown, disarm };
+  // `armed` flipped during construction ⇔ a trigger fired synchronously
+  // (`finish` disarms before resolving), so this read IS the already-over fact.
+  return { shutdown, disarm, alreadyOver: !armed };
 }

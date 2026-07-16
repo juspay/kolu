@@ -197,8 +197,9 @@ describe("daemonMain", () => {
     expect(existsSync(socketPath)).toBe(false); // socket removed
   });
 
-  it("exits immediately when bound to an already-dead pid (boundToPid)", async () => {
+  it("exits immediately when bound to an already-dead pid (boundToPid) — WITHOUT announcing readiness", async () => {
     const { gatePath, socketPath } = paths();
+    let announced = 0;
     const exit = await daemonMain({
       gatePath,
       socketPath,
@@ -207,9 +208,40 @@ describe("daemonMain", () => {
       // BEFORE the first tick, so a slow poll must not be able to mask it.
       lifetime: { kind: "boundToPid", pid: await deadPid(), pollMs: 60_000 },
       log: silentLog,
+      // Shutdown won during arming, so the daemon was never meaningfully up:
+      // announcing it would advertise an UNARMED process (the triggers
+      // already stood down) — a readiness-triggered SIGTERM would take the
+      // kernel's default disposition (exit 143) instead of the orderly path.
+      onReady: () => {
+        announced += 1;
+      },
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "pid-gone" });
+    expect(announced).toBe(0);
     expect(liveHolder(gatePath)).toBeUndefined();
+    expect(existsSync(socketPath)).toBe(false);
+  });
+
+  it("resolves an already-aborted external signal as a clean abort — WITHOUT announcing readiness", async () => {
+    const { gatePath, socketPath } = paths();
+    const ac = new AbortController();
+    ac.abort(); // aborted before the daemon ever arms
+    let announced = 0;
+    const exit = await daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      signal: ac.signal,
+      onReady: () => {
+        announced += 1;
+      },
+    });
+    expect(exit).toEqual({ kind: "shutdown", reason: "abort" });
+    expect(announced).toBe(0);
+    expect(liveHolder(gatePath)).toBeUndefined();
+    expect(existsSync(socketPath)).toBe(false);
   });
 
   it("rejects a boundToPid lifetime with an invalid pid — releasing the gate (fail-fast at consumption)", async () => {
