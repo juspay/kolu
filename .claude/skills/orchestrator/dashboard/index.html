@@ -49,8 +49,6 @@
     padding:0 12px; display:grid; gap:10px;
     grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));
   }
-  section > h2 { grid-column:1 / -1 }
-  section > .pills, section > .empty { grid-column:1 / -1 }
   h2 {
     font-size:11px; font-weight:700; letter-spacing:.28em; text-transform:uppercase;
     color:var(--dim); margin:22px 4px 2px; display:flex; align-items:center; gap:8px;
@@ -157,6 +155,12 @@
   .pill.s-done  { border-color:transparent; color:var(--done); background:var(--panel2) }
   .pill.s-q     { border-style:dashed; color:var(--dim) }
   .empty { color:var(--dim); font-size:12px; padding:2px 4px }
+
+  /* Full-width rows inside the section grid — placed AFTER the generic
+     h2/.pills/.empty definitions (biome noDescendingSpecificity); the
+     property sets don't overlap, so the cascade is unchanged. */
+  section > h2 { grid-column:1 / -1 }
+  section > .pills, section > .empty { grid-column:1 / -1 }
 
   details.shipped summary {
     cursor:pointer; list-style:none; font-size:11px; font-weight:700;

@@ -62,9 +62,7 @@ const station = (n) => {
 const trackCard = (item) => {
   // headline: prefer the deepest live detail; else the macro rail's own
   const liveNode = item.nodes.find((n) => n.lane);
-  const head = liveNode
-    ? headline(liveNode.lane.nodes)
-    : headline(item.nodes);
+  const head = liveNode ? headline(liveNode.lane.nodes) : headline(item.nodes);
   const card = $("div", `card s-${head.state ?? "q"}`);
 
   const hd = $("div", "card-head");
@@ -97,13 +95,21 @@ const trackCard = (item) => {
     if (!n.lane) return;
     const sub = $("div", "sub-lane");
     const shd = $("div", "sub-head");
-    const t = $(n.lane.href ? "a" : "span", "sub-title", n.lane.name ?? n.label);
-    if (n.lane.href) { t.href = n.lane.href; t.title = "jump to this agent's terminal"; badge(t, n.lane.href); }
+    const t = $(
+      n.lane.href ? "a" : "span",
+      "sub-title",
+      n.lane.name ?? n.label,
+    );
+    if (n.lane.href) {
+      t.href = n.lane.href;
+      t.title = "jump to this agent's terminal";
+      badge(t, n.lane.href);
+    }
     shd.appendChild(t);
     if (n.lane.sub) shd.appendChild($("span", "lane-sub", n.lane.sub));
     sub.appendChild(shd);
     const srail = $("div", "rail rail-sub");
-    n.lane.nodes.forEach((x) => srail.appendChild(station(x)));
+    for (const x of n.lane.nodes) srail.appendChild(station(x));
     sub.appendChild(srail);
     card.appendChild(sub);
   });
@@ -112,7 +118,10 @@ const trackCard = (item) => {
 
 const pill = (n) => {
   const el = $(n.href ? "a" : "span", `pill s-${n.state ?? "q"}`, n.label);
-  if (n.href) { el.href = n.href; badge(el, n.href); }
+  if (n.href) {
+    el.href = n.href;
+    badge(el, n.href);
+  }
   if (n.title) el.title = n.title;
   return el;
 };
@@ -121,8 +130,14 @@ let painted = false;
 
 function render(d) {
   const meta = document.getElementById("meta");
-  meta.replaceChildren($("span", "live-dot"),
-    $("span", null, `${d.project ? d.project + " · " : ""}${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
+  meta.replaceChildren(
+    $("span", "live-dot"),
+    $(
+      "span",
+      null,
+      `${d.project ? `${d.project} · ` : ""}${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`,
+    ),
+  );
 
   const root = document.getElementById("root");
   root.replaceChildren();
@@ -145,13 +160,13 @@ function render(d) {
   const q = section("Merge queue · srid");
   const qp = $("div", "pills");
   if (d.queue.length === 0) qp.appendChild($("span", "empty", "— empty —"));
-  d.queue.forEach((n) => qp.appendChild(pill(n)));
+  for (const n of d.queue) qp.appendChild(pill(n));
   q.appendChild(qp);
 
   const det = $("details", "shipped");
   det.appendChild($("summary", null, `Shipped today · ${d.shipped.length}`));
   const sp = $("div", "pills");
-  d.shipped.forEach((n) => sp.appendChild(pill({ ...n, state: "done" })));
+  for (const n of d.shipped) sp.appendChild(pill({ ...n, state: "done" }));
   det.appendChild(sp);
   root.appendChild(det);
 
@@ -170,9 +185,15 @@ function reloadData() {
   s.src = `${DATA_SRC}?t=${Date.now()}`;
   s.onerror = () => {
     const meta = document.getElementById("meta");
-    if (meta) meta.replaceChildren(
-      $("span", "live-dot"),
-      $("span", null, "orchestrator-data.js not found at the project root — retrying in 30s"));
+    if (meta)
+      meta.replaceChildren(
+        $("span", "live-dot"),
+        $(
+          "span",
+          null,
+          "orchestrator-data.js not found at the project root — retrying in 30s",
+        ),
+      );
   };
   document.body.appendChild(s);
 }

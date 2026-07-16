@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-16T22:47:15.751956+00:00'
+generated_at: '2026-07-16T23:02:40.623690+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agents
@@ -19,6 +19,7 @@ dependencies:
   - .agents/skills/diataxis/SKILL.md
   - .agents/skills/kolu
   - .agents/skills/kolu/SKILL.md
+  - .agents/skills/kolu/TUI.md
   - .agents/skills/lens-debate
   - .agents/skills/lens-debate/SKILL.md
   - .agents/skills/lens-debate/debate.workflow.js
@@ -42,6 +43,7 @@ dependencies:
   - .claude/skills/diataxis/SKILL.md
   - .claude/skills/kolu
   - .claude/skills/kolu/SKILL.md
+  - .claude/skills/kolu/TUI.md
   - .claude/skills/lens-debate
   - .claude/skills/lens-debate/SKILL.md
   - .claude/skills/lens-debate/debate.workflow.js
@@ -59,12 +61,13 @@ dependencies:
     .agents/skills/be/SKILL.md: sha256:92ba0686110e83b93af94ffa8b5b87b561229e6169e56b8b03253200e0bf6b44
     .agents/skills/codex-debate/SKILL.md: sha256:373780e07a861b5ccd05e50f61a228452c53835009d82f2ab292f0427d8f3531
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
-    .agents/skills/kolu/SKILL.md: sha256:26232e19c3fda02de8dab2cc181ff226b4ebe71130d0f8f8655ec9ea5f6ec3b3
+    .agents/skills/kolu/SKILL.md: sha256:ac0ecb5b66fb76be4412fa557c0824c5f91f9ba2eae4e55eb92695e7c641b8fa
+    .agents/skills/kolu/TUI.md: sha256:6e2a818fad731780d36ed3fc3460debb95d084614c3f849159d1361af89c24ec
     .agents/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .agents/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
-    .agents/skills/orchestrator/SKILL.md: sha256:41a9b65e21a474b63e756659303843f9336a9879da53e185eb45f542dfc9cf73
-    .agents/skills/orchestrator/dashboard/index.html: sha256:c22436de4639cddec58372013ea5200733fc7d14001830df2569a3d7224c9ab1
-    .agents/skills/orchestrator/dashboard/index.js: sha256:9035264aa6cb388745f80491a6255847e50c2943fdc16a77755b3ed1e1573c40
+    .agents/skills/orchestrator/SKILL.md: sha256:b36262f495f958398726585d73798ba558e9e510c206431871166b0750b4ef1e
+    .agents/skills/orchestrator/dashboard/index.html: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
+    .agents/skills/orchestrator/dashboard/index.js: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .agents/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
@@ -72,12 +75,13 @@ dependencies:
     .claude/skills/be/SKILL.md: sha256:92ba0686110e83b93af94ffa8b5b87b561229e6169e56b8b03253200e0bf6b44
     .claude/skills/codex-debate/SKILL.md: sha256:373780e07a861b5ccd05e50f61a228452c53835009d82f2ab292f0427d8f3531
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
-    .claude/skills/kolu/SKILL.md: sha256:26232e19c3fda02de8dab2cc181ff226b4ebe71130d0f8f8655ec9ea5f6ec3b3
+    .claude/skills/kolu/SKILL.md: sha256:ac0ecb5b66fb76be4412fa557c0824c5f91f9ba2eae4e55eb92695e7c641b8fa
+    .claude/skills/kolu/TUI.md: sha256:6e2a818fad731780d36ed3fc3460debb95d084614c3f849159d1361af89c24ec
     .claude/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .claude/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
-    .claude/skills/orchestrator/SKILL.md: sha256:41a9b65e21a474b63e756659303843f9336a9879da53e185eb45f542dfc9cf73
-    .claude/skills/orchestrator/dashboard/index.html: sha256:c22436de4639cddec58372013ea5200733fc7d14001830df2569a3d7224c9ab1
-    .claude/skills/orchestrator/dashboard/index.js: sha256:9035264aa6cb388745f80491a6255847e50c2943fdc16a77755b3ed1e1573c40
+    .claude/skills/orchestrator/SKILL.md: sha256:b36262f495f958398726585d73798ba558e9e510c206431871166b0750b4ef1e
+    .claude/skills/orchestrator/dashboard/index.html: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
+    .claude/skills/orchestrator/dashboard/index.js: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .claude/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
   source: local
@@ -682,7 +686,16 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:26232e19c3fda02de8dab2cc181ff226b4ebe71130d0f8f8655ec9ea5f6ec3b3
+  content_hash: sha256:ac0ecb5b66fb76be4412fa557c0824c5f91f9ba2eae4e55eb92695e7c641b8fa
+- kind: project-relative
+  target: agents
+  value: .agents/skills/kolu/TUI.md
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:6e2a818fad731780d36ed3fc3460debb95d084614c3f849159d1361af89c24ec
 - kind: project-relative
   target: agents
   value: .agents/skills/lens-debate
@@ -835,7 +848,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:41a9b65e21a474b63e756659303843f9336a9879da53e185eb45f542dfc9cf73
+  content_hash: sha256:b36262f495f958398726585d73798ba558e9e510c206431871166b0750b4ef1e
 - kind: project-relative
   target: agents
   value: .agents/skills/orchestrator/dashboard/index.html
@@ -844,7 +857,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:c22436de4639cddec58372013ea5200733fc7d14001830df2569a3d7224c9ab1
+  content_hash: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
 - kind: project-relative
   target: agents
   value: .agents/skills/orchestrator/dashboard/index.js
@@ -853,7 +866,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:9035264aa6cb388745f80491a6255847e50c2943fdc16a77755b3ed1e1573c40
+  content_hash: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
 - kind: project-relative
   target: agents
   value: .agents/skills/parcel
@@ -1664,7 +1677,16 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:26232e19c3fda02de8dab2cc181ff226b4ebe71130d0f8f8655ec9ea5f6ec3b3
+  content_hash: sha256:ac0ecb5b66fb76be4412fa557c0824c5f91f9ba2eae4e55eb92695e7c641b8fa
+- kind: project-relative
+  target: claude
+  value: .claude/skills/kolu/TUI.md
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:6e2a818fad731780d36ed3fc3460debb95d084614c3f849159d1361af89c24ec
 - kind: project-relative
   target: claude
   value: .claude/skills/lens-debate
@@ -1817,7 +1839,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:41a9b65e21a474b63e756659303843f9336a9879da53e185eb45f542dfc9cf73
+  content_hash: sha256:b36262f495f958398726585d73798ba558e9e510c206431871166b0750b4ef1e
 - kind: project-relative
   target: claude
   value: .claude/skills/orchestrator/dashboard/index.html
@@ -1826,7 +1848,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:c22436de4639cddec58372013ea5200733fc7d14001830df2569a3d7224c9ab1
+  content_hash: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
 - kind: project-relative
   target: claude
   value: .claude/skills/orchestrator/dashboard/index.js
@@ -1835,7 +1857,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:9035264aa6cb388745f80491a6255847e50c2943fdc16a77755b3ed1e1573c40
+  content_hash: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
 - kind: project-relative
   target: claude
   value: .claude/skills/parcel
