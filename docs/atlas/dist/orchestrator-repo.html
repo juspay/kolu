@@ -113,6 +113,13 @@ overlay.</span></span></span></li>
 dependency for the git dependency — same vendoring flow (<code>just ai::apm</code>),
 now one repo among consumers instead of a subdirectory. A non-apm user just
 clones and points their agent at the skills directory.</li>
+<li><strong>One orchestrator, many projects</strong> (the point of the split, srid’s
+framing): the coordinator is not per-repo. One coordinator terminal +
+one skills clone + one shared AI config drives campaigns across EVERY
+project on the machine — the board’s <code>project</code> field and per-project
+<code>orchestrator-data.js</code> already assume it, and this campaign is the
+existence proof: kolu, drishti, and odu lanes ran from one coordinator
+today. The kolu repo then carries no agent skills at all.</li>
 <li><strong>Gate</strong>: kolu-cli <strong>PR2</strong> (<code>kolu mcp</code>). Before it, the skills’ only driving
 interface is the repo-specific CLI pair; after it, MCP-first with CLI
 fallback is exactly the portability line the diagram draws.</li>

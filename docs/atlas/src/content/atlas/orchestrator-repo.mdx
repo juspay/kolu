@@ -48,6 +48,13 @@ git clone https://github.com/srid/orchestrator ~/code/orchestrator
   dependency for the git dependency — same vendoring flow (`just ai::apm`),
   now one repo among consumers instead of a subdirectory. A non-apm user just
   clones and points their agent at the skills directory.
+- **One orchestrator, many projects** (the point of the split, srid's
+  framing): the coordinator is not per-repo. One coordinator terminal +
+  one skills clone + one shared AI config drives campaigns across EVERY
+  project on the machine — the board's `project` field and per-project
+  `orchestrator-data.js` already assume it, and this campaign is the
+  existence proof: kolu, drishti, and odu lanes ran from one coordinator
+  today. The kolu repo then carries no agent skills at all.
 - **Gate**: kolu-cli **PR2** (`kolu mcp`). Before it, the skills' only driving
   interface is the repo-specific CLI pair; after it, MCP-first with CLI
   fallback is exactly the portability line the diagram draws.
