@@ -268,6 +268,47 @@ const releases = await Promise.all(
     margin-top: 0.2rem;
   }
 
+  /* Subsection headings group entries by the docs page they belong to; each
+     links to that page, so the changelog reads as an index into the docs. */
+  .changelog :global(.prose-changelog h4) {
+    margin: 1.1rem 0 0.3rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    line-height: 1.2;
+    color: var(--color-ink);
+  }
+  .changelog :global(.prose-changelog h3 + h4) {
+    margin-top: 0.5rem;
+  }
+  .changelog :global(.prose-changelog h4 a) {
+    color: var(--color-ink);
+    text-decoration: none;
+    /* A persistent faint underline signals the heading is a link into the
+       docs; it strengthens and picks up the accent on hover/focus. */
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--color-kolu-primary) 28%, transparent);
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .changelog :global(.prose-changelog h4 a::after) {
+    content: " ↗";
+    font-size: 0.72em;
+    color: var(--color-ink-faint);
+  }
+  .changelog :global(.prose-changelog h4 a:hover),
+  .changelog :global(.prose-changelog h4 a:focus-visible) {
+    color: var(--color-kolu-primary);
+    border-bottom-color: var(--color-kolu-primary);
+  }
+  /* The trailing unthemed cluster (entries whose docs page had too few to earn a
+     heading): a hair of separation from the last subsection above it. */
+  .changelog :global(.prose-changelog .cl-fold) {
+    height: 0;
+    margin-top: 0.8rem;
+  }
+
   .changelog :global(.prose-changelog ul) {
     display: grid;
     gap: 0;
@@ -464,9 +505,27 @@ const releases = await Promise.all(
         (li) => (li as HTMLElement).style.display !== "none",
       );
       ul.style.display = empty ? "none" : "";
-      const h3 = ul.previousElementSibling;
-      if (h3 instanceof HTMLElement && h3.tagName === "H3")
-        h3.style.display = empty ? "none" : "";
+      // Each themed subsection list is preceded by its #### heading; hide it
+      // when its list is empty. (A trailing unthemed cluster is preceded by a
+      // .cl-fold divider, not a heading, so nothing to hide there.)
+      const prev = ul.previousElementSibling;
+      if (prev instanceof HTMLElement && prev.tagName === "H4")
+        prev.style.display = empty ? "none" : "";
+    }
+    // Hide a whole ### section whose every list (themed + unthemed) is hidden.
+    for (const h3 of document.querySelectorAll<HTMLElement>(
+      ".prose-changelog h3",
+    )) {
+      let anyVisible = false;
+      for (
+        let el = h3.nextElementSibling;
+        el && el.tagName !== "H3";
+        el = el.nextElementSibling
+      ) {
+        if (el.tagName === "UL" && (el as HTMLElement).style.display !== "none")
+          anyVisible = true;
+      }
+      h3.style.display = anyVisible ? "" : "none";
     }
     for (const article of document.querySelectorAll<HTMLElement>(
       ".release-stream > article",
