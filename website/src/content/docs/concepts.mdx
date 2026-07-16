@@ -8,7 +8,6 @@ koluHero:
   headline: The words that make {kolu} legible.
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
@@ -59,22 +58,12 @@ The split is covered in [Architecture](/architecture).
 
 ## The code browser
 
-The right-hand panel carries an **Inspector** tab and a **Code** tab. The Code
-tab is a file browser scoped to the active terminal's repo: a Pierre file tree
-with git-status tinting over a syntax-highlighted source view.
-
-- Click a `path/to/file.ts:42` reference in terminal output to jump to that line.
-- Markdown renders as a reading document with a Source/Rendered toggle.
-- Repo-relative links open the target file in the tab.
-- Agent-generated `.html` and `.svg` artifacts preview inline in a sandboxed
-  iframe; `.pdf` artifacts open in the browser's native PDF viewer. Both
-  live-reload on change.
-- Select text in source, a branch diff, or a rendered artifact and leave a quoted
-  comment for the agent.
-- The panel **follows the terminal**: whether it's open and which tab it shows
-  are remembered per terminal, so switching tiles restores each one's panel — a
-  terminal you left on a branch diff stays open there while another stays closed.
-  New terminals open with the panel showing by default.
+Every tile has a **right panel** with an **Inspector** and a **Code** tab. The
+Code tab is a file browser scoped to the active terminal's repo — a Pierre tree
+with git-status tinting, Local/Branch/All views with live diffs, rendered
+Markdown, inline HTML/SVG/PDF/image/video previews, and file comments — and the
+Inspector carries a Compose box and the terminal-CLI reference. Both have their
+own pages: [The Code Tab](/code-tab) and [The Right Panel](/right-panel).
 
 ## The canvas
 
@@ -116,23 +105,11 @@ A tile is a full terminal, not a preview.
 
 ## The dock, up close
 
-The left-edge dock is the canonical live-terminal navigator, with two levels of
-detail. **Rail** is a narrow strip of one chip per terminal; **Cards** (the
-default) groups rows by repo, each row reading `indicator · branch · pips · time`.
-
-The first-column **status indicator** folds three signals into one glyph: the
-**core** shape is the agent state (the same vocabulary as [Agent
-detection](/agent-detection)), a thin green **live ring** sweeps while the terminal
-is moving bytes, and an amber **unread badge** marks a background ping you haven't
-seen. Rows sort by **pure recency** — the terminal that just changed floats up —
-and clicking one centers its tile on the canvas.
-
-<Aside type="note" title="The activity window keeps the dock short">
-  A per-device **activity window** (`All / 4h / 12h / 24h / 48h`, default 24h)
-  hides rows older than the cutoff so a busy workspace stays scannable. A hidden
-  terminal stops counting toward the app badge — but a fresh agent transition
-  surfaces it again automatically, so nothing important stays buried.
-</Aside>
+The left-edge **dock** is the canonical live-terminal navigator: one row per
+terminal reading `indicator · branch · pips · time`, grouped by repo, sorted by
+recency, with a status indicator that folds agent state and live activity into
+one glyph and a Filters row that keeps a busy workspace short. It has its own
+page — [The Dock](/dock).
 
 ## Next
 

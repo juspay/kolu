@@ -1,0 +1,56 @@
+---
+title: kolu on a Phone
+description: "kolu on touch devices: a single fullscreen tile with swipe navigation, a soft-key bar for the keys touch keyboards lack, a bottom-drawer inspector, the two-pane layout for tablets and unfolded foldables, and the host row for multi-host on a phone."
+order: 66
+section: Use Kolu
+koluHero:
+  eyebrow: in your pocket
+  headline: The whole workspace, {thumb-first}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+kolu runs on phones and tablets, not as a cut-down view but as the same
+workspace re-shaped for a thumb. Two things decide the layout, and they're
+independent: the viewport **size** (a phone gets the drawer layout) and the input
+**modality** (a touch device gets roomier, ≥24px hit targets). A desktop browser
+made narrow is *not* the same as a real phone — kolu keys the layout off the
+**pointer**, so a coarse-pointer screen never masquerades as a desktop.
+
+## On a phone
+
+- **One tile at a time**, fullscreen, with **swipe** navigation between
+  terminals instead of a spatial canvas.
+- A two-row **soft-key bar** sends the keys touch keyboards lack — Esc, Tab, the
+  arrows, Ctrl-C, `/`, Enter — with two sticky modifiers you tap to arm. The keys
+  reach whichever terminal (or split) actually has focus.
+- A **bottom-drawer** inspector replaces the desktop right panel; pull the
+  chrome down from the top for app controls.
+
+## On a tablet or an unfolded foldable
+
+A wide **touch** screen — an iPad, an Android tablet, a Galaxy Z Fold unfolded —
+gets its own **two-pane** layout: a persistent terminal rail down one side, the
+active terminal filling the rest, with the same touch-sized controls as the
+phone. It's neither the phone's single tile nor the desktop's mouse-driven
+canvas; a real mouse still gets the canvas.
+
+## Multi-host from a phone
+
+The [multi-host](/remote-hosts) engine works everywhere, and the phone can drive
+it. The pull-down chrome sheet carries a **host row**: a chip per machine with
+the same connection dot, identity colour, and amber "needs you" pill you get on
+desktop, a **tap to switch** (instant, no reload), and a **+** that opens a
+full-width add-machine section right in the sheet. The chrome stays above the
+canvas in every state, so a still-connecting or unreachable host can never strand
+you with no way back to the host row.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Install as an App" href="/install-pwa" description="add kolu to your home screen" />
+  <LinkCard title="Remote Hosts" href="/remote-hosts" description="the multi-host engine the host row drives" />
+  <LinkCard title="Notifications & Attention" href="/notifications" description="the needs-you pill that rides the host row" />
+</CardGrid>

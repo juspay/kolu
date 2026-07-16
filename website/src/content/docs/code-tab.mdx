@@ -1,0 +1,65 @@
+---
+title: The Code Tab
+description: "The Code tab is a file browser scoped to the active terminal's repo: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, and file comments."
+order: 46
+section: Use Kolu
+koluHero:
+  eyebrow: read the repo
+  headline: The files, {beside the work}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+The **Code tab** lives in the [right panel](/right-panel) and is a file browser
+scoped to the active terminal's repo — a Pierre file tree with git-status tinting
+over a syntax-highlighted source view. It is how you read what an agent is
+working on without leaving the terminal beside it.
+
+## Browse and jump
+
+- Click a `path/to/file.ts:42` reference in terminal output to open that file at
+  that line; a **folder** path (`packages/client/`) is clickable too and reveals
+  the directory in the tree.
+- Big files and diffs highlight on a background worker, so opening a 50k-line
+  lockfile paints immediately and never freezes scrolling.
+
+## Your git changes — live
+
+A segmented control switches between three views: **All files** (the whole repo),
+**Local** (uncommitted), and **Branch** (vs the base). The Local and Branch
+segments carry a **change-count badge**, so you can see you have, say, 3
+uncommitted files and 12 changes versus your branch base without switching into
+either.
+
+The changed-file list and its diffs repaint **live** the instant a file changes
+on disk — a payload-free repo-change pulse re-running `git status`, with no
+polling — and the same loop works when the Code tab is pointed at
+[another machine](/remote-hosts), so your status and diffs stay live over the
+ssh hop too.
+
+## Markdown and artifacts
+
+- **Markdown** renders as a reading document with a Source/Rendered toggle that
+  keeps both views alive (flipping is instant and holds your scroll position). A
+  `---` YAML front-matter block renders as a table; a footnote marker opens its
+  definition in a popover where your eye already is.
+- Agent-generated **`.html`** and **`.svg`** artifacts preview inline in a
+  sandboxed iframe; **`.pdf`** opens in the browser's native viewer; images and
+  **video** render as themselves. Everything live-reloads on change, and an
+  external link in an HTML preview opens in a new tab.
+
+## File comments
+
+Select text in source, a branch diff, or a rendered artifact and pin a quoted
+note to it. The comment tray flushes to Markdown you paste straight back into the
+agent — a way to review a change and hand the agent your notes in its own words.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="The Right Panel" href="/right-panel" description="the panel that hosts the Code tab, and the Inspector beside it" />
+  <LinkCard title="Remote Hosts" href="/remote-hosts" description="the Code tab reads the machine you're connected to" />
+  <LinkCard title="Clipboard & Files" href="/clipboard" description="drop a file and its path lands on the agent's input line" />
+</CardGrid>
