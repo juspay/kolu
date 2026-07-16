@@ -501,10 +501,10 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     const nonDup = settledOut.filter((s) => !s.duplicateOf)
     const viaCount = (via) => nonDup.filter((s) => s.agreed && s.via === via).length
     const parts = []
-    const reconciled = viaCount('reconciled')
-    const autoMinor = viaCount('auto-minor')
-    const unopposed = viaCount('no-objection') + viaCount('objection-agreed')
-    const debated = viaCount('debated')
+    const reconciled = viaCount(VIA.reconciled)
+    const autoMinor = viaCount(VIA.autoMinor)
+    const unopposed = viaCount(VIA.noObjection) + viaCount(VIA.objectionAgreed)
+    const debated = viaCount(VIA.debated)
     if (reconciled) parts.push(`${reconciled} reconciled (raised by both lenses)`)
     if (autoMinor) parts.push(`${autoMinor} auto-settled minor`)
     if (unopposed) parts.push(`${unopposed} unopposed`)
@@ -619,6 +619,10 @@ if (combined.length === 0) {
 phase('Reconcile')
 
 const byId = Object.fromEntries(combined.map((f) => [f.id, f]))
+// The settle-path vocabulary (how a finding settled) — one socket for the `via`
+// axis, referenced at every settle site and in renderComment's audit counts, so
+// adding or renaming a path is a single edit and a typo can't silently miscount.
+const VIA = Object.freeze({ reconciled: 'reconciled', autoMinor: 'auto-minor', noObjection: 'no-objection', objectionAgreed: 'objection-agreed', debated: 'debated' })
 const settled = {} // id -> { disposition, plan, via, lowy?, hickey?, duplicateOf? }
 const pairOf = {} // secondary (hickey) id -> primary (lowy) id, for matched pairs
 const mateOf = {} // both directions of a matched pair, for rendering
@@ -665,8 +669,8 @@ if (lowyFindings.length && hickeyFindings.length) {
     mateOf[m.a] = m.b
     mateOf[m.b] = m.a
     if (compatible) {
-      settled[m.a] = { disposition: fa.disposition, plan: bothFix ? m.plan.trim() : undefined, via: 'reconciled', pairedWith: m.b }
-      settled[m.b] = { disposition: fb.disposition, plan: undefined, via: 'reconciled', duplicateOf: m.a, pairedWith: m.a }
+      settled[m.a] = { disposition: fa.disposition, plan: bothFix ? m.plan.trim() : undefined, via: VIA.reconciled, pairedWith: m.b }
+      settled[m.b] = { disposition: fb.disposition, plan: undefined, via: VIA.reconciled, duplicateOf: m.a, pairedWith: m.a }
       log(`Reconciled ${m.a} ≡ ${m.b} (${fa.disposition}) — settled with zero debate turns.`)
     } else {
       // Both raised it, but they genuinely disagree (disposition or plan) —
@@ -705,7 +709,7 @@ for (const f of combined) {
   }
   const opp = otherDebater(f.origin)
   if (f.severity === 'minor' && !flaggedFiles[opp].has(fileOf(f.location))) {
-    settleAsRaised(f, 'auto-minor')
+    settleAsRaised(f, VIA.autoMinor)
     log(`Auto-settled ${f.id} (minor, ${fileOf(f.location)} untouched by ${opp}) as ${f.disposition}.`)
   } else {
     objectionQueue[opp].push(f.id)
@@ -787,12 +791,12 @@ for (const f of combined) {
     const lMissing = !lc
     const hMissing = !hc
     if (!lObj && !hObj && !lMissing && !hMissing) {
-      settleAsRaised(f, 'no-objection')
+      settleAsRaised(f, VIA.noObjection)
       log(`Settled ${f.id} (police, neither debater objected) as ${f.disposition}.`)
     } else if (lObj && hObj && lc.disposition && lc.disposition === hc.disposition && lc.disposition !== 'fix') {
       // Both debaters object the same non-fix way — that IS lowy ⇄ hickey
       // consensus (two fix objections still debate: their plans never met).
-      settled[f.id] = { disposition: lc.disposition, plan: undefined, via: 'objection-agreed', lowy: objectionPosition(f, lc), hickey: objectionPosition(f, hc) }
+      settled[f.id] = { disposition: lc.disposition, plan: undefined, via: VIA.objectionAgreed, lowy: objectionPosition(f, lc), hickey: objectionPosition(f, hc) }
       log(`Settled ${f.id} (police, both debaters object → ${lc.disposition}).`)
     } else {
       contested.push({
@@ -809,7 +813,7 @@ for (const f of combined) {
   const opp = otherDebater(f.origin)
   const check = (opp === 'lowy' ? lowyChecks : hickeyChecks)[f.id]
   if (check && check.objects === false) {
-    settleAsRaised(f, 'no-objection')
+    settleAsRaised(f, VIA.noObjection)
     log(`Settled ${f.id} (${opp} has no objection) as ${f.disposition}.`)
   } else {
     // Objection — or a check the lens dropped from its batch, which must NOT
@@ -910,8 +914,8 @@ async function runThread(thread) {
       per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed })
       if (agreed) {
         // Endorsement guarantees l.plan is the converged text; no arbitrary fallback.
-        settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan : undefined, via: 'debated', lowy: l, hickey: h, pairedWith: item.pairId }
-        if (item.pairId) settled[item.pairId] = { disposition: l.disposition, plan: undefined, via: 'debated', duplicateOf: id, pairedWith: id }
+        settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan : undefined, via: VIA.debated, lowy: l, hickey: h, pairedWith: item.pairId }
+        if (item.pairId) settled[item.pairId] = { disposition: l.disposition, plan: undefined, via: VIA.debated, duplicateOf: id, pairedWith: id }
         active = active.filter((x) => x.id !== id)
       }
     }
