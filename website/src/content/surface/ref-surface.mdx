@@ -344,9 +344,9 @@ microtasks behind the call — in-flight subscriptions finalize and their
 timers clear — without `close()` waiting on it. A closed host cannot go on
 serving live peers; a wedged half-open peer is destroyed without drain
 negotiation (its unflushed frames are dropped — a host that closed is
-closed). The peer index is per-listener, so closing one listener never
-touches another's connections. `close()` stays synchronous, idempotent, and
-safe from a `process.on("exit")` handler.
+closed). Closing one listener never touches another listener's connections.
+`close()` stays synchronous, idempotent, and safe from a `process.on("exit")`
+handler.
 
 ### `serveOverStdio` lifetime — selected by construction
 
