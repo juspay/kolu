@@ -1,10 +1,19 @@
 ---
-import BaseLayout from "../layouts/BaseLayout.astro";
-import { getCollection, render } from "astro:content";
-import PR from "../components/PR.astro";
+import { type CollectionEntry, getCollection, render } from "astro:content";
+import {
+  changelogInstallCommand,
+  changelogReleaseKey,
+  readChangelogStats,
+} from "../changelog";
 import Change from "../components/Change.astro";
+import InstallCommand from "../components/InstallCommand.astro";
+import PR from "../components/PR.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
 
 const mdxComponents = { PR, Change };
+const masterCommand = changelogInstallCommand();
+const repositoryUrl = "https://github.com/juspay/kolu";
+const versionOrder = new Intl.Collator("en", { numeric: true });
 
 const fmtDate = (date: Date) =>
   date
@@ -16,486 +25,1375 @@ const fmtDate = (date: Date) =>
     })
     .toUpperCase();
 
-const countChanges = (body?: string) => body?.match(/<Change\b/g)?.length ?? 0;
-
-const semverDesc = (a: string, b: string) => {
-  const [aMaj, aMin, aPat] = a.split(".").map(Number);
-  const [bMaj, bMin, bPat] = b.split(".").map(Number);
-  return (bMaj! - aMaj!) || (bMin! - aMin!) || (bPat! - aPat!);
+type ChangelogEntry = CollectionEntry<"changelog">;
+type UnreleasedEntry = ChangelogEntry & {
+  data: ChangelogEntry["data"] & { version: "Unreleased"; date?: undefined };
 };
+type ReleasedEntry = ChangelogEntry & {
+  data: ChangelogEntry["data"] & { version: string; date: Date };
+};
+const isUnreleased = (entry: ChangelogEntry): entry is UnreleasedEntry =>
+  entry.data.version === "Unreleased";
+const isReleased = (entry: ChangelogEntry): entry is ReleasedEntry =>
+  entry.data.version !== "Unreleased" && entry.data.date instanceof Date;
 
 const all = await getCollection("changelog");
-const unreleased = all.find((entry) => !entry.data.date);
-const released = all
-  .filter((entry) => entry.data.date)
-  .sort(
-    (a, b) =>
-      b.data.date!.valueOf() - a.data.date!.valueOf() ||
-      semverDesc(a.data.version, b.data.version) ||
-      a.id.localeCompare(b.id),
+const unreleasedEntries = all.filter(isUnreleased);
+const unreleased = unreleasedEntries.at(0);
+if (unreleasedEntries.length !== 1 || !unreleased)
+  throw new Error(
+    `Changelog requires exactly one Unreleased entry, found ${unreleasedEntries.length}`,
   );
 
-const unreleasedHasBody = !!unreleased?.body?.trim();
-const unreleasedChangeCount = countChanges(unreleased?.body);
-const UnreleasedBody = unreleased ? (await render(unreleased)).Content : null;
+const released = all
+  .filter(isReleased)
+  .sort(
+    (a, b) =>
+      b.data.date.valueOf() - a.data.date.valueOf() ||
+      versionOrder.compare(b.data.version, a.data.version) ||
+      a.id.localeCompare(b.id),
+  );
+const releasedVersions = new Set<string>();
+for (const entry of released) {
+  if (releasedVersions.has(entry.data.version))
+    throw new Error(`Changelog has duplicate release version ${entry.data.version}`);
+  releasedVersions.add(entry.data.version);
+}
+
+const unreleasedHasBody = !!unreleased.body?.trim();
+const renderedUnreleased = await render(unreleased);
+const unreleasedStats = readChangelogStats(
+  renderedUnreleased.remarkPluginFrontmatter.changelogStats,
+);
+const unreleasedChangeCount = unreleasedStats.reduce(
+  (total, section) => total + section.count,
+  0,
+);
+const UnreleasedBody = renderedUnreleased.Content;
 
 const releases = await Promise.all(
   released.map(async (entry) => {
-    const date = entry.data.date!;
+    const date = entry.data.date;
+    const rendered = await render(entry);
+    const stats = readChangelogStats(rendered.remarkPluginFrontmatter.changelogStats);
+    const tag = `v${entry.data.version}`;
     return {
       version: entry.data.version,
+      tag,
       date,
       dateLabel: fmtDate(date),
-      anchor: `v${entry.data.version.replace(/\./g, "-")}`,
-      changeCount: countChanges(entry.body),
-      Body: (await render(entry)).Content,
+      anchor: changelogReleaseKey(entry.data.version),
+      releaseUrl: `${repositoryUrl}/releases/tag/${tag}`,
+      installCommand: changelogInstallCommand(tag),
+      changeCount: stats.reduce((total, section) => total + section.count, 0),
+      stats,
+      Body: rendered.Content,
     };
   }),
 );
+
+const previousVersion = releases[0]?.version;
 ---
 
-<BaseLayout title="Changelog" description="What's new in kolu, newest first." searchSection="Changelog">
+<BaseLayout
+  title="Changelog"
+  description="Every user-facing change in kolu, newest first."
+  searchSection="Changelog"
+>
   <section class="changelog">
-    <header class="changelog-head">
-      <h1>Changelog</h1>
-      <p>
-        Newest first. On master:
-        <code>nix run github:juspay/kolu</code>
+    <header class="changelog-hero reveal reveal-1">
+      <p class="hero-eyebrow">
+        <span aria-hidden="true">↳</span>
+        Release notes
       </p>
+      <div class="hero-grid">
+        <h1 class="display">Changelog<span>.</span></h1>
+        <p>
+          What changed, why it matters, and the work behind it. Product notes,
+          not a commit dump. Newest first.
+        </p>
+      </div>
     </header>
 
-    <div class="release-stream">
-      <article class="release">
-        <aside class="release-stamp">
-          <a href="#unreleased" class="release-link">
-            <span id="unreleased">Unreleased</span>
-          </a>
-          <small>
-            {unreleasedChangeCount ? `${unreleasedChangeCount} pending` : "empty"}
-          </small>
-        </aside>
+    <nav class="release-nav reveal reveal-2" aria-label="Changelog releases">
+      <span class="release-nav-label">Releases</span>
+      <div class="release-nav-links">
+        <a href="#unreleased" class="is-current">
+          <span class="release-live" aria-hidden="true"></span>
+          <span>Unreleased</span>
+          <small>{unreleasedChangeCount} changes</small>
+        </a>
+        {
+          releases.map((release) => (
+            <a href={`#${release.anchor}`}>
+              <span>v{release.version}</span>
+              <small>{release.dateLabel}</small>
+            </a>
+          ))
+        }
+      </div>
+    </nav>
 
-        <div class="release-body-wrap">
+    <div class="release-stream">
+      <article
+        id="unreleased"
+        class="release release-current reveal reveal-3"
+        data-release="unreleased"
+        data-filterable={unreleasedHasBody || undefined}
+      >
+        <header class="release-masthead">
+          <div class="release-intro">
+            <p class="release-kicker">
+              <span class="release-live" aria-hidden="true"></span>
+              Next release · live on master
+            </p>
+            <h2>Unreleased</h2>
+            <p class="release-deck">
+              {
+                previousVersion
+                  ? `Everything that has landed since v${previousVersion}.`
+                  : "Everything that has landed before the first numbered release."
+              }
+            </p>
+          </div>
+
+          <div class="release-total" aria-label={`${unreleasedChangeCount} changes`}>
+            <strong>{unreleasedChangeCount}</strong>
+            <span>changes</span>
+          </div>
+
+          <InstallCommand command={masterCommand} />
+
           {
-            unreleasedHasBody && UnreleasedBody ? (
+            unreleasedStats.length > 0 && (
+              <dl class="release-stats" aria-label="Changes by type">
+                {unreleasedStats.map((section) => (
+                  <div data-kind={section.key}>
+                    <dt>{section.label}</dt>
+                    <dd>{section.count}</dd>
+                  </div>
+                ))}
+              </dl>
+            )
+          }
+        </header>
+
+        {
+          unreleasedHasBody && UnreleasedBody ? (
+            <>
+              <div class="release-tools" aria-label="Filter release notes">
+                <label class="change-search">
+                  <span class="sr-only">Search release notes</span>
+                  <input
+                    type="search"
+                    name="release-note-search"
+                    placeholder={`Search ${unreleasedChangeCount} changes`}
+                    autocomplete="off"
+                    data-change-search
+                  />
+                  <kbd aria-hidden="true">/</kbd>
+                </label>
+
+                <div class="kind-filters" role="group" aria-label="Change type">
+                  <button type="button" data-kind-filter="all" aria-pressed="true">
+                    All
+                  </button>
+                  {
+                    unreleasedStats.map((section) => (
+                      <button
+                        type="button"
+                        data-kind-filter={section.key}
+                        aria-pressed="false"
+                      >
+                        {section.label}
+                      </button>
+                    ))
+                  }
+                </div>
+
+                <output class="filter-count" data-filter-count aria-live="polite">
+                  {unreleasedChangeCount} shown
+                </output>
+                <button
+                  class="expand-notes"
+                  type="button"
+                  data-expand-notes
+                  aria-expanded="false"
+                >
+                  Expand shown
+                </button>
+              </div>
+
+              <p class="no-results" data-no-results hidden>
+                No release note matches that filter.
+              </p>
+
               <div class="release-body prose prose-changelog">
                 <UnreleasedBody components={mdxComponents} />
               </div>
-            ) : (
-              <p class="empty-note">
-                Nothing unreleased. Track master with the command above.
-              </p>
-            )
-          }
-        </div>
+            </>
+          ) : (
+            <p class="empty-note">
+              Nothing unreleased. Track master with the command above.
+            </p>
+          )
+        }
       </article>
 
       {
         releases.map((release) => (
-          <article class="release">
-            <aside class="release-stamp">
-              <a href={`#${release.anchor}`} class="release-link">
-                <span id={release.anchor}>v{release.version}</span>
-              </a>
-              <time datetime={release.date.toISOString()}>{release.dateLabel}</time>
-              {release.changeCount > 0 && <small>{release.changeCount} changes</small>}
-            </aside>
-
-            <div class="release-body-wrap">
-              <div class="release-body prose prose-changelog">
-                <release.Body components={mdxComponents} />
+          <article
+            id={release.anchor}
+            class="release release-past"
+            data-release={release.anchor}
+          >
+            <header class="release-masthead release-masthead-past">
+              <div class="release-intro">
+                <p class="release-kicker">Release</p>
+                <h2>
+                  <a
+                    class="release-version-link"
+                    href={release.releaseUrl}
+                    aria-label={`View ${release.tag} on GitHub`}
+                  >
+                    {release.tag}<span aria-hidden="true">↗</span>
+                  </a>
+                </h2>
+                <time datetime={release.date.toISOString()}>{release.dateLabel}</time>
               </div>
+
+              <div class="release-total" aria-label={`${release.changeCount} changes`}>
+                <strong>{release.changeCount}</strong>
+                <span>changes</span>
+              </div>
+
+              <InstallCommand command={release.installCommand} />
+
+              {release.stats.length > 0 && (
+                <dl class="release-stats" aria-label="Changes by section">
+                  {release.stats.map((section) => (
+                    <div data-section={section.key}>
+                      <dt>{section.label}</dt>
+                      <dd>{section.count}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </header>
+
+            <div class="release-body prose prose-changelog">
+              <release.Body components={mdxComponents} />
             </div>
           </article>
         ))
       }
     </div>
-
-    <button
-      id="cl-filter-clear"
-      class="cl-filter-clear mono"
-      type="button"
-      title="Show all entries (Esc)"
-      hidden
-    >
-      filtering: <span id="cl-filter-tag"></span>
-      <span aria-hidden="true">x</span>
-    </button>
   </section>
 </BaseLayout>
 
 <style>
+  /* The release body is emitted by MDX, so its headings/lists cannot carry
+     page-local utilities; counters, sticky state, and responsive relationships
+     also depend on selectors across those generated nodes. */
   .changelog {
-    width: min(100% - 2rem, 72rem);
+    width: min(calc(100% - 3rem), 80rem);
     margin: 0 auto;
-    padding: 2.45rem 0 3.5rem;
+    padding: 3rem 0 5rem;
   }
 
-  .changelog-head {
+  .changelog-hero {
+    max-width: 70rem;
+    margin: 0 auto;
+  }
+
+  .hero-eyebrow {
     display: flex;
-    align-items: baseline;
-    gap: 1rem;
-    padding-bottom: 1.05rem;
-  }
-
-  .changelog-head h1 {
-    margin: 0;
-    color: var(--color-ink);
-    font-family: var(--font-sans);
-    font-size: 1.75rem;
-    font-weight: 700;
-    letter-spacing: 0;
-    line-height: 1;
-  }
-
-  .changelog-head p {
-    margin: 0;
-    color: var(--color-ink-dim);
-    font-size: 0.88rem;
-    line-height: 1.35;
-  }
-
-  .changelog code {
-    font-family: var(--font-mono);
-    font-size: 0.86em;
-    color: var(--color-ink);
-    background: var(--color-void-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: 4px;
-    padding: 0.1em 0.38em;
-  }
-
-  .release-stream {
-    border-top: 1px solid var(--color-rule-strong);
-  }
-
-  .release {
-    display: grid;
-    grid-template-columns: 8.75rem minmax(0, 1fr);
-    gap: 1.15rem;
-    padding: 1.3rem 0 1.7rem;
-    border-bottom: 1px solid var(--color-rule);
-  }
-
-  .release + .release {
-    padding-top: 2.1rem;
-  }
-
-  .release-stamp {
-    padding-top: 0.02rem;
-  }
-
-  .release-link {
-    display: inline-block;
-    color: var(--color-ink);
-    text-decoration: none;
-  }
-
-  .release-link span {
-    font-family: var(--font-sans);
-    font-size: 0.98rem;
-    font-weight: 680;
-    letter-spacing: 0;
-    line-height: 1.05;
-    scroll-margin-top: 5rem;
-    transition: color 0.15s ease;
-  }
-
-  .release-link:hover span {
-    color: var(--color-kolu-primary);
-  }
-
-  .release-stamp time,
-  .release-stamp small {
-    display: block;
-    margin-top: 0.22rem;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0 0 0.65rem;
     color: var(--color-ink-muted);
     font-family: var(--font-mono);
-    font-size: 0.64rem;
-    letter-spacing: 0.07em;
-    line-height: 1.2;
+    font-size: 0.7rem;
+    font-weight: 550;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
   }
 
-  .release-stamp small {
-    color: var(--color-ink-muted);
+  .hero-eyebrow span {
+    color: var(--color-kolu-bottom);
+    font-size: 0.95rem;
   }
 
-  .release-body-wrap {
-    min-width: 0;
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+    align-items: end;
+    gap: 2rem;
   }
 
-  .install-note,
-  .empty-note {
-    margin: 0.7rem 0 0;
+  .hero-grid h1 {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: clamp(3.5rem, 7vw, 5.35rem);
+  }
+
+  .hero-grid h1 span {
+    color: var(--color-kolu-primary);
+  }
+
+  .hero-grid > p {
+    max-width: 31rem;
+    margin: 0 0 0.25rem;
+    padding-left: 1rem;
+    border-left: 1px solid var(--color-kolu-bottom);
+    color: var(--color-ink-dim);
+    font-size: 0.94rem;
+    line-height: 1.52;
+  }
+
+  .release-nav {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    margin-top: 1.75rem;
+    border-top: 1px solid var(--color-rule-strong);
+    border-bottom: 1px solid var(--color-rule-strong);
+  }
+
+  .release-nav-label {
+    display: flex;
+    align-items: center;
+    padding: 0.65rem 0.8rem 0.65rem 0;
+    border-right: 1px solid var(--color-rule);
     color: var(--color-ink-muted);
     font-family: var(--font-mono);
-    font-size: 0.74rem;
-    letter-spacing: 0;
-    line-height: 1.25;
+    font-size: 0.64rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
   }
 
-  .install-note code,
-  .empty-note code {
-    margin-left: 0.35rem;
+  .release-nav-links {
+    display: flex;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .release-nav a {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 10.75rem;
+    padding: 0.65rem 0.9rem;
+    border-right: 1px solid var(--color-rule);
+    color: var(--color-ink-dim);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-decoration: none;
+    transition:
+      color 150ms ease,
+      background 150ms ease;
+  }
+
+  .release-nav a:hover {
+    color: var(--color-ink);
+    background: color-mix(
+      in srgb,
+      var(--color-kolu-primary) 5%,
+      transparent
+    );
+  }
+
+  .release-nav a.is-current {
+    color: var(--color-kolu-primary);
+  }
+
+  .release-nav small {
+    margin-left: auto;
+    color: var(--color-ink-muted);
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .release-live {
+    display: inline-block;
+    width: 0.42rem;
+    height: 0.42rem;
+    flex: none;
+    border-radius: 50%;
+    background: var(--color-kolu-bottom-strong);
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--color-kolu-bottom-strong) 12%, transparent);
+  }
+
+  .release {
+    scroll-margin-top: 5rem;
+  }
+
+  .release-current {
+    margin-top: 1.65rem;
+  }
+
+  .release-past {
+    margin-top: 5rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--color-rule-strong);
+  }
+
+  .release-masthead {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 9.5rem;
+    overflow: hidden;
+    border: 1px solid var(--color-rule-strong);
+    border-top: 2px solid var(--color-kolu-primary);
+    border-radius: 9px;
+    background: color-mix(
+      in srgb,
+      var(--color-void-raised) 90%,
+      var(--color-void)
+    );
+    box-shadow: 0 18px 55px -44px var(--color-kolu-primary);
+  }
+
+  .release-masthead::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.45;
+    background-image:
+      linear-gradient(var(--color-rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--color-rule) 1px, transparent 1px);
+    background-size: 2.25rem 2.25rem;
+    mask-image: linear-gradient(90deg, transparent 15%, black 100%);
+    pointer-events: none;
+  }
+
+  .release-masthead > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .release-intro {
+    padding: 1.35rem 1.6rem 1.4rem;
+  }
+
+  .release-kicker {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.55rem;
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    font-weight: 550;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .release-intro h2 {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: clamp(2.25rem, 4vw, 3.15rem);
+    font-weight: 690;
+    letter-spacing: -0.045em;
+    line-height: 0.95;
+  }
+
+  .release-deck,
+  .release-intro time {
+    display: block;
+    margin: 0.65rem 0 0;
+    color: var(--color-ink-dim);
+    font-size: 0.88rem;
+    line-height: 1.42;
+  }
+
+  .release-intro time {
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+  }
+
+  .release-version-link {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .release-version-link span {
+    color: var(--color-kolu-bottom);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    transition: transform 150ms ease;
+  }
+
+  .release-version-link:hover span {
+    transform: translate(2px, -2px);
+  }
+
+  .release-total {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid var(--color-rule-strong);
+    background: color-mix(in srgb, var(--color-void-sunk) 55%, transparent);
+  }
+
+  .release-total strong {
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 2.65rem;
+    font-weight: 420;
+    letter-spacing: -0.08em;
+    line-height: 1;
+  }
+
+  .release-total span {
+    margin-top: 0.3rem;
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .release-stats {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    margin: 0;
+    border-top: 1px solid var(--color-rule-strong);
+    background: color-mix(in srgb, var(--color-void-raised) 82%, transparent);
+  }
+
+  .release-stats > div {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.6rem 0.9rem;
+  }
+
+  .release-stats > div + div {
+    border-left: 1px solid var(--color-rule);
+  }
+
+  .release-stats > div::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    background: var(--section-accent, var(--color-kolu-primary));
+    opacity: 0.75;
+  }
+
+  .release-stats > [data-kind="added"],
+  .release-stats > [data-section="added"] {
+    --section-accent: var(--color-kolu-bottom);
+  }
+
+  .release-stats > [data-kind="changed"],
+  .release-stats > [data-section="changed"] {
+    --section-accent: var(--color-kolu-top);
+  }
+
+  .release-stats > [data-kind="fixed"],
+  .release-stats > [data-section="fixed"] {
+    --section-accent: var(--color-kolu-primary);
+  }
+
+  .release-stats > [data-kind="heads-up"],
+  .release-stats > [data-section="heads-up"] {
+    --section-accent: var(--color-kolu-bottom-deep);
+  }
+
+  .release-stats dt {
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.61rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .release-stats dd {
+    margin: 0;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    font-weight: 500;
+  }
+
+  .release-tools {
+    position: sticky;
+    top: 3.5rem;
+    z-index: 8;
+    display: none;
+    grid-template-columns: minmax(13rem, 1fr) auto auto auto;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0.85rem 0 0;
+    padding: 0.35rem;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--color-void) 88%, transparent);
+    box-shadow: 0 12px 24px -20px rgb(0 0 0 / 0.7);
+    backdrop-filter: blur(12px);
+  }
+
+  .release-tools[data-enhanced="true"] {
+    display: grid;
+  }
+
+  .change-search {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0.38rem 0.5rem;
+    border-right: 1px solid var(--color-rule);
+    color: var(--color-ink-muted);
+  }
+
+  .change-search input {
+    width: 100%;
+    min-width: 0;
+    margin: 0 0.6rem;
+    border: 0;
+    outline: 0;
+    color: var(--color-ink);
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+
+  .change-search input::placeholder {
+    color: var(--color-ink-muted);
+  }
+
+  .change-search:focus-within {
+    color: var(--color-kolu-primary);
+  }
+
+  .change-search kbd {
+    padding: 0.1rem 0.3rem;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 3px;
+    color: var(--color-ink-muted);
+    background: var(--color-void-raised);
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+  }
+
+  .kind-filters {
+    display: flex;
+    gap: 0.15rem;
+  }
+
+  .kind-filters button,
+  .expand-notes {
+    padding: 0.42rem 0.58rem;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--color-ink-muted);
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.025em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 150ms ease,
+      border-color 150ms ease,
+      background 150ms ease;
+  }
+
+  .kind-filters button:hover,
+  .expand-notes:hover {
+    color: var(--color-ink);
+    border-color: var(--color-rule-strong);
+  }
+
+  .kind-filters button[aria-pressed="true"] {
+    color: var(--color-kolu-primary);
+    border-color: color-mix(
+      in srgb,
+      var(--color-kolu-primary) 36%,
+      var(--color-rule)
+    );
+    background: color-mix(
+      in srgb,
+      var(--color-kolu-primary) 8%,
+      transparent
+    );
+  }
+
+  .filter-count {
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.59rem;
+    white-space: nowrap;
+  }
+
+  .expand-notes {
+    border-left-color: var(--color-rule);
+    border-radius: 0;
+  }
+
+  .expand-notes:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .release-body {
+    width: min(100%, 69rem);
+    max-width: none;
+    margin: 2rem auto 0;
+    counter-reset: changelog-section;
   }
 
   .changelog :global(.prose-changelog) {
     max-width: none;
+    color: var(--color-ink-dim);
   }
 
   .changelog :global(.prose-changelog > p:first-child) {
-    margin: 0.1rem 0 0.8rem;
+    max-width: 50rem;
+    margin: 0 0 2rem;
     color: var(--color-ink-dim);
-    font-size: 0.92rem;
-    line-height: 1.45;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 0.98rem;
+    line-height: 1.62;
   }
 
   .changelog :global(.prose-changelog h3) {
-    margin: 1.5rem 0 0.5rem;
-    gap: 0.5rem;
-    color: var(--color-kolu-primary-hover);
-    font-size: 0.64rem;
-    font-weight: 650;
-    letter-spacing: 0.14em;
-    line-height: 1.15;
+    display: grid;
+    grid-template-columns: 1.7rem minmax(0, max-content) minmax(2rem, 1fr);
+    align-items: center;
+    gap: 0.8rem;
+    margin: 2.65rem 0 0.65rem;
+    padding: 0;
+    border: 0;
+    color: var(--color-ink);
+    font-size: clamp(1.5rem, 2.4vw, 2rem);
+    font-weight: 680;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    text-transform: none;
+    scroll-margin-top: 7.5rem;
+    counter-increment: changelog-section;
   }
 
   .changelog :global(.prose-changelog h3:first-child) {
-    margin-top: 0.2rem;
+    margin-top: 0.1rem;
+  }
+
+  .changelog :global(.prose-changelog h3::before) {
+    content: counter(changelog-section, decimal-leading-zero);
+    color: var(--color-kolu-primary);
+    font-family: var(--font-mono);
+    font-size: 0.63rem;
+    font-weight: 550;
+    letter-spacing: 0.08em;
+  }
+
+  .changelog :global(.prose-changelog h3::after) {
+    content: "";
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      color-mix(
+        in srgb,
+        var(--color-kolu-primary) 45%,
+        var(--color-rule)
+      ),
+      var(--color-rule)
+    );
+  }
+
+  .changelog :global(.prose-changelog h3 a) {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    min-width: 0;
+    border: 0;
+    color: var(--color-ink);
+    text-decoration: none;
+    transition: color 150ms ease;
+  }
+
+  .changelog :global(.prose-changelog h3 a::after) {
+    content: "guide ↗";
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.52rem;
+    font-weight: 550;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .changelog :global(.prose-changelog h3 a:hover) {
+    color: var(--color-kolu-primary);
   }
 
   .changelog :global(.prose-changelog ul) {
-    display: grid;
-    gap: 0;
+    display: block;
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
   .changelog :global(.prose-changelog li) {
     margin: 0;
+    padding: 0;
+  }
+
+  .changelog :global(.prose-changelog li:has(.cl-change)::before) {
+    content: none;
+  }
+
+  .changelog :global(.prose-changelog li:last-child .cl-change) {
+    border-bottom: 1px solid var(--color-rule);
   }
 
   .changelog :global(.prose-changelog li:not(:has(.cl-change))) {
+    position: relative;
     margin: 0;
-    padding-left: 1.05rem;
+    padding: 0.72rem 0.25rem 0.72rem 1.75rem;
+    border-top: 1px solid var(--color-rule);
     color: var(--color-ink-dim);
-    font-size: 0.92rem;
+    font-size: 0.94rem;
     line-height: 1.55;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  }
+
+  .changelog :global(.prose-changelog li:not(:has(.cl-change)):last-child) {
+    border-bottom: 1px solid var(--color-rule);
   }
 
   .changelog :global(.prose-changelog li:not(:has(.cl-change))::before) {
-    top: 0;
-  }
-
-  .changelog :global(.cl-change) {
-    margin-left: -0.25rem;
-    margin-right: -0.25rem;
-    padding: 0.08rem 0.25rem;
-    border-radius: 3px;
-  }
-
-  .changelog :global(.cl-change-head) {
-    grid-template-columns: 0.7rem minmax(0, 1fr) auto;
-    column-gap: 0.34rem;
-    line-height: 1.32;
-  }
-
-  .changelog :global(.cl-change-arrow) {
-    font-size: 0.82rem;
-  }
-
-  .changelog :global(.cl-change-title) {
-    overflow: hidden;
-    font-size: 0.92rem;
-    font-weight: 400;
-    letter-spacing: 0;
-    line-height: 1.32;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .changelog :global(.cl-change-meta) {
-    flex-wrap: nowrap;
-    gap: 0.22rem;
-    overflow: hidden;
-    max-width: 27rem;
-  }
-
-  .changelog :global(.cl-change-tag) {
-    font-size: 0.56rem;
-    letter-spacing: 0.05em;
-    padding: 0.02em 0.42em;
-    color: var(--color-ink-muted);
-    border-color: var(--color-rule-strong);
-  }
-
-  .changelog :global(.pr-ref) {
-    gap: 0.24em;
-    font-size: 0.64rem;
-    padding: 0.1em 0.42em 0.1em 0.34em;
-  }
-
-  .changelog :global(.cl-change-desc) {
-    font-size: 0.9rem;
-    line-height: 1.5;
+    content: "→";
+    position: absolute;
+    top: 0.85rem;
+    left: 0.25rem;
+    color: var(--color-kolu-bottom);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
   }
 
   .changelog :global(.prose-changelog strong) {
-    font-weight: 500;
-  }
-
-  .changelog :global(.cl-change-desc > :first-child) {
-    margin-top: 0.36rem;
-  }
-
-  .changelog :global(.cl-change-desc p + p) {
-    margin-top: 0.5rem;
-  }
-
-  .cl-filter-clear {
-    position: fixed;
-    bottom: 1.25rem;
-    left: 50%;
-    z-index: 50;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.5em;
-    transform: translateX(-50%);
-    color: var(--color-ink-dim);
-    background: var(--color-void-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: 9999px;
-    padding: 0.5em 1em;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
-    cursor: pointer;
-    transition:
-      color 0.15s ease,
-      border-color 0.15s ease;
-  }
-
-  .cl-filter-clear:hover {
     color: var(--color-ink);
-    border-color: color-mix(in srgb, var(--color-kolu-primary) 55%, transparent);
+    font-weight: 620;
   }
 
-  .cl-filter-clear #cl-filter-tag {
-    color: var(--color-kolu-primary);
+  .changelog :global(.prose-changelog code),
+  .changelog :global(.prose-changelog kbd) {
+    color: var(--color-kolu-top-strong);
+  }
+
+  .changelog :global(.prose-changelog [hidden]),
+  .changelog :global(.prose-changelog li[hidden]) {
+    display: none;
+  }
+
+  .no-results,
+  .empty-note {
+    width: min(100%, 69rem);
+    margin: 2rem auto 0;
+    padding: 2rem;
+    border: 1px dashed var(--color-rule-strong);
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-align: center;
+  }
+
+  .no-results[hidden] {
+    display: none;
+  }
+
+  .release-masthead-past {
+    border-top-color: var(--color-kolu-bottom);
+    box-shadow: 0 18px 55px -48px var(--color-kolu-bottom);
+  }
+
+  .release-masthead-past .release-intro {
+    padding-block: 1.25rem;
+  }
+
+  .release-masthead-past .release-intro h2 {
+    font-size: clamp(2rem, 3.8vw, 2.8rem);
+  }
+
+  @media (max-width: 980px) {
+    .release-tools[data-enhanced="true"] {
+      grid-template-columns: minmax(12rem, 1fr) auto auto;
+    }
+
+    .kind-filters {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      overflow-x: auto;
+      padding-top: 0.35rem;
+      border-top: 1px solid var(--color-rule);
+    }
+
+    .filter-count {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .expand-notes {
+      grid-column: 3;
+      grid-row: 1;
+    }
   }
 
   @media (max-width: 740px) {
     .changelog {
-      width: min(100% - 2rem, 58rem);
-      padding-top: 2rem;
+      width: min(calc(100% - 2rem), 78rem);
+      padding: 2.25rem 0 4rem;
     }
 
-    .changelog-head {
-      display: block;
-      gap: 1rem;
-    }
-
-    .changelog-head h1 {
-      font-size: 1.55rem;
-    }
-
-    .release {
+    .hero-grid {
       grid-template-columns: 1fr;
-      gap: 0.5rem;
-      padding: 0.85rem 0 0.95rem;
+      gap: 0.9rem;
     }
 
-    .release-stamp {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0.45rem 0.7rem;
-      padding-top: 0;
+    .hero-grid h1 {
+      font-size: clamp(3.15rem, 16vw, 4.35rem);
     }
 
-    .release-stamp time,
-    .release-stamp small {
-      margin-top: 0;
+    .hero-grid > p {
+      max-width: 32rem;
+      margin: 0;
+      font-size: 0.9rem;
     }
 
-    .changelog :global(.cl-change-head) {
-      grid-template-columns: 0.7rem minmax(0, 1fr);
+    .release-nav {
+      grid-template-columns: 5.75rem minmax(0, 1fr);
+      margin-top: 1.5rem;
     }
 
-    .changelog :global(.cl-change-meta) {
+    .release-nav a {
+      min-width: 10.5rem;
+    }
+
+    .release-current {
+      margin-top: 1.4rem;
+    }
+
+    .release-masthead {
+      grid-template-columns: minmax(0, 1fr) 6.5rem;
+    }
+
+    .release-intro {
+      padding: 1.2rem 1.25rem 1.25rem;
+    }
+
+    .release-total strong {
+      font-size: 2.2rem;
+    }
+
+    .release-stats {
+      grid-auto-flow: row;
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .release-stats > div:nth-child(odd) {
+      border-left: 0;
+    }
+
+    .release-stats > div:nth-child(n + 3) {
+      border-top: 1px solid var(--color-rule);
+    }
+
+    .release-tools {
+      top: 3.5rem;
+    }
+
+    .release-body {
+      margin-top: 1.65rem;
+    }
+
+    .changelog :global(.prose-changelog h3) {
+      grid-template-columns: 1.45rem minmax(0, max-content) minmax(1rem, 1fr);
+      gap: 0.6rem;
+      margin-top: 2.4rem;
+      font-size: 1.55rem;
+      scroll-margin-top: 9.5rem;
+    }
+
+    .release-past {
+      margin-top: 4rem;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .changelog {
+      padding-top: 1.65rem;
+    }
+
+    .hero-grid h1 {
+      font-size: clamp(2.9rem, 14vw, 3.5rem);
+    }
+
+    .hero-grid > p {
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .release-nav {
+      margin-top: 1.15rem;
+    }
+
+    .release-current {
+      margin-top: 1.1rem;
+    }
+
+    .release-masthead {
+      grid-template-columns: minmax(0, 1fr) 5.5rem;
+    }
+
+    .release-total {
+      flex-direction: column;
+      gap: 0;
+      padding: 0;
+      border-top: 0;
+      border-left: 1px solid var(--color-rule-strong);
+    }
+
+    .release-total strong {
+      font-size: 1.7rem;
+      letter-spacing: -0.05em;
+    }
+
+    .release-total span {
+      margin-top: 0.25rem;
+      font-size: 0.52rem;
+    }
+
+    .release-stats {
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
+      grid-template-columns: none;
+    }
+
+    .release-stats > div {
+      gap: 0.3rem;
+      padding: 0.52rem 0.55rem;
+    }
+
+    .release-stats > div:nth-child(n) {
+      border-top: 0;
+      border-left: 0;
+    }
+
+    .release-stats > div:nth-child(n + 2) {
+      border-left: 1px solid var(--color-rule);
+    }
+
+    .release-stats dt {
+      font-size: 0.52rem;
+      letter-spacing: 0.055em;
+    }
+
+    .release-stats dd {
+      font-size: 0.92rem;
+    }
+
+    .release-tools[data-enhanced="true"] {
+      grid-template-columns: minmax(6.8rem, 0.8fr) minmax(0, 1.2fr);
+    }
+
+    .change-search {
+      border-right: 1px solid var(--color-rule);
+    }
+
+    .change-search kbd {
+      display: none;
+    }
+
+    .filter-count {
+      display: none;
+    }
+
+    .expand-notes {
+      display: none;
+    }
+
+    .kind-filters {
       grid-column: 2;
-      max-width: 100%;
+      grid-row: 1;
+      min-width: 0;
+      padding-top: 0;
+      border-top: 0;
+      overflow-x: auto;
+    }
+
+    .release-body {
+      margin-top: 1.3rem;
+    }
+
+    .changelog :global(.prose-changelog h3) {
+      grid-template-columns: 1.2rem minmax(0, max-content) minmax(0.5rem, 1fr);
+      gap: 0.5rem;
+      font-size: 1.38rem;
+    }
+
+    .changelog :global(.prose-changelog h3::before) {
+      font-size: 0.56rem;
+    }
+
+    .changelog :global(.prose-changelog h3 a::after) {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .release-nav a,
+    .kind-filters button,
+    .expand-notes {
+      transition: none;
     }
   }
 </style>
 
 <script>
-  const chips = [
-    ...document.querySelectorAll<HTMLButtonElement>(".cl-change-tag"),
-  ];
-  let active: string | null = null;
+  import { type ChangeKind, isChangeKind } from "../changelog";
 
-  const clearBtn = document.getElementById("cl-filter-clear")!;
-  const clearTag = document.getElementById("cl-filter-tag")!;
+  const normalizeSearch = (value: string) => value.toLocaleLowerCase("en-US");
 
-  const apply = () => {
-    clearBtn.hidden = !active;
-    clearTag.textContent = active ?? "";
-    for (const chip of chips)
-      chip.dataset.active = String(chip.dataset.tag === active);
-    for (const li of document.querySelectorAll<HTMLElement>(
-      ".prose-changelog li",
-    )) {
-      const tags =
-        li.querySelector<HTMLElement>(".cl-change")?.dataset.tags?.split("|") ??
-        [];
-      li.style.display = !active || tags.includes(active) ? "" : "none";
-    }
-    for (const ul of document.querySelectorAll<HTMLElement>(
-      ".prose-changelog ul",
-    )) {
-      const empty = ![...ul.children].some(
-        (li) => (li as HTMLElement).style.display !== "none",
-      );
-      ul.style.display = empty ? "none" : "";
-      const h3 = ul.previousElementSibling;
-      if (h3 instanceof HTMLElement && h3.tagName === "H3")
-        h3.style.display = empty ? "none" : "";
-    }
-    for (const article of document.querySelectorAll<HTMLElement>(
-      ".release-stream > article",
-    )) {
-      const lis = article.querySelectorAll<HTMLElement>(".prose-changelog li");
-      const empty =
-        !!active &&
-        lis.length > 0 &&
-        ![...lis].some((li) => li.style.display !== "none");
-      article.style.display = empty ? "none" : "";
-    }
-  };
+  // The build plugin owns heading IDs. This pass only carries each product-area
+  // label onto its notes so a category name is part of the searchable corpus.
+  for (const body of document.querySelectorAll<HTMLElement>(".release-body")) {
+    let categoryLabel: string | undefined;
+    for (const child of body.children) {
+      if (child instanceof HTMLHeadingElement && child.tagName === "H3") {
+        if (!child.id) throw new Error("A changelog heading is missing its build-time id");
+        const candidate = child.textContent?.trim();
+        if (!candidate) throw new Error("A changelog category has no label");
+        categoryLabel = candidate;
+        child.setAttribute("aria-label", categoryLabel);
+      }
 
-  for (const chip of chips)
-    chip.addEventListener("click", (event) => {
-      event.stopPropagation();
-      active = active === chip.dataset.tag ? null : (chip.dataset.tag ?? null);
-      apply();
+      if (child instanceof HTMLUListElement) {
+        for (const item of child.children) {
+          if (!(item instanceof HTMLLIElement) || !item.querySelector(".cl-change")) continue;
+          if (categoryLabel === undefined)
+            throw new Error("A changelog note appears before its category");
+          item.dataset.category = categoryLabel;
+        }
+      }
+    }
+  }
+
+  const filterableRelease = document.querySelector<HTMLElement>("[data-filterable]");
+  if (filterableRelease) {
+    const body = filterableRelease.querySelector<HTMLElement>(".release-body");
+    const toolbar = filterableRelease.querySelector<HTMLElement>(".release-tools");
+    const search = filterableRelease.querySelector<HTMLInputElement>("[data-change-search]");
+    const count = filterableRelease.querySelector<HTMLOutputElement>("[data-filter-count]");
+    const noResults = filterableRelease.querySelector<HTMLElement>("[data-no-results]");
+    const expand = filterableRelease.querySelector<HTMLButtonElement>("[data-expand-notes]");
+
+    if (!body || !toolbar || !search || !count || !noResults || !expand)
+      throw new Error("The filterable changelog release is missing required controls");
+
+    const notes = [...body.querySelectorAll<HTMLLIElement>("li")]
+      .filter((item) => item.querySelector(".cl-change"))
+      .map((item) => {
+        const change = item.querySelector<HTMLDetailsElement>(".cl-change");
+        const title = item.querySelector<HTMLElement>(".cl-change-title");
+        const noteBody = item.querySelector<HTMLElement>(".cl-change-body");
+        const preview = item.querySelector<HTMLElement>("[data-search-preview]");
+        const kind = change?.dataset.kind;
+        if (!change || !title || !noteBody || !preview || !isChangeKind(kind))
+          throw new Error("A changelog note is missing searchable content");
+
+        const bodyText = (noteBody.textContent ?? "").replace(/\s+/g, " ").trim();
+        return {
+          item,
+          change,
+          kind,
+          preview,
+          titleText: normalizeSearch(title.textContent ?? ""),
+          categoryText: normalizeSearch(item.dataset.category ?? ""),
+          bodyText,
+          searchableBodyText: normalizeSearch(bodyText),
+        };
+      });
+    const lists = [...body.querySelectorAll<HTMLUListElement>("ul")];
+    const categoryHeadings = [...body.querySelectorAll<HTMLHeadingElement>("h3")];
+    const filters = [
+      ...filterableRelease.querySelectorAll<HTMLButtonElement>("[data-kind-filter]"),
+    ].map((button) => {
+      const kind = button.dataset.kindFilter;
+      if (kind !== "all" && !isChangeKind(kind))
+        throw new Error("A changelog filter has an unknown kind");
+      return { button, kind };
     });
 
-  clearBtn.addEventListener("click", () => {
-    active = null;
-    apply();
-  });
+    let activeKind: ChangeKind | "all" = "all";
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && active) {
-      active = null;
-      apply();
+    const visibleDetails = () =>
+      notes
+        .filter(({ item }) => !item.hidden)
+        .map(({ change }) => change);
+
+    const updateExpandButton = () => {
+      const details = visibleDetails();
+      const allOpen = details.length > 0 && details.every((note) => note.open);
+      expand.disabled = details.length === 0;
+      expand.setAttribute("aria-expanded", String(allOpen));
+      expand.textContent = allOpen ? "Collapse shown" : "Expand shown";
+    };
+
+    // A match needs only a short lead-in for orientation, but enough trailing
+    // text to explain why it matters. Snap both edges to whole words.
+    const SEARCH_CONTEXT_BEFORE = 44;
+    const SEARCH_CONTEXT_AFTER = 78;
+    const showSearchContext = (
+      preview: HTMLElement,
+      text: string,
+      query: string,
+      matchIndex: number,
+    ) => {
+      let start = Math.max(0, matchIndex - SEARCH_CONTEXT_BEFORE);
+      let end = Math.min(text.length, matchIndex + query.length + SEARCH_CONTEXT_AFTER);
+
+      if (start > 0) {
+        const nextSpace = text.indexOf(" ", start);
+        if (nextSpace !== -1 && nextSpace < matchIndex) start = nextSpace + 1;
+      }
+      if (end < text.length) {
+        const previousSpace = text.lastIndexOf(" ", end);
+        if (previousSpace > matchIndex + query.length) end = previousSpace;
+      }
+
+      const mark = document.createElement("mark");
+      mark.textContent = text.slice(matchIndex, matchIndex + query.length);
+      preview.replaceChildren(
+        document.createTextNode(`${start > 0 ? "…" : ""}${text.slice(start, matchIndex)}`),
+        mark,
+        document.createTextNode(
+          `${text.slice(matchIndex + query.length, end)}${end < text.length ? "…" : ""}`,
+        ),
+      );
+      preview.hidden = false;
+    };
+
+    const applyFilter = () => {
+      const query = normalizeSearch(search.value.trim());
+      let visibleCount = 0;
+
+      for (const note of notes) {
+        const inKind = activeKind === "all" || note.kind === activeKind;
+        const bodyMatchIndex = query ? note.searchableBodyText.indexOf(query) : -1;
+        const titleMatches = !!query && note.titleText.includes(query);
+        const categoryMatches = !!query && note.categoryText.includes(query);
+        const matchesText =
+          !query || titleMatches || categoryMatches || bodyMatchIndex !== -1;
+
+        note.preview.hidden = true;
+        note.preview.replaceChildren();
+        if (query && !titleMatches && !categoryMatches && bodyMatchIndex !== -1)
+          showSearchContext(note.preview, note.bodyText, query, bodyMatchIndex);
+
+        note.item.hidden = !(inKind && matchesText);
+        if (!note.item.hidden) visibleCount += 1;
+      }
+
+      for (const list of lists) {
+        list.hidden = ![...list.children].some(
+          (item) => item instanceof HTMLLIElement && !item.hidden,
+        );
+      }
+
+      for (const heading of categoryHeadings) {
+        let sibling = heading.nextElementSibling;
+        let hasVisibleList = false;
+        while (sibling && sibling.tagName !== "H3") {
+          if (sibling instanceof HTMLUListElement && !sibling.hidden) {
+            hasVisibleList = true;
+            break;
+          }
+          sibling = sibling.nextElementSibling;
+        }
+        heading.hidden = !hasVisibleList;
+      }
+
+      for (const filter of filters)
+        filter.button.setAttribute("aria-pressed", String(filter.kind === activeKind));
+
+      count.textContent = `${visibleCount} shown`;
+      noResults.hidden = visibleCount !== 0;
+      updateExpandButton();
+    };
+
+    for (const filter of filters) {
+      filter.button.addEventListener("click", () => {
+        activeKind = filter.kind;
+        applyFilter();
+      });
     }
-  });
+
+    let pendingFilter: number | undefined;
+    search.addEventListener("input", () => {
+      if (pendingFilter !== undefined) window.clearTimeout(pendingFilter);
+      pendingFilter = window.setTimeout(() => {
+        pendingFilter = undefined;
+        applyFilter();
+      }, 75);
+    });
+    expand.addEventListener("click", () => {
+      const details = visibleDetails();
+      const shouldOpen = !details.every((note) => note.open);
+      for (const note of details) note.open = shouldOpen;
+      updateExpandButton();
+    });
+    body.addEventListener("toggle", updateExpandButton, true);
+
+    document.addEventListener("keydown", (event) => {
+      const target = event.target;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+
+      if (
+        event.key === "/" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !isTyping
+      ) {
+        event.preventDefault();
+        search.focus();
+      }
+
+      if (event.key === "Escape" && (search.value || activeKind !== "all")) {
+        if (pendingFilter !== undefined) {
+          window.clearTimeout(pendingFilter);
+          pendingFilter = undefined;
+        }
+        search.value = "";
+        activeKind = "all";
+        applyFilter();
+        search.focus();
+      }
+    });
+
+    toolbar.dataset.enhanced = "true";
+    applyFilter();
+  }
 </script>
