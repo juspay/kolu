@@ -552,13 +552,24 @@ export function connectSurfaceMap<
   const entriesSurface: Surface<{
     collections: { entries: typeof map.entriesSpec };
   }> = defineSurface({ collections: { entries: map.entriesSpec } });
+  // Hoist the RAW app interpreter. Forward it (or `undefined`) to every
+  // `buildSurfaceClient` below — NEVER an always-defined `(policy, err) => opts?…?.(…)`
+  // wrapper: an arrow literal is never `=== undefined`, so wrapping would make
+  // buildSurfaceClient's fail-fast construction throw (surfaceClient.ts, design §D/F5)
+  // UNREACHABLE on the map path, and a policy-bearing entry surface connected with no
+  // interpreter would silently swallow every subscription error (the exact
+  // caught-error-must-not-collapse-to-empty defect the throw exists to prevent).
+  const appOnError = opts?.onClientError;
   const entriesClient = build(() =>
     // The membership `entries` collection has NO per-key origin — it is the whole
     // map's membership authority — so its client's interpreter forwards to the app
     // interpreter with `origin` OMITTED (design §C). The base `buildSurfaceClient`
     // stays origin-agnostic; the `{ key }` origin lives only where keys exist (below).
-    buildSurfaceClient(entriesSurface, baseLink, live, (policy, err) =>
-      opts?.onClientError?.(policy, err),
+    buildSurfaceClient(
+      entriesSurface,
+      baseLink,
+      live,
+      appOnError ? (policy, err) => appOnError(policy, err) : undefined,
     ),
   );
   const rawEntries = entriesClient.collections
@@ -677,7 +688,9 @@ export function connectSurfaceMap<
           map.entry,
           keyInjectingLink(baseLink, enc),
           live,
-          (policy, err) => opts?.onClientError?.(policy, err, { key }),
+          appOnError
+            ? (policy, err) => appOnError(policy, err, { key })
+            : undefined,
         ),
       ) as SurfaceClient<ES>;
       inner.set(id, c);
