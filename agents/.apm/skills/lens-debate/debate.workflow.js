@@ -34,6 +34,12 @@ const MODEL = 'opus'
 // would spend more than the debate turns it deletes on small diffs; Haiku
 // false-pairs. Not an input — a binding, like MODEL.
 const MATCH_MODEL = 'sonnet'
+// The mechanical tier. The lenses' reviews + objection checks + the per-thread
+// debate + applying an agreed fix all do real reasoning → `model` (Opus,
+// load-bearing for the lenses). The merge-base resolver and the hunk extractor
+// are mechanical git/text work → this tier. Not an input — a binding, like
+// MODEL.
+const MECH_MODEL = 'haiku'
 
 // ---------------------------------------------------------------------------
 // Inputs (passed via the Workflow tool's `args`)
@@ -82,12 +88,6 @@ const rationale = (a.rationale || '').trim()
 // Model every lens/agent runs on; defaults to MODEL (see top of file). Overridable
 // via args to mirror the file's input pattern and to make a model bump a one-liner.
 const model = a.model || MODEL
-// Mechanical tier (Haiku). The lenses' reviews + objection checks + the
-// per-thread debate + applying an agreed fix all do real reasoning → `model`
-// (Opus, load-bearing for the lenses). The merge-base resolver and the hunk
-// extractor are mechanical git/text work → `mechModel`.
-// Defaults match a direct invocation; /be-review passes it.
-const mechModel = a.mechModel || 'haiku'
 // Per-worktree scratch for commit-message files; gitignored so it never shows up
 // in the diff the lenses review, and parallel debates in different worktrees
 // never collide. Only the commit-message files land here.
@@ -130,7 +130,7 @@ const rawBase = base
 turns.mech++
 const baseRes = await agent(
   `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
-  { label: 'resolve:merge-base', phase: 'Review', model: mechModel, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
+  { label: 'resolve:merge-base', phase: 'Review', model: MECH_MODEL, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
 )
 // Fail loud on a bad base. Falling back to the raw `${base}` tip would make the
 // lenses review the base branch's drift since the fork as if this change made it —
@@ -724,7 +724,7 @@ for (const lens of DEBATERS) for (const id of objectionQueue[lens]) queueHunk(id
 const excerpts = {}
 if (needHunks.length) {
   turns.mech++
-  const hunkRes = await agent(hunksBrief(needHunks), { label: 'reconcile:hunks', phase: 'Reconcile', model: mechModel, schema: HUNKS_SCHEMA })
+  const hunkRes = await agent(hunksBrief(needHunks), { label: 'reconcile:hunks', phase: 'Reconcile', model: MECH_MODEL, schema: HUNKS_SCHEMA })
   for (const h of hunkRes?.hunks ?? []) {
     if (seenHunkIds.has(h.id) && typeof h.excerpt === 'string' && h.excerpt.trim()) excerpts[h.id] = h.excerpt
   }
