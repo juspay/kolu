@@ -77,3 +77,27 @@ Then(
     assert.strictEqual(actual, expected);
   },
 );
+
+/** Snapshot the top-level `history.length` so a later step can pin that
+ *  deep-link routing pushed NO entries (srid's ruling: a routed link must not
+ *  record history that ordinary in-app navigation doesn't — otherwise
+ *  mouse-back replays stale teleports). */
+When("I note the page history length", async function (this: KoluWorld) {
+  this.pageHistoryLength = await this.page.evaluate(() => history.length);
+});
+
+Then(
+  "the page history length should be unchanged",
+  async function (this: KoluWorld) {
+    assert.ok(
+      this.pageHistoryLength !== null,
+      'no snapshot — call "I note the page history length" first',
+    );
+    const now = await this.page.evaluate(() => history.length);
+    assert.strictEqual(
+      now,
+      this.pageHistoryLength,
+      `deep-link routing pushed ${now - this.pageHistoryLength} history entr(y/ies) — mouse-back would replay stale teleports`,
+    );
+  },
+);

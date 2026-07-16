@@ -152,6 +152,10 @@ export class KoluWorld extends World {
   /** A sub-terminal (split) id captured by the deep-links steps, so a
    *  `#/t/local/<subId>` link can target it after focus has moved away. */
   rememberedSubTerminalId: string | null = null;
+  /** `history.length` snapshot taken by the deep-links steps, so a scenario can
+   *  pin that routing deep links pushes NO history entries (mouse-back must
+   *  never replay a stale teleport). */
+  pageHistoryLength: number | null = null;
 
   /** Wait for a double-rAF — ensures SolidJS reactivity + Corvu transitions have been flushed. */
   async waitForFrame() {

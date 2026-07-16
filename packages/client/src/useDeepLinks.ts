@@ -314,14 +314,16 @@ export function useDeepLinks(): void {
   });
 
   /** Route a hash delivered from OUTSIDE the address bar (a PWA launch, the
-   *  preview bridge): reflect it into the bar when it differs — durability, and
-   *  the `hashchange` listener does the rest — else parse+navigate directly (an
-   *  identical hash fires no event, and a repeated request must still
-   *  re-route). */
+   *  preview bridge). Reflect it into the bar with `replaceState` — the hash
+   *  stays durable (copyable; reload re-navigates) but NO history entry is
+   *  pushed, so mouse-back never replays a stale teleport: deep-link routing
+   *  must not record history that ordinary in-app navigation doesn't (a
+   *  `location.hash =` write would push one per routed link). `replaceState`
+   *  fires no `hashchange`, so route explicitly — always, which also keeps a
+   *  repeated same-hash request re-routing. */
   function navigateFromExternal(hash: string): void {
     if (hash && hash !== window.location.hash) {
-      window.location.hash = hash;
-      return;
+      history.replaceState(null, "", hash);
     }
     navigate(parseDeepLink(hash));
   }
@@ -339,10 +341,9 @@ export function useDeepLinks(): void {
 
   onMount(() => {
     // (c) PWA launch (Chromium): a focus-existing launch hands the URL here,
-    // WITHOUT navigating an already-open window. Reflect its hash into the
-    // address bar (durability — a later reload re-navigates), letting the
-    // `hashchange` listener act; navigate directly only when the hash is
-    // identical/empty (no event would fire).
+    // WITHOUT navigating an already-open window. `navigateFromExternal`
+    // reflects the hash into the address bar (durability — a later reload
+    // re-navigates) without pushing a history entry, and routes directly.
     //
     // Registered BEFORE the boot parse: on a COLD installed launch the browser
     // both loads the target URL (so `location.hash` is set) AND queues the same

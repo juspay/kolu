@@ -87,12 +87,19 @@ Feature: Deep links — every view addressable by a #/… URL
     And I run "git init /tmp/kolu-dl2-pill && cd /tmp/kolu-dl2-pill"
     And I run "git commit --allow-empty -m init"
     And I run "echo DEEP-PILL-MARKER"
-    And I run "printf '<a href=\"/#/t/local/%s\">jump to agent</a>\n' \"$KAVAL_TERMINAL_ID\" > pill.html"
+    And I run "printf '<a href=\"/#/t/local/%s\">jump to agent</a> <a href=\"/#/settings\">open settings</a>\n' \"$KAVAL_TERMINAL_ID\" > pill.html"
     And I run "git add pill.html && git commit -m pill"
     And I create a terminal
     And I run "cd /tmp/kolu-dl2-pill"
     And I run "echo 'open pill.html'"
     And I trigger the terminal file-ref link "pill.html"
     Then the file preview iframe should be visible
-    When I click the link "jump to agent" in the file preview iframe
+    # Routing deep links must push NO history entries — mouse-back must never
+    # replay a stale teleport (srid's dogfood finding). Two routed links, then
+    # the length pin.
+    When I note the page history length
+    And I click the link "jump to agent" in the file preview iframe
     Then the active terminal should show "DEEP-PILL-MARKER"
+    When I click the link "open settings" in the file preview iframe
+    Then the settings popover should be visible
+    And the page history length should be unchanged
