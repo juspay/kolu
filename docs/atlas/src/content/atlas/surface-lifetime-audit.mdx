@@ -73,17 +73,36 @@ graceful half); `inProcessPtyHost` promises rc-file cleanup that an optional
 consumer hook enforces. Individually small; collectively the same P5 verdict
 as the seed — the knowing endpoint delegates.
 
-Two candidates earn near-term attention if the class bites again:
-`daemonMain`'s missing exit (same fix shape as STDIO1 — a natural second
-patch in that lineage) and `serveOverUnixSocket.close()` not ending
-established connections (an "unenforced" cell, not even homework).
+## The unifying mechanism — tenure, not transports (srid's reframe)
+
+The census's real payoff is that the 17 non-framework-owned cells are **one
+missing concept expressed 17 times**, not 17 problems: a serving process's
+**tenure** — what holds it alive, and the ordered teardown that must run when
+the last hold releases — *regardless of how it was started* (stdio, ssh,
+unix socket). The transports differ only in the holds:
+
+| assembly | holds | teardown chain today |
+| --- | --- | --- |
+| stdio/ssh agent | the one link | framework-owned after [stdio-agent-lifetime](stdio-agent-lifetime.html) |
+| socket daemon | gate + policy (idle timeout, state-root watcher, parent pid — the `boundToPid` shape) | `close()` stops accepting and SKIPS: end established peer serves → dispose surface → exit |
+| `daemonMain` bins | already modeled (`DaemonExit` resolves on drain/idle/watch) | hands the value back instead of exiting — the seed's shape at the daemon layer |
+
+The recorded follow-up is therefore **one tenure harness in
+`@kolu/surface-daemon`** — assemblies declare their holds; the harness owns
+the chain (*stop accepting → end established peers → dispose → exit*) and the
+`process.exit` — rather than per-transport patches. Prove-then-extract
+sequencing: STDIO1 is the first instance (population one, shipping as-is);
+**`daemonMain` adoption is the second consumer that earns the extraction**;
+`serveOverUnixSocket`'s missing teardown chain rides the harness instead of
+a bespoke patch. Naming this is a recorded opportunity, not a blocker — the
+gate is the second consumer arriving.
 
 ## What this buys
 
 The census turns future lifetime questions from archaeology into lookup: a
 new consumer (kolu-cli's faces, a fourth stdio agent) can be checked against
-the 17 non-framework-owned seams it touches, and each framework fix
-(STDIO1 now; `daemonMain` next if ratified) flips rows from homework to
-owned. The refuter discipline mattered: two over-claimed variants died in
+the 17 non-framework-owned seams it touches, and each fix flips rows from
+homework to owned — with the tenure harness as the move that flips whole
+columns. The refuter discipline mattered: two over-claimed variants died in
 verification, and the one stale finding (kaval) was caught by checking the
 sweep's tree against merged master before reporting.
