@@ -937,6 +937,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // pwa-install preview) from a bare icon to a richer app entry.
     description:
       "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
+    // Deep-link PWA capture: an in-scope https link (`#/t/…`, `#/h/…`, …) focuses
+    // the ALREADY-OPEN installed window and hands the URL to the app's
+    // `launchQueue`, instead of spawning a second window. Rides the `...extra`
+    // passthrough (a plain manifest key — no surface-app change). See the
+    // deep-links Atlas note + `useDeepLinks`.
+    launch_handler: { client_mode: "focus-existing" },
     themeColor: pwaIdentity.themeColor,
     backgroundColor: PWA_BACKGROUND_COLOR,
     icons: [

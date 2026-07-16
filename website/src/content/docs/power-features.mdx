@@ -63,6 +63,47 @@ Chromium-only, as it uses the File System Access API.
 - **Just this tab** — the browser's multi-surface picker collapses to a single
   "share this tab" confirmation.
 
+## Link to any view
+
+Every view in kolu has a URL. Anything that can render a link — an orchestrator
+board, a GitHub issue, a Slack message, a browser bookmark — can point **into**
+kolu with a `#/…` hash link. Click it and the installed app comes to the front
+already showing the right host, terminal, file, or dialog (no PWA? the same link
+opens in any browser).
+
+| Link | Lands on |
+| --- | --- |
+| `#/h/<host>` | that host, switched to |
+| `#/t/<host>/<id>` | that host **and** the terminal focused |
+| `#/t/<host>/<id>/code?path=<p>` | the Code tab, `<p>` open (add `&line=<n>` to land on a line) |
+| `#/t/<host>/<id>/inspector` | the Inspector tab |
+| `#/settings` | the settings dialog |
+
+`<host>` is the host's key (`local`, or `remote:<target>`); `<id>` is the
+terminal's id. A link to a **split** lands the sub-terminal live, not just its
+parent tile. Because the Code tab and Inspector belong to the top-level **tile**
+(a split shares its parent's right panel), a `/code` or `/inspector` link to a
+split focuses the split and opens the **parent tile's** panel — and `/code`
+resolves `<p>` against that tile's repository.
+
+- **Durable, not one-shot** — unlike a notification click, a deep link is a
+  bookmark: reload and it re-navigates.
+- **View-only by law** — the worst a link can do is change what you're looking
+  at. No URL creates a terminal, kills one, writes a file, or sends keys.
+- **Loud on the edges** — a link to a terminal or host that's gone names what it
+  pointed at and lands you on the nearest surviving view; an unknown link shape
+  says so rather than failing silently. A link opened on a cold start waits for
+  the host's terminals to load before deciding anything is missing.
+
+<Aside type="note" title="Focus the installed app, don't spawn a second window">
+  When kolu is installed as a [PWA](/install-pwa) on a Chromium browser, an
+  in-scope link focuses the already-open app window (via the manifest's
+  `launch_handler` and the Launch Queue API) instead of opening a duplicate — so
+  a link from your chat or board jumps you straight to the terminal, in the
+  window you already have. Elsewhere the link just opens kolu normally; either
+  way it lands on the right view.
+</Aside>
+
 <Aside type="note" title="Drive it from the shell">
   Every terminal kolu opens is reachable from [`kaval-tui`](/kaval): list,
   snapshot, attach, send a prompt, or kill. It is the same PTY daemon,
