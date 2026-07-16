@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import GithubSlugger from "github-slugger";
-import { toString } from "mdast-util-to-string";
+import { toString as mdastToString } from "mdast-util-to-string";
 import type { Link, Nodes, Root } from "mdast";
 import type {
   MdxJsxAttribute,
@@ -66,7 +66,7 @@ const headingStats = (tree: Root): ChangelogStat[] => {
 
   for (const node of tree.children) {
     if (node.type === "heading" && node.depth === 3) {
-      const label = toString(node).trim();
+      const label = mdastToString(node).trim();
       active = { label, key: slugger.slug(label), count: 0 };
       stats.push(active);
     } else if (node.type === "list" && active) {
@@ -103,7 +103,7 @@ const validateLedger = (tree: Root, srcDir: string) => {
   for (const node of tree.children) {
     if (node.type === "heading" && node.depth === 3) {
       sawHeading = true;
-      const label = toString(node).trim();
+      const label = mdastToString(node).trim();
       const link: Link | undefined =
         node.children.length === 1 && node.children[0].type === "link"
           ? node.children[0]
@@ -124,7 +124,7 @@ const validateLedger = (tree: Root, srcDir: string) => {
       let orphan: string | undefined;
       visit(node, (child) => {
         if (!orphan && isChangeElement(child))
-          orphan = toString(child).slice(0, 60);
+          orphan = mdastToString(child).slice(0, 60);
       });
       if (orphan !== undefined)
         throw new Error(
@@ -148,7 +148,7 @@ export function remarkChangelog() {
     const headingSlugger = new GithubSlugger();
     const prefix = changelogReleaseKey(version);
     visit(tree, "heading", (node) => {
-      const id = `${prefix}-${headingSlugger.slug(toString(node))}`;
+      const id = `${prefix}-${headingSlugger.slug(mdastToString(node))}`;
       node.data ??= {};
       node.data.hProperties = { ...node.data.hProperties, id };
     });
