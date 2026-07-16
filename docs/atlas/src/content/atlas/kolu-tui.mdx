@@ -46,7 +46,17 @@ arrangement the browser shows for this host, in a terminal.
 />
 
 - **Focus** moves with `hjkl`/arrows; the focused tile shows a live screen
-  preview (the `screen` collection), not a frozen snapshot.
+  preview (the `screen` collection), not a frozen snapshot. The grid is the
+  terminal-native projection of the canvas: tiles sorted by the host
+  arrangement's reading order, so spatial memory survives as *ordering*, not
+  geometry.<Footnote>An infinite-canvas viewport (pan over the browser's
+  plane) was considered and rejected: characters don't scale, so a terminal
+  has no continuous zoom — a tile is either 1:1 readable or
+  downsampled-to-decoration, and panning a plane where at most ~4 tiles are
+  readable just loses terminals off-screen. Pixel-preview escape hatches
+  (sixel, kitty graphics) were rejected with it: terminal-specific
+  electricity against the raw-ANSI decision. Maximized + grid is what every
+  TUI multiplexer converges on, for this reason.</Footnote>
 - **Enter attaches**: full-screen raw passthrough to that terminal — keystrokes
   in, bytes out, exactly the `kaval-tui attach` UX (same detach chord, same
   resize-then-attach discipline) but riding `padiSurface`'s `terminalAttach`

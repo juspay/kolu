@@ -18,7 +18,17 @@ arrangement the browser shows for this host, in a terminal.</p>
 <div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu-tui — zest</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>┌─ RT-fable-main ● ─────────┐ ┌─ flake-5x ✳ ──────────────┐</div><div class="term-line term-out" data-astro-cid-kenkipkp>│ ❯ kaval-tui list          │ │ · Baking… (14m 27s)       │</div><div class="term-line term-out" data-astro-cid-kenkipkp>│ ec5f7bae  ⠂ RT-fable-main │ │   695 passed, 0 failed    │</div><div class="term-line term-out" data-astro-cid-kenkipkp>└───────────────────────────┘ └───────────────────────────┘</div><div class="term-line term-out" data-astro-cid-kenkipkp>┌─ sr11-policy ─────────────┐ ┌─ (empty — c to create) ───┐</div><div class="term-line term-out" data-astro-cid-kenkipkp>│ ❯                         │ │                           │</div><div class="term-line term-out" data-astro-cid-kenkipkp>└───────────────────────────┘ └───────────────────────────┘</div><div class="term-line term-comment" data-astro-cid-kenkipkp># focus: hjkl/arrows · Enter attach · c create · x kill · q quit</div></div></div>
 <ul>
 <li><strong>Focus</strong> moves with <code>hjkl</code>/arrows; the focused tile shows a live screen
-preview (the <code>screen</code> collection), not a frozen snapshot.</li>
+preview (the <code>screen</code> collection), not a frozen snapshot. The grid is the
+terminal-native projection of the canvas: tiles sorted by the host
+arrangement’s reading order, so spatial memory survives as <em>ordering</em>, not
+geometry.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An infinite-canvas viewport (pan over the browser’s
+plane) was considered and rejected: characters don’t scale, so a terminal
+has no continuous zoom — a tile is either 1:1 readable or
+downsampled-to-decoration, and panning a plane where at most ~4 tiles are
+readable just loses terminals off-screen. Pixel-preview escape hatches
+(sixel, kitty graphics) were rejected with it: terminal-specific
+electricity against the raw-ANSI decision. Maximized + grid is what every
+TUI multiplexer converges on, for this reason.</span></span></span></li>
 <li><strong>Enter attaches</strong>: full-screen raw passthrough to that terminal — keystrokes
 in, bytes out, exactly the <code>kaval-tui attach</code> UX (same detach chord, same
 resize-then-attach discipline) but riding <code>padiSurface</code>’s <code>terminalAttach</code>
