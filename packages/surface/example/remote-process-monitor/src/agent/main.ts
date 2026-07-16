@@ -220,6 +220,8 @@ async function main(): Promise<void> {
     router: router as any,
     onFirstRequest: () => log("first RPC received — link is live"),
   });
+  // Synchronous post-settle cleanup — the supported window before the
+  // framework-owned exit (see `serveOverStdio`'s "Lifetime" doc).
   clearInterval(interval);
   log(`stdin closed (${end.reason}) — agent exiting`);
 }

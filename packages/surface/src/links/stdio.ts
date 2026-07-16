@@ -37,7 +37,7 @@ import type {
 import { ClientPeer } from "@orpc/standard-server-peer";
 import { deadTransportError, SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
-import { framedSend, readFramedLines } from "./stdio-codec";
+import { framedSend, isBenignWriteError, readFramedLines } from "./stdio-codec";
 
 /** A `Readable`/`Writable` pair the link reads and writes from. */
 export interface StdioLinkOptions {
@@ -72,7 +72,17 @@ export class LinkStdioClient<T extends ClientContext>
   private closed = false;
 
   constructor(opts: StdioLinkOptions) {
-    this.peer = new ClientPeer((message) => framedSend(opts.write, message));
+    // `onPeerGone` mirrors the server's `endServing` (peer-server.ts): a
+    // `write()` on a stream `destroy()`ed without an error reports
+    // `ERR_STREAM_DESTROYED` only to the write callback — no 'error' event —
+    // so without this the link never learns the transport died and every
+    // in-flight call hangs. `handleTransportClosed` is idempotent, so the
+    // 'error'-event path below converging on it is safe. A stable reference,
+    // not an inline arrow — the sender runs per frame.
+    const onPeerGone = () => this.handleTransportClosed();
+    this.peer = new ClientPeer((message) =>
+      framedSend(opts.write, message, onPeerGone),
+    );
     // The write half needs its own 'error' sink. A failed `write()` already
     // rejects the in-flight frame through the callback above, but Node ALSO
     // emits 'error' on the stream itself — and an 'error' event with no
@@ -86,11 +96,18 @@ export class LinkStdioClient<T extends ClientContext>
     // gone — so route it through the same teardown the inbound stream's
     // end/error takes: mark the link closed so later `call()`s reject fast
     // instead of limping on a dead pipe. Symmetric with the read half's
-    // `read.on("error", …)` guard in `stdio-codec.ts`.
+    // `read.on("error", …)` guard in `stdio-codec.ts`. The diagnostic
+    // consults the codec's shared classifier, mirroring the server funnel
+    // in `peer-server.ts`: a benign peer-gone write death (EPIPE /
+    // ERR_STREAM_DESTROYED) is clean teardown on both ends of the wire,
+    // so it isn't narrated as an error here either — only a real write
+    // failure is. The teardown itself is unconditional either way.
     opts.write.on("error", (err) => {
-      process.stderr.write(
-        `[@kolu/surface/links/stdio] outbound write error: ${(err as Error).message}\n`,
-      );
+      if (!isBenignWriteError(err)) {
+        process.stderr.write(
+          `[@kolu/surface/links/stdio] outbound write error: ${(err as Error).message}\n`,
+        );
+      }
       this.handleTransportClosed();
     });
     readFramedLines(opts.read, (frame) => {
