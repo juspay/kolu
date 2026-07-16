@@ -75,6 +75,20 @@ in
       '';
     };
 
+    cliPackage = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = cfg.package;
+      defaultText = lib.literalExpression "config.services.kolu.package";
+      description = ''
+        The `kolu` binary to install onto PATH alongside the running service —
+        so the CLI faces work from any shell: `kolu mcp` (serve this host's
+        terminals to a coding agent over MCP stdio) and `kolu web`. Defaults to
+        the service's own package, so the binary on PATH can never skew from
+        the daemon it dials; set to `null` to opt out, or to an explicit
+        package to pin a build.
+      '';
+    };
+
     host = lib.mkOption {
       type = lib.types.str;
       default = "127.0.0.1";
@@ -148,12 +162,14 @@ in
       }
     ];
 
-    # Ship the terminal-side CLIs (kaval-tui + padi-tui) on PATH so they can
-    # reach a pty-host / padi socket from any shell. Each is skipped only
-    # when its package is explicitly set null.
+    # Ship the terminal-side CLIs (kaval-tui + padi-tui) AND the kolu binary
+    # itself on PATH so they can reach a pty-host / padi socket from any
+    # shell — `kolu mcp` is how a coding agent gets this host's terminals.
+    # Each is skipped only when its package is explicitly set null.
     home.packages =
       lib.optional (cfg.tuiPackage != null) cfg.tuiPackage
-      ++ lib.optional (cfg.padiTuiPackage != null) cfg.padiTuiPackage;
+      ++ lib.optional (cfg.padiTuiPackage != null) cfg.padiTuiPackage
+      ++ lib.optional (cfg.cliPackage != null) cfg.cliPackage;
 
     systemd.user.services = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
       kolu = {
