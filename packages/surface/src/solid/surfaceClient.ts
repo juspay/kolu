@@ -909,9 +909,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // if any cell/collection declares `client.onError` and `onClientError` is absent —
   // regardless of whether any consumer ever `.use()`s the member (the wiring below
   // fires only on subscribe; this check must not). Mirrors the loud-crash precedent
-  // at `resolveTransport` (the half-open-blind transport). The typed enforcement lives
-  // upstream (`connectSurfaces`/`connectSurfaceMap` require `onClientError` when the
-  // surface carries a non-`never` policy); this is the belt-and-braces runtime guard.
+  // at `resolveTransport` (the half-open-blind transport). This runtime scan is the
+  // SOLE enforcement: `onClientError` is an OPTIONAL field on both `connectSurfaces`
+  // and `connectSurfaceMap` — their option types don't carry the surface's policy
+  // type, so they can't make the interpreter type-*required* when a member declares a
+  // non-`never` policy. So a policy-bearing surface connected with no interpreter is
+  // caught HERE, at construction, not by the compiler.
   if (onClientError === undefined) {
     const policyMember =
       Object.entries(spec.cells ?? {}).find(
@@ -931,6 +934,27 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
           "policy would route nowhere (a silent swallow). Build this surface " +
           "through `connectSurfaces`/`connectSurfaceMap` with an `onClientError`, " +
           "which threads the interpreter to every internal `buildSurfaceClient`.",
+      );
+    }
+  }
+  // FAIL-FAST (F1): a `client.authority: "local"` cell drives `useCellLocal`, which
+  // builds `createStore(default)` and writes patches back through a `set`/`patch` verb.
+  // That path is sound ONLY for a non-null OBJECT value WITH a mutation verb. The
+  // declaration type drops the local arm for a non-object `T` ({@link ClientCellPolicyServerOnly}),
+  // but `verbs` isn't cleanly reflectable at the type — so a get-only OBJECT cell would
+  // still slip through. Assert both dimensions once, at construction, so a bad local-authority
+  // declaration crashes loudly here rather than failing (or silently never writing) at subscribe.
+  for (const [key, s] of Object.entries(spec.cells ?? {})) {
+    const cs = s as CellSpec<unknown, unknown, unknown>;
+    if (cs.client?.authority !== "local") continue;
+    const isObject = typeof cs.default === "object" && cs.default !== null;
+    const verbs = resolveCellVerbs(cs);
+    const mutable = verbs.includes("set") || verbs.includes("patch");
+    if (!isObject || !mutable) {
+      throw new Error(
+        `buildSurfaceClient: cell "${key}" declares client.authority "local" but is ` +
+          `${!isObject ? "not object-valued" : "get-only (no set/patch verb)"} — a ` +
+          "local-authority store requires a non-null object value and a mutation verb.",
       );
     }
   }

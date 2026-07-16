@@ -95,26 +95,37 @@ export function interpretClientError(
       toast.error(`${p.label} error: ${err.message}`, { id });
       return;
     case "hostToast": {
-      // origin is guaranteed for an entry member (hostToast is unspellable on a root
-      // surface, F8); the bare-label fallback is defensive only.
-      const label = origin
-        ? `Host ${hostLabel(origin.key)} ${p.label}`
-        : p.label;
-      toast.error(`${label} error: ${err.message}`, { id });
+      // `hostToast` is declared ONLY on origin-bearing (map-entry) members — a
+      // root-surface member is typed to the origin-free `toast` arm (F8). So a missing
+      // origin here is an IMPOSSIBLE state (origin injection regressed): FAIL LOUD
+      // rather than silently emit an unattributed toast (caught-error-must-not-collapse).
+      if (!origin)
+        throw new Error(
+          `interpretClientError: hostToast "${p.label}" reached with no origin — ` +
+            "it is declared on a map-entry member; origin injection must have regressed.",
+        );
+      toast.error(
+        `Host ${hostLabel(origin.key)} ${p.label} error: ${err.message}`,
+        { id },
+      );
       return;
     }
     case "scopedSub": {
+      // `scopedSub` too rides only origin-bearing members (createHostWire's per-host
+      // subs) — a missing origin is impossible-by-construction, so fail loud instead of
+      // logging a `for ?` background line that hides the regression.
+      if (!origin)
+        throw new Error(
+          `interpretClientError: scopedSub "${p.label}" reached with no origin — ` +
+            "it is declared on a map-entry member; origin injection must have regressed.",
+        );
       const g = groundedActiveHost();
       const active =
-        origin != null &&
-        g !== null &&
-        encodeHostKey(g) === encodeHostKey(origin.key);
+        g !== null && encodeHostKey(g) === encodeHostKey(origin.key);
       if (active) toast.error(`${p.label}: ${err.message}`, { id });
       else
         console.error(
-          `createHostWire: background ${p.label} for ${
-            origin ? encodeHostKey(origin.key) : "?"
-          }: ${err.message}`,
+          `createHostWire: background ${p.label} for ${encodeHostKey(origin.key)}: ${err.message}`,
         );
       return;
     }

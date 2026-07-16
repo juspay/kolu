@@ -43,12 +43,23 @@ const MEMBER_USE_RE =
 /** The forbidden policy keys — declared on the member SPEC now, never a use-site bag. */
 const FORBIDDEN_KEY_RE = /\b(?:onError|authority|coalesceMs)\b/;
 
-/** Replace every `//`-line and `/* … *​/`-block COMMENT body with spaces (newlines
- *  preserved, so byte offsets and line numbers are unchanged), leaving string bodies
- *  intact — a guard scans CODE, not the prose in a docstring (which legitimately shows
- *  `…use({ authority: "server" })` when describing a use-site). Escapes and the three
- *  quote kinds are honoured so a `//` inside a string is not mistaken for a comment. */
-function blankComments(text: string): string {
+/** Replace every `//`-line and `/* … *​/`-block COMMENT body AND every string-literal
+ *  body with spaces (newlines preserved, so byte offsets and line numbers are
+ *  unchanged) — a guard scans CODE STRUCTURE, not the prose in a docstring (which
+ *  legitimately shows `…use({ authority: "server" })`) NOR a member-chain pattern that
+ *  happens to appear inside a string literal (the false-positive codex F5 flagged).
+ *  Escapes and the three quote kinds are honoured so a `//` inside a string is not
+ *  mistaken for a comment and an escaped quote does not close the string early.
+ *
+ *  KNOWN GAP (accepted): this is a textual guard, so it does NOT catch a member
+ *  ALIASED before `.use()` (`const c = app.cells.x; c.use({ onError })`). No in-repo
+ *  code does that, and the primary enforcement is structural anyway — a migrated
+ *  member declares its policy on the spec, so a use-site bag is a review-visible
+ *  regression, not the sole line of defence. A full AST lint would be disproportionate
+ *  here (and removing the option keys from the bound `.use()` type would break the
+ *  legitimate NON-policy use-site `onError` path that a member without a declared
+ *  policy still relies on). */
+function blankCommentsAndStrings(text: string): string {
   const out = text.split("");
   let state: "code" | "line" | "block" | "'" | '"' | "`" = "code";
   for (let i = 0; i < text.length; i++) {
@@ -79,9 +90,17 @@ function blankComments(text: string): string {
       } else if (c !== "\n") out[i] = " ";
       continue;
     }
-    // Inside a string literal — leave bytes intact; honour escapes and the closer.
-    if (c === "\\") i++;
-    else if (c === state) state = "code";
+    // Inside a string literal — BLANK the body too (honour escapes + the closer). The
+    // opening/closing quote chars stay (harmless punctuation); only the body is spaced.
+    if (c === state) {
+      state = "code";
+    } else if (c === "\\") {
+      out[i] = " ";
+      if (n !== undefined && n !== "\n") out[i + 1] = " ";
+      i++;
+    } else if (c !== "\n") {
+      out[i] = " ";
+    }
   }
   return out.join("");
 }
@@ -115,7 +134,7 @@ function matchBrace(text: string, open: number): number {
  *  `"<label>:<line>: <key>"`. Only a SINGLE-ARG options bag (first arg `{`) is
  *  considered; a positional/bare `.use(` is skipped. */
 function scan(rawText: string, label: string): string[] {
-  const text = blankComments(rawText);
+  const text = blankCommentsAndStrings(rawText);
   const g = new RegExp(MEMBER_USE_RE.source, "g");
   const hits: string[] = [];
   for (let m = g.exec(text); m !== null; m = g.exec(text)) {

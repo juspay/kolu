@@ -180,7 +180,16 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  {@link ClientCellPolicy}. The framework never interprets it; it threads the
    *  declared value to the app's registered `onClientError` when this cell's
    *  client subscription fails. Unfillable unless the surface was built with a
-   *  non-`never` `TPolicy` via {@link defineSurfaceWithPolicy}. */
+   *  non-`never` `TPolicy` via {@link defineSurfaceWithPolicy}.
+   *
+   *  The `authority: "local"` arm's validity (a non-null object value with a
+   *  `set`/`patch` verb) is enforced by `buildSurfaceClient`'s CONSTRUCTION
+   *  BACKSTOP, not the type: the `SurfaceSpec` constraint erases `T` to `any` at
+   *  the `defineSurfaceWithPolicy` spec-literal site, so a `[T] extends [object]`
+   *  gate would resolve to the full union there anyway (`[any] extends [object]`
+   *  distributes to both arms) — a type gate can't reliably fire where the
+   *  declaration is written, exactly as the missing-interpreter check is runtime
+   *  for the same erasure reason. */
   client?: ClientCellPolicy<TPolicy>;
 }
 
