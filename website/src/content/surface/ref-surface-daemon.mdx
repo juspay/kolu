@@ -21,11 +21,22 @@ lifetime to end, then closes the socket, releases the gate, and **returns** a
 `DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
 in-process from a test.
 
+`daemonProcessMain({ name, run })` is the **bin half of that partition**: for a
+process that exists to *be* the daemon, it runs `run()` (`daemonMain` or a
+wrapper around it) to completion and then **owns the process exit** — the code
+from `daemonExitCode`, a rejection narrated as `name: message` and exited `1`
+(the crash arm is swallow-proof: a failing stderr write cannot block the exit).
+Without it, any live resource or timer the bin never tied to the daemon's
+lifetime keeps the event loop alive after the tenure ended — an invisible
+lingering daemon. Call it as the bin's **last statement**; it returns
+synchronously and owns the rest of the process's life.
+
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="lifecycle" />
 
 | Export | Role |
 | --- | --- |
 | `daemonMain(spec)` | the gate → serve → teardown skeleton; resolves a `DaemonExit` |
+| `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm) |
 | `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }` or `{ kind: "held", pid }` |
 | `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
 | `daemonExitCode(exit)` · `stderrLogger()` · `Logger` · `DaemonExit` | exit-code classification and the structural logging contract |

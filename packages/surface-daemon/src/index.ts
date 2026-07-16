@@ -72,3 +72,4 @@ export {
   gatePid,
   isHolderLive,
 } from "./pidGate.ts";
+export { daemonProcessMain } from "./tenure.ts";
