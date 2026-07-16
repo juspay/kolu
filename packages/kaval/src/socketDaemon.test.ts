@@ -344,13 +344,17 @@ describe("kaval daemon — process-boundary behaviour", () => {
     //
     // The pin is a DIRECTLY-spawned, non-tty-aware leader (a bare `sleep`): it
     // neither reads the pty (so it can't self-exit on the master's EOF) nor
-    // watches the tty (so, unlike a SHELL leader, it can't self-reap on the
-    // master's hangup). Only the daemon's explicit dispose removes it. A leader
-    // that HAS foreground descendants is reaped whole anyway — the leader's death
-    // hangs up its foreground group (kernel), so the descendants go with it — and
-    // a real shell leader self-reaps on the hangup regardless. Both were verified
-    // on rasam: every shell-involved topology passes even WITHOUT the fix, so the
-    // honest reproduction is this non-self-reaping leader.
+    // watches the tty — so, unlike a SHELL leader (which reliably self-reaps on
+    // the master's hangup), it cannot RELIABLY be reaped by the OS. darwin's
+    // master-close does hang it up, but only intermittently (observed leaking
+    // once, then reaped on a later 5/5 batch — the aged rasam orphans are that
+    // unreliable tail); the daemon's explicit dispose makes the reap
+    // DETERMINISTIC, which is the fix. A leader that HAS foreground descendants is
+    // reaped whole anyway — the leader's death hangs up its foreground group
+    // (kernel), so the descendants go with it — and a real shell leader self-reaps
+    // on the hangup regardless. Both were verified on rasam: every shell-involved
+    // topology passes even WITHOUT the fix, so the honest reproduction is this
+    // non-self-reaping leader.
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
     const { pid } = await conn.client.surface.terminal.spawn({
