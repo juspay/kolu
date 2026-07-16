@@ -97,6 +97,10 @@ const WEB_SHELL_FILES = [
   // ownership; runs no terminal domain), so it lives beside the binder.
   "padi/supervisorClaim",
   // ── the serving shell + true leaves (top-level) ──
+  // The binary's subcommand dispatch (kolu-cli PR1): `kolu web` names the boot
+  // path, bare `kolu` is its byte-for-byte alias, `tui`/`mcp` are reserved
+  // fail-fasts. Pure argv parsing — web-shell code, runs no terminal domain.
+  "cli",
   "hostname",
   // W10 host-membership persistence — the pool (the web shell's authority for map
   // membership) is its one writer, so its atomic-JSON load/validate/save leaf lives

@@ -43,12 +43,11 @@ import { sessionConnection } from "@kolu/surface-remote/connection";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
-import { cli } from "cleye";
+import { koluWebFlagsOrExit } from "./cli.ts";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
-import { DEFAULT_PORT } from "kolu-common/config";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import {
   TERMINAL_FILE_ROUTE_BASE,
@@ -95,46 +94,11 @@ import { padiMemoryReadable } from "./padiMemoryGate.ts";
 import { implementKoluSurface } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
-const argv = cli({
-  name: "kolu",
-  version: serverVersion,
-  flags: {
-    host: {
-      type: String,
-      description: "Address to listen on",
-      default: "127.0.0.1",
-    },
-    port: {
-      type: Number,
-      description: "Port to listen on",
-      default: DEFAULT_PORT,
-    },
-    tls: {
-      type: Boolean,
-      description: "Enable HTTPS with auto-generated self-signed certificate",
-      default: false,
-    },
-    tlsCert: {
-      type: String,
-      description: "Path to TLS certificate file (PEM)",
-    },
-    tlsKey: {
-      type: String,
-      description: "Path to TLS private key file (PEM)",
-    },
-    verbose: {
-      type: Boolean,
-      description: "Enable debug-level logging",
-      default: false,
-    },
-    allowNixShellWithEnvWhitelist: {
-      type: String,
-      description:
-        "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
-    },
-  },
-  strictFlags: true,
-});
+// Subcommand dispatch (kolu-cli PR1, docs/atlas/src/content/atlas/kolu-cli.mdx):
+// `kolu web` names this boot path, bare `kolu` is its byte-for-byte alias, and
+// the reserved faces (`tui`, `mcp`) fail fast inside `koluWebFlagsOrExit` —
+// so everything below this line IS the web face.
+const flags = koluWebFlagsOrExit();
 
 const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
@@ -154,7 +118,7 @@ const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 // `padiLog.level = "debug"` guarded against). We forward the intent instead: the
 // binding launches padi with `LOG_LEVEL=debug` when verbose (see `daemonEnv` in
 // `padiBinding.ts`), the cross-process twin of raising that logger in place.
-if (argv.flags.verbose) {
+if (flags.verbose) {
   log.level = "debug";
 }
 
@@ -335,10 +299,10 @@ const pool = buildRemotePool<PadiSession, undefined>({
       session:
         key.kind === "local"
           ? ensurePadiBinding({
-              nixShellWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
-              legacyKavalSocket: legacyKavalSocketPath(argv.flags.port),
+              nixShellWhitelist: flags.allowNixShellWithEnvWhitelist,
+              legacyKavalSocket: legacyKavalSocketPath(flags.port),
               spawnVersion: serverVersion,
-              verbose: argv.flags.verbose,
+              verbose: flags.verbose,
               // A genuine adoption refusal is fatal on ANY dial, not just the boot
               // pin's first one below — a reconnect's own fire-and-forget loop would
               // otherwise swallow a LATER refusal silently (see the option's doc in
@@ -987,9 +951,9 @@ if (clientDist) {
 // the hand-rolled `onState` → `ctx.set` handler that used to live here is retired.)
 
 // --- TLS setup ---
-const tlsOptions = await resolveTlsOptions(argv.flags);
+const tlsOptions = await resolveTlsOptions(flags);
 
-const { host, port } = argv.flags;
+const { host, port } = flags;
 
 // --- Start server ---
 const server = serve(
