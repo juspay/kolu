@@ -1,0 +1,69 @@
+---
+title: Sessions, Sleep & Wake
+description: "How kolu keeps a workspace across reloads, restarts, and crashes — and how sleep parks a terminal without keeping its PTY, agent, or GPU context alive, then wakes it on the exact conversation it was running."
+order: 64
+section: Use Kolu
+koluHero:
+  eyebrow: lose nothing
+  headline: Park it now, {resume it whole}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+A kolu **session** is your whole workspace — the terminals, their layout and
+themes, the maximized posture, the activity-window filter — and it comes back
+where you left it across a reload, a server restart, and even a crash. That
+durability is why you can park work freely: nothing you set up is expensive to
+lose, because it isn't lost.
+
+## What survives
+
+- A **reload** re-attaches your terminals already-whole; the "Restore session"
+  card only appears after a genuine restart, never as a flash on a normal reload.
+- A **kolu-server restart or redeploy** keeps your terminals and session, because
+  the workspace record lives in [padi](/padi), not the web server.
+- A **kaval update** keeps your live terminals — shells, scrollback, and running
+  agents — running across it (see [Kaval](/kaval)); the only sign is a brief "N
+  terminals reattached" note.
+- Even an **unclean crash** of the terminal daemon brings your agents back
+  **resumed on their exact prior conversation**, not as bare shells.
+
+## Sleep a terminal
+
+Sleeping parks a tile you're done with for now while keeping only the terminals
+you're using live. It's how you keep many agent sessions around without paying
+for all of them.
+
+- Click the **☾** button on the title bar, or run **Sleep terminal** from the
+  palette.
+- The **PTY, agent process, and GPU/WebGL context are released** — exactly as if
+  you'd closed it — while the tile stays a full canvas citizen: drag, resize,
+  rename, and re-theme it like any other. Only typing is fenced off.
+- Last-known context stays visible: the directory, git branch, and GitHub PR it
+  was on, frozen at sleep.
+- **Closing** a sleeping tile discards it, because nothing is running behind it.
+
+## Wake — on the exact conversation
+
+Wake respawns the terminal in the same directory and resumes the agent on the
+**exact conversation it was running** — resumed by id (`claude --resume <id>`,
+`codex resume <id>`, `opencode --session <id>`, and the Grok equivalent), not
+merely the most-recent conversation in that folder. The one exception is
+deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking
+lands you at that shell rather than silently relaunching something you'd closed.
+
+<Aside type="note" title="Keep the dock to what's awake">
+  The dock's **Filters** row can hide sleeping terminals (and the activity window
+  compresses away ones you slept long ago), so parked sessions don't crowd the
+  list — [The Dock](/dock) covers both filters.
+</Aside>
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Padi" href="/padi" description="the workspace daemon that holds the session record" />
+  <LinkCard title="Power Features" href="/power-features" description="transcript export and workspace recording" />
+  <LinkCard title="Architecture" href="/architecture" description="how the restore path is wired" />
+</CardGrid>

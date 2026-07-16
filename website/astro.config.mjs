@@ -1,10 +1,12 @@
 // @ts-check
 
 import { existsSync, readFileSync } from "node:fs";
+import { unified } from "@astrojs/markdown-remark";
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
+import { remarkChangelog } from "./src/remarkChangelog";
 
 function readKoluVersion() {
   if (process.env.KOLU_VERSION) return process.env.KOLU_VERSION;
@@ -56,6 +58,7 @@ export default defineConfig({
     },
   },
   markdown: {
+    processor: unified({ remarkPlugins: [remarkChangelog] }),
     shikiConfig: {
       // Dual theme — astro emits both as CSS variables; global.css routes
       // them via `[data-theme]` so code blocks track the light/dark toggle.
