@@ -512,6 +512,65 @@ describe("lens-debate engine", () => {
     expect(result.comment).toContain("Unresolved — needs human");
   });
 
+  it("a thread whose turn agent dies still reports the on-record opener positions, not '?'", async () => {
+    const { result } = await runEngine(
+      { repoPath: "/repo", apply: false },
+      dispatcher(
+        {
+          "review:lowy": () => ({
+            findings: [
+              finding({
+                location: "src/dead.ts:1",
+                disposition: "fix",
+                suggestion: "lowy's opener plan",
+                problem: "lowy's opener reasoning",
+              }),
+            ],
+          }),
+          "review:hickey": () => ({
+            findings: [
+              finding({
+                location: "src/dead.ts:2",
+                disposition: "drop",
+                problem: "hickey's opener reasoning",
+              }),
+            ],
+          }),
+          "reconcile:match": () => ({
+            matches: [
+              {
+                a: "lowy-1",
+                b: "hickey-1",
+                compatible: false,
+                reason: "dispositions differ",
+              },
+            ],
+          }),
+        },
+        (c) => {
+          // Every thread turn dies before round 1 completes; parallel()
+          // resolves the thread null per the runtime contract.
+          if (threadTurn(c)) throw new Error("agent died");
+          throw new Error(`unexpected: ${label(c)}`);
+        },
+      ),
+    );
+    expect(result.status).toBe("unresolved");
+    expect(result.unresolved).toHaveLength(1);
+    // The unresolved entry carries the openers (review stances), not undefined.
+    expect(result.unresolved[0]).toMatchObject({
+      lowy: {
+        disposition: "fix",
+        plan: "lowy's opener plan",
+        reasoning: "lowy's opener reasoning",
+      },
+      hickey: {
+        disposition: "drop",
+        reasoning: "hickey's opener reasoning",
+      },
+    });
+  });
+
   it("a fix pair 'compatible' without a canonical plan is demoted to contested, never settled", async () => {
     const { result } = await runEngine(
       { repoPath: "/repo", apply: false },

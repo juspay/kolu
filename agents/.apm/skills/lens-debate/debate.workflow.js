@@ -845,6 +845,12 @@ let rounds = 0
 
 async function runThread(thread) {
   const { file, items } = thread
+  // Seed the final-position map from the openers gathered at reconcile (review
+  // stances / objection positions) so a thread whose agent dies before
+  // completing a round still surfaces both lenses' ON-RECORD positions in the
+  // unresolved report, instead of disposition '?' with no reasoning. The
+  // per-round update below overwrites these with real turn positions.
+  for (const it of items) finalPos[it.id] = { lowy: it.openLowy, hickey: it.openHickey }
   let active = [...items]
   let hickeyPrev = null
   // Seed round 1 with the openers gathered at reconcile (review stances /
