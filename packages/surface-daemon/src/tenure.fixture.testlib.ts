@@ -10,12 +10,9 @@
  * tied to the daemon's lifetime (kaval's node-pty children and served runtime
  * are the resource form; fleet-top's sampler interval is the loop-keeper form
  * — kaval/padi's own pollers are deliberately unref'd and are NOT the class).
- * Deliberately never cleared. Stage markers go to stderr
- * (stdout stays silent, as a real bin's would):
- *
- *   fixture: listening        onReady fired (socket bound, gate held)
- *   fixture: exit-resolved=K  the daemon run resolved `DaemonExit` kind K
- *   fixture: release-ran      the bin's resource-release stage ran
+ * Deliberately never cleared. Stage markers go to stderr (stdout stays
+ * silent, as a real bin's would); the marker spellings and the sentinel exit
+ * codes are single-sourced in `tenure.contract.testlib.ts`.
  *
  * Modes select the BIN SHAPE under test:
  *   --naive           what the docs taught before minus the homework line:
@@ -36,6 +33,7 @@ import { join } from "node:path";
 import type { DaemonExit, DaemonSpec } from "./daemonMain.ts";
 import { daemonMain } from "./daemonMain.ts";
 import { stderrLogger } from "./logger.ts";
+import { ESCAPE_EXIT, MARKER } from "./tenure.contract.testlib.ts";
 import { daemonProcessMain } from "./tenure.ts";
 
 const mode = process.argv[2];
@@ -48,6 +46,18 @@ if (dirArg === undefined) {
 }
 // A plain const so the narrowing survives into the closures below.
 const dir: string = dirArg;
+
+// Sentinel escape detectors, armed for EVERY mode before anything else runs:
+// Node's default disposition for an escaped throw / unhandled rejection is
+// ALSO exit code 1, which would make every `code === 1` pin vacuous (unable
+// to tell a deliberate crash-arm exit from an escape). The sentinels turn
+// either escape into a distinct code; they are inert in every healthy mode.
+process.on("uncaughtException", () =>
+  process.exit(ESCAPE_EXIT.uncaughtException),
+);
+process.on("unhandledRejection", () =>
+  process.exit(ESCAPE_EXIT.unhandledRejection),
+);
 
 // The resource/timer stand-in: a live handle the bin never tied to the
 // daemon's lifetime. Deliberately not unref'd and never cleared.
@@ -64,12 +74,12 @@ async function runDaemon(): Promise<DaemonExit> {
     router,
     lifetime: { kind: "forever" },
     log: stderrLogger(),
-    onReady: () => process.stderr.write("fixture: listening\n"),
+    onReady: () => process.stderr.write(`${MARKER.listening}\n`),
   });
-  process.stderr.write(`fixture: exit-resolved=${exit.kind}\n`);
+  process.stderr.write(`${MARKER.exitResolved(exit.kind)}\n`);
   // The bin's resource-release stage (fleet-top's `top.dispose()`,
   // kaval's `ptyHost.close()` — here just the marker).
-  process.stderr.write("fixture: release-ran\n");
+  process.stderr.write(`${MARKER.releaseRan}\n`);
   return exit;
 }
 
@@ -117,15 +127,9 @@ switch (mode) {
   case "--stderr-broken": {
     // The crash arm's narration write itself throws (a broken pipe on a dead
     // parent, forced): the exit must still happen — swallow-proof by pin.
-    //
-    // Sentinel escape detectors, installed FIRST: without them this pin is
-    // vacuous — a narration throw that ESCAPED the crash arm would surface
-    // as an uncaught exception / unhandled rejection, and Node's default
-    // disposition for both is ALSO exit code 1. The sentinels turn either
-    // escape into a distinct code, so the test's `code === 1` proves the
-    // guard (not an escape path) delivered the exit.
-    process.on("uncaughtException", () => process.exit(42));
-    process.on("unhandledRejection", () => process.exit(43));
+    // The boot-time sentinels above are what make the pin non-vacuous: an
+    // ESCAPED narration throw would exit with a sentinel code, so the test's
+    // `code === 1` proves the guard delivered the exit.
     process.stderr.write = () => {
       throw new Error("stderr is gone");
     };

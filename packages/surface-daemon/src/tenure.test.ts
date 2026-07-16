@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { ESCAPE_EXIT, MARKER } from "./tenure.contract.testlib.ts";
 
 // `.testlib.ts` is the repo's "test-only, never hashed" suffix — it keeps the
 // spawnable fixture out of the daemon staleKeys (default.nix's fileFilter and
@@ -130,10 +131,10 @@ describe("the naive bin shape — the red daemonProcessMain exists to kill", () 
     // premise would be silently void and this test would fail first).
     const child = spawnBin("--naive");
     const stderr = watchStderr(child);
-    await stderr.waitFor("fixture: listening");
+    await stderr.waitFor(MARKER.listening);
 
     child.kill("SIGTERM");
-    await stderr.waitFor("fixture: release-ran");
+    await stderr.waitFor(MARKER.releaseRan);
 
     // The bin believes it is done — but nothing owns the exit, so the live
     // interval keeps the process alive past any healthy-exit horizon.
@@ -151,7 +152,7 @@ describe("daemonProcessMain — the process IS the daemon", () => {
   it("exits 0 when the tenure ends (signal), despite a live interval — release stages strictly before the exit", async () => {
     const child = spawnBin("--tenured");
     const stderr = watchStderr(child);
-    await stderr.waitFor("fixture: listening");
+    await stderr.waitFor(MARKER.listening);
 
     child.kill("SIGTERM");
 
@@ -161,8 +162,8 @@ describe("daemonProcessMain — the process IS the daemon", () => {
     // stage, then the exit strictly after both ('close' guarantees the full
     // stderr flush, so marker presence == happened-before-exit).
     const seen = stderr.seen();
-    const resolved = seen.indexOf("fixture: exit-resolved=shutdown");
-    const released = seen.indexOf("fixture: release-ran");
+    const resolved = seen.indexOf(MARKER.exitResolved("shutdown"));
+    const released = seen.indexOf(MARKER.releaseRan);
     expect(resolved).toBeGreaterThanOrEqual(0);
     expect(released).toBeGreaterThan(resolved);
   });
@@ -198,10 +199,11 @@ describe("daemonProcessMain — the process IS the daemon", () => {
   it("still exits 1 when the crash narration itself throws (swallow-proof)", async () => {
     const child = spawnBin("--stderr-broken");
     const { code } = await waitExit(child, EXIT_WAIT_MS);
-    // The fixture arms sentinel escape detectors (42 = uncaughtException,
-    // 43 = unhandledRejection), so 1 here proves the guarded crash arm —
-    // not Node's default exit-1 disposition for an escaped throw —
-    // delivered the exit.
+    // The fixture arms sentinel escape detectors (ESCAPE_EXIT), so 1 here
+    // proves the guarded crash arm — not Node's default exit-1 disposition
+    // for an escaped throw — delivered the exit.
     expect(code).toBe(1);
+    expect(code).not.toBe(ESCAPE_EXIT.uncaughtException);
+    expect(code).not.toBe(ESCAPE_EXIT.unhandledRejection);
   });
 });

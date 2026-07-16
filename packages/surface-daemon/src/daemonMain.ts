@@ -251,36 +251,37 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     // not claim to be up.
     const { shutdown, disarm, alreadyOver } = waitForShutdown(lifetime, signal);
 
-    // Shutdown can win DURING arming (an already-aborted external signal, an
-    // already-dead bound pid): the daemon was never meaningfully up, so it
-    // must not claim to be — skip the announcement and fall through to the
-    // ordinary teardown. Announcing here would advertise an UNARMED process
-    // (`finish` already stood the triggers down): an announcement-triggered
-    // SIGTERM would meet the kernel's default disposition and kill the
-    // process before the wrapper release stages (observed as exit 143).
-    if (!alreadyOver) {
-      try {
+    // The armed lifetime must never outlive this frame: `finish()` already
+    // disarms on every resolving path and `disarm` is idempotent, so the
+    // `finally` is a no-op there — it exists for the THROWING paths (an
+    // `onReady` throw today, any statement inserted here tomorrow), where
+    // leaked signal handlers and poll timers would otherwise accumulate
+    // across a test running many daemons (the exact leak `waitForShutdown`'s
+    // cleanup discipline exists to prevent). Structural, not per-statement.
+    try {
+      // Shutdown can win DURING arming (an already-aborted external signal,
+      // an already-dead bound pid): the daemon was never meaningfully up, so
+      // it must not claim to be — skip the announcement and fall through to
+      // the ordinary teardown. Announcing here would advertise an UNARMED
+      // process (`finish` already stood the triggers down): an
+      // announcement-triggered SIGTERM would meet the kernel's default
+      // disposition and kill the process before the wrapper release stages
+      // (observed as exit 143).
+      if (!alreadyOver) {
         log.info(
           { socketPath, gatePath, pid: process.pid },
           "daemon listening",
         );
         spec.onReady?.({ socketPath, pid: process.pid });
-      } catch (err) {
-        // The announcement threw — the daemon never became visible, so the
-        // armed lifetime must not outlive this call: `disarm` removes the
-        // signal handlers and poll timers that would otherwise leak across a
-        // test running many daemons (the exact leak `waitForShutdown`'s
-        // cleanup discipline exists to prevent). The outer `finally` still
-        // releases the socket and gate.
-        disarm();
-        throw err;
       }
+
+      const reason = await shutdown;
+
+      log.info({ reason }, "daemon shutting down");
+      return { kind: "shutdown", reason };
+    } finally {
+      disarm();
     }
-
-    const reason = await shutdown;
-
-    log.info({ reason }, "daemon shutting down");
-    return { kind: "shutdown", reason };
   } finally {
     listener.close();
     gate.release();

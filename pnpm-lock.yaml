@@ -1355,7 +1355,7 @@ importers:
         specifier: ^22.0.0
         version: 22.19.15
       tsx:
-        specifier: ^4.19.0
+        specifier: ^4.21.0
         version: 4.21.0
       typescript:
         specifier: ^7.0.2

@@ -71,14 +71,10 @@ export function daemonProcessMain(opts: {
   /** Run the daemon to completion — `daemonMain` or a wrapper around it. */
   run: () => Promise<DaemonExit>;
 }): void {
-  let settled: Promise<DaemonExit>;
-  try {
-    settled = opts.run();
-  } catch (err) {
-    crash(opts.name, err);
-    return;
-  }
-  void settled.then(
+  // The async wrapper normalizes a SYNCHRONOUS `run` throw into the same
+  // rejection arm (one crash funnel, not two): `run()` itself still starts
+  // synchronously, right here.
+  void (async () => opts.run())().then(
     (exit) => {
       setImmediate(() => {
         process.exit(daemonExitCode(exit));

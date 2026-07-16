@@ -109,10 +109,8 @@ if (values.stdio) {
   // multistream before any float can occur, so the marked ERROR is captured
   // durably. See `unhandledRejectionBoundary.ts` for the doctrine + tension.
   installUnhandledRejectionBoundary(padiDaemonLog);
-  // The spine owns the rest of this process's life: exit code from
-  // `daemonExitCode` at the type's home, crash arm included — a live kaval
-  // child or poll cell can no longer keep a finished daemon alive (the
-  // lingering-daemon class; see @kolu/surface-daemon tenure.ts).
+  // The spine owns the rest of this process's life (see tenure.ts) — a live
+  // kaval child or poll cell can't keep a finished daemon alive.
   daemonProcessMain({
     name: "padi",
     run: () =>
