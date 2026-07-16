@@ -32,7 +32,6 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
 import { app } from "../wire";
 
 // HOST-SCOPING: every reader below rides koluSurface's `daemonInventory` cell, which
@@ -55,11 +54,7 @@ import { app } from "../wire";
 // load with no owner to hold its listener count above zero (the "build commit —"
 // symptom: the cell's real first value never has a live subscriber to land on).
 // Wrapped in an app-lifetime `createRoot` so it survives for the session.
-const sub = createRoot(() =>
-  app.cells.daemonInventory.use({
-    onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
-  }),
-);
+const sub = createRoot(() => app.cells.daemonInventory.use());
 
 /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
  *  LOCAL binding / before the first enumeration. When non-null, the machine kolu-server

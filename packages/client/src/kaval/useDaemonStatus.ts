@@ -206,11 +206,7 @@ export const localDaemonStatus = createRoot(() =>
 // status unknown" symptom (`PadiInfoDialog`'s status row gates on `props.link`, which
 // never arrives). Wrapped in an app-lifetime `createRoot` (the `sub`/hostInventory idiom
 // above) so the subscription survives for the session.
-const padiLinkSub = createRoot(() =>
-  app.cells.padiLink.use({
-    onError: (err) => toast.error(`padi link status error: ${err.message}`),
-  }),
-);
+const padiLinkSub = createRoot(() => app.cells.padiLink.use());
 
 /** kolu-server's live binding-to-padi state, or `undefined` before the first server
  *  yield. DISPLAY-ONLY now (the Identity Rail's Padi chip, `padiPresentation.ts`'s

@@ -10,7 +10,6 @@
 
 import type { PadiStatus } from "@kolu/padi/surface";
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
 import { activeHost, padiMap } from "../wire";
 
 // A module-level standing subscription to padi's `status` cell (the same pattern
@@ -20,9 +19,7 @@ import { activeHost, padiMap } from "../wire";
 // A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
 // `createRoot` (module-lifetime), so it re-keys when the active host switches.
 const padiStatus = createRoot(() =>
-  padiMap.useEntry(activeHost).cells.status.use({
-    onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
-  }),
+  padiMap.useEntry(activeHost).cells.status.use(),
 );
 
 /** The *expected* kaval identity — the build padi would spawn

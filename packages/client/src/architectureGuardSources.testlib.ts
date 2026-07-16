@@ -32,3 +32,49 @@ export function listGuardSourceFiles(target: string): string[] {
     .filter(isSourceFile)
     .map((rel) => join(target, rel));
 }
+
+/** Blank every `//`-line and `/* … *​/`-block COMMENT body with spaces (newlines and
+ *  byte offsets preserved), leaving STRING bodies intact — a guard scans CODE, not the
+ *  prose in a docstring narrating a `.use(...)` / `createRoot(...)` shape. It is a
+ *  string-aware char lexer (honours escapes and the three quote kinds), so a `//` inside
+ *  a string (`wire.ts`'s `${protocol}//${host}` ws URL) is NOT mistaken for a comment and
+ *  a `//` opening a real trailing comment IS blanked. Shared by every guard that must
+ *  ignore commented-out or narrated patterns (was duplicated as `blankComments` /
+ *  `stripComments` in two adjacent guard tests). */
+export function stripComments(text: string): string {
+  const out = text.split("");
+  let state: "code" | "line" | "block" | "'" | '"' | "`" = "code";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const n = text[i + 1];
+    if (state === "code") {
+      if (c === "/" && n === "/") state = "line";
+      else if (c === "/" && n === "*") state = "block";
+      else if (c === "'" || c === '"' || c === "`") state = c;
+      if (state === "line" || state === "block") {
+        out[i] = " ";
+        out[i + 1] = " ";
+        i++;
+      }
+      continue;
+    }
+    if (state === "line") {
+      if (c === "\n") state = "code";
+      else out[i] = " ";
+      continue;
+    }
+    if (state === "block") {
+      if (c === "*" && n === "/") {
+        out[i] = " ";
+        out[i + 1] = " ";
+        i++;
+        state = "code";
+      } else if (c !== "\n") out[i] = " ";
+      continue;
+    }
+    // Inside a string literal — leave bytes intact; honour escapes and the closer.
+    if (c === "\\") i++;
+    else if (c === state) state = "code";
+  }
+  return out.join("");
+}
