@@ -30,6 +30,27 @@ export default defineConfig({
     //   .mdx → `@astrojs/mdx@7` bundles `remark-gfm` internally (Astro 6's
     //          `@astrojs/mdx@5` did not — hence the explicit `remark-gfm` we
     //          used to need here).
-    shikiConfig: { theme: "github-light", wrap: false },
+    shikiConfig: {
+      theme: "github-light",
+      wrap: false,
+      // Shiki budgets each line's tokenization at 500ms (tokenizeTimeLimit,
+      // @shikijs/primitive) and vscode-textmate's over-budget bail returns
+      // PARTIAL tokens with a `stoppedEarly` flag shiki never checks — so on a
+      // CPU-contended box a slow line silently loses its per-token <span>
+      // wrappers instead of failing. dist/ is committed, so that degradation
+      // surfaces as non-deterministic ci::atlas-sync byte-drift (the flaky-test
+      // tracker's "release-workflow.html byte-shrinks under load" row). Zero
+      // disables the budget: output is correct or the build visibly hangs —
+      // never silently degraded. Astro doesn't forward unknown shikiConfig
+      // keys, so the option rides a transformer's preprocess hook.
+      transformers: [
+        {
+          name: "kolu:shiki-no-tokenize-bail",
+          preprocess(_code, options) {
+            options.tokenizeTimeLimit = 0;
+          },
+        },
+      ],
+    },
   },
 });

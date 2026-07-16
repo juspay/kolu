@@ -287,7 +287,7 @@ SR8.a shipped with a composition defect srid caught post-merge: `implementKoluSu
 
 <a id="sr11"></a>
 
-### SR11 — a member declares its client policy *(ratified 2026-07-15, in build)*
+### SR11 — a member declares its client policy *(shipped — <PrLink pr={1847} />, merged 2026-07-16)*
 
 The campaign gave the **producer** side its DSL — a member declares its schema, its `equals`, its derivation, and the framework mints the serving. The **consumer** side never got the same treatment: client *policy* — which `onError`, floor-on-liveness or not, `authority`, coalescing, an `initial` — is still spelled per use-site, ~22 sites today, and the code confesses the pattern (`useDaemonStatus.ts:192`: *"Same singleton `app.cells.X.use(...)` pattern as `processMemory`"*).<Footnote>Surfaced by the LLM-and-DSLs discussion (the Fowler article read): kolu's honest app-glue DSL opening is not a string mini-language or a codegen step — the spec and the interpreter already live in the same language; what's missing is the declaration carrying the *consumer* half. Grounded 2026-07-15 against `wire.ts`, `HostDaemonChips.tsx`, `useDaemonStatus.ts`.</Footnote>
 
