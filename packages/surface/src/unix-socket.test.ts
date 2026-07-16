@@ -289,15 +289,16 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
 });
 
 describe("close() disconnects established peers (surface-lifetime-audit step 3)", () => {
-  const freshListener = async (tag: string) => {
+  const freshListener = async (
+    tag: string,
+    // biome-ignore lint/suspicious/noExplicitAny: the shape `serveOverUnixSocket` accepts, mirroring its own `Router<any, any>` param.
+    router: Router<any, any> = buildRouter(),
+  ) => {
     const socketPath = join(
       mkdtempSync(join(tmpdir(), `surface-usock-${tag}-`)),
       "a.sock",
     );
-    const listener = await serveOverUnixSocket({
-      socketPath,
-      router: buildRouter(),
-    });
+    const listener = await serveOverUnixSocket({ socketPath, router });
     expect(listener.outcome).toEqual({ kind: "listening" });
     return { socketPath, listener };
   };
@@ -343,12 +344,7 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
         }
       }),
     });
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "surface-usock-sub-")),
-      "a.sock",
-    );
-    const listener = await serveOverUnixSocket({ socketPath, router });
-    expect(listener.outcome).toEqual({ kind: "listening" });
+    const { socketPath, listener } = await freshListener("sub", router);
 
     const { client, dispose } = await unixSocketLink<{
       tick: (typeof lifetimeContract)["tick"];
