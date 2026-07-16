@@ -372,7 +372,23 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   // daemon's diagnostics can log the terms/heap curve without a round-trip
   // through the wire client. The mirror count is the leak's independent variable
   // (kaval-heap-oom.mdx), so it's the column to watch.
-  return { ...surface, terminalCount: () => host.size() };
+  return {
+    ...surface,
+    terminalCount: () => host.size(),
+    // Shutdown reaps every live PTY. node-pty `setsid`s each PTY into its own
+    // session, so a process-group kill of the daemon can NEVER reach the
+    // spawn-helper/shell subtree — only the host disposing each entry does.
+    // The surface runtime's own `close` releases nothing today, so before this
+    // the daemon's graceful shutdown (pid-gone self-exit / SIGTERM / abort —
+    // daemonMain's `.finally` awaits this close) left those children orphaned to
+    // init, leaking node-pty processes across CI runs and loading the box (the
+    // darwin-under-load flake substrate). This is the "daemon owns shutdown by
+    // construction" the close handle was exposed for. `dispose()` is idempotent.
+    close: async () => {
+      host.dispose();
+      await surface.close();
+    },
+  };
 }
 
 /** The FINAL top-level router — the `.router` field of `servePtyHost`'s
