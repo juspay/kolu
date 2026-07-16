@@ -35,6 +35,7 @@ import {
   type WaitOutcome,
 } from "@kolu/surface/wait";
 import type { BespokeTool } from "@kolu/surface-mcp";
+import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { z } from "zod";
 
@@ -255,7 +256,7 @@ export const waitOutputSettledTool: BespokeTool = {
       timeoutMs,
       signal,
     });
-    return waitJson(id, outcome);
+    return waitJson<{ fired: "idle"; elapsedMs: number }>(id, outcome);
   },
 };
 
@@ -286,6 +287,6 @@ export const waitAgentStateTool: BespokeTool = {
       timeoutMs,
       signal,
     });
-    return waitJson(id, outcome);
+    return waitJson<{ agent: AgentInfo; elapsedMs: number }>(id, outcome);
   },
 };
