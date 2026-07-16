@@ -12,6 +12,9 @@
  *       reader itself never crosses into this daemon-hashed package.
  *     - `daemonMain` — the gate → serve → teardown skeleton, parameterized over
  *       the scope key, socket path, surface router, and lifetime policy.
+ *     - `daemonProcessMain` — the bin half of that partition: run the daemon
+ *       to completion and OWN the process exit (code + swallow-proof crash
+ *       arm), so a live resource or timer can't linger a finished daemon.
  *   - **Front it** — code that runs in a per-link *proxy* process reaching the
  *     daemon over ssh-stdio (P2.5):
  *     - `frontDaemonOverStdio` — the **durable counterpart to `serveOverStdio`**:
@@ -54,7 +57,6 @@ export {
   type DaemonLifetime,
   type DaemonLifetimeInfo,
   type DaemonSpec,
-  daemonExitCode,
   daemonLifetimeFromEnv,
   daemonMain,
   lifetimeInfo,
@@ -72,3 +74,4 @@ export {
   gatePid,
   isHolderLive,
 } from "./pidGate.ts";
+export { daemonProcessMain } from "./tenure.ts";
