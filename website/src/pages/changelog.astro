@@ -363,16 +363,16 @@ const releases = await Promise.all(
     padding: 0.1em 0.42em 0.1em 0.34em;
   }
 
-  /* This is a page to READ: descriptions are always visible and muted below the
-     title — no hover popover (which read as messy) and no layout-shifting
-     expand. Overrides the component's collapse/popover. */
+  /* Scannable index: headlines + inline chips at rest; the description expands
+     INLINE (no floating popover) on hover or keyboard focus. Overrides the
+     component's collapse/popover. */
   .changelog :global(.cl-change .cl-change-reveal) {
     position: static;
-    display: block;
-    grid-template-rows: 1fr;
+    display: grid;
+    grid-template-rows: 0fr;
     width: auto;
     max-width: 48rem;
-    margin: 0.05rem 0 0;
+    margin: 0;
     padding: 0 0 0 1.3rem;
     background: none;
     border: 0;
@@ -381,10 +381,14 @@ const releases = await Promise.all(
     visibility: visible;
     transform: none;
     pointer-events: auto;
-    transition: none;
+    transition: grid-template-rows 0.2s ease;
+  }
+  .changelog :global(.cl-change:hover .cl-change-reveal),
+  .changelog :global(.cl-change:focus-within .cl-change-reveal) {
+    grid-template-rows: 1fr;
   }
   .changelog :global(.cl-change .cl-change-desc) {
-    overflow: visible;
+    overflow: hidden;
     opacity: 1;
     font-size: 0.9rem;
     line-height: 1.5;
