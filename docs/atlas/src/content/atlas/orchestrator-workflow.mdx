@@ -1,0 +1,82 @@
+---
+title: The orchestrator — coordinating agent fleets from one kolu terminal
+description: The coordinator model behind kolu's multi-agent campaigns — one supervising session dispatching implementing agents into kolu terminals, with briefs+goals, file-based asks, lens-run gates, venue arbitration, and a live dashboard. The /orchestrator skill is the law; this note is the map.
+parents: [reference]
+status: implemented
+maturity: budding
+updated: 2026-07-16
+---
+
+import Footnote from "../../components/Footnote.astro";
+
+Kolu's larger campaigns (the SR surface consolidation, the flake certification,
+the stdio-lifetime lineage, kolu-cli's three faces) run on one model: a
+**coordinator** — an agent in its own kolu terminal — dispatches **implementing
+agents** into further kolu terminals, brokers their questions and gates, and
+owns the record, while the human sits one layer up and rules on forks. The
+operational rules live in the `/orchestrator` skill and evolve there (running
+memory, one lesson per recorded failure); this note records the architecture
+and *why* each piece exists, so the skill's rules read as consequences rather
+than folklore.
+
+## The shape
+
+One coordinator terminal; one worktree + terminal + branch per lane. Every
+dispatch is a **brief file** (scope, plan-of-record pointer, gates, laws,
+venue) plus a pinned **`/goal`** — the goal is the persistent artifact the
+harness re-surfaces, so anything that must survive a long context (the
+AskUserQuestion ban, "stop only on the coordinator's stand-down") rides the
+goal, not just the brief.<Footnote>Both learned from failures: an agent once
+stopped overnight mid-campaign while blocked (no goal pinned), and another
+opened a midnight question dialog at the human despite the ban being in its
+brief — briefs are read once and lose to long context.</Footnote> Agents never
+ask the human anything: every question is a **file + one-line pointer** to the
+coordinator's terminal, blocking — and a blocking ask never idles a lane (the
+reply names what keeps moving). Goals carry the coordinator's stand-down as
+their only stop condition — never a task metric, which cannot observe
+rulings.<Footnote>The certification goal "5 consecutive passes" kept re-firing
+its stop-hook after the campaign was honestly parked at 3/5 — the metric
+belongs in the brief's done-criterion.</Footnote>
+
+## The gates
+
+Anything **design-bearing** — a new symbol, signature, placement, or framework
+behavior — stops at a coordinator **lens run** before implementation: a
+workflow that grounds the design file's claims (opus inventories, quoted
+file:line), judges them through the architecture lenses (fable), and
+adversarially refutes every real finding. The gate regularly changes designs
+for the better<Footnote>Recorded outcomes: `onEnd` deleted as zero-caller
+machinery; a latent EPIPE exit-code bug caught before the new exit semantics
+codified it; a design's timing narrative falsified while its conclusion
+survived (the fix got *stronger*).</Footnote> and occasionally the judgment
+falls to the coordinator directly (documented exception when infrastructure
+fails twice) — always on the record, cited in the PR body. Review depth is
+per-lane: full `/be-review` gauntlet by default; the human sometimes replaces
+it with **dogfood** (he uses the thing as the review) for UX-shaped work.
+
+## Resources and truth
+
+CI venues are **coordinator-arbitrated**: darwin boxes are single-tenant and
+granted per dispatch (co-tenants like a foreign CI daemon make "quiet box"
+a verified claim, not an assumption); the coordinator's own host is part of
+every lane's transport path, so heavy local work waits until no lane flies.
+Class gates are re-derived from the **current diff**, never a PR's original
+label. Evidence is exact-SHA; a red is **reported before any rerun**, and
+reruns are for `errored` (infra) only — never to wash a test signal. The
+coordinator verifies agents' load-bearing claims independently before acting
+on them, and owns the shared records: the atlas branch (ambient, never a
+merge-queue nag), the flaky tracker, and the **dashboard** — a tracks *tree*
+(campaign rails with live lanes nested inside their active station), data in
+one git-untracked file, rendered by skill-versioned assets in the Code tab,
+with deep links making it a control surface.
+
+## Why a terminal fleet at all
+
+The alternatives — everything in one context, or headless subagents — lose
+what the terminal fleet keeps: each lane is **observable** (the human can open
+any tile and watch), **durable** (survives the coordinator's compaction; a
+lane can be revived warm days later), **addressable** (deep links, the
+dashboard, `kaval-tui send`), and **independently paced** (a gauntlet grinds
+while another lane waits on a human ruling). The kolu-cli plan's MCP face
+exists to make this same loop structured: the skills go MCP-first with the
+CLI as fallback once `kolu mcp` ships.
