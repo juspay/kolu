@@ -41,7 +41,9 @@ import { daemonProcessMain } from "./tenure.ts";
 const mode = process.argv[2];
 const dirArg = process.argv[3];
 if (dirArg === undefined) {
-  process.stderr.write("fixture: usage: tenure.fixture.testlib.ts <mode> <tmpdir>\n");
+  process.stderr.write(
+    "fixture: usage: tenure.fixture.testlib.ts <mode> <tmpdir>\n",
+  );
   process.exit(2);
 }
 // A plain const so the narrowing survives into the closures below.
