@@ -1,0 +1,87 @@
+---
+title: The orchestrator repo — our agent setup, cloneable by anyone
+description: "Extract the non-kolu-specific AI skills from agents/ into a standalone repo named orchestrator: any kolu user clones it and gets our whole multi-agent setup — coordinator, dashboard, review gauntlet — driving their terminals through kolu mcp. Gated on kolu-cli PR2."
+parents: [kolu-cli, feature]
+status: proposed
+maturity: seedling
+updated: 2026-07-16
+---
+
+import Svg from "../../components/Svg.astro";
+import Footnote from "../../components/Footnote.astro";
+import split from "../../diagrams/orchestrator-repo-split.svg?raw";
+import stack from "../../diagrams/orchestrator-repo-stack.svg?raw";
+
+## User-facing description
+
+A kolu user runs one clone, opens one file, and has the setup this campaign
+runs on:
+
+```
+git clone https://github.com/srid/orchestrator ~/code/orchestrator
+# open a kolu terminal in your project, load /orchestrator, dispatch your first lane
+# open <orchestrator>/dashboard/index.html in the Code tab → the live board
+```
+
+<Svg svg={stack} caption="The whole loop on a stranger's machine. The skills never touch kolu's repo — they drive kolu THE PRODUCT through the MCP seam, falling back to kaval-tui/padi-tui where MCP is absent." />
+
+## Architecture-level changes
+
+<Svg svg={split} caption="The split. agents/ stops being a kolu-internal path-dependency; the generic half becomes the orchestrator repo, kolu becomes its first consumer, and the kolu-only surface skill moves home to kolu's own .apm." />
+
+- **What moves**: `orchestrator` (+ dashboard assets) · `be` · `be-review` ·
+  `lens-debate` · `codex-debate` · `perfection-review` ·
+  `architecture-first-principles` · `kolu` (the agent-driving protocol — named
+  for the product it drives, not the repo it lives in).
+- **What stays**: `surface` (kolu-repo law → kolu's root `.apm/`), and
+  everything already there (atlas, release, test, evidence, ci…).
+- **The boundary that makes it honest**: the moved skills may reference kolu
+  *the product* (MCP tools, `kaval-tui`/`padi-tui` fallback verbs, Code-tab
+  preview) but never kolu *the repo* (no paths into `packages/`, no repo-local
+  recipes).<Footnote>Today's violations of that boundary are the extraction
+  work: skill text that hardcodes kolu worktree paths, `just` recipes, or the
+  repo's CI vocabulary gets parameterized or moves to kolu's overlay. The
+  `.agency/` overlay pattern already exists for per-repo parameterization —
+  the orchestrator repo ships the generic check, the consuming repo ships its
+  overlay.</Footnote>
+- **Distribution**: an apm package. kolu's `apm.yml` swaps the local `path:`
+  dependency for the git dependency — same vendoring flow (`just ai::apm`),
+  now one repo among consumers instead of a subdirectory. A non-apm user just
+  clones and points their agent at the skills directory.
+- **One orchestrator, many projects** (the point of the split, srid's
+  framing): the coordinator is not per-repo. One coordinator terminal +
+  one skills clone + one shared AI config drives campaigns across EVERY
+  project on the machine — the board's `project` field and per-project
+  `orchestrator-data.js` already assume it, and this campaign is the
+  existence proof: kolu, drishti, and odu lanes ran from one coordinator
+  today. The kolu repo then carries no agent skills at all.
+- **Gate**: kolu-cli **PR2** (`kolu mcp`). Before it, the skills' only driving
+  interface is the repo-specific CLI pair; after it, MCP-first with CLI
+  fallback is exactly the portability line the diagram draws.
+
+## Implementation details
+
+One extraction PR per repo, in order:
+
+1. **New repo `srid/orchestrator`**: move the generic skills + dashboard
+   verbatim (git history via subtree split if cheap, else fresh with a
+   pointer); add its own `apm.yml` package manifest; CI = the skills' own unit
+   tests (the lens-debate engine tests, dashboard renderer parse) — no kolu
+   checkout anywhere in its CI.
+2. **kolu PR**: `apm.yml` path-dep → git-dep; `surface` skill relocates to
+   root `.apm/`; regenerate; the two-tree rule in `apm-workflow.md` collapses
+   to one source tree + the dependency.
+3. **De-kolu-ification pass** (inside PR 1): sweep the moved skills for
+   repo-paths/recipes; parameterize via the existing `.agency/` overlay
+   pattern; the orchestrator SKILL's kolu-specific venue examples (rasam,
+   sincereintent) move to kolu's overlay.
+4. **Pin**: a smoke script in the orchestrator repo that runs the dashboard
+   renderer against a sample `orchestrator-data.js` and lints every SKILL.md
+   for kolu-repo path leaks (`packages/`, `just atlas::` …) — the boundary
+   stays unspellable-ish by CI.
+
+Risks, named: apm's vendored-from-git-checkout behavior means kolu picks up
+skill changes only at pin bumps (today's uncommitted-edit trap becomes a
+cross-repo version lag — accepted, that's what versioning is); the `kolu`
+skill's MCP-first rewrite lands in the kolu-cli track's "skills adopt"
+station, which becomes a PR in the orchestrator repo, not kolu.

@@ -1,0 +1,102 @@
+---
+title: A stdio agent's lifetime belongs to the framework
+description: serveOverStdio reports link death as a value and leaves process exit to every app — so a forgotten exit (or any live timer) yields an immortal orphan agent. Bind process lifetime to the link at the construction that means "this process IS the agent," making the orphan unspellable.
+parents: [surface-daemon, feature]
+status: implemented
+maturity: seedling
+updated: 2026-07-16
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+
+## The defect class, observed in the field
+
+A fleet host (sincereintent) hit its swap alert carrying **ten orphaned
+`drishti-agent --stdio` processes** — 130–200&nbsp;MB each, up to 23 hours
+old, every one re-parented to pid&nbsp;1 — accumulating one per
+server⇄host reconnect (drishti#109). The same class litters CI boxes as
+`T/odu/kolu/*` leaves: odu's remote lane agents are stdio-served processes
+too.<Footnote>Distinct from the SIGKILL-teardown leaf leak the flaky tracker
+records (no signal window at all — kolu#1851 closed the graceful half). This
+class is the *graceful* case gone wrong: the link ends cleanly, EOF is
+delivered, and the process still lives forever.</Footnote>
+
+The mechanism is not a missing feature — the framework already *documents the
+right intent*. `frontDaemonOverStdio`'s header calls `serveOverStdio` "the
+**ephemeral** remote agent: the `--stdio` process **is** the server … when
+the link drops the server (and any state it held) is gone — exactly right for
+a re-run-fresh agent (mini-ci, remote-process-monitor, drishti)." But the
+implementation hands that promise to the app: `serveOverStdio` **resolves**
+with `{reason: "end" | "error"}` when the read stream ends, and process
+termination is the caller's homework. Any live handle — drishti-agent's 2s
+poll interval, a watcher, a child — keeps Node's event loop alive after
+`main` returns, so the failure mode of forgetting (or sequencing cleanup
+wrong) is an **invisible immortal orphan** on someone else's machine.
+
+## The principle violations (why this is the framework's bug)
+
+- **P5 — guarantee at the knowing endpoint.** "This process's reason to exist
+  is gone" is known at exactly one place: the serve loop that saw EOF on the
+  default stdio. The app's `main` *cannot* reliably make the exit guarantee —
+  it doesn't know what else holds the event loop (that is the whole reason
+  the orphans are invisible). The layer that knows must own the exit.
+- **P4 — illegal states unrepresentable.** "Agent process alive, link dead"
+  is a constructible state today, guarded only by every app's discipline.
+  The perfection-review question — *would the defect class become
+  inexpressible?* — says: bind lifetime structurally, don't document it.
+- **Fail-fast doctrine.** Lingering after link death is a silent degradation;
+  and the fix must not add an opt-out knob — "being able to override is
+  never a feature." The two lifetimes (ephemeral vs durable) are selected by
+  **construction**, not configuration: that split already exists in the
+  package family (`serveOverStdio` vs `frontDaemonOverStdio` + a socket
+  daemon), which is what makes this fix small.
+
+## The change (one seam, discriminated by construction)
+
+`serveOverStdio` already has the discriminant in hand: whether the caller
+passed a `transport` override.
+
+- **Default transport (`process.stdin/stdout`) — the process IS the agent.**
+  On read-end/error: `peer.close()` (the one framework-held disposer), the
+  promise settles, the caller's synchronous continuations run, then a
+  `setImmediate` fork calls **`process.exit(reason === "end" ? 0 : 1)`** —
+  framework-owned, no knob.<Footnote>As shipped in <a
+  href="https://github.com/juspay/kolu/pull/1858">#1858</a> after the lens
+  gate and gauntlet reshaped the draft: the planned `onEnd` last-gasp hook
+  was DROPPED (speculative machinery for zero callers — every real consumer's
+  post-settle work is synchronous and the setImmediate ordering honors it);
+  the same change fixed a latent exit-code bug (benign write-EPIPE from a
+  dying peer now classifies as a clean end via the codec's own
+  `isBenignWriteError`, not a nondeterministic exit 1); and codex surfaced a
+  second orphan spelling — `ERR_STREAM_DESTROYED` reported only to the write
+  callback, no 'error' event — closed by a required `onPeerGone` parameter on
+  the package-internal `framedSend` seam (two call sites; not public
+  API).</Footnote>
+- **Explicit `transport` override — a loopback/test/embedded peer.** Current
+  behavior stands: resolve the value, caller owns lifetime. Tests keep
+  passing untouched; exotic compositions choose this arm *by construction*.
+
+The returned promise still settles (same shape) before exit on the default
+arm, so a caller that today does post-settle logging keeps working — it just
+can no longer *forget* to die.
+
+## Consumers and rollout
+
+| consumer | today | after |
+| --- | --- | --- |
+| drishti-agent | never exits after settle → the drishti#109 orphans (it had NO exit to delete — that absence WAS the bug) | inherits via the pair PR (pin bump, zero app code) |
+| mini-ci, remote-process-monitor, fleet-top part-3 | the three in-repo default-arm consumers — post-settle work audited strictly synchronous | inherit the exit; no change needed |
+| odu lane agents | leaves accumulate on CI boxes (`T/odu/kolu/*`) | inherits at the next kolu pin bump — an `adoption-opportunity` line for the odu#43 ledger |
+| padi | unaffected — the durable arm (`frontDaemonOverStdio` + socket daemon); its *front* already dies with the relay | — |
+
+**Pin (red-before/green-after):** serve a router over a real child-process
+stdio pair holding a live `setInterval`; kill the parent side; assert the
+child exits within the deadline (red today: it lives forever). Plus the
+override-arm pin: same scenario with an explicit transport resolves the value
+and does NOT exit.
+
+**Gates:** framework change in `@kolu/surface` → the standard treatment —
+lens run before GO, drishti pair PR (which also closes drishti#109's app
+side), ODU-IMPACT verdict (expected `adoption-opportunity`, ledgered),
+`ref-surface.mdx` update in the same PR.
