@@ -4,7 +4,6 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "main": "./src/main.ts",
   "scripts": {
     "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" node --watch --import tsx src/main.ts --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
