@@ -96,6 +96,13 @@ describe("daemonMain", () => {
   it("serves, then shuts down on abort — releasing the gate and socket", async () => {
     const { gatePath, socketPath } = paths();
     const ac = new AbortController();
+    // Arm-before-announce, pinned in-process: by the time `onReady` fires, the
+    // shutdown triggers must ALREADY be installed — a supervisor that reacts to
+    // the announcement by signaling must find the daemon signal-safe, never the
+    // kernel-default-disposition window (`waitForShutdown` installs its handlers
+    // synchronously BEFORE the announcement in `daemonMain`).
+    const sigtermBaseline = process.listenerCount("SIGTERM");
+    let sigtermAtReady: number | undefined;
     let ready!: () => void;
     const readyP = new Promise<void>((r) => {
       ready = r;
@@ -108,10 +115,14 @@ describe("daemonMain", () => {
       lifetime: { kind: "forever" },
       log: silentLog,
       signal: ac.signal,
-      onReady: () => ready(),
+      onReady: () => {
+        sigtermAtReady = process.listenerCount("SIGTERM");
+        ready();
+      },
     });
 
     await readyP;
+    expect(sigtermAtReady).toBe(sigtermBaseline + 1); // armed BEFORE announced
     expect(liveHolder(gatePath)).toBe(process.pid); // gate held while serving
     ac.abort();
 
@@ -186,8 +197,9 @@ describe("daemonMain", () => {
     expect(existsSync(socketPath)).toBe(false); // socket removed
   });
 
-  it("exits immediately when bound to an already-dead pid (boundToPid)", async () => {
+  it("exits immediately when bound to an already-dead pid (boundToPid) — WITHOUT announcing readiness", async () => {
     const { gatePath, socketPath } = paths();
+    let announced = 0;
     const exit = await daemonMain({
       gatePath,
       socketPath,
@@ -196,9 +208,40 @@ describe("daemonMain", () => {
       // BEFORE the first tick, so a slow poll must not be able to mask it.
       lifetime: { kind: "boundToPid", pid: await deadPid(), pollMs: 60_000 },
       log: silentLog,
+      // Shutdown won during arming, so the daemon was never meaningfully up:
+      // announcing it would advertise an UNARMED process (the triggers
+      // already stood down) — a readiness-triggered SIGTERM would take the
+      // kernel's default disposition (exit 143) instead of the orderly path.
+      onReady: () => {
+        announced += 1;
+      },
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "pid-gone" });
+    expect(announced).toBe(0);
     expect(liveHolder(gatePath)).toBeUndefined();
+    expect(existsSync(socketPath)).toBe(false);
+  });
+
+  it("resolves an already-aborted external signal as a clean abort — WITHOUT announcing readiness", async () => {
+    const { gatePath, socketPath } = paths();
+    const ac = new AbortController();
+    ac.abort(); // aborted before the daemon ever arms
+    let announced = 0;
+    const exit = await daemonMain({
+      gatePath,
+      socketPath,
+      router: noRouter,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      signal: ac.signal,
+      onReady: () => {
+        announced += 1;
+      },
+    });
+    expect(exit).toEqual({ kind: "shutdown", reason: "abort" });
+    expect(announced).toBe(0);
+    expect(liveHolder(gatePath)).toBeUndefined();
+    expect(existsSync(socketPath)).toBe(false);
   });
 
   it("rejects a boundToPid lifetime with an invalid pid — releasing the gate (fail-fast at consumption)", async () => {
@@ -220,6 +263,38 @@ describe("daemonMain", () => {
       expect(liveHolder(gatePath)).toBeUndefined();
       expect(existsSync(socketPath)).toBe(false);
     }
+  });
+
+  it("disarms the lifetime when onReady throws — rejecting, releasing gate + socket, leaving no listeners", async () => {
+    const { gatePath, socketPath } = paths();
+    // Baselines BEFORE the call: the armed handlers must be gone afterwards, or
+    // a test running many daemons accumulates SIGTERM/SIGINT listeners — the
+    // exact leak `disarm` exists to prevent on this one non-resolving path.
+    const baseline = {
+      SIGTERM: process.listenerCount("SIGTERM"),
+      SIGINT: process.listenerCount("SIGINT"),
+    };
+    const boom = new Error("announce failed");
+
+    await expect(
+      daemonMain({
+        gatePath,
+        socketPath,
+        router: noRouter,
+        lifetime: { kind: "forever" },
+        log: silentLog,
+        onReady: () => {
+          throw boom;
+        },
+      }),
+    ).rejects.toBe(boom);
+
+    // The `finally` released the real side effects…
+    expect(liveHolder(gatePath)).toBeUndefined();
+    expect(existsSync(socketPath)).toBe(false);
+    // …and `disarm` removed the signal handlers without resolving.
+    expect(process.listenerCount("SIGTERM")).toBe(baseline.SIGTERM);
+    expect(process.listenerCount("SIGINT")).toBe(baseline.SIGINT);
   });
 
   it("fires onReady with the socket path and pid once listening", async () => {

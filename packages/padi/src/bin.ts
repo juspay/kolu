@@ -15,13 +15,13 @@
  *   padi --socket PATH            serve at an explicit socket (gate sits beside it)
  *
  * This file is the executable, never an import target — it runs the daemon on
- * load. The bin maps the daemon's `DaemonExit` to a process exit code; the
+ * load. `daemonProcessMain` owns the process exit (code + crash arm); the
  * lifecycle itself (state-root → adopt kaval → serve → teardown) is the testable
  * `runPadiDaemon`.
  */
 
 import { parseArgs } from "node:util";
-import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
+import { daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
 import { runPadiDaemon } from "./daemonMain.ts";
 import { log as padiDaemonLog } from "./log.ts";
 import { runPadiStdioBridge } from "./stdioBridge.ts";
@@ -109,22 +109,18 @@ if (values.stdio) {
   // multistream before any float can occur, so the marked ERROR is captured
   // durably. See `unhandledRejectionBoundary.ts` for the doctrine + tension.
   installUnhandledRejectionBoundary(padiDaemonLog);
-  runPadiDaemon({
-    stateRoot: values["state-root"],
-    socketOverride: values.socket,
-    nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
-    spawnVersion: values["spawn-version"],
-    legacyKavalSocket: values["legacy-kaval-socket"],
-    log: stderrLogger(),
-  })
-    .then((exit) => {
-      // The success/failure classification lives with `DaemonExit` in the spine
-      // (`already-running`/`shutdown` → 0, `serve-failed` → 1), reclassified once
-      // at the type's home rather than re-decided in every bin.
-      process.exit(daemonExitCode(exit));
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`padi: ${(err as Error).message}\n`);
-      process.exit(1);
-    });
+  // The spine owns the rest of this process's life (see tenure.ts) — a live
+  // kaval child or poll cell can't keep a finished daemon alive.
+  daemonProcessMain({
+    name: "padi",
+    run: () =>
+      runPadiDaemon({
+        stateRoot: values["state-root"],
+        socketOverride: values.socket,
+        nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
+        spawnVersion: values["spawn-version"],
+        legacyKavalSocket: values["legacy-kaval-socket"],
+        log: stderrLogger(),
+      }),
+  });
 }
