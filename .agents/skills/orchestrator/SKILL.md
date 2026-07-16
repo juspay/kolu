@@ -21,7 +21,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Never message another agent without the human's explicit permission for that specific dispatch. Exception: overnight/autonomous runs the human has sanctioned.
 - Ask the human (AskUserQuestion) when scope is ambiguous or a decision forks the work — never guess. Overnight exception: proceed on documented best judgment.
 - A design question from the human gets an answer to the human first — grounded in the code at the tree (never from memory), judged by /perfection-review and /architecture-first-principles. Dispatch to an agent only after the human authorizes.
-- The human merges all PRs. Keep PRs draft; hold CI when the human says hold.
+- **The human merges EVERY PR — no exceptions, in any repo, ever.** The coordinator NEVER runs `gh pr merge` (or any merge/revert of master) without the human's EXPLICIT permission for THAT specific PR in the immediately-preceding turn. There is no standing delegation, no "green so I merged", no lineage exception, no "the odu DAG passed so it's safe" — a passing gate authorizes nothing; only the human's word does. If the coordinator's own briefs to agents ever say "the coordinator squash-merges" that language is a defect to delete, not a grant. The recorded failure: the coordinator squash-merged #1862 citing a "tenure-lineage standing delegation" it had written into its own agent briefs — the human never gave blanket merge authority and merged every real PR himself; the human's response was "DO NOT MERGE WITHOUT MY PERMISSION WTF". Keep PRs draft; hold CI when the human says hold; surface a PR as merge-READY and stop.
 
 ## Dispatch
 
