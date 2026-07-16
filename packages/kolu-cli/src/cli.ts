@@ -79,7 +79,24 @@ export const reservedFaceMessage = (face: ReservedFace): string =>
 
 export type KoluCliParse =
   | { face: "web"; flags: KoluBootFlags }
-  | { face: ReservedFace };
+  | { face: ReservedFace }
+  // A positional neither spelling takes — `kolu tuii`, `kolu web foo`. Named so
+  // a typo'd subcommand FAILS FAST instead of silently booting the web server
+  // (cleye has no strict-commands mode: an unknown first positional falls
+  // through to the root command with the word left in `_`).
+  | { face: "unknown-command"; args: string[] };
+
+/** Two-way drift guard: the hand-written `KoluBootFlags` boot contract and the
+ *  cleye schema must carry the SAME keys — a flag added to one and not the
+ *  other is a type error here (value-type drift is caught by `parseKoluCli`'s
+ *  return assignment). */
+type AssertTrue<T extends true> = T;
+type _BootContractCoversSchema = AssertTrue<
+  keyof typeof webFlags extends keyof KoluBootFlags ? true : false
+>;
+type _SchemaCoversBootContract = AssertTrue<
+  keyof KoluBootFlags extends keyof typeof webFlags ? true : false
+>;
 
 /** Parse the kolu argv into a face. Pure — no exits beyond cleye's own
  *  `--help`/`--version`/unknown-flag handling — so the flag-matrix test can
@@ -97,6 +114,10 @@ export function parseKoluCli(
       commands: [
         command({
           name: "web",
+          // The alias must hold for cleye's IMPLICIT flags too: --version only
+          // exists where a `version` option is passed, so without this line
+          // `kolu web --version` would reject the flag bare `kolu` accepts.
+          version: serverPkg.version,
           help: {
             description:
               "Run the kolu web server (the default — bare `kolu` is this command's alias).",
@@ -125,14 +146,27 @@ export function parseKoluCli(
   if (parsed.command === "tui" || parsed.command === "mcp") {
     return { face: parsed.command };
   }
+  // Neither bare `kolu` nor `kolu web` takes positionals, so a leftover one is
+  // a typo'd subcommand (`kolu tuii`) — fail fast rather than boot a server the
+  // user didn't ask for.
+  if (parsed._.length > 0) {
+    return { face: "unknown-command", args: [...parsed._] };
+  }
   // Bare (`command: undefined`) and `web` carry the same schema — the alias.
   return { face: "web", flags: parsed.flags };
 }
 
 /** The dispatch seam `main.ts` parses through: returns the web face's flags, or
- *  fails fast (the named message on stderr, exit 1) on a reserved subcommand. */
+ *  fails fast (a named message on stderr, exit 1) on a reserved subcommand or a
+ *  positional that matches no command. */
 export function koluWebFlagsOrExit(argv?: string[]): KoluBootFlags {
   const parsed = parseKoluCli(argv);
+  if (parsed.face === "unknown-command") {
+    process.stderr.write(
+      `kolu: unknown command "${parsed.args[0]}" — commands: web (the default), tui, mcp. See kolu --help.\n`,
+    );
+    process.exit(1);
+  }
   if (parsed.face !== "web") {
     process.stderr.write(`${reservedFaceMessage(parsed.face)}\n`);
     process.exit(1);

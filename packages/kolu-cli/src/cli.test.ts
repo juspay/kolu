@@ -107,6 +107,40 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
     expect(parseKoluCli(["mcp"])).toEqual({ face: "mcp" });
   });
 
+  it("a typo'd subcommand parses to unknown-command, never the web face", () => {
+    // cleye has no strict-commands mode: an unrecognized first positional falls
+    // through to the root parse. Without the guard, `kolu tuii` would silently
+    // boot the web server.
+    expect(parseKoluCli(["tuii"])).toEqual({
+      face: "unknown-command",
+      args: ["tuii"],
+    });
+    expect(parseKoluCli(["web", "foo"])).toEqual({
+      face: "unknown-command",
+      args: ["foo"],
+    });
+  });
+
+  it("--version parity: both spellings print the same version and exit 0", () => {
+    // cleye's --version is an IMPLICIT flag that exists only where a `version`
+    // option is passed — the alias pin must cover implicit flags too, so the
+    // web command carries the same version as the root CLI.
+    for (const spelling of [[], ["web"]]) {
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        throw new Error(`exit(${code})`);
+      }) as never);
+      const logSpy = vi.spyOn(console, "log").mockReturnValue(undefined);
+      expect(() => parseKoluCli([...spelling, "--version"])).toThrow("exit(0)");
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const printed = logSpy.mock.calls[0]?.[0];
+      expect(printed).toMatch(/^\d+\.\d+\.\d+/);
+      vi.restoreAllMocks();
+    }
+  });
+
   describe("koluWebFlagsOrExit", () => {
     afterEach(() => {
       vi.restoreAllMocks();
@@ -134,6 +168,20 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
       expect(koluWebFlagsOrExit(["--port", "7001"])).toEqual(
         koluWebFlagsOrExit(["web", "--port", "7001"]),
       );
+    });
+
+    it("an unknown command fails fast: named message, exit non-zero", () => {
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+        code?: number,
+      ) => {
+        throw new Error(`exit(${code})`);
+      }) as never);
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+      expect(() => koluWebFlagsOrExit(["tuii"])).toThrow("exit(1)");
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      const written = String(stderrSpy.mock.calls[0]?.[0]);
+      expect(written).toContain('unknown command "tuii"');
+      expect(written).toContain("web");
     });
   });
 });
