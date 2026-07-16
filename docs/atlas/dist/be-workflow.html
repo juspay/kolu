@@ -357,9 +357,12 @@ separate apply pass.</p>
 <li><a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a> — two structural lenses,
 <a href="https://kolu.dev/blog/hickey-lowy">lowy</a> (volatility-based boundaries) and
 <a href="https://kolu.dev/blog/hickey-lowy">hickey</a> (structural simplicity), review
-independently, cross-examine every finding to consensus, then apply the agreed
-fixes. Both lenses — and why kolu reviews with them — are explained in the blog
-post <a href="https://kolu.dev/blog/hickey-lowy">Hickey &amp; Lowy</a>.</li>
+independently; the reviews are then reconciled (findings both lenses raised
+with compatible conclusions — and unopposed solo findings — settle with zero
+debate turns) and only genuinely contested findings are cross-examined to
+consensus, in parallel per-file threads, before the agreed fixes are applied.
+Both lenses — and why kolu reviews with them — are explained in the blog post
+<a href="https://kolu.dev/blog/hickey-lowy">Hickey &amp; Lowy</a>.</li>
 <li><a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a> — codex (reviewer) and a Claude author debate the
 diff to consensus, each round auto-committing its <code>fix(…)</code>.</li>
 <li><a href="https://docs.claude.com/en/docs/claude-code/slash-commands">/simplify</a> — the
