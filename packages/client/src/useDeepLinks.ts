@@ -1,8 +1,9 @@
 /** The deep-link router — the leaf that turns a `#/…` URL into a view change.
  *
- *  Three entry points feed ONE parser (`parseDeepLink`): the boot parse of
- *  `location.hash`, a live `hashchange`, and — on Chromium PWAs — the
- *  `launchQueue` targetURL of a focus-existing launch. Every route lands on an
+ *  Four entry points feed ONE parser (`parseDeepLink`): the boot parse of
+ *  `location.hash`, a live `hashchange`, — on Chromium PWAs — the
+ *  `launchQueue` targetURL of a focus-existing launch, and the Code-tab
+ *  preview bridge (`requestDeepLinkNavigation`). Every route lands on an
  *  EXISTING view action (host switch, tile focus, right panel, settings). The
  *  router adds addressability, never a new capability.
  *
