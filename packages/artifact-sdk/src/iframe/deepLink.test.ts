@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyAnchor } from "./deepLink";
+import { classifyAnchor, isPlainPrimaryClick } from "./deepLink";
 
 /** The previewed document's location: same shape the iframe passes
  *  (`window.location` at the call site). The preview serves under the
@@ -71,5 +71,30 @@ describe("classifyAnchor — the in-sandbox anchor classifier (DL2 pins)", () =>
     expect(classifyAnchor({ href: "javascript:alert(1)" }, LOC)).toEqual({
       kind: "in-frame",
     });
+  });
+});
+
+describe("isPlainPrimaryClick — only a plain primary click may navigate the current window", () => {
+  const plain = {
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+  };
+
+  it("accepts a plain left click", () => {
+    expect(isPlainPrimaryClick(plain)).toBe(true);
+  });
+
+  it("rejects the middle button (open in a new tab)", () => {
+    expect(isPlainPrimaryClick({ ...plain, button: 1 })).toBe(false);
+  });
+
+  it("rejects every open-elsewhere modifier", () => {
+    expect(isPlainPrimaryClick({ ...plain, ctrlKey: true })).toBe(false);
+    expect(isPlainPrimaryClick({ ...plain, metaKey: true })).toBe(false);
+    expect(isPlainPrimaryClick({ ...plain, shiftKey: true })).toBe(false);
+    expect(isPlainPrimaryClick({ ...plain, altKey: true })).toBe(false);
   });
 });

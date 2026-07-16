@@ -71,15 +71,14 @@ interface LaunchQueue {
  *  consumer feeds it through the exact pipeline a typed URL takes (reflect into
  *  the address bar when it differs — durability — else parse+navigate
  *  directly), so an invalid hash toasts identically. */
-const [externalNavRequest, setExternalNavRequest] = createSignal<string | null>(
-  null,
-  { equals: false },
-);
+/** The setter IS the public request API (`requestDeepLinkNavigation`) — the
+ *  house convention for module-singleton seams (`setActiveHost` is likewise a
+ *  raw exported setter), so there is no single-caller wrapper to drift. */
+const [externalNavRequest, requestDeepLinkNavigation] = createSignal<
+  string | null
+>(null, { equals: false });
 
-/** Request a deep-link navigation from outside the URL (the preview bridge). */
-export function requestDeepLinkNavigation(hash: string): void {
-  setExternalNavRequest(hash);
-}
+export { requestDeepLinkNavigation };
 
 export function useDeepLinks(): void {
   const store = useTerminalStore();

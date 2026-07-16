@@ -4,6 +4,28 @@
 
 import { isDeepLinkHash, isHttpUrl } from "../core/url";
 
+/** Whether a mouse event is a PLAIN primary activation — the only gesture
+ *  allowed to navigate the CURRENT window (a deep link routes the surrounding
+ *  kolu app in place). A middle-click or a ctrl/cmd/shift/alt-click says "open
+ *  ELSEWHERE, keep this page", so a deep link must stay inert for those — the
+ *  sandbox swallows them, the same result they had before deep links existed.
+ *  (External links are the opposite: every gesture already resolves to a new
+ *  tab, so they trap gesture-agnostically.) */
+export function isPlainPrimaryClick(
+  event: Pick<
+    MouseEvent,
+    "button" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey"
+  >,
+): boolean {
+  return (
+    event.button === 0 &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
+
 /** What `onAnchorClick` does with a clicked anchor: open it in a real browser
  *  tab (`external`), ask the parent to route a kolu deep link (`deep-link`),
  *  or leave the click to the browser (`in-frame`). */

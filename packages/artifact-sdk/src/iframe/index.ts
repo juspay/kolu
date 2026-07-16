@@ -23,7 +23,7 @@ import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
-import { classifyAnchor } from "./deepLink";
+import { classifyAnchor, isPlainPrimaryClick } from "./deepLink";
 import type {
   DeepLinkMsg,
   HistoryMsg,
@@ -47,15 +47,24 @@ function postToParent(
   window.parent.postMessage(msg, window.location.origin);
 }
 
-/** Trap a primary- or middle-button click on an external anchor and forward it
- *  to the parent. The opaque-origin sandbox carries no `allow-popups`/`allow-
- *  top-navigation`, so the browser would otherwise swallow the click or replace
- *  the preview in-pane; the parent opens the URL in a real tab instead. Bubble
- *  phase + a `defaultPrevented` guard so a page that handles its own links wins.
- *  We don't branch on the button: primary and middle (auxclick, the "open in a
- *  new tab" gesture) resolve to the same destination — a new tab — and modifier
- *  combos likewise, since the sandbox would swallow them all otherwise. The
- *  `click` event already covers a left-button press; `auxclick` is wired
+/** Trap an anchor click and forward the classified intent to the parent. The
+ *  opaque-origin sandbox carries no `allow-popups`/`allow-top-navigation`, so
+ *  the browser would otherwise swallow the click or replace the preview
+ *  in-pane. Bubble phase + a `defaultPrevented` guard so a page that handles
+ *  its own links wins. The two arms differ by GESTURE, because they resolve to
+ *  different destinations:
+ *
+ *  - `external` opens a NEW TAB, so it traps every follow-the-link gesture
+ *    alike — primary and middle (auxclick, the "open in a new tab" gesture)
+ *    and modifier combos all land in the same place a browser would put them.
+ *  - `deep-link` navigates the CURRENT kolu window (no new tab exists to
+ *    open), so it must fire ONLY on a plain primary click. A middle-click or
+ *    a ctrl/cmd/shift-click says "open ELSEWHERE, keep this page" — hijacking
+ *    the current view for those would silently replace the dashboard the user
+ *    meant to keep. They fall through untouched (the sandbox swallows them —
+ *    the same inert result those gestures had before deep links existed).
+ *
+ *  The `click` event only covers the primary button; `auxclick` is wired
  *  separately in `boot` for the middle button, which never fires `click`. */
 function onAnchorClick(event: MouseEvent): void {
   // `click` only fires for the primary button; `auxclick` carries button 1
@@ -72,6 +81,7 @@ function onAnchorClick(event: MouseEvent): void {
       postToParent({ type: "kolu-artifact-sdk:open-external", url });
     })
     .with({ kind: "deep-link" }, ({ hash }) => {
+      if (!isPlainPrimaryClick(event)) return; // open-elsewhere gestures stay inert
       // Never let the frame navigate itself to the app shell — the parent routes.
       event.preventDefault();
       postToParent({ type: "kolu-artifact-sdk:deep-link", hash });
