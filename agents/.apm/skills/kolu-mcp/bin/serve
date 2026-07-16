@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Launch the kolu MCP server — kolu's agent face. Resolves kolu via Nix and
+# runs `kolu mcp`: the server dials the running padi (auto-discovered, or
+# `$PADI_SOCKET` inside a kolu terminal) and serves this host's terminals to
+# the MCP host that launched it. Self-contained — no `kolu` on PATH assumed,
+# no surrounding devshell. Requires flakes (`experimental-features =
+# nix-command flakes`).
+#
+# The default flake ref is `.` — THE CHECKOUT THIS WRAPPER RUNS FROM (an MCP
+# host launches it at the project root): dogfood serves the very build you are
+# sitting in, so a PR branch's MCP face is testable before it ships. The first
+# launch after a source change pays that build.
+#
+# Override knobs (env vars):
+#   KOLU_FLAKE  — flake-ref for kolu (default: `.`). Point it at a pinned
+#                 release, e.g. KOLU_FLAKE=github:juspay/kolu, when the server
+#                 should not track the checkout.
+set -euo pipefail
+exec nix run --accept-flake-config "${KOLU_FLAKE:-.}" -- mcp "$@"
