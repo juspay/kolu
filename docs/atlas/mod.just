@@ -67,6 +67,17 @@ check-sync: check
     else
       echo "✗ docs/atlas/dist is out of sync — run 'just atlas::build' and commit docs/atlas/dist/ in the same change."
       git --no-pager diff --stat -- docs/atlas/dist
+      # PRESERVE the divergent bytes before any diagnostic rebuild destroys them —
+      # the tracker's atlas-sync byte-shrink flake was twice diagnosed from luck
+      # (a surviving run dir) and once lost (a rebuild during diagnosis overwrote
+      # the only copy). Evidence outlives the checkout's next build.
+      ev="docs/atlas/.check-sync-evidence"
+      rm -rf "$ev" && mkdir -p "$ev"
+      git diff --name-only -- docs/atlas/dist | while read -r f; do
+        cp "$f" "$ev/$(basename "$f")"
+      done
+      git --no-pager diff -- docs/atlas/dist > "$ev/full.diff" || true
+      echo "→ divergent files + full diff preserved in $ev/"
       exit 1
     fi
     echo "→ idempotency: rebuilding under a scrambled TZ + locale…"

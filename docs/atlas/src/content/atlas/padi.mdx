@@ -45,7 +45,7 @@ export const ROADMAP = [
   { d: 0, g: "✓", c: "ship", l: "W10 · hosts survive a restart — membership as a settings field in the conf store", m: "#1772 · 2026-07-12", h: "#w10" },
   { d: 0, g: "✓", c: "ship", l: "W12 · restore survives an unclean kaval death — can't-observe emits unknown, not agent-ended", m: "#1784 · 2026-07-12", h: "#w12" },
   { d: 0, g: "▶", c: "prog", l: "Consolidation — the surface-runtime plan (unnumbered · parallel · ongoing)", m: "→ the plan of record", h: "surface-runtime-boundary.html" },
-  { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-tui · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
+  { d: 0, g: "○", c: "last", l: "Future work — cross-host dock · kolu-cli (tui/mcp faces) · hybrid only if earned (unnumbered · demand-driven)", m: "", h: "#future" },
 ];
 
 <PhaseTree title="ROADMAP — padi (replaces R9/R10) · kept up to date" phases={ROADMAP} />
@@ -82,7 +82,7 @@ export const Switcher = () => (
 
 <Switcher />
 
-Shipped with W4: a **host switcher** — *kinda like tmux sessions* (under the command palette's Labs group until it stabilizes; the ChromeBar picker graduates later). A canvas shows **one host's terminals**; switching hosts swaps the whole canvas instantly (bindings stay warm server-side). A host's arrangement — tile layout, names, themes, remembered agent commands — **lives on that host**, so your desktop, laptop, and phone all see the same canvas for `nix@prod`, and a teammate-free second kolu (or a future kolu-tui) joins the same arrangement. A remote canvas is a **full peer** of the local one: Code tab, binary preview, paste/upload, transcript export, sleep/wake, session restore — all against the terminal's own host, nothing silently wrong-host.
+Shipped with W4: a **host switcher** — *kinda like tmux sessions* (under the command palette's Labs group until it stabilizes; the ChromeBar picker graduates later). A canvas shows **one host's terminals**; switching hosts swaps the whole canvas instantly (bindings stay warm server-side). A host's arrangement — tile layout, names, themes, remembered agent commands — **lives on that host**, so your desktop, laptop, and phone all see the same canvas for `nix@prod`, and a teammate-free second kolu (or the future `kolu tui` face) joins the same arrangement. A remote canvas is a **full peer** of the local one: Code tab, binary preview, paste/upload, transcript export, sleep/wake, session restore — all against the terminal's own host, nothing silently wrong-host.
 
 While you're parked on one host, the others reach you through the channels an installed PWA already owns: the **app badge** aggregates awaiting-agents across all bound hosts, the **switcher chips** carry per-host counts, and an **OS notification's click is one action** — switch binding + focus the tile. (The per-terminal plumbing — `setAppBadge`, service-worker notifications — predated it; W5 aggregated it across bindings.)
 
@@ -156,7 +156,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 - **Per-terminal `HostLocation` tagging** (the finale plan): checked the host at a dozen places when one place (the connection) suffices — and the client never needed it at all. Closed with #1637–#1640.
 - **Merging kaval into padi**: padi bundles the system's highest-churn code (agent sensors, fs/git serving); kaval earns "restarts only on contract change" by containing nothing that churns. Fusing them means sensor churn kills PTYs. padi restarts are instead *cheap by design*: re-seed from the state-root + fresh sensors (the #1031 posture — warm across web-shell churn, honestly re-derived across padi churn).
 - **Server-global binding with a "rebind + client reset" switch** (the brief's own first draft): behind a constant origin, in-flight id/repoPath-keyed calls and every other device silently straddle a rebind — a two-actor temporal convention with a race window. Replaced by **per-connection binding scope**: a call minted under one binding cannot reach another, and other devices are untouched by your switch.
-- **Local padi as in-process library, process only for remote**: keeps two assemblies (the drift the one-library-two-homes era already suffered), keeps kolu-server fat, and forfeits warm-across-restart metadata and multi-client (kolu-tui) for the local host.
+- **Local padi as in-process library, process only for remote**: keeps two assemblies (the drift the one-library-two-homes era already suffered), keeps kolu-server fat, and forfeits warm-across-restart metadata and multi-client (kolu-cli) for the local host.
 
 ## Where this stands — and what's next
 
@@ -174,7 +174,7 @@ The contract's one novelty, forced by review: **every member declares how it may
 <Phase id="W11" name="one verb per fact — user-remove vs system-retire in surface-remote's pool" status="shipped" needs={["W6"]} links={[{ label: "#1775", href: "https://github.com/juspay/kolu/pull/1775" }]} />
 <Phase id="W10" name="hosts survive a restart — membership as a settings field in the conf store" status="shipped" needs={["W6"]} links={[{ label: "#1772", href: "https://github.com/juspay/kolu/pull/1772" }]} />
 <Phase id="W12" name="restore survives an unclean kaval death — a can't-observe terminal emits `unknown`, not an authoritative agent-end" status="shipped" links={[{ label: "#1784", href: "https://github.com/juspay/kolu/pull/1784" }]} />
-<Phase id="future" name="future work — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W4"]} />
+<Phase id="future" name="future work — cross-host dock (B-lite) · kolu-cli · hybrid canvas only if earned" status="todo" needs={["W4"]} />
 
 **As of 2026-07-12, in order:**
 
@@ -204,7 +204,7 @@ W2 and W3 shipped at pace (a deliberate call); the consolidation pays the pace's
 
 **Parked, each with its gate** *(none is schedulable until its gate opens)*:
 
-- **Upstream padi-tui's wait-until-predicate helper into `@kolu/surface`** — gated on kolu-tui existing (the second consumer that proves the boundary; the helper carries a ledger tag comment in `packages/padi-tui/src/`). If kolu-tui never ships, delete this item with that reason — never upstream on one consumer.
+- **Unify the wait-until-predicate scaffold shared by padi-tui and kaval-tui** — the duplication is REAL today (padi-tui `read.ts:awaitAgentState` and kaval-tui `wait.ts:awaitOutputCondition` share a near-verbatim ~40-line scaffold: the 5-arm `WaitOutcome` union, AbortSignal chaining, first-writer-wins settle — held in lockstep by JSDoc cross-references), but this item's earlier form was doubly wrong: the "ledger tag comment in `packages/padi-tui/src/`" does not exist (grep confirms), and the earlier kolu-cli gate was misdrawn — the CLI faces consume neither helper, so its shipping proves nothing here. Real gate: a third consumer of the *scaffold*, or lockstep drift actually biting. **That gate is met by kolu-cli PR2 (in build)**, and the extraction splits by what each piece IS: the generic scaffold (`WaitOutcome`/`runWait` — outcome union, abort chain, first-writer settle, timeout/fallback) lands in **`@kolu/surface/wait`** (the `firstFrame` precedent: a zero-import stream-consumption leaf all three consumers already depend on), while the padi-shaped predicate vocabulary (`awaitAgentState`, `watchTerminals`, `WAIT_STATES`/`agentMatchesUntil`) graduates into **`@kolu/padi`'s `dial` entry** — NOT @kolu/surface, which must never gain padi vocabulary — with kolu-mcp's `wait_agentState` as the verbatim second consumer. Watchers stay per-consumer (port, not extract).
 - **Delete the legacy-kaval migration arm** — at a version srid names. The W2.2 adopter (binder legacy-socket hint, padi's legacy-adopt branch, port-keyed discovery in `socketPath.ts`, the `adoption-upgrade` VM tests) exists solely for pre-W2.2 upgrades; done when no code path can dial a port-keyed kaval and the release note names the required upgrade path.
 - **Split the sensors out of padi's restart hash** — only on recorded deploy-pain evidence (a stretch where sensor-only changes forced padi restarts users noticed). The restart is cheap by design; until the evidence exists this is deliberately a no-op, and never serve stale detection (#1031) governs any eventual split.
 - **Retire the near-unreachable `PADI_MEMORY_READ_ERROR` contract arm** — <PrLink pr={1699} /> moved the memory read onto the in-process mirror, which cannot fail like the remote dial the arm was built for; retiring it is a contract change and ships as its own deliberate wire-version decision, not a rider.
@@ -229,7 +229,7 @@ The real work is the **burn-down** so "as-is" is honest: (a) the ~70 scenarios t
 
 *(The researched, tiered menu for everything below — ecosystem survey × shipped primitives, plus the promoted [port-preview](port-preview.html) and [shared-canvas](shared-canvas.html) notes — lives in [remote-terminals-future](remote-terminals-future.html).)*
 
-**Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-tui** — the graduation proof: consume padiSurface over the socket/ssh *without kolu-server*; done only when that named path renders a live canvas (the path, not the feature, is the unit of done). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
+**Cross-host dock** (B-lite: foreign hosts' rows, urgency-ranked, click = switch + focus — the host axis is already in the contract) is the first escalation if switching proves insufficient. **kolu-cli** (the `kolu tui`/`kolu mcp` faces) — the graduation proof, now a ratified plan of its own: [kolu-cli](kolu-cli.html) owns the criterion (the named padiSurface path incl. the `terminalAttach` `{seq}` stream, both transports, or it doesn't count). **Hybrid canvas** (model B) only if one-window side-by-side proves a recurring demand — it stays an aggregation layer over N bindings, zero daemon changes.
 
 ### Risks, named, with mitigations
 
@@ -247,11 +247,11 @@ Each phase, compacted to what shipped and the facts that still govern; the full 
 
 | package | born | why then, not earlier/later |
 | --- | --- | --- |
-| `@kolu/padi` | **W1.C** | location is structure: code destined for the daemon must not camp in `packages/server`. Package at W1, **process at W2.2**. **The dependency arrow: padi imports no kolu app package** (libraries only) — the app imports padi, never the reverse. Otherwise app churn would pollute padi's restart hash, and kolu-tui (which exists to prove padi needs no kolu) would drag kolu back in |
+| `@kolu/padi` | **W1.C** | location is structure: code destined for the daemon must not camp in `packages/server`. Package at W1, **process at W2.2**. **The dependency arrow: padi imports no kolu app package** (libraries only) — the app imports padi, never the reverse. Otherwise app churn would pollute padi's restart hash, and kolu-cli (which exists to prove padi needs no kolu) would drag kolu back in |
 | re-serve machinery | **W2.1** ✓ <PrLink pr={1661} />, into existing `@kolu/surface` / `surface-nix-host` | it generalizes proven pulam-web code for a second consumer (kolu-server) — that *is* the graduation moment; no new package, it extends the receptacle that already owns mirroring (drishti-gated) |
 | the control core | lives in `@kolu/padi` | extraction is gated on electricity test ② (a real axis of variation), and with one daemon the axis doesn't vary yet — nothing to encapsulate. If a second daemon adopts it, that's test ③'s after-the-fact proof and it graduates to `@kolu/surface-daemon`. (Corrected 2026-07-03: an earlier wording here inverted the doctrine into 'proof before extraction' — the second consumer is the proof extraction was right, never the gate for doing it) |
 | padi's `wait` (the agent done-signal) | **W2.3**, a subcommand of the padi binary | no new package: the kaval-tui precedent (separate TUI package) is for a full client; a done-signal probe rides the daemon's own CLI |
-| `kolu-tui` | **future work**, new package | a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③'s proof). Demand-driven, not scheduled — nothing forbids it earlier |
+| `kolu-cli` | **planned** — [kolu-cli](kolu-cli.html), new package | a new consumer app, not an extraction — it exists to prove padiSurface serves a second frontend (test ③'s proof); the plan note owns scope + criterion |
 
 <a id="w0"></a>
 
