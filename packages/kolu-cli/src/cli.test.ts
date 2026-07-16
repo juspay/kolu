@@ -1,15 +1,16 @@
 /**
- * kolu-cli PR1 pin (docs/atlas/src/content/atlas/kolu-cli.mdx): bare `kolu`
- * and `kolu web` are behaviorally IDENTICAL — one flag schema bound to both
- * spellings — and the reserved faces (`tui`, `mcp`) fail fast with the named
- * message, exit non-zero. Unit-level: parses only, no server boots.
+ * kolu-cli dispatch pins (docs/atlas/src/content/atlas/kolu-cli.mdx): bare
+ * `kolu` and `kolu web` are behaviorally IDENTICAL — one flag schema bound to
+ * both spellings; `kolu mcp` parses to its face (host flag and all); and the
+ * reserved face (`tui`) fails fast with the named message, exit non-zero.
+ * Unit-level: parses only, no server boots, no MCP serve.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
   type KoluCliParse,
-  koluWebFlagsOrExit,
+  koluFaceOrExit,
   parseKoluCli,
   reservedFaceMessage,
 } from "./cli.ts";
@@ -100,9 +101,13 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
     }
   });
 
-  it("reserved subcommands parse to their face", () => {
+  it("the reserved subcommand parses to its face; mcp parses its host flag", () => {
     expect(parseKoluCli(["tui"])).toEqual({ face: "tui" });
-    expect(parseKoluCli(["mcp"])).toEqual({ face: "mcp" });
+    expect(parseKoluCli(["mcp"])).toEqual({ face: "mcp", host: undefined });
+    expect(parseKoluCli(["mcp", "--host", "user@zest"])).toEqual({
+      face: "mcp",
+      host: "user@zest",
+    });
   });
 
   it("a typo'd subcommand parses to unknown-command, never the web face", () => {
@@ -135,35 +140,40 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
     }
   });
 
-  describe("koluWebFlagsOrExit", () => {
+  describe("koluFaceOrExit", () => {
     afterEach(() => {
       vi.restoreAllMocks();
     });
 
-    it.each([
-      "tui",
-      "mcp",
-    ] as const)("kolu %s fails fast: the named message on stderr, exit non-zero", (face) => {
+    it("kolu tui fails fast: the named message on stderr, exit non-zero", () => {
       const exitSpy = mockExitThrow();
       const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      expect(() => koluWebFlagsOrExit([face])).toThrow("exit(1)");
+      expect(() => koluFaceOrExit(["tui"])).toThrow("exit(1)");
       expect(exitSpy).toHaveBeenCalledWith(1);
       const written = String(stderrSpy.mock.calls[0]?.[0]);
-      expect(written).toBe(`${reservedFaceMessage(face)}\n`);
+      expect(written).toBe(`${reservedFaceMessage("tui")}\n`);
       expect(written).toContain("not shipped yet");
       expect(written).toContain("kolu.dev/atlas/kolu-cli.html");
     });
 
+    it("kolu mcp dispatches as a real face now, carrying its host", () => {
+      expect(koluFaceOrExit(["mcp"])).toEqual({ face: "mcp", host: undefined });
+      expect(koluFaceOrExit(["mcp", "--host", "user@zest"])).toEqual({
+        face: "mcp",
+        host: "user@zest",
+      });
+    });
+
     it("returns the parsed flags for bare and web spellings", () => {
-      expect(koluWebFlagsOrExit(["--port", "7001"])).toEqual(
-        koluWebFlagsOrExit(["web", "--port", "7001"]),
+      expect(koluFaceOrExit(["--port", "7001"])).toEqual(
+        koluFaceOrExit(["web", "--port", "7001"]),
       );
     });
 
     it("an unknown command fails fast: named message, exit non-zero", () => {
       const exitSpy = mockExitThrow();
       const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      expect(() => koluWebFlagsOrExit(["tuii"])).toThrow("exit(1)");
+      expect(() => koluFaceOrExit(["tuii"])).toThrow("exit(1)");
       expect(exitSpy).toHaveBeenCalledWith(1);
       const written = String(stderrSpy.mock.calls[0]?.[0]);
       expect(written).toContain('unknown command "tuii"');

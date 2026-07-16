@@ -1,0 +1,30 @@
+{
+  "name": "kolu-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/padi": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-mcp": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
+    "@kolu/terminal-vocab": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
+  }
+}

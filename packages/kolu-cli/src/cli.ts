@@ -1,5 +1,5 @@
 /**
- * The kolu binary's subcommand dispatch — PR1 of the kolu-cli plan
+ * The kolu binary's subcommand dispatch — the kolu-cli plan
  * (docs/atlas/src/content/atlas/kolu-cli.mdx). This package is the composition
  * root: the one module set allowed to import everything, so the product's argv
  * face stays out of the web server's boot (`packages/server` exports
@@ -8,17 +8,17 @@
  *
  * `kolu web` NAMES today's behavior; bare `kolu` stays its byte-for-byte alias:
  * ONE flag schema (`webFlags`) is bound to both spellings, so the alias holds by
- * construction, and the flag-matrix test (`cli.test.ts`) pins it. `kolu tui` and
- * `kolu mcp` are reserved — they fail fast with a pointer at the plan (PR3 and
- * PR2 respectively) instead of pretending to exist.
+ * construction, and the flag-matrix test (`cli.test.ts`) pins it. `kolu mcp`
+ * serves the agent face (PR2 — `[--host <ssh>]` reaches a remote padi); `kolu
+ * tui` stays reserved — it fails fast with a pointer at the plan (PR3) instead
+ * of pretending to exist.
  *
  * This module is the PARSE only — its `kolu-server` imports are LEAVES
  * (`src/bootFlags.ts`, `src/hostname.ts`) that never touch the server's
  * runtime module graph (`index.ts`), so the pin suite drives it without
- * loading that graph. The `web` arm's boot import lives in
- * `main.ts`, behind the dispatch. (The tui/mcp faces themselves arrive as
- * separate packages in PR2/PR3 — their manifests, which list no kolu app
- * package, are the structural fence.)
+ * loading that graph. Each face's boot import lives in `main.ts`, behind the
+ * dispatch, as a dynamic import. (The mcp face itself is `packages/kolu-mcp` —
+ * its manifest, which lists no kolu app package, is the structural fence.)
  */
 
 import { cli, command } from "cleye";
@@ -33,19 +33,19 @@ import { type KoluBootFlags, webFlags } from "kolu-server/src/bootFlags.ts";
 import { serverVersion } from "kolu-server/src/hostname.ts";
 import { match, P } from "ts-pattern";
 
-const RESERVED_FACES = ["tui", "mcp"] as const;
+const RESERVED_FACES = ["tui"] as const;
 type ReservedFace = (typeof RESERVED_FACES)[number];
 
 /** The named fail-fast for a face that is planned but not shipped (exit
- *  non-zero rides `koluWebFlagsOrExit`). One template so `tui` and `mcp`
- *  can't drift apart. */
+ *  non-zero rides `koluFaceOrExit`). */
 export const reservedFaceMessage = (face: ReservedFace): string =>
   `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`;
 
 export type KoluCliParse =
   | { face: "web"; flags: KoluBootFlags }
+  | { face: "mcp"; host: string | undefined }
   | { face: ReservedFace }
-  // A positional neither spelling takes — `kolu tuii`, `kolu web foo`. Named so
+  // A positional no spelling takes — `kolu tuii`, `kolu web foo`. Named so
   // a typo'd subcommand FAILS FAST instead of silently booting the web server
   // (cleye has no strict-commands mode: an unknown first positional falls
   // through to the root command with the word left in `_`).
@@ -86,9 +86,17 @@ export function parseKoluCli(
         }),
         command({
           name: "mcp",
+          version: serverVersion,
           help: {
             description:
-              "Reserved — the MCP agent face is not shipped yet (see kolu.dev/atlas/kolu-cli.html).",
+              "Serve this host's terminals to a coding agent over MCP (stdio) — a pure padi client, no web server.",
+          },
+          flags: {
+            host: {
+              type: String,
+              description:
+                "reach a padi on another machine over ssh (user@host) instead of the local socket — goes AFTER the subcommand: `kolu mcp --host user@zest`.",
+            },
           },
         }),
       ],
@@ -96,8 +104,14 @@ export function parseKoluCli(
     undefined,
     [...argv],
   );
-  if (parsed.command === "tui" || parsed.command === "mcp") {
-    return { face: parsed.command };
+  if (parsed.command === "tui") {
+    return { face: "tui" };
+  }
+  if (parsed.command === "mcp") {
+    // cleye types each command's flags per-command; narrow through the
+    // discriminant we just matched.
+    const { host } = parsed.flags as { host: string | undefined };
+    return { face: "mcp", host };
   }
   // Drift guard (type-level): the literals above must cover every registered
   // non-web command. If a new face is added to the `commands` array without a
@@ -115,15 +129,21 @@ export function parseKoluCli(
   return { face: "web", flags: parsed.flags };
 }
 
-/** The dispatch seam `main.ts` parses through: returns the web face's flags, or
+/** The faces `main.ts` actually boots — the parse minus the fail-fast arms. */
+export type KoluCliFace =
+  | { face: "web"; flags: KoluBootFlags }
+  | { face: "mcp"; host: string | undefined };
+
+/** The dispatch seam `main.ts` parses through: returns the face to boot, or
  *  fails fast (a named message on stderr, exit 1) on a reserved subcommand or a
  *  positional that matches no command. `exhaustive()` is load-bearing: a new
  *  face added to `KoluCliParse` without an arm here is a compile error, where
- *  the previous `!== "web"` catch-all would have silently mislabeled it. */
-export function koluWebFlagsOrExit(argv?: string[]): KoluBootFlags {
+ *  a `!== "web"` catch-all would silently mislabel it. */
+export function koluFaceOrExit(argv?: string[]): KoluCliFace {
   return match(parseKoluCli(argv))
-    .with({ face: "web" }, (p) => p.flags)
-    .with({ face: P.union("tui", "mcp") }, (p): never => {
+    .with({ face: "web" }, (p): KoluCliFace => p)
+    .with({ face: "mcp" }, (p): KoluCliFace => p)
+    .with({ face: P.union(...RESERVED_FACES) }, (p): never => {
       process.stderr.write(`${reservedFaceMessage(p.face)}\n`);
       process.exit(1);
     })

@@ -10,7 +10,12 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/padi": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-daemon-supervisor": "workspace:*",
+    "@kolu/surface-remote": "workspace:*",
     "cleye": "^2.3.0",
+    "kolu-mcp": "workspace:*",
     "kolu-server": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
