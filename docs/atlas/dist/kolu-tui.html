@@ -409,10 +409,38 @@ in attach mode drive the server-side viewport rather than forwarding to the
 child (except when the child requested mouse mode).</li>
 </ul>
 <h2 id="implementation-details">Implementation details</h2>
-<p>One PR.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>No real sequencing constraint splits this: the MCP face is a
-thin <code>serveSurfaceAsMcp</code> call over the client the canvas already needs, and
-the pin needs create/attach/kill anyway. Splitting would be staging for
-appearance.</span></span></span> Steps, in build order:</p>
+<p><strong>Two PRs — a real sequencing constraint, not staging.</strong><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An earlier
+draft said one PR; the skill-parity contract changed the calculus. PR1’s
+deliverable is independently valuable the day it merges — the /orchestrator
+and /kolu skills gain their MCP path with CLI fallback — and it carries none
+of the canvas’s renderer/attach risk. Each PR has its own complete pin, so
+neither is staging for appearance.</span></span></span></p>
+<ul>
+<li><strong>PR1 — the MCP face</strong>: package scaffold, both transports + the one
+<code>surfaceClient</code>, <code>serveSurfaceAsMcp</code> + the expose map, the composite
+<code>wait.*</code> tools (extracting the shared WaitOutcome scaffold — the third
+consumer), the restart discipline. Its pin: the headless leg of step 9 —
+create → sendInput → wait.outputSettled (the <code>{seq}</code> stream, watched not
+rendered) → screen.text → kill, over BOTH transports, plus the restart
+legs. This already exercises most of the graduation path, headlessly.</li>
+<li><strong>PR2 — the canvas</strong>: renderer, attach loop, <code>escape.ts</code> graduation (it is
+attach-scoped, so it rides PR2), create/kill gestures, navigator/rail. Its
+pin: the rendering leg of step 9 — the live canvas over the same path.</li>
+</ul>
+<p><strong>The binary is <code>kolu</code>, not a new <code>kolu-tui</code> executable</strong> (decision): today’s
+<code>kolu</code> cleye definition has flags and NO subcommands, so the namespace is
+free — <code>kolu tui</code> opens the canvas, <code>kolu mcp</code> serves agents, and bare <code>kolu</code>
+keeps meaning what it means today (the web server). The CODE stays in
+<code>packages/kolu-tui</code> (location is structure; the app binary imports the tui
+package — the arrow points the right way, since kolu-tui imports only
+padi/surface libraries and never the reverse). The graduation proof is about
+the RUNTIME path — no kolu-server <em>process</em> behind <code>kolu tui</code>/<code>kolu mcp</code> —
+not the shipping closure; <code>p2p-kolu.mdx</code> already records kolu-tui shipping
+in-closure.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The one cost: a padi-only remote host wanting a local
+<code>kolu mcp</code> pulls the kolu closure. Demand-gated escape hatch, recorded not
+built: a thin standalone bin target for the tui package if that host profile
+ever materializes.</span></span></span></p>
+<p>Steps, in build order (PR1 = steps 1–3 + 8; PR2 = the rest):</p>
 <ol>
 <li><strong>Scaffold <code>packages/kolu-tui</code></strong> on the sibling pattern (<code>cleye</code> arg
 parsing, <code>bin.ts</code>, nix packaging in-closure like <code>padi-tui</code>). Subcommands:

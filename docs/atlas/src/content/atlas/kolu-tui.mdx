@@ -318,10 +318,39 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.
 
 ## Implementation details
 
-One PR.<Footnote>No real sequencing constraint splits this: the MCP face is a
-thin `serveSurfaceAsMcp` call over the client the canvas already needs, and
-the pin needs create/attach/kill anyway. Splitting would be staging for
-appearance.</Footnote> Steps, in build order:
+**Two PRs — a real sequencing constraint, not staging.**<Footnote>An earlier
+draft said one PR; the skill-parity contract changed the calculus. PR1's
+deliverable is independently valuable the day it merges — the /orchestrator
+and /kolu skills gain their MCP path with CLI fallback — and it carries none
+of the canvas's renderer/attach risk. Each PR has its own complete pin, so
+neither is staging for appearance.</Footnote>
+
+- **PR1 — the MCP face**: package scaffold, both transports + the one
+  `surfaceClient`, `serveSurfaceAsMcp` + the expose map, the composite
+  `wait.*` tools (extracting the shared WaitOutcome scaffold — the third
+  consumer), the restart discipline. Its pin: the headless leg of step 9 —
+  create → sendInput → wait.outputSettled (the `{seq}` stream, watched not
+  rendered) → screen.text → kill, over BOTH transports, plus the restart
+  legs. This already exercises most of the graduation path, headlessly.
+- **PR2 — the canvas**: renderer, attach loop, `escape.ts` graduation (it is
+  attach-scoped, so it rides PR2), create/kill gestures, navigator/rail. Its
+  pin: the rendering leg of step 9 — the live canvas over the same path.
+
+**The binary is `kolu`, not a new `kolu-tui` executable** (decision): today's
+`kolu` cleye definition has flags and NO subcommands, so the namespace is
+free — `kolu tui` opens the canvas, `kolu mcp` serves agents, and bare `kolu`
+keeps meaning what it means today (the web server). The CODE stays in
+`packages/kolu-tui` (location is structure; the app binary imports the tui
+package — the arrow points the right way, since kolu-tui imports only
+padi/surface libraries and never the reverse). The graduation proof is about
+the RUNTIME path — no kolu-server *process* behind `kolu tui`/`kolu mcp` —
+not the shipping closure; `p2p-kolu.mdx` already records kolu-tui shipping
+in-closure.<Footnote>The one cost: a padi-only remote host wanting a local
+`kolu mcp` pulls the kolu closure. Demand-gated escape hatch, recorded not
+built: a thin standalone bin target for the tui package if that host profile
+ever materializes.</Footnote>
+
+Steps, in build order (PR1 = steps 1–3 + 8; PR2 = the rest):
 
 1. **Scaffold `packages/kolu-tui`** on the sibling pattern (`cleye` arg
    parsing, `bin.ts`, nix packaging in-closure like `padi-tui`). Subcommands:
