@@ -25,7 +25,12 @@ import { padiMemoryReadable } from "./padiMemoryGate.ts";
  *  the closed union means a new phase forces this fixture to compile-fail until handled. */
 const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
   match<typeof phase, SessionState<SshProv>>(phase)
-    .with("connected", (p) => ({ phase: p, clockOffset: null, log: [], sinceMs: 0 }))
+    .with("connected", (p) => ({
+      phase: p,
+      clockOffset: null,
+      log: [],
+      sinceMs: 0,
+    }))
     .with("disconnected", (p) => ({
       phase: p,
       error: "link down",
