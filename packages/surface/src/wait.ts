@@ -16,7 +16,11 @@
  *     arm the timeout, first-writer-wins settle, unwind every watcher, and
  *     resolve the fallback (a caller abort is `interrupted`; a link that
  *     settled with no outcome is `closed`, carrying the first latched
- *     upstream diagnostic).
+ *     upstream diagnostic);
+ *   - the outcome→JSON projection ({@link waitOutcomeJson}) — the four terminal
+ *     arms serialize identically for both structured `--json`/tool faces, so
+ *     that vocabulary lives here beside the union; only the per-face `met` shape
+ *     is injected.
  *
  * What it deliberately does NOT own: the condition *watchers*. Each consumer's
  * watcher binds its own surface contract (kaval's `ptyHostSurface` attach
@@ -70,6 +74,52 @@ export type WaitOutcome<Met extends WaitMet> =
   | { kind: "timeout"; elapsedMs: number }
   | { kind: "interrupted" }
   | { kind: "closed"; error?: string };
+
+/** Serialize a {@link WaitOutcome} to the driver-facing JSON frame both
+ *  structured wait faces emit (the kolu MCP `wait_*` tools, `kaval-tui wait
+ *  --json`) — a uniform `result` discriminant on EVERY outcome, never exit-code
+ *  archaeology. The four terminal arms (`timeout`/`gone`/`interrupted`/
+ *  `closed`) serialize identically for every consumer, so they live here ONCE
+ *  beside the union they mirror; only the `met` arm's per-face shape differs, so
+ *  it is the injected `metJson` callback — kolu-mcp nests the payload under
+ *  `met`, kaval spreads `fired`/`matchedLine` flat.
+ *
+ *  Inside the generic, TS intersects the met arm's `{ kind: "met" }` with the
+ *  BOUND's `kind?: never` and collapses it to `never`, so the discriminated
+ *  switch can't be written on `outcome` directly — the ONE re-spell of the
+ *  runtime union (met payload opaque) lives here too, not re-copied per face.
+ *  Every CONCRETE Met satisfies WaitMet (no `kind`), so the cast never changes a
+ *  real shape. */
+export function waitOutcomeJson<Met extends WaitMet>(
+  id: string,
+  outcome: WaitOutcome<Met>,
+  metJson: (met: Met) => Record<string, unknown>,
+): Record<string, unknown> {
+  const o = outcome as
+    | ({ kind: "met" } & Record<string, unknown>)
+    | { kind: "gone"; elapsedMs: number }
+    | { kind: "timeout"; elapsedMs: number }
+    | { kind: "interrupted" }
+    | { kind: "closed"; error?: string };
+  switch (o.kind) {
+    case "met": {
+      const { kind: _kind, ...met } = o;
+      return { id, result: "met", ...metJson(met as Met) };
+    }
+    case "timeout":
+      return { id, result: "timeout", elapsedMs: o.elapsedMs };
+    case "gone":
+      return { id, result: "gone", elapsedMs: o.elapsedMs };
+    case "interrupted":
+      return { id, result: "interrupted" };
+    case "closed":
+      return {
+        id,
+        result: "closed",
+        ...(o.error !== undefined ? { error: o.error } : {}),
+      };
+  }
+}
 
 /** What {@link runWait} hands its watchers — the settle race, the abort signal
  *  every subscription must chain to, the shared elapsed clock, and the

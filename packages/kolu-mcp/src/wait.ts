@@ -31,6 +31,7 @@ import {
   MAX_TIMER_MS,
   type WaitMet,
   type WaitOutcome,
+  waitOutcomeJson,
 } from "@kolu/surface/wait";
 import type { BespokeTool } from "@kolu/surface-mcp";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
@@ -49,47 +50,18 @@ const TimeoutMsSchema = z
     'Give up after this many milliseconds (result: "timeout"). Omit to wait indefinitely (the MCP host\'s own request timeout still applies).',
   );
 
-/** Serialize a wait outcome to the tool's JSON frame — a uniform `result`
- *  discriminant on EVERY outcome, never exit-code archaeology. The met payload
- *  is NESTED under `met`, never spread flat: a flat spread would let a payload
- *  key silently overwrite the envelope's reserved `id`/`result` (the same
- *  collision class `WaitMet`'s `kind?: never` closes one layer down, reopened
- *  at the wire) — nesting makes it inexpressible for ANY payload shape. The
- *  param stays `WaitMet`-typed for the same reason: widening to a bare Record
- *  would erase the kind guard at this boundary. */
+/** Serialize a wait outcome to the tool's JSON frame via the shared
+ *  {@link waitOutcomeJson} (which owns the four terminal arms and the union
+ *  re-spell). The MCP face NESTS the met payload under `met`, never spread flat:
+ *  a flat spread would let a payload key silently overwrite the envelope's
+ *  reserved `id`/`result` (the collision `WaitMet`'s `kind?: never` closes one
+ *  layer down, reopened at the wire) — nesting makes it inexpressible for ANY
+ *  payload shape. The param stays `WaitMet`-typed for the same reason. */
 export function waitJson<Met extends WaitMet>(
   id: string,
   outcome: WaitOutcome<Met>,
 ): Record<string, unknown> {
-  // Inside the GENERIC, TS intersects the met arm's {kind:"met"} with the
-  // BOUND's `kind?: never` and collapses it to never, so the discriminated
-  // switch can't be written on `outcome` directly. Re-spell the same runtime
-  // union once, with the met payload opaque — every CONCRETE Met satisfies
-  // WaitMet (no `kind`), so this cast never changes a real shape.
-  const o = outcome as
-    | ({ kind: "met" } & Record<string, unknown>)
-    | { kind: "gone"; elapsedMs: number }
-    | { kind: "timeout"; elapsedMs: number }
-    | { kind: "interrupted" }
-    | { kind: "closed"; error?: string };
-  switch (o.kind) {
-    case "met": {
-      const { kind: _kind, ...met } = o;
-      return { id, result: "met", met };
-    }
-    case "timeout":
-      return { id, result: "timeout", elapsedMs: o.elapsedMs };
-    case "gone":
-      return { id, result: "gone", elapsedMs: o.elapsedMs };
-    case "interrupted":
-      return { id, result: "interrupted" };
-    case "closed":
-      return {
-        id,
-        result: "closed",
-        ...(o.error !== undefined ? { error: o.error } : {}),
-      };
-  }
+  return waitOutcomeJson(id, outcome, (met) => ({ met }));
 }
 
 // ── wait_outputSettled ────────────────────────────────────────────────────

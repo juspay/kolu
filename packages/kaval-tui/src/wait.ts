@@ -35,6 +35,7 @@ import {
   MAX_TIMER_MS,
   runWait,
   type WaitCtx,
+  waitOutcomeJson,
   type WaitOutcome as SharedWaitOutcome,
 } from "@kolu/surface/wait";
 import type { PtyTuiClient } from "./connect.ts";
@@ -135,44 +136,27 @@ type OutputMet =
  *  it from a side channel. */
 export type WaitOutcome = SharedWaitOutcome<OutputMet>;
 
-/** Serialize a {@link WaitOutcome} to the stable `--json` wire frame — the ONE
- *  home for the driver-facing contract, so the shape lives beside the type it
- *  mirrors instead of being reassembled per branch in `cmdWait`. The `result`
- *  discriminant is derived from `outcome.kind` (NOT from `fired`, which is a
- *  success *detail* of the `met` case), so EVERY outcome — `gone` /
- *  `interrupted` / `closed` included — emits a uniform frame and a `--json`
- *  driver never has to fall back to parsing the exit code alone. */
+/** Serialize a {@link WaitOutcome} to the stable `--json` wire frame via the
+ *  shared {@link waitOutcomeJson} (which owns the four terminal arms —
+ *  `timeout`/`gone`/`interrupted`/`closed` — and the `result`-from-`kind`
+ *  discriminant, so a `--json` driver never falls back to parsing the exit
+ *  code). This face SPREADS the met detail flat: the split union guarantees
+ *  `matchedLine` exactly when `fired === "match"`, so the projection follows the
+ *  discriminant with no presence guard — an idle frame can't carry a line, a
+ *  match frame can't omit one. */
 export function waitResultJson(
   id: string,
   outcome: WaitOutcome,
 ): Record<string, unknown> {
-  switch (outcome.kind) {
-    case "met":
-      // The split union guarantees `matchedLine` exactly when `fired ===
-      // "match"`, so the projection follows the discriminant with no presence
-      // guard — an idle frame can't carry a line, a match frame can't omit one.
-      return outcome.fired === "match"
-        ? {
-            id,
-            result: "met",
-            fired: "match",
-            elapsedMs: outcome.elapsedMs,
-            matchedLine: outcome.matchedLine,
-          }
-        : { id, result: "met", fired: "idle", elapsedMs: outcome.elapsedMs };
-    case "timeout":
-      return { id, result: "timeout", elapsedMs: outcome.elapsedMs };
-    case "gone":
-      return { id, result: "gone", elapsedMs: outcome.elapsedMs };
-    case "interrupted":
-      return { id, result: "interrupted" };
-    case "closed":
-      return {
-        id,
-        result: "closed",
-        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
-      };
-  }
+  return waitOutcomeJson<OutputMet>(id, outcome, (met) =>
+    met.fired === "match"
+      ? {
+          fired: "match",
+          elapsedMs: met.elapsedMs,
+          matchedLine: met.matchedLine,
+        }
+      : { fired: "idle", elapsedMs: met.elapsedMs },
+  );
 }
 
 /** Cap the accumulated match buffer so a long-running `match` wait against a

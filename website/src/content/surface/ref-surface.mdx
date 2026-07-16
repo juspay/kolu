@@ -392,6 +392,7 @@ Zero imports — a stream-consumption leaf beside `first-frame`.
 | `WaitOutcome<Met>` | the one outcome union — `met` (payload spread flat; `Met` must not carry its own `kind`) · `gone` · `timeout` · `interrupted` · `closed` |
 | `runWait(opts, watchers)` | own the race: chain the caller's signal, arm the timeout, first-writer-wins `settle`, resolve the `interrupted`/`closed` fallback |
 | `WaitCtx<Met>` | what watchers receive — `settle` · `signal` (chain every subscription) · `elapsedMs()` · `recordUpstreamError` |
+| `waitOutcomeJson(id, outcome, metJson)` | serialize an outcome to the driver-facing JSON frame — owns the four terminal arms (`timeout`/`gone`/`interrupted`/`closed`) once; the per-face `met` shape is the injected `metJson` callback |
 | `MAX_TIMER_MS` / `isValidTimerMs` | the `setTimeout` 32-bit-ceiling range rule every timeout/idle window flows through |
 
 A watcher that **rejects** is a bug, not an outcome: the rejection propagates
