@@ -631,6 +631,14 @@ const contested = [] // [{ id, findingIds, f, pairF?, pairId?, openLowy?, openHi
 const settleAsRaised = (f, via) => {
   settled[f.id] = { disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, via }
 }
+// Settle a matched pair as ONE issue: the primary record carries the plan, the
+// secondary is a plan-less duplicate pointing back at it — the shape that keeps
+// `settled` total over `combined` while fixes/unresolved dedupe. One writer, so
+// the two-record invariant can't drift between the reconcile and debate sites.
+const settlePair = (primaryId, secondaryId, disposition, plan, via, extra = {}) => {
+  settled[primaryId] = { disposition, plan, via, pairedWith: secondaryId, ...extra }
+  settled[secondaryId] = { disposition, plan: undefined, via, duplicateOf: primaryId, pairedWith: primaryId }
+}
 
 // -- 2.1 matcher: cross-lens duplicate reconciliation ------------------------
 const lowyFindings = combined.filter((f) => f.origin === 'lowy')
@@ -669,8 +677,7 @@ if (lowyFindings.length && hickeyFindings.length) {
     mateOf[m.a] = m.b
     mateOf[m.b] = m.a
     if (compatible) {
-      settled[m.a] = { disposition: fa.disposition, plan: bothFix ? m.plan.trim() : undefined, via: VIA.reconciled, pairedWith: m.b }
-      settled[m.b] = { disposition: fb.disposition, plan: undefined, via: VIA.reconciled, duplicateOf: m.a, pairedWith: m.a }
+      settlePair(m.a, m.b, fa.disposition, bothFix ? m.plan.trim() : undefined, VIA.reconciled)
       log(`Reconciled ${m.a} ≡ ${m.b} (${fa.disposition}) — settled with zero debate turns.`)
     } else {
       // Both raised it, but they genuinely disagree (disposition or plan) —
@@ -918,8 +925,9 @@ async function runThread(thread) {
       per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed })
       if (agreed) {
         // Endorsement guarantees l.plan is the converged text; no arbitrary fallback.
-        settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan : undefined, via: VIA.debated, lowy: l, hickey: h, pairedWith: item.pairId }
-        if (item.pairId) settled[item.pairId] = { disposition: l.disposition, plan: undefined, via: VIA.debated, duplicateOf: id, pairedWith: id }
+        const plan = l.disposition === 'fix' ? l.plan : undefined
+        if (item.pairId) settlePair(id, item.pairId, l.disposition, plan, VIA.debated, { lowy: l, hickey: h })
+        else settled[id] = { disposition: l.disposition, plan, via: VIA.debated, lowy: l, hickey: h }
         active = active.filter((x) => x.id !== id)
       }
     }
