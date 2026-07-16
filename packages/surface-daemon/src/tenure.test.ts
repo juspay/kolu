@@ -14,6 +14,7 @@ import { once } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -108,6 +109,31 @@ async function waitExit(
   }
 }
 
+describe("the naive bin shape — the red daemonProcessMain exists to kill", () => {
+  it("lingers after its tenure ended: DaemonExit resolved, release ran, process still alive", async () => {
+    // The red control for every pin below: it proves the fixture's live
+    // interval REALLY holds the event loop (were it unref'd — or Node's
+    // semantics to shift — the --tenured pin's "despite a live interval"
+    // premise would be silently void and this test would fail first).
+    const child = spawnBin("--naive");
+    const stderr = watchStderr(child);
+    await stderr.waitFor("fixture: listening");
+
+    child.kill("SIGTERM");
+    await stderr.waitFor("fixture: release-ran");
+
+    // The bin believes it is done — but nothing owns the exit, so the live
+    // interval keeps the process alive past any healthy-exit horizon.
+    let closed = false;
+    child.once("close", () => {
+      closed = true;
+    });
+    await delay(1_000);
+    expect(closed).toBe(false);
+    // afterEach reaps the immortal child by its exact handle.
+  });
+});
+
 describe("daemonProcessMain — the process IS the daemon", () => {
   it("exits 0 when the tenure ends (signal), despite a live interval — release stages strictly before the exit", async () => {
     const child = spawnBin("--tenured");
@@ -159,6 +185,10 @@ describe("daemonProcessMain — the process IS the daemon", () => {
   it("still exits 1 when the crash narration itself throws (swallow-proof)", async () => {
     const child = spawnBin("--stderr-broken");
     const { code } = await waitExit(child, EXIT_WAIT_MS);
+    // The fixture arms sentinel escape detectors (42 = uncaughtException,
+    // 43 = unhandledRejection), so 1 here proves the guarded crash arm —
+    // not Node's default exit-1 disposition for an escaped throw —
+    // delivered the exit.
     expect(code).toBe(1);
   });
 });

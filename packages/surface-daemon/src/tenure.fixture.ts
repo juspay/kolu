@@ -115,6 +115,15 @@ switch (mode) {
   case "--stderr-broken": {
     // The crash arm's narration write itself throws (a broken pipe on a dead
     // parent, forced): the exit must still happen — swallow-proof by pin.
+    //
+    // Sentinel escape detectors, installed FIRST: without them this pin is
+    // vacuous — a narration throw that ESCAPED the crash arm would surface
+    // as an uncaught exception / unhandled rejection, and Node's default
+    // disposition for both is ALSO exit code 1. The sentinels turn either
+    // escape into a distinct code, so the test's `code === 1` proves the
+    // guard (not an escape path) delivered the exit.
+    process.on("uncaughtException", () => process.exit(42));
+    process.on("unhandledRejection", () => process.exit(43));
     process.stderr.write = () => {
       throw new Error("stderr is gone");
     };

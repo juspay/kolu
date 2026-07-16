@@ -50,10 +50,10 @@ function crash(name: string, err: unknown): void {
  *  Call it as the bin's LAST statement: it returns synchronously (`void` —
  *  the function owns the rest of the process's life), so any code after it
  *  runs long before the eventual exit — legal, but almost never what the
- *  author meant. A legacy bin that still double-owns the exit (its own
- *  `.then(exit => process.exit(...))` map alongside) is a benign
- *  first-exit-wins race, not a crash — this PR's migrations remove the last
- *  such bins.
+ *  author meant. A bin that double-owns the exit (its own
+ *  `.then(exit => process.exit(...))` map attached to the same run promise)
+ *  is a benign first-exit-wins race, not a crash; the in-repo bins were
+ *  migrated off that shape when this landed.
  *
  *  `run` is a thunk, not a promise, so a synchronous throw in the wrapper's
  *  setup (path resolution, store opening) lands in the crash arm instead of

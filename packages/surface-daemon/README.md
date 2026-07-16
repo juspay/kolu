@@ -3,7 +3,8 @@
 The **durable-daemon spine** — the daemon *binary* half every long-lived process
 that owns a unix socket and serves a typed [`@kolu/surface`](../surface) repeats.
 **Serve it**: a pid-gated single-instance entry with a `gate → serve → teardown`
-skeleton (`daemonMain`) and a lifetime policy. **Front it** over ssh-stdio so a
+skeleton (`daemonMain`), a lifetime policy, and a bin half (`daemonProcessMain`)
+that owns the process exit. **Front it** over ssh-stdio so a
 remote session outlives the link (`frontDaemonOverStdio`). Plus the shared
 daemon-identity recipe (`readBakedIdentity`). A zero-`kolu-*`-dependency package;
 the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-supervisor).
