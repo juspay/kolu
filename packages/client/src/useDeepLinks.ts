@@ -177,9 +177,23 @@ export function useDeepLinks(): void {
    *  navigation always supersedes an older pending one, so a stale route can't
    *  enact or toast after the user has moved on (a later host/settings switch,
    *  or a second link). */
+  /** Supersede an IN-FLIGHT terminal route: the armed command AND its
+   *  hydration focus intent — `routeToTerminal` arms them together, so a
+   *  cancellation must disarm them together, or the stale intent teleports
+   *  later through cold-boot hydration (`useSessionRestore` prefers it when it
+   *  seeds). An already-ENACTED intent deliberately survives (`pending` is
+   *  null then): hydration must keep preferring the view the user actually
+   *  reached. Clearing `pending` also disposes the 8s backstop timer via its
+   *  effect's onCleanup. */
+  function supersedeInFlightRoute(): void {
+    if (pending() === null) return;
+    setPending(null);
+    setDeepLinkFocusIntent(null);
+  }
+
   function navigate(link: ParsedDeepLink): void {
     batch(() => {
-      setPending(null);
+      supersedeInFlightRoute();
       match(link)
         .with({ kind: "none" }, () => {})
         .with({ kind: "invalid" }, ({ reason }) =>
@@ -411,11 +425,11 @@ export function useDeepLinks(): void {
       // A traversal is the user MOVING ON — supersede any in-flight route,
       // exactly as `navigate` does for every fresh command. Without this, a
       // back-press during the settle window (a warming host, an unsensed git)
-      // leaves the armed route live: it enacts when the target settles — a
-      // teleport AFTER the user backed away — or the 8s backstop toasts for a
-      // link they already cancelled. Clearing `pending` also disposes that
-      // backstop timer via its effect's onCleanup.
-      setPending(null);
+      // leaves the armed command live and it teleports later: the route enacts
+      // when the target settles, the 8s backstop toasts for a link already
+      // cancelled, or the still-armed focus INTENT steers a later cold-boot
+      // hydration to the cancelled target (the second delayed-teleport path).
+      supersedeInFlightRoute();
       return;
     }
     navigate(parseDeepLink(window.location.hash));
