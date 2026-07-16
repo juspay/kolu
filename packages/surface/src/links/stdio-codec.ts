@@ -100,15 +100,22 @@ export function isBenignWriteError(err: unknown): boolean {
  *  This keeps the framing/lifecycle split intact: `writeFramedMessage` stays
  *  framing-only, and the per-side teardown *response* stays the consumer's,
  *  supplied as a value. Only the write whose destination is already gone is
- *  swallowed; every other write error still propagates. */
+ *  swallowed; every other write error still propagates.
+ *
+ *  `onPeerGone` is REQUIRED, not optional: an omitted callback would be a
+ *  send whose lifecycle owner is deaf by default — the exact hang this
+ *  parameter exists to kill, re-expressible at any future call site. Every
+ *  consumer must choose its teardown response in the type system; a
+ *  genuinely ownerless caller (a narrow unit test) says so explicitly with
+ *  a no-op. */
 export function framedSend(
   write: Writable,
   message: string | ArrayBufferLike | Uint8Array,
-  onPeerGone?: () => void,
+  onPeerGone: () => void,
 ): Promise<void> {
   return writeFramedMessage(write, message).catch((err: unknown) => {
     if (!isBenignWriteError(err)) throw err;
-    onPeerGone?.();
+    onPeerGone();
   });
 }
 
