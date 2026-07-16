@@ -24,7 +24,13 @@ const pill = (n) => {
 
 const flowRow = (item) => {
   const row = $("div", "flow");
-  const lane = $("div", "lane", item.name);
+  const lane = $("div", "lane");
+  if (item.href) {
+    const a = $("a", null, item.name);
+    a.href = item.href;
+    a.title = "jump to this lane's terminal in kolu";
+    lane.appendChild(a);
+  } else lane.appendChild(document.createTextNode(item.name));
   if (item.sub) lane.appendChild($("small", null, item.sub));
   row.appendChild(lane);
   item.nodes.forEach((n, i) => {
