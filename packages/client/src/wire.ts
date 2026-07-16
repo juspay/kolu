@@ -53,6 +53,7 @@ import {
   createSignal,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
@@ -103,30 +104,27 @@ export function interpretClientError(
       );
     return origin.key;
   };
-  switch (p.kind) {
-    case "toast":
-      toast.error(`${p.label} error: ${err.message}`, { id });
-      return;
-    case "hostToast":
+  match(p)
+    .with({ kind: "toast" }, (t) => {
+      toast.error(`${t.label} error: ${err.message}`, { id });
+    })
+    .with({ kind: "hostToast" }, (t) => {
       toast.error(
-        `Host ${hostLabel(requireOrigin())} ${p.label} error: ${err.message}`,
+        `Host ${hostLabel(requireOrigin())} ${t.label} error: ${err.message}`,
         { id },
       );
-      return;
-    case "scopedSub": {
+    })
+    .with({ kind: "scopedSub" }, (t) => {
       requireOrigin();
       const g = groundedActiveHost();
       const active = g !== null && encodeHostKey(g) === originEnc;
-      if (active) toast.error(`${p.label}: ${err.message}`, { id });
+      if (active) toast.error(`${t.label}: ${err.message}`, { id });
       else
         console.error(
-          `createHostWire: background ${p.label} for ${originEnc}: ${err.message}`,
+          `createHostWire: background ${t.label} for ${originEnc}: ${err.message}`,
         );
-      return;
-    }
-    default:
-      p satisfies never;
-  }
+    })
+    .exhaustive();
 }
 
 // `connectSurfaces` is the receptacle for "multiple sibling surfaces over one

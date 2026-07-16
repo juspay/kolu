@@ -1073,7 +1073,15 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
         const narrowedOnError =
           onError && collPolicyOnError
             ? (err: Error) => {
-                onError(err);
+                // Both fire. GUARD the consumer's `onError` so a throw in it can't skip
+                // the declared policy that follows; the policy fires LAST and UNGUARDED,
+                // so its own fail-loud throw (an impossible origin regression) still
+                // surfaces with nothing skipped.
+                try {
+                  onError(err);
+                } catch (e) {
+                  console.error("useCollection onError handler threw", e);
+                }
                 collPolicyOnError(err);
               }
             : (onError ?? collPolicyOnError);
@@ -1163,11 +1171,21 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
           // lifetime or clears it — the per-consumer register/unregister above is the
           // only writer/deleter.
           const dispatchError = (err: Error): void => {
-            // The spec-declared policy fires ONCE per shared slot here (never once per
-            // consumer), alongside the live per-consumer handler fan-out below.
-            collPolicyOnError?.(err);
+            // Fan out to every live per-consumer handler FIRST, each GUARDED so one
+            // consumer throwing can't skip the rest of the fan-out or the policy. The
+            // spec-declared policy fires ONCE per shared slot (never per consumer),
+            // LAST and UNGUARDED, so its own fail-loud throw (an impossible origin
+            // regression) still surfaces with no handler skipped.
             const live = collOnError.get(collKey);
-            if (live) for (const h of live.keys()) h(err);
+            if (live)
+              for (const h of live.keys()) {
+                try {
+                  h(err);
+                } catch (e) {
+                  console.error("useCollection onError handler threw", e);
+                }
+              }
+            collPolicyOnError?.(err);
           };
           return hasDeltas
             ? // ONE coalesced `deltas` stream folded into a per-key store.
