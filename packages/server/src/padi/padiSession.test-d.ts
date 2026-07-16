@@ -55,8 +55,11 @@ remotePadi.onState((s) => {
 // The SYNCHRONOUS twin `currentState()` rides the SAME `Prov` narrowing — the `PadiSession`
 // alias `Omit+Pick`s BOTH `onState | currentState`, so the copying-unrepresentable split
 // must hold through the point-read too. If `currentState` were dropped from that pair, its
-// return would silently fall back to `DaemonSession`'s full-union `SessionState` and this
-// pin would be the only thing to catch it.
+// return would silently fall back to `DaemonSession`'s accessor — and `DaemonSession`
+// extends `Session<Client>` (`Prov` defaults to `never`), so it returns `SessionState<never>`
+// WITHOUT the provisioning phases. The LOCAL arm (`Prov=never`) is unchanged, but a REMOTE
+// `PadiSession` would LOSE `copying`/`building` — and the remote positive assertion below is
+// the only thing that would catch it.
 {
   const local = localPadi.currentState();
   // @ts-expect-error — a LOCAL padi session's `currentState()` can never be `"copying"`
