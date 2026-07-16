@@ -94,6 +94,11 @@ resolves `<p>` against that tile's repository.
   pointed at and lands you on the nearest surviving view; an unknown link shape
   says so rather than failing silently. A link opened on a cold start waits for
   the host's terminals to load before deciding anything is missing.
+- **Works from inside a preview** — a `#/…` link in an HTML file previewed in
+  the Code tab routes the surrounding app: preview an orchestrator dashboard and
+  its lane pills become click-to-jump, straight to each agent's terminal. (The
+  preview stays fully sandboxed — the link is relayed out, and view-only means a
+  hostile page still can't do anything but change what you're looking at.)
 
 <Aside type="note" title="Focus the installed app, don't spawn a second window">
   When kolu is installed as a [PWA](/install-pwa) on a Chromium browser, an

@@ -96,9 +96,23 @@ export type OpenExternalMsg = {
   url: string;
 };
 
+/** A kolu deep link (`#/…`) clicked inside the previewed document. The
+ *  opaque-origin sandbox can't navigate the parent, so the in-iframe SDK traps
+ *  the click and posts the raw hash; the PARENT runs the real grammar parse and
+ *  routes it through its deep-link router. Like `OpenExternalMsg`, a sandboxed
+ *  script can fabricate this message — accepted anyway because the router is
+ *  VIEW-ONLY BY LAW (kolu #1840): the worst a hostile hash can do is change
+ *  what the viewer is looking at (or toast "invalid"), never create, kill,
+ *  write, or send keys. */
+export type DeepLinkMsg = {
+  type: "kolu-artifact-sdk:deep-link";
+  hash: string;
+};
+
 export type IframeToParent =
   | SelectMsg
   | ReadyMsg
   | HistoryMsg
-  | OpenExternalMsg;
+  | OpenExternalMsg
+  | DeepLinkMsg;
 export type ParentToIframe = PathMsg | RenderHighlightsMsg;
