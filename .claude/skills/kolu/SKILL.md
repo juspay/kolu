@@ -58,8 +58,10 @@ screen_text        { id, tail: 40 }                                     # 5. rea
   paste automatically.
 - **`wait_outputSettled`** is the agent-agnostic done-signal (below);
   **`wait_agentState`** the precise one. Both return a uniform result frame —
-  `{ result: "met" | "timeout" | "gone" | "closed", elapsedMs, … }` — read
-  `result`, never guess from silence.
+  `{ result: "met", met: { …detail } }` or
+  `{ result: "timeout" | "gone" | "closed", elapsedMs?, error? }` — read
+  `result`, never guess from silence; the met detail (`fired`/`elapsedMs`, or
+  `agent`/`elapsedMs`) nests under `met`.
 - **`screen_text { tail: N }`** reads the last N *content* lines (trailing
   blank viewport rows are stripped) — the cheap "what's on screen now" read.
   Omit `tail` for the whole scrollback; `screen_history` pages older
