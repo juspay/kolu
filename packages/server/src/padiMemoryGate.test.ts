@@ -17,8 +17,11 @@ import type { SessionState } from "@kolu/surface-remote";
 import { describe, expect, it } from "vitest";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
 
-/** A minimal valid `SessionState` for each phase (only `.phase` is read). */
-const at = (phase: SessionState["phase"]): SessionState => {
+/** A minimal valid `SessionState` for any phase (only `.phase` is read). Typed at the
+ *  `SessionState<string>` phase top so it also covers the remote arm's provisioning phases
+ *  (`probing`/`copying`/`building`) a `PadiSession<SshProv>` can pass into the gate — the
+ *  provisioning phases are up-arms with the same shape as `connecting`. */
+const at = (phase: SessionState<string>["phase"]): SessionState<string> => {
   switch (phase) {
     case "connected":
       return { phase, clockOffset: null, log: [], sinceMs: 0 };
@@ -40,7 +43,7 @@ const at = (phase: SessionState["phase"]): SessionState => {
 /** A two-line fake session carrying just the two accessors the leaf reads. */
 const session = (opts: {
   destroyed: boolean;
-  phase: SessionState["phase"];
+  phase: SessionState<string>["phase"];
 }) => ({
   isDestroyed: () => opts.destroyed,
   currentState: () => at(opts.phase),
@@ -53,8 +56,17 @@ describe("padiMemoryReadable — the memory-rail liveness policy (LIVE-FIX)", ()
     ).toBe(true);
   });
 
-  it("is false for every up-but-not-connected and down phase (the honest absent)", () => {
-    for (const phase of ["connecting", "disconnected", "failed"] as const) {
+  it("is false for every up-but-not-connected and down phase, local AND remote (the honest absent)", () => {
+    // Local up-but-not-connected + down, plus the remote arm's provisioning phases the
+    // `SessionState<string>`-typed gate must also fold to absent.
+    for (const phase of [
+      "connecting",
+      "probing",
+      "copying",
+      "building",
+      "disconnected",
+      "failed",
+    ] as const) {
       expect(padiMemoryReadable(session({ destroyed: false, phase }))).toBe(
         false,
       );

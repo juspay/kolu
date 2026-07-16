@@ -1,8 +1,9 @@
 /**
  * TYPE-LEVEL pin (juspay/kolu#1716's copying-unrepresentable split, carried down
- * to its LAST consumer): a LOCAL padi session's `onState` can never report
- * `"copying"` — the local endpoint connector provisions nothing (the daemon is
- * already here), so the provisioning phase is a remote-only fact. Before
+ * to its LAST consumer): a LOCAL padi session's `onState` — AND its synchronous
+ * twin `currentState()` — can never report `"copying"` — the local endpoint
+ * connector provisions nothing (the daemon is already here), so the provisioning
+ * phase is a remote-only fact. Before
  * `PadiSession` became generic over `Prov`, `asPadiSession` took a fixed
  * `base: Session<PadiSurfaceClient>` (Prov defaulting to the ssh connector's
  * `SshProv`), so the local arm's narrowed `Session<_, never>` base was
@@ -50,3 +51,23 @@ remotePadi.onState((s) => {
     // reachable for the remote (provisioning) arm — no `@ts-expect-error` here.
   }
 });
+
+// The SYNCHRONOUS twin `currentState()` rides the SAME `Prov` narrowing — the `PadiSession`
+// alias `Omit+Pick`s BOTH `onState | currentState`, so the copying-unrepresentable split
+// must hold through the point-read too. If `currentState` were dropped from that pair, its
+// return would silently fall back to `DaemonSession`'s full-union `SessionState` and this
+// pin would be the only thing to catch it.
+{
+  const local = localPadi.currentState();
+  // @ts-expect-error — a LOCAL padi session's `currentState()` can never be `"copying"`
+  // (the up-arm union here is exactly `"connecting" | "connected"`).
+  if (local.phase === "copying") {
+    // unreachable — pinned above, not exercised at runtime.
+  }
+}
+{
+  const remote = remotePadi.currentState();
+  if (remote.phase === "copying") {
+    // reachable for the remote (provisioning) arm — no `@ts-expect-error` here.
+  }
+}

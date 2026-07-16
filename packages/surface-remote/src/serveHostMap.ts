@@ -12,8 +12,10 @@
  *     change AND a per-session STATUS transition (warming → connected → failed) — the
  *     latter is not a membership event, but it IS a change the UI must see.
  *  2. CACHE each session's latest `SessionState` so the map's `resolve()` answers `state`
- *     synchronously — the family caches the last frame to FUSE `currentState()` (the
- *     synchronous point-read) with the membership stream and multicast ONE collection.
+ *     synchronously — the family caches the last frame each session's `onState`
+ *     subscription delivers and fuses that with the membership stream, multicasting ONE
+ *     collection. (`Session.currentState()` — the synchronous point-read — is a separate
+ *     capability this adapter deliberately does NOT adopt here; a recorded follow-up.)
  *  3. PROJECT `SessionState` → the map's `EntryConnectionState` (a distinct target from
  *     the browser `ConnectionInfo` that `connection.projectConnection` builds),
  *     folding in the session's measured `clockOffset` for the `connected` state.
@@ -262,9 +264,10 @@ export function serveHostMap<
 
   // The ONE membership+state source. `reactiveFamily` fuses the pool's membership
   // `subscribe` with each session's own `onState` and owns — once, for the framework —
-  // the membership diff, the last-frame hold (a `Session` now exposes a synchronous
-  // `currentState()` point-read; the family caches to fuse it with the membership diff and
-  // multicast), per-key disposal, and per-member error isolation. What was
+  // the membership diff, the last-frame hold (it caches the frames each session's `onState`
+  // subscription delivers, so `resolve()` answers synchronously; `Session.currentState()`
+  // is a separate point-read this adapter deliberately does not use here), per-key disposal,
+  // and per-member error isolation. What was
   // ~60 lines of hand-held `latestState`/`stateSubs`/`attach`/`detach`/`reconcile`/`fire`
   // here (including the shared funnel's fail-loud-but-isolated republish catch) is now
   // the primitive's job; the fail-loud republish doctrine rides its `subscribe`.
