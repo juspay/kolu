@@ -17,9 +17,9 @@ subpath, whose `testMembershipId()` mints a branded `MembershipId` for fixtures)
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure, connection?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on every arm, validated but never enumerated, like `failure`), and an optional mount `name`; returns a `SurfaceMap` |
+| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on every arm, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), and an optional mount `name`; returns a `SurfaceMap` |
 | `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ router, dispose }` |
-| `connectSurfaceMap(map, transport)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
+| `connectSurfaceMap(map, transport, opts?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
 
 `defineSurfaceMap`'s `key` schema need not be a branded string — its `z.infer` is
 `Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
@@ -34,7 +34,12 @@ field so a host splices a **typed** value (`{ surface: { …, [name]: map.surfac
 with no `as any`. `entriesSpec` is the membership collection's wire spec, always
 string-keyed. The domain failure schema is the `failure` argument itself — embedded in
 `entriesSpec.schema` and the `entries.get` contract output, so there is no separate
-`failureSchema` field.
+`failureSchema` field. The optional **`entriesClient`** (SR11) is the app-typed
+client error policy (`ClientCollectionPolicy<EP>`) threaded onto `entriesSpec.client`,
+so a map-membership subscription failure reaches the app's `connectSurfaceMap`
+`onClientError`; its `EP` is inferred from the value and defaults to `never` (a
+policy-free map — every existing caller — keeps `entriesSpec.client` unfillable). The
+membership collection has no per-key origin, so its interpreter fires origin-free.
 
 `connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
 `conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws. The
@@ -42,6 +47,20 @@ transport-slice key derives from **`map.name`**: a named map is sliced from the 
 handle by that name *after* the half-open guard (so the scope inherits the parent's
 watchdog by construction), and a nameless map is served at the transport root and not
 sliced. There is no `siblingKey` argument — the key comes from the declaration.
+
+`connectSurfaceMap`'s optional third argument is `ConnectSurfaceMapOptions<Key>`,
+whose `onClientError?: (policy, err, origin?: { key: Key }) => void` is the app's
+client error interpreter — the keyed-map counterpart to `connectSurfaces`'
+`onClientError` (see the
+[core reference](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy)).
+`@kolu/surface-map` is where a `{ key }` **origin** exists, so — unlike the origin-free
+base interpreter — this one carries it: a per-key entry member's declared
+`client.onError` fires with `origin = { key }` (injected by the per-key client
+builder, which holds the decoded key), while the membership `entries` collection (no
+per-key origin) fires with `origin` omitted. So an origin-requiring policy arm is only
+reachable where the key exists, and the base `buildSurfaceClient` stays
+origin-agnostic. Required in practice when the entry surface carries a policy — a
+declared policy with no interpreter throws at construction.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="define" />
 

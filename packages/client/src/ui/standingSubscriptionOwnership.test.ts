@@ -24,7 +24,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { listGuardSourceFiles } from "../architectureGuardSources.testlib";
+import {
+  listGuardSourceFiles,
+  stripComments,
+} from "../architectureGuardSources.testlib";
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -32,21 +35,6 @@ const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  *  a whole collection, a stream, an event, or the map's `entries` collection. */
 const STANDING_USE_RE =
   /\.(cells|collections|streams|events|entries)(\.\w+)?\.use\(/;
-
-/** Blank out comments (preserving line numbers, so reported line numbers stay
- *  accurate) before scanning — a PROSE comment that mentions a call shape (e.g.
- *  `wire.ts`'s own JSDoc narrating `app.cells.preferences.use(...)`) must never be
- *  mistaken for a real call site. Strips `/* ... *\/` block comments (incl. JSDoc) and
- *  full-line `//` comments (this codebase's overwhelming comment style); deliberately
- *  leaves a trailing `// ...` after real code alone, so a template literal that
- *  legitimately contains a bare `//` (e.g. `wire.ts`'s `${protocol}//${host}` ws URL)
- *  is never corrupted. */
-function stripComments(src: string): string {
-  const blank = (s: string): string => s.replace(/[^\n]/g, " ");
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, blank)
-    .replace(/^[ \t]*\/\/[^\n]*/gm, blank);
-}
 
 /** How far past a module-top-level `const NAME = ` to look for BOTH a standing `.use()`
  *  call and an owning `createRoot(` — comfortably wider than the real (2-6 line)
