@@ -39,11 +39,15 @@
  *  so a toast for it would be noise (an unlabeled error about a canvas you are not
  *  looking at). But `wireSubscriptionError` fires its error edge ONCE, so simply
  *  suppressing the toast would DISCARD a background failure permanently (no re-fire on
- *  switch-back). So `surfaceSubError` splits by `ctx.isActive()`: the shown host
- *  TOASTS (immediate feedback, exactly as the pre-W9 active-host-only readouts did); a
- *  backgrounded host LOGS to `console.error` (named by host) so the failure is never
- *  invisible — mirroring `watchByEntry`'s own default `onError` and the
- *  `caught-error-must-not-collapse-to-empty` rule. Switching to a broken host then also
+ *  switch-back). So the ONE `interpretClientError`'s `scopedSub` arm (SR11) splits by
+ *  the GROUNDED-active host (`groundedActiveHost()` enc-compared to this entry's key):
+ *  the shown host TOASTS (immediate feedback, exactly as the pre-W9 active-host-only
+ *  readouts did); a backgrounded host LOGS to `console.error` (named by host) so the
+ *  failure is never invisible — mirroring `watchByEntry`'s own default `onError` and the
+ *  `caught-error-must-not-collapse-to-empty` rule. The four retained members declare
+ *  their policies on `padiSurface` (session/activityFeed/terminals → `scopedSub`;
+ *  daemonStatus → `hostToast`, the 4C ruling), so this owner opens them bare.
+ *  Switching to a broken host then also
  *  shows its degraded state structurally (an errored `terminals`/`session` reads empty
  *  → the canvas's connecting/empty surface). */
 
@@ -53,11 +57,10 @@ import {
   createReactiveSubscription,
   type Subscription,
 } from "@kolu/surface/solid";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
-import { toast } from "solid-sonner";
-import { padiMap } from "../wire";
+import { interpretClientError, padiMap } from "../wire";
 
 /** The map entry lens `createHostWire` opens its cells/collections through. Aliased
  *  only to NAME the retained members' result types on {@link HostWire} PORTABLY —
@@ -86,16 +89,17 @@ export interface HostWire {
   daemonPendingAnchorMs: number;
 }
 
-export function createHostWire(
-  host: HostKey,
-  ctx: { isActive: () => boolean },
-): HostWire {
+export function createHostWire(host: HostKey): HostWire {
   const entry = padiMap.entry(host);
 
   // Surface a retained sub's error WITHOUT dropping it: the shown host toasts; a
   // backgrounded host logs (a toast for a host you are not looking at is noise, but
   // `wireSubscriptionError`'s edge fires once — silently suppressing it would discard
-  // the failure permanently). See the header for the full rationale.
+  // the failure permanently). The split lives in the ONE `interpretClientError`
+  // (SR11): the four RETAINED members declare their `scopedSub`/`hostToast` policies
+  // ON THE SPEC (`padiSurface`) and route through the interpreter automatically (with
+  // the map-injected `{ key }` origin); the `terminalKeys` STREAM is not a member
+  // `.use()`, so it reuses the same interpreter by hand for behaviour parity.
   //
   // KNOWN LIMIT (recorded): the underlying `.use()` subs re-subscribe on transport
   // reconnect (STREAM_RETRY), but a sub that errors TERMINALLY on a BACKGROUND host is not
@@ -104,22 +108,15 @@ export function createHostWire(
   // switched-to host reads its errored sub's floored-empty value until a reconnect or re-add
   // revives it. Acceptable today (a terminal sub error on a live link is rare and the empty
   // read is honest, not a false-success); revisit if it proves user-visible. */
-  const encoded = encodeHostKey(host);
-  const surfaceSubError = (label: string) => (err: Error) => {
-    if (ctx.isActive()) {
-      toast.error(`${label}: ${err.message}`);
-    } else {
-      console.error(
-        `createHostWire: background ${label} for ${encoded}: ${err.message}`,
-      );
-    }
-  };
 
   // The terminal-list keys stream — an UNENROLLED STREAM_RETRY stream (the #1591
   // health carve-out; a re-attach must never flicker the health gate). Keyed on
   // the FIXED `host` (a constant input, so `createReactiveSubscription` opens it
   // once and never re-keys) — the owner IS the host, so there is no `activeHost`
-  // to capture and no re-key on switch: it stays live across switch-away.
+  // to capture and no re-key on switch: it stays live across switch-away. NOT a
+  // member `.use()`, so it routes its error through the interpreter by hand (the
+  // `scopedSub` arm, `{ key: host }` origin) to preserve the active-toasts /
+  // background-logs behaviour the declared members get for free.
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => host,
     (_h, signal) =>
@@ -130,35 +127,34 @@ export function createHostWire(
           signal,
         },
       ),
-    { onError: surfaceSubError("Terminal list error") },
+    {
+      onError: (err) =>
+        interpretClientError(
+          { kind: "scopedSub", label: "Terminal list error" },
+          err,
+          { key: host },
+        ),
+    },
   );
 
   // The composed `terminals` metadata collection, keyed off THIS host's own
   // `terminalKeys` — co-located with the keys stream that drives it, so both the
-  // key list and the per-id records ride one retained owner. `useTerminalMetadata`
-  // reads this collection through `activeScope().wire.terminals` and layers its
-  // identity-stable projection on top (unchanged).
+  // key list and the per-id records ride one retained owner. Its `scopedSub`
+  // "Metadata error" policy rides the spec; the use-site keeps only `keys`.
   const keys = createMemo<TerminalId[]>(() => terminalKeys() ?? []);
-  const terminals = entry.collections.terminals.use({
-    keys,
-    onError: surfaceSubError("Metadata error"),
-  });
+  const terminals = entry.collections.terminals.use({ keys });
 
   // The persisted saved-session cell (host-owned, restore-relevant).
-  const session = entry.cells.session.use({
-    onError: surfaceSubError("Saved-session subscription error"),
-  });
+  const session = entry.cells.session.use();
 
   // The MRU activity feed (recent repos / agents — host-fs facts).
-  const activityFeed = entry.cells.activityFeed.use({
-    onError: surfaceSubError("Activity feed subscription error"),
-  });
+  const activityFeed = entry.cells.activityFeed.use();
 
   // The kaval daemon-status collection (this host's local kaval, keyed by its
-  // local location). `useDaemonStatus` reads it through `activeScope().wire`.
+  // local location). `useDaemonStatus` reads it through `activeScope().wire`. Its
+  // `hostToast` "daemon status" policy (4C ruling) rides the spec; only `keys` stays.
   const daemonStatus = entry.collections.daemonStatus.use({
     keys: () => [encodeHostLocation(LOCAL_LOCATION)],
-    onError: surfaceSubError("Daemon status error"),
   });
 
   // Stamp the daemon-status pending-wait anchor ONCE, at scope birth (this host's

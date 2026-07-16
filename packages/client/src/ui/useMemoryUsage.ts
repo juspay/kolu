@@ -18,7 +18,6 @@
 
 import type { ProcessRss } from "kolu-common/surface";
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
 import {
   daemonChannelLive,
   daemonTransportLive,
@@ -40,19 +39,13 @@ import { readJsHeapUsedBytes } from "./memory";
 // listener for the app's whole life, so the shared slot never tears down.
 
 // kolu-server's OWN RSS — host-independent (one koluSurface cell, one process).
-const sub = createRoot(() =>
-  app.cells.processMemory.use({
-    onError: (err) => toast.error(`Memory readout error: ${err.message}`),
-  }),
-);
+const sub = createRoot(() => app.cells.processMemory.use());
 
 // The ACTIVE host's own padi/kaval RSS pair — `padiSurface.processMemory`, rides
 // `useEntry(activeHost)` so it re-keys on a host switch (a DISTINCT standing
 // subscription from `sub` above: two different cells, two different surfaces).
 const hostSub = createRoot(() =>
-  padiMap.useEntry(activeHost).cells.processMemory.use({
-    onError: (err) => toast.error(`Padi/kaval memory error: ${err.message}`),
-  }),
+  padiMap.useEntry(activeHost).cells.processMemory.use(),
 );
 
 /** The kolu-server process's RSS in bytes, or `null` before the first server

@@ -34,6 +34,7 @@
 
 import type {
   CellSpec,
+  ClientCollectionPolicy,
   CollectionSpec,
   EventSpec,
   ProcedureSpec,
@@ -464,11 +465,20 @@ export function defineSurfaceMap<
   const ES extends SurfaceSpec,
   Failure,
   Conn = unknown,
+  EP = never,
 >(opts: {
   key: KS;
   entry: Surface<ES>;
   codec: KeyCodec<z.infer<KS>>;
   failure: ZodType<Failure>;
+  /** The OPAQUE, app-typed client error policy for the membership `entries`
+   *  collection (SR11). Threaded onto `entriesSpec.client` so a map-membership
+   *  subscription failure reaches the app's registered `onClientError`
+   *  (`connectSurfaceMap`) — otherwise a policy declared nowhere would route
+   *  nowhere. `EP` INFERS from the value; omit it for a policy-free map (`EP =
+   *  never`, every existing caller). The membership collection has no per-key
+   *  origin, so its interpreter fires ORIGIN-FREE (design §C). */
+  entriesClient?: ClientCollectionPolicy<EP>;
   /** The FINE connection payload schema (SR9) — the rich per-host connection state the
    *  coarse `EntryStatus.kind` folds away (padi's `ConnectionInfoSchema`). `Conn` is
    *  INFERRED from it, so a domain map that carries a fine connection needs no explicit
@@ -503,6 +513,13 @@ export function defineSurfaceMap<
     keySchema: z.string(),
     schema: statusSchema,
     verbs: ["keys", "get"],
+    // The app-typed membership error policy (SR11) — inert data the framework only
+    // threads to the app's `onClientError`; without it the map-membership error would
+    // route nowhere. `EP` typed the OPTS for the caller; here it rides the spec as the
+    // base (policy-erased) `ClientCollectionPolicy<never>` shape — the same cast-through-
+    // the-base move `defineSurfaceWithPolicy` makes — so the `SurfaceMap` type (and every
+    // `SurfaceMap<KS,ES,Failure,Conn>` consumer: connect/serve) is unchanged by `EP`.
+    client: opts.entriesClient as ClientCollectionPolicy<never> | undefined,
   };
 
   return {

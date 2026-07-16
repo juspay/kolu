@@ -738,7 +738,31 @@ function bindCell<S extends SurfaceSpec>(
   const cell: BoundCell<unknown, unknown> = {
     use: (boundOpts) => {
       // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
-      const opts: any = boundOpts ?? {};
+      const opts: any = { ...(boundOpts ?? {}) };
+      // SR11: SOURCE the spec-declared `client.authority` / `client.coalesceMs` (the
+      // discriminated {@link ClientCellPolicy} local-authority arm) so a BARE
+      // `.use()` inherits them — the policy is DECLARED once on the member spec, not
+      // repeated at every use-site. A use-site value still wins (explicit override),
+      // but every kolu use-site is now bare, so a local-authority cell (preferences)
+      // gets its `authority: "local"` + coalesce window FROM the spec rather than a
+      // hand-passed bag — without this the declared authority would be dead data and
+      // the cell would silently fall back to server-authority. The local store still
+      // seeds from the mandatory `CellSpec.default` (there is no `client.initial`).
+      const specClient = cellSpec.client as
+        | { authority?: "server" | "local"; coalesceMs?: number }
+        | undefined;
+      if (specClient?.authority !== undefined && opts.authority === undefined)
+        opts.authority = specClient.authority;
+      if (specClient?.coalesceMs !== undefined && opts.coalesceMs === undefined)
+        opts.coalesceMs = specClient.coalesceMs;
+      // SR11: a local-authority cell has NO `client.initial` — it seeds its optimistic
+      // store from the mandatory `CellSpec.default` (design: "seed from the default,
+      // not a duplicate `initial`"). `useCellLocal` requires a synchronous `initial`,
+      // so default it here from the spec when the (now-bare) use-site omits it — without
+      // this a bare local-authority `.use()` seeds the store `undefined` and an
+      // optimistic patch before the first server yield merges onto `undefined`.
+      if (opts.authority === "local" && opts.initial === undefined)
+        opts.initial = cellSpec.default;
       // A read-only `liveWhen` cell SHARES its eager standing subscription. Forward
       // `onError` as a reactive observer of the shared (self-clearing) error, so the
       // read-only `.use({onError})` contract still fires.

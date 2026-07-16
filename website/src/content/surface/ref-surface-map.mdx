@@ -17,7 +17,7 @@ subpath, whose `testMembershipId()` mints a branded `MembershipId` for fixtures)
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure, connection?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on every arm, validated but never enumerated, like `failure`), and an optional mount `name`; returns a `SurfaceMap` |
+| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on every arm, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), and an optional mount `name`; returns a `SurfaceMap` |
 | `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ router, dispose }` |
 | `connectSurfaceMap(map, transport, opts?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
 
@@ -34,7 +34,12 @@ field so a host splices a **typed** value (`{ surface: { …, [name]: map.surfac
 with no `as any`. `entriesSpec` is the membership collection's wire spec, always
 string-keyed. The domain failure schema is the `failure` argument itself — embedded in
 `entriesSpec.schema` and the `entries.get` contract output, so there is no separate
-`failureSchema` field.
+`failureSchema` field. The optional **`entriesClient`** (SR11) is the app-typed
+client error policy (`ClientCollectionPolicy<EP>`) threaded onto `entriesSpec.client`,
+so a map-membership subscription failure reaches the app's `connectSurfaceMap`
+`onClientError`; its `EP` is inferred from the value and defaults to `never` (a
+policy-free map — every existing caller — keeps `entriesSpec.client` unfillable). The
+membership collection has no per-key origin, so its interpreter fires origin-free.
 
 `connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
 `conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws. The

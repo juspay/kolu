@@ -75,7 +75,10 @@ Plain `defineSurface` is the `TPolicy = never` case — its `client` slot is
   `authority`: `{ authority?: "server"; onError?: TPolicy }` or `{ authority: "local";
   coalesceMs?: number; onError?: TPolicy }`. There is **no `initial`** — a
   local-authority cell seeds its store from the mandatory `CellSpec.default`, so
-  "local-authority without a seed" is a type error, not a runtime surprise.
+  "local-authority without a seed" is a type error, not a runtime surprise. The
+  client runtime **sources `authority` and `coalesceMs` from this declaration**, so a
+  bare `.cells.X.use()` inherits them (a use-site value still overrides); declaring
+  `authority: "local"` on the spec is what makes a use-site bag empty.
 - **`ClientCollectionPolicy<TPolicy>`** — a collection's `client` slot, `onError`
   **only** (a collection's `keys` filter is per-site use-site wiring, not policy).
 
