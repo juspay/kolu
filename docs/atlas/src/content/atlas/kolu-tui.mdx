@@ -31,17 +31,64 @@ One binary, two faces.
 canvas: one tile per terminal, title, agent badge, urgency mark. The same
 arrangement the browser shows for this host, in a terminal.
 
+**Prototype A — the default view**: urgency-ordered grid of live tiles + a
+one-column status rail for everything that doesn't fit. Tile order follows the
+urgency ladder (blocked ▲ > done-unseen ● > working ✳ > idle), so the tile that
+needs you is always top-left; the rail's dots carry the same states for
+off-grid terminals, and the most urgent off-grid state bubbles into the rail
+header.<Footnote>The rail + ladder + seen/unseen semantics are taken from the
+herdr study (an unseen-done agent outranks a still-working one — done+unseen
+needs a human, working does not; the ● badge self-clears on attach). herdr's
+own layout is list+focus+zoom, not a grid — the grid stays kolu's
+differentiator; the rail is its overflow answer.</Footnote>
+
 <Terminal
   title="kolu-tui — zest"
   lines={[
-    "┌─ RT-fable-main ● ─────────┐ ┌─ flake-5x ✳ ──────────────┐",
-    "│ ❯ kaval-tui list          │ │ · Baking… (14m 27s)       │",
-    "│ ec5f7bae  ⠂ RT-fable-main │ │   695 passed, 0 failed    │",
-    "└───────────────────────────┘ └───────────────────────────┘",
-    "┌─ sr11-policy ─────────────┐ ┌─ (empty — c to create) ───┐",
-    "│ ❯                         │ │                           │",
-    "└───────────────────────────┘ └───────────────────────────┘",
-    "# focus: hjkl/arrows · Enter attach · c create · x kill · q quit",
+    "▲│┌─ 1 flake-5x ▲ blocked ────┐┌─ 2 live-fix ● done ───────┐",
+    "●││ Need your ruling on (a)/(b)││ ❯ 14/14 green — lease     │",
+    "✳││ — see report 07.          ││   released. Holding.      │",
+    "✳│└───────────────────────────┘└───────────────────────────┘",
+    "·│┌─ 3 chlog-2 ✳ working ─────┐┌─ 4 sr11 · idle ───────────┐",
+    "·││ · Baking… (14m 27s)       ││ ❯                         │",
+    " ││   695 passed, 0 failed    ││                           │",
+    " │└───────────────────────────┘└───────────────────────────┘",
+    "# 1-9 focus · Enter attach · g goto · c create · x kill · ? keys",
+  ]}
+/>
+
+**Prototype B — attached (maximized)**: full-screen raw passthrough; one
+reverse-video status line is the only chrome. Detach with the ssh-style `~.`
+line-start chord (`~~` sends a literal `~`, `~?` lists escapes — the
+`kaval-tui attach` grammar, verbatim). The status line keeps the rail's
+most-urgent dot, so a blocked agent elsewhere is visible even while attached.
+
+<Terminal
+  title="kolu-tui — zest · attached: flake-5x"
+  lines={[
+    "✻ Hatching… (31s · thinking)",
+    "  ⎿  streak 3/5 — r-cert 4 relaunched on kolu-ci-2",
+    "❯ ",
+    "",
+    "[flake-5x ▲ · ~. detach · ~? help          rail: ●✳✳ · 2 off-grid]",
+  ]}
+/>
+
+**Prototype C — the navigator** (`g`): fuzzy jump across every terminal, with
+single-key state filters — `b` blocked, `d` done-unseen, `w` working — because
+spatial navigation stops scaling past a dozen agents.<Footnote>Taken from
+herdr's navigator/goto overlay; its state-filter chords are the triage tool a
+grid of agents needs. The overlay renders the user's REAL bindings, not
+hardcoded docs — same rule for the `?` help overlay.</Footnote>
+
+<Terminal
+  title="kolu-tui — zest · goto"
+  lines={[
+    "goto ❯ fla█                    [b]locked [d]one [w]orking [a]ll",
+    "  ▲ 1 flake-5x      blocked 4m   Need your ruling on (a)/(b)…",
+    "  ✳ 3 chlog-2       working 14m  Baking…",
+    "  · 7 scratch-fla   idle 2h     ❯",
+    "# Enter focus · ⏎⏎ attach · Esc cancel",
   ]}
 />
 
@@ -61,9 +108,14 @@ arrangement the browser shows for this host, in a terminal.
   in, bytes out, exactly the `kaval-tui attach` UX (same detach chord, same
   resize-then-attach discipline) but riding `padiSurface`'s `terminalAttach`
   stream. Detach returns to the canvas.
-- **`c` creates** a terminal (prompted command, default shell); **`x` kills**
-  the focused one, with a confirm. Both are `padiSurface` procedure calls — the
-  same intents the browser sends.
+- **`c` creates** a terminal (prompted command, default shell) **without
+  stealing focus** by default — spawning a helper must not yank your view;
+  **`x` kills** the focused one, and the confirm states the blast radius
+  ("kill 1 terminal, agent working 14m") rather than a generic are-you-sure.
+  Both are `padiSurface` procedure calls — the same intents the browser sends.
+- **Notifications are edge-triggered and focus-suppressed**: state
+  *transitions* only (never levels), and never for the tile you're already
+  looking at — the two rules that keep a multi-agent watcher quiet.
 - Urgency (`awaiting` badge) reorders nothing and blinks nothing; it renders
   the daemon's own `urgency` cell, so a padi-side change appears without a
   kolu-tui release.
@@ -111,16 +163,55 @@ error, never a silent retry loop), and any `padi-tui`/`kaval-tui` verb.
   `@kolu/surface-mcp`). If the renderer choice ever escalates to an engine
   owning alternate-screen/context-loss recovery, that engine wrapper — not
   kolu-tui — would be the extraction candidate.
-- **Transport = the sibling CLIs' pattern, not `@kolu/surface-remote`.** ssh
-  is a dumb stdio pipe to the remote surface endpoint, the `hostConnect.ts`
-  shape `padi-tui`/`kaval-tui` already ship. `surface-remote` (provision,
-  realise, reconnect supervision) is kolu-server's dial and stays out — no
-  provisioning is the *point* of the fail-fast rule above.
+- **Transport = the seams that already exist — nothing hand-rolled.** Local:
+  `resolveRunningPadiSocket` (`@kolu/padi/dial`) resolves, `connectPadi` dials
+  (handshake + compatibility gate). ssh: **`dialAgentOnce` from
+  `@kolu/surface-remote`** — the same one-shot dial both sibling TUIs' 15–24
+  line `hostConnect.ts` wrappers already consume; kolu-tui writes its own thin
+  options literal and nothing else.<Footnote>An earlier draft said "not
+  `@kolu/surface-remote`" — the lens run confirmed that contradicts the actual
+  shape: the ssh-stdio dial *is* `surface-remote`'s `dialAgentOnce`, and both
+  TUIs use it. What stays out is the rest of surface-remote (provision,
+  realise, reconnect supervision — kolu-server's session machinery): kolu-tui
+  dials a padi that already runs and fails fast otherwise. A pre-lifted
+  `connectPadiViaHost` composition was proposed and REFUTED — padi-tui's
+  wrapper carries padi-specific probe/scoping kolu-tui may diverge from;
+  compose in-app, extract only if a byte-identical twin actually emerges.</Footnote>
 - **One `surfaceClient`, `STREAM_RETRY` mounted.** The flaky-tracker's #1827
   lesson binds: a raw client without the retry plugin flakes on
   attach-vs-reconnect races that production consumers survive. kolu-tui mounts
   the same plugin production mounts — both faces share the one client, so the
   MCP face inherits it.
+- **`escape.ts` graduates to `@kolu/terminal-protocol` in this PR** (confirmed
+  by both lenses): kaval-tui's 143-line line-start escape scanner (`~.` / `~~`
+  / `~?`, bracketed-paste-suspended) is protocol policy with zero transport
+  coupling — its only import is already `@kolu/terminal-protocol`, and kolu-tui
+  is the second *verbatim* consumer, which is that package's exact birth
+  condition (it was created when kaval-tui made the same concept fragment
+  across three modules). Move the file, point kaval-tui at the export, consume
+  from kolu-tui — a copy here would be two lockstep owners of a detach grammar.
+- **The attach passthrough scaffold is a PORT, not an extraction** (confirmed):
+  kaval-tui's `attach.ts` pattern (ordered write queue, snapshot-first-frame,
+  resize-then-attach, tty-less test harness via the `AttachTty` seam) carries
+  over, but its call sites bind kaval's `ptyHostSurface` members while kolu-tui
+  rides `padiSurface` — non-verbatim twins. No `@kolu/tui-kit` receptacle now;
+  the recorded gate: after kolu-tui's loop lands, diff the two scaffolds — if
+  they're identical modulo an injected ops object, that diff IS the extraction
+  spec and the receptacle earns itself then.
+- **From the herdr study, adopted at the architecture level** (herdr = a Rust
+  agent multiplexer whose daemon owns every VT state — the same server-owns-
+  state shape as padiSurface, independently arrived at, which is the strongest
+  available validation of the thin render-only client): per-pane damage
+  tracking (an idle preview costs one clean-check; only changed rows repaint);
+  a single dirty-flag + ~16ms coalescing render loop (N noisy panes → at most
+  one repaint per frame; first-producer-notifies dedup); each composite frame
+  wrapped in synchronized-output `DECSET ?2026` (no tearing, RAII-style
+  begin/end); **the direct-attach resize lock** (while a terminal is attached
+  full-screen it owns its PTY geometry — the grid's resize path must yield, or
+  layout and attach thrash the child); previews stay LIVE and pre-sized, never
+  paused — throttle their repaint rate, never their input; and scroll events
+  in attach mode drive the server-side viewport rather than forwarding to the
+  child (except when the child requested mouse mode).
 
 ## Implementation details
 
@@ -132,26 +223,38 @@ appearance.</Footnote> Steps, in build order:
 1. **Scaffold `packages/kolu-tui`** on the sibling pattern (`cleye` arg
    parsing, `bin.ts`, nix packaging in-closure like `padi-tui`). Subcommands:
    default (canvas), `mcp`.
-2. **Connect**: local socket resolution copied from `padi-tui/connect.ts`'s
-   discipline; `--host` via the `hostConnect.ts` ssh-stdio shape. Build the
-   one `surfaceClient` with `STREAM_RETRY`.
+2. **Connect**: local socket resolution via `resolveRunningPadiSocket` +
+   `connectPadi` (`@kolu/padi/dial` — the resolution never lived in
+   `connect.ts`; the TUIs' connect files only dial an already-resolved path);
+   `--host` via a thin `dialAgentOnce` options wrapper (`@kolu/surface-remote`,
+   the sibling `hostConnect.ts` shape). Build the one `surfaceClient` with
+   `STREAM_RETRY`.
 3. **Canvas model**: subscribe `terminals` + `urgency` + `status`; derive the
    tile grid purely from the collection (no local arrangement state — the
    arrangement lives on the host, same as the browser).
-4. **Renderer**: raw ANSI to the alternate screen, `kaval-tui/render.ts`
-   idiom — **no OpenTUI, no Bun** (the `pulam-tui` shed-the-engine precedent
-   is the binding decision; a TUI engine is the one dependency that could
-   flip the boundary verdict above).
-5. **Attach loop**: full-screen passthrough pumping stdin → send intent and
-   `terminalAttach` `{seq}` frames → stdout; resize-then-attach, detach chord,
-   and exit-stream discrimination lifted from `kaval-tui/attach.ts` +
-   `escape.ts` (the tty-less test harness pattern comes with them).
-6. **create/kill** as canvas gestures calling the surface procedures; confirm
+4. **Renderer**: raw ANSI to the alternate screen — **no OpenTUI, no Bun**
+   (the `pulam-tui` shed-the-engine precedent binds; a TUI engine is the one
+   dependency that could flip the boundary verdict above). The in-repo idiom
+   to build on is `kaval-tui/attach.ts` (`\x1b[H\x1b[2J` + `setRawMode` —
+   NOT `render.ts`, which is a columnify table formatter with zero ANSI; the
+   plan's earlier citation was wrong). Structure per the herdr findings:
+   dirty-flag + ~16ms coalesce loop, per-tile damage checks, `?2026`
+   synchronized-output around each composite frame.
+5. **Graduate the escape scanner**: move `kaval-tui/escape.ts` (verbatim,
+   143 lines) into `@kolu/terminal-protocol`, repoint kaval-tui, add nothing.
+6. **Attach loop**: full-screen passthrough pumping stdin → send intent and
+   `terminalAttach` `{seq}` frames → stdout; resize-then-attach, ordered write
+   queue, snapshot-first-frame, and exit-stream discrimination PORTED from
+   `kaval-tui/attach.ts` (call sites re-bound from `ptyHostSurface` members to
+   `padiSurface`'s; the `AttachTty` seam + tty-less test harness come along);
+   the detach chord consumed from the newly-graduated scanner. Honor the
+   direct-attach resize lock: attached tile owns geometry, grid yields.
+7. **create/kill** as canvas gestures calling the surface procedures; confirm
    on kill.
-7. **`mcp` subcommand**: `serveSurfaceAsMcp({ surface, client, expose })` with
+8. **`mcp` subcommand**: `serveSurfaceAsMcp({ surface, client, expose })` with
    an explicit default-deny expose map (resources: `terminals`, `screen`,
    `activity`, `urgency`; tools: create/kill/send, `mutates: true`).
-8. **The pin (e2e, red-if-broken)**: spawn a real padi, run kolu-tui against
+9. **The pin (e2e, red-if-broken)**: spawn a real padi, run kolu-tui against
    it over the unix socket **and** over `ssh localhost` — script: create a
    terminal through the canvas gesture, attach, assert bytes round-trip
    through the `{seq}` stream, kill, assert the tile leaves the canvas. This
