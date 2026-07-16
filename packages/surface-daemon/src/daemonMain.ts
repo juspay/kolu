@@ -249,7 +249,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     // means an invalid `boundToPid` pid (the guard throw) crashes BEFORE
     // ready is ever announced — a daemon that cannot arm its lifetime must
     // not claim to be up.
-    const { settled: shutdown, disarm } = waitForShutdown(lifetime, signal);
+    const { shutdown, disarm } = waitForShutdown(lifetime, signal);
 
     try {
       log.info({ socketPath, gatePath, pid: process.pid }, "daemon listening");
@@ -280,7 +280,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
  *  Fixed, not a knob (tests inject a small value via the `boundToPid` arm's `pollMs`). */
 const PID_WATCH_POLL_MS = 2_000;
 
-/** Arm the daemon's shutdown triggers and resolve `settled` when it should
+/** Arm the daemon's shutdown triggers and resolve `shutdown` when it should
  *  stop: an OS signal (SIGTERM/SIGINT), the external abort, under
  *  `idleTimeout` `ms` of continuous idleness, or under `boundToPid` the
  *  moment the watched pid is gone. All handlers are removed before resolving,
@@ -293,7 +293,7 @@ function waitForShutdown(
   lifetime: DaemonLifetime,
   external?: AbortSignal,
 ): {
-  settled: Promise<"signal" | "abort" | "idle" | "pid-gone">;
+  shutdown: Promise<"signal" | "abort" | "idle" | "pid-gone">;
   disarm: () => void;
 } {
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
@@ -318,7 +318,7 @@ function waitForShutdown(
     armed = false;
     for (const c of cleanups) c();
   };
-  const settled = new Promise<"signal" | "abort" | "idle" | "pid-gone">(
+  const shutdown = new Promise<"signal" | "abort" | "idle" | "pid-gone">(
     (resolve) => {
       const finish = (
         reason: "signal" | "abort" | "idle" | "pid-gone",
@@ -405,5 +405,5 @@ function waitForShutdown(
       }
     },
   );
-  return { settled, disarm };
+  return { shutdown, disarm };
 }
