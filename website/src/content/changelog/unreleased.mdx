@@ -67,7 +67,7 @@ version: Unreleased
 
 ### Fixed
 
-- <Change title="The memory rail no longer freezes a stale reading while padi is reconnecting" tags={["terminal", "multi-host"]}>The chrome bar's live **memory rail** (kolu-server · browser · **padi / kaval** RSS) used to keep showing padi's *last* figure while the bound padi was mid-**reconnect** — connecting, or backing off between retry attempts — instead of honestly reading **absent** (`—`). The readout is now gated on the link's true **connected** state, so a padi that's coming back up reads `—` until it's actually live again, never a frozen number that looks current. Nothing changes while padi is connected.</Change>
+- <Change title="The memory rail no longer freezes a stale reading while padi is reconnecting" pr={1852} tags={["terminal", "multi-host"]}>The chrome bar's live **memory rail** (kolu-server · browser · **padi / kaval** RSS) used to keep showing padi's *last* figure while the bound padi was mid-**reconnect** — connecting, or backing off between retry attempts — instead of honestly reading **absent** (`—`). The readout is now gated on the link's true **connected** state, so a padi that's coming back up reads `—` until it's actually live again, never a frozen number that looks current. Nothing changes while padi is connected.</Change>
 
 ### Heads-up
 
