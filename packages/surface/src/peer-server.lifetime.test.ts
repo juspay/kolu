@@ -8,6 +8,12 @@
  * orphan the field evidence documents is unspellable. Red on pre-fix code:
  * the child lives forever and the deadline assertion fails.
  *
+ * The exit code discriminates HOW the link died: clean teardown exits 0 from
+ * both directions — stdin EOF (read half) and a benign write EPIPE when the
+ * parent's read side dies mid-push (the funnel branches on the codec's
+ * `isBenignWriteError`, so the stdout-EPIPE-beats-stdin-EOF race can't flip
+ * the code) — while a genuinely abnormal read error exits 1.
+ *
  * Override transport (loopback/test/embedded peer): caller owns lifetime —
  * the promise resolves the value and the process does NOT exit.
  *
@@ -24,14 +30,16 @@ import { implement } from "@orpc/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createLoopbackPair } from "./loopback";
+import { stdioLink } from "./links/stdio";
 import { serveOverStdio } from "./peer-server";
+import type { lifetimeContract } from "./peer-server.lifetime.contract";
 
 const FIXTURE = fileURLToPath(
   new URL("./peer-server.lifetime.fixture.ts", import.meta.url),
 );
 
-/** Deadline pins: onEnd hard deadline is 2000ms; a healthy exit is near-
- *  instant. 4s bounds both without flaking on a loaded box. */
+/** A healthy framework exit is near-instant; 4s bounds it without flaking on
+ *  a loaded box. */
 const EXIT_WAIT_MS = 4_000;
 
 const children: ChildProcessWithoutNullStreams[] = [];
@@ -102,7 +110,7 @@ describe("serveOverStdio lifetime — default transport (the process IS the agen
     const stderr = stderrMarker(child, "fixture: settled reason=end");
     await stderrMarker(child, "fixture: serving").until;
 
-    child.stdin.end(); // parent death: EOF on the agent's read stream
+    child.stdin.end(); // parent death, read half: EOF on the agent's stdin
 
     const { code } = await waitExit(child, EXIT_WAIT_MS);
     expect(code).toBe(0);
@@ -110,22 +118,35 @@ describe("serveOverStdio lifetime — default transport (the process IS the agen
     expect(stderr.seen()).toContain("fixture: settled reason=end");
   });
 
-  it("exits 1 on a read-stream error", async () => {
+  it("exits 0 when the parent's read side dies mid-push (benign write EPIPE)", async () => {
+    const child = spawnAgent();
+    const stderr = stderrMarker(child, "fixture: settled reason=end");
+    await stderrMarker(child, "fixture: serving").until;
+
+    // Subscribe the forever-stream so the agent is continuously PUSHING,
+    // then kill the parent's read side only: the agent's next push EPIPEs
+    // while its stdin never sees EOF — clean teardown from the write
+    // direction, which must exit 0 exactly like the EOF leg.
+    const client = stdioLink<typeof lifetimeContract>({
+      read: child.stdout,
+      write: child.stdin,
+    });
+    const ticks = await client.tick();
+    await ticks[Symbol.asyncIterator]().next(); // one yield roundtripped
+
+    child.stdout.destroy(); // parent read side gone
+
+    const { code } = await waitExit(child, EXIT_WAIT_MS);
+    expect(code).toBe(0);
+    expect(stderr.seen()).toContain("fixture: settled reason=end");
+  });
+
+  it("exits 1 on a genuinely abnormal read-stream error", async () => {
     const child = spawnAgent("--self-error");
     await stderrMarker(child, "fixture: serving").until;
 
     const { code } = await waitExit(child, EXIT_WAIT_MS);
     expect(code).toBe(1);
-  });
-
-  it("a wedged onEnd cannot resurrect the orphan — hard deadline exits anyway", async () => {
-    const child = spawnAgent("--wedged-on-end");
-    await stderrMarker(child, "fixture: serving").until;
-
-    child.stdin.end();
-
-    const { code } = await waitExit(child, EXIT_WAIT_MS);
-    expect(code).toBe(0);
   });
 });
 
@@ -149,8 +170,8 @@ describe("serveOverStdio lifetime — explicit transport override (caller owns l
       const end = await serving;
       expect(end.reason).toBe("end");
 
-      // Drain past where the default arm would schedule its exit fork
-      // (setImmediate + the onEnd race) — nothing may fire here.
+      // Drain past where the default arm schedules its exit fork
+      // (setImmediate) — nothing may fire here.
       await new Promise((resolve) => setImmediate(resolve));
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(exitSpy).not.toHaveBeenCalled();
