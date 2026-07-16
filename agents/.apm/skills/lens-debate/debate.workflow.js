@@ -124,8 +124,16 @@ const EMPTY_RESULT = { settled: [], unresolved: [], applied: [], applyGaps: [], 
 // Per-stage agent-call counts, returned as `turns` — the benchmarkable measure
 // of how much work a run spent (the old engine's cost was 2 × rounds full-diff
 // debate turns; the point of the reconcile/thread shape is to shrink exactly
-// this). Incremented at each agent() call site.
+// this). Incremented by the `call` wrapper below, which every agent invocation
+// goes through.
 const turns = { mech: 0, review: 0, match: 0, objection: 0, debate: 0, apply: 0 }
+// EVERY agent invocation goes through this wrapper so the per-stage count is
+// paid at the only place a call can be made — an uncounted agent call is
+// unwritable, not merely forbidden by convention.
+const call = (kind, prompt, opts) => {
+  turns[kind]++
+  return agent(prompt, opts)
+}
 
 // Resolve the diff base to the merge-base of (base, HEAD) BEFORE building DIFF
 // (which interpolates `base` eagerly), so the lenses review only what this branch
@@ -133,8 +141,8 @@ const turns = { mech: 0, review: 0, match: 0, objection: 0, debate: 0, apply: 0 
 // agent (the workflow can't run git itself); grouped under the Review phase.
 // Idempotent when `base` is already a merge-base SHA (caller resolved it).
 const rawBase = base
-turns.mech++
-const baseRes = await agent(
+const baseRes = await call(
+  'mech',
   `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
   { label: 'resolve:merge-base', phase: 'Review', model: MECH_MODEL, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
 )
@@ -581,8 +589,7 @@ phase('Review')
 
 const reviews = await parallel(
   REVIEWERS.map((r) => () => {
-    turns.review++
-    return agent(reviewBrief(r.lens, r.framework, r.probe), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA })
+    return call('review', reviewBrief(r.lens, r.framework, r.probe), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA })
   }),
 )
 
@@ -648,8 +655,7 @@ const matchedIds = new Set()
 // Skip the matcher outright when either lens raised nothing — there is nothing
 // cross-lens to match, and "at most one cheap matcher agent" includes zero.
 if (lowyFindings.length && hickeyFindings.length) {
-  turns.match++
-  const matchRes = await agent(matchBrief(lowyFindings, hickeyFindings), {
+  const matchRes = await call('match', matchBrief(lowyFindings, hickeyFindings), {
     label: 'reconcile:match',
     phase: 'Reconcile',
     model: MATCH_MODEL,
@@ -742,8 +748,7 @@ for (const lens of DEBATERS) for (const id of objectionQueue[lens]) queueHunk(id
 
 const excerpts = {}
 if (needHunks.length) {
-  turns.mech++
-  const hunkRes = await agent(hunksBrief(needHunks), { label: 'reconcile:hunks', phase: 'Reconcile', model: MECH_MODEL, schema: HUNKS_SCHEMA })
+  const hunkRes = await call('mech', hunksBrief(needHunks), { label: 'reconcile:hunks', phase: 'Reconcile', model: MECH_MODEL, schema: HUNKS_SCHEMA })
   for (const h of hunkRes?.hunks ?? []) {
     if (seenHunkIds.has(h.id) && typeof h.excerpt === 'string' && h.excerpt.trim()) excerpts[h.id] = h.excerpt
   }
@@ -768,9 +773,8 @@ if (objectionQueue.lowy.length || objectionQueue.hickey.length) {
     DEBATERS.map((lens) => () => {
       const ids = objectionQueue[lens]
       if (!ids.length) return Promise.resolve(null)
-      turns.objection++
       const items = ids.map((id) => ({ f: byId[id], excerpt: excerpts[id] }))
-      return agent(objectionBrief(lens, otherDebater(lens), items), {
+      return call('objection', objectionBrief(lens, otherDebater(lens), items), {
         label: `objection:${lens}`,
         phase: 'Reconcile',
         model,
@@ -886,16 +890,14 @@ async function runThread(thread) {
   for (let r = 1; r <= maxRounds && active.length > 0; r++) {
     threadRounds = r
     const settledList = items.filter((it) => settled[it.id]).map((it) => ({ id: it.id, disposition: settled[it.id].disposition }))
-    turns.debate++
-    const lowyRes = await agent(threadTurnBrief('lowy', 'hickey', file, active, hickeyPrev, settledList, r), {
+    const lowyRes = await call('debate', threadTurnBrief('lowy', 'hickey', file, active, hickeyPrev, settledList, r), {
       label: `lowy:${file}:r${r}`,
       phase: 'Debate',
       model,
       schema: POSITION_SCHEMA,
     })
     const lowyPos = posMap(lowyRes)
-    turns.debate++
-    const hickeyRes = await agent(threadTurnBrief('hickey', 'lowy', file, active, lowyPos, settledList, r), {
+    const hickeyRes = await call('debate', threadTurnBrief('hickey', 'lowy', file, active, lowyPos, settledList, r), {
       label: `hickey:${file}:r${r}`,
       phase: 'Debate',
       model,
@@ -1006,8 +1008,7 @@ let applied = []
 const applyGaps = []
 if (apply && fixes.length) {
   phase('Apply')
-  turns.apply++
-  const res = await agent(applyAllBrief(fixes, commit), { label: 'apply:all', phase: 'Apply', model, schema: APPLY_SCHEMA })
+  const res = await call('apply', applyAllBrief(fixes, commit), { label: 'apply:all', phase: 'Apply', model, schema: APPLY_SCHEMA })
   const applyById = Object.fromEntries((res?.applied ?? []).map((x) => [x.id, x]))
   // Re-key off the agreed `fixes` (not the agent's array) so a fix the agent
   // dropped from its output still surfaces — as 0 files / uncommitted — instead
