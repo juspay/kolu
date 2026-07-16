@@ -40,26 +40,37 @@ const CLIENT_SRC = dirname(fileURLToPath(import.meta.url)); // packages/client/s
 const MEMBER_USE_RE =
   /\.(?:cells|collections)\.[A-Za-z_$][\w$]*\.use\(|\.entries\.use\(/g;
 
-/** The forbidden policy keys — declared on the member SPEC now, never a use-site bag. */
-const FORBIDDEN_KEY_RE = /\b(?:onError|authority|coalesceMs)\b/;
+/** The forbidden policy keys — declared on the member SPEC now, never a use-site bag.
+ *  Matches only in KEY POSITION (the word, optionally quoted, immediately followed by
+ *  `:`), so a real `onError:` / `"onError":` property is CAUGHT while the same word
+ *  appearing as a string VALUE (`keys: () => ["onError"]`) is ignored — the false
+ *  positive that motivated (and is better handled here than by) blanking string bodies. */
+const FORBIDDEN_KEY_RE = /["']?\b(onError|authority|coalesceMs)\b["']?\s*:/;
 
-/** Replace every `//`-line and `/* … *​/`-block COMMENT body AND every string-literal
- *  body with spaces (newlines preserved, so byte offsets and line numbers are
- *  unchanged) — a guard scans CODE STRUCTURE, not the prose in a docstring (which
- *  legitimately shows `…use({ authority: "server" })`) NOR a member-chain pattern that
- *  happens to appear inside a string literal (the false-positive codex F5 flagged).
- *  Escapes and the three quote kinds are honoured so a `//` inside a string is not
- *  mistaken for a comment and an escaped quote does not close the string early.
+/** Replace every `//`-line and `/* … *​/`-block COMMENT body with spaces (newlines
+ *  preserved, so byte offsets and line numbers are unchanged), leaving STRING bodies
+ *  intact — a guard scans CODE, not the prose in a docstring (which legitimately shows
+ *  `…use({ authority: "server" })`). Escapes and the three quote kinds are honoured so a
+ *  `//` inside a string is not mistaken for a comment.
  *
- *  KNOWN GAP (accepted): this is a textual guard, so it does NOT catch a member
- *  ALIASED before `.use()` (`const c = app.cells.x; c.use({ onError })`). No in-repo
- *  code does that, and the primary enforcement is structural anyway — a migrated
- *  member declares its policy on the spec, so a use-site bag is a review-visible
- *  regression, not the sole line of defence. A full AST lint would be disproportionate
- *  here (and removing the option keys from the bound `.use()` type would break the
- *  legitimate NON-policy use-site `onError` path that a member without a declared
- *  policy still relies on). */
-function blankCommentsAndStrings(text: string): string {
+ *  Why NOT blank string bodies too (codex F5, considered and rejected): a real
+ *  QUOTED key — `.use({ "onError": h })` — is a string token `"onError"` and a genuine
+ *  forbidden use the guard MUST catch, so blanking string bodies would silence it (a
+ *  false NEGATIVE). The false-positive it would prevent — a full `.use({ onError })`
+ *  snippet living INSIDE a string literal — does not occur in `packages/client/src` and,
+ *  if it ever did, fails LOUD (a red test a dev fixes), never silent. A regression guard
+ *  must prefer a loud false-positive over a silent false-negative, so comments-only +
+ *  the KEY-POSITION {@link FORBIDDEN_KEY_RE} (which ignores a forbidden word appearing as
+ *  a string VALUE, e.g. `keys: ["onError"]`) is the right trade. A full AST lint would
+ *  be disproportionate for this fence.
+ *
+ *  KNOWN GAP (accepted): a member ALIASED before `.use()` (`const c = app.cells.x;
+ *  c.use({ onError })`) — no in-repo code does that, and the primary enforcement is
+ *  structural (a migrated member declares its policy on the spec, so a use-site bag is a
+ *  review-visible regression, not the sole line of defence). Removing the option keys
+ *  from the bound `.use()` type is NOT the fix — it would break the legitimate NON-policy
+ *  use-site `onError` path a member WITHOUT a declared policy still relies on. */
+function blankComments(text: string): string {
   const out = text.split("");
   let state: "code" | "line" | "block" | "'" | '"' | "`" = "code";
   for (let i = 0; i < text.length; i++) {
@@ -90,17 +101,9 @@ function blankCommentsAndStrings(text: string): string {
       } else if (c !== "\n") out[i] = " ";
       continue;
     }
-    // Inside a string literal — BLANK the body too (honour escapes + the closer). The
-    // opening/closing quote chars stay (harmless punctuation); only the body is spaced.
-    if (c === state) {
-      state = "code";
-    } else if (c === "\\") {
-      out[i] = " ";
-      if (n !== undefined && n !== "\n") out[i + 1] = " ";
-      i++;
-    } else if (c !== "\n") {
-      out[i] = " ";
-    }
+    // Inside a string literal — leave bytes intact; honour escapes and the closer.
+    if (c === "\\") i++;
+    else if (c === state) state = "code";
   }
   return out.join("");
 }
@@ -134,7 +137,7 @@ function matchBrace(text: string, open: number): number {
  *  `"<label>:<line>: <key>"`. Only a SINGLE-ARG options bag (first arg `{`) is
  *  considered; a positional/bare `.use(` is skipped. */
 function scan(rawText: string, label: string): string[] {
-  const text = blankCommentsAndStrings(rawText);
+  const text = blankComments(rawText);
   const g = new RegExp(MEMBER_USE_RE.source, "g");
   const hits: string[] = [];
   for (let m = g.exec(text); m !== null; m = g.exec(text)) {
@@ -148,7 +151,7 @@ function scan(rawText: string, label: string): string[] {
     const bad = FORBIDDEN_KEY_RE.exec(bag);
     if (bad) {
       const line = text.slice(0, m.index).split("\n").length;
-      hits.push(`${label}:${line}: ${bad[0]}`);
+      hits.push(`${label}:${line}: ${bad[1]}`); // the key word, not the trailing `:`
     }
   }
   return hits;
@@ -205,6 +208,19 @@ describe("surface policy use-site guard — no `onError`/`authority`/`coalesceMs
     ).toEqual([]);
     expect(
       scan("/* app.cells.preferences.use({ coalesceMs: 150 }) */", "fx"),
+    ).toEqual([]);
+    // A QUOTED forbidden KEY is still a leaked policy — CAUGHT (codex F5). The
+    // key-position regex matches `"onError":` the same as bare `onError:`.
+    expect(
+      scan('const s = e.cells.session.use({ "onError": h });', "fx"),
+    ).toEqual(["fx:1: onError"]);
+    // A forbidden word appearing as a string VALUE (not a key) — IGNORED (codex F5): the
+    // key-position regex requires a trailing `:`, which a value has no business having.
+    expect(
+      scan(
+        'const d = e.collections.daemonStatus.use({ keys: () => ["onError"] });',
+        "fx",
+      ),
     ).toEqual([]);
   });
 });

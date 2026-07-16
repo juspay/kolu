@@ -939,11 +939,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   }
   // FAIL-FAST (F1): a `client.authority: "local"` cell drives `useCellLocal`, which
   // builds `createStore(default)` and writes patches back through a `set`/`patch` verb.
-  // That path is sound ONLY for a non-null OBJECT value WITH a mutation verb. The
-  // declaration type drops the local arm for a non-object `T` ({@link ClientCellPolicyServerOnly}),
-  // but `verbs` isn't cleanly reflectable at the type — so a get-only OBJECT cell would
-  // still slip through. Assert both dimensions once, at construction, so a bad local-authority
-  // declaration crashes loudly here rather than failing (or silently never writing) at subscribe.
+  // That path is sound ONLY for a non-null OBJECT value WITH a mutation verb. The type
+  // CAN'T gate this: the `SurfaceSpec` constraint erases the cell value type to `any` at
+  // the `defineSurfaceWithPolicy` spec-literal site (`[any] extends [object]` admits the
+  // local arm), so a `[T] extends [object]` field gate wouldn't fire where the
+  // declaration is written — the same erasure reason the missing-interpreter check above
+  // is runtime. So assert BOTH dimensions once, here at construction, so a bad
+  // local-authority declaration crashes loudly rather than failing (or silently never
+  // writing) at subscribe.
   for (const [key, s] of Object.entries(spec.cells ?? {})) {
     const cs = s as CellSpec<unknown, unknown, unknown>;
     if (cs.client?.authority !== "local") continue;

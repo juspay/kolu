@@ -188,10 +188,10 @@ describe("SR11 local-authority validity fail-fast (F1)", () => {
   });
 
   it("(3-nonobject) buildSurfaceClient THROWS for a NON-object cell declaring authority:'local'", () => {
-    // The type-level guard ({@link ClientCellPolicyServerOnly}) drops the local arm for a
-    // non-object cell — but the `SurfaceSpec` constraint erases the value type to `any` at
-    // the `defineSurfaceWithPolicy` call site, so the runtime F1 scan is the sole enforcement
-    // for the OBJECT dimension too. A primitive-valued local-authority store is unsound
+    // The `SurfaceSpec` constraint erases the cell value type to `any` at the
+    // `defineSurfaceWithPolicy` call site, so a type gate can't drop the local arm where
+    // the declaration is written — the runtime F1 scan is the SOLE enforcement for the
+    // OBJECT dimension too. A primitive-valued local-authority store is unsound
     // (`createStore` needs an object), so it crashes at construction.
     const primitiveLocal = defineSurfaceWithPolicy<Policy>()({
       cells: {
