@@ -28,11 +28,11 @@ Open <http://127.0.0.1:7681> (or the address you chose). The full walkthrough is
 
 Every capability below is documented in full on [kolu.dev](https://kolu.dev):
 
-- **[Canvas & tiles](https://kolu.dev/concepts)** — every terminal is a draggable, resizable `xterm.js` tile on an infinite, mode-less 2D canvas (WebGL, inline images, splits, font zoom, clickable `file:line` and folder links).
-- **[The dock](https://kolu.dev/concepts#the-dock-up-close)** — a two-level left-edge navigator with per-repo grouping, a status indicator per row, recency ordering, and an activity-window filter; **[sleep & wake](https://kolu.dev/power-features#sleep-a-terminal)** parks a tile without keeping its PTY, agent, or GPU context alive.
+- **[Canvas](https://kolu.dev/canvas) & [tiles](https://kolu.dev/tiles)** — every terminal is a draggable, resizable `xterm.js` tile on an infinite, mode-less 2D canvas (WebGL, inline images, splits, font zoom, clickable `file:line` and folder links).
+- **[The dock](https://kolu.dev/dock)** — a two-level left-edge navigator with per-repo grouping, a status indicator per row, recency ordering, and an activity-window filter; **[sleep & wake](https://kolu.dev/sessions)** parks a tile without keeping its PTY, agent, or GPU context alive.
 - **[Agent detection](https://kolu.dev/agent-detection)** — live state (thinking · tool use · awaiting you · working · waiting) for **Claude Code, Codex, Grok, and OpenCode**, read straight from each agent's on-disk session.
 - **[Worktrees & command palette](https://kolu.dev/concepts)** — creating a terminal in a repo branches a fresh git worktree; <kbd>Cmd/Ctrl+K</kbd> searches terminals, themes, and agent launches.
-- **[Git & GitHub](https://kolu.dev/concepts#the-code-browser)** — auto-detected repo/branch/PR/CI, a Code-tab file browser with git-status tinting, rendered Markdown, inline HTML/SVG/PDF/image/video preview, and file comments.
+- **[Git & GitHub](https://kolu.dev/code-tab)** — auto-detected repo/branch/PR/CI, a Code-tab file browser with git-status tinting, rendered Markdown, inline HTML/SVG/PDF/image/video preview, and file comments.
 - **[Theming](https://kolu.dev/theming)** · **[Clipboard & files](https://kolu.dev/clipboard)** — 200+ color schemes with inherit/shuffle; paste an image or drop a file and its path lands on the agent's input line.
 - **[Power features](https://kolu.dev/power-features)** — transcript export, workspace screen recording, and driving kolu from the shell.
 - **[Remote access](https://kolu.dev/remote-access)** & **[remote hosts](https://kolu.dev/remote-hosts)** — reach kolu over private HTTPS, and (alpha) run terminals on other machines as first-class tiles.

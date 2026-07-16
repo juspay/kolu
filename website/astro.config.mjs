@@ -1,10 +1,12 @@
 // @ts-check
 
 import { existsSync, readFileSync } from "node:fs";
+import { unified } from "@astrojs/markdown-remark";
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
+import { remarkChangelog } from "./src/remarkChangelog";
 
 function readKoluVersion() {
   if (process.env.KOLU_VERSION) return process.env.KOLU_VERSION;
@@ -56,6 +58,7 @@ export default defineConfig({
     },
   },
   markdown: {
+    processor: unified({ remarkPlugins: [remarkChangelog] }),
     shikiConfig: {
       // Dual theme — astro emits both as CSS variables; global.css routes
       // them via `[data-theme]` so code blocks track the light/dark toggle.
@@ -65,6 +68,20 @@ export default defineConfig({
       },
       defaultColor: false,
       wrap: false,
+      // Disable shiki's 500ms/line tokenization budget: the over-budget bail
+      // silently drops per-token spans under CPU contention (see
+      // docs/atlas/astro.config.mjs for the full mechanism + the flaky-test
+      // tracker row it caused there). Here the un-gated degradation would ship
+      // straight to kolu.dev as un-highlighted code. Correct or loud, never
+      // silently degraded.
+      transformers: [
+        {
+          name: "kolu:shiki-no-tokenize-bail",
+          preprocess(_code, options) {
+            options.tokenizeTimeLimit = 0;
+          },
+        },
+      ],
     },
   },
 });

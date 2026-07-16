@@ -98,6 +98,7 @@ let
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
+      ./packages/kolu-cli
       ./packages/padi
       ./packages/padi-tui
       ./packages/server
@@ -125,7 +126,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-Iwdperk6QLQoRm1P3xXa45Mc7Qbet7/3RXBT/JppAoQ=";
+    hash = "sha256-AgEHHnlBKTCeJmNoFbnb5sqtdZmx3o2aiHsie2Q29aY=";
     fetcherVersion = 3;
   };
 
@@ -460,7 +461,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
-      --add-flags "${koluStamped}/packages/server/src/index.ts" \
+      --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \

@@ -138,6 +138,13 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
      on). Never report "lens consensus" for an `unresolved` run.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
 
+   Whatever the status, if the result carries a non-empty `escalations` (debate
+   threads that ran past 3 rounds — the engine kept debating; this is a valve,
+   not an exit), surface them in the report and the deferred lens comment
+   already lists them: an escalated-and-unresolved thread is a candidate to hand
+   to warm debate terminals rather than re-running the engine (see the lens
+   SKILL's "escalation valve").
+
 2. **codex** — **capture `CODEX_START=$(git -C "$repoPath" rev-parse HEAD)` first** (so
    you can scope the debate's own commits for the comment table below), then invoke
    `/codex-debate` (Skill tool) as `review --repo "$repoPath"

@@ -1,6 +1,6 @@
 ---
 name: lens-debate
-description: Run a structural-review debate between two lenses — lowy (volatility-based decomposition) and hickey (structural simplicity) — on the current diff. Each reviews independently, then they cross-examine every finding until they agree per-finding, and the agreed fixes are applied. Use when the user types `/lens-debate`, or asks to "have lowy and hickey review this", "run the lens debate", "debate this diff structurally", or "argue the structure of this PR until the lenses agree".
+description: Run a structural-review debate between two lenses — lowy (volatility-based decomposition) and hickey (structural simplicity) — on the current diff. Each reviews independently, then the reviews are reconciled (cross-lens agreements settle with zero debate) and only genuinely contested findings debate in parallel per-file threads until the lenses agree; the agreed fixes are applied. Use when the user types `/lens-debate`, or asks to "have lowy and hickey review this", "run the lens debate", "debate this diff structurally", or "argue the structure of this PR until the lenses agree".
 argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-apply] [--no-comment] [--with-police]"
 ---
 
@@ -9,10 +9,13 @@ argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit]
 Two structural reviewers argue your change to a settled conclusion. **lowy**
 (volatility-based decomposition — do boundaries encapsulate axes of change?) and
 **hickey** (structural simplicity — are independent concerns complected, or one
-thing fragmented?) each review the diff *independently*, then cross-examine
-**every** finding from **both** reviews until they agree on each one. The agreed
-`fix` findings are applied — each as its own commit — and the outcome is **posted
-to the PR** as a comment. You stay out of the middle: the script couriers
+thing fragmented?) each review the diff *independently*, then the engine
+**reconciles** the two reviews — findings both lenses raised with compatible
+conclusions settle immediately, unopposed solo findings settle after one batched
+objection check — and only the **genuinely contested** findings are debated, in
+parallel per-file threads, until the lenses agree on each one. The agreed `fix`
+findings are applied — each as its own commit — and the outcome is **posted to
+the PR** as a comment. You stay out of the middle: the script couriers
 schema-constrained dispositions between the lenses and decides when they agree.
 
 This is the sibling of `/codex-debate` — same debate-to-consensus shape (structured
@@ -32,9 +35,16 @@ The structure was found by trial in #1109, and two parts of it are load-bearing:
   parallel made hickey raise the same issue on its own, flipping the verdict to
   *fix*. **Curation biases the outcome; independent-then-debate does not.** So the
   lenses never trust a handed-down finding list — each reads the source itself.
+  (Reconciliation is downstream of this, never a shortcut around it: matching
+  runs only *after* both independent reviews exist, so nothing a lens sees before
+  forming its findings was curated.)
 
 - **Both lenses run on Opus** (overriding their `model: sonnet` frontmatter), as
-  `/be` already requires for structural review.
+  `/be` already requires for structural review. Every lens *judgment* — the
+  reviews, the objection checks, the debate turns — runs on Opus; only the
+  mechanical stages (merge-base resolution, hunk extraction: Haiku) and the
+  conservative reconciliation matcher (Sonnet) run cheaper, because none of them
+  casts a vote.
 
 - **The lowy lens runs Löwy's electricity probe.** Beyond the generic "where's
   the boundary?", the lowy reviewer must name the *receptacle* (the stable
@@ -46,6 +56,40 @@ The structure was found by trial in #1109, and two parts of it are load-bearing:
   reliably pulls structural review out of abstraction and into "what plugs into
   what" (the abstraction-without-grounding failure mode a lens debate is prone
   to). It earned its keep on a live run (#1111).
+
+## Why most findings never debate
+
+Campaign history said most debates were 1-round agreements — the lenses raised
+overlapping findings, or one lens simply had no objection to the other's. The
+engine settles exactly those cases **without spending debate turns**, in a
+reconciliation phase that runs strictly *after* both independent reviews:
+
+1. **Cross-lens reconciliation.** One conservative matcher pairs findings the
+   two lenses *independently* raised about the same underlying issue. A pair
+   with equal dispositions (and, for fixes, suggestions that are the same change
+   in substance — the matcher emits the canonical plan) settles on the spot: two
+   independent Opus lenses arriving at the same conclusion **is** consensus;
+   cross-examination adds nothing. A matched pair that *disagrees* (disposition
+   or plan) is the real cross-examination case and goes to a thread. The matcher
+   is instructed to never force a match — an unmatched finding merely falls
+   through to the (cheap, safe) objection check, while a false pair would
+   silently settle a debate that should have happened.
+2. **Real-only rule.** A **minor**-severity solo finding in a file the other
+   lens didn't flag *at all* auto-settles as raised: the other lens read the
+   same full diff and had nothing to say about that region, so forcing a
+   cross-exam manufactures an opinion it chose not to have. (Reviewers tag every
+   finding `minor` or `major`; anything structural or correctness-adjacent is
+   major and never takes this path.)
+3. **Batched objection check.** Every remaining solo finding gets ONE
+   opportunity per opposing lens to object — a single batched call per lens
+   covering all of the opponent's solos, with the relevant hunks inlined. No
+   objection → the finding settles exactly as raised. An objection → the finding
+   is genuinely contested and debates. (A `code-police` finding, when
+   `--with-police` ran, needs *both* debaters' non-objection — police has no
+   vote, so a debater must ratify what it didn't raise.)
+
+Only findings that survive all three — real, two-sided disagreements — reach the
+debate phase.
 
 ## Why deadlock is not possible
 
@@ -63,23 +107,60 @@ disagreements are not ego conflicts but framework-weighting differences ("is thi
 worth fixing in *this* PR?") about a shared question with a knowable answer. Two
 good-faith analysts, each told to argue from the code and concede when the other
 is right, **converge** — there is no fixed position to defend. So there is **no
-deadlock exit**: the debate runs until consensus, as many rounds as it takes.
+deadlock exit**: each debate thread runs until consensus, as many rounds as it
+takes.
 
-Three mechanics make that real rather than hopeful:
+Three mechanics make that real rather than hopeful, now applied per thread:
 
 1. **Independent review** (above) removes the up-front framing bias.
 2. **Settled findings lock.** The moment both lenses agree on a finding's
-   disposition, it leaves the active set. The contested set is monotonically
-   non-increasing — the debate can only shrink, never grow, so it can't oscillate
-   a settled point back open.
-3. **Sequential reveal.** Within a round lowy posts first and hickey answers
-   lowy's *current* positions, so the two land together instead of chasing each
-   other's stale positions.
+   disposition, it leaves the thread's active set. The contested set is
+   monotonically non-increasing — a thread can only shrink, never grow, so it
+   can't oscillate a settled point back open.
+3. **Sequential reveal inside the thread.** Within a thread round lowy posts
+   first and hickey answers lowy's *current* positions, so the two land together
+   instead of chasing each other's stale positions. (Round 1 is seeded with the
+   positions already on record — review stances and objection-check positions —
+   so the first exchange starts from real positions instead of re-eliciting
+   them.)
 
-`--max-rounds` (default **12**) is a pure safety backstop so a pathological
-oscillation can't run unbounded — not a deadlock cap. Reaching it is reported as
-`unresolved` (needs a human), never `deadlock`, and should essentially never
-happen between two good-faith lenses.
+`--max-rounds` (default **12**) is a pure safety backstop, applied **per
+thread**, so a pathological oscillation can't run unbounded — not a deadlock
+cap. Reaching it is reported as `unresolved` (needs a human), never `deadlock`,
+and should essentially never happen between two good-faith lenses.
+
+## Debate threads — parallel, scoped
+
+Contested findings are grouped **per file** (findings about the same file share
+a thread — their arguments usually interlock) and every thread debates **in
+parallel**: each is its own lowy ⇄ hickey exchange with the sequential reveal
+*inside* the thread. Wall clock is set by the *deepest single disagreement*, not
+by `rounds × 2 × turn-time` summed across every finding.
+
+Debate turns are **scoped**: at reconciliation a mechanical agent pre-extracts
+each contested finding's relevant diff hunks, and a turn receives those hunks
+plus both lenses' current positions — **not** an instruction to re-read the full
+diff. The full-diff read is load-bearing in the *independent reviews* (that's
+where curation bias is fought) and only there; by debate time both lenses have
+already read the whole change once, and a turn may still `Read` the specific
+files involved when the hunks aren't enough. If extraction comes back empty for
+a finding, the turn is told so and reads the file directly — loudly, never a
+silent fallback.
+
+### The escalation valve
+
+A thread that runs past **3 rounds** is *not* ground to stop — it keeps
+debating, to consensus or the `--max-rounds` backstop (the no-deadlock invariant
+is untouched). But it **is** returned in the result's **`escalations`** field:
+`{ file, findingIds, rounds, resolved }` per escalated thread. **When to pull
+the valve:** a caller/coordinator that sees an escalated thread — especially an
+*unresolved* one — should hand that one thread's findings (with both lenses'
+final positions from `settled`/`unresolved`) to warm, interactive debate
+terminals (e.g. a live `/codex-debate`-style session or a human-adjudicated
+debate) instead of re-running another cold engine pass over the whole diff. The
+engine's exchange format is deliberately structured (schema-forced positions);
+past ~3 rounds a disagreement is usually about *values or scope*, which
+converges faster in a richer medium than in more rounds of the same format.
 
 **This skill requires Claude Code's `Workflow` tool** (it is the engine). Under
 codex/opencode runtimes the skill is inert.
@@ -98,8 +179,8 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-ap
   used **as-is**. Fallback `origin/master`. Step 1 runs `git fetch origin` first.
   The workflow resolves this to the **merge-base** of `base` and HEAD and diffs
   against that, so the base branch's drift since the fork isn't reviewed as ours.
-- **`--max-rounds <n>`**: safety backstop on debate rounds. Default **12**. Not a
-  deadlock cap (see above) — raise it freely.
+- **`--max-rounds <n>`**: safety backstop on debate rounds, **per thread**.
+  Default **12**. Not a deadlock cap (see above) — raise it freely.
 - **`--no-commit`**: still apply the agreed fixes to the working tree, but leave
   them uncommitted for you to commit yourself. Default is to **commit each fix
   individually** (see below).
@@ -139,7 +220,7 @@ Workflow({
   args: {
     repoPath: "<worktree root>",         // also the per-worktree scratch dir root
     base: "<base branch>",               // a remote-tracking ref, e.g. origin/master
-    maxRounds: <n, default 12>,
+    maxRounds: <n, default 12>,          // per-thread safety backstop
     commit: <false only if --no-commit>,
     apply: <false only if --no-apply>,
     withPolice: <true only if --with-police>,
@@ -150,15 +231,21 @@ Workflow({
 ```
 
 The workflow runs in the background and notifies you when it completes. It runs
-three phases the user can watch via `/workflows`:
+four phases the user can watch via `/workflows`:
 
 - **Review** — `review:lowy`, `review:hickey` (and `review:code-police` with
-  `--with-police`) in parallel, each independent.
-- **Debate** — alternating `lowy:roundN` / `hickey:roundN` until every finding is
-  agreed. Agreed findings drop out of each subsequent round. Agreement on a `fix`
-  means both lenses agree on the disposition *and* the plan — if they both say
-  `fix` but propose different changes, the finding stays open until the plans
-  converge too (so Apply never picks one lens's plan arbitrarily).
+  `--with-police`) in parallel, each independent, each a full-diff read.
+- **Reconcile** — `reconcile:match` (the cross-lens matcher, Sonnet),
+  `reconcile:hunks` (per-finding hunk extraction, Haiku), then
+  `objection:lowy` / `objection:hickey` (one batched Opus objection check per
+  lens over the opponent's solo findings). Everything that settles here settles
+  with **zero debate turns**.
+- **Debate** — parallel per-file threads, `lowy:<file>:rN` / `hickey:<file>:rN`,
+  each thread running until every finding in it is agreed. Agreed findings drop
+  out of each subsequent thread round. Agreement on a `fix` means both lenses
+  agree on the disposition *and* the plan — if they both say `fix` but propose
+  different changes, the finding stays open until the plans converge too (so
+  Apply never picks one lens's plan arbitrarily).
 - **Apply** — a single `apply:all` agent implements **every** agreed `fix` in one
   session and (unless `--no-commit`) commits each one individually, staging
   **exactly** that fix's changed files with a message carrying the debate context.
@@ -177,17 +264,26 @@ collide and the scratch never shows up in the diff the lenses review. It returns
 ```
 { status: "consensus" | "apply-incomplete" | "unresolved" | "clean",
   rounds, base, withPolice,
-  settled,     // per-finding: id, origin, title, location, agreed disposition, plan, both reasonings
-  unresolved,  // findings still contested at the backstop (empty on consensus)
-  applied,     // [{ id, title, files, commit }] (empty under --no-apply)
+  settled,     // per-finding: id, origin, title, location, severity, agreed
+               // disposition, plan, HOW it settled (`via`: reconciled |
+               // auto-minor | no-objection | objection-agreed | debated), both
+               // reasonings for debated ones; a matched pair's secondary id
+               // carries duplicateOf/pairedWith
+  unresolved,  // findings still contested at the per-thread backstop (empty on
+               // consensus; matched pairs appear once)
+  applied,     // [{ id, title, pairedWith, files, commit }] (empty under --no-apply)
   applyGaps,   // [{ id, reason }] agreed fixes that didn't cleanly land — empty unless status is "apply-incomplete"
   fixes,       // the agreed `fix` findings with converged plans — the caller's change requests under --no-apply
   reviews,     // each lens's independent findings
-  history,     // per-round dispositions
+  history,     // per-thread, per-round dispositions
+  escalations, // [{ file, findingIds, rounds, resolved }] threads that ran past 3 rounds — the valve (see above)
+  turns,       // per-stage agent-call counts { mech, review, match, objection, debate, apply }
   comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
 ```
 
-- **consensus** — every finding settled (the normal outcome).
+- **consensus** — every finding settled (the normal outcome). `rounds` is the
+  depth of the deepest debate thread; `rounds: 0` means everything settled at
+  reconciliation, with zero debate turns.
 - **clean** — every lens found nothing worth raising.
 - **apply-incomplete** — the lenses *converged*, but the Apply phase didn't land
   every agreed fix cleanly: a fix was **missing from the apply agent's output**
@@ -197,22 +293,28 @@ collide and the scratch never shows up in the diff the lenses review. It returns
   **not** a clean consensus — surface the gap and reconcile it (re-apply or commit
   the outstanding fix) before relying on the per-fix history. Do **not** report it
   as a plain consensus.
-- **unresolved** — the backstop was hit with findings still contested. Rare;
-  needs a human. This is NOT a deadlock — the lenses simply didn't converge in
-  the round budget; raise `--max-rounds` or adjudicate the listed findings.
+- **unresolved** — a thread hit the per-thread backstop with findings still
+  contested. Rare; needs a human. This is NOT a deadlock — the lenses simply
+  didn't converge in the round budget; raise `--max-rounds`, adjudicate the
+  listed findings, or pull the escalation valve (hand the thread to warm debate
+  terminals — see above).
 
 ### 3. Present the result
 
 Report in chat (do **not** push or merge — the per-fix commits sit on the local
 branch for the human to review):
 
-- The outcome (`status`) and round count.
+- The outcome (`status`), the deepest-thread round count, and how the findings
+  settled (the `via` mix: reconciled / auto-minor / unopposed / debated).
 - `git log --oneline <base>..HEAD` (the per-fix commits) and `git diff --stat
   <base>` so the user sees what the debate changed.
 - A per-finding table from `settled`: origin (lowy/hickey/police), title,
-  location, agreed disposition (fix/drop), and the applied commit SHA for fixes.
+  location, agreed disposition (fix/drop), how it settled, and the applied
+  commit SHA for fixes.
 - On any **unresolved** finding, surface both lenses' final positions plainly so
   the human can adjudicate — do not pick a winner yourself.
+- On any **escalated** thread, say so and point at the valve: the caller can
+  hand that thread's findings to warm debate terminals instead of re-running.
 - **Post the debate summary to the PR (default).** When a PR exists and
   `--no-comment` was NOT passed, post the workflow's **deterministically rendered
   `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
@@ -225,11 +327,13 @@ branch for the human to review):
 
   The workflow returns `comment` already rendered — the
   `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)` header
-  with the outcome badge and round count, the independent per-lens finding counts,
-  the applied fixes (with commit SHAs), the agreed no-change observations, and any
-  unresolved findings with both lenses' positions. Posting the returned string
-  (rather than re-improvising a table) keeps the comment a **deterministic** render
-  of the debate outcome. This mirrors `/codex-debate`; `--no-comment` suppresses it.
+  with the outcome badge and deepest-thread round count, the independent per-lens
+  finding counts, the settled-without-debate breakdown, the applied fixes (with
+  commit SHAs, matched pairs marked `≡`), the agreed no-change observations, any
+  escalated threads, and any unresolved findings with both lenses' positions.
+  Posting the returned string (rather than re-improvising a table) keeps the
+  comment a **deterministic** render of the debate outcome. This mirrors
+  `/codex-debate`; `--no-comment` suppresses it.
 
 ## Safety & notes
 
@@ -241,9 +345,13 @@ branch for the human to review):
   (unless `--no-commit`) so the PR history reads as the debate's conclusions, but
   the skill never pushes or merges. Consensus means "both lenses agree on the
   disposition," not "ship it" — the human reviews the commits and pushes/merges.
-- **No deadlock; bounded by a safety backstop.** The loop runs to consensus.
-  `--max-rounds` only prevents a pathological unbounded run; reaching it is
-  reported as `unresolved`, not deadlock.
+- **No deadlock; bounded by a per-thread safety backstop.** Every thread runs to
+  consensus. `--max-rounds` only prevents a pathological unbounded run; reaching
+  it is reported as `unresolved`, not deadlock. The escalation valve (>3 rounds
+  → `escalations`) is advisory output, never an exit.
+- **Reconciliation never curates.** The matcher runs only after both independent
+  reviews exist, and when unsure it does NOT pair — a wrong non-match costs one
+  cheap objection check; a wrong match would silently skip a debate.
 - **Parallel-safe.** Ephemeral scratch lives under the gitignored, per-worktree
   `<repoPath>/.lens-debate/`, so debates on many worktrees run at once without
   clobbering each other.
@@ -252,8 +360,10 @@ branch for the human to review):
 
 ## Files
 
-- `debate.workflow.js` — the Workflow script (parallel review + the
-  lock-and-converge debate loop + the apply phase).
+- `debate.workflow.js` — the Workflow script (parallel review + reconciliation +
+  the parallel per-file thread debate + the apply phase). Its decision logic is
+  unit-tested by evaluating the script with stubbed `agent()` responses — see
+  `agents/tests/debate.workflow.test.ts` in the kolu repo.
 
 The lenses read `.claude/skills/{lowy,hickey}/SKILL.md` (and
 `.claude/skills/code-police/SKILL.md` with `--with-police`) at runtime for their

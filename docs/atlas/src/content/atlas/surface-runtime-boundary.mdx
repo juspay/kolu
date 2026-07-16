@@ -2,9 +2,9 @@
 title: A Complete Surface Runtime
 description: "The plan of record for the surface-framework consolidation: the kernel of runtime, membership, and mirror moves, then the reactive-bridge spine, sequenced as one PR list."
 parents: [feature, padi, surface]
-status: accepted
+status: implemented
 maturity: budding
-updated: 2026-07-13
+updated: 2026-07-15
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -134,11 +134,11 @@ Three of these deserve their sentence of reasoning in full:
 
 ## The PR sequence
 
-Kernel first (track prefix **SR** — surface runtime) — each PR independently landable, each proven by a deletion, sequenced so no PR depends on an unshipped sibling. Then the bridge spine, whose technical content lives in [the bridge note](surface-reactive-bridge.html) and whose work is numbered here, as SR7–SR10 — the one numbering scheme. Every `@kolu/surface*` PR ships with a paired drishti PR pinned to final kolu HEAD per `.claude/rules/surface.md`. Odu is not schedulable from this repo: it pins kolu by npins (currently `7d51cb2b290b`), so its adoptions and its lease-stack work are recorded as odu-tree obligations that land at its next pin bump.
+Kernel first (track prefix **SR** — surface runtime) — each PR independently landable, each proven by a deletion, sequenced so no PR depends on an unshipped sibling. Then the bridge spine, whose technical content lives in [the bridge note](surface-reactive-bridge.html) and whose work is numbered here, as SR7–SR10 — the one numbering scheme. Every `@kolu/surface*` PR ships with a paired drishti PR pinned to final kolu HEAD per `.claude/rules/surface.md`. Odu is not schedulable from this repo: it pins kolu by npins, so its adoptions land at its pin bumps — the campaign's bump shipped as [odu#44](https://github.com/juspay/odu/pull/44) (pin → `07397fa2`, #1836/SR9, with the SR-series adaptations including SR1's two hand-finalization deletions); the standing accounting for future drift is the per-PR odu-impact verdict + the ledger ([odu#43](https://github.com/juspay/odu/issues/43)) per `.claude/rules/surface.md`.
 
 | id | what lands | the deletion that proves it | gate |
 | --- | --- | --- | --- |
-| **SR1** (<PrLink pr={1805} />) | supervised `SurfaceRuntime` — final router, `done`, idempotent `close`; `implementSurfaceOnPublisher` stays distinct (with an `implementSurfacesOnPublisher` plural twin) | kolu's `implement(servedContract)` **surface-finalization** step; drishti's fragment wrap; odu's two wraps at next pin. Done only when every serving site observes `runtime.done` and owns shutdown<Footnote>The headline shrank in the build, the negative property did not. kolu's `implement(servedContract)` is **not** fully deleted — it stays as the app-router *builder* (binding `server`/`daemon`/`hosts` and re-adapting the re-served `padi` map fragment for the wire matcher, which requires a contract that declares `surface.padi`). What deleted is its *surface-finalization* role, which moved into `implementSurfacesOnPublisher`. So the campaign property holds verbatim — "no production consumer imports oRPC `implement` **merely** to finalize a Surface" — because kolu's remaining `implement` is the app-router builder, not mere finalization. This was learned the hard way: CI's e2e caught a deterministic wire-matcher 404 (`serveHostMap` returns a matcher-meta-less fragment; a padi-less builder drops every `/surface/padi/*` route) that the `directLink`-based `padiBinding` integration test structurally could not see — directLink navigates the router object, never the matcher. The lesson is now a pin: `packages/server/src/router.test.ts` asserts the assembled `appRouter`'s `StandardRPCMatcher` tree routes `/surface/padi/*`, the evidence class structural navigation cannot provide.</Footnote> | drishti pair |
+| **SR1** (<PrLink pr={1805} />) | supervised `SurfaceRuntime` — final router, `done`, idempotent `close`; `implementSurfaceOnPublisher` stays distinct (with an `implementSurfacesOnPublisher` plural twin) | kolu's `implement(servedContract)` **surface-finalization** step; drishti's fragment wrap; odu's two wraps (landed at the bump, [odu#44](https://github.com/juspay/odu/pull/44)). Done only when every serving site observes `runtime.done` and owns shutdown<Footnote>The headline shrank in the build, the negative property did not. kolu's `implement(servedContract)` is **not** fully deleted — it stays as the app-router *builder* (binding `server`/`daemon`/`hosts` and re-adapting the re-served `padi` map fragment for the wire matcher, which requires a contract that declares `surface.padi`). What deleted is its *surface-finalization* role, which moved into `implementSurfacesOnPublisher`. So the campaign property holds verbatim — "no production consumer imports oRPC `implement` **merely** to finalize a Surface" — because kolu's remaining `implement` is the app-router builder, not mere finalization. This was learned the hard way: CI's e2e caught a deterministic wire-matcher 404 (`serveHostMap` returns a matcher-meta-less fragment; a padi-less builder drops every `/surface/padi/*` route) that the `directLink`-based `padiBinding` integration test structurally could not see — directLink navigates the router object, never the matcher. The lesson is now a pin: `packages/server/src/router.test.ts` asserts the assembled `appRouter`'s `StandardRPCMatcher` tree routes `/surface/padi/*`, the evidence class structural navigation cannot provide.</Footnote> | drishti pair |
 | **SR2** <PrLink pr={1815} /> | bound procedures at `client.procedures.<ns>.<verb>` and on map entries; plus `BoundStream.unenrolled` / `BoundCollection.unenrolledKeys` for the un-enrolled carve-out reach | kolu's `PadiRpc` casts (both sites); drishti's `HostRpc`/`AdminScopedRpc` casts | drishti pair |
 | **SR3** <PrLink pr={1811} /> | opaque `membershipId` per map add; typed map connection key; `clockNow` reserved member + offset-at-admit | `connectionRearm.ts` + test; the `"padi"`/`"hosts"` string keys and the `as any` contract/router splices; drishti's `offsetOf: () => 0` stub. Done only when same-key remove/re-add *and* authority restart rebuild subscriptions keyed on `{encodedKey, membershipId}` | drishti pair |
 | **SR4** <PrLink pr={1804} /> | failure schema on `defineSurfaceMap`; required, total `failureOf` | both `"other"` fabrication sites in the map server; the loose `z.string()` cause on the wire | drishti pair |
@@ -275,13 +275,78 @@ The convention-published members persist alongside derived ones — the bridge's
 
 ### SR8.c — members have one home
 
+**Shipped** (<PrLink pr={1838} />, pin-pair [srid/drishti#106](https://github.com/srid/drishti/pull/106)): all three moves + the SR10 confinement pin (`registryMutationConfinement.test.ts`, zero outside mutations found) + the pulam doc-sweep tail. With it, every row of this plan is resolved — shipped, parked-with-gate, or declined-dated.
+
 SR8.a shipped with a composition defect srid caught post-merge: `implementKoluSurface(pollCells: KoluDerivedCells)` splits kolu's member table across two files **by dependency timing** — `index.ts`'s boot builds the framework's `derived.cell(source(...))` inline and injects the *constructed artifacts*, while store cells wire in `surface.ts`. The design that cures it was lens-run before authoring<Footnote>Two Workflow runs over the proposed shape — `wf_4d7b4b25-995` (C2/C3/C6 + adversarial refute, 15 raw → 4 confirmed) and `wf_f51bacc4-d06` (overlay-parameterized C3 ladder + C1). The runs *refuted the initial framework diagnosis*: `implementSurfaces` has carried per-entry spec types since #1197/#1201 (`SurfaceDepsFor<S>`, tsc-probed — full inline inference, zero casts); the "any-specs / cast at the entry boundary" story survives only in a stale comment (`packages/server/src/surface.ts:217-220`) contradicted five lines down, and `Omit<ImplementSurfaceDeps<…>, "channel">` is a provable no-op (`channel` left the interface in #1805). The originally-proposed framework signature change + drishti pair would have been churn on a healthy API.</Footnote> — three moves, one PR:
 
 1. **Hygiene — delete the fossils.** The two vestigial `Omit<ImplementSurfaceDeps<…>, "channel">` spells (`packages/server/src/surface.ts:223-226` **and** `packages/padi/src/controlCore.ts:21-24` — line-wrapped, a naive single-line grep misses both); the lying "any-specs / cast at the entry boundary" comment; the unnecessary `{ input: … }` hand-annotations in `implementSurfaces.test.ts`. Out-of-line deps consts keep a clean `ImplementSurfaceDeps<typeof spec>` annotation (structurally required by TS for a standalone const — no builder API chases this).
 2. **The inversion — one home, one writer.** `implementKoluSurface` takes plain domain-named dependencies (`readPadiMemoryOnce` / `readDaemonInventoryOnce` / a payload-typed `onState` / `padiIdentity`) and builds **all** members inside `surface.ts` — the framework `source(...)` nodes are assembled there (never a kolu-named parallel poll-spec type — that would duplicate `PollSourceOptions` one layer up). `padiLink` + `processStartedAt` convert to **push-source** derived cells on the single `onState` subscription, retiring their hand-rolled in-memory stores and the exported-ctx write path (`index.ts:999/:1005`) — "graph is the one writer" completed. Explicitly NOT the deferred *poll* arm: the reactor defers poll reads by a microtask, the exact stale-read hazard `captureLatest` exists for — verify push-emit timing is synchronous at build, and STOP if it is not. `KoluDerivedCells` dies; `index.ts` imports no reactor primitives.
 3. **The one genuinely-lower move (the real framework half, drishti-paired):** graduate the cadence fuse — kolu-server's `everyMsOrOnState` (`pollCadence.ts:29`) and padi's byte-same `everyMsOrOnDaemonChange` (`servePadi.ts:168`) — to `@kolu/surface`'s reactor beside `everyMs` (two proven consumers, zero kolu concepts; the SR8.a-recorded follow-up lands here). Both twins delete; `ref-surface.mdx` updates. Do **not** ship SR8.c with the duplicate pair still standing.
 
-`captureLatest` is deliberately **kept at app policy** — one consumer; its deeper cure (surface-remote's honest liveness during connecting) stays the separately-recorded follow-up, not swept into this move. The build's gauntlet surfaced two further reactor-depth candidates, **recorded with gates, not done**: a **hot push-source** (replay the current level to a late subscriber — would retire the shared-source seed invariant the build instead enforces fail-fast at boot; gate: a second late-subscriber consumer, or that boot assert ever firing in the wild) and **poll-seed totality lifted into the reactor** (log-skip-continue on the T+0 read, retiring per-cell total-wrappers; gate: a second total-wrapper appearing). Both are `@kolu/surface` changes with drishti drag — prove-then-extract holds them. Done-criteria, grep-shaped: no `Omit<ImplementSurfaceDeps` spelling anywhere (multiline-aware grep); no local cadence-fuse in kolu-server or padi (the reactor export is the only spelling); `index.ts` imports no `derived`/`source`; behavior-neutral — e2e + seal. **Gate:** none — schedulable. Provenance: srid's post-merge finding on <PrLink pr={1835} /> + the two lens runs.
+`captureLatest` was deliberately **kept at app policy** through this move — one consumer; its deeper cure (surface-remote's honest liveness during connecting) shipped separately as <PrLink pr={1852} />: the seam grew `Session.currentState()`, the honest synchronous point-read twin of `onState`, and the memory-rail gate reads `phase === "connected"` off it, so `captureLatest` and `pollCadence.ts` are gone. The corrected mechanism there also falsified this note's implicit framing — `onState` delivery is microtask-deferred, so `captureLatest`'s "same synchronous frame" guarantee was an accident of ordering, and the retired `currentClient() !== null` gate actually leaked stale-live through whole reconnect backoff windows, not just one microtask. The build's gauntlet surfaced two further reactor-depth candidates, **recorded with gates, not done**: a **hot push-source** (replay the current level to a late subscriber — would retire the shared-source seed invariant the build instead enforces fail-fast at boot; gate: a second late-subscriber consumer, or that boot assert ever firing in the wild) and **poll-seed totality lifted into the reactor** (log-skip-continue on the T+0 read, retiring per-cell total-wrappers; gate: a second total-wrapper appearing). Both are `@kolu/surface` changes with drishti drag — prove-then-extract holds them. Done-criteria, grep-shaped: no `Omit<ImplementSurfaceDeps` spelling anywhere (multiline-aware grep); no local cadence-fuse in kolu-server or padi (the reactor export is the only spelling); `index.ts` imports no `derived`/`source`; behavior-neutral — e2e + seal. **Gate:** none — schedulable. Provenance: srid's post-merge finding on <PrLink pr={1835} /> + the two lens runs.
+
+<a id="sr11"></a>
+
+### SR11 — a member declares its client policy *(shipped — <PrLink pr={1847} />, merged 2026-07-16)*
+
+The campaign gave the **producer** side its DSL — a member declares its schema, its `equals`, its derivation, and the framework mints the serving. The **consumer** side never got the same treatment: client *policy* — which `onError`, floor-on-liveness or not, `authority`, coalescing, an `initial` — is still spelled per use-site, ~22 sites today, and the code confesses the pattern (`useDaemonStatus.ts:192`: *"Same singleton `app.cells.X.use(...)` pattern as `processMemory`"*).<Footnote>Surfaced by the LLM-and-DSLs discussion (the Fowler article read): kolu's honest app-glue DSL opening is not a string mini-language or a codegen step — the spec and the interpreter already live in the same language; what's missing is the declaration carrying the *consumer* half. Grounded 2026-07-15 against `wire.ts`, `HostDaemonChips.tsx`, `useDaemonStatus.ts`.</Footnote>
+
+**Before — real sites, quoted.** Every consumer re-decides policy at the call:
+
+```ts
+// wire.ts:277 — preferences
+const preferences = app.cells.preferences.use({
+  authority: "local",
+  initial: DEFAULT_PREFERENCES,
+  coalesceMs: 150,                 // the #1041 drag-frame debounce
+  onError: (err) => toast.error(`Preferences error: ${err.message}`),
+});
+
+// HostDaemonChips.tsx:146 — processMemory, per host
+return padiMap.entry(host).cells.processMemory.use({
+  onError: (err) => toast.error(`Padi/kaval memory error: ${err.message}`),
+});
+```
+
+**After — the policy moves into the declaration** (common/surface.ts, beside schema + equals), and the framework mints the hook:
+
+```ts
+// common — policy is DATA: a closed discriminated union, never a string.
+// (A toast FUNCTION can't live in common; the declaration carries the typed
+// intent, the client owns the one interpreter of each arm.)
+type ClientErrorPolicy =
+  | { kind: "toast"; label: string }       // label is payload, kind is checked
+  | { kind: "log" }                        // observable but silent to the user
+  | { kind: "membership" };                // routes to the host-membership handler
+
+processMemory: {
+  schema: ProcessMemorySchema,
+  equals: processMemoryMbEqual,
+  client: { onError: { kind: "toast", label: "Padi/kaval memory" } },
+},
+preferences: {
+  schema: PreferencesSchema,
+  client: { authority: "local", initial: DEFAULT_PREFERENCES,
+            coalesceMs: 150,
+            onError: { kind: "toast", label: "Preferences" } },
+},
+
+// client — ONE interpreter per arm, registered once (satisfies-never fenced,
+// so a new policy kind FORCES a decision here):
+const interpretErrorPolicy = (p: ClientErrorPolicy, err: Error): void => {
+  switch (p.kind) {
+    case "toast": toast.error(`${p.label} error: ${err.message}`); return;
+    case "log": log.warn(err); return;
+    case "membership": onHostMembershipError(err); return;
+    default: p satisfies never;
+  }
+};
+
+// the use-site shrinks to the read; policy is unrepeatable:
+const mem = padiMap.entry(host).cells.processMemory.use();
+```
+
+What it deletes: the 22-site policy class, the same way `derived.cell` deleted the publish seams — a future consumer *can't* re-decide a member's error routing or floor, because there is no options bag left to spell it in. The open design questions a lens run must settle before this is a PR: the exact arms of the policy union and their interpreter's home (the sketch's shape — typed union in `common`, one `satisfies never`-fenced interpreter in the client — is the P4-correct skeleton; an earlier draft spelled it as a `"toast:…"` string, which srid caught as one string doing two jobs, discriminant + payload, unrejectable by the checker — the union is the fix, recorded here so it isn't re-litigated); per-site *legitimate* divergence (a site that genuinely wants a different floor must become a declared variant, not an override knob); and whether `initial`/`authority` are policy or wiring. **Gate:** lens-run-first (the design-bearing trigger applies in full) + srid's ratification; drishti-paired (a `@kolu/surface` declaration-shape change). Until ruled, the 22 sites stand — they are correct, just repetitious.
 
 The campaign is complete only when these negative properties hold — each is a grep or a test, not a judgment call:
 

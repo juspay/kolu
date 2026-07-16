@@ -75,6 +75,17 @@ NAT idle-eviction).
 | `onStaleRestart` | teardown hook fired at the single stale-close decode site |
 | `restartCloseCode` | that exact close code routes straight to `restarted` |
 
+`ConnectSurfacesOptions.onClientError?: (policy, err) => void` is the app's
+**client error interpreter** — the single seam a multi-surface app registers so a
+member's spec-declared `client.onError` policy (a surface built via
+[`defineSurfaceWithPolicy`](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy))
+reaches app code on a subscription failure. `connectSurfaces` threads it inward to
+every sibling client (`surfaceClients` → each `buildSurfaceClient`), so the app
+spells **one** interpreter here, not one per surface. It is optional at the type; a
+policy-free surface bundle needs none, but a sibling that *does* carry a policy makes
+`buildSurfaceClient` **throw at construction** if it was omitted — a declared policy
+can never route nowhere.
+
 <Aside type="caution" title="A websocket client requires a watchdog">
   `surfaceClient` over a websocket requires a watchdog-backed, branded
   `LiveSignal`; a bare or unbranded socket link throws, because it can

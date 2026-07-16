@@ -370,7 +370,12 @@ export function projectSurface<A extends SurfaceSpec, B extends SurfaceSpec>(
     client: SurfaceClientLike,
   ) => ReturnType<typeof implementSurface<B>>;
 } {
-  const surface = defineSurface(projection.spec);
+  // `B` is a bare `SurfaceSpec` (policy-permissive default), so cast to the
+  // policy-erased `never` form `defineSurface` mints from; the `Surface<B>` return is
+  // restored below. A projection target is server-side (no client policy) regardless.
+  const surface = defineSurface(
+    projection.spec as unknown as SurfaceSpec<never>,
+  ) as unknown as Surface<B>;
   // Inside the body, view `deps` through its loose client shape so the heavy
   // `SurfaceClientOf<A>` union is never re-materialized here (it's already paid
   // for once at `deps`' public annotation). Runtime is identical — `deps` only

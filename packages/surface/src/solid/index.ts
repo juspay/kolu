@@ -97,6 +97,7 @@ export {
   type BoundProcedureOptions,
   type BoundStream,
   buildSurfaceClient,
+  type OnClientError,
   type ReadOnlyBoundCollection,
   type ReadOnlyBoundCollectionResult,
   resolveTransport,

@@ -24,7 +24,13 @@ packageExtensionsChecksum: sha256-GuGZA8jCJUaUE/saX+uezWes2nMASx9CFDTN3Aun/K8=
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  agents: {}
 
   packages/artifact-sdk:
     dependencies:
@@ -120,11 +126,11 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13
       '@pierre/diffs':
-        specifier: ^1.2.10
-        version: 1.2.10(@shikijs/themes@4.2.0)(react@19.2.5)
+        specifier: ^1.2.12
+        version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.5)
       '@pierre/trees':
-        specifier: ^1.0.0-beta.4
-        version: 1.0.0-beta.4(react@19.2.5)
+        specifier: ^1.0.0-beta.5
+        version: 1.0.0-beta.5(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)
       '@solid-primitives/event-listener':
         specifier: ^2.4.5
         version: 2.4.5(solid-js@1.9.11)
@@ -659,6 +665,34 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/kolu-cli:
+    dependencies:
+      cleye:
+        specifier: ^2.3.0
+        version: 2.3.0
+      kolu-server:
+        specifier: workspace:*
+        version: link:../server
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/log:
     devDependencies:
       typescript:
@@ -902,9 +936,6 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
-      cleye:
-        specifier: ^2.3.0
-        version: 2.3.0
       conf:
         specifier: ^15.1.0
         version: 15.1.0
@@ -975,6 +1006,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      cleye:
+        specifier: ^2.3.0
+        version: 2.3.0
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -1104,11 +1138,14 @@ importers:
   packages/solid-pierre:
     dependencies:
       '@pierre/diffs':
-        specifier: ^1.2.10
-        version: 1.2.10(@shikijs/themes@4.2.0)(react@19.2.5)
+        specifier: ^1.2.12
+        version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.5)
       '@pierre/trees':
-        specifier: ^1.0.0-beta.4
-        version: 1.0.0-beta.4(react@19.2.5)
+        specifier: ^1.0.0-beta.5
+        version: 1.0.0-beta.5(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1116,9 +1153,15 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      happy-dom:
+        specifier: ^20.8.9
+        version: 20.8.9
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      vite-plugin-solid:
+        specifier: ^2.11.0
+        version: 2.11.11(solid-js@1.9.11)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
@@ -1197,6 +1240,9 @@ importers:
       happy-dom:
         specifier: ^20.8.9
         version: 20.8.9
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -2758,8 +2804,8 @@ packages:
     resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
     engines: {node: '>=20.0.0'}
 
-  '@pierre/diffs@1.2.10':
-    resolution: {integrity: sha512-rPeAmDWarxFVTQpaf4y6wTxjZxU44xKJKoJti2zU21P06DVd9nRHZX+xSIObLB307Qjpaesyb1x/j0z94t7vLw==}
+  '@pierre/diffs@1.2.12':
+    resolution: {integrity: sha512-pY/gmgWL03WnagqCyCnBi3QtRXUv4hCIY6FYqd5b1ZGaoI6a4Bsji8j+yRl2RfzPh/8Hf19rCl1GE80G6a1cLQ==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -2769,14 +2815,14 @@ packages:
       react-dom:
         optional: true
 
-  '@pierre/theme@1.0.3':
-    resolution: {integrity: sha512-sWHv11TMoqKxKDgTIk5VbhQjdPhs8DCcBxbjh3mRlS3YOM/OcrWoGX6MM8eBGn9cUu3M46Py0JnxsG2nJaFTuA==}
+  '@pierre/theme@1.1.0':
+    resolution: {integrity: sha512-GC2OWTAfTIIWWYhPCygwG8t2EtePQkRfON4MI2rwIkJylmiyqIttJID2dCL8sUD8cNdEvYkEyfEHHKMeCiDLoQ==}
     engines: {vscode: ^1.0.0}
 
-  '@pierre/theming@0.0.1':
-    resolution: {integrity: sha512-1thlEtJbqdyLzc1ZS2KQa1q7FzDGHT4dTEdKHoyQjOMeWWOmbVG5/ndEfOKfAb5Fzkz8cNJrOjFLiZoDH/A03A==}
+  '@pierre/theming@0.0.2':
+    resolution: {integrity: sha512-QM1M4stXfnzfaE8I8YbjXSApV8c+2dBsXJj8eYg9WTpBR/cTmCZIcfGnN4p13iRrYu2Br/R/OJfEL7uR8Qjctw==}
     peerDependencies:
-      '@pierre/theme': ^1.0.0
+      '@pierre/theme': ^1.1.0
       '@shikijs/themes': ^3.0.0 || ^4.0.0
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -2793,8 +2839,8 @@ packages:
       shiki:
         optional: true
 
-  '@pierre/trees@1.0.0-beta.4':
-    resolution: {integrity: sha512-OfT1yk9ne8Te5+GB5zUY8yqE6B8BqjBHQJleH4lu8ltwNpoocZl4vXt1AzlEExpxI/pp+AFX5QG+lR3JjtTEag==}
+  '@pierre/trees@1.0.0-beta.5':
+    resolution: {integrity: sha512-IzxkB9qv6GLbeEXObhlAD205LfYHiLeRwJdnaIdX0f5keTZF4X9EfiuEQ3QiyxOxouVVmUX3rX7m6a8zNMo/wA==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -3646,8 +3692,8 @@ packages:
     resolution: {integrity: sha512-X07nttJQkwkfKfvTPG/KSnE2OMdcUCao6+eXF3wmnIQRn2aPAHH3VxDbDOdegkd6JbPsXqShpvEOHfAT+nCNwQ==}
     engines: {node: '>=0.3.1'}
 
-  diff@8.0.3:
-    resolution: {integrity: sha512-qejHi7bcSD4hQAZE0tNAawRK1ZtafHDmMTMkrrIGgSLl7hTnQHmKCeB45xAcbfTqK2zowkM3j3bHt/4b/ARbYQ==}
+  diff@9.0.0:
+    resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
 
   dompurify@3.4.11:
@@ -5880,12 +5926,12 @@ snapshots:
       tslib: 2.8.1
       tsyringe: 4.10.0
 
-  '@pierre/diffs@1.2.10(@shikijs/themes@4.2.0)(react@19.2.5)':
+  '@pierre/diffs@1.2.12(@shikijs/themes@4.2.0)(react@19.2.5)':
     dependencies:
-      '@pierre/theme': 1.0.3
-      '@pierre/theming': 0.0.1(@pierre/theme@1.0.3)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)
+      '@pierre/theme': 1.1.0
+      '@pierre/theming': 0.0.2(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)
       '@shikijs/transformers': 3.23.0
-      diff: 8.0.3
+      diff: 9.0.0
       hast-util-to-html: 9.0.5
       lru_map: 0.4.1
       shiki: 4.2.0
@@ -5894,21 +5940,26 @@ snapshots:
     transitivePeerDependencies:
       - '@shikijs/themes'
 
-  '@pierre/theme@1.0.3': {}
+  '@pierre/theme@1.1.0': {}
 
-  '@pierre/theming@0.0.1(@pierre/theme@1.0.3)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)':
+  '@pierre/theming@0.0.2(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)':
     optionalDependencies:
-      '@pierre/theme': 1.0.3
+      '@pierre/theme': 1.1.0
       '@shikijs/themes': 4.2.0
       react: 19.2.5
       shiki: 4.2.0
 
-  '@pierre/trees@1.0.0-beta.4(react@19.2.5)':
+  '@pierre/trees@1.0.0-beta.5(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)':
     dependencies:
+      '@pierre/theming': 0.0.2(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)
       preact: 11.0.0-beta.0
       preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
     optionalDependencies:
       react: 19.2.5
+    transitivePeerDependencies:
+      - '@pierre/theme'
+      - '@shikijs/themes'
+      - shiki
 
   '@pinojs/redact@0.4.0': {}
 
@@ -6618,7 +6669,7 @@ snapshots:
 
   diff@4.0.4: {}
 
-  diff@8.0.3: {}
+  diff@9.0.0: {}
 
   dompurify@3.4.11:
     optionalDependencies:

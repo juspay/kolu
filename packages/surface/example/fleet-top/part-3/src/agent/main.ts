@@ -3,9 +3,10 @@
  *
  * This is what `ssh <host> fleet-top-agent --stdio` runs on the far box. The
  * agent is ephemeral (a fresh one per link — `serveOverStdio` makes THIS
- * process be the server, so it's gone when the link drops); the parent's
- * `makeSession` re-spawns it on reconnect. That's the right shape for a
- * re-run-fresh reader like `top`.
+ * process be the server, and the framework exits the process once the awaited
+ * serve settles: 0 on `'end'`, 1 on `'error'`); the parent's `makeSession`
+ * re-spawns it on reconnect. That's the right shape for a re-run-fresh reader
+ * like `top`.
  *
  * **Stdout is the protocol channel** — every diagnostic goes to fd 2. A stray
  * write to fd 1 corrupts the next frame.
@@ -30,6 +31,8 @@ async function main(): Promise<void> {
     router: top.router,
     onFirstRequest: () => log("first RPC received — link is live"),
   });
+  // Synchronous post-settle cleanup — the supported window before the
+  // framework-owned exit (see `serveOverStdio`'s "Lifetime" doc).
   top.dispose();
   log(`stdin closed (${end.reason}) — agent exiting`);
 }

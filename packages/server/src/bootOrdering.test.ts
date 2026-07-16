@@ -13,11 +13,13 @@
  * unset, a wedged/failing local padi) is heavier than a unit suite should carry —
  * see the PR for the manual measurement (HTTP up in ~1s regardless of whether the
  * local padi ever connects). This test instead pins the ORDERING structurally, by
- * parsing `index.ts`'s own top-level statements: the local-arm pin statement must
+ * parsing the statements of `index.ts`'s exported `bootKoluWeb` (the boot
+ * sequence — the module's former top-level script, function-ized at kolu-cli PR1
+ * when the bin moved to `packages/kolu-cli`): the local-arm pin statement must
  * (a) exist, (b) NOT be an `await` (so it can't block), and (c) be reached, in
  * source order, before the `serve(...)` call that starts accepting connections —
- * `index.ts` is a flat top-level-await script with no function indirection between
- * these two points, so source order IS execution order here.
+ * the boot body is a flat await-bearing sequence with no function indirection
+ * between these two points, so source order IS execution order here.
  */
 
 import { readFileSync } from "node:fs";
@@ -50,13 +52,32 @@ function nodeText(node: AstNode): string {
   return SOURCE.slice(node.start, node.end);
 }
 
-function parseTopLevelStatements(): AstNode[] {
-  return parse(SOURCE, {
+/** The statements of `bootKoluWeb`'s body — the boot sequence this test pins.
+ *  Finding the function is itself asserted: a rename or a re-flattening of
+ *  index.ts fails HERE, loudly, instead of silently passing on an empty list. */
+function parseBootStatements(): AstNode[] {
+  const topLevel = parse(SOURCE, {
     sourceFilename: ENTRY,
     sourceType: "module",
     plugins: ["typescript"],
     createParenthesizedExpressions: true,
   }).program.body as unknown as AstNode[];
+  for (const stmt of topLevel) {
+    const decl =
+      stmt.type === "ExportNamedDeclaration" ? stmt.declaration : stmt;
+    if (
+      isAstNode(decl) &&
+      decl.type === "FunctionDeclaration" &&
+      isIdentifierNamed(decl.id, "bootKoluWeb") &&
+      isAstNode(decl.body) &&
+      Array.isArray(decl.body.body)
+    ) {
+      return decl.body.body as AstNode[];
+    }
+  }
+  throw new Error(
+    "bootKoluWeb not found in index.ts — the boot-ordering pin has lost its target",
+  );
 }
 
 /** Does this statement's (possibly parenthesized) expression textually reach a
@@ -109,7 +130,7 @@ function isServeListenStatement(stmt: AstNode): boolean {
 }
 
 describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks serve()", () => {
-  const statements = parseTopLevelStatements();
+  const statements = parseBootStatements();
   const pinIndex = statements.findIndex(isLocalPinStatement);
   const serveIndex = statements.findIndex(isServeListenStatement);
 

@@ -85,6 +85,8 @@ async function main(): Promise<void> {
     router: runner.router,
     onFirstRequest: () => log("first RPC received — TUI attached"),
   });
+  // Synchronous post-settle cleanup — the supported window before the
+  // framework-owned exit (see `serveOverStdio`'s "Lifetime" doc).
   runner.dispose();
   log(`stdin closed (${end.reason}) — runner exiting`);
 }

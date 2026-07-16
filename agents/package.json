@@ -1,0 +1,8 @@
+{
+  "name": "kolu-agents",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:unit": "vitest run"
+  }
+}

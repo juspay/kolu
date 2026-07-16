@@ -1,0 +1,63 @@
+---
+title: Notifications & Attention
+description: "How kolu surfaces an agent that needs you: the per-row dock badge, the app-icon count, an OS notification for a backgrounded tab, and cross-machine reach that switches host and focuses the exact terminal in one click."
+order: 49
+section: Use Kolu
+koluHero:
+  eyebrow: never miss a turn
+  headline: The agent that needs you, {reaches you}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+Running several agents, the thing you most need to know is *which one is waiting
+on you, and where*. kolu escalates that signal outward — from the dock row, to
+the app icon, to an OS notification, across every machine — so an agent that
+flips to **awaiting you** finds you even when you're looking elsewhere.
+
+## On the dock
+
+An agent that finishes in the background marks its dock row with an amber
+**unread badge** beside its state pip, and the dock keeps a terminal genuinely
+**awaiting you** floating in the needs-you group (a just-finished agent that
+isn't blocked drops to idle instead). The vocabulary of states is
+[Agent detection](/agent-detection); how the badge composes with the live ring is
+[The Dock](/dock).
+
+## Beyond the app
+
+- The **app-icon badge** counts awaiting agents — and it counts them across
+  **every connected machine**, not just the one on screen.
+- A backgrounded tab gets a **native OS notification** when an agent finishes or
+  starts waiting. (If they don't appear, see
+  [Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).)
+- **Clicking the notification** brings kolu forward, and when the agent is on
+  another machine it **switches to that host and focuses the exact terminal** —
+  one action, no hunting.
+
+<Aside type="note" title="It fires once, on a real transition">
+  kolu tracks each terminal by its own identity, so only an agent that genuinely
+  *enters* the waiting state notifies you. Switching hosts, or opening and
+  closing terminals, reorders the list but never manufactures a phantom "just
+  started waiting" alert — a parked review prompt won't ding again every time you
+  return to its machine.
+</Aside>
+
+## Across machines
+
+The needs-you signal is a first-class part of the [multi-host](/remote-hosts)
+story: each host chip shows a live awaiting-you count read straight off that
+machine, a host whose link drops **dims** its chip rather than dropping the
+count, and the whole roll-up reaches you on the machine you're actually looking
+at. On a phone, the same amber "needs you" pill rides the host row in the
+pull-down sheet — see [kolu on a phone](/mobile).
+
+## Next
+
+<CardGrid>
+  <LinkCard title="The Dock" href="/dock" description="where attention first surfaces, per row" />
+  <LinkCard title="Remote Hosts" href="/remote-hosts" description="attention that rolls up across machines" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="if desktop notifications aren't showing" />
+</CardGrid>

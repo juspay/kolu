@@ -13,6 +13,7 @@ import {
   type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
+import { createEventListener } from "@solid-primitives/event-listener";
 import {
   type Component,
   createEffect,
@@ -37,7 +38,20 @@ type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 export type FileTreeProps = {
   paths: string[];
   gitStatus?: GitStatusEntry[];
+  /** The host-owned selection to reflect in the tree. Writes here are
+   *  effectively **one-way**: applied silently (marking `aria-selected`,
+   *  scrolling the row into view), and the #1841 provenance gate normally
+   *  suppresses their echo so they don't round-trip back through `onSelect`.
+   *  The host is the source of this value, so it already knows what it wrote.
+   *  (Not an absolute guarantee — see the gate's documented adjacency limit in
+   *  the body, where a non-selecting gesture can let a single echo through.) */
   selectedPath?: string | null;
+  /** Fires for a selection a real user gesture (click/keydown on the tree)
+   *  caused — treat it as "the user picked a file," not a mirror of every
+   *  selection. A programmatic write to `selectedPath` is normally suppressed
+   *  by the one-shot gesture gate rather than echoed here, with one bounded
+   *  exception documented on the gate (a non-selecting gesture can let a single
+   *  adjacent echo through — never a loop). */
   onSelect?: (path: string | null) => void;
   /** Enable Pierre's built-in header search affordance. Default `true`.
    *  Set to `false` when the host renders its own search input and
@@ -172,6 +186,48 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // would drop the very first delta's removals.
   let appliedPaths: readonly string[] = [];
 
+  // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
+  // CONTROLLED component: the host drives its selection via `props.selectedPath`
+  // (the effect below calls `getItem(path).select()`), and Pierre calls
+  // `onSelectionChange` back. The catch is Pierre fires that callback for BOTH a
+  // real user click AND its own programmatic re-selection — so during agent
+  // activity, when Pierre re-emits selection on its own (an autonomous echo, no
+  // user input), forwarding it to the host closes a feedback loop: host writes
+  // the echoed path → the selection effect re-applies it into Pierre → Pierre
+  // re-emits → host writes again. The selection ping-pongs between two adjacent
+  // files at ~60-120Hz until the terminal is switched (verified from a live
+  // `setSelectedFile` stack capture during the loop: every write was
+  // `onSelectionChange → onSelect`, never a click handler). Cutting the loop needs
+  // PROVENANCE — forward only a selection a genuine USER GESTURE caused. So
+  // `userGesture` is armed for exactly one emit by a real pointer/keyboard event
+  // on the tree (capture phase, so it is set before Pierre's row handler runs) and
+  // is consumed by the first emit that follows; a safety disarm on the next
+  // animation frame clears it if a click selects an already-selected row (no
+  // emit), so no stale token survives for a later echo to consume.
+  //
+  // Known limitation: the token authorizes by interaction-*adjacency*, not
+  // selection-*causation*. It records only THAT a user touched the tree, not
+  // WHICH selection they meant. An interaction that arms the token but emits no
+  // selection of its own to consume it — a dead-space/scrollbar click, a
+  // non-selecting keydown, or (only when `search` is true) a Pierre search-box
+  // keystroke — can, during agent churn, leave the token armed for the *next
+  // autonomous echo*, which is then forwarded to the host as ONE adjacent file
+  // the user never picked. A file OR folder click is NOT such a leak: it emits
+  // its own path and self-consumes the token at the `userGesture = false` line
+  // below before the fileSet filter runs, so it can't leak into a later echo.
+  // Single-use consumption bounds the leak to a single self-correcting jump —
+  // never a loop. Adjacency is chosen over the causal alternative (suppress
+  // echoes around the wrapper's OWN `batch()`/`select()`/`deselect()` writes)
+  // deliberately, NOT for lack of a second consumer: the causal flag would be an
+  // in-place change here, but it must survive Pierre's deferred-microtask emit
+  // the same way this gesture window does AND would misclassify the hard case a
+  // gesture token gets right — a genuine user click that interleaves with one of
+  // the wrapper's own deferred writes during churn. Separately, lifting this
+  // token into a shared provenance primitive is deferred to population-two
+  // (prove-then-extract, dovetailing with the solidjs.md graduation candidate) —
+  // that deferral is about extraction, not about the adjacency-vs-causal choice.
+  let userGesture = false;
+
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
   // don't appear in `paths` (Pierre infers them from path prefixes), so
@@ -179,6 +235,38 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
+    // Arm the provenance gate on real user input. Capture phase so it is set
+    // before Pierre's own row `click`/`keydown` handler runs; the events are
+    // `composed`, so they cross Pierre's shadow root to this host container.
+    // `click` (not `pointerdown`) matches the event Pierre selects on and also
+    // covers touch taps.
+    //
+    // Disarm on the NEXT ANIMATION FRAME, not a microtask. Pierre's emit timing
+    // is ENVIRONMENT-DEPENDENT: driven directly (a synchronous `dispatchEvent`
+    // in a happy-dom unit test), `onSelectionChange` fires synchronously inside
+    // the click dispatch (its `#emit` is a plain synchronous `for` loop). But in
+    // the REAL app — Preact rendering Pierre into a shadow root, a real browser
+    // click — it lands DEFERRED, after this handler's own microtask (measured on
+    // the live running app: the emit fires before the next frame but after
+    // `queueMicrotask`). We know the deferred case is the one that ships because
+    // a `queueMicrotask` disarm shipped in #1846 and dropped EVERY genuine click
+    // in production (it ran before the deferred emit) — reverted before merge.
+    // `requestAnimationFrame` is the disarm that survives BOTH timings (it clears
+    // after either emit but before the next frame), whereas `queueMicrotask`
+    // survives only the synchronous case. Single-use consumption in
+    // `onSelectionChange` still kills the echo loop after one forward, so the
+    // wider window costs nothing beyond the documented one-adjacent-echo leak.
+    // `createEventListener` disposes both listeners on this owner's cleanup.
+    const armGesture = () => {
+      userGesture = true;
+      requestAnimationFrame(() => {
+        userGesture = false;
+      });
+    };
+    createEventListener(container, ["click", "keydown"], armGesture, {
+      capture: true,
+    });
+
     // A directory reveal can be standing when this tree mounts — both for a
     // folder clicked from a diff view (mounts us with the request already set)
     // and, crucially, for *every remount* the live fsListAll stream triggers
@@ -221,6 +309,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ? { contextMenu: props.contextMenu }
           : undefined,
         onSelectionChange: (paths) => {
+          // Only a user-gesture-originated selection reaches the host; an
+          // autonomous re-emit during churn is dropped, so it can't drive the
+          // store↔Pierre loop (#1841). The gesture arms this for one emit.
+          if (!userGesture) return;
+          userGesture = false;
           // Pierre fires with all selected paths; we model single-select.
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
@@ -319,10 +412,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
   // slot map) leaves the tree out of sync whenever selection arrives
   // after FileTree mount — the `Open path:N` flow from a diff is the
-  // canonical case. `onSelectionChange` re-fires when we call
-  // `select()`, so the host's `onSelect` handler must be idempotent on
-  // same-value writes (which it already is, as a SolidJS reactive
-  // setter on an equal value is a no-op).
+  // canonical case. `onSelectionChange` re-fires when we call `select()`,
+  // but the provenance gate drops that emit (no user gesture is armed), so
+  // it never reaches the host — the programmatic echo stops here rather than
+  // round-tripping through `onSelect`.
   createEffect(
     on(
       () => props.selectedPath ?? null,
