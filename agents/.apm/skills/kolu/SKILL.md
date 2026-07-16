@@ -189,9 +189,13 @@ poll in bounded slices: repeat `wait_outputSettled { idleMs: 800, timeoutMs:
 
 ## Fallback — the `kaval-tui` / `padi-tui` CLIs (no MCP connected)
 
-When no kolu MCP server is available — the host has none configured, or you're
-driving a **raw standalone kaval** terminal padi doesn't track — the same loop
-runs on the CLIs. The discipline is identical; only the spelling changes:
+When no kolu MCP server is available — the host has none configured, an older
+kolu without the MCP face, a non-MCP agent runtime, or a **raw standalone
+kaval** terminal padi doesn't track — the same loop runs on the CLIs. **The
+full CLI treatment lives in [TUI.md](TUI.md)** (the three-step submit in CLI
+form, `--file`, the done-signal exit codes, daemon discovery and the
+`$KAVAL_SOCKET`/`$KAVAL_TERMINAL_ID` self-knowledge vars, worktree
+provisioning, the old-daemon polling fallback). The verb map:
 
 | MCP | CLI |
 | --- | --- |
@@ -203,36 +207,6 @@ runs on the CLIs. The discipline is identical; only the spelling changes:
 | `screen_text { tail }` | `kaval-tui snapshot "$id" --viewport` (never a bare `snapshot \| tail` — that's the buffer bottom, not the screen) |
 | `terminals` resource | `kaval-tui list` (autodiscovers every daemon, self-labeling) · `padi-tui status` |
 | `lifecycle_kill` | `kaval-tui kill "$id"` |
-
-```sh
-id=$(kaval-tui create --json -- claude | jq -r .id)          # spawn (raw kaval)
-kaval-tui send  "$id" "refactor the parser to use a lexer"   # 1. the text
-kaval-tui wait  "$id" --until idle:300                       # 2. observe the settle
-kaval-tui send  "$id" --key Enter                            # 3. submit
-kaval-tui wait  "$id" --until idle:800 --timeout 600000      # 4. the turn ends
-kaval-tui snapshot "$id" --viewport                          # 5. read
-```
-
-CLI-specific notes (they don't apply to the MCP face):
-
-- **Flags go AFTER the subcommand** (`kaval-tui list --socket <path>`, never
-  `kaval-tui --socket <path> list`).
-- **Inside a kolu terminal, `$KAVAL_SOCKET` names your daemon and
-  `$KAVAL_TERMINAL_ID` names *this* terminal** (`$PADI_SOCKET` is padi-tui's
-  twin) — an agent can drive its siblings or itself with zero discovery.
-  Absent → `kaval-tui list`.
-- **Exit codes are the wire**: met → 0, timeout → 2 ("target busy" when
-  bounded-waiting on a busy agent), terminal gone → 3, link/usage → 1.
-  `--json` gives the structured `{ id, result, … }` frame instead.
-- **A held foreground `wait` runs inside YOUR harness's tool timeout** (~2 min
-  default in most agent harnesses): either end your turn and let the other
-  side ping you (the event-driven loop — see `/codex-debate`), or raise the
-  Bash call's own timeout above the `--timeout`.
-- **Socket paths must stay under 108 bytes** (`AF_UNIX`): a hand-rolled
-  standalone kaval needs a short `--socket` (`/tmp/kv.$$/pty.sock`), never one
-  under a deep scratchpad path.
-- **Old daemon without `wait`**: fall back to polling `snapshot --viewport`
-  until the screen holds still across two reads, capped by a deadline.
 
 ## Acceptance
 
