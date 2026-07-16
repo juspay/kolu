@@ -585,19 +585,15 @@ async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
   // retains the rejected `clientPromise` across the backoff wait — through entire
   // reconnect backoff windows, republishing the mirror's held stale RSS the whole time.
   // Reading the phase closes that: liveness is now `phase === "connected"`, which is app
-  // POLICY (`padiMemoryReadable`: "a live reading exists only when connected"), named as
-  // such — no accessor pointer stands in for it. A fresh rebind still has one bounded fold
-  // cycle where the mirror hasn't re-folded the newest reading yet (Ledger L14, orthogonal
-  // to the gate).
+  // POLICY (`padiMemoryReadable`: "a live reading exists only when connected AND not
+  // destroyed"), named as such — no accessor pointer stands in for it. A fresh rebind still
+  // has one bounded fold cycle where the mirror hasn't re-folded the newest reading yet
+  // (Ledger L14, orthogonal to the gate).
   //
-  // `isDestroyed()` folds to `absent` too: `currentState()` is the honest published FRAME
-  // (there is no "destroyed" phase — its last frame may still read `connected`), so a
-  // torn-down session's liveness is a separate fact the frame can't carry. The retired
-  // `currentClient()` gate folded it (via `destroyed ? null`); preserving that keeps the
-  // ONLY behavior change the intended phase-tightening, and the mirror read below can't run
-  // against a destroyed re-serve.
-  if (padiSession.isDestroyed() || !padiMemoryReadable(padiSession.currentState()))
-    return null;
+  // The whole gate — the phase-tightening AND the `isDestroyed()` fold (the frame can't
+  // carry destroyed-ness; see `padiMemoryReadable`'s module doc) — is the named leaf now, so
+  // the mirror read below can't run against a destroyed re-serve.
+  if (!padiMemoryReadable(padiSession)) return null;
   const ctl = new AbortController();
   try {
     // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
