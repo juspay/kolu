@@ -588,7 +588,7 @@ const combined = []
 REVIEWERS.forEach((r, idx) => {
   const findings = reviews[idx]?.findings ?? []
   reviewByLens[r.lens] = findings
-  findings.forEach((f, i) => combined.push({ id: `${r.lens}-${i + 1}`, origin: r.lens, severity: f.severity || 'major', ...f }))
+  findings.forEach((f, i) => combined.push({ ...f, id: `${r.lens}-${i + 1}`, origin: r.lens, severity: f.severity || 'major' }))
 })
 log(`Independent findings: ${REVIEWERS.map((r) => `${r.lens}=${reviewByLens[r.lens].length}`).join(', ')}`)
 
