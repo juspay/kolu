@@ -103,7 +103,9 @@ const trackCard = (item) => {
     if (n.lane.sub) shd.appendChild($("span", "lane-sub", n.lane.sub));
     sub.appendChild(shd);
     const srail = $("div", "rail rail-sub");
-    n.lane.nodes.forEach((x) => srail.appendChild(station(x)));
+    n.lane.nodes.forEach((x) => {
+      srail.appendChild(station(x));
+    });
     sub.appendChild(srail);
     card.appendChild(sub);
   });
@@ -122,7 +124,7 @@ let painted = false;
 function render(d) {
   const meta = document.getElementById("meta");
   meta.replaceChildren($("span", "live-dot"),
-    $("span", null, `${d.project ? d.project + " · " : ""}${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
+    $("span", null, `${d.project ? `${d.project} · ` : ""}${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
 
   const root = document.getElementById("root");
   root.replaceChildren();
@@ -145,13 +147,17 @@ function render(d) {
   const q = section("Merge queue · srid");
   const qp = $("div", "pills");
   if (d.queue.length === 0) qp.appendChild($("span", "empty", "— empty —"));
-  d.queue.forEach((n) => qp.appendChild(pill(n)));
+  d.queue.forEach((n) => {
+    qp.appendChild(pill(n));
+  });
   q.appendChild(qp);
 
   const det = $("details", "shipped");
   det.appendChild($("summary", null, `Shipped today · ${d.shipped.length}`));
   const sp = $("div", "pills");
-  d.shipped.forEach((n) => sp.appendChild(pill({ ...n, state: "done" })));
+  d.shipped.forEach((n) => {
+    sp.appendChild(pill({ ...n, state: "done" }));
+  });
   det.appendChild(sp);
   root.appendChild(det);
 
