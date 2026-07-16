@@ -172,6 +172,26 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // would drop the very first delta's removals.
   let appliedPaths: readonly string[] = [];
 
+  // Provenance gate for `onSelectionChange` (juspay/kolu#1841). Pierre is a
+  // CONTROLLED component: the host drives its selection via `props.selectedPath`
+  // (the effect below calls `getItem(path).select()`), and Pierre calls
+  // `onSelectionChange` back. The catch is Pierre fires that callback for BOTH a
+  // real user click AND its own programmatic re-selection — so during agent
+  // activity, when Pierre re-emits selection on its own (an autonomous echo, no
+  // user input), forwarding it to the host closes a feedback loop: host writes
+  // the echoed path → the selection effect re-applies it into Pierre → Pierre
+  // re-emits → host writes again. The selection ping-pongs between two adjacent
+  // files at ~60-120Hz until the terminal is switched (verified from a live
+  // `setSelectedFile` stack capture during the loop: every write was
+  // `onSelectionChange → onSelect`, never a click handler). Cutting the loop needs
+  // PROVENANCE — forward only a selection a genuine USER GESTURE caused. So
+  // `userGesture` is armed for exactly one emit by a real pointer/keyboard event
+  // on the tree (capture phase, so it is set before Pierre's row handler runs) and
+  // is consumed by the first emit that follows; a safety disarm on the next
+  // animation frame clears it if a click selects an already-selected row (no
+  // emit), so no stale token survives for a later echo to consume.
+  let userGesture = false;
+
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
   // don't appear in `paths` (Pierre infers them from path prefixes), so
@@ -179,6 +199,36 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
+    // Arm the provenance gate on real user input. Capture phase so it is set
+    // before Pierre's own row `click`/`keydown` handler runs; the events are
+    // `composed`, so they cross Pierre's shadow root to this host container.
+    // `click` (not `pointerdown`) matches the event Pierre selects on and also
+    // covers touch taps.
+    //
+    // Disarm on the NEXT ANIMATION FRAME, not a microtask. Pierre does not emit
+    // `onSelectionChange` synchronously in the click dispatch — it emits on a
+    // microtask that lands *after* this handler's own microtask (measured on a
+    // live tree: the emit fires before the next frame but after `queueMicrotask`).
+    // A microtask disarm therefore ran *before* the emit and dropped every genuine
+    // click (#1846's preview regression). A frame boundary reliably outlasts the
+    // deferred emit, and single-use consumption in `onSelectionChange` still kills
+    // the echo loop after one forward — so the wider window costs nothing. An
+    // `AbortController` removes the listeners on cleanup.
+    const gestures = new AbortController();
+    const armGesture = () => {
+      userGesture = true;
+      requestAnimationFrame(() => {
+        userGesture = false;
+      });
+    };
+    for (const type of ["click", "keydown"] as const) {
+      container.addEventListener(type, armGesture, {
+        capture: true,
+        signal: gestures.signal,
+      });
+    }
+    onCleanup(() => gestures.abort());
+
     // A directory reveal can be standing when this tree mounts — both for a
     // folder clicked from a diff view (mounts us with the request already set)
     // and, crucially, for *every remount* the live fsListAll stream triggers
@@ -221,6 +271,11 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ? { contextMenu: props.contextMenu }
           : undefined,
         onSelectionChange: (paths) => {
+          // Only a user-gesture-originated selection reaches the host; an
+          // autonomous re-emit during churn is dropped, so it can't drive the
+          // store↔Pierre loop (#1841). The gesture arms this for one emit.
+          if (!userGesture) return;
+          userGesture = false;
           // Pierre fires with all selected paths; we model single-select.
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
