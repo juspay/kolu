@@ -830,8 +830,12 @@ for (const f of combined) {
     if (check) log(`Contested ${f.id}: ${opp} objects (${check.disposition || 'no disposition given'}).`)
   }
 }
+// Invariant: every contested id was queueHunk'd (matcher-contested items at the
+// contested loop, everything else via the objection queues), and the extraction
+// block above fills a loud pointer for any id the extractor missed — so
+// `excerpts` is total over the contested set.
 contested.forEach((c) => {
-  c.excerpt = excerpts[c.id] || `(no hunk excerpt — Read the file(s) at ${c.f.location} under ${repoPath} yourself)`
+  c.excerpt = excerpts[c.id]
 })
 log(`Reconcile done: ${Object.keys(settled).length}/${combined.length} finding(s) settled without debate; ${contested.length} contested item(s) go to threads.`)
 
