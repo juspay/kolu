@@ -5,6 +5,7 @@
  * the ruling's pin — a REJECTING watcher rejects `runWait` verbatim (a bug
  * propagates; it is never folded into `closed`).
  */
+import { getEventListeners } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import {
   isValidTimerMs,
@@ -108,7 +109,6 @@ describe("runWait — the bounded-wait race", () => {
     // every arm), not `{ once }` (fired only if the CALLER aborts — never on
     // the common met arm). N settled waits on one long-lived signal must leave
     // zero listeners behind.
-    const { getEventListeners } = await import("node:events");
     const caller = new AbortController();
     for (let i = 0; i < 5; i++) {
       await runWait<Met>({ signal: caller.signal }, async (ctx) => {
