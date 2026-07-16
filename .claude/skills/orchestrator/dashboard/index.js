@@ -1,13 +1,15 @@
-// Renders window.BOARD into the board. The DATA lives in the downstream
-// project's root as `orchestrator-data.js` (the only file a coordinator's
-// state change edits); this shell+renderer are versioned skill assets, so the
-// climb below is fixed by the skill's known depth (agents/.apm/skills/…/dashboard
-// and the generated .claude/.agents copies sit at the SAME depth). Refresh =
-// re-insert the data script with a cache-buster; fetch() is unavailable here
-// because the Code-tab preview iframe is sandboxed (origin null, deliberate) —
-// the browser normalizes the ../ climb before the request, so the preview
-// route's wire-level traversal guard is never involved.
+// Departure-board renderer for window.BOARD (from $PWD/orchestrator-data.js —
+// see SKILL.md; the ../ climb is fixed by the skill's known depth and the
+// browser normalizes it before the request, so the preview route's wire-level
+// traversal guard is never involved). Each lane renders as a card with a
+// PROGRESS RAIL of stations: filled ✓ = done, pulsing beacon = running,
+// colored = waiting/blocked, hollow = queued. Narrow-first (Code-tab preview
+// panel); detail lives in hover titles. Data refresh re-inserts the data
+// script (fetch() is CORS-blocked in the sandboxed preview BY DESIGN);
+// the entrance animation runs on first paint only, so the 30s reload never
+// re-plays it.
 const DATA_SRC = "../../../../orchestrator-data.js";
+
 const $ = (tag, cls, text) => {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -15,64 +17,106 @@ const $ = (tag, cls, text) => {
   return el;
 };
 
+/** A lane's headline state: the station the eye should read first. */
+const headline = (nodes) => {
+  const pick =
+    nodes.find((n) => n.state === "block") ??
+    nodes.find((n) => n.state === "run") ??
+    nodes.find((n) => n.state === "wait") ??
+    (nodes.every((n) => n.state === "done") ? nodes[nodes.length - 1] : null);
+  return pick ?? nodes.find((n) => (n.state ?? "q") === "q") ?? nodes[0];
+};
+
+const station = (n) => {
+  const el = $(n.href ? "a" : "span", `station p-${n.state ?? "q"}`);
+  if (n.href) el.href = n.href;
+  if (n.title) el.title = n.title;
+  el.appendChild($("span", "dot"));
+  el.appendChild($("span", "slabel", n.label));
+  return el;
+};
+
+const laneCard = (item) => {
+  const head = headline(item.nodes);
+  const card = $("div", `card s-${head.state ?? "q"}`);
+
+  const hd = $("div", "card-head");
+  const name = $("span", "lane-name");
+  if (item.href) {
+    const a = $("a", null, item.name);
+    a.href = item.href;
+    a.title = "jump to this lane's terminal in kolu";
+    name.appendChild(a);
+  } else name.textContent = item.name;
+  hd.appendChild(name);
+  if (item.sub) hd.appendChild($("span", "lane-sub", item.sub));
+  const now = $("span", `now s-${head.state ?? "q"}`);
+  now.appendChild($("span", "caret", "▸ "));
+  now.appendChild(document.createTextNode(head.label));
+  if (head.title) now.title = head.title;
+  hd.appendChild(now);
+  card.appendChild(hd);
+
+  const rail = $("div", "rail");
+  item.nodes.forEach((n) => rail.appendChild(station(n)));
+  card.appendChild(rail);
+  return card;
+};
+
 const pill = (n) => {
-  const el = $(n.href ? "a" : "span", `n ${n.state ?? "q"}`, n.label);
+  const el = $(n.href ? "a" : "span", `pill s-${n.state ?? "q"}`, n.label);
   if (n.href) el.href = n.href;
   if (n.title) el.title = n.title;
   return el;
 };
 
-const flowRow = (item) => {
-  const row = $("div", "flow");
-  const lane = $("div", "lane");
-  if (item.href) {
-    const a = $("a", null, item.name);
-    a.href = item.href;
-    a.title = "jump to this lane's terminal in kolu";
-    lane.appendChild(a);
-  } else lane.appendChild(document.createTextNode(item.name));
-  if (item.sub) lane.appendChild($("small", null, item.sub));
-  row.appendChild(lane);
-  item.nodes.forEach((n, i) => {
-    if (i > 0) row.appendChild($("span", "arr", "→"));
-    row.appendChild(pill(n));
-  });
-  return row;
-};
+let painted = false;
 
 function render(d) {
+  const meta = document.getElementById("meta");
+  meta.replaceChildren($("span", "live-dot"),
+    $("span", null, `${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
+
   const root = document.getElementById("root");
   root.replaceChildren();
+  root.className = painted ? "" : "boot";
 
-  root.appendChild($("div", "meta",
-    `${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
+  const section = (title) => {
+    const s = $("section");
+    s.appendChild($("h2", null, title));
+    root.appendChild(s);
+    return s;
+  };
 
-  const legend = $("div", "legend");
-  for (const [cls, label] of [["done", "● done"], ["run", "● running"], ["wait", "● waiting on srid"], ["block", "● blocked"], ["q", "◌ queued"]]) {
-    legend.appendChild($("span", `lg ${cls}`, label));
-  }
-  root.appendChild(legend);
-
-  root.appendChild($("h2", null, "Live lanes"));
-  d.lanes.forEach((l) => root.appendChild(flowRow(l)));
-
-  root.appendChild($("h2", null, "Merge queue (srid)"));
-  const q = $("div", "queue");
-  d.queue.forEach((n, i) => {
-    if (i > 0) q.appendChild($("span", "arr", "·"));
-    q.appendChild(pill(n));
+  const live = section("Live lanes");
+  d.lanes.forEach((l, i) => {
+    const c = laneCard(l);
+    c.style.animationDelay = `${i * 70}ms`;
+    live.appendChild(c);
   });
-  root.appendChild(q);
 
-  root.appendChild($("h2", null, "Lineages"));
-  d.lineages.forEach((l) => root.appendChild(flowRow(l)));
+  const q = section("Merge queue · srid");
+  const qp = $("div", "pills");
+  if (d.queue.length === 0) qp.appendChild($("span", "empty", "— empty —"));
+  d.queue.forEach((n) => qp.appendChild(pill(n)));
+  q.appendChild(qp);
 
-  root.appendChild($("h2", null, "Shipped today"));
-  const arch = $("div", "archive");
-  d.shipped.forEach((n) => arch.appendChild(pill({ ...n, state: "done" })));
-  root.appendChild(arch);
+  const lin = section("Lineages");
+  d.lineages.forEach((l, i) => {
+    const c = laneCard(l);
+    c.style.animationDelay = `${(d.lanes.length + i) * 70}ms`;
+    lin.appendChild(c);
+  });
+
+  const det = $("details", "shipped");
+  det.appendChild($("summary", null, `Shipped today · ${d.shipped.length}`));
+  const sp = $("div", "pills");
+  d.shipped.forEach((n) => sp.appendChild(pill({ ...n, state: "done" })));
+  det.appendChild(sp);
+  root.appendChild(det);
 
   root.appendChild($("div", "strip", d.strip));
+  painted = true;
 }
 
 window.addEventListener("board-data", () => render(window.BOARD));
@@ -85,8 +129,10 @@ function reloadData() {
   s.id = "board-data";
   s.src = `${DATA_SRC}?t=${Date.now()}`;
   s.onerror = () => {
-    const meta = document.querySelector(".meta");
-    if (meta) meta.textContent = "orchestrator-data.js not found at the project root — retrying in 30s";
+    const meta = document.getElementById("meta");
+    if (meta) meta.replaceChildren(
+      $("span", "live-dot"),
+      $("span", null, "orchestrator-data.js not found at the project root — retrying in 30s"));
   };
   document.body.appendChild(s);
 }
