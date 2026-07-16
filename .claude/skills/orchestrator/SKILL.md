@@ -89,7 +89,7 @@ data file in the project. Grown practice, each line paid for:
   agent's terminal); a plan/note station → `#/t/<host>/<id>/code?path=docs/atlas/dist/<slug>.html`
   (click = read the plan, atlas-branch fresh since the path resolves in the
   coordinator's worktree); a PR station → the GitHub URL (external arm,
-  untouched). The board is a control surface, not a mirror.
+  untouched). The board is a control surface, not a mirror. Link badges are DERIVED from href shape in the renderer (never data): ❯ terminal · ▤ note/file (a /code?path= deep link) · ↗ external — the icon tells the target class before the click, with a legend line under the masthead.
 - **The standing atlas/docs PR is AMBIENT, not a queue item**: the human
   tracks the coordinator's atlas branch himself — the board and reports never
   nag it into the merge queue; only NON-docs deliverables occupy the waiting

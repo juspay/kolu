@@ -27,12 +27,32 @@ const headline = (nodes) => {
   return pick ?? nodes.find((n) => (n.state ?? "q") === "q") ?? nodes[0];
 };
 
+/** Classify a link by where it goes, so its badge tells you before you click:
+ *  ❯ = a terminal in kolu · ▤ = a file/note in the Code tab · ↗ = external. */
+const linkKind = (href) => {
+  if (!href) return null;
+  const h = href.replace(/^https?:\/\/[^#]*#/, "#");
+  if (h.startsWith("#/t/")) return h.includes("/code?") ? "note" : "term";
+  if (h.startsWith("#/")) return "app";
+  return "ext";
+};
+const ICON = { term: "❯", note: "▤", app: "◇", ext: "↗" };
+const badge = (el, href) => {
+  const k = linkKind(href);
+  if (!k) return el;
+  el.classList.add(`lk-${k}`);
+  el.prepend($("span", "lkicon", ICON[k]));
+  return el;
+};
+
 const station = (n) => {
   const el = $(n.href ? "a" : "span", `station p-${n.state ?? "q"}`);
   if (n.href) el.href = n.href;
   if (n.title) el.title = n.title;
   el.appendChild($("span", "dot"));
-  el.appendChild($("span", "slabel", n.label));
+  const lbl = $("span", "slabel", n.label);
+  if (n.href) badge(lbl, n.href);
+  el.appendChild(lbl);
   return el;
 };
 
@@ -53,7 +73,7 @@ const trackCard = (item) => {
     const a = $("a", null, item.name);
     a.href = item.href;
     a.title = "jump to this track's terminal in kolu";
-    name.appendChild(a);
+    name.appendChild(badge(a, item.href));
   } else name.textContent = item.name;
   hd.appendChild(name);
   if (item.sub) hd.appendChild($("span", "lane-sub", item.sub));
@@ -78,7 +98,7 @@ const trackCard = (item) => {
     const sub = $("div", "sub-lane");
     const shd = $("div", "sub-head");
     const t = $(n.lane.href ? "a" : "span", "sub-title", n.lane.name ?? n.label);
-    if (n.lane.href) { t.href = n.lane.href; t.title = "jump to this agent's terminal"; }
+    if (n.lane.href) { t.href = n.lane.href; t.title = "jump to this agent's terminal"; badge(t, n.lane.href); }
     shd.appendChild(t);
     if (n.lane.sub) shd.appendChild($("span", "lane-sub", n.lane.sub));
     sub.appendChild(shd);
@@ -92,7 +112,7 @@ const trackCard = (item) => {
 
 const pill = (n) => {
   const el = $(n.href ? "a" : "span", `pill s-${n.state ?? "q"}`, n.label);
-  if (n.href) el.href = n.href;
+  if (n.href) { el.href = n.href; badge(el, n.href); }
   if (n.title) el.title = n.title;
   return el;
 };
