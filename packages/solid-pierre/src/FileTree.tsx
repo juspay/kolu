@@ -216,12 +216,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // its own path and self-consumes the token at the `userGesture = false` line
   // below before the fileSet filter runs, so it can't leak into a later echo.
   // Single-use consumption bounds the leak to a single self-correcting jump —
-  // never a loop. The causal alternative (suppress echoes around the wrapper's
-  // OWN `batch()`/`select()`/`deselect()` writes) is deferred: it must survive
-  // Pierre's deferred-microtask emit the same way this gesture window does, and
-  // there is one controlled consumer today — extract a shared provenance
-  // primitive when a second controlled bridge forces it (dovetails with the
-  // solidjs.md graduation candidate).
+  // never a loop. Adjacency is chosen over the causal alternative (suppress
+  // echoes around the wrapper's OWN `batch()`/`select()`/`deselect()` writes)
+  // deliberately, NOT for lack of a second consumer: the causal flag would be an
+  // in-place change here, but it must survive Pierre's deferred-microtask emit
+  // the same way this gesture window does AND would misclassify the hard case a
+  // gesture token gets right — a genuine user click that interleaves with one of
+  // the wrapper's own deferred writes during churn. Separately, lifting this
+  // token into a shared provenance primitive is deferred to population-two
+  // (prove-then-extract, dovetailing with the solidjs.md graduation candidate) —
+  // that deferral is about extraction, not about the adjacency-vs-causal choice.
   let userGesture = false;
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
