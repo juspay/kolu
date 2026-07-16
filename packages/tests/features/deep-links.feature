@@ -76,3 +76,23 @@ Feature: Deep links — every view addressable by a #/… URL
   Scenario: An unknown link is never silent — it toasts
     When I follow the live deep link "#/bananas"
     Then a toast should appear with text "doesn't point anywhere kolu knows"
+
+  Scenario: A deep link clicked inside the Code-tab preview routes the parent app (DL2)
+    # The felt proof for the whole bridge→router path: the sandboxed preview
+    # can't navigate the parent, so the in-iframe SDK posts the `#/…` hash and
+    # the parent routes it — the orchestrator dashboard's lane pills become
+    # click-to-jump. The previewed HTML names its authoring terminal via its
+    # own $KAVAL_TERMINAL_ID, so the pill targets a real terminal id.
+    When I create a terminal
+    And I run "git init /tmp/kolu-dl2-pill && cd /tmp/kolu-dl2-pill"
+    And I run "git commit --allow-empty -m init"
+    And I run "echo DEEP-PILL-MARKER"
+    And I run "printf '<a href=\"/#/t/local/%s\">jump to agent</a>\n' \"$KAVAL_TERMINAL_ID\" > pill.html"
+    And I run "git add pill.html && git commit -m pill"
+    And I create a terminal
+    And I run "cd /tmp/kolu-dl2-pill"
+    And I run "echo 'open pill.html'"
+    And I trigger the terminal file-ref link "pill.html"
+    Then the file preview iframe should be visible
+    When I click the link "jump to agent" in the file preview iframe
+    Then the active terminal should show "DEEP-PILL-MARKER"

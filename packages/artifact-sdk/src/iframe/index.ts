@@ -24,7 +24,9 @@ import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
 import { isHttpUrl } from "../core/url";
+import { koluDeepLinkHash } from "./deepLink";
 import type {
+  DeepLinkMsg,
   HistoryMsg,
   Locator,
   OpenExternalMsg,
@@ -41,7 +43,7 @@ let lastSelectionRange: Range | null = null;
 let pillEl: HTMLDivElement | null = null;
 
 function postToParent(
-  msg: SelectMsg | ReadyMsg | HistoryMsg | OpenExternalMsg,
+  msg: SelectMsg | ReadyMsg | HistoryMsg | OpenExternalMsg | DeepLinkMsg,
 ): void {
   window.parent.postMessage(msg, window.location.origin);
 }
@@ -83,10 +85,21 @@ function onAnchorClick(event: MouseEvent): void {
   }
   const anchor = (event.target as Element | null)?.closest("a");
   if (!anchor) return;
+  // Precedence: external first (a cross-origin `#/…` is an external link),
+  // then a kolu deep link; everything else — internal file navigation, plain
+  // in-page `#section` anchors, non-web schemes — proceeds in-frame untouched.
   const url = externalHref(anchor);
-  if (url === null) return;
-  event.preventDefault();
-  postToParent({ type: "kolu-artifact-sdk:open-external", url });
+  if (url !== null) {
+    event.preventDefault();
+    postToParent({ type: "kolu-artifact-sdk:open-external", url });
+    return;
+  }
+  const hash = koluDeepLinkHash(anchor, window.location);
+  if (hash !== null) {
+    // Never let the frame navigate itself to the app shell — the parent routes.
+    event.preventDefault();
+    postToParent({ type: "kolu-artifact-sdk:deep-link", hash });
+  }
 }
 
 function clearPill(): void {

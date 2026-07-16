@@ -9,6 +9,7 @@
  *  PDF uses the native viewer renderer instead of this sandboxed path. */
 
 import {
+  observeIframeDeepLink,
   observeIframeHistory,
   observeIframeNavigation,
   observeIframeOpenExternal,
@@ -42,6 +43,12 @@ export type BrowseIframeRendererProps = {
    *  in-iframe SDK forwards the (re-validated http(s)) URL and the host opens it
    *  in a real browser tab — leaving the preview on the current document. */
   onOpenExternal?: (url: string) => void;
+  /** Route a kolu deep link (`#/…`) clicked inside the preview. The sandbox
+   *  can't navigate the parent, so the in-iframe SDK traps the click and
+   *  forwards the raw hash; the host parses it with the real deep-link grammar
+   *  and routes — safe by construction because the router is view-only by law
+   *  (an invalid hash toasts exactly as a typed URL would). */
+  onDeepLink?: (hash: string) => void;
 };
 
 /** Bind an iframe observer once the element is available and clean up on
@@ -96,6 +103,14 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   // re-validated by the observer) and the host opens it in a real browser tab.
   useIframeObserver(iframeEl, (el) =>
     observeIframeOpenExternal(el, (url) => props.onOpenExternal?.(url)),
+  );
+
+  // A kolu deep link (`#/…`) clicked in the preview routes the PARENT app —
+  // the in-iframe SDK posts the hash (shape-tested only there; bounded to the
+  // `#/` namespace again by the observer) and the host feeds it to the same
+  // deep-link router a typed URL reaches.
+  useIframeObserver(iframeEl, (el) =>
+    observeIframeDeepLink(el, (hash) => props.onDeepLink?.(hash)),
   );
 
   return (

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  observeIframeDeepLink,
   observeIframeHistory,
   observeIframeNavigation,
   observeIframeOpenExternal,
@@ -218,5 +219,54 @@ describe("observeIframeOpenExternal", () => {
       url: 42,
     });
     expect(onOpenExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe("observeIframeDeepLink", () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+  });
+
+  it("fires onDeepLink for a well-formed deep-link message from the iframe", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onDeepLink = vi.fn();
+    observeIframeDeepLink(fake.iframe, onDeepLink);
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:deep-link",
+      hash: "#/t/local/550e8400-e29b-41d4-a716-446655440000",
+    });
+    expect(onDeepLink).toHaveBeenCalledWith(
+      "#/t/local/550e8400-e29b-41d4-a716-446655440000",
+    );
+  });
+
+  it("ignores messages from a different source", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onDeepLink = vi.fn();
+    observeIframeDeepLink(fake.iframe, onDeepLink);
+    fake.post({}, { type: "kolu-artifact-sdk:deep-link", hash: "#/settings" });
+    expect(onDeepLink).not.toHaveBeenCalled();
+  });
+
+  it("drops a hash outside the #/ namespace, and a non-string hash, without throwing", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onDeepLink = vi.fn();
+    observeIframeDeepLink(fake.iframe, onDeepLink);
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:deep-link",
+      hash: "#section-2",
+    });
+    expect(() =>
+      fake.post(fake.iframe.contentWindow, {
+        type: "kolu-artifact-sdk:deep-link",
+        hash: 42,
+      }),
+    ).not.toThrow();
+    expect(onDeepLink).not.toHaveBeenCalled();
   });
 });

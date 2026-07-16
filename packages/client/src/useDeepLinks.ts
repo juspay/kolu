@@ -62,6 +62,24 @@ interface LaunchQueue {
   setConsumer(consumer: (params: LaunchParams) => void): void;
 }
 
+/** A `#/…` hash handed in from OUTSIDE the URL — today the Code-tab preview
+ *  bridge (a deep link clicked inside the sandboxed iframe, which can't
+ *  navigate the parent itself). `equals: false` so re-requesting the SAME hash
+ *  re-routes (clicking the same dashboard pill twice must refocus both times —
+ *  a plain `location.hash =` write would not re-fire `hashchange`). The hook's
+ *  consumer feeds it through the exact pipeline a typed URL takes (reflect into
+ *  the address bar when it differs — durability — else parse+navigate
+ *  directly), so an invalid hash toasts identically. */
+const [externalNavRequest, setExternalNavRequest] = createSignal<string | null>(
+  null,
+  { equals: false },
+);
+
+/** Request a deep-link navigation from outside the URL (the preview bridge). */
+export function requestDeepLinkNavigation(hash: string): void {
+  setExternalNavRequest(hash);
+}
+
 export function useDeepLinks(): void {
   const store = useTerminalStore();
   const subPanel = useSubPanel();
@@ -294,6 +312,30 @@ export function useDeepLinks(): void {
     onCleanup(() => clearTimeout(timer));
   });
 
+  /** Route a hash delivered from OUTSIDE the address bar (a PWA launch, the
+   *  preview bridge): reflect it into the bar when it differs — durability, and
+   *  the `hashchange` listener does the rest — else parse+navigate directly (an
+   *  identical hash fires no event, and a repeated request must still
+   *  re-route). */
+  function navigateFromExternal(hash: string): void {
+    if (hash && hash !== window.location.hash) {
+      window.location.hash = hash;
+      return;
+    }
+    navigate(parseDeepLink(hash));
+  }
+
+  // (d) the preview bridge — a kolu deep link clicked inside the Code-tab
+  // preview iframe (see `requestDeepLinkNavigation`). The sandbox can't
+  // navigate the parent, so the bridge posts the hash here; it takes the same
+  // external pipeline as a PWA launch, so an invalid hash toasts exactly as a
+  // typed URL would.
+  createEffect(() => {
+    const hash = externalNavRequest();
+    if (hash === null) return;
+    navigateFromExternal(hash);
+  });
+
   onMount(() => {
     // (c) PWA launch (Chromium): a focus-existing launch hands the URL here,
     // WITHOUT navigating an already-open window. Reflect its hash into the
@@ -323,11 +365,7 @@ export function useDeepLinks(): void {
         toast.error("Couldn't open that link — the launch URL was malformed.");
         return;
       }
-      if (hash && hash !== window.location.hash) {
-        window.location.hash = hash;
-        return;
-      }
-      navigate(parseDeepLink(hash));
+      navigateFromExternal(hash);
     });
     // (a) boot parse — a bookmark opened cold (skipped if the launch consumer
     // already handled this load's initial launch).
