@@ -111,6 +111,12 @@ async function connect(over: ReturnType<typeof buildSurface>) {
           return { hello: name };
         },
       },
+      explode: {
+        description: "Always rejects — pins the isError framing.",
+        handler: async () => {
+          throw new Error("boom: the handler rejected");
+        },
+      },
     },
     serverInfo: { name: "test-surface", version: "0.0.0" },
     transport: serverTransport,
@@ -144,7 +150,26 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(names).toContain("greet");
     // The dangerous procedure is NOT a tool — default-deny proven.
     expect(names).not.toContain("admin_nuke");
-    expect(names).toEqual(["counter_bump", "greet"]);
+    expect(names).toEqual(["counter_bump", "explode", "greet"]);
+  });
+
+  it("a REJECTING handler returns an isError tool result, never a protocol error", async () => {
+    // Regression pin: `return withClient(...)` inside the dispatch try/catch
+    // did NOT await, so a rejection bypassed `failFrom` and reached the host
+    // as a JSON-RPC -32603 (the SDK client then THROWS instead of handing the
+    // agent a typed, retryable tool failure).
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "explode", arguments: {} });
+    expect(res.isError).toBe(true);
+    expect((res.content as { text: string }[])[0]?.text).toContain(
+      "boom: the handler rejected",
+    );
   });
 
   it("tools/call on an exposed procedure mutates the cell", async () => {

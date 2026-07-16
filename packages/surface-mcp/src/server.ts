@@ -293,7 +293,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     try {
       const exposed = toolByName.get(name);
       if (exposed !== undefined) {
-        return withClient(async (client) => {
+        // `await`, not a bare `return`: a returned promise's REJECTION does not
+        // route through this try/catch, so a failing procedure call (e.g. the
+        // transport down mid-call) would surface as a protocol-level -32603
+        // instead of the `isError` tool result the contract promises.
+        return await withClient(async (client) => {
           const proc = client.surface[exposed.ns]?.[exposed.verb];
           if (proc === undefined) {
             return fail(
@@ -321,7 +325,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         const rawInput = unwrapArgs(entry.wrapped, args);
         const parsed =
           tool.input !== undefined ? tool.input.parse(rawInput) : rawInput;
-        return withClient(async (client) => {
+        // `await` for the same reason as the exposed-procedure branch above: a
+        // rejecting handler must land in `failFrom`, never escape as -32603.
+        return await withClient(async (client) => {
           const out = await tool.handler(parsed, client, extra.signal);
           return ok(out);
         });
