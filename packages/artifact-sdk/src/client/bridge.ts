@@ -20,7 +20,7 @@
  */
 
 import { match, P } from "ts-pattern";
-import { isHttpUrl } from "../core/url";
+import { isDeepLinkHash, isHttpUrl } from "../core/url";
 import type {
   IframeToParent,
   Locator,
@@ -201,6 +201,31 @@ export function observeIframeOpenExternal(
         )
         .otherwise(() => null),
     onOpenExternal,
+  );
+}
+
+/** Observe a kolu deep link (`#/…`) clicked inside the previewed document. The
+ *  opaque-origin sandbox can't navigate the parent, so the in-iframe SDK traps
+ *  the click and posts the raw hash; the parent parses it with its real
+ *  deep-link grammar and routes. Mirrors `observeIframeOpenExternal`: the same
+ *  `event.source` identity boundary, and a payload guard that bounds the hash
+ *  to the `#/` deep-link namespace. A hostile in-frame script can fabricate the
+ *  message — accepted because the parent's router is VIEW-ONLY BY LAW (kolu
+ *  #1840): the worst a posted hash can do is change the viewer's view or toast
+ *  "invalid", never create, kill, write, or send keys. Returns a disposer. */
+export function observeIframeDeepLink(
+  iframe: HTMLIFrameElement,
+  onDeepLink: (hash: string) => void,
+): () => void {
+  return observeFromIframe(
+    iframe,
+    (msg) =>
+      match(msg)
+        .with({ type: "kolu-artifact-sdk:deep-link", hash: P.string }, (m) =>
+          isDeepLinkHash(m.hash) ? m.hash : null,
+        )
+        .otherwise(() => null),
+    onDeepLink,
   );
 }
 
