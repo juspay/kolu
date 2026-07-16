@@ -12,8 +12,8 @@
     },
     "kolu": {
       "type": "stdio",
-      "command": ".claude/skills/kolu-mcp/bin/serve",
-      "args": []
+      "command": "kolu",
+      "args": ["mcp"]
     }
   }
 }
