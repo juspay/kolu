@@ -56,8 +56,10 @@
 import {
   composeSurfaceContracts,
   defineSurface,
+  defineSurfaceWithPolicy,
   type SurfaceTypes,
 } from "@kolu/surface/define";
+import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
@@ -109,6 +111,11 @@ import {
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
 export * from "./vocab.ts";
+// kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
+// so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
+// importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
+// re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
+export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -660,7 +667,7 @@ export const PadiSessionImportInputSchema = z.object({
 
 // ── The surface ───────────────────────────────────────────────────────────
 
-export const padiSurface = defineSurface({
+export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
   cells: {
     /** padi's self-declared surface contract version (1.0). */
     version: { schema: PadiVersionSchema, default: DEFAULT_PADI_VERSION },
@@ -672,6 +679,7 @@ export const padiSurface = defineSurface({
       schema: PadiIdentitySchema,
       default: DEFAULT_PADI_IDENTITY,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Padi identity" } },
     },
     /** The recency-free urgency projection — read-only on the client; a DERIVED
      *  member (`derived.cell(($) => recomputeUrgency($.terminals()))` in
@@ -683,6 +691,7 @@ export const padiSurface = defineSurface({
       default: { awaitingIds: [] } satisfies PadiUrgency,
       equals: urgencyEqual,
       verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "urgency" } },
     },
     /** Host-side build-currency facts — today the `expectedKaval` axis (the kaval
      *  this padi would spawn). Read-only on the client; padi seeds it once at boot
@@ -691,6 +700,7 @@ export const padiSurface = defineSurface({
       schema: PadiStatusSchema,
       default: DEFAULT_PADI_STATUS,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Kaval status" } },
     },
     /** The running kaval + padi daemons on THIS padi's host — the "Running daemons"
      *  leak diagnostic the Kaval + Padi dialogs list. Read-only on the client; padi's
@@ -701,6 +711,7 @@ export const padiSurface = defineSurface({
       schema: PadiHostInventorySchema,
       default: DEFAULT_PADI_HOST_INVENTORY,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Host inventory" } },
     },
     /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
      *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
@@ -711,6 +722,7 @@ export const padiSurface = defineSurface({
       schema: PadiProcessMemorySchema,
       default: DEFAULT_PADI_PROCESS_MEMORY,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Padi/kaval memory" } },
     },
     /** Server-derived activity feed (recent repos + recent agents) — the MRU the
      *  workspace switcher + command palette read. Read-only on the client; padi's
@@ -724,6 +736,12 @@ export const padiSurface = defineSurface({
         typeof ActivityFeedSchema
       >,
       verbs: ["get", "test__set"],
+      client: {
+        onError: {
+          kind: "scopedSub",
+          label: "Activity feed subscription error",
+        },
+      },
     },
     /** Last persisted snapshot of terminals + active id, or null when no session
      *  is saved — the restore card's source. Read-only on the client; padi's
@@ -735,6 +753,12 @@ export const padiSurface = defineSurface({
       schema: SavedSessionSchema.nullable(),
       default: null as z.infer<typeof SavedSessionSchema> | null,
       verbs: ["get", "test__set"],
+      client: {
+        onError: {
+          kind: "scopedSub",
+          label: "Saved-session subscription error",
+        },
+      },
     },
   },
   collections: {
@@ -744,6 +768,7 @@ export const padiSurface = defineSurface({
       keySchema: TerminalIdSchema,
       schema: PadiTerminalSchema,
       verbs: ["keys", "get"],
+      client: { onError: { kind: "scopedSub", label: "Metadata error" } },
     },
     /** Per-host pty-host daemon (kaval) status — padi supervises its kaval, so
      *  the daemon-liveness cell is padi's to serve. Read-only on the client. */
@@ -751,6 +776,11 @@ export const padiSurface = defineSurface({
       keySchema: z.string(),
       schema: DaemonStatusSchema,
       verbs: ["keys", "get"],
+      // 4C RULING: `hostToast` (not the old per-subscription split) — the chip gains
+      // host attribution and a background host's daemon-status failure becomes a
+      // host-named toast (the two srid-ruled deltas). Origin `{ key }` is guaranteed
+      // for an entry member.
+      client: { onError: { kind: "hostToast", label: "daemon status" } },
     },
   },
   streams: {

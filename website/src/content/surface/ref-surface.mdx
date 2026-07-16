@@ -58,6 +58,54 @@ midpoint so the one-way latency does not bias the result). Both accept an option
 To key several standalone surfaces under one namespace over one transport, use
 `composeSurfaceContracts({ <key>: surface })`.
 
+### Declaring a client error policy — `defineSurfaceWithPolicy`
+
+A member can carry an **opaque, app-typed client error policy** on its spec — a
+value the framework never interprets, only **threads to the app's registered
+interpreter** when that member's client subscription fails. The app owns both the
+policy union and the interpreter; `@kolu/surface` names neither.
+
+`defineSurfaceWithPolicy<TPolicy>()(spec)` is the curried form of `defineSurface`
+that threads the app's policy union `TPolicy` through the spec (the two-step call
+pins `TPolicy` explicitly while the spec keeps its precise `const S` inference).
+Plain `defineSurface` is the `TPolicy = never` case — its `client` slot is
+**unfillable**, so existing callers pay nothing.
+
+- **`ClientCellPolicy<TPolicy>`** — a cell's `client` slot. The `onError` policy
+  sits flat, intersected with an `authority` discriminant: `{ onError?: TPolicy } & ({
+  authority?: "server" } | { authority: "local"; coalesceMs?: number })`. There is **no `initial`** — a
+  local-authority cell seeds its store from the mandatory `CellSpec.default`, so
+  "local-authority without a seed" is a type error, not a runtime surprise. The
+  client runtime **sources `authority` and `coalesceMs` from this declaration**, so a
+  bare `.cells.X.use()` inherits them (a use-site value still overrides); declaring
+  `authority: "local"` on the spec is what makes a use-site bag empty.
+- **`ClientCollectionPolicy<TPolicy>`** — a collection's `client` slot, `onError`
+  **only** (a collection's `keys` filter is per-site use-site wiring, not policy).
+
+```ts
+type Toast = { kind: "toast"; label: string };
+const surface = defineSurfaceWithPolicy<Toast>()({
+  cells: {
+    preferences: {
+      schema: PreferencesSchema,
+      default: DEFAULT_PREFERENCES,
+      client: { authority: "local", coalesceMs: 150,
+                onError: { kind: "toast", label: "Preferences" } },
+    },
+  },
+});
+```
+
+The interpreter is registered at the **connection seam** — `onClientError` on
+`connectSurfaces` (`@kolu/surface-app`) or `connectSurfaceMap` (`@kolu/surface-map`),
+threaded inward to every `buildSurfaceClient`. The base interpreter is **origin-free**
+(`(policy, err) => void`); the `{ key }` origin a keyed map needs is injected in
+`@kolu/surface-map` (see [its reference](/surface/ref-surface-map)). A member that
+declares `client.onError` but whose client was built with **no** interpreter makes
+`buildSurfaceClient` **throw at construction** — a declared policy can never route
+nowhere. The policy is interpreted **per subscription**: a deduped cell fires once,
+a keyed collection's per-key subs each fire.
+
 ## Serving a surface
 
 `implementSurface(surface, deps)` wires every handler and returns a supervised

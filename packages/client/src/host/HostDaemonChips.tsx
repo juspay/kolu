@@ -31,7 +31,6 @@ import type {
 import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
-import { toast } from "solid-sonner";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import { kavalStale } from "../kaval/kavalCurrency";
 import {
@@ -121,7 +120,6 @@ function useHostKaval(host: HostKey): {
   const daemonKey = encodeHostLocation(LOCAL_LOCATION);
   const daemonSub = padiMap.entry(host).collections.daemonStatus.use({
     keys: () => [daemonKey],
-    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
   });
   // Memoized: this host's KavalSubChip reads `daemon()` ~8× per render pass
   // (mark dot, version, state, uptime ×2, memory, update) — each an unmemoized
@@ -138,15 +136,12 @@ function useHostKaval(host: HostKey): {
 }
 
 /** The ONE per-host `processMemory` reader — the Padi and Kaval sub-chips read
- *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription (and one
- *  `onError`) means a single memory-poll failure surfaces ONE toast, not one
- *  per sub-chip. Same reader-as-shared-value discipline the daemonStatus reader
- *  already follows. */
+ *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription means a single
+ *  memory-poll failure surfaces ONE toast (the cell's declared `Padi/kaval memory`
+ *  policy, routed through the interpreter), not one per sub-chip. Same
+ *  reader-as-shared-value discipline the daemonStatus reader already follows. */
 function useHostProcessMemory(host: HostKey) {
-  return padiMap.entry(host).cells.processMemory.use({
-    onError: (err: Error) =>
-      toast.error(`Padi/kaval memory error: ${err.message}`),
-  });
+  return padiMap.entry(host).cells.processMemory.use();
 }
 
 /** The 4-arm process-RSS readout → tooltip text, in ONE place: the Padi and
@@ -254,9 +249,7 @@ const PadiSubChip: Component<{
   let triggerEl!: HTMLButtonElement;
   const padi = useHostPadi(props.host);
   // Per-host identity (version for the tip).
-  const identity = padiMap.entry(props.host).cells.identity.use({
-    onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
-  });
+  const identity = padiMap.entry(props.host).cells.identity.use();
   const padiVersion = (): string | undefined =>
     identity.value()?.surfaceVersion;
   const padiStartedAt = (): number | null => {
@@ -333,9 +326,7 @@ const KavalSubChip: Component<{
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
-  const padiStatus = padiMap.entry(props.host).cells.status.use({
-    onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
-  });
+  const padiStatus = padiMap.entry(props.host).cells.status.use();
   const kavalVersion = (): string | undefined =>
     kaval.daemon()?.contractVersion;
   const kavalStateText = (): string => {
