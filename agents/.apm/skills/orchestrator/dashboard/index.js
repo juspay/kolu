@@ -36,8 +36,15 @@ const station = (n) => {
   return el;
 };
 
-const laneCard = (item) => {
-  const head = headline(item.nodes);
+/** A track card: the campaign's macro rail; any node carrying `lane`
+ *  (a live agent working that step) expands IN PLACE — its detailed
+ *  pipeline nests under the macro rail, visually tied to its station. */
+const trackCard = (item) => {
+  // headline: prefer the deepest live detail; else the macro rail's own
+  const liveNode = item.nodes.find((n) => n.lane);
+  const head = liveNode
+    ? headline(liveNode.lane.nodes)
+    : headline(item.nodes);
   const card = $("div", `card s-${head.state ?? "q"}`);
 
   const hd = $("div", "card-head");
@@ -45,7 +52,7 @@ const laneCard = (item) => {
   if (item.href) {
     const a = $("a", null, item.name);
     a.href = item.href;
-    a.title = "jump to this lane's terminal in kolu";
+    a.title = "jump to this track's terminal in kolu";
     name.appendChild(a);
   } else name.textContent = item.name;
   hd.appendChild(name);
@@ -58,8 +65,28 @@ const laneCard = (item) => {
   card.appendChild(hd);
 
   const rail = $("div", "rail");
-  item.nodes.forEach((n) => rail.appendChild(station(n)));
+  item.nodes.forEach((n) => {
+    const st = station(n);
+    if (n.lane) st.classList.add("has-lane");
+    rail.appendChild(st);
+  });
   card.appendChild(rail);
+
+  // nested live-lane detail under the macro rail
+  item.nodes.forEach((n) => {
+    if (!n.lane) return;
+    const sub = $("div", "sub-lane");
+    const shd = $("div", "sub-head");
+    const t = $(n.lane.href ? "a" : "span", "sub-title", n.lane.name ?? n.label);
+    if (n.lane.href) { t.href = n.lane.href; t.title = "jump to this agent's terminal"; }
+    shd.appendChild(t);
+    if (n.lane.sub) shd.appendChild($("span", "lane-sub", n.lane.sub));
+    sub.appendChild(shd);
+    const srail = $("div", "rail rail-sub");
+    n.lane.nodes.forEach((x) => srail.appendChild(station(x)));
+    sub.appendChild(srail);
+    card.appendChild(sub);
+  });
   return card;
 };
 
@@ -88,11 +115,11 @@ function render(d) {
     return s;
   };
 
-  const live = section("Live lanes");
-  d.lanes.forEach((l, i) => {
-    const c = laneCard(l);
+  const tracks = section("Tracks");
+  d.tracks.forEach((l, i) => {
+    const c = trackCard(l);
     c.style.animationDelay = `${i * 70}ms`;
-    live.appendChild(c);
+    tracks.appendChild(c);
   });
 
   const q = section("Merge queue · srid");
@@ -100,13 +127,6 @@ function render(d) {
   if (d.queue.length === 0) qp.appendChild($("span", "empty", "— empty —"));
   d.queue.forEach((n) => qp.appendChild(pill(n)));
   q.appendChild(qp);
-
-  const lin = section("Lineages");
-  d.lineages.forEach((l, i) => {
-    const c = laneCard(l);
-    c.style.animationDelay = `${(d.lanes.length + i) * 70}ms`;
-    lin.appendChild(c);
-  });
 
   const det = $("details", "shipped");
   det.appendChild($("summary", null, `Shipped today · ${d.shipped.length}`));
