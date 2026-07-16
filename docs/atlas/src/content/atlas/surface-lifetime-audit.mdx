@@ -62,9 +62,12 @@ and the dispositions — not all 29 rows.</Footnote>
 ## The pattern the minors share
 
 Ten minor findings, one shape: **the framework mints a disposer and documents
-when it must be called, then hopes.** `serveOverUnixSocket`'s `close()` stops
-accepting but leaves established per-connection serves (and their timers)
-running; `createLiveSignal`'s watchdog outlives a discarded socket unless the
+when it must be called, then hopes.** `serveOverUnixSocket`'s `close()`
+stopped accepting but left established per-connection serves (and their
+timers) running — fixed by <a
+href="https://github.com/juspay/kolu/pull/1870">#1870</a>, which made
+`close()` run the full teardown (stop accepting → disconnect established
+peers → release the inode); `createLiveSignal`'s watchdog outlives a discarded socket unless the
 consumer remembers `dispose()`; surface-daemon's `daemonMain` resolves
 `DaemonExit` and leaves process exit to every new bin — *the seed's homework,
 re-assigned at the daemon layer*; kaval's **ungraceful** arm (SIGKILL/OOM) has
@@ -84,8 +87,8 @@ unix socket). The transports differ only in the holds:
 | assembly | holds | teardown chain today |
 | --- | --- | --- |
 | stdio/ssh agent | the one link | framework-owned after [stdio-agent-lifetime](stdio-agent-lifetime.html) |
-| socket daemon | gate + policy (idle timeout, state-root watcher, parent pid — the `boundToPid` shape) | `close()` stops accepting and SKIPS: end established peer serves → dispose surface → exit |
-| `daemonMain` bins | already modeled (`DaemonExit` resolves on drain/idle/watch) | hands the value back instead of exiting — the seed's shape at the daemon layer |
+| socket daemon | gate + policy (idle timeout, state-root watcher, parent pid — the `boundToPid` shape) | framework-owned: `close()` stops accepting **and disconnects established peer serves** (<a href="https://github.com/juspay/kolu/pull/1870">#1870</a>); dispose surface → exit owned by `daemonProcessMain` (<a href="https://github.com/juspay/kolu/pull/1862">#1862</a>) |
+| `daemonMain` bins | already modeled (`DaemonExit` resolves on drain/idle/watch) | framework-owned: `daemonProcessMain` owns the exit (<a href="https://github.com/juspay/kolu/pull/1862">#1862</a>) |
 
 The follow-up this recommends: **one shared piece of machinery in
 `@kolu/surface-daemon`** where a daemon declares what holds it alive, and the
@@ -97,9 +100,17 @@ until two real things need it. So, in order: **(1)** the stdio-agent fix
 the same "returns done-as-a-value instead of exiting" problem in the daemon
 binaries (`daemonMain`), that's the second place needing identical logic —
 THAT is when the shared machinery gets built, extracted from the two working
-fixes. **(3)** The unix-socket gap (closing a daemon doesn't disconnect
-already-connected clients) then gets fixed *using* that machinery instead of
-as a third one-off.
+fixes — shipped as `daemonProcessMain` (<a
+href="https://github.com/juspay/kolu/pull/1862">#1862</a>). **(3)** The
+unix-socket gap (closing a daemon doesn't disconnect already-connected
+clients) — shipped by <a
+href="https://github.com/juspay/kolu/pull/1870">#1870</a>, with one honest
+deviation from this plan's wording: the disconnect needed **no new
+machinery at all**. A closure-scoped index of accepted sockets plus
+`destroy()` lets each connection's *existing* settle chain (the step-1
+teardown) do the whole job, and the ordered chain slots into `daemonMain`'s
+existing `close()` call — reuse of the machinery's *chain*, not a new named
+piece of it.
 
 ## What this buys
 

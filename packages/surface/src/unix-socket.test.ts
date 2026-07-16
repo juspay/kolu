@@ -25,13 +25,12 @@ import { createConnection, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { eventIterator, oc } from "@orpc/contract";
 import { implement, type Router } from "@orpc/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { unixSocketLink } from "./links/unix-socket";
-import type { lifetimeContract } from "./peer-server.lifetime.contract";
+import { lifetimeContract } from "./peer-server.lifetime.contract";
 import { implementSurface } from "./server";
 import {
   getRuntimeSocketPath,
@@ -313,10 +312,10 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
 
     listener.close();
 
-    // RED today: server.close() only stops ACCEPTING — the established
-    // connection keeps serving and this call still resolves { y: 42 }
-    // (the illegal state "a closed host still serving live peers", made
-    // visible). After the fix the destroyed link rejects.
+    // Red on the pre-fix code: server.close() only stopped ACCEPTING — the
+    // established connection kept serving and this call still resolved
+    // { y: 42 } (the illegal state "a closed host still serving live
+    // peers", made visible). The destroyed link now rejects.
     await expect(client.surface.math.double({ x: 2 })).rejects.toThrow();
     dispose();
   });
@@ -328,10 +327,11 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
     // socket.destroy() → serveOverStdio settles → peer.close() → the
     // handler's abort signal fires → the generator's finally runs.
     let finalized = false;
-    const t = implement({
-      tick: oc.output(eventIterator(z.object({ n: z.number() }))),
-    });
+    // The contract is the existing shared one (a value import is safe — it is
+    // the contract module, not a fixture); only the handlers are local.
+    const t = implement(lifetimeContract);
     const router = t.router({
+      ping: t.ping.handler(() => "pong"),
       tick: t.tick.handler(async function* () {
         try {
           for (let n = 0; ; n++) {
@@ -359,8 +359,8 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
 
     listener.close();
 
-    // RED today: the generator keeps yielding forever (nothing ends the
-    // peer), so `finalized` never flips. After the fix the settle chain
+    // Red on the pre-fix code: the generator kept yielding forever (nothing
+    // ended the peer), so `finalized` never flipped. The settle chain now
     // aborts the handler and the finally runs promptly.
     await expect
       .poll(() => finalized, { timeout: 2_000, interval: 25 })
@@ -379,9 +379,9 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
 
     listener.close();
 
-    // RED today: nothing ever ends the wedged peer. After the fix,
-    // destroy() is unconditional — no drain negotiation with a peer that
-    // never spoke.
+    // Red on the pre-fix code: nothing ever ended the wedged peer.
+    // destroy() is now unconditional — no drain negotiation with a peer
+    // that never spoke.
     await expect
       .poll(() => closed, { timeout: 2_000, interval: 25 })
       .toBe(true);
@@ -389,14 +389,19 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
 
   it("stays idempotent with peers connected; a peer that already left is shed, not double-destroyed", async () => {
     const { socketPath, listener } = await freshListener("shed");
-    const a = await unixSocketLink<typeof surface.contract>({ socketPath });
+    // Peer A is a raw connection so its lifecycle is directly observable —
+    // both ends live in this process, so awaiting the server-side 'close'
+    // makes the set-shed deterministic (no fixed sleep).
+    const rawA = createConnection(socketPath);
+    await once(rawA, "connect");
     const b = await unixSocketLink<typeof surface.contract>({ socketPath });
-    expect(await a.client.surface.math.double({ x: 1 })).toEqual({ y: 2 });
     expect(await b.client.surface.math.double({ x: 3 })).toEqual({ y: 6 });
 
     // Peer A leaves on its own: the tracked set sheds it via its 'close'.
-    a.dispose();
-    await delay(50);
+    const aGone = once(rawA, "close");
+    rawA.destroy();
+    await aGone;
+    await new Promise((r) => setImmediate(r)); // let the server-side 'close' handler run
 
     expect(() => listener.close()).not.toThrow();
     expect(() => listener.close()).not.toThrow(); // still idempotent

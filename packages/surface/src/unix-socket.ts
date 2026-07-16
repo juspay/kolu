@@ -188,14 +188,17 @@ export interface UnixSocketListener {
   readonly socketPath: string;
   /** Why this listener is (or is not) serving. */
   readonly outcome: UnixSocketServeOutcome;
-  /** Stop accepting connections, DISCONNECT every established peer (each
-   *  destroyed socket runs its own serve's settle chain, so subscriptions
-   *  finalize and their timers clear), and remove the socket file — the
-   *  ordered teardown of surface-lifetime-audit step 3. The peer index is
-   *  per-listener closure scope, so closing one listener never touches
-   *  another's connections. Idempotent, a no-op on a non-`listening`
-   *  outcome, and safe to call synchronously from a `process.on("exit")`
-   *  handler. */
+  /** Stop accepting connections, DISCONNECT every established peer, and
+   *  remove the socket file — the ordered teardown of surface-lifetime-audit
+   *  step 3. The destroys are synchronous; each severed connection's serve
+   *  then settles through its own chain in the microtasks BEHIND this call
+   *  (subscriptions finalize, their timers clear) — `close()` returns
+   *  without waiting for that. The peer index is per-listener closure
+   *  scope, so closing one listener never touches another's connections.
+   *  Idempotent, a no-op on a non-`listening` outcome, and safe to call
+   *  synchronously from a `process.on("exit")` handler (the OS sockets and
+   *  the file are severed synchronously; the async finalization needs a
+   *  live event loop and is moot when the process is exiting). */
   close(): void;
 }
 
