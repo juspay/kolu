@@ -132,7 +132,14 @@ data file in the project. Grown practice, each line paid for:
   when the branch is cut (draft), and the human merges when ready. The atlas PR follows
   /forge-pr, and its title/body are RE-WRITTEN after every push — the PR
   always describes its current full contents, never just its first commit. Atlas edits never ride a
-  feature branch, a scratch worktree, or another PR's branch.
+  feature branch, a scratch worktree, or another PR's branch. TWO recorded
+  execution failures on this rule, same day: (a) the coordinator cut `atlas`
+  fresh and pushed 41 commits over hours with NO PR — "opened IMMEDIATELY"
+  means in the SAME action as the first push, not "when someone asks where
+  the PR is"; (b) the branch sat STALE while master moved four times —
+  "continuously up to date" means merge origin/master into `atlas` in the
+  same turn you learn master moved (a merge notification, a lane's
+  master-merge report), not at review time. The human caught both.
 - Skill edits are NOT an exception — there are no exceptions: every
   coordinator-authored change (atlas notes, skills, rules, docs) rides that same
   single atlas branch/PR. The coordinator creates PRs from its own working
