@@ -1160,59 +1160,60 @@ export async function* iterateUntilAborted<T>(
  *  (`<key>:changed`, derived from the surface key — not configurable);
  *  the consumer supplies persistence + (when patchSchema is set) the patch
  *  merge fn. */
-export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
-  schema: ZodType<infer T>;
-  patchSchema: ZodType<infer P>;
-}
-  ? {
-      store: CellStore<T>;
-      /** Pure merge for partial mutations. Optional here when the cell's
-       *  spec already declares `patch` (the spec wins; the framework
-       *  errors at boot if neither is supplied). */
-      patch?: (current: T, p: P) => T;
-      /** Optional equality predicate. Same resolution rule as `patch`:
-       *  spec-declared `equals` wins, deps may override. See
-       *  `CellSpec.equals` for semantics. */
-      equals?: (a: T, b: T) => boolean;
-      onMutate?: (patch: P, current: T) => void;
-      /** Fire-and-forget side effect on every successful write. See
-       *  `CellHandlerDeps.onWrite`. */
-      onWrite?: (next: T) => void;
-      /** Write-forwarding seam for a re-serving mirror. See
-       *  `CellHandlerDeps.forward`. */
-      forward?: CellForward<T, P>;
-      /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
-      hasSnapshot?: () => boolean;
-      /** Optional async-source republish. The runtime fires it ONCE after
-       *  the cell is wired, handing it the cell ctx setter (so a late-arriving
-       *  value flows through the same equals/onWrite/store.set/bus.publish path)
-       *  AND an abort signal. It MAY return a disposer. The connector is an
-       *  OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches `done`,
-       *  and `close()` aborts the signal then runs the disposer. Owned by the
-       *  runtime — apps never call it. */
-      connect?: CellConnector<T>;
-    }
-  : S extends { schema: ZodType<infer T> }
+export type CellImplDeps<S extends CellSpec<unknown, unknown, unknown>> =
+  S extends {
+    schema: ZodType<infer T>;
+    patchSchema: ZodType<infer P>;
+  }
     ? {
         store: CellStore<T>;
+        /** Pure merge for partial mutations. Optional here when the cell's
+         *  spec already declares `patch` (the spec wins; the framework
+         *  errors at boot if neither is supplied). */
+        patch?: (current: T, p: P) => T;
+        /** Optional equality predicate. Same resolution rule as `patch`:
+         *  spec-declared `equals` wins, deps may override. See
+         *  `CellSpec.equals` for semantics. */
         equals?: (a: T, b: T) => boolean;
-        onMutate?: (next: T, current: T) => void;
+        onMutate?: (patch: P, current: T) => void;
+        /** Fire-and-forget side effect on every successful write. See
+         *  `CellHandlerDeps.onWrite`. */
         onWrite?: (next: T) => void;
         /** Write-forwarding seam for a re-serving mirror. See
          *  `CellHandlerDeps.forward`. */
-        forward?: CellForward<T, T>;
+        forward?: CellForward<T, P>;
         /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
         hasSnapshot?: () => boolean;
         /** Optional async-source republish. The runtime fires it ONCE after
          *  the cell is wired, handing it the cell ctx setter (so a late-arriving
-         *  value flows through the same equals/onWrite/store.set/bus.publish
-         *  path) AND an abort signal. It MAY return a disposer. The connector is
-         *  an OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches
-         *  `done`, and `close()` aborts the signal then runs the disposer. Owned
-         *  by the runtime — apps never call it. */
+         *  value flows through the same equals/onWrite/store.set/bus.publish path)
+         *  AND an abort signal. It MAY return a disposer. The connector is an
+         *  OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches `done`,
+         *  and `close()` aborts the signal then runs the disposer. Owned by the
+         *  runtime — apps never call it. */
         connect?: CellConnector<T>;
       }
-    : never;
+    : S extends { schema: ZodType<infer T> }
+      ? {
+          store: CellStore<T>;
+          equals?: (a: T, b: T) => boolean;
+          onMutate?: (next: T, current: T) => void;
+          onWrite?: (next: T) => void;
+          /** Write-forwarding seam for a re-serving mirror. See
+           *  `CellHandlerDeps.forward`. */
+          forward?: CellForward<T, T>;
+          /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+          hasSnapshot?: () => boolean;
+          /** Optional async-source republish. The runtime fires it ONCE after
+           *  the cell is wired, handing it the cell ctx setter (so a late-arriving
+           *  value flows through the same equals/onWrite/store.set/bus.publish
+           *  path) AND an abort signal. It MAY return a disposer. The connector is
+           *  an OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches
+           *  `done`, and `close()` aborts the signal then runs the disposer. Owned
+           *  by the runtime — apps never call it. */
+          connect?: CellConnector<T>;
+        }
+      : never;
 
 /** Per-collection implementation deps. The surface owns both buses
  *  (`<key>:keys` and `<key>:key:<k>`, derived from the surface key — not
@@ -1221,35 +1222,36 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
  *  are persistence-only. Side-effects (`scheduleAutosave`, etc.) belong
  *  inside the consumer's upsert/remove fns or in the imperative procedure
  *  that triggered the call. */
-export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
-  S extends { keySchema: ZodType<infer K>; schema: ZodType<infer T> }
-    ? {
-        readAll: () => Map<K, T>;
-        readOne?: (key: K) => T | undefined;
-        upsert: (key: K, value: T) => void;
-        remove: (key: K) => void;
-        /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
-         *  `readAll()` semantics). By default a compute reading `$.<coll>()`
-         *  re-runs `readAll()` on every access — correct for a registry
-         *  projection whose `readAll` reads a live external store, but for a
-         *  collection whose `readAll` is an EXPENSIVE per-key compose (padi's
-         *  `terminals`: `registryMap(composePadiTerminal)`), a derived member
-         *  folding `$.<coll>()` on a firehose re-composes ALL M entries per
-         *  poke = O(M²) composes/cycle (SR7's urgency regression). Set this and
-         *  the framework maintains a MATERIALIZED VIEW — a per-key cache seeded
-         *  from `readAll()` once at construction and updated per-key by the
-         *  SAME `upsert`/`remove` writes (which already carry the value) — so
-         *  the `$`-read returns the view WITHOUT recomposing (O(M²)→O(M)). Same
-         *  contents and same per-key `siblingChange` granularity as `readAll()`.
-         *
-         *  SAFE ONLY when EVERY mutation flows through the ctx `upsert`/`remove`
-         *  seam — that is the view's SINGLE write path, so it cannot diverge
-         *  from truth. Opting in is the author VOUCHING for that invariant. A
-         *  collection whose backing is mutated OUTSIDE `upsert`/`remove` (a live
-         *  external store its `readAll` re-reads) must NOT opt in. */
-        materializeSiblingView?: boolean;
-      }
-    : never;
+export type CollectionImplDeps<
+  S extends CollectionSpec<unknown, unknown, unknown>,
+> = S extends { keySchema: ZodType<infer K>; schema: ZodType<infer T> }
+  ? {
+      readAll: () => Map<K, T>;
+      readOne?: (key: K) => T | undefined;
+      upsert: (key: K, value: T) => void;
+      remove: (key: K) => void;
+      /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
+       *  `readAll()` semantics). By default a compute reading `$.<coll>()`
+       *  re-runs `readAll()` on every access — correct for a registry
+       *  projection whose `readAll` reads a live external store, but for a
+       *  collection whose `readAll` is an EXPENSIVE per-key compose (padi's
+       *  `terminals`: `registryMap(composePadiTerminal)`), a derived member
+       *  folding `$.<coll>()` on a firehose re-composes ALL M entries per
+       *  poke = O(M²) composes/cycle (SR7's urgency regression). Set this and
+       *  the framework maintains a MATERIALIZED VIEW — a per-key cache seeded
+       *  from `readAll()` once at construction and updated per-key by the
+       *  SAME `upsert`/`remove` writes (which already carry the value) — so
+       *  the `$`-read returns the view WITHOUT recomposing (O(M²)→O(M)). Same
+       *  contents and same per-key `siblingChange` granularity as `readAll()`.
+       *
+       *  SAFE ONLY when EVERY mutation flows through the ctx `upsert`/`remove`
+       *  seam — that is the view's SINGLE write path, so it cannot diverge
+       *  from truth. Opting in is the author VOUCHING for that invariant. A
+       *  collection whose backing is mutated OUTSIDE `upsert`/`remove` (a live
+       *  external store its `readAll` re-reads) must NOT opt in. */
+      materializeSiblingView?: boolean;
+    }
+  : never;
 
 /** Per-stream implementation deps. A stream is either:
  *
@@ -1414,7 +1416,7 @@ export type ProcedureImpl<
  *  against the cell schema), and the `S` phantom. */
 type CellDepFor<
   S extends SurfaceSpec,
-  C extends CellSpec<unknown, unknown>,
+  C extends CellSpec<unknown, unknown, unknown>,
 > = C extends {
   schema: ZodType<infer T>;
 }
@@ -2788,7 +2790,10 @@ export function extendSurface<
   // inference over the dynamic merge doesn't line up structurally with `ComposedSurfaceSpec`,
   // but the runtime IS that surface (every base + extension member).
   const combined = defineSurface(
-    mergeSurfaceSpecs(base.surface.spec, ext.surface.spec),
+    mergeSurfaceSpecs(
+      base.surface.spec,
+      ext.surface.spec,
+    ) as unknown as SurfaceSpec<never>,
   ) as unknown as Surface<ComposedSurfaceSpec<Base, Ext>>;
 
   // Re-adapt BOTH already-built fragments against the combined contract's matcher

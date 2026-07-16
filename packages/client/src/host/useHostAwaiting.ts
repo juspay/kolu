@@ -16,15 +16,12 @@
  *  where the ref-counted cache would net the listener to zero a microtask later. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import { toast } from "solid-sonner";
 import { padiMap } from "../wire";
-import { hostLabel } from "./hostChipTone";
 
-/** The host's awaiting count as a reactive accessor — hidden-at-zero pill fodder. */
+/** The host's awaiting count as a reactive accessor — hidden-at-zero pill fodder.
+ *  The urgency cell's declared `hostToast` policy (host-prefixed: `Host <host>
+ *  urgency error: …`) routes through the ONE interpreter, so this use-site is bare. */
 export function useHostAwaiting(host: HostKey): () => number {
-  const urgency = padiMap.entry(host).cells.urgency.use({
-    onError: (err: Error) =>
-      toast.error(`Host ${hostLabel(host)} urgency error: ${err.message}`),
-  });
+  const urgency = padiMap.entry(host).cells.urgency.use();
   return () => urgency.value()?.awaitingIds.length ?? 0;
 }

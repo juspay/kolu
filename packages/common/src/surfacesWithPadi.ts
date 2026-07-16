@@ -189,6 +189,11 @@ export const padiHostMap = defineSurfaceMap({
   // so the client derives the connect overlay / status word from `state().connection`
   // without a second per-host subscription (fixes the dot-vs-word split, drishti#102).
   connection: ConnectionInfoSchema,
+  // The membership `entries` collection's client error policy (SR11) — a plain `toast`
+  // (the membership stream has no per-host origin), so a host-membership subscription
+  // failure reaches the ONE interpreter as `Host membership error: …` (byte-identical to
+  // the deleted `onHostMembershipError`). Threaded onto `entriesSpec.client`.
+  entriesClient: { onError: { kind: "toast", label: "Host membership" } },
   // The sibling key this map is mounted + served under (`surface.padi.*`), single-sourced
   // through {@link PADI_SURFACE_NAME} (PR3): `connectSurfaceMap(padiHostMap, transport)`
   // slices this name from the combined socket, and both server splice sites mount under
