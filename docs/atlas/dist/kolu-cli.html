@@ -8,7 +8,7 @@ their daemons’ scripting faces.<span class="fn" data-fn data-astro-cid-2yjzt2l
 new executable; the ratified shape is subcommands of the one product binary,
 so the plan covers the CLI restructure too — hence the rename.</span></span></span><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The
 subsume-the-CLIs option was considered and rejected at ratification: verb
-parity would drag a kaval dependency into kolu-tui and blur the proof. Agents
+parity would drag a kaval dependency into the CLI faces and blur the proof. Agents
 that want verbs get them through the MCP face below — derived from
 <code>padiSurface</code>, not reimplemented.</span></span></span> Ratified scope: **canvas + attach</p>
 <ul>
@@ -16,8 +16,8 @@ that want verbs get them through the MCP face below — derived from
 </ul>
 <h2 id="user-facing-description">User-facing description</h2>
 <p>One binary, two faces.</p>
-<p><strong>The canvas (humans).</strong> <code>kolu-tui</code> connects to the local padi socket —
-<code>kolu-tui --host user@zest</code> pipes over ssh — and renders that host’s live
+<p><strong>The canvas (humans).</strong> <code>kolu tui</code> connects to the local padi socket —
+<code>kolu tui --host user@zest</code> pipes over ssh — and renders that host’s live
 canvas: one tile per terminal, title, agent badge, urgency mark. The same
 arrangement the browser shows for this host, in a terminal.</p>
 <p><strong>Prototype A — the default view</strong>: urgency-ordered grid of live tiles + a
@@ -30,20 +30,20 @@ herdr study (an unseen-done agent outranks a still-working one — done+unseen
 needs a human, working does not; the ● badge self-clears on attach). herdr’s
 own layout is list+focus+zoom, not a grid — the grid stays kolu’s
 differentiator; the rail is its overflow answer.</span></span></span></p>
-<div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu-tui — zest</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>▲│┌─ 1 flake-5x ▲ blocked ────┐┌─ 2 live-fix ● done ───────┐</div><div class="term-line term-out" data-astro-cid-kenkipkp>●││ Need your ruling on (a)/(b)││ ❯ 14/14 green — lease     │</div><div class="term-line term-out" data-astro-cid-kenkipkp>✳││ — see report 07.          ││   released. Holding.      │</div><div class="term-line term-out" data-astro-cid-kenkipkp>✳│└───────────────────────────┘└───────────────────────────┘</div><div class="term-line term-out" data-astro-cid-kenkipkp>·│┌─ 3 chlog-2 ✳ working ─────┐┌─ 4 sr11 · idle ───────────┐</div><div class="term-line term-out" data-astro-cid-kenkipkp>·││ · Baking… (14m 27s)       ││ ❯                         │</div><div class="term-line term-out" data-astro-cid-kenkipkp> ││   695 passed, 0 failed    ││                           │</div><div class="term-line term-out" data-astro-cid-kenkipkp> │└───────────────────────────┘└───────────────────────────┘</div><div class="term-line term-comment" data-astro-cid-kenkipkp># 1-9 focus · Enter attach · g goto · c create · x kill · ? keys</div></div></div>
+<div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu tui — zest</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>▲│┌─ 1 flake-5x ▲ blocked ────┐┌─ 2 live-fix ● done ───────┐</div><div class="term-line term-out" data-astro-cid-kenkipkp>●││ Need your ruling on (a)/(b)││ ❯ 14/14 green — lease     │</div><div class="term-line term-out" data-astro-cid-kenkipkp>✳││ — see report 07.          ││   released. Holding.      │</div><div class="term-line term-out" data-astro-cid-kenkipkp>✳│└───────────────────────────┘└───────────────────────────┘</div><div class="term-line term-out" data-astro-cid-kenkipkp>·│┌─ 3 chlog-2 ✳ working ─────┐┌─ 4 sr11 · idle ───────────┐</div><div class="term-line term-out" data-astro-cid-kenkipkp>·││ · Baking… (14m 27s)       ││ ❯                         │</div><div class="term-line term-out" data-astro-cid-kenkipkp> ││   695 passed, 0 failed    ││                           │</div><div class="term-line term-out" data-astro-cid-kenkipkp> │└───────────────────────────┘└───────────────────────────┘</div><div class="term-line term-comment" data-astro-cid-kenkipkp># 1-9 focus · Enter attach · g goto · c create · x kill · ? keys</div></div></div>
 <p><strong>Prototype B — attached (maximized)</strong>: full-screen raw passthrough; one
 reverse-video status line is the only chrome. Detach with the ssh-style <code>~.</code>
 line-start chord (<code>~~</code> sends a literal <code>~</code>, <code>~?</code> lists escapes — the
 <code>kaval-tui attach</code> grammar, verbatim). The status line keeps the rail’s
 most-urgent dot, so a blocked agent elsewhere is visible even while attached.</p>
-<div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu-tui — zest · attached: flake-5x</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>✻ Hatching… (31s · thinking)</div><div class="term-line term-out" data-astro-cid-kenkipkp>  ⎿  streak 3/5 — r-cert 4 relaunched on kolu-ci-2</div><div class="term-line term-out" data-astro-cid-kenkipkp>❯ </div><div class="term-line term-out" data-astro-cid-kenkipkp> </div><div class="term-line term-out" data-astro-cid-kenkipkp>[flake-5x ▲ · ~. detach · ~? help          rail: ●✳✳ · 2 off-grid]</div></div></div>
+<div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu tui — zest · attached: flake-5x</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>✻ Hatching… (31s · thinking)</div><div class="term-line term-out" data-astro-cid-kenkipkp>  ⎿  streak 3/5 — r-cert 4 relaunched on kolu-ci-2</div><div class="term-line term-out" data-astro-cid-kenkipkp>❯ </div><div class="term-line term-out" data-astro-cid-kenkipkp> </div><div class="term-line term-out" data-astro-cid-kenkipkp>[flake-5x ▲ · ~. detach · ~? help          rail: ●✳✳ · 2 off-grid]</div></div></div>
 <p><strong>Prototype C — the navigator</strong> (<code>g</code>): fuzzy jump across every terminal, with
 single-key state filters — <code>b</code> blocked, <code>d</code> done-unseen, <code>w</code> working — because
 spatial navigation stops scaling past a dozen agents.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Taken from
 herdr’s navigator/goto overlay; its state-filter chords are the triage tool a
 grid of agents needs. The overlay renders the user’s REAL bindings, not
 hardcoded docs — same rule for the <code>?</code> help overlay.</span></span></span></p>
-<div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu-tui — zest · goto</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>goto ❯ fla█                    [b]locked [d]one [w]orking [a]ll</div><div class="term-line term-out" data-astro-cid-kenkipkp>  ▲ 1 flake-5x      blocked 4m   Need your ruling on (a)/(b)…</div><div class="term-line term-out" data-astro-cid-kenkipkp>  ✳ 3 chlog-2       working 14m  Baking…</div><div class="term-line term-out" data-astro-cid-kenkipkp>  · 7 scratch-fla   idle 2h     ❯</div><div class="term-line term-comment" data-astro-cid-kenkipkp># Enter focus · ⏎⏎ attach · Esc cancel</div></div></div>
+<div class="term" data-astro-cid-kenkipkp><div class="term-bar" data-astro-cid-kenkipkp><span class="term-dot" style="background:#ff5f56" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#ffbd2e" data-astro-cid-kenkipkp></span><span class="term-dot" style="background:#27c93f" data-astro-cid-kenkipkp></span><span class="term-title" data-astro-cid-kenkipkp>kolu tui — zest · goto</span></div><div class="term-body" data-astro-cid-kenkipkp><div class="term-line term-out" data-astro-cid-kenkipkp>goto ❯ fla█                    [b]locked [d]one [w]orking [a]ll</div><div class="term-line term-out" data-astro-cid-kenkipkp>  ▲ 1 flake-5x      blocked 4m   Need your ruling on (a)/(b)…</div><div class="term-line term-out" data-astro-cid-kenkipkp>  ✳ 3 chlog-2       working 14m  Baking…</div><div class="term-line term-out" data-astro-cid-kenkipkp>  · 7 scratch-fla   idle 2h     ❯</div><div class="term-line term-comment" data-astro-cid-kenkipkp># Enter focus · ⏎⏎ attach · Esc cancel</div></div></div>
 <ul>
 <li><strong>Focus</strong> moves with <code>hjkl</code>/arrows; the focused tile shows a live screen
 preview (the <code>screen</code> collection), not a frozen snapshot. The grid is the
@@ -71,20 +71,20 @@ Both are <code>padiSurface</code> procedure calls — the same intents the brows
 looking at — the two rules that keep a multi-agent watcher quiet.</li>
 <li>Urgency (<code>awaiting</code> badge) reorders nothing and blinks nothing; it renders
 the daemon’s own <code>urgency</code> cell, so a padi-side change appears without a
-kolu-tui release.</li>
+CLI release.</li>
 </ul>
 <p><strong>The MCP face</strong> gets its own section below — one connected surface, two
 consumers.</p>
 <p><strong>Out of scope, deliberately:</strong> multi-host (the host map is kolu-server’s job;
-a later phase may dial N padis if demand shows), provisioning (kolu-tui dials
+a later phase may dial N padis if demand shows), provisioning (the CLI faces dial
 a padi that already runs — if none listens it fails fast with the socket/ssh
 error, never a silent retry loop), and any <code>padi-tui</code>/<code>kaval-tui</code> verb.</p>
 <h2 id="the-mcp-face">The MCP face</h2>
-<p><strong>The MCP face (agents).</strong> <code>kolu-tui mcp [--host …]</code> serves the <em>same
+<p><strong>The MCP face (agents).</strong> <code>kolu mcp [--host …]</code> serves the <em>same
 connected surface</em> to a coding agent over stdio via <code>serveSurfaceAsMcp</code>
 (<code>@kolu/surface-mcp</code>), <strong>default-deny</strong> — the v1 expose map is this table and
 nothing else:<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This is how “agents can drive padi/kaval verbs through
-kolu-tui” lands without kolu-tui growing a verb CLI: the verbs are
+the kolu binary” lands without it growing a verb CLI: the verbs are
 <code>padiSurface</code>’s own procedures, re-exposed by the existing adapter. Nothing is
 reimplemented; <code>padi-tui</code>/<code>kaval-tui</code> remain the human scripting faces. The
 kaval-tui verb set maps onto it directly: <code>list</code> → the <code>terminals</code> resource,
@@ -222,7 +222,7 @@ what those skills do today. The audit of their actual verb usage:</p>
 <p>Two consequences worth naming. First, the composite <code>wait.*</code> tools are
 <strong>client-side scaffolding, not padiSurface procedures</strong> — the same
 WaitOutcome/abort-chain scaffold <code>padi-tui/read.ts</code> and <code>kaval-tui/wait.ts</code>
-each hand-roll today. kolu-tui’s MCP face is therefore the <em>third consumer</em> of
+each hand-roll today. The MCP face is therefore the <em>third consumer</em> of
 that scaffold, which meets the unification gate <code>padi.mdx</code> records: the shared
 scaffold gets extracted (a small leaf) as part of this PR rather than a third
 copy. Second, <code>wait.outputSettled</code> consumes the <code>terminalAttach</code> <code>{seq}</code>
@@ -275,11 +275,11 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.</p>
   <rect width="860" height="470" rx="12" fill="#f6f7fb"/>
 
   <!-- title row -->
-  <text x="430" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1d29">one padiSurface, two frontends — kolu-tui never touches kolu-server</text>
+  <text x="430" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1d29">one padiSurface, two frontends — kolu tui/mcp never touch kolu-server</text>
 
   <!-- kolu-tui box -->
   <rect x="40" y="60" width="300" height="150" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2.5"/>
-  <text x="190" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#7c3aed">kolu-tui (new package)</text>
+  <text x="190" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#7c3aed">kolu tui · kolu mcp (packages/kolu-cli)</text>
   <rect x="60" y="100" width="120" height="90" rx="8" fill="#f3e8ff" stroke="#a78bfa"/>
   <text x="120" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#4c1d95">canvas face</text>
   <text x="120" y="140" text-anchor="middle" font-size="10.5" fill="#4c1d95">tiles · urgency</text>
@@ -320,7 +320,7 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.</p>
   <rect x="560" y="350" width="230" height="90" rx="10" fill="#ffffff" stroke="#ca8a04" stroke-width="2"/>
   <text x="675" y="380" text-anchor="middle" font-size="13" font-weight="700" fill="#854d0e">kaval (PTY daemon)</text>
   <text x="675" y="402" text-anchor="middle" font-size="11" fill="#854d0e">bytes + PTYs; padi binds it —</text>
-  <text x="675" y="418" text-anchor="middle" font-size="11" fill="#854d0e">kolu-tui never imports it</text>
+  <text x="675" y="418" text-anchor="middle" font-size="11" fill="#854d0e">the CLI faces never import it</text>
 
   <!-- arrows -->
   <defs>
@@ -338,15 +338,15 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.</p>
   <line x1="620" y1="210" x2="420" y2="352" stroke="#9aa1b1" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
   <text x="545" y="290" text-anchor="middle" font-size="10.5" fill="#6b7280">dials padiSurface too (today's only consumer)</text>
 </svg>
-<figcaption data-astro-cid-6cvztg6h>kolu-tui: two faces over one surfaceClient, two transports, zero kolu-server. kaval stays behind padi.</figcaption></figure>
+<figcaption data-astro-cid-6cvztg6h>The CLI faces: tui + mcp over one surfaceClient, two transports, zero kolu-server. kaval stays behind padi.</figcaption></figure>
 <ul>
 <li><strong>A pure <code>padiSurface</code> client.</strong> The load-bearing grounding: <code>terminalAttach</code>
 is a <code>padiSurface</code> collection — terminal byte streams ride the surface
-itself. So kolu-tui needs <strong>no kaval import and no kolu app import</strong>; its
+itself. So the CLI client needs <strong>no kaval import and no kolu app import</strong>; its
 dependencies are <code>@kolu/surface</code> (client), <code>@kolu/surface-mcp</code>, and
 <code>@kolu/padi</code>’s surface <em>definition</em> (the contract module kolu-server already
 imports). This keeps padi’s restart hash clean of app churn — the arrow rule
-<code>padi.mdx</code> records (“kolu-tui exists to prove padi needs no kolu”) is
+<code>padi.mdx</code> records (the second frontend exists to prove padi needs no kolu) is
 honored by construction.</li>
 <li><strong>The graduation criterion, owned here</strong> (moved from <code>padi.mdx</code>, which now
 links): the unit of done is <strong>the named path</strong> — <code>padiSurface</code> consumed
@@ -356,46 +356,46 @@ canvas. A feature built any other way (raw mirror iteration, a value-bearing
 cell read) satisfies the words and proves nothing — the pin below can only
 go green through the real path.</li>
 <li><strong>Boundary verdict, conditioned on the build</strong> (the loop, not a waterfall):
-kolu-tui is a <strong>leaf app package</strong> (<code>packages/kolu-tui</code>), not electricity —
+the CLI client is a <strong>leaf app package</strong> (<code>packages/kolu-cli</code>), not electricity —
 <em>because</em> the renderer is raw ANSI with no engine dependency (decision
 below) and every hard volatility it touches (transport, reconnect, stream
 retry, MCP lifecycle) already lives in its receptacle (<code>@kolu/surface</code>,
 <code>@kolu/surface-mcp</code>). If the renderer choice ever escalates to an engine
 owning alternate-screen/context-loss recovery, that engine wrapper — not
-kolu-tui — would be the extraction candidate.</li>
+kolu-cli — would be the extraction candidate.</li>
 <li><strong>Transport = the seams that already exist — nothing hand-rolled.</strong> Local:
 <code>resolveRunningPadiSocket</code> (<code>@kolu/padi/dial</code>) resolves, <code>connectPadi</code> dials
 (handshake + compatibility gate). ssh: <strong><code>dialAgentOnce</code> from
 <code>@kolu/surface-remote</code></strong> — the same one-shot dial both sibling TUIs’ 15–24
-line <code>hostConnect.ts</code> wrappers already consume; kolu-tui writes its own thin
+line <code>hostConnect.ts</code> wrappers already consume; kolu-cli writes its own thin
 options literal and nothing else.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An earlier draft said “not
 <code>@kolu/surface-remote</code>” — the lens run confirmed that contradicts the actual
 shape: the ssh-stdio dial <em>is</em> <code>surface-remote</code>’s <code>dialAgentOnce</code>, and both
 TUIs use it. What stays out is the rest of surface-remote (provision,
-realise, reconnect supervision — kolu-server’s session machinery): kolu-tui
-dials a padi that already runs and fails fast otherwise. A pre-lifted
+realise, reconnect supervision — kolu-server’s session machinery): the CLI faces
+dial a padi that already runs and fails fast otherwise. A pre-lifted
 <code>connectPadiViaHost</code> composition was proposed and REFUTED — padi-tui’s
-wrapper carries padi-specific probe/scoping kolu-tui may diverge from;
+wrapper carries padi-specific probe/scoping the CLI client may diverge from;
 compose in-app, extract only if a byte-identical twin actually emerges.</span></span></span></li>
 <li><strong>One <code>surfaceClient</code>, <code>STREAM_RETRY</code> mounted.</strong> The flaky-tracker’s #1827
 lesson binds: a raw client without the retry plugin flakes on
-attach-vs-reconnect races that production consumers survive. kolu-tui mounts
+attach-vs-reconnect races that production consumers survive. The CLI client mounts
 the same plugin production mounts — both faces share the one client, so the
 MCP face inherits it.</li>
 <li><strong><code>escape.ts</code> graduates to <code>@kolu/terminal-protocol</code> in this PR</strong> (confirmed
 by both lenses): kaval-tui’s 143-line line-start escape scanner (<code>~.</code> / <code>~~</code>
 / <code>~?</code>, bracketed-paste-suspended) is protocol policy with zero transport
-coupling — its only import is already <code>@kolu/terminal-protocol</code>, and kolu-tui
+coupling — its only import is already <code>@kolu/terminal-protocol</code>, and the tui face
 is the second <em>verbatim</em> consumer, which is that package’s exact birth
 condition (it was created when kaval-tui made the same concept fragment
 across three modules). Move the file, point kaval-tui at the export, consume
-from kolu-tui — a copy here would be two lockstep owners of a detach grammar.</li>
+from kolu-cli — a copy here would be two lockstep owners of a detach grammar.</li>
 <li><strong>The attach passthrough scaffold is a PORT, not an extraction</strong> (confirmed):
 kaval-tui’s <code>attach.ts</code> pattern (ordered write queue, snapshot-first-frame,
 resize-then-attach, tty-less test harness via the <code>AttachTty</code> seam) carries
-over, but its call sites bind kaval’s <code>ptyHostSurface</code> members while kolu-tui
+over, but its call sites bind kaval’s <code>ptyHostSurface</code> members while the tui face
 rides <code>padiSurface</code> — non-verbatim twins. No <code>@kolu/tui-kit</code> receptacle now;
-the recorded gate: after kolu-tui’s loop lands, diff the two scaffolds — if
+the recorded gate: after the tui face’s loop lands, diff the two scaffolds — if
 they’re identical modulo an injected ops object, that diff IS the extraction
 spec and the receptacle earns itself then.</li>
 <li><strong>From the herdr study, adopted at the architecture level</strong> (herdr = a Rust
@@ -445,19 +445,19 @@ over the same path.</li>
 <p><strong>The binary is <code>kolu</code>, not a new <code>kolu-tui</code> executable</strong> (ratified): today’s
 <code>kolu</code> cleye definition has flags and NO subcommands, so the namespace is
 free — <code>kolu tui</code> opens the canvas, <code>kolu mcp</code> serves agents, and bare <code>kolu</code>
-keeps meaning what it means today (the web server). The CODE stays in
-<code>packages/kolu-tui</code> (location is structure; the app binary imports the tui
-package — the arrow points the right way, since kolu-tui imports only
+keeps meaning what it means today (the web server). The CODE lives in
+<code>packages/kolu-cli</code> (location is structure; the app binary imports the CLI
+package — the arrow points the right way, since kolu-cli imports only
 padi/surface libraries and never the reverse). The graduation proof is about
 the RUNTIME path — no kolu-server <em>process</em> behind <code>kolu tui</code>/<code>kolu mcp</code> —
-not the shipping closure; <code>p2p-kolu.mdx</code> already records kolu-tui shipping
+not the shipping closure; <code>p2p-kolu.mdx</code> already records this client shipping
 in-closure.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The one cost: a padi-only remote host wanting a local
 <code>kolu mcp</code> pulls the kolu closure. Demand-gated escape hatch, recorded not
-built: a thin standalone bin target for the tui package if that host profile
+built: a thin standalone bin target for the CLI package if that host profile
 ever materializes.</span></span></span></p>
 <p>Steps, in build order (PR1 = the subcommand dispatch; PR2 = steps 1–3 + 8; PR3 = the rest):</p>
 <ol>
-<li><strong>Scaffold <code>packages/kolu-tui</code></strong> on the sibling pattern (<code>cleye</code> arg
+<li><strong>Scaffold <code>packages/kolu-cli</code></strong> on the sibling pattern (<code>cleye</code> arg
 parsing, <code>bin.ts</code>, nix packaging in-closure like <code>padi-tui</code>). Subcommands:
 default (canvas), <code>mcp</code>.</li>
 <li><strong>Connect</strong>: local socket resolution via <code>resolveRunningPadiSocket</code> +
@@ -491,7 +491,7 @@ on kill.</li>
 <li><strong><code>mcp</code> subcommand</strong>: <code>serveSurfaceAsMcp({ surface, client, expose })</code> with
 an explicit default-deny expose map (resources: <code>terminals</code>, <code>screen</code>,
 <code>activity</code>, <code>urgency</code>; tools: create/kill/send, <code>mutates: true</code>).</li>
-<li><strong>The pin (e2e, red-if-broken)</strong>: spawn a real padi, run kolu-tui against
+<li><strong>The pin (e2e, red-if-broken)</strong>: spawn a real padi, run <code>kolu tui</code>/<code>kolu mcp</code> against
 it over the unix socket <strong>and</strong> over <code>ssh localhost</code> — script: create a
 terminal through the canvas gesture, attach, assert bytes round-trip
 through the <code>{seq}</code> stream, kill, assert the tile leaves the canvas. This

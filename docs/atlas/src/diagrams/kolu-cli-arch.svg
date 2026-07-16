@@ -2,11 +2,11 @@
   <rect width="860" height="470" rx="12" fill="#f6f7fb"/>
 
   <!-- title row -->
-  <text x="430" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1d29">one padiSurface, two frontends — kolu-tui never touches kolu-server</text>
+  <text x="430" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1d29">one padiSurface, two frontends — kolu tui/mcp never touch kolu-server</text>
 
   <!-- kolu-tui box -->
   <rect x="40" y="60" width="300" height="150" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2.5"/>
-  <text x="190" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#7c3aed">kolu-tui (new package)</text>
+  <text x="190" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#7c3aed">kolu tui · kolu mcp (packages/kolu-cli)</text>
   <rect x="60" y="100" width="120" height="90" rx="8" fill="#f3e8ff" stroke="#a78bfa"/>
   <text x="120" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#4c1d95">canvas face</text>
   <text x="120" y="140" text-anchor="middle" font-size="10.5" fill="#4c1d95">tiles · urgency</text>
@@ -47,7 +47,7 @@
   <rect x="560" y="350" width="230" height="90" rx="10" fill="#ffffff" stroke="#ca8a04" stroke-width="2"/>
   <text x="675" y="380" text-anchor="middle" font-size="13" font-weight="700" fill="#854d0e">kaval (PTY daemon)</text>
   <text x="675" y="402" text-anchor="middle" font-size="11" fill="#854d0e">bytes + PTYs; padi binds it —</text>
-  <text x="675" y="418" text-anchor="middle" font-size="11" fill="#854d0e">kolu-tui never imports it</text>
+  <text x="675" y="418" text-anchor="middle" font-size="11" fill="#854d0e">the CLI faces never import it</text>
 
   <!-- arrows -->
   <defs>
