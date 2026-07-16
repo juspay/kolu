@@ -75,7 +75,7 @@ let painted = false;
 function render(d) {
   const meta = document.getElementById("meta");
   meta.replaceChildren($("span", "live-dot"),
-    $("span", null, `${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
+    $("span", null, `${d.project ? d.project + " · " : ""}${d.updated} · coordinator ${d.coordinator} · data reloads 30s · hover for detail`));
 
   const root = document.getElementById("root");
   root.replaceChildren();
