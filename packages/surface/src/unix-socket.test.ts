@@ -387,11 +387,14 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
       .toBe(true);
   });
 
-  it("stays idempotent with peers connected; a peer that already left is shed, not double-destroyed", async () => {
+  it("close() after a peer already left: doesn't throw, stays idempotent, still disconnects the remaining live peer", async () => {
     const { socketPath, listener } = await freshListener("shed");
     // Peer A is a raw connection so its lifecycle is directly observable —
-    // both ends live in this process, so awaiting the server-side 'close'
-    // makes the set-shed deterministic (no fixed sleep).
+    // both ends live in this process. The shed itself is not behaviorally
+    // assertable (destroy() on a closed socket is a no-op; the shed's value
+    // is the index not retaining dead sockets) — the waits below only ensure
+    // the close() under test iterates a Set that has already shed peer A,
+    // i.e. the named code path is the one exercised.
     const rawA = createConnection(socketPath);
     await once(rawA, "connect");
     const b = await unixSocketLink<typeof surface.contract>({ socketPath });
