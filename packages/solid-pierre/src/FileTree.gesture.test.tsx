@@ -122,4 +122,47 @@ describe("FileTree selection provenance (shimmer #1841)", () => {
     pierre.emit(["examples/Storage.lean"]); // dropped (token consumed)
     expect(onSelect).toHaveBeenCalledExactlyOnceWith("examples/Main.lean");
   });
+
+  it("arms in CAPTURE phase — a row whose own handler emits mid-dispatch is still forwarded", () => {
+    const onSelect = vi.fn();
+    const tree = mount(onSelect);
+    // A real Pierre row lives *inside* the container and emits its selection from
+    // its own click handler, synchronously in the same dispatch. The gate's
+    // listener must arm in the CAPTURE phase (runs before the target's handler) —
+    // a bubble-phase listener would fire *after* the row emits, with the token
+    // still unset, and drop the click. Dispatching on a descendant is what
+    // distinguishes the two: capture reaches the container before the target.
+    const row = document.createElement("button");
+    tree.appendChild(row);
+    row.addEventListener("click", () => pierre.emit(["examples/Main.lean"]));
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith("examples/Main.lean");
+  });
+
+  it("disarms on the next frame — a non-selecting gesture leaves no stale token for a later echo", () => {
+    const onSelect = vi.fn();
+    const tree = mount(onSelect);
+    // Control the animation frame so the safety disarm is deterministic.
+    const frames: FrameRequestCallback[] = [];
+    const realRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    }) as typeof requestAnimationFrame;
+    try {
+      // A gesture that selects nothing (dead space / scrollbar) arms the token
+      // but never emits to consume it.
+      tree.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, composed: true }),
+      );
+      // Advance the frame — the disarm must clear the token.
+      for (const cb of frames.splice(0)) cb(0);
+      // A later autonomous echo must now be dropped; without the frame disarm the
+      // stale token would forward it as one file the user never picked.
+      pierre.emit(["examples/Storage.lean"]);
+      expect(onSelect).not.toHaveBeenCalled();
+    } finally {
+      globalThis.requestAnimationFrame = realRaf;
+    }
+  });
 });
