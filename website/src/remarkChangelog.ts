@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import GithubSlugger from "github-slugger";
-import { toString } from "mdast-util-to-string";
-import type { Nodes, Root } from "mdast";
+import { toString as mdastToString } from "mdast-util-to-string";
+import type { Link, Nodes, Root } from "mdast";
 import type {
   MdxJsxAttribute,
   MdxJsxFlowElement,
@@ -64,7 +66,7 @@ const headingStats = (tree: Root): ChangelogStat[] => {
 
   for (const node of tree.children) {
     if (node.type === "heading" && node.depth === 3) {
-      const label = toString(node).trim();
+      const label = mdastToString(node).trim();
       active = { label, key: slugger.slug(label), count: 0 };
       stats.push(active);
     } else if (node.type === "list" && active) {
@@ -75,13 +77,70 @@ const headingStats = (tree: Root): ChangelogStat[] => {
   return stats;
 };
 
+// Depth-3 headings that are allowed to stand without a docs-page link. Every
+// other heading is a product area and must link to the page that owns it.
+const PLAIN_HEADINGS = new Set(["Before you update"]);
+
+/**
+ * Enforce the ledger's grouping contract at build time (the same shape the
+ * `website-docs` instruction teaches): every product-area `###` heading links
+ * to an existing docs page, and every `<Change>` entry sits under a heading.
+ * Advisory guidance drifts; a failed build does not.
+ */
+const validateLedger = (tree: Root, srcDir: string) => {
+  // A product-area heading must link to a page that exists on the site: a
+  // docs-collection entry (rendered by src/pages/[slug].astro) or a static
+  // top-level route under src/pages/.
+  const pageExists = (slug: string) =>
+    [
+      `content/docs/${slug}.mdx`,
+      `content/docs/${slug}.md`,
+      `pages/${slug}.astro`,
+      `pages/${slug}/index.astro`,
+    ].some((candidate) => existsSync(resolve(srcDir, candidate)));
+
+  let sawHeading = false;
+  for (const node of tree.children) {
+    if (node.type === "heading" && node.depth === 3) {
+      sawHeading = true;
+      const label = mdastToString(node).trim();
+      const link: Link | undefined =
+        node.children.length === 1 && node.children[0].type === "link"
+          ? node.children[0]
+          : undefined;
+      if (!link) {
+        if (!PLAIN_HEADINGS.has(label))
+          throw new Error(
+            `Changelog heading "${label}" must link its product area to a docs page, e.g. \`### [The Dock](/dock)\``,
+          );
+        continue;
+      }
+      const slug = link.url.startsWith("/") ? link.url.slice(1) : undefined;
+      if (!slug || !/^[a-z0-9-]+$/.test(slug) || !pageExists(slug))
+        throw new Error(
+          `Changelog heading "${label}" links to "${link.url}", but no page exists at that route (checked src/content/docs/ and src/pages/)`,
+        );
+    } else if (node.type === "list" && !sawHeading) {
+      let orphan: string | undefined;
+      visit(node, (child) => {
+        if (!orphan && isChangeElement(child))
+          orphan = mdastToString(child).slice(0, 60);
+      });
+      if (orphan !== undefined)
+        throw new Error(
+          `A changelog <Change> entry ("${orphan}…") appears before any product-area ### heading`,
+        );
+    }
+  }
+};
+
 /**
  * Give changelog headings release-scoped IDs during the MDX build, and expose
  * release totals from the same syntax tree. SSR HTML, Pagefind, and in-page
  * navigation therefore share one set of anchors and one parsed source of truth.
  */
 export function remarkChangelog() {
-  return (tree: Root, file: { data: AstroFileData }) => {
+  return (tree: Root, file: { path?: string; data: AstroFileData }) => {
     const frontmatter = file.data.astro?.frontmatter;
     if (!frontmatter || typeof frontmatter.version !== "string") return;
     const version = frontmatter.version;
@@ -89,12 +148,21 @@ export function remarkChangelog() {
     const headingSlugger = new GithubSlugger();
     const prefix = changelogReleaseKey(version);
     visit(tree, "heading", (node) => {
-      const id = `${prefix}-${headingSlugger.slug(toString(node))}`;
+      const id = `${prefix}-${headingSlugger.slug(mdastToString(node))}`;
       node.data ??= {};
       node.data.hProperties = { ...node.data.hProperties, id };
     });
 
     const kinds = typedStats(tree);
+    // Only releases written in the typed-entry format carry the grouping
+    // contract; 1.0.0 predates it and keeps its plain heading sections.
+    if (kinds.length > 0) {
+      if (!file.path)
+        throw new Error(
+          "remarkChangelog needs the file path to validate headings",
+        );
+      validateLedger(tree, resolve(dirname(file.path), "../.."));
+    }
     frontmatter.changelogStats = kinds.length > 0 ? kinds : headingStats(tree);
   };
 }
