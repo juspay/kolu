@@ -104,16 +104,26 @@ Then(
 
 /** Browser-history traversal — the mouse-back/forward gesture. Driven via
  *  `history.back()/forward()` (a same-document hash traversal; `hashchange`
- *  fires exactly as for the real buttons), with a settle beat for the router's
- *  reaction (or deliberate non-reaction) to land. */
+ *  fires exactly as for the real buttons). A deliberate NON-reaction has no
+ *  signal to poll — pin it with a settle beat, then waitForFrame. */
+const TRAVERSAL_SETTLE_MS = 500;
+
+async function traverseHistory(
+  world: KoluWorld,
+  direction: "back" | "forward",
+): Promise<void> {
+  await world.page.evaluate(
+    (d) => (d === "back" ? history.back() : history.forward()),
+    direction,
+  );
+  await world.page.waitForTimeout(TRAVERSAL_SETTLE_MS);
+  await world.waitForFrame();
+}
+
 When("I go back in browser history", async function (this: KoluWorld) {
-  await this.page.evaluate(() => history.back());
-  await this.page.waitForTimeout(500);
-  await this.waitForFrame();
+  await traverseHistory(this, "back");
 });
 
 When("I go forward in browser history", async function (this: KoluWorld) {
-  await this.page.evaluate(() => history.forward());
-  await this.page.waitForTimeout(500);
-  await this.waitForFrame();
+  await traverseHistory(this, "forward");
 });
