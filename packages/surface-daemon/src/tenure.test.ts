@@ -40,8 +40,9 @@ afterEach(() => {
     }
   }
   // And the per-child tmpdirs, so repeated runs don't silt up /tmp. Safe even
-  // when the SIGKILL above hasn't reaped yet: the fixture only ever touches
-  // its dir at boot (gate + socket bind), long past by teardown.
+  // when the SIGKILL above hasn't reaped yet: a SIGKILLed child runs no
+  // further code, and cleanly-exited children already finished their shutdown
+  // unlinks (daemonMain's finally removes the socket and gate before resolving).
   for (const dir of tmpDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }

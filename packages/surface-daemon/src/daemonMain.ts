@@ -9,10 +9,11 @@
  * skeleton, opposite policies, which is the evidence the mechanism is real and
  * not one program's internals wearing a package name.
  *
- * It never calls `process.exit`: it returns a `DaemonExit` the bin maps to a
- * code. That keeps the whole lifecycle drivable in-process from a test — the
- * gate-race choreography and the idle-timeout path run under vitest with no
- * real signals and no forked children.
+ * It never calls `process.exit`: it returns a `DaemonExit` that
+ * `daemonProcessMain` (tenure.ts, the bin half) maps to a code. That keeps the
+ * whole lifecycle drivable in-process from a test — the gate-race choreography
+ * and the idle-timeout path run under vitest with no real signals and no
+ * forked children.
  */
 
 import {
@@ -236,8 +237,8 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   // Once the socket is listening, the socket file and the held gate are real
   // side effects — a `finally` guarantees they are torn down on EVERY exit from
   // the lifetime block, not just the clean `waitForShutdown` resolve. Without
-  // it an `onReady` throw, an `isIdle` throw, or a `waitForShutdown` rejection
-  // would leak a stale socket and a held gate, blocking the next launch.
+  // it an `onReady` throw or a `waitForShutdown` throw (the boundToPid pid
+  // guard) would leak a stale socket and a held gate, blocking the next launch.
   try {
     // Shutdown triggers BEFORE the readiness announcement: `waitForShutdown`
     // installs the SIGTERM/SIGINT handlers synchronously, and a supervisor

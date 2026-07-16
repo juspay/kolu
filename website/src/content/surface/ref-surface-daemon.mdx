@@ -24,7 +24,8 @@ in-process from a test.
 `daemonProcessMain({ name, run })` is the **bin half of that partition**: for a
 process that exists to *be* the daemon, it runs `run()` (`daemonMain` or a
 wrapper around it) to completion and then **owns the process exit** — the code
-from `daemonExitCode`, a rejection narrated as `name: message` and exited `1`
+classified from the `DaemonExit` (`already-running`/`shutdown` → `0`,
+`serve-failed` → `1`), a rejection narrated as `name: message` and exited `1`
 (the crash arm is swallow-proof: a failing stderr write cannot block the exit).
 Without it, any live resource or timer the bin never tied to the daemon's
 lifetime keeps the event loop alive after the daemon's *tenure* — what holds it
