@@ -186,17 +186,6 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // and the failure-read tail are unchanged.
     label: `host:${opts.host}`,
   });
-  // Capture the latest session state (snapshot-then-delta) so the failure path can
-  // read the agent's own fatal off the log's REMOTE-origin lines — the role exposes
-  // no synchronous `current()` snapshot, so a live `onState` mirror stands in. The
-  // remote lines are now the `source === "remote"` entries of the unified `log`
-  // (provenance is a field), reduced to their raw text.
-  let latestRemoteLines: readonly string[] = [];
-  const unsubState = session.onState((s) => {
-    latestRemoteLines = s.log
-      .filter((e) => e.source === "remote")
-      .map((e) => e.line);
-  });
   // The agent's OWN fatal reason, read off the session AFTER a failed dial. When
   // the agent exits before serving — a bad `--kaval` pick, a startup crash — the
   // `probe` below rejects with the transport's opaque "stream closed" error, but
@@ -218,9 +207,10 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // header plus each `--kaval <socket>` candidate the user needs to recover):
   // `forEachLine` splits it into separate remote `log` entries where only the first
   // carries the prefix, so matching a single prefixed line would drop the
-  // candidates. We read the WHOLE current tail once, on the catch
-  // path — no `onState` accumulator (a cached partial block could otherwise
-  // short-circuit a later full read under stderr fragmentation).
+  // candidates. We read the WHOLE current tail once, on the catch path, off the
+  // session's freshest frame (`currentState()`) — no `onState` accumulator (a cached
+  // partial block could otherwise short-circuit a later full read under stderr
+  // fragmentation).
   const agentFatal = (remoteLines: readonly string[]): string | undefined => {
     const prefix = opts.fatalPrefix;
     // Walk back to the last line that opens the fatal block.
@@ -263,7 +253,6 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     return {
       client,
       dispose: () => {
-        unsubState();
         session.destroy();
       },
     };
@@ -272,8 +261,12 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // `exit` event, so yield once to let that handler land the agent's stderr on
     // the session state before we read the whole current tail.
     await new Promise((resolve) => setImmediate(resolve));
-    const reason = agentFatal(latestRemoteLines);
-    unsubState();
+    const reason = agentFatal(
+      session
+        .currentState()
+        .log.filter((e) => e.source === "remote")
+        .map((e) => e.line),
+    );
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
     // and clears timers) must NOT replace the failure the caller needs to see.
     try {

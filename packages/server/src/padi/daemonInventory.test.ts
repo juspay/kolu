@@ -12,8 +12,8 @@
  * The non-overlap / coalesce / force-resample behavior the retired
  * `startDaemonInventorySampler` loop used to spell is now the reactor poll source's,
  * pinned in `@kolu/surface`'s `reactor.test.ts` ("non-overlap guard COALESCES a tick
- * during an in-flight read into ONE trailing read"); the onState force-resample wiring
- * is pinned in `pollCadence.test.ts`.
+ * during an in-flight read into ONE trailing read"); the onState force-resample cadence
+ * rides the same reactor's graduated `everyMsOr` fuse (SR8.c), pinned there too.
  */
 
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";

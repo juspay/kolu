@@ -36,11 +36,10 @@ const h = vi.hoisted(() => ({
     markConnected: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
   }>,
-  // The `SessionState` the fake session's `onState` delivers — the failure-surfacing
-  // path reads the `source === "remote"` entries of the unified `log` off it (via a
-  // live `onState` mirror; the role has no synchronous `current()` snapshot). Default:
-  // a benign "connecting" state (no agent-quit), so the raw probe error is preserved;
-  // a test swaps in a stderr tail.
+  // The `SessionState` the fake session's `currentState()` returns — the failure-
+  // surfacing path reads the `source === "remote"` entries of the unified `log` off it.
+  // Default: a benign "connecting" state (no agent-quit), so the raw probe error is
+  // preserved; a test swaps in a stderr tail.
   state: {
     phase: "connecting",
     log: [] as Array<{ source: "local" | "remote"; line: string }>,
@@ -74,9 +73,9 @@ function fakeSession(client: unknown) {
       pin: vi.fn().mockResolvedValue(client),
       markConnected: vi.fn(),
       destroy: vi.fn(),
-      // snapshot-then-delta: fire the current state synchronously on subscribe (the
-      // real cell-backed `onState` does), so `dialAgentOnce`'s captured
-      // `latestRemoteLines` mirror is populated before the probe runs.
+      // The synchronous liveness point-read `dialAgentOnce` reads the remote-origin log
+      // tail off on its failure path (the real cell-backed `currentState()`).
+      currentState: () => h.state,
       onState: (cb: (s: unknown) => void) => {
         cb(h.state);
         return () => {};

@@ -40,20 +40,6 @@ const surface = defineSurface({
 });
 type SurfaceContract = typeof surface.contract;
 
-/** Synchronous `SessionState` snapshot — the `.current()` the Session role
- *  dropped. `onState` delivers the live value synchronously on subscribe, so a
- *  fresh subscribe/unsubscribe reads the current state without waiting on async
- *  delta delivery. */
-function snap(session: {
-  onState(cb: (s: SessionState<SshProv>) => void): () => void;
-}): SessionState<SshProv> {
-  let s!: SessionState<SshProv>;
-  session.onState((state) => {
-    s = state;
-  })();
-  return s;
-}
-
 /** A child serving the real surface over a loopback pair — it ANSWERS
  *  `system.live` — and stays alive until killed. */
 function healthyChild() {
@@ -134,11 +120,11 @@ describe("HostSession liveness watchdog", () => {
     const session = buildSession();
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
-    expect(snap(session).phase).toBe("connecting");
+    expect(session.currentState().phase).toBe("connecting");
     // The bridge marks `connected` after the first RPC — simulate it (the watchdog
     // is born here, so it can never probe before the first connect).
     session.markConnected();
-    expect(snap(session).phase).toBe("connected");
+    expect(session.currentState().phase).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
     // The watchdog probes at +15s; the wedged remote never answers.
@@ -166,13 +152,13 @@ describe("HostSession liveness watchdog", () => {
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
     session.markConnected();
-    expect(snap(session).phase).toBe("connected");
+    expect(session.currentState().phase).toBe("connected");
 
     // Two full probe cycles (interval+timeout each). The agent answers every
     // probe, so the link is never force-cycled and the child never respawns.
     await vi.advanceTimersByTimeAsync(50_000);
     expect(kills[0]).not.toHaveBeenCalled();
-    expect(snap(session).phase).toBe("connected");
+    expect(session.currentState().phase).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
     session.destroy();
@@ -189,7 +175,7 @@ describe("HostSession liveness watchdog", () => {
     const session = buildSession();
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(1);
-    expect(snap(session).phase).toBe("connecting");
+    expect(session.currentState().phase).toBe("connecting");
 
     // Count genuine connecting→connected TRANSITIONS (a non-connected prior flipping
     // to connected), not raw connected frames: the async `system.identity` probe lands
@@ -206,10 +192,10 @@ describe("HostSession liveness watchdog", () => {
 
     session.markConnected(); // site 1 — the hello path: connecting → connected
     await vi.advanceTimersByTimeAsync(0); // flush the state-cell delivery
-    expect(snap(session).phase).toBe("connected");
+    expect(session.currentState().phase).toBe("connected");
     session.markConnected(); // site 2 — the first-frame call: guard makes it a no-op
     await vi.advanceTimersByTimeAsync(0);
-    expect(snap(session).phase).toBe("connected");
+    expect(session.currentState().phase).toBe("connected");
 
     expect(connectedTransitions).toBe(1);
     expect(spawn).toHaveBeenCalledTimes(1);
