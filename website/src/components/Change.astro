@@ -1,36 +1,25 @@
 ---
 /**
- * One changelog entry as a single dense row: the title on the left and the PR
- * chip cluster flush to the right margin, so every row is one scannable line.
- * The description is collapsed by default and unfolds beneath the title on hover
- * / keyboard focus (desktop) or tap (touch), so a release reads as a tight list
- * of headlines you expand only where curious. Touch devices with JS off keep
- * descriptions always visible. Entries are categorised by the `#### [Page](…)`
- * heading they sit under in the changelog MDX, so a row carries no tags of its
- * own.
+ * A changelog note with three levels of detail:
+ *
+ *   1. the product-facing headline is always visible;
+ *   2. the plain-language explanation opens on demand with native <details>;
+ *   3. implementation PRs sit in the open note's provenance footer.
+ *
+ * Keeping PRs out of the collapsed row is intentional. A changelog is for
+ * understanding the product first; the source links remain one click away for
+ * readers who want the archaeology.
  *
  *   ### Fixed
  *
  *   #### [Core Concepts](/concepts)
  *
- *   - <Change title="Terminals no longer silently freeze" pr={1235}>A WebSocket
- *     that died without notice … resumes without a reload.</Change>
+ *   - <Change title="Terminals no longer silently freeze" pr={1235}>A
+ *     WebSocket that died without notice … resumes without a reload.</Change>
  *
- * One entry can cite MORE than one PR. When an unreleased feature or fix is
- * iterated across several PRs, they fold into a SINGLE entry that carries every
- * contributing PR — `prs={[…]}` renders a chip per PR:
- *
- *   - <Change title="Work across several machines" prs={[1675, 1714, 1743]}>
- *     Point kolu at another machine over ssh …</Change>
- *
- * `pr={n}` stays the shorthand for the common single-PR entry; pass `pr` OR
- * `prs`, never both. Used as the content of a Markdown list item
- * (`- <Change …>…</Change>`), so the `<ul>/<li>` come from `.prose-changelog`;
- * this component owns the whole row — its own `→` bullet (which swings to `↓`
- * while expanded), the PR chip cluster, and the collapse. Auto-injected into
- * changelog MDX (see `changelog.astro`'s `components` prop), so entries need no
- * import. `repo` / `state` pass straight through to every `<PR>` (default: a
- * merged juspay/kolu pull).
+ * One note may cite several PRs when an unreleased feature was refined across
+ * multiple changes. Pass `pr` OR `prs`, never both. Omitting both is valid for
+ * release notes whose implementation history is not represented by one PR.
  */
 import PR from "./PR.astro";
 
@@ -44,199 +33,262 @@ interface Props {
 
 const { title, pr, prs, repo, state } = Astro.props;
 
-// One id list, whether the entry used the single-PR shorthand `pr` or the
-// multi-PR `prs`. Fail loud on misuse rather than silently rendering a wrong or
-// empty chip cluster: both props at once is ambiguous, and an empty `prs` is a
-// forgotten value, not "no PR".
 if (pr !== undefined && prs !== undefined)
   throw new Error(`<Change title="${title}">: pass either \`pr\` or \`prs\`, not both`);
 if (prs !== undefined && prs.length === 0)
-  throw new Error(`<Change title="${title}">: \`prs\` is empty — give at least one PR, or use \`pr\``);
+  throw new Error(`<Change title="${title}">: \`prs\` is empty — give at least one PR, or omit it`);
+
 const prIds = prs ?? (pr !== undefined ? [pr] : []);
+const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
 ---
 
-<div class="cl-change" tabindex="0">
-  <p class="cl-change-head">
-    <span class="cl-change-arrow" aria-hidden="true">→</span>
-    <span class="cl-change-title">{title}</span>
-    <span class="cl-change-meta">
-      {prIds.map((id) => <PR id={id} repo={repo} state={state} />)}
+<details class="cl-change">
+  <summary>
+    <span class="cl-change-toggle" aria-hidden="true">
+      <span></span>
     </span>
-  </p>
-  <div class="cl-change-reveal">
+    <span class="cl-change-title">{title}</span>
+    {prIds.length > 0 && <span class="cl-change-count">{provenanceLabel}</span>}
+    <span class="cl-change-match" data-search-preview hidden></span>
+  </summary>
+
+  <div class="cl-change-body">
     <div class="cl-change-desc"><slot /></div>
+    {
+      prIds.length > 0 && (
+        <footer class="cl-change-source">
+          <span class="cl-change-source-label">Shipped in</span>
+          <span class="cl-change-prs">
+            {prIds.map((id) => <PR id={id} repo={repo} state={state} />)}
+          </span>
+        </footer>
+      )
+    }
   </div>
-</div>
+</details>
 
 <style>
-  /* A dense full-width row. The hover band bleeds a touch past the text on
-     both sides (negative inline margin + matching padding) so hovering lights
-     up the whole line, arrow included, without shifting the layout. */
   .cl-change {
-    position: relative;
-    margin: 0 -0.55rem;
-    padding: 0.22rem 0.55rem;
-    border-radius: 5px;
-    outline: none;
-    transition: background 0.15s ease;
-  }
-  /* Headline: arrow | title | right-grouped metadata, all on one baseline. */
-  .cl-change-head {
-    display: grid;
-    grid-template-columns: 0.85rem minmax(0, 1fr) auto;
-    align-items: baseline;
-    column-gap: 0.5rem;
-    margin: 0;
-    line-height: 1.4;
-  }
-  .cl-change-arrow {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    color: var(--color-ink-faint);
+    --note-accent: var(--color-kolu-primary);
+    border-top: 1px solid var(--color-rule);
     transition:
-      transform 0.2s ease,
-      color 0.2s ease;
+      background 160ms ease,
+      border-color 160ms ease;
   }
-  .cl-change-title {
-    color: var(--color-ink);
-    font-weight: 550;
-    font-size: 0.92rem;
-    letter-spacing: -0.01em;
-    line-height: 1.4;
+
+  .cl-change[open] {
+    border-color: color-mix(
+      in srgb,
+      var(--note-accent) 32%,
+      var(--color-rule)
+    );
+    background: color-mix(
+      in srgb,
+      var(--note-accent) 4%,
+      var(--color-void-raised)
+    );
   }
-  /* The PR chip cluster, flush right so the chips align down the page. Wraps
-     under the title on a narrow screen. */
-  .cl-change-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: flex-end;
-    gap: 0.3rem;
-  }
-  /* Touch / no-JS fallback: an inline collapse (grid 0fr→1fr) that animates to
-     the description's natural height with no magic max-height. Indented under
-     the title, clear of the arrow column. Pointer devices replace this with a
-     floating popover below (see @media (hover: hover)). */
-  .cl-change-reveal {
+
+  summary {
     display: grid;
-    grid-template-rows: 0fr;
-    padding-left: 1.35rem;
-    transition: grid-template-rows 0.22s ease;
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3.35rem;
+    padding: 0.7rem 0.25rem;
+    color: var(--color-ink);
+    cursor: pointer;
+    list-style: none;
   }
-  .cl-change-desc {
-    overflow: hidden;
-    min-height: 0;
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary:focus-visible {
+    outline: 2px solid var(--color-kolu-primary);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  .cl-change-toggle {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 2px;
     color: var(--color-ink-muted);
-    font-size: 0.86rem;
-    line-height: 1.5;
-    opacity: 0;
-    transition: opacity 0.22s ease;
+    transition:
+      color 160ms ease,
+      border-color 160ms ease,
+      background 160ms ease;
   }
-  /* Pointer devices: the description is a floating card anchored under the row.
-     Absolutely positioned, so opening it overlays the rows below instead of
-     shoving them down — no reflow, no list jump. It fades and lifts into place
-     on a transform (cheap to animate), and the row is raised above its
-     neighbours so the card is never clipped by a later row. */
-  @media (hover: hover) {
-    .cl-change-reveal {
-      position: absolute;
-      top: 100%;
-      left: 1rem;
-      z-index: 1;
-      display: block;
-      width: min(42rem, calc(100% - 1rem));
-      margin-top: 0.3rem;
-      padding: 0.55rem 0.85rem 0.65rem;
-      background: var(--color-void-raised);
-      border: 1px solid var(--color-rule-strong);
-      border-radius: 8px;
-      box-shadow:
-        0 1px 2px rgb(0 0 0 / 0.08),
-        0 14px 30px -10px rgb(0 0 0 / 0.22);
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(-4px);
-      transition:
-        opacity 0.16s ease,
-        transform 0.16s ease,
-        visibility 0s linear 0.16s;
-      pointer-events: none;
-    }
-    .cl-change-desc {
-      overflow: visible;
-      opacity: 1;
-      transition: none;
-    }
-    .cl-change:hover,
-    .cl-change:focus-within {
-      background: var(--color-void-raised);
-      z-index: 20;
-    }
-    .cl-change:hover .cl-change-reveal,
-    .cl-change:focus-within .cl-change-reveal {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0);
-      transition-delay: 0s;
-    }
+
+  .cl-change-toggle::before,
+  .cl-change-toggle::after {
+    content: "";
+    position: absolute;
+    width: 0.48rem;
+    height: 1px;
+    background: currentColor;
+    transition: transform 180ms ease;
   }
-  @media (hover: hover) and (prefers-reduced-motion: reduce) {
-    .cl-change-reveal {
-      transform: none;
-      transition:
-        opacity 0.12s ease,
-        visibility 0s linear 0.12s;
-    }
-    .cl-change:hover .cl-change-reveal,
-    .cl-change:focus-within .cl-change-reveal {
-      transform: none;
-    }
+
+  .cl-change-toggle::after {
+    transform: rotate(90deg);
   }
-  /* No hover to reveal with (touch): the script below makes rows tap-to-toggle
-     (`.cl-tap` collapses, `.open` expands). Without JS, `.cl-tap` is never
-     added and descriptions stay open. */
-  @media (hover: none) {
-    .cl-change:not(.cl-tap) .cl-change-reveal,
-    .cl-change.open .cl-change-reveal {
-      grid-template-rows: 1fr;
-    }
-    .cl-change:not(.cl-tap) .cl-change-desc,
-    .cl-change.open .cl-change-desc {
-      opacity: 1;
-    }
-    .cl-change.open .cl-change-arrow {
-      transform: translateX(1px) rotate(90deg);
-      color: var(--color-kolu-primary);
-    }
-    .cl-change.cl-tap .cl-change-head {
-      cursor: pointer;
-    }
+
+  .cl-change[open] .cl-change-toggle {
+    color: var(--color-void);
+    border-color: var(--note-accent);
+    background: var(--note-accent);
   }
-  /* Breathing room between headline and unfolded description — lives INSIDE
-     the clipped box so the collapsed row stays exactly headline-height. */
-  .cl-change-desc > :global(:first-child) {
-    margin-top: 0.3rem;
+
+  .cl-change[open] .cl-change-toggle::after {
+    transform: rotate(0deg);
   }
+
+  .cl-change-title {
+    font-size: 0.98rem;
+    font-weight: 560;
+    letter-spacing: -0.012em;
+    line-height: 1.4;
+    transition: color 150ms ease;
+  }
+
+  .cl-change-count {
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .cl-change-match {
+    grid-column: 2 / -1;
+    margin-top: -0.4rem;
+    padding: 0 0 0.2rem;
+    color: var(--color-ink-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+
+  .cl-change-match[hidden] {
+    display: none;
+  }
+
+  .cl-change-match :global(mark) {
+    padding: 0 0.12em;
+    color: var(--color-void);
+    background: var(--color-kolu-top-strong);
+    border-radius: 2px;
+  }
+
+  summary:hover .cl-change-title,
+  .cl-change[open] .cl-change-title {
+    color: var(--note-accent);
+  }
+
+  .cl-change-body {
+    max-width: 48rem;
+    padding: 0 1.5rem 1.25rem 2.25rem;
+  }
+
+  .cl-change-desc {
+    color: var(--color-ink-dim);
+    font-size: 0.92rem;
+    line-height: 1.68;
+    animation: note-in 180ms ease both;
+  }
+
   .cl-change-desc :global(p) {
     margin: 0;
   }
-  .cl-change-desc :global(p + p) {
-    margin-top: 0.5rem;
-  }
-</style>
 
-<script>
-  // Touch devices have no hover to reveal descriptions with — make each row
-  // tap-to-toggle instead. Gated on (hover: none) so desktop keeps pure-CSS
-  // hover; without JS this never runs and the CSS leaves descriptions open.
-  if (matchMedia("(hover: none)").matches) {
-    for (const row of document.querySelectorAll(".cl-change")) {
-      row.classList.add("cl-tap");
-      row.addEventListener("click", (e) => {
-        // Let the PR chip stay a plain link tap, and tag chips filter.
-        if (e.target instanceof Element && e.target.closest("a, button"))
-          return;
-        row.classList.toggle("open");
-      });
+  .cl-change-desc :global(p + p) {
+    margin-top: 0.75rem;
+  }
+
+  .cl-change-desc :global(strong) {
+    color: var(--color-ink);
+    font-weight: 620;
+  }
+
+  .cl-change-source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.7rem;
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .cl-change-source-label {
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .cl-change-prs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+
+  @keyframes note-in {
+    from {
+      opacity: 0;
+      transform: translateY(-3px);
     }
   }
-</script>
+
+  @media (max-width: 620px) {
+    summary {
+      grid-template-columns: 1.15rem minmax(0, 1fr);
+      gap: 0.65rem;
+      min-height: 3.1rem;
+      padding-block: 0.62rem;
+    }
+
+    .cl-change-count {
+      grid-column: 2;
+      margin-top: -0.45rem;
+      padding-bottom: 0.15rem;
+    }
+
+    .cl-change-match {
+      grid-column: 2;
+      margin-top: -0.35rem;
+    }
+
+    .cl-change-body {
+      padding: 0 0.3rem 1.15rem 1.8rem;
+    }
+
+    .cl-change-desc {
+      font-size: 0.9rem;
+      line-height: 1.62;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cl-change,
+    .cl-change-toggle,
+    .cl-change-toggle::after,
+    .cl-change-title {
+      transition: none;
+    }
+
+    .cl-change-desc {
+      animation: none;
+    }
+  }
+</style>
