@@ -46,6 +46,17 @@ import { activeHost, setActiveHost } from "./wire";
  *  is still connecting when the link fires. */
 const MEMBERSHIP_BOUND_MS = 8000;
 
+/** The consumed-once stamp — `navigate` marks the CURRENT history entry's
+ *  command handled; the traversal gate reads it. Writer and reader are spelled
+ *  here once so they cannot drift. */
+function stampEntryRouted(): void {
+  history.replaceState({ koluRouted: true }, "");
+}
+function entryAlreadyRouted(): boolean {
+  const state = history.state as { koluRouted?: boolean } | null;
+  return state?.koluRouted === true;
+}
+
 /** The route families that target a specific terminal (terminal · code ·
  *  inspector) — the ones that must defer until membership settles. */
 type TerminalRoute = Extract<DeepLink, { terminalId: TerminalId }>;
@@ -195,7 +206,7 @@ export function useDeepLinks(): void {
     // re-toast) and `none` (harmless). A same-URL `replaceState` — the hash
     // stays in the bar (durability), no entry is added, and a RELOAD still
     // re-routes because the boot parse never reads this gate.
-    history.replaceState({ koluRouted: true }, "");
+    stampEntryRouted();
   }
 
   /** Resolve a route's target record AND the tile that OWNS its right panel —
@@ -396,8 +407,7 @@ export function useDeepLinks(): void {
   // before. Entries from before this fix self-heal: their first traversal
   // routes once (unstamped) and `navigate` stamps them.
   makeEventListener(window, "hashchange", () => {
-    const state = history.state as { koluRouted?: boolean } | null;
-    if (state?.koluRouted === true) {
+    if (entryAlreadyRouted()) {
       // A traversal is the user MOVING ON — supersede any in-flight route,
       // exactly as `navigate` does for every fresh command. Without this, a
       // back-press during the settle window (a warming host, an unsensed git)
