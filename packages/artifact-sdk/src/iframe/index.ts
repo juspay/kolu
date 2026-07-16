@@ -23,8 +23,7 @@ import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
-import { isHttpUrl } from "../core/url";
-import { koluDeepLinkHash } from "./deepLink";
+import { classifyAnchor } from "./deepLink";
 import type {
   DeepLinkMsg,
   HistoryMsg,
@@ -48,24 +47,6 @@ function postToParent(
   window.parent.postMessage(msg, window.location.origin);
 }
 
-/** The absolute URL to open in a real browser tab when `anchor` is clicked, or
- *  null to let the click proceed in-frame. A link is "external" when it loads
- *  over http(s) at a different origin than the previewed document: same-origin
- *  links stay in-frame (the parent maps them back to a repo path via the `ready`
- *  pathname report) and non-web schemes (`mailto:`, fragment-only `#foo`,
- *  `javascript:`) are left to the browser's own handling. Origin (not host) is
- *  the boundary so a same-host link over a different scheme — e.g. `http:` vs
- *  the document's `https:` — is correctly treated as external. `anchor.href` is
- *  already resolved absolute against the document's base URL. */
-function externalHref(anchor: HTMLAnchorElement): string | null {
-  if (!isHttpUrl(anchor.href)) return null;
-  // `isHttpUrl` already proved `anchor.href` parses, so this `new URL` can't
-  // throw — it's only here to read the origin for the same-origin check.
-  const url = new URL(anchor.href);
-  if (url.origin === window.location.origin) return null;
-  return url.href;
-}
-
 /** Trap a primary- or middle-button click on an external anchor and forward it
  *  to the parent. The opaque-origin sandbox carries no `allow-popups`/`allow-
  *  top-navigation`, so the browser would otherwise swallow the click or replace
@@ -85,21 +66,20 @@ function onAnchorClick(event: MouseEvent): void {
   }
   const anchor = (event.target as Element | null)?.closest("a");
   if (!anchor) return;
-  // Precedence: external first (a cross-origin `#/…` is an external link),
-  // then a kolu deep link; everything else — internal file navigation, plain
-  // in-page `#section` anchors, non-web schemes — proceeds in-frame untouched.
-  const url = externalHref(anchor);
-  if (url !== null) {
-    event.preventDefault();
-    postToParent({ type: "kolu-artifact-sdk:open-external", url });
-    return;
-  }
-  const hash = koluDeepLinkHash(anchor, window.location);
-  if (hash !== null) {
-    // Never let the frame navigate itself to the app shell — the parent routes.
-    event.preventDefault();
-    postToParent({ type: "kolu-artifact-sdk:deep-link", hash });
-  }
+  match(classifyAnchor(anchor, window.location))
+    .with({ kind: "external" }, ({ url }) => {
+      event.preventDefault();
+      postToParent({ type: "kolu-artifact-sdk:open-external", url });
+    })
+    .with({ kind: "deep-link" }, ({ hash }) => {
+      // Never let the frame navigate itself to the app shell — the parent routes.
+      event.preventDefault();
+      postToParent({ type: "kolu-artifact-sdk:deep-link", hash });
+    })
+    // In-frame — internal file navigation, plain in-page `#section` anchors,
+    // non-web schemes — proceeds untouched.
+    .with({ kind: "in-frame" }, () => undefined)
+    .exhaustive();
 }
 
 function clearPill(): void {

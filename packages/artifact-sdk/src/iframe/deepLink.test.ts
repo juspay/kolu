@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { koluDeepLinkHash } from "./deepLink";
+import { classifyAnchor } from "./deepLink";
 
 /** The previewed document's location: same shape the iframe passes
  *  (`window.location` at the call site). The preview serves under the
@@ -11,45 +11,65 @@ const LOC = {
 
 const ID = "550e8400-e29b-41d4-a716-446655440000";
 
-describe("koluDeepLinkHash — the in-sandbox deep-link shape test (DL2 pins)", () => {
-  it("classifies a same-origin app-root #/t link (the dashboard-pill shape)", () => {
+describe("classifyAnchor — the in-sandbox anchor classifier (DL2 pins)", () => {
+  it("classifies a same-origin app-root #/t link (the dashboard-pill shape) as deep-link", () => {
     expect(
-      koluDeepLinkHash({ href: `${LOC.origin}/#/t/local/${ID}` }, LOC),
-    ).toBe(`#/t/local/${ID}`);
+      classifyAnchor({ href: `${LOC.origin}/#/t/local/${ID}` }, LOC),
+    ).toEqual({ kind: "deep-link", hash: `#/t/local/${ID}` });
   });
 
-  it("classifies a same-page #/… href (resolves to the document's own path)", () => {
+  it("classifies a same-page #/… href (resolves to the document's own path) as deep-link", () => {
     expect(
-      koluDeepLinkHash({ href: `${LOC.origin}${LOC.pathname}#/settings` }, LOC),
-    ).toBe("#/settings");
+      classifyAnchor({ href: `${LOC.origin}${LOC.pathname}#/settings` }, LOC),
+    ).toEqual({ kind: "deep-link", hash: "#/settings" });
   });
 
-  it("does NOT classify a cross-origin #/… link (external wins)", () => {
-    expect(
-      koluDeepLinkHash({ href: `https://other.example/#/t/local/${ID}` }, LOC),
-    ).toBeNull();
+  it("classifies a cross-origin link as external", () => {
+    expect(classifyAnchor({ href: "https://other.example/page" }, LOC)).toEqual(
+      { kind: "external", url: "https://other.example/page" },
+    );
   });
 
-  it("does NOT classify an internal file link (different path = file nav), hash or not", () => {
+  it("classifies a cross-origin #/… link as external, never deep-link", () => {
     expect(
-      koluDeepLinkHash({ href: `${LOC.origin}/other/page.html` }, LOC),
-    ).toBeNull();
-    expect(
-      koluDeepLinkHash({ href: `${LOC.origin}/other/page.html#/t/x` }, LOC),
-    ).toBeNull();
+      classifyAnchor({ href: `https://other.example/#/t/local/${ID}` }, LOC),
+    ).toEqual({
+      kind: "external",
+      url: `https://other.example/#/t/local/${ID}`,
+    });
   });
 
-  it("does NOT classify a bare # or an ordinary in-page anchor", () => {
-    expect(
-      koluDeepLinkHash({ href: `${LOC.origin}${LOC.pathname}#` }, LOC),
-    ).toBeNull();
-    expect(
-      koluDeepLinkHash({ href: `${LOC.origin}${LOC.pathname}#section-2` }, LOC),
-    ).toBeNull();
+  it("classifies a same-HOST link over a different scheme as external (origin is the boundary)", () => {
+    expect(classifyAnchor({ href: `https://localhost:7690/` }, LOC)).toEqual({
+      kind: "external",
+      url: "https://localhost:7690/",
+    });
   });
 
-  it("does NOT classify non-web schemes", () => {
-    expect(koluDeepLinkHash({ href: "mailto:x@example.com" }, LOC)).toBeNull();
-    expect(koluDeepLinkHash({ href: "javascript:alert(1)" }, LOC)).toBeNull();
+  it("classifies an internal file link (different path = file nav) as in-frame, hash or not", () => {
+    expect(
+      classifyAnchor({ href: `${LOC.origin}/other/page.html` }, LOC),
+    ).toEqual({ kind: "in-frame" });
+    expect(
+      classifyAnchor({ href: `${LOC.origin}/other/page.html#/t/x` }, LOC),
+    ).toEqual({ kind: "in-frame" });
+  });
+
+  it("classifies a bare # or an ordinary in-page anchor as in-frame", () => {
+    expect(
+      classifyAnchor({ href: `${LOC.origin}${LOC.pathname}#` }, LOC),
+    ).toEqual({ kind: "in-frame" });
+    expect(
+      classifyAnchor({ href: `${LOC.origin}${LOC.pathname}#section-2` }, LOC),
+    ).toEqual({ kind: "in-frame" });
+  });
+
+  it("classifies non-web schemes as in-frame (left to the browser's own handling)", () => {
+    expect(classifyAnchor({ href: "mailto:x@example.com" }, LOC)).toEqual({
+      kind: "in-frame",
+    });
+    expect(classifyAnchor({ href: "javascript:alert(1)" }, LOC)).toEqual({
+      kind: "in-frame",
+    });
   });
 });
