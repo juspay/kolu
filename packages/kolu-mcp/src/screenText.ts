@@ -27,13 +27,17 @@ export const ScreenTextArgsSchema = z.object({
 });
 export type ScreenTextArgs = z.infer<typeof ScreenTextArgsSchema>;
 
-/** Slice the last `tail` lines of `text` — pure, unit-tested. A trailing
- *  newline delimits an empty final line the terminal never renders, so it is
- *  dropped BEFORE the slice (tail:1 of "a\nb\n" is "b", not ""). */
+/** Slice the last `tail` NON-BLANK-TAIL lines of `text` — pure, unit-tested.
+ *  The rendered buffer ends in a run of blank rows (the viewport below the
+ *  cursor), which carry zero information and would otherwise BE the tail
+ *  (`tail: 6` of a fresh shell returned six empty lines — caught by the
+ *  evidence transcript). So every trailing whitespace-only line is dropped
+ *  before the slice; blank lines BETWEEN content are kept verbatim. */
 export function tailLines(text: string, tail: number): string {
   const lines = text.split("\n");
-  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-  return lines.slice(-tail).join("\n");
+  let end = lines.length;
+  while (end > 0 && (lines[end - 1] as string).trim() === "") end -= 1;
+  return lines.slice(Math.max(0, end - tail), end).join("\n");
 }
 
 export const screenTextTool: BespokeTool = {
