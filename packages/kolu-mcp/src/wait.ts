@@ -62,22 +62,33 @@ export function waitJson<Met extends WaitMet>(
   id: string,
   outcome: WaitOutcome<Met>,
 ): Record<string, unknown> {
-  switch (outcome.kind) {
+  // Inside the GENERIC, TS intersects the met arm's {kind:"met"} with the
+  // BOUND's `kind?: never` and collapses it to never, so the discriminated
+  // switch can't be written on `outcome` directly. Re-spell the same runtime
+  // union once, with the met payload opaque — every CONCRETE Met satisfies
+  // WaitMet (no `kind`), so this cast never changes a real shape.
+  const o = outcome as
+    | ({ kind: "met" } & Record<string, unknown>)
+    | { kind: "gone"; elapsedMs: number }
+    | { kind: "timeout"; elapsedMs: number }
+    | { kind: "interrupted" }
+    | { kind: "closed"; error?: string };
+  switch (o.kind) {
     case "met": {
-      const { kind: _kind, ...met } = outcome;
+      const { kind: _kind, ...met } = o;
       return { id, result: "met", met };
     }
     case "timeout":
-      return { id, result: "timeout", elapsedMs: outcome.elapsedMs };
+      return { id, result: "timeout", elapsedMs: o.elapsedMs };
     case "gone":
-      return { id, result: "gone", elapsedMs: outcome.elapsedMs };
+      return { id, result: "gone", elapsedMs: o.elapsedMs };
     case "interrupted":
       return { id, result: "interrupted" };
     case "closed":
       return {
         id,
         result: "closed",
-        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+        ...(o.error !== undefined ? { error: o.error } : {}),
       };
   }
 }
