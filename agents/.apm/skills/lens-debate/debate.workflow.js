@@ -946,7 +946,9 @@ async function runThread(thread) {
     escalations.push({ file, findingIds: items.flatMap((it) => it.findingIds), rounds: threadRounds, resolved: active.length === 0 })
   }
   rounds = Math.max(rounds, threadRounds)
-  return { file, rounds: threadRounds, unsettled: active.map((it) => it.id) }
+  // No return value: the thread's output channel is the shared state above
+  // (settled/history/escalations/finalPos/rounds), deliberately, for
+  // crash-resilience — see the parallel() call site.
 }
 
 let status = 'consensus'
