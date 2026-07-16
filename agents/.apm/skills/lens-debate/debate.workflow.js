@@ -627,8 +627,6 @@ const byId = Object.fromEntries(combined.map((f) => [f.id, f]))
 // adding or renaming a path is a single edit and a typo can't silently miscount.
 const VIA = Object.freeze({ reconciled: 'reconciled', autoMinor: 'auto-minor', noObjection: 'no-objection', objectionAgreed: 'objection-agreed', debated: 'debated' })
 const settled = {} // id -> { disposition, plan, via, lowy?, hickey?, duplicateOf? }
-const pairOf = {} // secondary (hickey) id -> primary (lowy) id, for matched pairs
-const mateOf = {} // both directions of a matched pair, for rendering
 const contested = [] // [{ id, findingIds, f, pairF?, pairId?, openLowy?, openHickey?, excerpt }]
 
 const settleAsRaised = (f, via) => {
@@ -676,9 +674,10 @@ if (lowyFindings.length && hickeyFindings.length) {
     if (m.compatible === true && !compatible) log(`Matcher pair ${m.a} ≡ ${m.b} claimed compatible but ${planOk ? 'dispositions differ' : 'carries no canonical plan'} — demoted to contested.`)
     matchedIds.add(m.a)
     matchedIds.add(m.b)
-    pairOf[m.b] = m.a
-    mateOf[m.a] = m.b
-    mateOf[m.b] = m.a
+    // The pair lives on the findings themselves (one relation, no parallel
+    // indexes); the lowy side is always the primary by construction.
+    byId[m.a].pairedWith = m.b
+    byId[m.b].pairedWith = m.a
     if (compatible) {
       settlePair(m.a, m.b, fa.disposition, bothFix ? m.plan.trim() : undefined, VIA.reconciled)
       log(`Reconciled ${m.a} ≡ ${m.b} (${fa.disposition}) — settled with zero debate turns.`)
@@ -973,9 +972,11 @@ const settledOut = combined.map((f) => {
   if (s) {
     return { ...common, agreed: true, disposition: s.disposition, plan: s.plan, via: s.via, duplicateOf: s.duplicateOf, pairedWith: s.pairedWith, lowy: s.lowy, hickey: s.hickey }
   }
-  const primary = pairOf[f.id]
+  // For a paired finding the primary is always the lowy id by construction
+  // (see the matcher loop), so the hickey side dedupes under its mate.
+  const primary = f.origin === 'hickey' && f.pairedWith ? f.pairedWith : undefined
   const pos = finalPos[primary ?? f.id]
-  return { ...common, agreed: false, disposition: 'unresolved', plan: undefined, via: undefined, duplicateOf: primary, pairedWith: mateOf[f.id], lowy: pos?.lowy, hickey: pos?.hickey }
+  return { ...common, agreed: false, disposition: 'unresolved', plan: undefined, via: undefined, duplicateOf: primary, pairedWith: f.pairedWith, lowy: pos?.lowy, hickey: pos?.hickey }
 })
 // Pairs count once everywhere a human reads (unresolved list, fixes) — the
 // secondary id carries duplicateOf and is skipped.
