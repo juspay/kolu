@@ -38,7 +38,17 @@ type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 export type FileTreeProps = {
   paths: string[];
   gitStatus?: GitStatusEntry[];
+  /** The host-owned selection to reflect in the tree. Writes here are
+   *  **one-way**: they are applied silently (marking `aria-selected`, scrolling
+   *  the row into view) and never round-trip back through `onSelect` (the
+   *  #1841 provenance gate). The host is the source of this value, so it
+   *  already knows what it wrote — only a real user gesture on the tree ever
+   *  comes back out via `onSelect`. */
   selectedPath?: string | null;
+  /** Fires only for a selection a real user gesture (click/keydown on the
+   *  tree) caused. A programmatic write to `selectedPath` is applied silently
+   *  and never echoes back here (the #1841 provenance gate) — the host owns
+   *  that write, so it already knows. */
   onSelect?: (path: string | null) => void;
   /** Enable Pierre's built-in header search affordance. Default `true`.
    *  Set to `false` when the host renders its own search input and
