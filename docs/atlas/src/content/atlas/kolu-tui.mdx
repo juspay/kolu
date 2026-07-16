@@ -121,15 +121,41 @@ hardcoded docs — same rule for the `?` help overlay.</Footnote>
   kolu-tui release.
 
 **The MCP face (agents).** `kolu-tui mcp [--host …]` serves the *same
-connected surface* to a coding agent over stdio via
-`serveSurfaceAsMcp` (`@kolu/surface-mcp`): cells and collections
-(`terminals`, `screen`, `activity`, `urgency`) become subscribable resources;
-`create`/`kill`/`send`-class procedures become tools, **default-deny** — the
-expose map names every tool, `mutates` flagged.<Footnote>This is how "agents
-can drive padi/kaval verbs through kolu-tui" lands without kolu-tui growing a
-verb CLI: the verbs are `padiSurface`'s own procedures, re-exposed by the
-existing adapter. Nothing is reimplemented; `padi-tui`/`kaval-tui` remain the
-human scripting faces.</Footnote>
+connected surface* to a coding agent over stdio via `serveSurfaceAsMcp`
+(`@kolu/surface-mcp`), **default-deny** — the v1 expose map is this table and
+nothing else:<Footnote>This is how "agents can drive padi/kaval verbs through
+kolu-tui" lands without kolu-tui growing a verb CLI: the verbs are
+`padiSurface`'s own procedures, re-exposed by the existing adapter. Nothing is
+reimplemented; `padi-tui`/`kaval-tui` remain the human scripting faces. The
+kaval-tui verb set maps onto it directly: `list` → the `terminals` resource,
+`snapshot` → `screen.text`, `send` → `lifecycle.sendInput`, `create`/`kill` →
+`lifecycle.create`/`kill`, `wait` → subscribe `urgency`/`activity` and watch
+for the edge.</Footnote>
+
+| exposed as | member | what the agent gets |
+| --- | --- | --- |
+| resource (subscribable) | `terminals` | the live roster — id, title, command, agent kind + state per terminal |
+| resource (subscribable) | `urgency` | the awaiting-ids set — "which terminals need a human/agent now" |
+| resource (subscribable) | `status` | daemon/kaval health |
+| resource (subscribable) | `activity` | the host's activity feed (state transitions to wait on) |
+| tool, read-only | `screen.text` · `screen.history` | a terminal's rendered screen / scrollback as text — the snapshot face |
+| tool, read-only | `git.getStatus` · `git.getDiff` | the workspace's git context, same source of truth the browser's Code tab reads |
+| tool, read-only | `fs.listAll` · `fs.readFile` | workspace file listing / file contents |
+| tool, `mutates` | `lifecycle.create` | spawn a terminal (command, cwd) — returns the TerminalInfo |
+| tool, `mutates` | `lifecycle.kill` | kill one terminal by id |
+| tool, `mutates` | `lifecycle.sendInput` | write input bytes/keys to a terminal |
+
+**Deliberately denied in v1** (each an explicit non-entry, not an oversight):
+`terminalAttach` (a raw `{seq}` byte stream is the wrong shape for MCP
+consumers — `screen.text` is the read face); `lifecycle.killAll` /
+`recycleKaval` / `discardSleeping` (daemon-admin blast radius — human verbs);
+`lifecycle.sleep`/`wake`/`resize` (layout/lifecycle policy the canvas owns);
+`chrome.*` (browser canvas arrangement — meaningless for an agent and
+hazardous to script); `git.worktreeCreate`/`worktreeRemove` and
+`scratch.write` (write-side beyond terminal control — expandable later, on
+demand, one row at a time); `session.restore` + every `test__set` verb
+(admin/test). Widening the map is a one-row diff with a review, never a
+default.
 
 **Out of scope, deliberately:** multi-host (the host map is kolu-server's job;
 a later phase may dial N padis if demand shows), provisioning (kolu-tui dials

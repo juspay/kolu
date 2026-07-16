@@ -69,15 +69,88 @@ the daemon’s own <code>urgency</code> cell, so a padi-side change appears with
 kolu-tui release.</li>
 </ul>
 <p><strong>The MCP face (agents).</strong> <code>kolu-tui mcp [--host …]</code> serves the <em>same
-connected surface</em> to a coding agent over stdio via
-<code>serveSurfaceAsMcp</code> (<code>@kolu/surface-mcp</code>): cells and collections
-(<code>terminals</code>, <code>screen</code>, <code>activity</code>, <code>urgency</code>) become subscribable resources;
-<code>create</code>/<code>kill</code>/<code>send</code>-class procedures become tools, <strong>default-deny</strong> — the
-expose map names every tool, <code>mutates</code> flagged.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This is how “agents
-can drive padi/kaval verbs through kolu-tui” lands without kolu-tui growing a
-verb CLI: the verbs are <code>padiSurface</code>’s own procedures, re-exposed by the
-existing adapter. Nothing is reimplemented; <code>padi-tui</code>/<code>kaval-tui</code> remain the
-human scripting faces.</span></span></span></p>
+connected surface</em> to a coding agent over stdio via <code>serveSurfaceAsMcp</code>
+(<code>@kolu/surface-mcp</code>), <strong>default-deny</strong> — the v1 expose map is this table and
+nothing else:<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This is how “agents can drive padi/kaval verbs through
+kolu-tui” lands without kolu-tui growing a verb CLI: the verbs are
+<code>padiSurface</code>’s own procedures, re-exposed by the existing adapter. Nothing is
+reimplemented; <code>padi-tui</code>/<code>kaval-tui</code> remain the human scripting faces. The
+kaval-tui verb set maps onto it directly: <code>list</code> → the <code>terminals</code> resource,
+<code>snapshot</code> → <code>screen.text</code>, <code>send</code> → <code>lifecycle.sendInput</code>, <code>create</code>/<code>kill</code> →
+<code>lifecycle.create</code>/<code>kill</code>, <code>wait</code> → subscribe <code>urgency</code>/<code>activity</code> and watch
+for the edge.</span></span></span></p>
+<table>
+<thead>
+<tr>
+<th>exposed as</th>
+<th>member</th>
+<th>what the agent gets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>resource (subscribable)</td>
+<td><code>terminals</code></td>
+<td>the live roster — id, title, command, agent kind + state per terminal</td>
+</tr>
+<tr>
+<td>resource (subscribable)</td>
+<td><code>urgency</code></td>
+<td>the awaiting-ids set — “which terminals need a human/agent now”</td>
+</tr>
+<tr>
+<td>resource (subscribable)</td>
+<td><code>status</code></td>
+<td>daemon/kaval health</td>
+</tr>
+<tr>
+<td>resource (subscribable)</td>
+<td><code>activity</code></td>
+<td>the host’s activity feed (state transitions to wait on)</td>
+</tr>
+<tr>
+<td>tool, read-only</td>
+<td><code>screen.text</code> · <code>screen.history</code></td>
+<td>a terminal’s rendered screen / scrollback as text — the snapshot face</td>
+</tr>
+<tr>
+<td>tool, read-only</td>
+<td><code>git.getStatus</code> · <code>git.getDiff</code></td>
+<td>the workspace’s git context, same source of truth the browser’s Code tab reads</td>
+</tr>
+<tr>
+<td>tool, read-only</td>
+<td><code>fs.listAll</code> · <code>fs.readFile</code></td>
+<td>workspace file listing / file contents</td>
+</tr>
+<tr>
+<td>tool, <code>mutates</code></td>
+<td><code>lifecycle.create</code></td>
+<td>spawn a terminal (command, cwd) — returns the TerminalInfo</td>
+</tr>
+<tr>
+<td>tool, <code>mutates</code></td>
+<td><code>lifecycle.kill</code></td>
+<td>kill one terminal by id</td>
+</tr>
+<tr>
+<td>tool, <code>mutates</code></td>
+<td><code>lifecycle.sendInput</code></td>
+<td>write input bytes/keys to a terminal</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Deliberately denied in v1</strong> (each an explicit non-entry, not an oversight):
+<code>terminalAttach</code> (a raw <code>{seq}</code> byte stream is the wrong shape for MCP
+consumers — <code>screen.text</code> is the read face); <code>lifecycle.killAll</code> /
+<code>recycleKaval</code> / <code>discardSleeping</code> (daemon-admin blast radius — human verbs);
+<code>lifecycle.sleep</code>/<code>wake</code>/<code>resize</code> (layout/lifecycle policy the canvas owns);
+<code>chrome.*</code> (browser canvas arrangement — meaningless for an agent and
+hazardous to script); <code>git.worktreeCreate</code>/<code>worktreeRemove</code> and
+<code>scratch.write</code> (write-side beyond terminal control — expandable later, on
+demand, one row at a time); <code>session.restore</code> + every <code>test__set</code> verb
+(admin/test). Widening the map is a one-row diff with a review, never a
+default.</p>
 <p><strong>Out of scope, deliberately:</strong> multi-host (the host map is kolu-server’s job;
 a later phase may dial N padis if demand shows), provisioning (kolu-tui dials
 a padi that already runs — if none listens it fails fast with the socket/ssh
