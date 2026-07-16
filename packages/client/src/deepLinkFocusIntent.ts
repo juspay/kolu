@@ -14,9 +14,12 @@
  *
  *  Restore honors it only when the id is a member of ITS terminal list (so a
  *  stale cross-host intent is safely ignored), and resolves a sub-terminal
- *  target to its owning tile. Never cleared: it holds the latest target and only
- *  the one-shot boot hydration reads it; the membership guard makes persistence
- *  benign. */
+ *  target to its owning tile. Cleared when an IN-FLIGHT route is superseded
+ *  (`useDeepLinks`'s `supersedeInFlightRoute` — a traversal, a newer command,
+ *  or a manual host switch cancels the pair together, so a cancelled command
+ *  can't steer a later hydration); an ENACTED intent survives, so hydration
+ *  keeps preferring the view the user actually reached. The membership guard
+ *  makes any residual persistence benign. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";

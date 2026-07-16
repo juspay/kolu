@@ -77,14 +77,12 @@ interface LaunchQueue {
 /** A `#/…` hash handed in from OUTSIDE the URL — today the Code-tab preview
  *  bridge (a deep link clicked inside the sandboxed iframe, which can't
  *  navigate the parent itself). `equals: false` so re-requesting the SAME hash
- *  re-routes (clicking the same dashboard pill twice must refocus both times —
- *  a plain `location.hash =` write would not re-fire `hashchange`). The hook's
- *  consumer feeds it through the exact pipeline a typed URL takes (reflect into
- *  the address bar when it differs — durability — else parse+navigate
- *  directly), so an invalid hash toasts identically. */
-/** The setter IS the public request API (`requestDeepLinkNavigation`) — the
- *  house convention for module-singleton seams (`setActiveHost` is likewise a
- *  raw exported setter), so there is no single-caller wrapper to drift. */
+ *  re-routes (clicking the same dashboard pill twice must refocus both times).
+ *  The hook consumes it through `navigateFromExternal` — the same pipeline as
+ *  a PWA launch — so an invalid hash toasts exactly as a typed URL would. The
+ *  setter IS the public request API (`requestDeepLinkNavigation`) — the house
+ *  convention for module-singleton seams (`setActiveHost` is likewise a raw
+ *  exported setter), so there is no single-caller wrapper to drift. */
 const [externalNavRequest, requestDeepLinkNavigation] = createSignal<
   string | null
 >(null, { equals: false });
@@ -179,8 +177,13 @@ export function useDeepLinks(): void {
    *  effect's onCleanup. */
   function supersedeInFlightRoute(): void {
     if (pending() === null) return;
-    setPending(null);
-    setDeepLinkFocusIntent(null);
+    // Batched HERE so the disarm-together contract holds structurally from
+    // every call site (navigate's batch, the traversal gate, the settle
+    // effect's host-mismatch arm), not just the batched ones.
+    batch(() => {
+      setPending(null);
+      setDeepLinkFocusIntent(null);
+    });
   }
 
   /** Route a parsed link. Host/settings act immediately; a terminal target
@@ -273,12 +276,12 @@ export function useDeepLinks(): void {
     // Only act while the ACTIVE host IS the route's host. `setActiveHost`
     // re-windows the list sub, so a mismatch means either the switch hasn't
     // landed (never happens — `routeToTerminal` batches host+pending) or the
-    // user has since navigated AWAY (a manual host-chip switch). Treat a
-    // mismatch as SUPERSESSION: clear the route so it can't enact if the user
-    // switches back, and — because the 8s backstop tracks `pending` — clearing
-    // it disposes that timer too, so no stale toast fires in the new host's view.
+    // user has since navigated AWAY (a manual host-chip switch). That is a
+    // SUPERSESSION — disarm the command AND its hydration intent via the one
+    // named spelling, so neither the enact, the backstop toast, nor a later
+    // hydration can act on a route the user walked away from.
     if (encodeHostKey(activeHost()) !== route.host) {
-      setPending(null);
+      supersedeInFlightRoute();
       return;
     }
     if (store.listSub.pending()) return; // membership not settled — wait
@@ -423,12 +426,8 @@ export function useDeepLinks(): void {
   makeEventListener(window, "hashchange", () => {
     if (entryAlreadyRouted()) {
       // A traversal is the user MOVING ON — supersede any in-flight route,
-      // exactly as `navigate` does for every fresh command. Without this, a
-      // back-press during the settle window (a warming host, an unsensed git)
-      // leaves the armed command live and it teleports later: the route enacts
-      // when the target settles, the 8s backstop toasts for a link already
-      // cancelled, or the still-armed focus INTENT steers a later cold-boot
-      // hydration to the cancelled target (the second delayed-teleport path).
+      // exactly as `navigate` does for every fresh command (the helper's doc
+      // carries the delayed-teleport mechanics this closes).
       supersedeInFlightRoute();
       return;
     }
