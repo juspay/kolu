@@ -41,26 +41,35 @@ jobs:
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
             accept-flake-config = true
 
-      # attic-action installs attic by resolving UNPINNED nixpkgs-unstable
-      # through the GitHub API at run time — one API 503 fails the job (it
-      # did, repo-wide, 2026-07-16), and even green runs re-fetch an unpinned
-      # rev. The action skips its install when `attic` is already on PATH, so
-      # pre-install it from the repo's own npins-pinned nixpkgs: the exact
-      # tarball URL nix/nixpkgs.nix builds from (no ref resolution, no
-      # api.github.com), with attic-client substituted from cache.nixos.org.
-      - name: Install attic from pinned nixpkgs
-        run: nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
-
-      # Logs in, uses the cache as a substituter, and at job end pushes every
-      # store path this run produced. Its attic install is a no-op — the step
-      # above already put a pinned attic on PATH. Needs a Nix new enough for
+      # ryanccn/attic-action used to do the install/login/push below, but it
+      # installs attic by resolving UNPINNED nixpkgs-unstable through the
+      # GitHub API at run time — one API 503 fails the job (it did, repo-wide,
+      # 2026-07-16), and even green runs re-fetch an unpinned rev. Its logic
+      # is four CLI calls, so do them directly, installing attic from the
+      # repo's own npins-pinned nixpkgs: the exact tarball URL nix/nixpkgs.nix
+      # builds from (no ref resolution, no api.github.com), with attic-client
+      # substituted from cache.nixos.org. Needs a Nix new enough for
       # `nix profile add` (hence v35 above — v31's 2.29 only had
-      # `profile install`, which is why #1731 dropped this action).
-      - uses: ryanccn/attic-action@5635a15ef0c5462194ffbd05d1daeddc74625c3a # v0.5.0
-        with:
-          endpoint: https://cache.nixos.asia
-          cache: oss
-          token: ${{ secrets.ATTIC_TOKEN }}
+      # `profile install`, which is why #1731 dropped the action once before).
+      # No `attic use` — the nix_conf above already wires the substituter.
+      - name: Install attic (pinned) and log in
+        run: |
+          nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
+          attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
+          nix path-info --all | sort > "$RUNNER_TEMP/pre-build-paths"
 
       - name: Build
         run: nix build -L --print-out-paths
+
+      # Push every store path the build produced (post minus pre snapshot,
+      # minus .drv/.check/.lock clutter) — same set attic-action pushed from
+      # its post step, without the action.
+      - name: Push to Attic
+        # Explicit `shell: bash` turns on pipefail, so a failure anywhere in
+        # the pipe fails the step — not just the final `attic push`.
+        shell: bash
+        run: |
+          nix path-info --all | sort \
+            | comm -13 "$RUNNER_TEMP/pre-build-paths" - \
+            | grep -Ev '\.(drv|drv\.chroot|check|lock)$' \
+            | attic push --stdin oss
