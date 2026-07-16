@@ -85,6 +85,9 @@ async function main(): Promise<void> {
     router: runner.router,
     onFirstRequest: () => log("first RPC received — TUI attached"),
   });
+  // Post-settle continuation: `serveOverStdio` exits the process after the
+  // awaited serve settles (0 on 'end', 1 on 'error'); these synchronous lines
+  // are the supported cleanup window that runs before that exit.
   runner.dispose();
   log(`stdin closed (${end.reason}) — runner exiting`);
 }
