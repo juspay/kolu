@@ -356,7 +356,7 @@ canvas. A feature built any other way (raw mirror iteration, a value-bearing
 cell read) satisfies the words and proves nothing — the pin below can only
 go green through the real path.</li>
 <li><strong>Boundary verdict, conditioned on the build</strong> (the loop, not a waterfall):
-the CLI client is a <strong>leaf app package</strong> (<code>packages/kolu-cli</code>), not electricity —
+the CLI faces are <strong>leaf app packages</strong> (<code>packages/kolu-mcp</code>, <code>packages/kolu-tui</code>), not electricity —
 <em>because</em> the renderer is raw ANSI with no engine dependency (decision
 below) and every hard volatility it touches (transport, reconnect, stream
 retry, MCP lifecycle) already lives in its receptacle (<code>@kolu/surface</code>,
@@ -434,33 +434,43 @@ Pin: bare <code>kolu</code> and <code>kolu web</code> behaviorally identical (fl
 the reserved subcommands fail with the named message. A composition root is
 the one module allowed to import everything — kolu-cli importing
 packages/server is main() doing its job, not a leak.</li>
-<li><strong>PR2 — the MCP face</strong> (<code>kolu mcp</code>): package scaffold, both transports +
-the one <code>surfaceClient</code>, <code>serveSurfaceAsMcp</code> + the expose map, the
-composite <code>wait.*</code> tools (extracting the shared WaitOutcome scaffold — the
-third consumer), the restart discipline. Its pin: the headless leg of step
+<li><strong>PR2 — the MCP face</strong> (<code>kolu mcp</code>): new <code>packages/kolu-mcp</code> (manifest =
+the fence: padi/surface deps only) exporting the serve-function over an
+injected client; kolu-cli gains the connect layer (both transports, the one
+<code>surfaceClient</code> + <code>STREAM_RETRY</code>) and the <code>mcp</code> arm; <code>serveSurfaceAsMcp</code> +
+the expose map, the composite <code>wait.*</code> tools (extracting the shared
+WaitOutcome scaffold — the third consumer), the restart discipline. Its pin: the headless leg of step
 9 — create → sendInput → wait.outputSettled (the <code>{seq}</code> stream, watched
 not rendered) → screen.text → kill, over BOTH transports, plus the restart
 legs. This already exercises most of the graduation path, headlessly. The
 /orchestrator and /kolu skills can adopt MCP-first-CLI-fallback the day
 this merges.</li>
-<li><strong>PR3 — the canvas</strong> (<code>kolu tui</code>): renderer, attach loop, <code>escape.ts</code>
-graduation (attach-scoped, so it rides this PR), create/kill gestures,
-navigator/rail. Its pin: the rendering leg of step 9 — the live canvas
+<li><strong>PR3 — the canvas</strong> (<code>kolu tui</code>): new <code>packages/kolu-tui</code> (same
+manifest-fence), taking the injected client from kolu-cli’s <code>tui</code> arm:
+renderer, attach loop, <code>escape.ts</code> graduation (attach-scoped, so it rides
+this PR), create/kill gestures, navigator/rail. Its pin: the rendering leg of step 9 — the live canvas
 over the same path.</li>
 </ul>
 <p><strong>The binary is <code>kolu</code>, not a new <code>kolu-tui</code> executable</strong> (ratified): today’s
 <code>kolu</code> cleye definition has flags and NO subcommands, so the namespace is
 free — <code>kolu tui</code> opens the canvas, <code>kolu mcp</code> serves agents, and bare <code>kolu</code>
-keeps meaning what it means today (the web server). The bin AND the face
-code live in <code>packages/kolu-cli</code> (location is structure). The dependency
-discipline is per-module, because the package is a composition root: the
-DISPATCH may import <code>packages/server</code> (the <code>web</code> arm boots it), but the
-tui/mcp FACE modules import only <code>@kolu/padi</code>/<code>@kolu/surface*</code> — enforced by
-an import-guard test (the SR11 negative-property style) asserting the face
-modules’ import graphs never reach a kolu app package. That module-level
-fence is what keeps the graduation proof honest inside a package that also
-routes to the server; a separate faces-package stays available if they grow,
-but would be a receptacle ahead of its population today. The graduation proof is about
+keeps meaning what it means today (the web server). Three packages, each a
+leaf in the house per-app style (<code>padi-tui</code>/<code>kaval-tui</code>/<code>pulam-tui</code> precedent):
+<strong><code>packages/kolu-cli</code></strong> — the bin + cleye dispatch, the composition root that
+may import everything (it resolves the padi socket, dials, mounts
+<code>STREAM_RETRY</code>, and boots whichever face); <strong><code>packages/kolu-mcp</code></strong> and
+<strong><code>packages/kolu-tui</code></strong> — the faces, each exporting a run-function that takes
+the <strong>injected, already-connected client</strong> (<code>serveSurfaceAsMcp</code> already takes
+a live-client factory, so the mcp face owns zero connect code). The
+graduation fence is STRUCTURAL, not tested: the face packages’ manifests
+simply do not list any kolu app package, so the illegal import is a
+missing-dependency build error — unrepresentable beats detected.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>An
+earlier draft kept the faces inside kolu-cli behind a module-level
+import-guard test. Rejected on the repo’s own doctrine: that test guards a
+structure that permits the violation, where separate manifests make it
+unspellable — and the per-app-package norm means the split costs nothing. It
+also makes the recorded escape hatch (a standalone MCP artifact for padi-only
+hosts) a trivial bin target on an existing package.</span></span></span> The graduation proof is about
 the RUNTIME path — no kolu-server <em>process</em> behind <code>kolu tui</code>/<code>kolu mcp</code> —
 not the shipping closure; <code>p2p-kolu.mdx</code> already records this client shipping
 in-closure.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The one cost: a padi-only remote host wanting a local
@@ -469,9 +479,10 @@ built: a thin standalone bin target for the CLI package if that host profile
 ever materializes.</span></span></span></p>
 <p>Steps, in build order (PR1 = the kolu-cli package + dispatch + boot-function extraction; PR2 = steps 1–3 + 8; PR3 = the rest):</p>
 <ol>
-<li><strong>The face modules join <code>packages/kolu-cli</code></strong> (the package PR1 created):
-connect/client/canvas/mcp modules beside the dispatch, guarded by the
-import-fence test from day one.</li>
+<li><strong>Face packages, not face modules</strong>: <code>packages/kolu-mcp</code> (PR2) and
+<code>packages/kolu-tui</code> (PR3), each exporting a run-function over an injected
+client; the connect layer (resolve + dial + <code>STREAM_RETRY</code>) lives in
+kolu-cli, the composition root.</li>
 <li><strong>Connect</strong>: local socket resolution via <code>resolveRunningPadiSocket</code> +
 <code>connectPadi</code> (<code>@kolu/padi/dial</code> — the resolution never lived in
 <code>connect.ts</code>; the TUIs’ connect files only dial an already-resolved path);

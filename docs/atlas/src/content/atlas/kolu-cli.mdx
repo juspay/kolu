@@ -264,7 +264,7 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.
   cell read) satisfies the words and proves nothing — the pin below can only
   go green through the real path.
 - **Boundary verdict, conditioned on the build** (the loop, not a waterfall):
-  the CLI client is a **leaf app package** (`packages/kolu-cli`), not electricity —
+  the CLI faces are **leaf app packages** (`packages/kolu-mcp`, `packages/kolu-tui`), not electricity —
   *because* the renderer is raw ANSI with no engine dependency (decision
   below) and every hard volatility it touches (transport, reconnect, stream
   retry, MCP lifecycle) already lives in its receptacle (`@kolu/surface`,
@@ -343,33 +343,43 @@ neither is staging for appearance.</Footnote>
   the reserved subcommands fail with the named message. A composition root is
   the one module allowed to import everything — kolu-cli importing
   packages/server is main() doing its job, not a leak.
-- **PR2 — the MCP face** (`kolu mcp`): package scaffold, both transports +
-  the one `surfaceClient`, `serveSurfaceAsMcp` + the expose map, the
-  composite `wait.*` tools (extracting the shared WaitOutcome scaffold — the
-  third consumer), the restart discipline. Its pin: the headless leg of step
+- **PR2 — the MCP face** (`kolu mcp`): new `packages/kolu-mcp` (manifest =
+  the fence: padi/surface deps only) exporting the serve-function over an
+  injected client; kolu-cli gains the connect layer (both transports, the one
+  `surfaceClient` + `STREAM_RETRY`) and the `mcp` arm; `serveSurfaceAsMcp` +
+  the expose map, the composite `wait.*` tools (extracting the shared
+  WaitOutcome scaffold — the third consumer), the restart discipline. Its pin: the headless leg of step
   9 — create → sendInput → wait.outputSettled (the `{seq}` stream, watched
   not rendered) → screen.text → kill, over BOTH transports, plus the restart
   legs. This already exercises most of the graduation path, headlessly. The
   /orchestrator and /kolu skills can adopt MCP-first-CLI-fallback the day
   this merges.
-- **PR3 — the canvas** (`kolu tui`): renderer, attach loop, `escape.ts`
-  graduation (attach-scoped, so it rides this PR), create/kill gestures,
-  navigator/rail. Its pin: the rendering leg of step 9 — the live canvas
+- **PR3 — the canvas** (`kolu tui`): new `packages/kolu-tui` (same
+  manifest-fence), taking the injected client from kolu-cli's `tui` arm:
+  renderer, attach loop, `escape.ts` graduation (attach-scoped, so it rides
+  this PR), create/kill gestures, navigator/rail. Its pin: the rendering leg of step 9 — the live canvas
   over the same path.
 
 **The binary is `kolu`, not a new `kolu-tui` executable** (ratified): today's
 `kolu` cleye definition has flags and NO subcommands, so the namespace is
 free — `kolu tui` opens the canvas, `kolu mcp` serves agents, and bare `kolu`
-keeps meaning what it means today (the web server). The bin AND the face
-code live in `packages/kolu-cli` (location is structure). The dependency
-discipline is per-module, because the package is a composition root: the
-DISPATCH may import `packages/server` (the `web` arm boots it), but the
-tui/mcp FACE modules import only `@kolu/padi`/`@kolu/surface*` — enforced by
-an import-guard test (the SR11 negative-property style) asserting the face
-modules' import graphs never reach a kolu app package. That module-level
-fence is what keeps the graduation proof honest inside a package that also
-routes to the server; a separate faces-package stays available if they grow,
-but would be a receptacle ahead of its population today. The graduation proof is about
+keeps meaning what it means today (the web server). Three packages, each a
+leaf in the house per-app style (`padi-tui`/`kaval-tui`/`pulam-tui` precedent):
+**`packages/kolu-cli`** — the bin + cleye dispatch, the composition root that
+may import everything (it resolves the padi socket, dials, mounts
+`STREAM_RETRY`, and boots whichever face); **`packages/kolu-mcp`** and
+**`packages/kolu-tui`** — the faces, each exporting a run-function that takes
+the **injected, already-connected client** (`serveSurfaceAsMcp` already takes
+a live-client factory, so the mcp face owns zero connect code). The
+graduation fence is STRUCTURAL, not tested: the face packages' manifests
+simply do not list any kolu app package, so the illegal import is a
+missing-dependency build error — unrepresentable beats detected.<Footnote>An
+earlier draft kept the faces inside kolu-cli behind a module-level
+import-guard test. Rejected on the repo's own doctrine: that test guards a
+structure that permits the violation, where separate manifests make it
+unspellable — and the per-app-package norm means the split costs nothing. It
+also makes the recorded escape hatch (a standalone MCP artifact for padi-only
+hosts) a trivial bin target on an existing package.</Footnote> The graduation proof is about
 the RUNTIME path — no kolu-server *process* behind `kolu tui`/`kolu mcp` —
 not the shipping closure; `p2p-kolu.mdx` already records this client shipping
 in-closure.<Footnote>The one cost: a padi-only remote host wanting a local
@@ -379,9 +389,10 @@ ever materializes.</Footnote>
 
 Steps, in build order (PR1 = the kolu-cli package + dispatch + boot-function extraction; PR2 = steps 1–3 + 8; PR3 = the rest):
 
-1. **The face modules join `packages/kolu-cli`** (the package PR1 created):
-   connect/client/canvas/mcp modules beside the dispatch, guarded by the
-   import-fence test from day one.
+1. **Face packages, not face modules**: `packages/kolu-mcp` (PR2) and
+   `packages/kolu-tui` (PR3), each exporting a run-function over an injected
+   client; the connect layer (resolve + dial + `STREAM_RETRY`) lives in
+   kolu-cli, the composition root.
 2. **Connect**: local socket resolution via `resolveRunningPadiSocket` +
    `connectPadi` (`@kolu/padi/dial` — the resolution never lived in
    `connect.ts`; the TUIs' connect files only dial an already-resolved path);
