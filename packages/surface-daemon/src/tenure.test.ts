@@ -18,7 +18,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-const FIXTURE = fileURLToPath(new URL("./tenure.fixture.ts", import.meta.url));
+// `.testlib.ts` is the repo's "test-only, never hashed" suffix — it keeps the
+// spawnable fixture out of the daemon staleKeys (default.nix's fileFilter and
+// the kaval/padi buildId closure tests all honor it).
+const FIXTURE = fileURLToPath(
+  new URL("./tenure.fixture.testlib.ts", import.meta.url),
+);
 
 /** A healthy framework exit is near-instant; 4s bounds it without flaking on
  *  a loaded box. */
