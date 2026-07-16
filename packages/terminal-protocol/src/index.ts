@@ -37,7 +37,13 @@ export {
   SILENT_DEVICE_QUERIES,
 } from "./deviceQueries.ts";
 export { shouldForwardHeadlessReply } from "./headlessReplies.ts";
-export { controlByte, metaByte, NAMED_KEY_BYTES } from "./keyInput.ts";
+export {
+  ACCEPTED_KEY_NAMES,
+  controlByte,
+  encodeKey,
+  metaByte,
+  NAMED_KEY_BYTES,
+} from "./keyInput.ts";
 export {
   createTerminalResponseStripper,
   isTerminalQueryResponse,
