@@ -81,6 +81,17 @@ const flush = async () => {
   for (let i = 0; i < 4; i++) await Promise.resolve();
 };
 
+/** Build a fake session with the shared test options — each test varies only the connector. */
+const mk = (connectOnce: Connector<FakeClient, never>) =>
+  makeSession<FakeClient, never>({
+    connectOnce,
+    initialConnection: "connecting",
+    reconnectDelayMs: 1000,
+    liveness: false,
+    label: "h",
+    onLog: () => {},
+  });
+
 describe("Session.currentState() — the honest liveness point-read (LIVE-FIX)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
@@ -89,14 +100,7 @@ describe("Session.currentState() — the honest liveness point-read (LIVE-FIX)",
   });
 
   it("is honest during dialing (phase 'connecting') while currentClient() is non-null; flips to 'connected' only at markConnected", async () => {
-    const session = makeSession<FakeClient, never>({
-      connectOnce: liveConnector(fakeClient()),
-      initialConnection: "connecting",
-      reconnectDelayMs: 1000,
-      liveness: false,
-      label: "h",
-      onLog: () => {},
-    });
+    const session = mk(liveConnector(fakeClient()));
     session.pin().catch(() => {});
     // Synchronously after pin(): attempt() ran setUp("connecting") and assigned clientPromise.
     expect(session.currentClient()).not.toBeNull();
@@ -111,14 +115,7 @@ describe("Session.currentState() — the honest liveness point-read (LIVE-FIX)",
   });
 
   it("through a reconnect BACKOFF, currentClient() stays non-null (retained rejected dial) but currentState().phase is honestly down — the window the old currentClient()!==null gate leaked through", async () => {
-    const session = makeSession<FakeClient, never>({
-      connectOnce: refusingConnector(),
-      initialConnection: "connecting",
-      reconnectDelayMs: 1000,
-      liveness: false,
-      label: "h",
-      onLog: () => {},
-    });
+    const session = mk(refusingConnector());
     session.pin().catch(() => {});
     await flush(); // first dial rejects → setDown("disconnected") + scheduleReconnect(backoff)
     // The retained rejected clientPromise keeps currentClient() truthy through the backoff wait…
@@ -130,14 +127,7 @@ describe("Session.currentState() — the honest liveness point-read (LIVE-FIX)",
   });
 
   it("give-up drives disconnected→failed in ONE frame; a listener delivered 'disconnected' reads currentState().phase === 'failed' (freshness by design)", async () => {
-    const session = makeSession<FakeClient, never>({
-      connectOnce: refusingConnector(),
-      initialConnection: "connecting",
-      reconnectDelayMs: 1000,
-      liveness: false,
-      label: "h",
-      onLog: () => {},
-    });
+    const session = mk(refusingConnector());
     let sawFailedWhileDeliveredDisconnected = false;
     session.onState((s) => {
       // At the microtask this delivers the 'disconnected' frame, the cell has ALREADY
