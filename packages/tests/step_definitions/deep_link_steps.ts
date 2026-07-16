@@ -104,19 +104,22 @@ Then(
 
 /** Browser-history traversal — the mouse-back/forward gesture. Driven via
  *  `history.back()/forward()` (a same-document hash traversal; `hashchange`
- *  fires exactly as for the real buttons). A deliberate NON-reaction has no
- *  signal to poll — pin it with a settle beat, then waitForFrame. */
-const TRAVERSAL_SETTLE_MS = 500;
-
+ *  fires exactly as for the real buttons). Await the traversal's own
+ *  `hashchange` (the gate — or a wrongful route — runs synchronously inside
+ *  that dispatch), then one frame for paint. */
 async function traverseHistory(
   world: KoluWorld,
   direction: "back" | "forward",
 ): Promise<void> {
   await world.page.evaluate(
-    (d) => (d === "back" ? history.back() : history.forward()),
+    (d) =>
+      new Promise<void>((resolve) => {
+        window.addEventListener("hashchange", () => resolve(), { once: true });
+        if (d === "back") history.back();
+        else history.forward();
+      }),
     direction,
   );
-  await world.page.waitForTimeout(TRAVERSAL_SETTLE_MS);
   await world.waitForFrame();
 }
 
