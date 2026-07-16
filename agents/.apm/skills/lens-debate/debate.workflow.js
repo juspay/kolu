@@ -65,9 +65,15 @@ let base = a.base || 'origin/master'
 // runs until consensus; this just keeps a pathologically oscillating thread from
 // running unbounded. Hitting it is reported as `unresolved` (needs human), never
 // `deadlock`, and should essentially never happen between two good-faith lenses.
-// Raise freely. (The escalation valve is separate and softer: a thread passing 3
-// rounds keeps debating but is surfaced in `escalations` — see runThread.)
+// Raise freely. (The escalation valve is separate and softer: a thread passing
+// ESCALATE_AFTER_ROUNDS rounds keeps debating but is surfaced in `escalations`
+// — see runThread.)
 const maxRounds = a.maxRounds || 12
+// The escalation-valve threshold: past this many rounds a disagreement is
+// usually about values or scope, not evidence (SKILL.md), so the thread is
+// surfaced in `escalations` for a warmer venue while it keeps debating. Not an
+// input — a binding, like MODEL.
+const ESCALATE_AFTER_ROUNDS = 3
 // Apply agreed `fix` findings as individual commits (default on). `--no-commit`
 // still applies the edits to the working tree, it just leaves them uncommitted.
 // No-op when `apply` is false — the apply:false path returns plans in `fixes`
@@ -539,7 +545,7 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     drops.forEach((d) => lines.push(`- \`${d.id}\`${pairTag(d)} ${d.title} (${d.location})`))
   }
   if (escalations.length) {
-    lines.push('', `### Escalated threads — ran past 3 rounds (${escalations.length})`)
+    lines.push('', `### Escalated threads — ran past ${ESCALATE_AFTER_ROUNDS} rounds (${escalations.length})`)
     escalations.forEach((e) => lines.push(`- \`${e.file}\` (${e.findingIds.map((i) => `\`${i}\``).join(', ')}) — ${e.rounds} rounds, ${e.resolved ? 'self-resolved' : 'UNRESOLVED'}`))
   }
   if (unresolved.length) {
@@ -835,8 +841,9 @@ log(`Reconcile done: ${Object.keys(settled).length}/${combined.length} finding(s
 // so wall clock = the deepest single disagreement, not rounds × 2 × turn-time
 // across every finding. NO deadlock exit: a thread runs until every finding is
 // agreed (maxRounds stays the pathology backstop). The escalation valve is
-// softer than either: a thread passing 3 rounds KEEPS DEBATING but is recorded
-// in `escalations` so the caller can hand that one thread to a warmer venue.
+// softer than either: a thread passing ESCALATE_AFTER_ROUNDS rounds KEEPS
+// DEBATING but is recorded in `escalations` so the caller can hand that one
+// thread to a warmer venue.
 // ---------------------------------------------------------------------------
 const escalations = []
 const history = []
@@ -911,10 +918,11 @@ async function runThread(thread) {
     history.push({ thread: file, round: r, per })
     log(`Thread ${file} round ${r}: ${per.map((p) => `${p.id} ${p.lowy}/${p.hickey}${p.agreed ? '✓' : '✗'}`).join('  ')} | ${items.length - active.length}/${items.length} settled`)
   }
-  // The escalation valve: >3 rounds is NOT ground to stop (the thread above
-  // kept debating to consensus or the backstop) — it IS ground to tell the
-  // caller, who can hand this one thread to warm /debate terminals next time.
-  if (threadRounds > 3) {
+  // The escalation valve: >ESCALATE_AFTER_ROUNDS rounds is NOT ground to stop
+  // (the thread above kept debating to consensus or the backstop) — it IS
+  // ground to tell the caller, who can hand this one thread to warm /debate
+  // terminals next time.
+  if (threadRounds > ESCALATE_AFTER_ROUNDS) {
     escalations.push({ file, findingIds: items.flatMap((it) => it.findingIds), rounds: threadRounds, resolved: active.length === 0 })
   }
   rounds = Math.max(rounds, threadRounds)
@@ -1037,8 +1045,8 @@ return {
   fixes,
   reviews: reviewByLens,
   history,
-  // Threads that ran past 3 rounds (kept debating — this is a valve, not an
-  // exit). The caller/coordinator can hand an escalated thread's findings to
+  // Threads that ran past ESCALATE_AFTER_ROUNDS rounds (kept debating — this
+  // is a valve, not an exit). The caller/coordinator can hand an escalated thread's findings to
   // warm /debate terminals instead of another cold engine run — see SKILL.md.
   escalations,
   // Per-stage agent-call counts — the benchmarkable cost measure.
