@@ -9,10 +9,13 @@
  * contract was pinned).
  */
 import { PassThrough } from "node:stream";
+import { oc } from "@orpc/contract";
 import type { Router } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
+import { stdioLink } from "./links/stdio";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
@@ -89,6 +92,56 @@ describe("serveOverStdio — settled-result contract", () => {
     });
     const gone = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
     write.destroy(gone);
+    await expect(serving).resolves.toEqual({ reason: "end" });
+  });
+
+  it("resolves with reason 'end' on a benign death of a SHARED duplex (the unix-socket shape)", async () => {
+    // `serveOverUnixSocket` passes ONE `net.Socket` as both read and write.
+    // Node marks a duplex destroyed BEFORE emitting 'error', so the write
+    // funnel's destroyed-guard defers and the same peer-gone EPIPE arrives
+    // as the READ-side rejection instead. The terminal classification must
+    // read it as clean teardown, exactly like the separate-stream shape —
+    // otherwise the identical death gets a different reason by shape.
+    const duplex = new PassThrough();
+    const serving = serveOverStdio({
+      router: buildRouter(),
+      transport: { read: duplex, write: duplex },
+    });
+    duplex.destroy(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    await expect(serving).resolves.toEqual({ reason: "end" });
+  });
+
+  it("resolves with reason 'end' when a response hits a write stream destroyed WITHOUT an error", async () => {
+    // destroy() with no error emits NO 'error' event — Node reports
+    // ERR_STREAM_DESTROYED only to the write() callback — so the funnel
+    // never fires. Without framedSend's onPeerGone the serve promise would
+    // sit pending forever (on the default arm: the immortal orphan,
+    // re-spelled). A live request forces a response write into the dead
+    // stream; serving must settle as clean teardown.
+    const contract = {
+      add: oc
+        .input(z.object({ a: z.number(), b: z.number() }))
+        .output(z.number()),
+    };
+    const t = implement(contract);
+    const router = t.router({
+      add: t.add.handler(({ input }) => input.a + input.b),
+    });
+
+    const toServer = new PassThrough();
+    const deadEnd = new PassThrough();
+    const serving = serveOverStdio({
+      router,
+      transport: { read: toServer, write: deadEnd },
+    });
+    deadEnd.destroy(); // silent: no 'error' event, callback-only failure
+
+    const client = stdioLink<typeof contract>({
+      read: new PassThrough(), // the response can never arrive
+      write: toServer,
+    });
+    void client.add({ a: 2, b: 3 }).catch(() => {});
+
     await expect(serving).resolves.toEqual({ reason: "end" });
   });
 });

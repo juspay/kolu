@@ -291,6 +291,26 @@ describe("stdio link over loopback", () => {
     await expect(client.ping({})).rejects.toThrow();
   });
 
+  it("rejects a call fast when the write stream was destroyed WITHOUT an error (callback-only ERR_STREAM_DESTROYED)", async () => {
+    // The 'error'-event guard above never fires for this shape: destroy()
+    // with no error emits NO 'error' event, and a later write() reports
+    // ERR_STREAM_DESTROYED only to the write callback. Pre-fix the link
+    // never learned the transport died, so the call hung forever. The
+    // framedSend onPeerGone hook routes the callback-only death into
+    // handleTransportClosed: the in-flight call rejects instead of hanging.
+    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below.
+    const contract = {
+      ping: oc.input(z.object({})).output(z.string()),
+    };
+
+    const read = new PassThrough(); // inbound — never fed; the link stays open
+    const write = new PassThrough(); // outbound — isolated
+    write.destroy(); // silent: no 'error' event ever fires
+    const client = stdioLink<typeof contract>({ read, write });
+
+    await expect(client.ping({})).rejects.toThrow();
+  });
+
   it("PIN (i) #1719: a pull PARKED at transport close rejects with the ONE typed transport-closed error, never an anonymous AsyncIdQueue AbortError", async () => {
     // The mechanism fence for #1719. When the transport dies,
     // `handleTransportClosed` → `peer.close()` rejects every PENDING orpc

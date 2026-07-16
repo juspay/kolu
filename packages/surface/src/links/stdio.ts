@@ -76,7 +76,15 @@ export class LinkStdioClient<T extends ClientContext>
   private closed = false;
 
   constructor(opts: StdioLinkOptions) {
-    this.peer = new ClientPeer((message) => framedSend(opts.write, message));
+    // `onPeerGone` mirrors the server's funnel closure (peer-server.ts): a
+    // `write()` on a stream `destroy()`ed without an error reports
+    // `ERR_STREAM_DESTROYED` only to the write callback — no 'error' event —
+    // so without this the link never learns the transport died and every
+    // in-flight call hangs. `handleTransportClosed` is idempotent, so the
+    // 'error'-event path below converging on it is safe.
+    this.peer = new ClientPeer((message) =>
+      framedSend(opts.write, message, () => this.handleTransportClosed()),
+    );
     // The write half needs its own 'error' sink. A failed `write()` already
     // rejects the in-flight frame through the callback above, but Node ALSO
     // emits 'error' on the stream itself — and an 'error' event with no

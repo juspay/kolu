@@ -205,10 +205,11 @@ export function serveOverStdio<T extends Context>(
   // this module already closes for the *read* side (see `ServeOverStdioEnd`).
   // When our stdout pipe breaks (the parent died, the unix-socket peer reset),
   // serving must end the same way a read-side death ends it, not crash the
-  // agent. Funnel the write error into the read stream's teardown so the
-  // returned promise settles `{ reason: "error", error }` exactly as a read
-  // error does — one teardown path, both directions. Guarded so a torn pipe
-  // that kills both halves at once doesn't double-destroy.
+  // agent. Funnel the write error into the read stream's teardown — one
+  // classified teardown path, both directions: a benign peer-gone code ends
+  // cleanly (`reason: "end"`), any other write error carries its cause
+  // (`reason: "error", error`). Guarded so a torn pipe that kills both
+  // halves at once doesn't double-destroy.
   //
   // This 'error' lifecycle guard stays here, not in the codec's
   // `writeFramedMessage` (which is framing-only on purpose): the teardown
@@ -234,8 +235,18 @@ export function serveOverStdio<T extends Context>(
     transport.read.destroy(isBenignWriteError(err) ? undefined : err);
   });
 
+  // `onPeerGone` closes the funnel's blind spot: a `write()` on a stream
+  // that was `destroy()`ed WITHOUT an error reports `ERR_STREAM_DESTROYED`
+  // only to the write callback — no 'error' event ever fires, so the guard
+  // above never runs and a swallow-only send would leave the serve promise
+  // pending forever (on the default arm: the immortal orphan, re-spelled).
+  // Route it into the same teardown: destroy the read stream error-free →
+  // 'close' → `reason: "end"`. Idempotent with the 'error'-event path via
+  // the destroyed guard.
   const peer = new ServerPeer((message) =>
-    framedSend(transport.write, message),
+    framedSend(transport.write, message, () => {
+      if (!transport.read.destroyed) transport.read.destroy();
+    }),
   );
 
   const settled = readFramedLines(transport.read, (frame) => {
@@ -267,18 +278,34 @@ export function serveOverStdio<T extends Context>(
   })
     .then(
       (): ServeOverStdioEnd => ({ reason: "end" }),
-      (error: unknown): ServeOverStdioEnd => ({ reason: "error", error }),
+      // The benign classification must ALSO run here, not only in the write
+      // funnel above: when read and write are the SAME Duplex (the canonical
+      // `serveOverUnixSocket` transport — one `net.Socket` for both), Node
+      // marks the stream destroyed BEFORE emitting 'error', so the funnel's
+      // destroyed-guard defers and the identical peer-gone EPIPE arrives as
+      // this rejection instead. Without this branch the shared-duplex shape
+      // would reclassify the same clean teardown the separate-stream shape
+      // reads as "end" — the arm- and shape-independent contract in
+      // `ServeOverStdioEnd` is enforced at the one terminal seam every path
+      // flows through.
+      (error: unknown): ServeOverStdioEnd =>
+        isBenignWriteError(error)
+          ? { reason: "end" }
+          : { reason: "error", error },
     )
     // Teardown close, as a fulfilled-only stage — NOT `.finally`. After the
     // classification stage above the chain is always fulfilled, so this one
     // handler runs the close on BOTH the end and error paths (the same
-    // coverage `.finally` gave). The difference is what happens if
-    // `peer.close()` throws synchronously (an in-flight request's abort
-    // listener — the exact class the client link guards in `links/stdio.ts`):
-    // a `.finally` would re-reject the chain, breaking the NEVER-rejects
-    // contract the exit fork below and every `serveOverStdio` caller
-    // load-bear on. Guarding the close here makes never-rejects structural —
-    // `settled` cannot reject by construction.
+    // coverage `.finally` gave). The difference: if `peer.close()` ever
+    // throws SYNCHRONOUSLY, a `.finally` would re-reject the chain, breaking
+    // the NEVER-rejects contract the exit fork below and every
+    // `serveOverStdio` caller load-bear on. Guarding the close makes
+    // never-rejects structural — `settled` cannot reject by construction.
+    // Scope honestly stated: the try/catch contains only synchronous throws.
+    // An exception thrown by a user AbortSignal listener during close is NOT
+    // in that class — EventTarget re-throws it on `process.nextTick`
+    // (an uncaughtException), outside any promise chain — and stays
+    // fail-fast, outside the settled-result contract.
     .then((end) => {
       try {
         peer.close();

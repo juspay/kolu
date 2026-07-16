@@ -80,23 +80,35 @@ export function isBenignWriteError(err: unknown): boolean {
 
 /** The send half both peers hand to `ClientPeer` / `ServerPeer`: frame and
  *  write a message, but treat a dead-pipe teardown write (`isBenignWriteError`)
- *  as a no-op — the peer is gone, the frame can't be delivered, and each side's
- *  own `write.on("error", …)` lifecycle guard has already begun tearing the
- *  link down. Without neutralizing the un-deliverable frame here, its rejection
- *  escapes the peer's internal send path as an unhandled rejection and crashes
- *  the process on lane teardown after an otherwise-green run (juspay/odu#32,
- *  the residual of #25).
+ *  as delivery-impossible rather than exceptional — the peer is gone, the
+ *  frame can't be delivered. Without neutralizing the un-deliverable frame
+ *  here, its rejection escapes the peer's internal send path as an unhandled
+ *  rejection and crashes the process on lane teardown after an otherwise-green
+ *  run (juspay/odu#32, the residual of #25).
+ *
+ *  `onPeerGone` is how the benign failure still reaches the consumer's
+ *  lifecycle owner. The stream `'error'` handlers alone are NOT enough:
+ *  Node reports a `write()` on a stream that was previously `destroy()`ed
+ *  without an error ONLY to the write callback (`ERR_STREAM_DESTROYED`) —
+ *  no `'error'` event fires — so a swallow-only send would leave both sides
+ *  deaf to the death (the server's serve promise pending forever, the
+ *  client's in-flight calls hanging). Each consumer passes its own teardown:
+ *  the server destroys its read stream (ending the serve loop as a clean
+ *  `"end"`), the client marks the link closed. Must be idempotent — the
+ *  stream `'error'` path can fire for the same death.
  *
  *  This keeps the framing/lifecycle split intact: `writeFramedMessage` stays
- *  framing-only, and the per-side teardown *response* (the client closes its
- *  link; the server ends its serve loop) stays in each peer's stream `'error'`
- *  handler. This only swallows the write whose destination is already gone. */
+ *  framing-only, and the per-side teardown *response* stays the consumer's,
+ *  supplied as a value. Only the write whose destination is already gone is
+ *  swallowed; every other write error still propagates. */
 export function framedSend(
   write: Writable,
   message: string | ArrayBufferLike | Uint8Array,
+  onPeerGone?: () => void,
 ): Promise<void> {
   return writeFramedMessage(write, message).catch((err: unknown) => {
     if (!isBenignWriteError(err)) throw err;
+    onPeerGone?.();
   });
 }
 
