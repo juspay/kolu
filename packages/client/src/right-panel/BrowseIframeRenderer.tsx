@@ -52,7 +52,7 @@ export type BrowseIframeRendererProps = {
 };
 
 /** Bind an iframe observer once the element is available and clean up on
- *  unmount. All three observers share this shape: wait for the iframe signal,
+ *  unmount. Every observer here shares this shape: wait for the iframe signal,
  *  call the observer (which installs a `window.addEventListener("message", …)`
  *  and returns a disposer), then clean up when the element changes or the
  *  component unmounts. Props are read live inside the callback (which fires on

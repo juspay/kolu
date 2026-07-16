@@ -1,8 +1,9 @@
 Feature: Deep links — every view addressable by a #/… URL
   A hash URL commands the view onto a host, a terminal, a file, or settings —
-  through the existing view actions, view-only by law. Three delivery paths feed
-  one parser: a cold-boot parse, a live hashchange, and (Chromium) the PWA
-  launchQueue. See packages/client/src/useDeepLinks.ts + the deep-links Atlas note.
+  through the existing view actions, view-only by law. Four delivery paths feed
+  one parser: a cold-boot parse, a live hashchange, (Chromium) the PWA
+  launchQueue, and the Code-tab preview bridge. See
+  packages/client/src/useDeepLinks.ts + the deep-links Atlas note.
 
   Background:
     Given the terminal is ready
@@ -94,12 +95,12 @@ Feature: Deep links — every view addressable by a #/… URL
     And I run "echo 'open pill.html'"
     And I trigger the terminal file-ref link "pill.html"
     Then the file preview iframe should be visible
-    # Routing deep links must push NO history entries — mouse-back must never
-    # replay a stale teleport (srid's dogfood finding). Two routed links, then
-    # the length pin.
+    # Routing a deep link must push NO history entries — mouse-back must never
+    # replay a stale teleport (srid's dogfood finding; the bug was one push PER
+    # routed link, so one routed link pins it). The second pill stays unclicked
+    # on purpose: this click activates the authoring terminal, and the Code-tab
+    # panel is per-terminal, so the preview it lives in is gone afterwards.
     When I note the page history length
     And I click the link "jump to agent" in the file preview iframe
     Then the active terminal should show "DEEP-PILL-MARKER"
-    When I click the link "open settings" in the file preview iframe
-    Then the settings popover should be visible
     And the page history length should be unchanged
