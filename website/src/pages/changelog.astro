@@ -110,17 +110,6 @@ const releases = await Promise.all(
         ))
       }
     </div>
-
-    <button
-      id="cl-filter-clear"
-      class="cl-filter-clear mono"
-      type="button"
-      title="Show all entries (Esc)"
-      hidden
-    >
-      filtering: <span id="cl-filter-tag"></span>
-      <span aria-hidden="true">x</span>
-    </button>
   </section>
 </BaseLayout>
 
@@ -165,38 +154,38 @@ const releases = await Promise.all(
     padding: 0.1em 0.38em;
   }
 
-  .release-stream {
-    border-top: 1px solid var(--color-rule-strong);
-  }
-
+  /* Editorial single column: each release is a stacked block — a version header
+     line, then its sections at full measure. No left rail, no per-release rule
+     (space separates releases; the version header anchors each). */
   .release {
-    display: grid;
-    grid-template-columns: 8.75rem minmax(0, 1fr);
-    gap: 1.15rem;
-    padding: 1.3rem 0 1.7rem;
-    border-bottom: 1px solid var(--color-rule);
+    display: block;
+    padding: 0;
   }
 
   .release + .release {
-    padding-top: 2.1rem;
+    margin-top: 3.2rem;
   }
 
+  /* The version marker as a header line: "Unreleased · 71 pending". */
   .release-stamp {
-    padding-top: 0.02rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem 0.7rem;
+    margin-bottom: 0.2rem;
   }
 
   .release-link {
-    display: inline-block;
     color: var(--color-ink);
     text-decoration: none;
   }
 
   .release-link span {
     font-family: var(--font-sans);
-    font-size: 0.98rem;
-    font-weight: 680;
-    letter-spacing: 0;
-    line-height: 1.05;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
     scroll-margin-top: 5rem;
     transition: color 0.15s ease;
   }
@@ -207,18 +196,12 @@ const releases = await Promise.all(
 
   .release-stamp time,
   .release-stamp small {
-    display: block;
-    margin-top: 0.22rem;
     color: var(--color-ink-muted);
     font-family: var(--font-mono);
-    font-size: 0.64rem;
+    font-size: 0.66rem;
     letter-spacing: 0.07em;
     line-height: 1.2;
     text-transform: uppercase;
-  }
-
-  .release-stamp small {
-    color: var(--color-ink-muted);
   }
 
   .release-body-wrap {
@@ -272,47 +255,41 @@ const releases = await Promise.all(
     margin-top: 0.3rem;
   }
 
-  /* Subsection headings group entries by the docs page they belong to; each
-     links to that page, so the changelog reads as an index into the docs.
-     Secondary to the section header: smaller, a quiet accent eyebrow. */
+  /* Group headings index entries by their docs page. Secondary to the section
+     header — distinguished by size + weight + accent colour, NOT a rule or an
+     underline. The link affordance is the accent colour plus a hover ↗. */
   .changelog :global(.prose-changelog h4) {
-    margin: 1.35rem 0 0.35rem;
-    font-size: 0.68rem;
+    margin: 1.5rem 0 0.4rem;
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
     font-weight: 650;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    line-height: 1.15;
-    color: var(--color-kolu-primary-hover);
+    letter-spacing: 0;
+    line-height: 1.2;
+    color: var(--color-kolu-primary);
   }
   .changelog :global(.prose-changelog h3 + h4) {
-    margin-top: 0.7rem;
+    margin-top: 0.75rem;
   }
   .changelog :global(.prose-changelog h4 a) {
-    color: var(--color-kolu-primary-hover);
+    color: inherit;
     text-decoration: none;
-    border-bottom: 1px solid
-      color-mix(in srgb, var(--color-kolu-primary) 30%, transparent);
-    transition:
-      color 0.15s ease,
-      border-color 0.15s ease;
+    border-bottom: 0;
+    transition: color 0.15s ease;
   }
   .changelog :global(.prose-changelog h4 a::after) {
     content: " ↗";
-    font-size: 0.85em;
+    font-size: 0.8em;
     color: var(--color-ink-faint);
+    opacity: 0;
+    transition: opacity 0.15s ease;
   }
   .changelog :global(.prose-changelog h4 a:hover),
   .changelog :global(.prose-changelog h4 a:focus-visible) {
-    color: var(--color-kolu-primary);
-    border-bottom-color: var(--color-kolu-primary);
+    color: var(--color-kolu-primary-hover);
   }
-  /* The trailing unthemed cluster (entries whose docs page had too few to earn a
-     heading) is a deliberate group: a hairline rule sets it apart from the
-     subsection above, with the same rhythm as an h4 group. */
-  .changelog :global(.prose-changelog .cl-fold) {
-    height: 0;
-    margin: 1.35rem 0 0.35rem;
-    border-top: 1px solid var(--color-rule);
+  .changelog :global(.prose-changelog h4 a:hover::after),
+  .changelog :global(.prose-changelog h4 a:focus-visible::after) {
+    opacity: 1;
   }
 
   .changelog :global(.prose-changelog ul) {
@@ -346,39 +323,38 @@ const releases = await Promise.all(
     border-radius: 3px;
   }
 
+  /* Entry head: arrow, title, and the PR chips all flow inline on one baseline —
+     the chips sit right after the title text (no ragged right gutter). A long
+     title wraps and the chips follow it. */
   .changelog :global(.cl-change-head) {
-    grid-template-columns: 0.7rem minmax(0, 1fr) auto;
-    column-gap: 0.34rem;
-    line-height: 1.32;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.45rem;
+    row-gap: 0.1rem;
+    line-height: 1.4;
   }
 
   .changelog :global(.cl-change-arrow) {
+    flex: none;
     font-size: 0.82rem;
   }
 
   .changelog :global(.cl-change-title) {
-    overflow: hidden;
-    font-size: 0.92rem;
+    flex: 0 1 auto;
+    overflow: visible;
+    font-size: 0.95rem;
     font-weight: 400;
     letter-spacing: 0;
-    line-height: 1.32;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.4;
+    white-space: normal;
   }
 
   .changelog :global(.cl-change-meta) {
-    flex-wrap: nowrap;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
     gap: 0.22rem;
-    overflow: hidden;
-    max-width: 27rem;
-  }
-
-  .changelog :global(.cl-change-tag) {
-    font-size: 0.56rem;
-    letter-spacing: 0.05em;
-    padding: 0.02em 0.42em;
-    color: var(--color-ink-muted);
-    border-color: var(--color-rule-strong);
+    max-width: none;
   }
 
   .changelog :global(.pr-ref) {
@@ -387,9 +363,37 @@ const releases = await Promise.all(
     padding: 0.1em 0.42em 0.1em 0.34em;
   }
 
-  .changelog :global(.cl-change-desc) {
+  /* This is a page to READ: descriptions are always visible and muted below the
+     title — no hover popover (which read as messy) and no layout-shifting
+     expand. Overrides the component's collapse/popover. */
+  .changelog :global(.cl-change .cl-change-reveal) {
+    position: static;
+    display: block;
+    grid-template-rows: 1fr;
+    width: auto;
+    max-width: 48rem;
+    margin: 0.05rem 0 0;
+    padding: 0 0 0 1.3rem;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: auto;
+    transition: none;
+  }
+  .changelog :global(.cl-change .cl-change-desc) {
+    overflow: visible;
+    opacity: 1;
     font-size: 0.9rem;
     line-height: 1.5;
+    color: var(--color-ink-muted);
+    transition: none;
+  }
+  .changelog :global(.cl-change:hover),
+  .changelog :global(.cl-change:focus-within) {
+    background: none;
   }
 
   .changelog :global(.prose-changelog strong) {
@@ -402,39 +406,6 @@ const releases = await Promise.all(
 
   .changelog :global(.cl-change-desc p + p) {
     margin-top: 0.5rem;
-  }
-
-  .cl-filter-clear {
-    position: fixed;
-    bottom: 1.25rem;
-    left: 50%;
-    z-index: 50;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.5em;
-    transform: translateX(-50%);
-    color: var(--color-ink-dim);
-    background: var(--color-void-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: 9999px;
-    padding: 0.5em 1em;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
-    cursor: pointer;
-    transition:
-      color 0.15s ease,
-      border-color 0.15s ease;
-  }
-
-  .cl-filter-clear:hover {
-    color: var(--color-ink);
-    border-color: color-mix(in srgb, var(--color-kolu-primary) 55%, transparent);
-  }
-
-  .cl-filter-clear #cl-filter-tag {
-    color: var(--color-kolu-primary);
   }
 
   @media (max-width: 740px) {
@@ -481,86 +452,3 @@ const releases = await Promise.all(
     }
   }
 </style>
-
-<script>
-  const chips = [
-    ...document.querySelectorAll<HTMLButtonElement>(".cl-change-tag"),
-  ];
-  let active: string | null = null;
-
-  const clearBtn = document.getElementById("cl-filter-clear")!;
-  const clearTag = document.getElementById("cl-filter-tag")!;
-
-  const apply = () => {
-    clearBtn.hidden = !active;
-    clearTag.textContent = active ?? "";
-    for (const chip of chips)
-      chip.dataset.active = String(chip.dataset.tag === active);
-    for (const li of document.querySelectorAll<HTMLElement>(
-      ".prose-changelog li",
-    )) {
-      const tags =
-        li.querySelector<HTMLElement>(".cl-change")?.dataset.tags?.split("|") ??
-        [];
-      li.style.display = !active || tags.includes(active) ? "" : "none";
-    }
-    for (const ul of document.querySelectorAll<HTMLElement>(
-      ".prose-changelog ul",
-    )) {
-      const empty = ![...ul.children].some(
-        (li) => (li as HTMLElement).style.display !== "none",
-      );
-      ul.style.display = empty ? "none" : "";
-      // Each themed subsection list is preceded by its #### heading; hide it
-      // when its list is empty. (A trailing unthemed cluster is preceded by a
-      // .cl-fold divider, not a heading, so nothing to hide there.)
-      const prev = ul.previousElementSibling;
-      if (prev instanceof HTMLElement && prev.tagName === "H4")
-        prev.style.display = empty ? "none" : "";
-    }
-    // Hide a whole ### section whose every list (themed + unthemed) is hidden.
-    for (const h3 of document.querySelectorAll<HTMLElement>(
-      ".prose-changelog h3",
-    )) {
-      let anyVisible = false;
-      for (
-        let el = h3.nextElementSibling;
-        el && el.tagName !== "H3";
-        el = el.nextElementSibling
-      ) {
-        if (el.tagName === "UL" && (el as HTMLElement).style.display !== "none")
-          anyVisible = true;
-      }
-      h3.style.display = anyVisible ? "" : "none";
-    }
-    for (const article of document.querySelectorAll<HTMLElement>(
-      ".release-stream > article",
-    )) {
-      const lis = article.querySelectorAll<HTMLElement>(".prose-changelog li");
-      const empty =
-        !!active &&
-        lis.length > 0 &&
-        ![...lis].some((li) => li.style.display !== "none");
-      article.style.display = empty ? "none" : "";
-    }
-  };
-
-  for (const chip of chips)
-    chip.addEventListener("click", (event) => {
-      event.stopPropagation();
-      active = active === chip.dataset.tag ? null : (chip.dataset.tag ?? null);
-      apply();
-    });
-
-  clearBtn.addEventListener("click", () => {
-    active = null;
-    apply();
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && active) {
-      active = null;
-      apply();
-    }
-  });
-</script>

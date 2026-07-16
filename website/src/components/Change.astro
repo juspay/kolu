@@ -1,35 +1,33 @@
 ---
 /**
- * One changelog entry as a single dense row: the title on the left, and a
- * right-grouped cluster of area tags (what it touches — terminal, code tab,
- * keyboard…) plus the PR chip flush to the right margin, so every row is one
- * scannable line. The description is collapsed by default and unfolds beneath
- * the title on hover / keyboard focus (desktop) or tap (touch), so a release
- * reads as a tight list of headlines you expand only where curious. Touch
- * devices with JS off keep descriptions always visible.
- *
- * Tag chips are buttons: clicking one filters the whole page to entries
- * carrying that tag (wired up in `changelog.astro`'s filter script via
- * `data-tag` / `data-tags`).
+ * One changelog entry as a single dense row: the title on the left and the PR
+ * chip cluster flush to the right margin, so every row is one scannable line.
+ * The description is collapsed by default and unfolds beneath the title on hover
+ * / keyboard focus (desktop) or tap (touch), so a release reads as a tight list
+ * of headlines you expand only where curious. Touch devices with JS off keep
+ * descriptions always visible. Entries are categorised by the `#### [Page](…)`
+ * heading they sit under in the changelog MDX, so a row carries no tags of its
+ * own.
  *
  *   ### Fixed
  *
- *   - <Change title="Terminals no longer silently freeze" pr={1235}
- *       tags={["terminal"]}>A WebSocket that died without notice … resumes
- *     without a reload.</Change>
+ *   #### [Core Concepts](/concepts)
+ *
+ *   - <Change title="Terminals no longer silently freeze" pr={1235}>A WebSocket
+ *     that died without notice … resumes without a reload.</Change>
  *
  * One entry can cite MORE than one PR. When an unreleased feature or fix is
  * iterated across several PRs, they fold into a SINGLE entry that carries every
  * contributing PR — `prs={[…]}` renders a chip per PR:
  *
- *   - <Change title="Work across multiple machines" prs={[1675, 1714, 1743]}
- *       tags={["multi-host"]}>Point kolu at another machine over ssh …</Change>
+ *   - <Change title="Work across several machines" prs={[1675, 1714, 1743]}>
+ *     Point kolu at another machine over ssh …</Change>
  *
  * `pr={n}` stays the shorthand for the common single-PR entry; pass `pr` OR
  * `prs`, never both. Used as the content of a Markdown list item
  * (`- <Change …>…</Change>`), so the `<ul>/<li>` come from `.prose-changelog`;
  * this component owns the whole row — its own `→` bullet (which swings to `↓`
- * while expanded), the metadata cluster, and the collapse. Auto-injected into
+ * while expanded), the PR chip cluster, and the collapse. Auto-injected into
  * changelog MDX (see `changelog.astro`'s `components` prop), so entries need no
  * import. `repo` / `state` pass straight through to every `<PR>` (default: a
  * merged juspay/kolu pull).
@@ -42,10 +40,9 @@ interface Props {
   prs?: number[];
   repo?: string;
   state?: "merged" | "open" | "closed";
-  tags?: string[];
 }
 
-const { title, pr, prs, repo, state, tags = [] } = Astro.props;
+const { title, pr, prs, repo, state } = Astro.props;
 
 // One id list, whether the entry used the single-PR shorthand `pr` or the
 // multi-PR `prs`. Fail loud on misuse rather than silently rendering a wrong or
@@ -58,18 +55,11 @@ if (prs !== undefined && prs.length === 0)
 const prIds = prs ?? (pr !== undefined ? [pr] : []);
 ---
 
-<div class="cl-change" tabindex="0" data-tags={tags.join("|")}>
+<div class="cl-change" tabindex="0">
   <p class="cl-change-head">
     <span class="cl-change-arrow" aria-hidden="true">→</span>
     <span class="cl-change-title">{title}</span>
     <span class="cl-change-meta">
-      {
-        tags.map((tag) => (
-          <button class="cl-change-tag" type="button" data-tag={tag}>
-            {tag}
-          </button>
-        ))
-      }
       {prIds.map((id) => <PR id={id} repo={repo} state={state} />)}
     </span>
   </p>
@@ -113,41 +103,14 @@ const prIds = prs ?? (pr !== undefined ? [pr] : []);
     letter-spacing: -0.01em;
     line-height: 1.4;
   }
-  /* Tags + PR, grouped and flush right so the chip column aligns down the
-     page. Wraps under the title on a narrow screen. */
+  /* The PR chip cluster, flush right so the chips align down the page. Wraps
+     under the title on a narrow screen. */
   .cl-change-meta {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: flex-end;
     gap: 0.3rem;
-  }
-  /* Area tags: what the change touches. Buttons — click to filter the page. */
-  .cl-change-tag {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.6rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    color: var(--color-ink-faint);
-    background: none;
-    border: 1px solid var(--color-rule);
-    border-radius: 9999px;
-    padding: 0.1em 0.6em;
-    cursor: pointer;
-    transition:
-      color 0.15s ease,
-      border-color 0.15s ease,
-      background 0.15s ease;
-  }
-  .cl-change-tag:hover {
-    color: var(--color-kolu-primary);
-    border-color: color-mix(in srgb, var(--color-kolu-primary) 45%, transparent);
-  }
-  .cl-change-tag[data-active="true"] {
-    color: var(--color-kolu-primary);
-    border-color: var(--color-kolu-primary);
-    background: color-mix(in srgb, var(--color-kolu-primary) 10%, transparent);
   }
   /* Touch / no-JS fallback: an inline collapse (grid 0fr→1fr) that animates to
      the description's natural height with no magic max-height. Indented under
