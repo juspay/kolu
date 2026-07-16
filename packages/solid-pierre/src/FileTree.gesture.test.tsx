@@ -140,7 +140,9 @@ describe("FileTree selection provenance (shimmer #1841)", () => {
     const row = document.createElement("button");
     tree.appendChild(row);
     row.addEventListener("click", () => pierre.emit(["examples/Main.lean"]));
-    row.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    row.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, composed: true }),
+    );
     expect(onSelect).toHaveBeenCalledExactlyOnceWith("examples/Main.lean");
   });
 
