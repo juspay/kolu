@@ -57,7 +57,6 @@ export {
   type DaemonLifetime,
   type DaemonLifetimeInfo,
   type DaemonSpec,
-  daemonExitCode,
   daemonLifetimeFromEnv,
   daemonMain,
   lifetimeInfo,
