@@ -72,9 +72,21 @@ flags and boot the same server, so everything above works spelled either way:
 nix --refresh run github:juspay/kolu -- web --host 0.0.0.0 --port 8080
 ```
 
-`kolu tui` (a terminal-side canvas) and `kolu mcp` (an agent face) are
-**reserved**: today they exit with a pointer at the plan instead of running.
-`kolu --help` lists the subcommands.
+`kolu mcp` serves this host's terminals to a **coding agent** over MCP
+(stdio) — a pure padi client, no web server. Register it with your agent and
+it can create terminals, type into them (text and Enter as separate sends,
+the way agent-driving protocols expect), wait for output to settle or an
+agent state to land, read the screen, and watch which terminals need you:
+
+```sh
+# Claude Code
+claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
+# a padi on another machine, over ssh
+claude mcp add kolu-zest -- nix --refresh run github:juspay/kolu -- mcp --host user@zest
+```
+
+`kolu tui` (a terminal-side canvas) is **reserved**: today it exits with a
+pointer at the plan instead of running. `kolu --help` lists the subcommands.
 
 <Aside type="tip" title="Create the first terminal">
   Double-click any empty spot on the canvas to open the New terminal menu. The

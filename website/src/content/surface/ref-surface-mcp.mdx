@@ -60,6 +60,7 @@ Resources are readable and subscribable; procedures become callable tools.
 ## Bespoke tools and curation
 
 - `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: z.object(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle.
+- **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result** carrying the message, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
 - `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
 
 ## Other exports
