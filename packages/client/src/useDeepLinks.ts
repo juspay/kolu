@@ -397,7 +397,17 @@ export function useDeepLinks(): void {
   // routes once (unstamped) and `navigate` stamps them.
   makeEventListener(window, "hashchange", () => {
     const state = history.state as { koluRouted?: boolean } | null;
-    if (state?.koluRouted === true) return;
+    if (state?.koluRouted === true) {
+      // A traversal is the user MOVING ON — supersede any in-flight route,
+      // exactly as `navigate` does for every fresh command. Without this, a
+      // back-press during the settle window (a warming host, an unsensed git)
+      // leaves the armed route live: it enacts when the target settles — a
+      // teleport AFTER the user backed away — or the 8s backstop toasts for a
+      // link they already cancelled. Clearing `pending` also disposes that
+      // backstop timer via its effect's onCleanup.
+      setPending(null);
+      return;
+    }
     navigate(parseDeepLink(window.location.hash));
   });
 }

@@ -87,7 +87,9 @@ split focuses the split and opens the **parent tile's** panel — and `/code`
 resolves `<p>` against that tile's repository.
 
 - **Durable, not one-shot** — unlike a notification click, a deep link is a
-  bookmark: reload and it re-navigates.
+  bookmark: reload and it re-navigates. The back button, though, never replays
+  a link you already followed — it restores the URL quietly and leaves your
+  view alone.
 - **View-only by law** — the worst a link can do is change what you're looking
   at. No URL creates a terminal, kills one, writes a file, or sends keys.
 - **Loud on the edges** — a link to a terminal or host that's gone names what it
