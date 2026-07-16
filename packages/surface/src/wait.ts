@@ -22,6 +22,14 @@
  * watcher binds its own surface contract (kaval's `ptyHostSurface` attach
  * feed, padi's `terminals` mirror) — non-verbatim twins that stay local, the
  * same port-not-extract doctrine as the attach scaffold.
+ *
+ * RECORDED FOLLOW-UP (#1865 surface review, finding 3): `ctx.signal` is a raw
+ * signal with a doc contract ("thread it into every subscription") — a watcher
+ * that forgets both leaks its subscription and hangs `runWait` past settle.
+ * The perfection move is inverting the seam to `ctx.subscribe(streamFactory)`
+ * so forgetting is unspellable; deferred because today's three consumers also
+ * READ `ctx.signal.aborted` to classify expected stream ends (the kaval/padi
+ * lost-feed discrimination), which a subscribe-only surface must re-house.
  */
 
 /** Node's `setTimeout` caps its delay at the signed 32-bit max (~24.8 days); a
@@ -112,12 +120,18 @@ export async function runWait<Met extends WaitMet>(
   const abort = new AbortController();
   // Chain the caller's signal (a Ctrl+C, a cancelled request) into the
   // internal abort so an interrupt unwinds every watcher the same way a
-  // settle does.
+  // settle does. The listener's lifetime is bound to the INTERNAL controller
+  // (`{ signal: abort.signal }`), which the `finally` below always aborts —
+  // so it is removed on EVERY arm. `{ once: true }` alone would remove it
+  // only when the caller's signal fires, i.e. never on the common
+  // met/gone/timeout/closed arms, accumulating one dangling listener per
+  // wait on a long-lived shared signal — the exact leak class this leaf
+  // exists to prevent.
   if (opts.signal !== undefined) {
     if (opts.signal.aborted) abort.abort();
     else
       opts.signal.addEventListener("abort", () => abort.abort(), {
-        once: true,
+        signal: abort.signal,
       });
   }
 

@@ -13,9 +13,7 @@
     "kolu": {
       "type": "stdio",
       "command": "kolu",
-      "args": [
-        "mcp"
-      ]
+      "args": ["mcp"]
     }
   }
 }

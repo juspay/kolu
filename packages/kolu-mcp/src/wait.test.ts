@@ -7,7 +7,7 @@
  */
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { describe, expect, it } from "vitest";
-import { awaitOutputSettled, waitOutputSettledTool } from "./wait.ts";
+import { awaitOutputSettled, waitJson, waitOutputSettledTool } from "./wait.ts";
 
 type AttachFrame =
   | { kind: "snapshot"; data: string; topLine: number }
@@ -185,6 +185,26 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
   });
 });
 
+describe("waitJson — the wire envelope", () => {
+  it("PIN: a met payload can never clobber the envelope's reserved keys", () => {
+    // The met payload nests under `met` — a payload carrying `id`/`result`
+    // keys serializes intact WITHOUT overwriting the envelope (the flat-spread
+    // collision the review caught; nesting makes it inexpressible).
+    const hostile = {
+      kind: "met",
+      id: "payload-id",
+      result: "payload-result",
+    } as const;
+    const frame = waitJson("envelope-id", hostile as never);
+    expect(frame.id).toBe("envelope-id");
+    expect(frame.result).toBe("met");
+    expect(frame.met).toMatchObject({
+      id: "payload-id",
+      result: "payload-result",
+    });
+  });
+});
+
 describe("waitOutputSettledTool — the JSON frame", () => {
   it("returns the uniform result frame (id + result + met detail)", async () => {
     const s = streams();
@@ -194,7 +214,13 @@ describe("waitOutputSettledTool — the JSON frame", () => {
       fakeClient(s),
       undefined,
     )) as Record<string, unknown>;
-    expect(result).toMatchObject({ id: ID, result: "met", fired: "idle" });
-    expect(typeof result.elapsedMs).toBe("number");
+    expect(result).toMatchObject({
+      id: ID,
+      result: "met",
+      met: { fired: "idle" },
+    });
+    expect(typeof (result.met as { elapsedMs: unknown }).elapsedMs).toBe(
+      "number",
+    );
   });
 });

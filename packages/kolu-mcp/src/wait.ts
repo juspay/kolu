@@ -28,7 +28,12 @@ import {
 } from "@kolu/padi/dial";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-import { MAX_TIMER_MS, runWait, type WaitOutcome } from "@kolu/surface/wait";
+import {
+  MAX_TIMER_MS,
+  runWait,
+  type WaitMet,
+  type WaitOutcome,
+} from "@kolu/surface/wait";
 import type { BespokeTool } from "@kolu/surface-mcp";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { z } from "zod";
@@ -45,17 +50,22 @@ const TimeoutMsSchema = z
     'Give up after this many milliseconds (result: "timeout"). Omit to wait indefinitely (the MCP host\'s own request timeout still applies).',
   );
 
-/** Serialize a wait outcome to the tool's JSON frame — kaval-tui's
- *  `waitResultJson` shape, the one drivers already parse: a uniform `result`
- *  discriminant on EVERY outcome, never exit-code archaeology. */
-function waitJson(
+/** Serialize a wait outcome to the tool's JSON frame — a uniform `result`
+ *  discriminant on EVERY outcome, never exit-code archaeology. The met payload
+ *  is NESTED under `met`, never spread flat: a flat spread would let a payload
+ *  key silently overwrite the envelope's reserved `id`/`result` (the same
+ *  collision class `WaitMet`'s `kind?: never` closes one layer down, reopened
+ *  at the wire) — nesting makes it inexpressible for ANY payload shape. The
+ *  param stays `WaitMet`-typed for the same reason: widening to a bare Record
+ *  would erase the kind guard at this boundary. */
+export function waitJson<Met extends WaitMet>(
   id: string,
-  outcome: WaitOutcome<Record<string, unknown>>,
+  outcome: WaitOutcome<Met>,
 ): Record<string, unknown> {
   switch (outcome.kind) {
     case "met": {
       const { kind: _kind, ...met } = outcome;
-      return { id, result: "met", ...met };
+      return { id, result: "met", met };
     }
     case "timeout":
       return { id, result: "timeout", elapsedMs: outcome.elapsedMs };
@@ -225,7 +235,7 @@ export const waitOutputSettledTool: BespokeTool = {
   input: WaitOutputSettledArgsSchema,
   mutates: false,
   description:
-    'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Returns {result: "met"|"timeout"|"gone"|"closed", …} with elapsedMs.',
+    'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Returns {result: "met", met: {fired, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}.',
   handler: async (args, client, signal) => {
     const { id, idleMs, timeoutMs } = args as WaitOutputSettledArgs;
     const outcome = await awaitOutputSettled(client as PadiSurfaceClient, {
@@ -256,7 +266,7 @@ export const waitAgentStateTool: BespokeTool = {
   input: WaitAgentStateArgsSchema,
   mutates: false,
   description:
-    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. Returns {result: "met", agent, elapsedMs} or {result: "timeout"|"gone"|"closed", …}.',
+    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. Returns {result: "met", met: {agent, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}.',
   handler: async (args, client, signal) => {
     const { id, until, timeoutMs } = args as WaitAgentStateArgs;
     const outcome = await awaitAgentState(client as PadiSurfaceClient, {

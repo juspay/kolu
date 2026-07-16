@@ -103,6 +103,21 @@ describe("runWait — the bounded-wait race", () => {
     ).rejects.toThrow(RangeError);
   });
 
+  it("PIN: no dangling abort listener accumulates on the caller's signal", async () => {
+    // The chained listener's lifetime is bound to the INTERNAL abort (fired on
+    // every arm), not `{ once }` (fired only if the CALLER aborts — never on
+    // the common met arm). N settled waits on one long-lived signal must leave
+    // zero listeners behind.
+    const { getEventListeners } = await import("node:events");
+    const caller = new AbortController();
+    for (let i = 0; i < 5; i++) {
+      await runWait<Met>({ signal: caller.signal }, async (ctx) => {
+        ctx.settle({ kind: "met", fired: "test", elapsedMs: 1 });
+      });
+    }
+    expect(getEventListeners(caller.signal, "abort")).toHaveLength(0);
+  });
+
   it("a pre-aborted caller signal short-circuits to interrupted", async () => {
     const abort = new AbortController();
     abort.abort();
