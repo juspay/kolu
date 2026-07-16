@@ -95,6 +95,16 @@ Feature: Deep links — every view addressable by a #/… URL
     When I go back in browser history
     Then the URL hash should still be "#/t/local/{id1}"
     And the active terminal should show "DEEP-BACK-TWO"
+    # A second back lands the boot entry (stamped by the boot parse's `none`
+    # verdict — the gate holds on non-link entries too). Then forward re-enters
+    # the {id1} entry while terminal 2 is active — THE discriminating forward
+    # leg: a forward replay would teleport to terminal 1. (Forward onto {id2}
+    # couldn't tell — a wrongful route targets the already-active terminal.)
+    When I go back in browser history
+    Then the active terminal should show "DEEP-BACK-TWO"
+    When I go forward in browser history
+    Then the URL hash should still be "#/t/local/{id1}"
+    And the active terminal should show "DEEP-BACK-TWO"
     When I go forward in browser history
     Then the URL hash should still be "#/t/local/{id2}"
     And the active terminal should show "DEEP-BACK-TWO"
@@ -118,9 +128,7 @@ Feature: Deep links — every view addressable by a #/… URL
     Then the file preview iframe should be visible
     # Routing a deep link must push NO history entries — mouse-back must never
     # replay a stale teleport (srid's dogfood finding; the bug was one push PER
-    # routed link, so one routed link pins it). A second pill can't be
-    # click-tested here: routing the first activates the authoring terminal and
-    # the per-terminal preview is gone afterwards (#/settings has its own scenario).
+    # routed link, so one routed link pins it).
     When I note the page history length
     And I click the link "jump to agent" in the file preview iframe
     Then the active terminal should show "DEEP-PILL-MARKER"

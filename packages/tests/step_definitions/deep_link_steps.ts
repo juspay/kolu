@@ -106,15 +106,33 @@ Then(
  *  `history.back()/forward()` (a same-document hash traversal; `hashchange`
  *  fires exactly as for the real buttons). Await the traversal's own
  *  `hashchange` (the gate — or a wrongful route — runs synchronously inside
- *  that dispatch), then one frame for paint. */
+ *  that dispatch), then one frame for paint. Bounded: a traversal that fires
+ *  no `hashchange` (no adjacent entry, or a same-hash neighbour) rejects with
+ *  a named error instead of hanging into the opaque cucumber step timeout. */
 async function traverseHistory(
   world: KoluWorld,
   direction: "back" | "forward",
 ): Promise<void> {
   await world.page.evaluate(
     (d) =>
-      new Promise<void>((resolve) => {
-        window.addEventListener("hashchange", () => resolve(), { once: true });
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `history.${d}() produced no hashchange — no adjacent entry, or its hash is identical`,
+              ),
+            ),
+          5000,
+        );
+        window.addEventListener(
+          "hashchange",
+          () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
         if (d === "back") history.back();
         else history.forward();
       }),

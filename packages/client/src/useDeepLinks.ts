@@ -48,12 +48,15 @@ const MEMBERSHIP_BOUND_MS = 8000;
 
 /** The consumed-once stamp — `navigate` marks the CURRENT history entry's
  *  command handled; the traversal gate reads it. Writer and reader are spelled
- *  here once so they cannot drift. */
+ *  here once, both against the one constant, so a key rename can't silently
+ *  desync them (the reader going always-false would resurrect the traversal
+ *  re-route this gate exists to close). */
+const ROUTED_STAMP = { koluRouted: true } as const;
 function stampEntryRouted(): void {
-  history.replaceState({ koluRouted: true }, "");
+  history.replaceState(ROUTED_STAMP, "");
 }
 function entryAlreadyRouted(): boolean {
-  const state = history.state as { koluRouted?: boolean } | null;
+  const state = history.state as Partial<typeof ROUTED_STAMP> | null;
   return state?.koluRouted === true;
 }
 
@@ -167,19 +170,23 @@ export function useDeepLinks(): void {
     setPending(route);
   }
 
-  /** Supersede an IN-FLIGHT terminal route: the armed command AND its
-   *  hydration focus intent — `routeToTerminal` arms them together, so a
-   *  cancellation must disarm them together, or the stale intent teleports
+  /** Disarm an IN-FLIGHT terminal route: the armed command AND its hydration
+   *  focus intent — `routeToTerminal` arms them together, so any non-enacted
+   *  termination must disarm them together, or the stale intent teleports
    *  later through cold-boot hydration (`useSessionRestore` prefers it when it
-   *  seeds). An already-ENACTED intent deliberately survives (`pending` is
-   *  null then): hydration must keep preferring the view the user actually
-   *  reached. Clearing `pending` also disposes the 8s backstop timer via its
-   *  effect's onCleanup. */
-  function supersedeInFlightRoute(): void {
+   *  seeds). Two termination families land here: SUPERSESSION (a newer
+   *  command, a history traversal, a manual host switch — the user moved on)
+   *  and a FAULT VERDICT (list-stream error, terminal gone, backstop timeout —
+   *  the router gave up and toasted; a command declared failed must not be
+   *  half-honored by a later hydration). An already-ENACTED intent
+   *  deliberately survives (`pending` is null then): hydration must keep
+   *  preferring the view the user actually reached. Clearing `pending` also
+   *  disposes the 8s backstop timer via its effect's onCleanup. */
+  function disarmInFlightRoute(): void {
     if (pending() === null) return;
     // Batched HERE so the disarm-together contract holds structurally from
     // every call site (navigate's batch, the traversal gate, the settle
-    // effect's host-mismatch arm), not just the batched ones.
+    // effect's arms, the backstop), not just the batched ones.
     batch(() => {
       setPending(null);
       setDeepLinkFocusIntent(null);
@@ -196,7 +203,7 @@ export function useDeepLinks(): void {
    *  later host/settings switch, or a second link). */
   function navigate(link: ParsedDeepLink): void {
     batch(() => {
-      supersedeInFlightRoute();
+      disarmInFlightRoute();
       match(link)
         .with({ kind: "none" }, () => {})
         .with({ kind: "invalid" }, ({ reason }) =>
@@ -281,7 +288,7 @@ export function useDeepLinks(): void {
     // named spelling, so neither the enact, the backstop toast, nor a later
     // hydration can act on a route the user walked away from.
     if (encodeHostKey(activeHost()) !== route.host) {
-      supersedeInFlightRoute();
+      disarmInFlightRoute();
       return;
     }
     if (store.listSub.pending()) return; // membership not settled — wait
@@ -290,8 +297,9 @@ export function useDeepLinks(): void {
       // The list stream faulted — `pending()` is false but the value is stale
       // or absent, so we can't honestly say "gone". Fail the link loudly rather
       // than invent a gone-verdict from a broken subscription — and surface the
-      // real error, not a generic message.
-      setPending(null);
+      // real error, not a generic message. A FAULT VERDICT disarms the pair:
+      // a command declared failed must not steer a later hydration.
+      disarmInFlightRoute();
       toast.error(
         `Couldn't load this host's terminals to resolve the link: ${listError.message}`,
       );
@@ -300,7 +308,7 @@ export function useDeepLinks(): void {
     const id = route.terminalId;
     const inList = (store.listSub() ?? []).some((t) => t.id === id);
     if (!inList) {
-      setPending(null);
+      disarmInFlightRoute(); // fault verdict — disarm command + intent together
       // Name what the link pointed at (the host) — the host-gone path already
       // names its host via wire.ts's reconcile toast, so the two agree.
       toast.error(
@@ -315,6 +323,8 @@ export function useDeepLinks(): void {
     // "not a git repository"; the effect re-runs when the git fact lands
     // (getMetadata is reactive), bounded by the 8s backstop.
     if (codeRouteAwaitingRepo(route, resolved.anchorMeta)) return;
+    // Bare on purpose — the ONLY non-disarming clear: an ENACTED route's
+    // intent survives so cold-boot hydration keeps the reached view.
     setPending(null);
     enact(route, resolved.meta, resolved.anchorMeta);
   });
@@ -334,7 +344,7 @@ export function useDeepLinks(): void {
     if (!route) return;
     const timer = setTimeout(() => {
       if (pending() !== route) return;
-      setPending(null);
+      disarmInFlightRoute(); // fault verdict — disarm command + intent together
       // Same anchor + repo-readiness facts the settle gate reads, so the
       // message can't drift from the gate's own verdict.
       const resolved = resolveRoute(route);
@@ -425,10 +435,10 @@ export function useDeepLinks(): void {
   // routes once (unstamped) and `navigate` stamps them.
   makeEventListener(window, "hashchange", () => {
     if (entryAlreadyRouted()) {
-      // A traversal is the user MOVING ON — supersede any in-flight route,
+      // A traversal is the user MOVING ON — disarm any in-flight route,
       // exactly as `navigate` does for every fresh command (the helper's doc
       // carries the delayed-teleport mechanics this closes).
-      supersedeInFlightRoute();
+      disarmInFlightRoute();
       return;
     }
     navigate(parseDeepLink(window.location.hash));
