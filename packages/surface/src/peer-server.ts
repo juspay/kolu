@@ -206,10 +206,11 @@ export function serveOverStdio<T extends Context>(
   // codec's declared resolve-on-'close' edge). Guarded so a torn pipe that
   // kills both halves at once doesn't double-destroy.
   //
-  // Honest limit: a real write failure that arrives only AFTER the read side
-  // already settled is absorbed — the read stream ending is the definition
-  // of serving ending, and re-opening a settled result for a late
-  // writer-side fault would be a second source of truth.
+  // Honest limit: a real write failure that arrives only AFTER the read
+  // side is already destroyed (the classification commit point — one tick
+  // before the 'close' settle) is absorbed — the read stream ending is the
+  // definition of serving ending, and re-opening a committed teardown for a
+  // late writer-side fault would be a second source of truth.
   const endServing = (error?: Error) => {
     if (!transport.read.destroyed) transport.read.destroy(error);
   };
@@ -316,7 +317,10 @@ export function serveOverStdio<T extends Context>(
     // invisible). `setImmediate` is load-bearing: it fires only after the
     // ENTIRE microtask cascade from the settle drains, so every caller
     // continuation (`await serveOverStdio(…)` → sync dispose/log) completes
-    // first. `process.nextTick` would preempt those continuations.
+    // first. (`process.nextTick` would ALSO run after the direct microtask
+    // cascade — but it would preempt nextTick-mediated continuation work,
+    // e.g. a post-settle `stream.destroy()` whose 'close' is emitted via
+    // the tick queue. `setImmediate` runs strictly after both.)
     void settled.then((end) => {
       setImmediate(() => {
         process.exit(end.reason === "end" ? 0 : 1);

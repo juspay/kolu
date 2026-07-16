@@ -31,9 +31,8 @@ async function main(): Promise<void> {
     router: top.router,
     onFirstRequest: () => log("first RPC received — link is live"),
   });
-  // Post-settle continuation: `serveOverStdio` exits the process after the
-  // awaited serve settles (0 on 'end', 1 on 'error'); these synchronous lines
-  // are the supported cleanup window that runs before that exit.
+  // Synchronous post-settle cleanup — the supported window before the
+  // framework-owned exit (see `serveOverStdio`'s "Lifetime" doc).
   top.dispose();
   log(`stdin closed (${end.reason}) — agent exiting`);
 }

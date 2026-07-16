@@ -140,6 +140,10 @@ describe("serveOverStdio — settled-result contract", () => {
       read: new PassThrough(), // the response can never arrive
       write: toServer,
     });
+    // Intentional swallow: this call exists only to force the server's
+    // response write into the dead stream; its own rejection (the link
+    // tearing down under it) is the expected byproduct, and the assertion
+    // below on `serving` is the test's real observable.
     void client.add({ a: 2, b: 3 }).catch(() => {});
 
     await expect(serving).resolves.toEqual({ reason: "end" });
