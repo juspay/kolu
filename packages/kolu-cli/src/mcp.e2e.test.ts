@@ -371,6 +371,7 @@ describe("kolu mcp — the headless graduation pin", () => {
       InMemoryTransport.createLinkedPair();
     const { close } = await serveKoluMcp({
       connect: async () => ({ client, dispose: () => {} }),
+      serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
       transport: serverTransport,
     });
     const mcp = new Client({ name: "pin-client-ssh", version: "0.0.0" });
@@ -404,6 +405,7 @@ describe("kolu mcp — the headless graduation pin", () => {
       InMemoryTransport.createLinkedPair();
     const { close } = await serveKoluMcp({
       connect,
+      serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
       transport: serverTransport,
     });
     const mcp = new Client({ name: "pin-client-restart", version: "0.0.0" });

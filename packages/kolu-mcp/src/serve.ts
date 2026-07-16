@@ -46,9 +46,12 @@ export interface ServeKoluMcpOptions {
   /** Produce a connected padi client. Re-invoked after a transport drop —
    *  MUST re-resolve + re-dial + re-gate, never cache a dead socket. */
   connect: () => Promise<KoluMcpConnection>;
-  /** The `serverInfo` the MCP host sees. The composition root passes the
-   *  product version so `kolu mcp` can never diverge from `kolu --version`. */
-  serverInfo?: { name: string; version: string };
+  /** The `serverInfo` the MCP host sees. REQUIRED — the composition root
+   *  passes the product version so `kolu mcp` can never diverge from
+   *  `kolu --version`; a baked fallback here would silently undercut exactly
+   *  that invariant (the fail-fast rule: no default masking a missing
+   *  required value). Tests pass an explicit stub. */
+  serverInfo: { name: string; version: string };
   /** Transport override for tests (an `InMemoryTransport` half); defaults to
    *  stdio inside the adapter. */
   transport?: Transport;
@@ -65,7 +68,7 @@ export async function serveKoluMcp(
     client: opts.connect,
     expose: KOLU_MCP_EXPOSE,
     tools: KOLU_MCP_TOOLS,
-    serverInfo: opts.serverInfo ?? { name: "kolu-mcp", version: "0.0.0" },
+    serverInfo: opts.serverInfo,
     ...(opts.transport !== undefined ? { transport: opts.transport } : {}),
   });
 }
