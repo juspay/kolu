@@ -440,6 +440,9 @@ Return one \`applied\` entry per fix (same order): its id, a one-line summary, t
 // Helpers
 // ---------------------------------------------------------------------------
 const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.id, p]))
+// A finding's suggestion becomes its plan iff its disposition is fix — the one
+// projection every settle/opener site uses to turn a finding into a plan.
+const planOf = (f) => (f.disposition === 'fix' ? f.suggestion : undefined)
 // The file a finding anchors to — the grouping key for threads and for the
 // real-only rule. Region = file: deterministic, and matches how reviewers cite
 // locations ("file:line"). A vaguer location ("multiple files") groups under its
@@ -629,7 +632,7 @@ const mateOf = {} // both directions of a matched pair, for rendering
 const contested = [] // [{ id, findingIds, f, pairF?, pairId?, openLowy?, openHickey?, excerpt }]
 
 const settleAsRaised = (f, via) => {
-  settled[f.id] = { disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, via }
+  settled[f.id] = { disposition: f.disposition, plan: planOf(f), via }
 }
 // Settle a matched pair as ONE issue: the primary record carries the plan, the
 // secondary is a plan-less duplicate pointing back at it — the shape that keeps
@@ -689,8 +692,8 @@ if (lowyFindings.length && hickeyFindings.length) {
         f: fa,
         pairF: fb,
         pairId: m.b,
-        openLowy: { id: m.a, disposition: fa.disposition, plan: fa.disposition === 'fix' ? fa.suggestion : undefined, reasoning: fa.problem },
-        openHickey: { id: m.a, disposition: fb.disposition, plan: fb.disposition === 'fix' ? fb.suggestion : undefined, reasoning: fb.problem },
+        openLowy: { id: m.a, disposition: fa.disposition, plan: planOf(fa), reasoning: fa.problem },
+        openHickey: { id: m.a, disposition: fb.disposition, plan: planOf(fb), reasoning: fb.problem },
       })
       log(`Pair ${m.a} ≡ ${m.b} raised by both but ${fa.disposition === fb.disposition ? 'plans differ' : `dispositions differ (${fa.disposition}/${fb.disposition})`} — contested.`)
     }
@@ -810,8 +813,8 @@ for (const f of combined) {
         id: f.id,
         findingIds: [f.id],
         f,
-        openLowy: lObj || lMissing ? objectionPosition(f, lc) : { id: f.id, disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, reasoning: `no objection to ${f.origin}'s finding as raised` },
-        openHickey: hObj || hMissing ? objectionPosition(f, hc) : { id: f.id, disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, reasoning: `no objection to ${f.origin}'s finding as raised` },
+        openLowy: lObj || lMissing ? objectionPosition(f, lc) : { id: f.id, disposition: f.disposition, plan: planOf(f), reasoning: `no objection to ${f.origin}'s finding as raised` },
+        openHickey: hObj || hMissing ? objectionPosition(f, hc) : { id: f.id, disposition: f.disposition, plan: planOf(f), reasoning: `no objection to ${f.origin}'s finding as raised` },
       })
       log(`Contested ${f.id} (police, ${[lMissing && 'lowy check missing', lObj && 'lowy objects', hMissing && 'hickey check missing', hObj && 'hickey objects'].filter(Boolean).join(', ')}).`)
     }
@@ -826,7 +829,7 @@ for (const f of combined) {
     // Objection — or a check the lens dropped from its batch, which must NOT
     // silently settle (absence of an answer is not agreement).
     if (!check) log(`Objection check for ${f.id} missing from ${opp}'s batch — contested, not settled.`)
-    const raiserPos = { id: f.id, disposition: f.disposition, plan: f.disposition === 'fix' ? f.suggestion : undefined, reasoning: f.problem }
+    const raiserPos = { id: f.id, disposition: f.disposition, plan: planOf(f), reasoning: f.problem }
     contested.push({
       id: f.id,
       findingIds: [f.id],
