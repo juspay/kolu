@@ -1,8 +1,9 @@
 /** The deep-link router — the leaf that turns a `#/…` URL into a view change.
  *
- *  Three entry points feed ONE parser (`parseDeepLink`): the boot parse of
- *  `location.hash`, a live `hashchange`, and — on Chromium PWAs — the
- *  `launchQueue` targetURL of a focus-existing launch. Every route lands on an
+ *  Four entry points feed ONE parser (`parseDeepLink`): the boot parse of
+ *  `location.hash`, a live `hashchange`, — on Chromium PWAs — the
+ *  `launchQueue` targetURL of a focus-existing launch, and the Code-tab
+ *  preview bridge (`requestDeepLinkNavigation`). Every route lands on an
  *  EXISTING view action (host switch, tile focus, right panel, settings). The
  *  router adds addressability, never a new capability.
  *
@@ -61,6 +62,23 @@ interface LaunchParams {
 interface LaunchQueue {
   setConsumer(consumer: (params: LaunchParams) => void): void;
 }
+
+/** A `#/…` hash handed in from OUTSIDE the URL — today the Code-tab preview
+ *  bridge (a deep link clicked inside the sandboxed iframe, which can't
+ *  navigate the parent itself). `equals: false` so re-requesting the SAME hash
+ *  re-routes (clicking the same dashboard pill twice must refocus both times —
+ *  a plain `location.hash =` write would not re-fire `hashchange`). The hook's
+ *  consumer feeds it through the exact pipeline a typed URL takes (reflect into
+ *  the address bar when it differs — durability — else parse+navigate
+ *  directly), so an invalid hash toasts identically. */
+/** The setter IS the public request API (`requestDeepLinkNavigation`) — the
+ *  house convention for module-singleton seams (`setActiveHost` is likewise a
+ *  raw exported setter), so there is no single-caller wrapper to drift. */
+const [externalNavRequest, requestDeepLinkNavigation] = createSignal<
+  string | null
+>(null, { equals: false });
+
+export { requestDeepLinkNavigation };
 
 export function useDeepLinks(): void {
   const store = useTerminalStore();
@@ -294,12 +312,37 @@ export function useDeepLinks(): void {
     onCleanup(() => clearTimeout(timer));
   });
 
+  /** Route a hash delivered from OUTSIDE the address bar (a PWA launch, the
+   *  preview bridge). Reflect it into the bar with `replaceState` — the hash
+   *  stays durable (copyable; reload re-navigates) but NO history entry is
+   *  pushed, so mouse-back never replays a stale teleport: deep-link routing
+   *  must not record history that ordinary in-app navigation doesn't (a
+   *  `location.hash =` write would push one per routed link). `replaceState`
+   *  fires no `hashchange`, so route explicitly — always, which also keeps a
+   *  repeated same-hash request re-routing. */
+  function navigateFromExternal(hash: string): void {
+    if (hash && hash !== window.location.hash) {
+      history.replaceState(null, "", hash);
+    }
+    navigate(parseDeepLink(hash));
+  }
+
+  // (d) the preview bridge — a kolu deep link clicked inside the Code-tab
+  // preview iframe (see `requestDeepLinkNavigation`). The sandbox can't
+  // navigate the parent, so the bridge posts the hash here; it takes the same
+  // external pipeline as a PWA launch, so an invalid hash toasts exactly as a
+  // typed URL would.
+  createEffect(() => {
+    const hash = externalNavRequest();
+    if (hash === null) return;
+    navigateFromExternal(hash);
+  });
+
   onMount(() => {
     // (c) PWA launch (Chromium): a focus-existing launch hands the URL here,
-    // WITHOUT navigating an already-open window. Reflect its hash into the
-    // address bar (durability — a later reload re-navigates), letting the
-    // `hashchange` listener act; navigate directly only when the hash is
-    // identical/empty (no event would fire).
+    // WITHOUT navigating an already-open window. `navigateFromExternal`
+    // reflects the hash into the address bar (durability — a later reload
+    // re-navigates) without pushing a history entry, and routes directly.
     //
     // Registered BEFORE the boot parse: on a COLD installed launch the browser
     // both loads the target URL (so `location.hash` is set) AND queues the same
@@ -323,11 +366,7 @@ export function useDeepLinks(): void {
         toast.error("Couldn't open that link — the launch URL was malformed.");
         return;
       }
-      if (hash && hash !== window.location.hash) {
-        window.location.hash = hash;
-        return;
-      }
-      navigate(parseDeepLink(hash));
+      navigateFromExternal(hash);
     });
     // (a) boot parse — a bookmark opened cold (skipped if the launch consumer
     // already handled this load's initial launch).
