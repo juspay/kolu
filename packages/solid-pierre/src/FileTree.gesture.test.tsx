@@ -73,8 +73,7 @@ function mount(onSelect: (p: string | null) => void): HTMLElement {
   const wrapper = document.createElement("div");
   document.body.appendChild(wrapper);
   const dispose = render(
-    // biome-ignore lint/suspicious/noExplicitAny: render's JSX element type
-    (() => (
+    () => (
       <FileTree
         paths={PATHS}
         onSelect={onSelect}
@@ -82,7 +81,7 @@ function mount(onSelect: (p: string | null) => void): HTMLElement {
           throw e;
         }}
       />
-    )) as any,
+    ),
     wrapper,
   );
   disposers.push(dispose, () => wrapper.remove());
