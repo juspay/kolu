@@ -1,17 +1,33 @@
 /**
  * The kolu binary's subcommand dispatch — PR1 of the kolu-cli plan
- * (docs/atlas/src/content/atlas/kolu-cli.mdx).
+ * (docs/atlas/src/content/atlas/kolu-cli.mdx). This package is the composition
+ * root: the one module set allowed to import everything, so the product's argv
+ * face stays out of the web server's boot (`packages/server` exports
+ * `bootKoluWeb`; the volatility is in the set of faces, and only a dedicated
+ * package encapsulates it).
  *
  * `kolu web` NAMES today's behavior; bare `kolu` stays its byte-for-byte alias:
  * ONE flag schema (`webFlags`) is bound to both spellings, so the alias holds by
  * construction, and the flag-matrix test (`cli.test.ts`) pins it. `kolu tui` and
  * `kolu mcp` are reserved — they fail fast with a pointer at the plan (PR3 and
  * PR2 respectively) instead of pretending to exist.
+ *
+ * This module is the PARSE only — deliberately free of runtime `kolu-server`
+ * imports (the type below is erased), so the pin suite drives it without
+ * loading the server's module graph. The `web` arm's boot import lives in
+ * `main.ts`, behind the dispatch. (The tui/mcp faces themselves arrive as
+ * separate packages in PR2/PR3 — their manifests, which list no kolu app
+ * package, are the structural fence.)
  */
 
 import { cli, command } from "cleye";
 import { DEFAULT_PORT } from "kolu-common/config";
-import { serverVersion } from "./hostname.ts";
+import type { KoluBootFlags } from "kolu-server";
+// The app version's single source of truth is packages/server/package.json
+// (`/release` bumps it; nix reads the same file for the derivation version).
+// Read it straight from that file — same value `serverVersion` carries inside
+// the server — without pulling the server's runtime graph into the parse.
+import serverPkg from "kolu-server/package.json" with { type: "json" };
 
 /** The web face's flags — today's `kolu` flag set, verbatim. Declared once and
  *  bound to BOTH the root CLI (bare `kolu`) and the `web` subcommand, which is
@@ -62,19 +78,8 @@ export const reservedFaceMessage = (face: ReservedFace): string =>
   `kolu ${face} is not shipped yet — it lands in a later PR of the kolu-cli plan: https://kolu.dev/atlas/kolu-cli.html`;
 
 export type KoluCliParse =
-  | { face: "web"; flags: KoluWebFlags }
+  | { face: "web"; flags: KoluBootFlags }
   | { face: ReservedFace };
-
-/** Today's flag set, parsed — the shape `index.ts` boots with. */
-export type KoluWebFlags = {
-  host: string;
-  port: number;
-  tls: boolean;
-  tlsCert: string | undefined;
-  tlsKey: string | undefined;
-  verbose: boolean;
-  allowNixShellWithEnvWhitelist: string | undefined;
-};
 
 /** Parse the kolu argv into a face. Pure — no exits beyond cleye's own
  *  `--help`/`--version`/unknown-flag handling — so the flag-matrix test can
@@ -86,7 +91,7 @@ export function parseKoluCli(
   const parsed = cli(
     {
       name: "kolu",
-      version: serverVersion,
+      version: serverPkg.version,
       flags: webFlags,
       strictFlags: true,
       commands: [
@@ -124,9 +129,9 @@ export function parseKoluCli(
   return { face: "web", flags: parsed.flags };
 }
 
-/** The boot seam `index.ts` parses through: returns the web face's flags, or
+/** The dispatch seam `main.ts` parses through: returns the web face's flags, or
  *  fails fast (the named message on stderr, exit 1) on a reserved subcommand. */
-export function koluWebFlagsOrExit(argv?: string[]): KoluWebFlags {
+export function koluWebFlagsOrExit(argv?: string[]): KoluBootFlags {
   const parsed = parseKoluCli(argv);
   if (parsed.face !== "web") {
     process.stderr.write(`${reservedFaceMessage(parsed.face)}\n`);

@@ -163,7 +163,7 @@ lint: install
 # dev state root gives each dev instance its OWN padi to supervise — the local
 # twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
 server:
-    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/server && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)
 client:
@@ -353,7 +353,7 @@ test-quick *args: install
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/kolu-cli/src/main.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
     cd packages/tests
@@ -378,7 +378,7 @@ record name="": install
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/kolu-cli/src/main.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
     name_filter=""

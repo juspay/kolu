@@ -91,7 +91,7 @@ version: Unreleased
 
 ### [Quickstart](/quickstart)
 
-- <Change kind="added" title="The kolu binary grows subcommands — `kolu web` names today's server">`kolu web` now names what bare `kolu` has always done — the two spellings accept the same flags and boot the same server, so nothing you run today changes. `kolu tui` (a terminal-side canvas) and `kolu mcp` (an agent face) are **reserved**: they exit with a clear not-shipped-yet message pointing at the plan, instead of silently booting the web server. `kolu --help` now lists the subcommands.</Change>
+- <Change kind="added" title="The kolu binary grows subcommands — `kolu web` names today's server" pr={1857}>`kolu web` now names what bare `kolu` has always done — the two spellings accept the same flags and boot the same server, so nothing you run today changes. `kolu tui` (a terminal-side canvas) and `kolu mcp` (an agent face) are **reserved**: they exit with a clear not-shipped-yet message pointing at the plan, instead of silently booting the web server. `kolu --help` now lists the subcommands.</Change>
 - <Change kind="changed" title="kolu opens far faster on first load — the app bundle is served compressed" pr={1643}>Opening kolu fresh — a first visit, a cache-miss, or the first load after a deploy — used to download the whole ~2.6 MB JavaScript bundle **uncompressed**. The server now serves build-time-compressed assets with the right `Content-Encoding`, so that bundle arrives as **571 kB instead of 2.56 MB — 4.6× smaller**. The difference shows up most where it hurt worst: opening kolu from your **phone** or over **Tailscale**. Repeat opens were already instant and are unchanged.</Change>
 
 ### [Clipboard & Files](/clipboard)
