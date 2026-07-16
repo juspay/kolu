@@ -13,6 +13,7 @@ import {
   type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
+import { createEventListener } from "@solid-primitives/event-listener";
 import {
   type Component,
   createEffect,
@@ -210,24 +211,20 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     // microtask that lands *after* this handler's own microtask (measured on a
     // live tree: the emit fires before the next frame but after `queueMicrotask`).
     // A microtask disarm therefore ran *before* the emit and dropped every genuine
-    // click (#1846's preview regression). A frame boundary reliably outlasts the
+    // click — an intermediate regression caught and fixed within #1846 (the PR
+    // that shipped this gate) before it landed. A frame boundary reliably outlasts the
     // deferred emit, and single-use consumption in `onSelectionChange` still kills
-    // the echo loop after one forward — so the wider window costs nothing. An
-    // `AbortController` removes the listeners on cleanup.
-    const gestures = new AbortController();
+    // the echo loop after one forward — so the wider window costs nothing.
+    // `createEventListener` disposes both listeners on this owner's cleanup.
     const armGesture = () => {
       userGesture = true;
       requestAnimationFrame(() => {
         userGesture = false;
       });
     };
-    for (const type of ["click", "keydown"] as const) {
-      container.addEventListener(type, armGesture, {
-        capture: true,
-        signal: gestures.signal,
-      });
-    }
-    onCleanup(() => gestures.abort());
+    createEventListener(container, ["click", "keydown"], armGesture, {
+      capture: true,
+    });
 
     // A directory reveal can be standing when this tree mounts — both for a
     // folder clicked from a diff view (mounts us with the request already set)
@@ -374,10 +371,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
   // slot map) leaves the tree out of sync whenever selection arrives
   // after FileTree mount — the `Open path:N` flow from a diff is the
-  // canonical case. `onSelectionChange` re-fires when we call
-  // `select()`, so the host's `onSelect` handler must be idempotent on
-  // same-value writes (which it already is, as a SolidJS reactive
-  // setter on an equal value is a no-op).
+  // canonical case. `onSelectionChange` re-fires when we call `select()`,
+  // but the provenance gate drops that emit (no user gesture is armed), so
+  // it never reaches the host — the programmatic echo stops here rather than
+  // round-tripping through `onSelect`.
   createEffect(
     on(
       () => props.selectedPath ?? null,

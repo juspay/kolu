@@ -1109,6 +1109,9 @@ importers:
       '@pierre/trees':
         specifier: ^1.0.0-beta.5
         version: 1.0.0-beta.5(@pierre/theme@1.1.0)(@shikijs/themes@4.2.0)(react@19.2.5)(shiki@4.2.0)
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

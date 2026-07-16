@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-16T00:02:17.359780+00:00'
+generated_at: '2026-07-16T00:29:26.700010+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agents
@@ -1215,7 +1215,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:e44d3199e18ec289d5f12e5f9f38ed727f665734bdc5dd28094810b9340746e8
+  content_hash: sha256:2185b171ba9c10a31df50bb65039160a31169aabc4f335ce3a11d11107ca7a0c
 - kind: project-relative
   target: claude
   value: .claude/rules/state.md
@@ -2231,7 +2231,7 @@ local_deployed_file_hashes:
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/logo.md: sha256:05f412b96dcdd5a7e6de9bce3cdb164a89cabe5da6ed0c865662b33743470e25
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
-  .claude/rules/solidjs.md: sha256:e44d3199e18ec289d5f12e5f9f38ed727f665734bdc5dd28094810b9340746e8
+  .claude/rules/solidjs.md: sha256:2185b171ba9c10a31df50bb65039160a31169aabc4f335ce3a11d11107ca7a0c
   .claude/rules/state.md: sha256:4f604dec0848e4d23aed72232107e3070c9b9a7fe44c62f68a230b227a136811
   .claude/rules/streaming.md: sha256:c9dae6d1fccbf7b4b8c032eb485acb9eba495c46e410e3eb3042431c4bc3c2b1
   .claude/rules/surface-reference.md: sha256:0aa3ed458596b2482dea3c6218241755dae429d70b65f89a4d85f1677e21ecbe
