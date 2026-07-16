@@ -109,9 +109,11 @@ const WEB_SHELL_FILES = [
   // The pure process-memory poll READ behind koluSurface's derived `processMemory`
   // cell (the retired sampler LOOP's read half — SR8.a). Web-shell code.
   "memorySampler",
-  // The fused cadence (`everyMs` + the bound-padi `onState` force-resample) both
-  // derived poll cells hand the reactor as their `install` (SR8.a). Web-shell glue.
-  "pollCadence",
+  // The memory-rail liveness POLICY (`padiMemoryReadable` — LIVE-FIX): `readPadiMemoryOnce`
+  // gates its deferred mirror read on padi's honest connected phase, read off
+  // `padiSession.currentState()`, never `currentClient()`. A side-effect-free leaf so the
+  // gate is pinnable apart from index.ts's boot-only closure. Web-shell policy.
+  "padiMemoryGate",
   "pwaIdentity",
   // The web shell's catch-all `app.onError` logger — turns an uncaught route/
   // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
@@ -481,8 +483,8 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     // sampler with a raw `setInterval`. The reactor's `everyMs` owns every interval now
     // (in `@kolu/surface`, not here), so a re-introduced `setInterval(` under
     // `packages/server/src` is a resurrected hand-rolled cadence — the exact defect
-    // SR8.a closed. `pollCadence.ts` fuses `everyMs` with the `onState` force-resample;
-    // it calls neither `setInterval` nor `setTimeout`.
+    // SR8.a closed. (The fused-cadence leaf `pollCadence.ts` graduated into
+    // `@kolu/surface`'s reactor at SR8.c and is gone from the web shell.)
     const offenders: string[] = [];
     for (const rel of serverSrcTsFiles()) {
       if (rel.endsWith(".test.ts") || rel.endsWith(".test-d.ts")) continue;

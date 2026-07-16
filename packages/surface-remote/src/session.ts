@@ -161,8 +161,29 @@ export interface Session<
   pin(): Promise<Client>;
   /** The in-flight/current client promise, or `null` between a link death and the
    *  next dial. Each dial reassigns it, so a pump detects a respawn by identity
-   *  drift. */
+   *  drift.
+   *
+   *  NOT a liveness gate. This is legitimately NON-NULL while merely DIALING — an
+   *  in-flight `attempt()` during `connecting`/provisioning, and (per
+   *  `scheduleReconnect`) a RETAINED rejected promise across a whole backoff wait.
+   *  The pump / `markConnected` handshake depends on that "dialing-or-connected"
+   *  meaning, so `currentClient() !== null` is NEVER "the far end is live" — read
+   *  {@link currentState} (`.phase === "connected"`) for honest liveness. */
   currentClient(): Promise<Client> | null;
+  /** The current published connection frame — the SYNCHRONOUS point-read twin of
+   *  {@link onState}'s snapshot-then-delta. Returns exactly `stateCell.current()`,
+   *  the same value `onState` publishes, so honest liveness is
+   *  `currentState().phase === "connected"`.
+   *
+   *  FRESHNESS BY DESIGN: `onState`'s *delta* delivery is microtask-deferred (a
+   *  fire-and-forget `for await` per subscriber; the initial snapshot on subscribe
+   *  fires synchronously), and a synchronous frame can drive TWO transitions
+   *  (e.g. `disconnected` → give-up `failed`). So a listener that was delivered one
+   *  delta frame may, at the same turn, read a LATER frame here — `currentState()` always
+   *  returns the freshest cell truth, never the frame that woke the reader. That is
+   *  the point: a deferred reader gated on `currentClient()` observes a stale pointer
+   *  reassigned mid-frame; a reader gated on `currentState().phase` cannot. */
+  currentState(): SessionState<Prov>;
   /** Has `destroy()` been called? */
   isDestroyed(): boolean;
   /** Snapshot-then-delta listener: fires the current state synchronously, then on
@@ -1264,6 +1285,12 @@ export function makeSession<
     },
     currentClient() {
       return destroyed ? null : clientPromise;
+    },
+    currentState() {
+      // The freshest cell truth — the same value `onState` publishes, read
+      // synchronously (`onState`'s DELTA delivery is microtask-deferred, so a deferred
+      // reader gets the CURRENT frame, never the one that woke it).
+      return stateCell.current();
     },
     isDestroyed() {
       return destroyed;
