@@ -37,13 +37,15 @@ daemonProcessMain({
   name: "fleet-top daemon",
   run: async () => {
     const top = createTop();
-    top.start();
 
     // `finally`, not fulfilled-only: the release stage must run on the crash
-    // arm too (a daemonMain rejection reaches daemonProcessMain AFTER the
-    // sampler is disposed) — the same wrapper-finally teardown ordering
-    // kaval and padi use. The exit runs strictly after either way.
+    // arm too (a `top.start()` or `daemonMain` throw reaches
+    // daemonProcessMain AFTER the sampler is disposed) — the same
+    // wrapper-finally teardown ordering kaval and padi use. Everything after
+    // `createTop()` sits inside the try so `top.dispose()` is structural.
     try {
+      top.start();
+
       return await daemonMain({
         gatePath: GATE_PATH,
         socketPath: SOCKET_PATH,
