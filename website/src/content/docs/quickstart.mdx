@@ -55,6 +55,19 @@ port after `--`:
 nix --refresh run github:juspay/kolu -- --host 0.0.0.0 --port 8080
 ```
 
+## Subcommands
+
+The bare command is an alias of `kolu web` — the two spellings accept the same
+flags and boot the same server, so everything above works spelled either way:
+
+```sh
+nix --refresh run github:juspay/kolu -- web --host 0.0.0.0 --port 8080
+```
+
+`kolu tui` (a terminal-side canvas) and `kolu mcp` (an agent face) are
+**reserved**: today they exit with a pointer at the plan instead of running.
+`kolu --help` lists the subcommands.
+
 Open the address you chose. You should see an empty canvas. The empty canvas is
 the welcome state; it goes away when you create the first terminal and returns
 whenever there are none.
