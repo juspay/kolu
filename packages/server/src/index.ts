@@ -94,14 +94,12 @@ import { padiMemoryReadable } from "./padiMemoryGate.ts";
 import { implementKoluSurface } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
-// The web face's boot contract — the flag shape bare `kolu` / `kolu web`
-// boots with, derived from the ONE flag schema in `bootFlags.ts` (the leaf
-// module `packages/kolu-cli`'s parse also imports, so schema and contract
-// can't drift). The PARSE lives in `packages/kolu-cli` (the composition root
+// The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
+// the leaf `packages/kolu-cli`'s parse also imports, so schema and contract
+// can't drift. The PARSE lives in `packages/kolu-cli` (the composition root
 // owning the cleye subcommand dispatch — kolu-cli PR1,
 // docs/atlas/src/content/atlas/kolu-cli.mdx); this package only receives the
-// result.
-export type { KoluBootFlags } from "./bootFlags.ts";
+// result via `bootKoluWeb`'s signature.
 
 /** "Runs once per process" was mechanical while this was a top-level script
  *  (the module cache); the function form re-enforces it here — a second call

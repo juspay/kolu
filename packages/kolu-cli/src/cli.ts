@@ -13,9 +13,9 @@
  * PR2 respectively) instead of pretending to exist.
  *
  * This module is the PARSE only — its `kolu-server` imports are LEAVES
- * (`src/bootFlags.ts`, `package.json`) that never touch the server's runtime
- * module graph (`index.ts`), so the pin suite drives it without loading that
- * graph. The `web` arm's boot import lives in
+ * (`src/bootFlags.ts`, `src/hostname.ts`) that never touch the server's
+ * runtime module graph (`index.ts`), so the pin suite drives it without
+ * loading that graph. The `web` arm's boot import lives in
  * `main.ts`, behind the dispatch. (The tui/mcp faces themselves arrive as
  * separate packages in PR2/PR3 — their manifests, which list no kolu app
  * package, are the structural fence.)
@@ -24,14 +24,13 @@
 import { cli, command } from "cleye";
 // The web face's ONE flag artifact — the cleye schema and the `KoluBootFlags`
 // contract DERIVED from it, co-located in `kolu-server/src/bootFlags.ts`. A
-// deep LEAF import (like the package.json one below): it skips the server's
+// deep LEAF import (like the hostname one below): it skips the server's
 // runtime module graph (`index.ts`), so the parse stays server-free.
 import { type KoluBootFlags, webFlags } from "kolu-server/src/bootFlags.ts";
-// The app version's single source of truth is packages/server/package.json
-// (`/release` bumps it; nix reads the same file for the derivation version).
-// Read it straight from that file — same value `serverVersion` carries inside
-// the server — without pulling the server's runtime graph into the parse.
-import serverPkg from "kolu-server/package.json" with { type: "json" };
+// The ONE version accessor (`hostname.ts` is a leaf: node built-ins + the
+// server's package.json, which `/release` bumps and nix reads too) — so
+// `kolu --version` can never diverge from the version the server reports.
+import { serverVersion } from "kolu-server/src/hostname.ts";
 
 const RESERVED_FACES = ["tui", "mcp"] as const;
 type ReservedFace = (typeof RESERVED_FACES)[number];
@@ -61,7 +60,7 @@ export function parseKoluCli(
   const parsed = cli(
     {
       name: "kolu",
-      version: serverPkg.version,
+      version: serverVersion,
       flags: webFlags,
       strictFlags: true,
       commands: [
@@ -70,7 +69,7 @@ export function parseKoluCli(
           // The alias must hold for cleye's IMPLICIT flags too: --version only
           // exists where a `version` option is passed, so without this line
           // `kolu web --version` would reject the flag bare `kolu` accepts.
-          version: serverPkg.version,
+          version: serverVersion,
           help: {
             description:
               "Run the kolu web server (the default — bare `kolu` is this command's alias).",

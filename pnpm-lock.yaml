@@ -664,9 +664,6 @@ importers:
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
-      kolu-common:
-        specifier: workspace:*
-        version: link:../common
       kolu-server:
         specifier: workspace:*
         version: link:../server
@@ -674,6 +671,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -997,6 +997,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      cleye:
+        specifier: ^2.3.0
+        version: 2.3.0
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

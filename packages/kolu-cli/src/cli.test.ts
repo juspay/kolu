@@ -8,10 +8,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
+  type KoluCliParse,
   koluWebFlagsOrExit,
   parseKoluCli,
   reservedFaceMessage,
 } from "./cli.ts";
+
+/** The all-flags argv — spelled ONCE, hand-written on purpose (a pin test is
+ *  deliberately not derived from the schema it pins). */
+const ALL_FLAGS_ARGV = [
+  "--host",
+  "::1",
+  "--port",
+  "9999",
+  "--tls",
+  "--tls-cert",
+  "/tmp/c.pem",
+  "--tls-key",
+  "/tmp/k.pem",
+  "--verbose",
+  "--allow-nix-shell-with-env-whitelist",
+  "FOO,BAR",
+] as const;
 
 /** Every web-face flag, exercised alone and all-at-once — the full matrix both
  *  spellings must parse identically. */
@@ -24,32 +42,30 @@ const FLAG_MATRIX: readonly (readonly string[])[] = [
   ["--tls-key", "/tmp/key.pem"],
   ["--verbose"],
   ["--allow-nix-shell-with-env-whitelist", "default"],
-  // every flag at once
-  [
-    "--host",
-    "::1",
-    "--port",
-    "9999",
-    "--tls",
-    "--tls-cert",
-    "/tmp/c.pem",
-    "--tls-key",
-    "/tmp/k.pem",
-    "--verbose",
-    "--allow-nix-shell-with-env-whitelist",
-    "FOO,BAR",
-  ],
+  ALL_FLAGS_ARGV,
 ] as const;
+
+/** Narrow a parse to the web face's flags, failing with a NAMED error. */
+function webFlagsOf(parsed: KoluCliParse) {
+  if (parsed.face !== "web") {
+    throw new Error(`expected web face, got ${parsed.face}`);
+  }
+  return parsed.flags;
+}
+
+/** Mock process.exit to THROW `exit(<code>)` so the exit is assertable. */
+function mockExitThrow() {
+  return vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+    throw new Error(`exit(${code})`);
+  }) as never);
+}
 
 describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
   it("bare `kolu` and `kolu web` parse the full flag matrix identically", () => {
     for (const flagArgv of FLAG_MATRIX) {
-      const bare = parseKoluCli([...flagArgv]);
-      const web = parseKoluCli(["web", ...flagArgv]);
-      expect(bare.face).toBe("web");
-      expect(web.face).toBe("web");
-      if (bare.face !== "web" || web.face !== "web") throw new Error();
-      expect(web.flags).toEqual(bare.flags);
+      const bare = webFlagsOf(parseKoluCli([...flagArgv]));
+      const web = webFlagsOf(parseKoluCli(["web", ...flagArgv]));
+      expect(web).toEqual(bare);
     }
   });
 
@@ -66,39 +82,21 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
       allowNixShellWithEnvWhitelist: "FOO,BAR",
     };
     for (const spelling of [[], ["web"]]) {
-      const parsed = parseKoluCli([
-        ...spelling,
-        "--host",
-        "::1",
-        "--port",
-        "9999",
-        "--tls",
-        "--tls-cert",
-        "/tmp/c.pem",
-        "--tls-key",
-        "/tmp/k.pem",
-        "--verbose",
-        "--allow-nix-shell-with-env-whitelist",
-        "FOO,BAR",
-      ]);
-      expect(parsed.face).toBe("web");
-      if (parsed.face !== "web") throw new Error();
-      expect(parsed.flags).toEqual(expected);
+      const flags = webFlagsOf(parseKoluCli([...spelling, ...ALL_FLAGS_ARGV]));
+      expect(flags).toEqual(expected);
     }
   });
 
   it("defaults match today's flag defaults in both spellings", () => {
     for (const spelling of [[], ["web"]]) {
-      const parsed = parseKoluCli([...spelling]);
-      expect(parsed.face).toBe("web");
-      if (parsed.face !== "web") throw new Error();
-      expect(parsed.flags.host).toBe("127.0.0.1");
-      expect(parsed.flags.port).toBe(DEFAULT_PORT);
-      expect(parsed.flags.tls).toBe(false);
-      expect(parsed.flags.verbose).toBe(false);
-      expect(parsed.flags.tlsCert).toBeUndefined();
-      expect(parsed.flags.tlsKey).toBeUndefined();
-      expect(parsed.flags.allowNixShellWithEnvWhitelist).toBeUndefined();
+      const flags = webFlagsOf(parseKoluCli([...spelling]));
+      expect(flags.host).toBe("127.0.0.1");
+      expect(flags.port).toBe(DEFAULT_PORT);
+      expect(flags.tls).toBe(false);
+      expect(flags.verbose).toBe(false);
+      expect(flags.tlsCert).toBeUndefined();
+      expect(flags.tlsKey).toBeUndefined();
+      expect(flags.allowNixShellWithEnvWhitelist).toBeUndefined();
     }
   });
 
@@ -126,11 +124,7 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
     // option is passed — the alias pin must cover implicit flags too, so the
     // web command carries the same version as the root CLI.
     for (const spelling of [[], ["web"]]) {
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
-        code?: number,
-      ) => {
-        throw new Error(`exit(${code})`);
-      }) as never);
+      const exitSpy = mockExitThrow();
       const logSpy = vi.spyOn(console, "log").mockReturnValue(undefined);
       expect(() => parseKoluCli([...spelling, "--version"])).toThrow("exit(0)");
       expect(exitSpy).toHaveBeenCalledWith(0);
@@ -150,11 +144,7 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
       "tui",
       "mcp",
     ] as const)("kolu %s fails fast: the named message on stderr, exit non-zero", (face) => {
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
-        code?: number,
-      ) => {
-        throw new Error(`exit(${code})`);
-      }) as never);
+      const exitSpy = mockExitThrow();
       const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
       expect(() => koluWebFlagsOrExit([face])).toThrow("exit(1)");
       expect(exitSpy).toHaveBeenCalledWith(1);
@@ -171,11 +161,7 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
     });
 
     it("an unknown command fails fast: named message, exit non-zero", () => {
-      const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
-        code?: number,
-      ) => {
-        throw new Error(`exit(${code})`);
-      }) as never);
+      const exitSpy = mockExitThrow();
       const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
       expect(() => koluWebFlagsOrExit(["tuii"])).toThrow("exit(1)");
       expect(exitSpy).toHaveBeenCalledWith(1);

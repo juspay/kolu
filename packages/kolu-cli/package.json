@@ -11,11 +11,11 @@
   },
   "dependencies": {
     "cleye": "^2.3.0",
-    "kolu-common": "workspace:*",
     "kolu-server": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "kolu-common": "workspace:*",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

@@ -11,6 +11,10 @@
  * `kolu-server/package.json` version import already does.
  */
 
+// Type-only: erased at compile time, so the leaf stays runtime-free. cleye
+// re-exports type-flag's TypeFlag — the library's OWN inference over this
+// schema, so the contract below is definitionally what cli() returns.
+import type { TypeFlag } from "cleye";
 import { DEFAULT_PORT } from "kolu-common/config";
 
 /** The web face's flags — today's `kolu` flag set, verbatim. Declared once and
@@ -53,28 +57,8 @@ export const webFlags = {
   },
 } as const;
 
-/** Flag constructor → parsed primitive (the value cleye hands back). */
-type FlagPrimitive<T> = T extends StringConstructor
-  ? string
-  : T extends NumberConstructor
-    ? number
-    : T extends BooleanConstructor
-      ? boolean
-      : never;
-
-/** The boot contract, derived key-by-key from the ONE schema above: a flag
- *  with a `default` always carries a value; one without may be `undefined`.
- *  Key drift between schema and contract is INEXPRESSIBLE by construction
- *  (this replaced the hand-written type + two `AssertTrue` key-equality
- *  guards in cli.ts); a value-mapping divergence from cleye's own inference
- *  is still caught by `parseKoluCli`'s `flags: parsed.flags` return
- *  assignment. */
-export type KoluBootFlags = {
-  -readonly [K in keyof typeof webFlags]: (typeof webFlags)[K] extends {
-    type: infer T;
-  }
-    ? (typeof webFlags)[K] extends { default: unknown }
-      ? FlagPrimitive<T>
-      : FlagPrimitive<T> | undefined
-    : never;
-};
+/** The boot contract, derived from the ONE schema above by cleye's own
+ *  exported inference (`TypeFlag`, re-exported from type-flag) — so both key
+ *  AND value drift between schema and contract are inexpressible: this type
+ *  is by definition the flag shape `cli()` hands back for `webFlags`. */
+export type KoluBootFlags = TypeFlag<typeof webFlags>["flags"];
