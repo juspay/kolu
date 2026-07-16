@@ -99,6 +99,7 @@ let
       ./packages/kaval
       ./packages/kaval-tui
       ./packages/kolu-cli
+      ./packages/kolu-mcp
       ./packages/padi
       ./packages/padi-tui
       ./packages/server
