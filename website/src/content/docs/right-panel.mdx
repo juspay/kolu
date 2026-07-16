@@ -1,0 +1,55 @@
+---
+title: The Right Panel
+description: "The tile's right-hand panel: an Inspector tab with a Compose box and the terminal-CLI reference, a Code tab, and per-terminal memory of whether it's open and which tab it shows."
+order: 47
+section: Use Kolu
+koluHero:
+  eyebrow: beside the tile
+  headline: Inspect, {compose, drive}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+Every tile has a **right panel** with two tabs: an **Inspector** and a
+[**Code**](/code-tab) tab. The Inspector is where you read a terminal's context
+and act on it without leaving the canvas.
+
+## Compose a prompt
+
+The Inspector opens with a **Compose** box — a multiline textarea over a **Send**
+button. Write a prompt in peace, editing it before it ever reaches the terminal,
+then **Send** it (or <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>) straight into the
+active terminal's input line. It's the in-app twin of
+[`kaval-tui send`](/kaval): it **inserts, it doesn't submit** — the text lands in
+the agent's input box for you to review and press Enter yourself, dodging the
+same paste race the CLI is careful about. Each terminal keeps its own draft in
+your browser, so a half-written prompt survives switching tiles or reloading.
+
+## The terminal CLI, documented in place
+
+The Inspector documents the whole shell-facing CLI for the terminal you're
+looking at: an **attach**, **snapshot**, and **send** command card per pane and
+split (each split is its own PTY with its own id), a compact reference for the
+rest of [`kaval-tui`](/kaval) (list · create · kill) and its awareness sibling
+[`padi-tui`](/padi) (status · watch · wait), and a **Drive one agent from
+another** callout that spells out the send → wait → snapshot loop. Copy any
+command and paste it into a shell to reach that exact terminal.
+
+## It follows the terminal
+
+Whether the panel is open, and which tab it's on, is remembered **per terminal**,
+not as one global switch. Collapse it on a build-log tile and it stays collapsed
+there; leave it open on a branch diff and switching back restores it exactly. It
+rides session restore, so each terminal's panel state survives a reload. New
+terminals open with the panel showing by default; the panel **width** and the
+Code-tab tree/content split stay global.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="The Code Tab" href="/code-tab" description="the file browser and diff viewer in the other tab" />
+  <LinkCard title="Kaval" href="/kaval" description="the CLI the Compose box and command cards mirror" />
+  <LinkCard title="Keyboard Shortcuts" href="/keyboard-shortcuts" description="toggle the panel, and the rest of the chords" />
+</CardGrid>
