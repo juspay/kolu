@@ -55,11 +55,14 @@ class FakeStream<T> {
   }
 }
 
-function fakeClient(streams: {
-  attach: FakeStream<AttachFrame>;
-  exit: FakeStream<{ exitCode: number }>;
-  keys: FakeStream<string[]>;
-}): PadiSurfaceClient {
+function fakeClient(
+  streams: {
+    attach: FakeStream<AttachFrame>;
+    exit: FakeStream<{ exitCode: number }>;
+    keys: FakeStream<string[]>;
+  },
+  spy?: { keysSawSignal?: boolean },
+): PadiSurfaceClient {
   return {
     surface: {
       terminalAttach: {
@@ -71,8 +74,10 @@ function fakeClient(streams: {
           streams.exit.iterable(opts?.signal),
       },
       terminals: {
-        keys: async (_input: unknown, opts?: { signal?: AbortSignal }) =>
-          streams.keys.iterable(opts?.signal),
+        keys: async (_input: unknown, opts?: { signal?: AbortSignal }) => {
+          if (spy) spy.keysSawSignal = opts?.signal !== undefined;
+          return streams.keys.iterable(opts?.signal);
+        },
       },
     },
   } as unknown as PadiSurfaceClient;
@@ -163,6 +168,20 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     if (outcome.kind === "closed") {
       expect(outcome.error).toMatch(/output feed/);
     }
+  });
+
+  it("PIN: the lost-feed membership read is bounded by ctx.signal", async () => {
+    // settleOnLostFeed's terminals.keys rides the same retry-mounted client as
+    // the attach feed; without the signal a wedged link would retry the
+    // snapshot forever and hang runWait. Assert the signal is threaded.
+    const s = streams();
+    const spy: { keysSawSignal?: boolean } = {};
+    s.attach.push(snapshot);
+    s.keys.push([ID]);
+    s.attach.end();
+    s.exit.end();
+    await awaitOutputSettled(fakeClient(s, spy), { id: ID, idleMs: 60_000 });
+    expect(spy.keysSawSignal).toBe(true);
   });
 
   it("resolves timeout when the terminal never settles", async () => {

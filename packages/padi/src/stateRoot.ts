@@ -401,7 +401,16 @@ export function resolveRunningPadiSocket(opts?: {
   }
   const env = process.env.PADI_SOCKET;
   if (env) return { kind: "env", socket: env };
-  const found = discoverPadiDaemons();
+  // Gate discovery on a LIVE gate holder — the SAME `isHolderLive` filter
+  // `residentPadiSocket` applies in this file. A discovered daemon is only a
+  // directory + gate-pid registration; a dead one (its holder gone, the socket
+  // stale) must not be classified `one`/`many`, or a client dials a corpse and
+  // gets an opaque ECONNREFUSED instead of the honest `none` → default-path
+  // error. A registration whose gate-pid is unreadable (`null`) is likewise not
+  // a proven-live daemon, so it drops out too.
+  const found = discoverPadiDaemons().filter(
+    (d) => d.gatePid !== null && isHolderLive(d.gatePid),
+  );
   const [first, ...rest] = found;
   if (first !== undefined && rest.length === 0) {
     return { kind: "one", socket: first.socket };

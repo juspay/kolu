@@ -19,6 +19,20 @@
  * job.
  *
  * This is the only place kolu-cli imports `@kolu/surface-remote`.
+ *
+ * RECORDED EXTRACTION (kolu-cli plan footnote + #1865 a-f-p C3): the
+ * `dialAgentOnce` options literal + the hello/compat `probe` below are now a
+ * VERBATIM twin of `padi-tui/src/hostConnect.ts` — both spell padi's remote-dial
+ * recipe (binary `padi`, `PADI_AGENT_DRVS_JSON`, `drvNoun`, `fatalPrefix`
+ * `padi --stdio:`, the `hello → assertPadiSurfaceCompatible` probe). The plan
+ * deferred lifting a shared `connectPadiViaHost` ("compose in-app, extract only
+ * if a byte-identical twin actually emerges"); the twin has now emerged, so the
+ * gate is met — a `dialPadiViaHost(host)` belongs in `@kolu/padi/dial` (the
+ * client-only dial kit, already excluded from padi's daemon closure), with
+ * padi-tui grafting its `localCwd` and kolu-cli its `mountStreamRetry` around the
+ * shared dial. Deferred to a follow-up (it adds a padi→surface-remote client edge
+ * that wants its own hash/seal pass), NOT this PR — recorded here so the next
+ * touch of either wrapper does the lift rather than deepening the fork.
  */
 
 import { assertPadiSurfaceCompatible, scopePadiSurface } from "@kolu/padi/dial";

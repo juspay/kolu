@@ -168,8 +168,16 @@ export async function awaitOutputSettled(
       const settleOnLostFeed = async (): Promise<void> => {
         disarmIdle();
         try {
+          // Thread ctx.signal: this membership read rides the SAME retry-mounted
+          // client as the attach feed (STREAM_RETRY, retry Infinity), so without
+          // the signal a wedged-but-alive link would retry the snapshot forever
+          // and the read would never return — hanging runWait past a later
+          // timeout/cancel settle (WaitCtx's threading contract, and the exact
+          // unbounded-tail hazard the scaffold's recorded follow-up names). An
+          // abort rejects the read into the catch below, where the settle is a
+          // first-writer no-op.
           const keys = await firstFrameOrThrow(
-            await client.surface.terminals.keys({}),
+            await client.surface.terminals.keys({}, { signal: ctx.signal }),
             "padi terminals keys yielded no snapshot frame — link or protocol failure.",
           );
           if (!keys.includes(opts.id as (typeof keys)[number])) {
@@ -194,7 +202,17 @@ export async function awaitOutputSettled(
             (input: { id: string }, o) =>
               client.surface.terminalAttach.get(input, o),
             { id: opts.id },
-            { signal: ctx.signal },
+            {
+              signal: ctx.signal,
+              // DISARM on resubscribe: a STREAM_RETRY reconnect (retryDelay
+              // ~1000ms) can exceed idleMs (e.g. 800), so an idle window armed
+              // by the LAST pre-drop frame would otherwise fire a FALSE `met`
+              // during the reconnect gap — declaring the turn settled off a feed
+              // we lost. Clearing it here means the window only ever restarts
+              // from the fresh snapshot the reconnect delivers (quiescence
+              // across an unobservable gap is not quiescence).
+              onRetry: disarmIdle,
+            },
           );
           // Snapshot AND delta frames both (re)arm the window — the snapshot is
           // the replay of the current screen (the moment to start the quiet

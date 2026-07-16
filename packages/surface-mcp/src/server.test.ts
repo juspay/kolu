@@ -17,6 +17,7 @@
  */
 
 import { defineSurface } from "@kolu/surface/define";
+import { deadTransportError } from "@kolu/surface/client";
 import { directLink } from "@kolu/surface/links/direct";
 import {
   implementSurface,
@@ -687,5 +688,135 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         transport: serverTransport,
       }),
     ).rejects.toThrow(/tool name "a_b_c" is produced by both/);
+  });
+
+  // The shared-connection lifecycle under CONCURRENT tool calls — the kolu-mcp
+  // case, where a long-blocking wait_* holds the one connection while a sibling
+  // read runs. Regression pins for the a-f-p C6 findings (double-dial leak +
+  // reset-on-any-throw disposing a socket concurrent tools still use).
+  function concurrencySurface() {
+    const surface = defineSurface({
+      procedures: {
+        ok: { ping: { output: z.string() } },
+        bad: { boom: { output: z.string() } },
+      },
+    });
+    const { router } = implementSurface(surface, {
+      procedures: {
+        ok: { ping: () => "pong" },
+        // An APPLICATION error (not a transport death) — the reset must NOT fire.
+        bad: {
+          boom: () => {
+            throw new Error("bad arg: application-level failure");
+          },
+        },
+      },
+    });
+    const client = directLink<typeof surface.contract>(router as never);
+    return { surface, client };
+  }
+
+  it("app-level tool errors do NOT dispose the shared connection; a transport death does", async () => {
+    const over = concurrencySurface();
+    let dials = 0;
+    let disposes = 0;
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: () => {
+        dials += 1;
+        return {
+          client: over.client,
+          dispose: () => {
+            disposes += 1;
+          },
+        };
+      },
+      expose: {
+        "ok.ping": { tool: { mutates: false } },
+        "bad.boom": { tool: { mutates: false } },
+      },
+      // A bespoke tool that rejects with a recognized TRANSPORT death — the one
+      // shape that SHOULD reset the shared connection.
+      tools: {
+        drop: {
+          description: "simulate a transport death",
+          handler: async () => {
+            throw deadTransportError(
+              "SURFACE_STDIO_TRANSPORT_CLOSED",
+              "pipe closed",
+            );
+          },
+        },
+      },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    // First real call dials once.
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(1);
+    expect(disposes).toBe(0);
+
+    // An APP error must not dispose the shared socket — a following call reuses
+    // the SAME connection (no re-dial), proving a concurrent tool would keep it.
+    const bad = await mcp.callTool({ name: "bad_boom", arguments: {} });
+    expect(bad.isError).toBe(true);
+    expect(disposes).toBe(0);
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(1); // still the first connection
+
+    // A TRANSPORT death resets: the next call re-dials a fresh connection.
+    const drop = await mcp.callTool({ name: "drop", arguments: {} });
+    expect(drop.isError).toBe(true);
+    expect(disposes).toBe(1);
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(2);
+  });
+
+  it("concurrent first calls share ONE dial (no double-dial leak)", async () => {
+    const over = concurrencySurface();
+    let dials = 0;
+    let disposes = 0;
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: async () => {
+        dials += 1;
+        // A dial that takes a tick — both concurrent callers await it before
+        // either resolves, so a check-then-act getClient would open two sockets.
+        await new Promise((r) => setTimeout(r, 10));
+        return {
+          client: over.client,
+          dispose: () => {
+            disposes += 1;
+          },
+        };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    await Promise.all([
+      mcp.callTool({ name: "ok_ping", arguments: {} }),
+      mcp.callTool({ name: "ok_ping", arguments: {} }),
+    ]);
+    expect(dials).toBe(1);
+    expect(disposes).toBe(0); // no leaked loser connection
   });
 });
