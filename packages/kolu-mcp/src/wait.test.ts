@@ -5,9 +5,9 @@
  * exit event, gone via feed-end + absent key, closed via feed-end + present
  * key (loud, never a false met), and timeout. Plus the tool's JSON frame.
  */
-import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import { awaitOutputSettled, type PadiSurfaceClient } from "@kolu/padi/dial";
 import { describe, expect, it } from "vitest";
-import { awaitOutputSettled, waitJson, waitOutputSettledTool } from "./wait.ts";
+import { waitJson, waitOutputSettledTool } from "./wait.ts";
 
 type AttachFrame =
   | { kind: "snapshot"; data: string; topLine: number }

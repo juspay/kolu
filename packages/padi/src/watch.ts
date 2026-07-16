@@ -1,8 +1,9 @@
 /**
  * The client-side terminal WATCH kit — follow padi's `terminals` collection
- * live, and block until one terminal's agent enters a target bucket. Part of
- * the dial kit (re-exported through `@kolu/padi/dial`): a daemon's package
- * owns the client helpers its consumers share.
+ * live, block until one terminal's agent enters a target bucket, and block
+ * until one terminal's output has been quiet for a window. Part of the dial kit
+ * (re-exported through `@kolu/padi/dial`): a daemon's package owns the client
+ * helpers its consumers share.
  *
  * Graduated here from padi-tui (`read.ts`/`render.ts`) the day the kolu MCP
  * face's `wait_agentState` became the VERBATIM second consumer — both drive
@@ -16,6 +17,8 @@
  * scaffold; this module owns only the padi-shaped watchers and predicates.
  */
 
+import { unenrolledStreamCall } from "@kolu/surface/client";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { runWait, type WaitOutcome } from "@kolu/surface/wait";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -235,5 +238,166 @@ export async function awaitAgentState(
         // the first snapshot instead of hanging.
         () => [opts.id],
       ),
+  );
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** The outcome of an output-settled wait — the shared {@link WaitOutcome} union
+ *  with the met payload this wait stamps: the idle signal fired, plus how long
+ *  the wait took. */
+export type OutputSettledOutcome = WaitOutcome<{
+  fired: "idle";
+  elapsedMs: number;
+}>;
+
+/** Block until terminal `id`'s output has been quiet for `idleMs` — the data
+ *  layer of the MCP face's `wait_outputSettled`, exported for the e2e pin. The
+ *  watcher binds padiSurface's members (`terminalAttach` + `terminalExit` + the
+ *  `terminals` key set for the lost-feed discrimination) — a non-verbatim twin
+ *  of kaval-tui's watcher over `ptyHostSurface`, kept local per the
+ *  port-not-extract doctrine. Its sibling is {@link awaitAgentState}: both are
+ *  'block on a padiSurface condition, return a WaitOutcome' primitives, so both
+ *  live in the one package that owns padiSurface. */
+export async function awaitOutputSettled(
+  client: PadiSurfaceClient,
+  opts: {
+    id: string;
+    idleMs: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<OutputSettledOutcome> {
+  return runWait<{ fired: "idle"; elapsedMs: number }>(
+    { timeoutMs: opts.timeoutMs, signal: opts.signal },
+    async (ctx) => {
+      // The idle window: armed by the snapshot (an already-idle terminal fires
+      // after idleMs), reset by every subsequent frame. A STREAM_RETRY
+      // resubscribe re-delivers a fresh snapshot, which re-arms the window —
+      // quiescence across a reconnect gap is unobservable, so the window
+      // honestly restarts.
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const disarmIdle = (): void => {
+        if (idleTimer !== undefined) {
+          clearTimeout(idleTimer);
+          idleTimer = undefined;
+        }
+      };
+      const armIdle = (): void => {
+        disarmIdle();
+        idleTimer = setTimeout(
+          () =>
+            ctx.settle({
+              kind: "met",
+              fired: "idle",
+              elapsedMs: ctx.elapsedMs(),
+            }),
+          opts.idleMs,
+        );
+      };
+
+      let feedError: string | undefined;
+
+      // The output feed ended before any outcome and without an abort we caused.
+      // Same discrimination as kaval-tui's wait: the terminal exited (its id has
+      // left the `terminals` key set → `gone`), or the feed was dropped while
+      // the PTY is still live (→ `closed`, loud). The idle timer is DISARMED
+      // first — leaving it armed would fire a FALSE `met` off the last frame of
+      // a feed we can no longer observe.
+      const settleOnLostFeed = async (): Promise<void> => {
+        disarmIdle();
+        try {
+          // Thread ctx.signal: this membership read rides the SAME retry-mounted
+          // client as the attach feed (STREAM_RETRY, retry Infinity), so without
+          // the signal a wedged-but-alive link would retry the snapshot forever
+          // and the read would never return — hanging runWait past a later
+          // timeout/cancel settle (WaitCtx's threading contract, and the exact
+          // unbounded-tail hazard the scaffold's recorded follow-up names). An
+          // abort rejects the read into the catch below, where the settle is a
+          // first-writer no-op.
+          const keys = await firstFrameOrThrow(
+            await client.surface.terminals.keys({}, { signal: ctx.signal }),
+            "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+          );
+          if (!keys.includes(opts.id as (typeof keys)[number])) {
+            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+            return;
+          }
+        } catch (err) {
+          feedError ??= errMessage(err);
+          ctx.recordUpstreamError(errMessage(err));
+        }
+        ctx.settle({
+          kind: "closed",
+          error:
+            feedError ??
+            `the daemon ended ${opts.id}'s output feed while its terminal is still live — retry wait_outputSettled.`,
+        });
+      };
+
+      const consumeOutput = async (): Promise<void> => {
+        try {
+          const stream = await unenrolledStreamCall(
+            (input: { id: string }, o) =>
+              client.surface.terminalAttach.get(input, o),
+            { id: opts.id },
+            {
+              signal: ctx.signal,
+              // DISARM on resubscribe: a STREAM_RETRY reconnect (retryDelay
+              // ~1000ms) can exceed idleMs (e.g. 800), so an idle window armed
+              // by the LAST pre-drop frame would otherwise fire a FALSE `met`
+              // during the reconnect gap — declaring the turn settled off a feed
+              // we lost. Clearing it here means the window only ever restarts
+              // from the fresh snapshot the reconnect delivers (quiescence
+              // across an unobservable gap is not quiescence).
+              onRetry: disarmIdle,
+            },
+          );
+          // Snapshot AND delta frames both (re)arm the window — the snapshot is
+          // the replay of the current screen (the moment to start the quiet
+          // window), each delta is fresh output resetting it.
+          for await (const _frame of stream) armIdle();
+          if (!ctx.signal.aborted) await settleOnLostFeed();
+        } catch (err) {
+          // An abort (the window fired, a timeout, a cancelled request) is the
+          // expected end. A non-abort error is a dropped feed — a dead transport
+          // rejects non-retryably through STREAM_RETRY's fence and lands here.
+          if (!ctx.signal.aborted) {
+            feedError ??= errMessage(err);
+            ctx.recordUpstreamError(errMessage(err));
+            await settleOnLostFeed();
+          }
+        }
+      };
+
+      const consumeExit = async (): Promise<void> => {
+        try {
+          const stream = await unenrolledStreamCall(
+            (input: { id: string }, o) =>
+              client.surface.terminalExit.get(input, o),
+            { id: opts.id },
+            { signal: ctx.signal },
+          );
+          for await (const _msg of stream) {
+            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+            return;
+          }
+        } catch {
+          // Losing the exit event is NOT fatal: a real exit also ends the
+          // terminalAttach feed → settleOnLostFeed → gone (consumeOutput is the
+          // backstop). An abort is likewise the expected end. Mirrors kaval-tui's
+          // consumeExit non-recording rationale.
+        }
+      };
+
+      try {
+        await Promise.all([consumeOutput(), consumeExit()]);
+      } finally {
+        // The scaffold clears ITS timeout; the idle window is this watcher's own.
+        disarmIdle();
+      }
+    },
   );
 }
