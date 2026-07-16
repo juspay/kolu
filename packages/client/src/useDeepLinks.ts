@@ -169,14 +169,6 @@ export function useDeepLinks(): void {
     setPending(route);
   }
 
-  /** Route a parsed link. Host/settings act immediately; a terminal target
-   *  defers. `none` is silent (no route present); `invalid` toasts + stays home
-   *  (never silently ignores a new link shape).
-   *
-   *  Batched, and clears any still-armed terminal route FIRST: a newer
-   *  navigation always supersedes an older pending one, so a stale route can't
-   *  enact or toast after the user has moved on (a later host/settings switch,
-   *  or a second link). */
   /** Supersede an IN-FLIGHT terminal route: the armed command AND its
    *  hydration focus intent — `routeToTerminal` arms them together, so a
    *  cancellation must disarm them together, or the stale intent teleports
@@ -191,6 +183,14 @@ export function useDeepLinks(): void {
     setDeepLinkFocusIntent(null);
   }
 
+  /** Route a parsed link. Host/settings act immediately; a terminal target
+   *  defers. `none` is silent (no route present); `invalid` toasts + stays home
+   *  (never silently ignores a new link shape).
+   *
+   *  Batched, and supersedes any still-armed terminal route FIRST: a newer
+   *  navigation always supersedes an older in-flight one, so a stale route
+   *  can't enact, toast, or steer hydration after the user has moved on (a
+   *  later host/settings switch, or a second link). */
   function navigate(link: ParsedDeepLink): void {
     batch(() => {
       supersedeInFlightRoute();
