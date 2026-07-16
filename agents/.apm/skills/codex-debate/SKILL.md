@@ -103,7 +103,13 @@ is a **bounded** `wait --until match:'VERDICT-WRITTEN'`/snapshot on codex's term
 (per /kolu) plus reading the file directly — run it whenever you wake without a fresh
 ping. If your environment can't guarantee re-invocation and you need strict
 hang-freedom, keep that bounded `wait` alive **instead of** fully ending your turn (you
-trade the event-driven idle for a held turn). **The loop ends only on consensus** — no
+trade the event-driven idle for a held turn). **A session-scoped Stop/goal hook makes
+the held turn mandatory, not optional**: mid-debate the goal condition cannot hold, so
+every attempt to end your turn is *blocked* by the hook, which burns a full model turn
+on hook feedback instead of idling — you never actually reach the event-driven wait.
+When such a hook is active (a `/goal`, an orchestrator-set stop condition), run the
+bounded `wait --until match:…` as your between-rounds wait from the start; don't try
+end-turn-and-wake first. **The loop ends only on consensus** — no
 round cap, no deadlock exit (below).
 
 ## Autonomous to consensus — no human mid-debate (unless orchestrated)

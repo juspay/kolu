@@ -218,6 +218,20 @@ only on the real signal (the lens notification, or codex's ping), never a timer.
    `fix(police): <title>` with the finding in the message (stage only the files
    changed).
 
+   **Known failure: the police fork returns before its passes finish.**
+   `/code-police` runs forked, and the fork routinely launches its pass
+   sub-agents and ends its turn *without* collecting them — you get back a
+   placeholder or an empty result while the passes are still running (their
+   completion notifications then route to *you*, the caller). When that
+   happens, **do not re-invoke `/code-police`** — a second fork spawns a
+   second set of the same passes, and you end up applying and deduplicating
+   two copies of every finding. Instead **hold for the orphaned passes'
+   notifications and treat those as the skill's output**: read each pass
+   result as it lands, apply findings as above. Only if no pass agent was
+   launched at all (nothing running, no notifications pending) run the two
+   passes yourself, as your own sub-agents, from the deployed
+   `.claude/skills/code-police/SKILL.md` checklist plus `.agency/code-police.md`.
+
 ## Push, then comment
 
 First settle whether there is anything to push: `git log --oneline $START..HEAD`
