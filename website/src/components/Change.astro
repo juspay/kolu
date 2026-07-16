@@ -10,11 +10,9 @@
  * understanding the product first; the source links remain one click away for
  * readers who want the archaeology.
  *
- *   ### Fixed
+ *   ### Core Concepts
  *
- *   #### [Core Concepts](/concepts)
- *
- *   - <Change title="Terminals no longer silently freeze" pr={1235}>A
+ *   - <Change kind="fixed" title="Terminals no longer silently freeze" pr={1235}>A
  *     WebSocket that died without notice … resumes without a reload.</Change>
  *
  * One note may cite several PRs when an unreleased feature was refined across
@@ -22,31 +20,33 @@
  * release notes whose implementation history is not represented by one PR.
  */
 import PR from "./PR.astro";
+import { CHANGE_KIND_LABELS, type ChangeKind } from "../changelog";
 
-interface Props {
+interface ChangeProps {
+  kind: ChangeKind;
   title: string;
-  pr?: number;
-  prs?: number[];
   repo?: string;
   state?: "merged" | "open" | "closed";
 }
 
-const { title, pr, prs, repo, state } = Astro.props;
+type Props = ChangeProps &
+  (
+    | { pr?: never; prs?: never }
+    | { pr: number; prs?: never }
+    | { pr?: never; prs: readonly [number, ...number[]] }
+  );
 
-if (pr !== undefined && prs !== undefined)
-  throw new Error(`<Change title="${title}">: pass either \`pr\` or \`prs\`, not both`);
-if (prs !== undefined && prs.length === 0)
-  throw new Error(`<Change title="${title}">: \`prs\` is empty — give at least one PR, or omit it`);
+const { kind, title, repo, state } = Astro.props;
+const kindLabel = CHANGE_KIND_LABELS[kind];
+const prIds = Astro.props.prs ?? (Astro.props.pr === undefined ? [] : [Astro.props.pr]);
 
-const prIds = prs ?? (pr !== undefined ? [pr] : []);
 const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
 ---
 
-<details class="cl-change">
+<details class="cl-change" data-kind={kind}>
   <summary>
-    <span class="cl-change-toggle" aria-hidden="true">
-      <span></span>
-    </span>
+    <span class="cl-change-toggle" aria-hidden="true"></span>
+    <span class="cl-change-kind">{kindLabel}</span>
     <span class="cl-change-title">{title}</span>
     {prIds.length > 0 && <span class="cl-change-count">{provenanceLabel}</span>}
     <span class="cl-change-match" data-search-preview hidden></span>
@@ -68,12 +68,30 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
 </details>
 
 <style>
+  /* Native details state and the generated toggle glyph require selectors that
+     cannot live on individual utility-classed nodes. */
   .cl-change {
     --note-accent: var(--color-kolu-primary);
     border-top: 1px solid var(--color-rule);
     transition:
       background 160ms ease,
       border-color 160ms ease;
+  }
+
+  .cl-change[data-kind="added"] {
+    --note-accent: var(--color-kolu-bottom-strong);
+  }
+
+  .cl-change[data-kind="changed"] {
+    --note-accent: var(--color-kolu-top);
+  }
+
+  .cl-change[data-kind="fixed"] {
+    --note-accent: var(--color-kolu-primary);
+  }
+
+  .cl-change[data-kind="heads-up"] {
+    --note-accent: var(--color-kolu-bottom-deep);
   }
 
   .cl-change[open] {
@@ -91,11 +109,11 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
 
   summary {
     display: grid;
-    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    grid-template-columns: 1.1rem 4.55rem minmax(0, 1fr) auto;
     align-items: center;
-    gap: 0.75rem;
-    min-height: 3.35rem;
-    padding: 0.7rem 0.25rem;
+    gap: 0.58rem;
+    min-height: 2.75rem;
+    padding: 0.45rem 0.2rem;
     color: var(--color-ink);
     cursor: pointer;
     list-style: none;
@@ -151,11 +169,29 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
   }
 
   .cl-change-title {
-    font-size: 0.98rem;
+    font-size: 0.93rem;
     font-weight: 560;
     letter-spacing: -0.012em;
-    line-height: 1.4;
+    line-height: 1.35;
     transition: color 150ms ease;
+  }
+
+  .cl-change-kind {
+    justify-self: start;
+    width: 100%;
+    padding: 0.25rem 0.42rem;
+    border: 1px solid color-mix(in srgb, var(--note-accent) 45%, transparent);
+    border-radius: 999px;
+    color: var(--note-accent);
+    background: color-mix(in srgb, var(--note-accent) 9%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.54rem;
+    font-weight: 650;
+    letter-spacing: 0.055em;
+    line-height: 1;
+    text-align: center;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .cl-change-count {
@@ -170,9 +206,9 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
   }
 
   .cl-change-match {
-    grid-column: 2 / -1;
-    margin-top: -0.4rem;
-    padding: 0 0 0.2rem;
+    grid-column: 3 / -1;
+    margin-top: -0.28rem;
+    padding: 0 0 0.12rem;
     color: var(--color-ink-muted);
     font-size: 0.75rem;
     line-height: 1.45;
@@ -195,14 +231,14 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
   }
 
   .cl-change-body {
-    max-width: 48rem;
-    padding: 0 1.5rem 1.25rem 2.25rem;
+    max-width: 53rem;
+    padding: 0.15rem 1.25rem 1rem 6.8rem;
   }
 
   .cl-change-desc {
     color: var(--color-ink-dim);
-    font-size: 0.92rem;
-    line-height: 1.68;
+    font-size: 0.9rem;
+    line-height: 1.62;
     animation: note-in 180ms ease both;
   }
 
@@ -224,8 +260,8 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.55rem 0.7rem;
-    margin-top: 1rem;
-    padding-top: 0.85rem;
+    margin-top: 0.8rem;
+    padding-top: 0.7rem;
     border-top: 1px solid var(--color-rule);
   }
 
@@ -252,30 +288,28 @@ const provenanceLabel = prIds.length === 1 ? "1 PR" : `${prIds.length} PRs`;
 
   @media (max-width: 620px) {
     summary {
-      grid-template-columns: 1.15rem minmax(0, 1fr);
-      gap: 0.65rem;
-      min-height: 3.1rem;
-      padding-block: 0.62rem;
+      grid-template-columns: 1.05rem 3.8rem minmax(0, 1fr);
+      gap: 0.5rem;
+      min-height: 2.65rem;
+      padding-block: 0.42rem;
     }
 
     .cl-change-count {
-      grid-column: 2;
-      margin-top: -0.45rem;
-      padding-bottom: 0.15rem;
+      display: none;
     }
 
     .cl-change-match {
-      grid-column: 2;
-      margin-top: -0.35rem;
+      grid-column: 3;
+      margin-top: -0.25rem;
     }
 
     .cl-change-body {
-      padding: 0 0.3rem 1.15rem 1.8rem;
+      padding: 0.15rem 0.25rem 0.9rem 1.55rem;
     }
 
     .cl-change-desc {
-      font-size: 0.9rem;
-      line-height: 1.62;
+      font-size: 0.88rem;
+      line-height: 1.58;
     }
   }
 

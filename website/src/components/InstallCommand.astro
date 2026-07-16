@@ -1,0 +1,118 @@
+---
+/** A copyable Nix command used by current and historical release mastheads. */
+interface Props {
+  command: string;
+}
+
+const { command } = Astro.props;
+if (!command.trim()) throw new Error("InstallCommand requires a non-empty command");
+---
+
+<div class="install-command">
+  <span class="command-prompt" aria-hidden="true">$</span>
+  <code>{command}</code>
+  <button type="button" data-copy-text={command}>
+    <span>Copy</span>
+  </button>
+</div>
+
+<style>
+  .install-command {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0.5rem 0.65rem 0.5rem 0.85rem;
+    border-top: 1px solid var(--color-rule-strong);
+    background: var(--color-void-sunk);
+    font-family: var(--font-mono);
+  }
+
+  .command-prompt {
+    margin-right: 0.7rem;
+    color: var(--color-kolu-bottom);
+    font-size: 0.78rem;
+  }
+
+  code {
+    overflow: hidden;
+    min-width: 0;
+    color: var(--color-kolu-top-strong);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    padding: 0.32rem 0.5rem;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 4px;
+    color: var(--color-ink-dim);
+    background: var(--color-void-raised);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    cursor: pointer;
+    transition:
+      color 150ms ease,
+      border-color 150ms ease;
+  }
+
+  button:hover {
+    color: var(--color-ink);
+    border-color: var(--color-kolu-primary);
+  }
+
+  button[data-state="copied"] {
+    color: var(--color-kolu-bottom-strong);
+    border-color: var(--color-kolu-bottom-strong);
+  }
+
+  button[data-state="error"] {
+    color: var(--color-kolu-primary-hover);
+    border-color: var(--color-kolu-primary-hover);
+  }
+
+  @media (max-width: 560px) {
+    code {
+      font-size: 0.67rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    ".install-command [data-copy-text]",
+  )) {
+    const label = button.querySelector("span");
+    if (!label) throw new Error("Changelog copy button is missing its label");
+
+    button.addEventListener("click", async () => {
+      const text = button.dataset.copyText;
+      if (!text) throw new Error("Changelog copy button is missing data-copy-text");
+
+      try {
+        await navigator.clipboard.writeText(text);
+        button.dataset.state = "copied";
+        label.textContent = "Copied";
+      } catch (error) {
+        console.error("Failed to copy the changelog install command", error);
+        button.dataset.state = "error";
+        label.textContent = "Copy failed";
+      }
+
+      window.setTimeout(() => {
+        delete button.dataset.state;
+        label.textContent = "Copy";
+      }, 1800);
+    });
+  }
+</script>
