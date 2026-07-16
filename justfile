@@ -347,15 +347,10 @@ test-quick *args: install
     set -euo pipefail
     {{ nix_shell_e2e }} pnpm --filter kolu-client build
     # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
-    # Without nix build there's no `kolu` binary, so we create a temp wrapper
-    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
-    wrapper="$(mktemp)"
-    trap 'rm -f "$wrapper"' EXIT
-    cat > "$wrapper" <<SCRIPT
-    #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/kolu-cli/src/main.ts" --allow-nix-shell-with-env-whitelist default "\$@"
-    SCRIPT
-    chmod +x "$wrapper"
+    # Without nix build there's no `kolu` binary, so the checked-in source
+    # wrapper (shared with `record`) stands in: it sets KOLU_CLIENT_DIST and
+    # execs tsx on the kolu-cli entry, what the nix-built binary does.
+    wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
@@ -374,13 +369,9 @@ record name="": install
     #!/usr/bin/env bash
     set -euo pipefail
     {{ nix_shell_e2e }} pnpm --filter kolu-client build
-    wrapper="$(mktemp)"
-    trap 'rm -f "$wrapper"' EXIT
-    cat > "$wrapper" <<SCRIPT
-    #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/kolu-cli/src/main.ts" --allow-nix-shell-with-env-whitelist default "\$@"
-    SCRIPT
-    chmod +x "$wrapper"
+    # The checked-in source wrapper (shared with `test-quick`) stands in for
+    # the nix-built `kolu` binary.
+    wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     name_filter=""
     [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
     cd packages/tests
