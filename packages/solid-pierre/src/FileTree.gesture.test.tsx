@@ -15,13 +15,18 @@
  * the loop can never reach the host — while a genuine click's selection is
  * forwarded. The first test FAILS on the pre-fix wrapper (it forwarded every emit).
  *
- * Crucially, Pierre does NOT emit `onSelectionChange` synchronously inside the
- * click dispatch — it emits on a microtask that lands *after* the click. The
- * gesture token therefore must stay armed across that microtask, and the
- * "deferred" test below pins exactly that: it emits after `await Promise.resolve()`
- * and FAILS against a token disarmed on `queueMicrotask` (juspay/kolu#1846's
- * preview regression, where every genuine click was dropped), while passing once
- * the disarm is moved to the next animation frame.
+ * Pierre's emit timing is environment-dependent: driven directly (a synchronous
+ * `dispatchEvent`, as these mock-based tests do) it fires INSIDE the click
+ * dispatch, but in the real app (Preact into a shadow root, a real browser
+ * click) it lands DEFERRED, after this handler's microtask — the case that
+ * matters, since a `queueMicrotask` disarm shipped in #1846 and dropped every
+ * real click in production. The token must stay armed across BOTH. These tests
+ * are deliberately at the wrapper-CONTRACT level (a scripted mock emit, not the
+ * real library's timing): the "deferred" test drives the emit after
+ * `await Promise.resolve()` and FAILS against a `queueMicrotask` disarm while
+ * passing on the animation-frame disarm; a real-Pierre integration test would
+ * measure the SYNCHRONOUS happy-dom timing and so could not guard the deferred
+ * production case anyway.
  */
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";

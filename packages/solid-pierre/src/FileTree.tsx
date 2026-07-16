@@ -241,15 +241,21 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     // `click` (not `pointerdown`) matches the event Pierre selects on and also
     // covers touch taps.
     //
-    // Disarm on the NEXT ANIMATION FRAME, not a microtask. Pierre does not emit
-    // `onSelectionChange` synchronously in the click dispatch — it emits on a
-    // microtask that lands *after* this handler's own microtask (measured on a
-    // live tree: the emit fires before the next frame but after `queueMicrotask`).
-    // A microtask disarm therefore ran *before* the emit and dropped every genuine
-    // click — an intermediate regression caught and fixed within #1846 (the PR
-    // that shipped this gate) before it landed. A frame boundary reliably outlasts the
-    // deferred emit, and single-use consumption in `onSelectionChange` still kills
-    // the echo loop after one forward — so the wider window costs nothing.
+    // Disarm on the NEXT ANIMATION FRAME, not a microtask. Pierre's emit timing
+    // is ENVIRONMENT-DEPENDENT: driven directly (a synchronous `dispatchEvent`
+    // in a happy-dom unit test), `onSelectionChange` fires synchronously inside
+    // the click dispatch (its `#emit` is a plain synchronous `for` loop). But in
+    // the REAL app — Preact rendering Pierre into a shadow root, a real browser
+    // click — it lands DEFERRED, after this handler's own microtask (measured on
+    // the live running app: the emit fires before the next frame but after
+    // `queueMicrotask`). We know the deferred case is the one that ships because
+    // a `queueMicrotask` disarm shipped in #1846 and dropped EVERY genuine click
+    // in production (it ran before the deferred emit) — reverted before merge.
+    // `requestAnimationFrame` is the disarm that survives BOTH timings (it clears
+    // after either emit but before the next frame), whereas `queueMicrotask`
+    // survives only the synchronous case. Single-use consumption in
+    // `onSelectionChange` still kills the echo loop after one forward, so the
+    // wider window costs nothing beyond the documented one-adjacent-echo leak.
     // `createEventListener` disposes both listeners on this owner's cleanup.
     const armGesture = () => {
       userGesture = true;
