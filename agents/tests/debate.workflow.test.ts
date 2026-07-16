@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// biome-ignore lint/correctness/noUndeclaredDependencies: vitest resolves from the workspace ROOT devDependencies by design — agents/ must stay dependency-free so pnpm never creates agents/node_modules (`apm install` vendors agents/ as a path package and aborts on symlinks escaping the package root; see pnpm-workspace.yaml).
 import { describe, expect, it } from "vitest";
 
 const SCRIPT_PATH = join(
