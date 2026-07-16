@@ -456,9 +456,11 @@ const CodeTab: Component<{
         // later back() re-issues it through this same pipeline and repaints
         // the highlight (cheap-v1 "restore where you were"). Idempotent on
         // mode+path, so a re-click of the same path:line refreshes the entry
-        // in place rather than deepening history. The echoed Pierre
-        // `onSelect(rel)` is suppressed in `handleSelect` so it can't clobber
-        // this ref with a plain (mode, path) record.
+        // in place rather than deepening history. A programmatic
+        // `select(..., rel)` no longer echoes back through `onSelect` — the
+        // #1841 provenance gate drops any selection no user gesture caused — so
+        // this ref is safe; only a later USER re-click of the same file reaches
+        // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
         select(req.targetMode, rel, {
           ref:
             req.ref.startLine !== null && req.ref.endLine !== null
@@ -586,20 +588,20 @@ const CodeTab: Component<{
     // Tree-click to a different file ends the click-targeted-highlight
     // session — otherwise navigating back to the originally-targeted
     // file in the tree would resurrect the line range, surprising the
-    // user who treated their tree click as a fresh intent. Same-file
-    // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
-    // after our own programmatic `select(..., rel)` and the path
-    // equals `handled.resolvedPath` in that case — leaving the highlight
-    // intact for the lifetime of the request).
+    // user who treated their tree click as a fresh intent. A user re-clicking
+    // the SAME front-door-opened file doesn't trip this branch (its path
+    // equals `handled.resolvedPath`), leaving the highlight intact for the
+    // lifetime of the request. (A programmatic `select(..., rel)` never reaches
+    // here at all now — the #1841 gate drops its echo.)
     const h = handled();
     if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
       setHandled(null);
     }
-    // Record the visit — unless this is Pierre's echoed re-select of the file a
-    // front-door open just resolved (its resolution effect already recorded it
-    // *with* the line ref; re-recording here would overwrite the ref with a
-    // plain entry). A genuine tree/iframe pick records a (mode, path) entry,
-    // dropping the line highlight exactly as the selection itself does.
+    // Record the visit — unless the user re-clicked the same file a front-door
+    // open just resolved (its resolution effect already recorded it *with* the
+    // line ref; re-recording here would overwrite the ref with a plain entry).
+    // A genuine tree/iframe pick of a DIFFERENT file records a (mode, path)
+    // entry, dropping the line highlight exactly as the selection itself does.
     select(view(), path, { record: h?.resolvedPath !== path });
   };
 
