@@ -102,7 +102,13 @@ export function framedSend(
 
 /** Read line-delimited frames off `read` until the stream ends. Each
  *  non-empty line is base64-decoded and dispatched to `onFrame`. Returns
- *  a Promise that resolves on `'end'` and rejects on `'error'`.
+ *  a Promise that resolves on `'end'` OR `'close'` and rejects on `'error'`.
+ *  The `'close'` edge is part of the declared contract, not an accident: a
+ *  `destroy()` with no error emits neither `'end'` nor `'error'` — only
+ *  `'close'` — so without it the promise would hang forever. Peer-server's
+ *  benign write-death funnel load-bears on exactly this edge (it destroys
+ *  the read stream error-free so a peer-gone EPIPE settles as
+ *  `reason: "end"`); do not drop the `'close'` handler in a refactor.
  *
  *  Why hand-roll instead of `readline`: `readline` adds another async
  *  layer and obscures the framing assumption. The whole protocol is
