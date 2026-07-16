@@ -30,7 +30,10 @@ import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { listGuardSourceFiles } from "./architectureGuardSources.testlib";
+import {
+  listGuardSourceFiles,
+  stripComments,
+} from "./architectureGuardSources.testlib";
 
 const CLIENT_SRC = dirname(fileURLToPath(import.meta.url)); // packages/client/src
 
@@ -46,67 +49,6 @@ const MEMBER_USE_RE =
  *  appearing as a string VALUE (`keys: () => ["onError"]`) is ignored — the false
  *  positive that motivated (and is better handled here than by) blanking string bodies. */
 const FORBIDDEN_KEY_RE = /["']?\b(onError|authority|coalesceMs)\b["']?\s*:/;
-
-/** Replace every `//`-line and `/* … *​/`-block COMMENT body with spaces (newlines
- *  preserved, so byte offsets and line numbers are unchanged), leaving STRING bodies
- *  intact — a guard scans CODE, not the prose in a docstring (which legitimately shows
- *  `…use({ authority: "server" })`). Escapes and the three quote kinds are honoured so a
- *  `//` inside a string is not mistaken for a comment.
- *
- *  Why NOT blank string bodies too (codex F5, considered and rejected): a real
- *  QUOTED key — `.use({ "onError": h })` — is a string token `"onError"` and a genuine
- *  forbidden use the guard MUST catch, so blanking string bodies would silence it (a
- *  false NEGATIVE). The false-positive it would prevent — a full `.use({ onError })`
- *  snippet living INSIDE a string literal — does not occur in `packages/client/src` and,
- *  if it ever did, fails LOUD (a red test a dev fixes), never silent. A regression guard
- *  must prefer a loud false-positive over a silent false-negative, so comments-only +
- *  the KEY-POSITION {@link FORBIDDEN_KEY_RE} (which ignores a forbidden word appearing as
- *  a string VALUE, e.g. `keys: ["onError"]`) is the right trade. A full AST lint would
- *  be disproportionate for this fence.
- *
- *  KNOWN GAP (accepted): a member ALIASED before `.use()` (`const c = app.cells.x;
- *  c.use({ onError })`) — no in-repo code does that, and the primary enforcement is
- *  structural (a migrated member declares its policy on the spec, so a use-site bag is a
- *  review-visible regression, not the sole line of defence). Removing the option keys
- *  from the bound `.use()` type is NOT the fix — it would break the legitimate NON-policy
- *  use-site `onError` path a member WITHOUT a declared policy still relies on. */
-function blankComments(text: string): string {
-  const out = text.split("");
-  let state: "code" | "line" | "block" | "'" | '"' | "`" = "code";
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    const n = text[i + 1];
-    if (state === "code") {
-      if (c === "/" && n === "/") state = "line";
-      else if (c === "/" && n === "*") state = "block";
-      else if (c === "'" || c === '"' || c === "`") state = c;
-      if (state === "line" || state === "block") {
-        out[i] = " ";
-        out[i + 1] = " ";
-        i++;
-      }
-      continue;
-    }
-    if (state === "line") {
-      if (c === "\n") state = "code";
-      else out[i] = " ";
-      continue;
-    }
-    if (state === "block") {
-      if (c === "*" && n === "/") {
-        out[i] = " ";
-        out[i + 1] = " ";
-        i++;
-        state = "code";
-      } else if (c !== "\n") out[i] = " ";
-      continue;
-    }
-    // Inside a string literal — leave bytes intact; honour escapes and the closer.
-    if (c === "\\") i++;
-    else if (c === state) state = "code";
-  }
-  return out.join("");
-}
 
 /** From `text[open]` (which MUST be `{`), return the index just past the matching
  *  `}` — a brace-depth walk that skips `'`/`"`/`` ` `` string bodies so a brace
@@ -135,9 +77,19 @@ function matchBrace(text: string, open: number): number {
 
 /** Every violating member-`.use({ … })` bag in `text`, reported as
  *  `"<label>:<line>: <key>"`. Only a SINGLE-ARG options bag (first arg `{`) is
- *  considered; a positional/bare `.use(` is skipped. */
+ *  considered; a positional/bare `.use(` is skipped. Comments are blanked (shared
+ *  {@link stripComments}) so a narrated pattern is ignored.
+ *
+ *  ACCEPTED textual gaps (a guard prefers a LOUD false-positive to a SILENT
+ *  false-negative; neither occurs in `packages/client/src`): a member ALIASED before
+ *  `.use()` (`const c = app.cells.x; c.use({ onError })`) is not matched; and a full
+ *  `.use({ onError })` snippet living INSIDE a string literal WOULD false-positive
+ *  (string bodies are deliberately NOT blanked, so a real quoted `"onError":` KEY stays
+ *  catchable). Removing the option keys from the bound `.use()` type is not the fix — it
+ *  would break the legitimate NON-policy use-site `onError` path. A full AST lint is
+ *  disproportionate for this fence. */
 function scan(rawText: string, label: string): string[] {
-  const text = blankComments(rawText);
+  const text = stripComments(rawText);
   const g = new RegExp(MEMBER_USE_RE.source, "g");
   const hits: string[] = [];
   for (let m = g.exec(text); m !== null; m = g.exec(text)) {

@@ -90,42 +90,37 @@ export function interpretClientError(
 ): void {
   const originEnc = origin ? encodeHostKey(origin.key) : "";
   const id = `${p.kind}:${p.label}:${originEnc}`;
+  // `hostToast` and `scopedSub` ride ONLY origin-bearing (map-entry) members — a
+  // root-surface member is typed to the origin-free `toast` arm (F8). So a missing
+  // origin in either is an IMPOSSIBLE state (origin injection regressed): FAIL LOUD
+  // rather than silently emit an unattributed toast / a `for ?` background line
+  // (caught-error-must-not-collapse). `originEnc` then equals `encodeHostKey(origin.key)`.
+  const requireOrigin = (): HostKey => {
+    if (!origin)
+      throw new Error(
+        `interpretClientError: ${p.kind} "${p.label}" reached with no origin — ` +
+          "it is declared on a map-entry member; origin injection must have regressed.",
+      );
+    return origin.key;
+  };
   switch (p.kind) {
     case "toast":
       toast.error(`${p.label} error: ${err.message}`, { id });
       return;
-    case "hostToast": {
-      // `hostToast` is declared ONLY on origin-bearing (map-entry) members — a
-      // root-surface member is typed to the origin-free `toast` arm (F8). So a missing
-      // origin here is an IMPOSSIBLE state (origin injection regressed): FAIL LOUD
-      // rather than silently emit an unattributed toast (caught-error-must-not-collapse).
-      if (!origin)
-        throw new Error(
-          `interpretClientError: hostToast "${p.label}" reached with no origin — ` +
-            "it is declared on a map-entry member; origin injection must have regressed.",
-        );
+    case "hostToast":
       toast.error(
-        `Host ${hostLabel(origin.key)} ${p.label} error: ${err.message}`,
+        `Host ${hostLabel(requireOrigin())} ${p.label} error: ${err.message}`,
         { id },
       );
       return;
-    }
     case "scopedSub": {
-      // `scopedSub` too rides only origin-bearing members (createHostWire's per-host
-      // subs) — a missing origin is impossible-by-construction, so fail loud instead of
-      // logging a `for ?` background line that hides the regression.
-      if (!origin)
-        throw new Error(
-          `interpretClientError: scopedSub "${p.label}" reached with no origin — ` +
-            "it is declared on a map-entry member; origin injection must have regressed.",
-        );
+      requireOrigin();
       const g = groundedActiveHost();
-      const active =
-        g !== null && encodeHostKey(g) === encodeHostKey(origin.key);
+      const active = g !== null && encodeHostKey(g) === originEnc;
       if (active) toast.error(`${p.label}: ${err.message}`, { id });
       else
         console.error(
-          `createHostWire: background ${p.label} for ${encodeHostKey(origin.key)}: ${err.message}`,
+          `createHostWire: background ${p.label} for ${originEnc}: ${err.message}`,
         );
       return;
     }

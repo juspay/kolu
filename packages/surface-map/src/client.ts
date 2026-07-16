@@ -563,14 +563,13 @@ export function connectSurfaceMap<
   const entriesClient = build(() =>
     // The membership `entries` collection has NO per-key origin — it is the whole
     // map's membership authority — so its client's interpreter forwards to the app
-    // interpreter with `origin` OMITTED (design §C). The base `buildSurfaceClient`
-    // stays origin-agnostic; the `{ key }` origin lives only where keys exist (below).
-    buildSurfaceClient(
-      entriesSurface,
-      baseLink,
-      live,
-      appOnError ? (policy, err) => appOnError(policy, err) : undefined,
-    ),
+    // interpreter with `origin` OMITTED (design §C). `appOnError`'s optional 3rd
+    // `origin` param is already assignable to the base ORIGIN-FREE `OnClientError`, so
+    // pass it straight through (it is itself `undefined` for a policy-free map, keeping
+    // the construction-time fail-fast reachable — no always-defined wrapper). The
+    // base `buildSurfaceClient` stays origin-agnostic; the `{ key }` origin lives only
+    // where keys exist (below).
+    buildSurfaceClient(entriesSurface, baseLink, live, appOnError),
   );
   const rawEntries = entriesClient.collections
     .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure, Conn>>;
