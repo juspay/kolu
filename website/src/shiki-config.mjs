@@ -1,3 +1,5 @@
+// @ts-check
+
 // The website's entire shiki configuration, as one plain-ESM module — imported
 // by astro.config.mjs (the only consumer that feeds astro) AND by
 // test/shiki-eager-langs.test.mjs (plain `node --test` can't load
@@ -52,7 +54,12 @@ export const shikiConfig = {
   },
   defaultColor: false,
   wrap: false,
-  langs: fencePreload.langs,
+  // Astro types `langs` too narrowly for the bundled-name-strings path the
+  // runtime actually takes — see docs/atlas/astro.config.mjs for the full
+  // rationale behind this double-cast.
+  langs: /** @type {import("astro").ShikiConfig["langs"]} */ (
+    /** @type {unknown} */ (fencePreload.langs)
+  ),
   transformers: [
     fencePreload.guard,
     // Disable shiki's 500ms/line tokenization budget: the over-budget bail
