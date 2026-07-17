@@ -243,7 +243,10 @@ export function resolvePadiLaunch(
  *  non-systemd box** (a `pu` box, a bare container): there `KOLU_PADI_BIN` is
  *  baked so the driver would try `systemd-run --user`, but with no user session
  *  that fails — set `KOLU_PADI_SPAWN=detached` to spawn detached instead. A real
- *  systemd host (kolu under `kolu.service`) needs neither. */
+ *  systemd host (kolu under `kolu.service`) needs neither. `inheritParentEnv` is a
+ *  SEPARATE decision (env, not launch mode): set only for an actual from-source padi
+ *  (`!KOLU_PADI_BIN`) — a bare-box built padi forced detached leaves it false and
+ *  gets `cfg.env` alone, so no ambient identity var leaks in (#1872). */
 export function localPadiDriver(
   stateRoot: string,
   socketPath: string,

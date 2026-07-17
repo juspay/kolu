@@ -124,10 +124,14 @@ export function daemonEnv(): Record<string, string> {
 
 /** The kaval driver: the survivable-spawn mechanism bound to kaval's values.
  *
- *  The only survival-relevant fact kolu uniquely knows is whether kaval is being
- *  launched from source: no `KOLU_KAVAL_BIN` wrapper means dev/source, and
- *  `KOLU_KAVAL_SPAWN=detached` lets e2e force the same. That single boolean is
- *  all the spine needs — it owns the launch-path decision. */
+ *  Two facts the spine needs, DELIBERATELY separate (they used to be conflated):
+ *    - `fromSource` — should we SKIP `systemd-run` and fork detached? True when there
+ *      is no `KOLU_KAVAL_BIN` wrapper (dev/source) OR `KOLU_KAVAL_SPAWN=detached` forces
+ *      it (e2e / a bare/pu box). This is the launch-path decision only.
+ *    - `inheritParentEnv` — should the child layer our ambient env? True ONLY for an
+ *      actual from-source kaval (`!KOLU_KAVAL_BIN`), which needs the dev nix-shell env.
+ *      A BUILT kaval forced detached sets `fromSource` but NOT this — it carries its own
+ *      wrapper env and must not inherit ours (#1872). */
 export function localKavalDriver(socketPath: string): DaemonDriver {
   const { binPath, args } = resolveKavalLaunch(socketPath);
   const fromSource =
