@@ -12,22 +12,16 @@
 // class-kill are asserted.
 
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 // The exact object astro.config.mjs hands to astro — plain node can't load
 // astro.config.mjs itself (its TS imports need vite's resolver), which is why
-// the shiki setup lives in this shared plain-ESM module.
-import { shikiConfig } from "../src/shiki-config.mjs";
-
-// Same candidates rule as src/shiki-config.mjs: working tree vs Nix sandbox.
-const fenceLangsModule = [
-  new URL("../../scripts/fence-langs.mjs", import.meta.url),
-  new URL("../fence-langs.mjs", import.meta.url),
-].find((url) => existsSync(url));
-const { fenceLangs } = await import(fenceLangsModule.href);
+// the shiki setup lives in this shared plain-ESM module. `fenceLangs` comes
+// through the same module so exactly one place knows the
+// working-tree-vs-Nix-sandbox resolution of scripts/fence-langs.mjs.
+import { fenceLangs, shikiConfig } from "../src/shiki-config.mjs";
 
 const requireFromAstro = createRequire(
   createRequire(import.meta.url).resolve("astro/package.json"),
@@ -65,9 +59,14 @@ test("shikiConfig.langs IS the content-derived fence list", () => {
   assert.ok(shikiConfig.langs.length > 0, "the derived list must not be empty");
 });
 
-test("a content language tokenizes with its grammar on the first block (no lazy load)", async () => {
-  // yaml is in the derived list (the changelog fences use it); a
-  // grammar-engaged rendering carries several distinct token colors.
+test("a content language renders with its grammar engaged (sanity, fix-independent)", async () => {
+  // Honest scope: a DIRECTLY-requested lang lazy-loads fine even without the
+  // preload, so this pin passes pre-fix too — it is a rendering-sanity check
+  // that the preloaded grammar actually tokenizes, not a race pin. The
+  // race-kill pins on the website side are the wiring assert above (langs
+  // derived from content) and the guard pins below; the fix-dependent
+  // first-tokenization pin lives in docs/atlas (the project with an embedded-
+  // grammar fence pair).
   assert.ok(
     shikiConfig.langs.includes("yaml"),
     "content census expects a yaml fence",

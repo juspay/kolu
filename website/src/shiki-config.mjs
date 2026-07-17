@@ -24,9 +24,21 @@ const fenceLangsModule = [
 if (!fenceLangsModule) {
   throw new Error("fence-langs.mjs is required for the website build");
 }
-const { eagerLangsOnly, fenceLangs } = await import(fenceLangsModule.href);
+const { fenceLangs, shikiFencePreload } = await import(fenceLangsModule.href);
 
-export const CODE_LANGS = fenceLangs(new URL(".", import.meta.url));
+// Re-exported so the tests reach the scanner through THIS module — one place
+// (here) knows the working-tree-vs-sandbox resolution above; a second copy of
+// that candidates dance would have to track default.nix's copy destination
+// independently.
+export { fenceLangs };
+
+// The scan root: the website's content all lives under src/ (this module's
+// own directory) — content collections, pages, components.
+const CONTENT_ROOT = new URL(".", import.meta.url);
+
+// The factory fuses the derived list with its guard so they can never be
+// wired against different lists.
+const fencePreload = shikiFencePreload(CONTENT_ROOT);
 
 /** @type {Partial<import("astro").ShikiConfig>} */
 export const shikiConfig = {
@@ -38,9 +50,9 @@ export const shikiConfig = {
   },
   defaultColor: false,
   wrap: false,
-  langs: CODE_LANGS,
+  langs: fencePreload.langs,
   transformers: [
-    eagerLangsOnly(CODE_LANGS),
+    fencePreload.guard,
     // Disable shiki's 500ms/line tokenization budget: the over-budget bail
     // silently drops per-token spans under CPU contention (see
     // docs/atlas/astro.config.mjs for the full mechanism + the flaky-test

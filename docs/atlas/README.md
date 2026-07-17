@@ -17,4 +17,12 @@ The rendered `dist/` is **committed** (marked generated in `.gitattributes`); an
 `.apm` rule regenerates it whenever a note changes. Author markdown/MDX only —
 never hand-edit the generated HTML under `dist/`.
 
+Code fences: every fence language used in `src/` is **derived and preloaded**
+into shiki at build start (`scripts/fence-langs.mjs`, shared with the website;
+see the Atlas note `bug-shiki-grammar-load-race`), so a fence in any real
+language just works, an unbundled/typo'd language fails the build loudly, and
+a fence added while `astro dev` runs needs a dev-server restart (the list is
+derived when the config evaluates). Unit pins live in `build/*.test.mjs` and
+run under `just atlas::check`.
+
 The design rationale lives in the Atlas itself: `src/content/atlas/meta.mdx`.

@@ -3,7 +3,7 @@
 import mdx from "@astrojs/mdx";
 import { defineConfig } from "astro/config";
 
-import { eagerLangsOnly, fenceLangs } from "../../scripts/fence-langs.mjs";
+import { shikiFencePreload } from "../../scripts/fence-langs.mjs";
 import stableInlineStyles from "./build/stable-inline-styles.mjs";
 
 // Self-contained, internal Atlas — NOT published anywhere. Deliberately
@@ -19,10 +19,11 @@ const DEV_PORT = 4331;
 // an ```mdx block depended on whether some other file's ```yaml block was
 // highlighted first (vite transform order → the flaky-test tracker's
 // release-workflow.html byte-shrink row). Deriving the list from the content
-// makes staleness unrepresentable; the eagerLangsOnly guard turns any fence
-// the scan might miss into a loud build error instead of silent
-// nondeterminism. See Atlas note bug-shiki-grammar-load-race.
-const CODE_LANGS = fenceLangs(new URL("./src/", import.meta.url));
+// makes staleness unrepresentable; the paired guard turns any fence the scan
+// might miss into a loud build error instead of silent nondeterminism. The
+// factory fuses list+guard so they can never be wired against different
+// lists. See Atlas note bug-shiki-grammar-load-race.
+const fencePreload = shikiFencePreload(new URL("./src/", import.meta.url));
 
 export default defineConfig({
   trailingSlash: "ignore",
@@ -52,10 +53,10 @@ export default defineConfig({
       // (@astrojs/internal-helpers shiki.js) — the unit pins exercise exactly
       // this path. Cast over the too-narrow type.
       langs: /** @type {import("astro").ShikiConfig["langs"]} */ (
-        /** @type {unknown} */ (CODE_LANGS)
+        /** @type {unknown} */ (fencePreload.langs)
       ),
       transformers: [
-        eagerLangsOnly(CODE_LANGS),
+        fencePreload.guard,
         // Shiki budgets each line's tokenization at 500ms (tokenizeTimeLimit,
         // @shikijs/primitive) and vscode-textmate's over-budget bail returns
         // PARTIAL tokens with a `stoppedEarly` flag shiki never checks — so on a

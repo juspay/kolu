@@ -88,21 +88,28 @@ the unit pins import.</Footnote>
 The remaining hole is a fence **shape** the scanner might not recognize, so
 each config also installs a **fail-fast transformer**
 (`kolu:shiki-eager-langs-only`): `preprocess` throws when a block's language
-is neither a shiki special (`plaintext`/`text`/`txt`/`plain`/`ansi`) nor
-preloaded. Every cell of the failure matrix is then loud or deterministic,
-never racy:
+is neither skipped by design (shiki specials
+`plaintext`/`text`/`txt`/`plain`/`ansi`; astro's own excluded `math`) nor
+preloaded. The guard is a check-after-write, not a gate — astro lazy-loads
+the offending grammar *before* any transformer runs — but the throw fails the
+build before the order-dependent bytes can ship, and determinism of *emitted
+output* is what the flake is made of, not registry purity. Every cell of the
+failure matrix is then loud or deterministic, never racy:
 
 | Fence | Language known to shiki | Outcome |
 | --- | --- | --- |
-| scanned | yes | preloaded — deterministic by construction |
-| scanned | no (typo, decorative `mermaid`/`console`) | `createHighlighter` fails at build start — **loud** |
+| scanned | yes (incl. decorative-but-bundled `mermaid`/`console`) | preloaded — deterministic by construction |
+| scanned | no (typo, an unbundled name like `pseudocode`) | `createHighlighter` fails at build start naming the language — **loud** |
 | scan-missed shape | yes | mid-build load, then the guard throws — **loud** |
 | scan-missed shape | no | astro rewrites to plaintext before any transformer runs — deterministic plaintext (no grammar ever loads), console warning |
 
-The decorative-language policy follows from row 2: a `mermaid`/`console`
-fence is enumerated like any other, so if shiki bundles the grammar it simply
-preloads, and if not the build fails at startup with the fence named — rename
-it to a real language or `text`; there is no silent fallback.
+The decorative-language policy follows from rows 1–2: a decorative fence is
+enumerated like any other, and shiki *does* bundle `mermaid` and `console`,
+so those silently preload (row 1 — a harmless extra grammar); a name shiki
+doesn't bundle fails the build at startup with the language named (row 2 —
+the error carries the language, not the fence's file, so grep the fences for
+it). Renaming a decorative fence to `text` is an authoring convention, not a
+build-enforced rule.
 
 `kolu:shiki-no-tokenize-bail` (<PrLink pr={1853} />) **stays**: it addresses a
 real, distinct degradation — vscode-textmate's over-budget bail returns
