@@ -487,11 +487,6 @@ async function cmdHistory(
   );
 }
 
-/** Parse the repeatable `--env K=V` flag into an env record. Splits each entry on
- *  the FIRST `=` so a value may itself contain `=` (`--env URL=a=b` → `URL`→`a=b`).
- *  Fails loud (never silently drops) on a malformed entry — a missing `=` or an
- *  empty key — because a swallowed `--env` is exactly the kind of silent
- *  degradation the fail-fast rule forbids. An empty VALUE (`--env FOO=`) is legal. */
 /** The daemon-authoritative locator stamps `--env` must reject (fail-fast, not a silent
  *  no-op): both composers overwrite them with the real terminal id / dialed socket AFTER
  *  `extraEnv`, so `--env KAVAL_SOCKET=x` is a no-op (locally) or an inconsistency

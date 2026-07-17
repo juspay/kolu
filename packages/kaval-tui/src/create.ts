@@ -119,14 +119,16 @@ export function buildRemoteCreateInput(opts: {
    *  after the host base, so it can also override a host-derived var. */
   extraEnv?: Record<string, string>;
 }): PtyHostSpawnInput {
-  const env: Record<string, string> = {
+  // Null-prototype base (like the local composer's `pickEnv`) so a caller's
+  // `--env __proto__=…` layered below is a data key, not a prototype mutation.
+  const env: Record<string, string> = Object.assign(Object.create(null), {
     HOME: opts.host.home,
     SHELL: opts.host.shell || DEFAULT_SPAWN_SHELL,
     // The host's PATH (not ours — local store paths don't exist there). Without
     // it the remote shell finds no external command and the PTY exits 127 on the
     // first one. Falls back to a baseline if an older daemon didn't report it.
     PATH: opts.host.path || BASELINE_REMOTE_PATH,
-  };
+  });
   Object.assign(env, pickEnv(SPAWN_ENV_PRESENTATION, opts.localEnv));
   for (const [k, v] of Object.entries(opts.extraEnv ?? {})) env[k] = v;
   return composeCreateInput({

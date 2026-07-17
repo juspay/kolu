@@ -319,6 +319,21 @@ describe("buildRemoteCreateInput", () => {
     // The local secret still never crosses the wire — extraEnv is explicit-only.
     expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
   });
+
+  it("--env round-trips a __proto__ key on the remote path too (null-proto base, codex F3)", () => {
+    const extraEnv: Record<string, string> = Object.create(null);
+    extraEnv.__proto__ = "pp"; // own key on a null-proto object
+    const input = buildRemoteCreateInput({
+      id: "r1",
+      host,
+      localEnv,
+      extraEnv,
+    });
+    // Reached the child env as an OWN data property, not a prototype mutation.
+    expect(Object.getOwnPropertyDescriptor(input.env, "__proto__")?.value).toBe(
+      "pp",
+    );
+  });
 });
 
 describe("newPtyId", () => {
