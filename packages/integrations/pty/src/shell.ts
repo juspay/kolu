@@ -122,7 +122,9 @@ export function pickEnv(
 
 /**
  * Compose a clean env by mining `source` for ONLY the {@link SPAWN_ENV_ALLOWLIST}
- * keys (defined, non-empty). The shared primitive behind every kolu spawn composer,
+ * keys (defined — an empty string is a real value, kept, since unset vs empty is a
+ * distinction downstream tools rely on, especially locale vars). The shared
+ * primitive behind every kolu spawn composer,
  * so none can drift from the others: identity/secret vars outside the allowlist are
  * dropped by construction. Callers layer their own explicit additions and stamps on
  * top of the result.
