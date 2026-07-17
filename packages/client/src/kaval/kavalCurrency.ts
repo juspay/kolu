@@ -38,8 +38,8 @@ export type KavalAttention =
   | ({ kind: "incompatible" } & KavalSkewVersions);
 
 /** True when the running daemon is provably a build behind the kaval the server
- *  would spawn (B3.4 — "update pending"): the link is `live`, it's `connected`, both
- *  build-ids are known (non-empty), and they differ.
+ *  would spawn (B3.4 — "update pending"): it's `connected`, both build-ids are
+ *  known (non-empty), and they differ.
  *
  *  Keyed on the closure-hash `staleKey` — the `expected` from padiSurface's
  *  `status.expectedKaval` cell, the `reported` from the connected daemon's
@@ -51,19 +51,16 @@ export type KavalAttention =
  *  daemon is honestly `connected`, so this is a SECOND axis, not a state.
  *
  *  MODULE-PRIVATE since SK5: every consumer reads the joined verdict through
- *  {@link kavalAttention}, so a second comparison site can't be re-minted. */
+ *  {@link kavalAttention} — which owns the transport-liveness floor, so this
+ *  helper never sees a dead-channel status — and a second comparison site
+ *  can't be re-minted. */
 function kavalStale(
   expected: string | undefined,
   reported: string | undefined,
   state: DaemonStatus["state"] | undefined,
-  live: boolean,
 ): boolean {
   return (
-    live &&
-    state === "connected" &&
-    !!expected &&
-    !!reported &&
-    expected !== reported
+    state === "connected" && !!expected && !!reported && expected !== reported
   );
 }
 
@@ -90,7 +87,7 @@ export function kavalAttention(
     };
   }
   const reported = status.identity?.staleKey;
-  if (kavalStale(expected, reported, status.state, live)) {
+  if (kavalStale(expected, reported, status.state)) {
     return { kind: "stale" };
   }
   return { kind: "none" };
