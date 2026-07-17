@@ -78,8 +78,8 @@ async function main(): Promise<void> {
       // the caller's ambient `process.env`; unused for a real ssh host.
       localEnv: Object.fromEntries(
         (["HOME", "PATH"] as const)
-          .filter((k) => process.env[k] !== undefined)
-          .map((k): [string, string] => [k, process.env[k] as string]),
+          .map((k): [string, string | undefined] => [k, process.env[k]])
+          .filter((e): e is [string, string] => e[1] !== undefined),
       ),
       // This example takes the .drv straight from the environment (no arch
       // probe), so the resolver is a constant. Consumers that pick the .drv

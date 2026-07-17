@@ -202,6 +202,34 @@ describe("buildAgentCommand", () => {
       "'/tmp/we ird/pty'\\''s.sock'",
     ]);
   });
+
+  it("throws on a localhost dial with no composed env — never falls back to ambient inherit (#1872)", () => {
+    // The type forbids omitting `localEnv`, but types erase at runtime; the localhost arm
+    // fails LOUD rather than let `spawn(env: undefined)` inherit the ambient `process.env`
+    // (an untyped caller / `as any` / a .d.ts-build skew could hand undefined at runtime).
+    expect(() =>
+      buildAgentCommand({
+        host: "localhost",
+        agentPath: "/nix/store/x-agent",
+        binary: "my-agent",
+        localEnv: undefined as unknown as Record<string, string>,
+      }),
+    ).toThrow(/localEnv is required for a localhost dial/);
+  });
+
+  it("does NOT throw when localEnv is absent on the ssh arm — it is unused there", () => {
+    // The ssh arm never touches `localEnv` (`env` is undefined = legitimate inherit for the
+    // LOCAL ssh client), so a runtime-absent `localEnv` must not reject a remote dial — the
+    // guard is precisely scoped to the localhost arm where the leak would occur.
+    expect(() =>
+      buildAgentCommand({
+        host: "bob.example",
+        agentPath: "/nix/store/x-agent",
+        binary: "my-agent",
+        localEnv: undefined as unknown as Record<string, string>,
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("NIX_SSHOPTS", () => {

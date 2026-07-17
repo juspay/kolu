@@ -66,8 +66,8 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
       // the caller's ambient `process.env`; unused for a real ssh host.
       localEnv: Object.fromEntries(
         (["HOME", "PATH"] as const)
-          .filter((k) => process.env[k] !== undefined)
-          .map((k): [string, string] => [k, process.env[k] as string]),
+          .map((k): [string, string | undefined] => [k, process.env[k]])
+          .filter((e): e is [string, string] => e[1] !== undefined),
       ),
       // Constant resolver: the justfile already picked the host-arch drv. A
       // consumer that defers the probe would call `resolveSystem(host)` here.

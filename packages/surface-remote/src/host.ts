@@ -209,6 +209,18 @@ export function buildAgentCommand(opts: {
   const exe = `${opts.agentPath}/bin/${opts.binary}`;
   const extra = opts.extraArgs ?? [];
   if (isLocalHost(opts.host)) {
+    // Runtime backstop for the type-level guarantee. `localEnv` is a REQUIRED field, but
+    // TS types erase at runtime — an untyped caller, an `as any`, a spread that drops the
+    // key, or a `.d.ts`/build skew between this package and a consumer could still hand us
+    // `undefined`. And `spawn(…, { env: undefined })` INHERITS the caller's full ambient
+    // env — silently reopening the exact #1872 identity-leak seam this arm exists to close,
+    // with no throw and no log. So fail LOUD rather than degrade to ambient inherit (the
+    // no-fallbacks doctrine): a localhost spawn without a composed env is a hard error.
+    if (opts.localEnv == null) {
+      throw new Error(
+        "buildAgentCommand: localEnv is required for a localhost dial — refusing to fall back to the caller's ambient process.env (#1872)",
+      );
+    }
     // Direct `spawn`, no shell — args pass through verbatim, no quoting. The child
     // runs with EXACTLY `localEnv`; nothing ambient leaks in (#1872 / PR1.5).
     return { command: exe, args: ["--stdio", ...extra], env: opts.localEnv };

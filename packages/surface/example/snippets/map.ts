@@ -139,8 +139,8 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
       // kolu-pty's `composeSpawnEnv`. Never the caller's ambient `process.env`; unused for ssh.
       localEnv: Object.fromEntries(
         (["HOME", "PATH"] as const)
-          .filter((k) => process.env[k] !== undefined)
-          .map((k): [string, string] => [k, process.env[k] as string]),
+          .map((k): [string, string | undefined] => [k, process.env[k]])
+          .filter((e): e is [string, string] => e[1] !== undefined),
       ),
       resolveDrvPath: () => Promise.resolve(agentDrv), // deferred per dial
     }),
