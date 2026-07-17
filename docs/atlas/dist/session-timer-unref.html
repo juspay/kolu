@@ -72,15 +72,27 @@ a single turn.</span></span></span></p>
 <h2 id="the-verdict-line--internal-effect-vs-caller-promised-settle">The verdict line — internal effect vs. caller-promised settle</h2>
 <p>The honest test for each timer is <em>who its firing serves</em>:</p>
 <ul>
-<li><strong>Unref the four whose effect is internal.</strong> The backoff redial, the connect
-watchdog’s teardown, and both clock-probe timers drive only session-internal
-state (a redial, a force-cycle, a frame re-stamp). That work is meaningful
-only in a process that has a future by some <em>other</em> means — a server socket,
-stdin, a live transport. An <code>unref()</code>’d timer still fires normally whenever
-anything else holds the loop, so a <strong>held</strong> session in a living process
-loses nothing; only a session that is the <em>last thing standing</em> stops
-keeping the corpse warm. The backoff timer’s own fire-guard already concedes
-this: it returns without redialing when <code>refCount === 0</code>.</li>
+<li><strong>Unref the four whose effect is internal — owning one named semantics
+change.</strong> The backoff redial, the connect watchdog’s teardown, and both
+clock-probe timers drive session-internal state (a redial, a force-cycle, a
+frame re-stamp). An <code>unref()</code>’d timer still fires normally whenever anything
+else holds the loop — a server socket, stdin, a live transport — so a
+<strong>held</strong> session in a living process reconnects exactly as before; only a
+session that is the <em>last thing standing</em> stops keeping the corpse warm.
+The backoff timer’s own fire-guard already concedes this: it returns without
+redialing when <code>refCount === 0</code>. But “internal effect” is not the whole
+truth for the backoff: <strong><code>ClientCursor.next()</code></strong> (<code>waitForNextClient.ts</code>, an
+exported wait <code>hostFanout</code>’s pump parks on) is settled across a reconnect
+gap <em>only by the backoff firing</em> — its own comment says so — which is a
+caller-visible settle by derivation. The backoff’s unref is therefore
+justified not because nothing awaits it, but because the class of things
+that await it — onState-derived cursor waits — are <strong>pump loops</strong> whose
+processes hold the loop by other means (every grounded cursor consumer runs
+inside a server process), and a pump whose process has <em>nothing else left</em>
+is precisely the abandoned shape this fix targets: it <strong>should</strong> die with
+its process. This is a deliberate, documented semantics change — a parked
+<code>cursor.next()</code> is not a process hold — stated in the Reference lifetime
+contract, never silent.</li>
 <li><strong><code>withHandshakeTimeout</code> may not be unref’d.</strong> Its firing rejects a promise
 that <code>attempt()</code> → <code>clientPromise</code> → <code>pin()</code> propagates to an <strong>awaiting
 caller</strong> — and a pending <code>await</code> holds no event-loop handle, so if this
@@ -94,11 +106,20 @@ exit window.</li>
 </ul>
 <p>One deliberate asymmetry, stated so the lens gate can weigh it: the connect
 watchdog (unref) and the handshake timeout (ref’d) look like twins, but they
-differ on the verdict line — by the time the watchdog arms, <code>attempt()</code> has
-already <strong>returned</strong> the client (<code>pin()</code> is settled; the watchdog’s firing is
-observable only via <code>onState</code>), whereas the handshake timeout arms while
-<code>pin()</code> is still <strong>pending</strong>. Settling a caller’s parked continuation is a
-guaranteed effect; a passive state transition is not.</p>
+differ on the verdict line — by the time the watchdog <strong>fires</strong>, <code>attempt()</code>
+has already <strong>returned</strong> the client (they arm in the same tick, <code>attempt</code>’s
+tail; <code>pin()</code> is settled, so the watchdog’s firing is observable only via
+<code>onState</code>), whereas the handshake timeout fires while <code>pin()</code> is still
+<strong>pending</strong> — it can, and must, reject a pending <code>pin()</code>. Settling a caller’s
+parked continuation is a guaranteed effect; a passive state transition is not.</p>
+<p>Exit safety when an unref’d backoff <em>does</em> fire rests on one invariant, stated
+here so a refactor can’t silently break it: the dial chain reaches the
+transport’s first event-loop handle without parking on a handle-free await —
+<code>launchAttempt</code> → <code>attempt</code> → <code>connectOnce</code> runs microtask-chained to its
+first child spawn, and a caller-supplied resolve step that does real work (a
+nix-instantiate child, fs I/O) holds its own handle. A future async-dial
+refactor that parks on a bare promise between the timer firing and the first
+spawn would reopen a silent mid-dial exit window for a held session.</p>
 <h2 id="pins-red-first">Pins (red-first)</h2>
 <ol>
 <li><strong>The immortalization red.</strong> A real child process (<code>node --import</code>
@@ -132,19 +153,29 @@ change → <code>fetchPnpmDeps</code> hash refresh rides the same commit), doc s
 <code>makeSession</code> row flipped to point here.</p>
 <h2 id="consumer-gate-grounded-at-their-pins">Consumer gate (grounded at their pins)</h2>
 <ul>
-<li><strong>drishti</strong> (<code>f3609d0</code>, master): <code>makeSession</code> lives in
+<li><strong>drishti</strong> (grepped at master <code>f3609d0</code> and the pending pair tip
+<code>7e358fd</code>, same shape at both): <code>makeSession</code> lives in
 <code>packages/app/src/server/hostRegistry.ts</code> — a warm host pool inside the app
-server, whose HTTP/socket listeners hold the loop. No dependence on session
-timers as process holds; no API delta (signatures unchanged). Verdict: <strong>no
-behavioral impact — no drishti pair PR needed</strong> (final call re-checked at
-final HEAD per the surface rule).</li>
-<li><strong>odu</strong> (<code>914c388</code>, main; kolu pinned at <code>7d51cb2b290</code>): <code>makeSession</code> in
-<code>src/coordinator/lane.ts</code>, which already <code>unref?.()</code>s its <em>own</em> lane
-deadline — the coordinator deliberately refuses to let lane timers hold it
-alive, and it bounds connect attempts itself (<code>MAX_CONNECT_ATTEMPTS</code> → lane
-death), never relying on eternal session backoff. Verdict: <strong><code>none</code></strong> for
-the odu ledger (this change aligns the session with odu’s own posture).</li>
-</ul></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+server, whose HTTP/socket listeners hold the loop; its <code>hostFanout</code>-style
+pumps park on cursor waits <em>inside that held process</em>. No dependence on
+session timers as process holds; no API delta (signatures unchanged).
+Verdict: <strong>no behavioral impact — no drishti pair PR needed</strong> (final call
+re-checked at final HEAD per the surface rule).</li>
+<li><strong>odu</strong> (grepped at master <code>914c388</code> and the pending pin-bump tip
+<code>647d348</code>, same shape at both): <code>makeSession</code> in <code>src/coordinator/lane.ts</code>,
+which already <code>unref?.()</code>s its <em>own</em> lane deadline — the coordinator
+deliberately refuses to let lane timers hold it alive, and it bounds connect
+attempts itself (<code>MAX_CONNECT_ATTEMPTS</code> → lane death), never relying on
+eternal session backoff. Verdict: <strong><code>none</code></strong> for the odu ledger (this
+change aligns the session with odu’s own posture).</li>
+<li><strong>kaval-tui / padi-tui</strong> (this repo, one-shot CLIs): both dial through
+<code>dialAgentOnce</code> (<code>hostConnect.ts</code> in each), which <code>pin()</code>s once, <code>destroy()</code>s
+the session on every pre-<code>Connection</code> failure, and never parks on a cursor
+wait — a live dial’s ssh child holds the loop; a failed dial is destroyed
+before the CLI exits. Verdict: <strong>no behavioral impact</strong> (and the
+defensively-documented leak <code>dialAgentOnce</code> guards against is exactly what
+this change retires).</li>
+</ul></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./surface-lifetime-audit.html" data-astro-cid-aziudkuj>Surface lifetime audit — who enforces &quot;X dies when Y dies&quot;</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
 <script>
   (function () {
     var fns = Array.prototype.slice.call(

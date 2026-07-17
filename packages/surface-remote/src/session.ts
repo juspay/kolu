@@ -155,9 +155,18 @@ export interface Session<
   Client = SurfaceClientLike,
   Prov extends string = never,
 > {
-  /** Pin the session open for the parent's lifetime (bumps a ref so the reconnect
-   *  loop keeps retrying across transient callers reaching zero). Resolves with the
-   *  first client. */
+  /** Pin the session open for as long as the parent process runs (bumps a ref so
+   *  the reconnect loop keeps retrying across transient callers reaching zero).
+   *  Resolves with the first client.
+   *
+   *  NOT a process hold: a pinned session's internal timers are `unref()`'d
+   *  (docs/atlas session-timer-unref), so the session never keeps an
+   *  otherwise-finished process alive by itself — a consumer whose sole purpose
+   *  is waiting on a session must hold the process by its own means (a server
+   *  socket, stdin, a live transport). Consequently a parked onState-derived
+   *  wait (`ClientCursor.next()` across a reconnect gap) is not a process hold
+   *  either: if nothing else holds the loop, it can go silently unsettled as
+   *  the process exits. */
   pin(): Promise<Client>;
   /** The in-flight/current client promise, or `null` between a link death and the
    *  next dial. Each dial reassigns it, so a pump detects a respawn by identity
@@ -612,6 +621,21 @@ export function makeSession<
       pendingTimer = null;
       fn();
     }, delayMs);
+    // UNREF'd — a session's internal timers must never be what keeps the host
+    // process alive (docs/atlas session-timer-unref). An unref'd timer still
+    // fires normally in any process something else holds up (a server socket,
+    // stdin, a live transport), so a HELD session reconnects exactly as before;
+    // only an ABANDONED session — dropped without destroy(), redialing a gone
+    // endpoint forever — stops immortalizing its process. The class of caller
+    // waits this timer alone settles (a pump parked on `ClientCursor.next()`
+    // across a reconnect gap) are pump loops whose processes hold the loop by
+    // other means; if nothing else holds it, that pump is abandoned and SHOULD
+    // die with its process. Exit safety when the backoff DOES fire rests on the
+    // dial chain reaching the transport's first handle without parking on a
+    // handle-free await (`attempt` → `connectOnce` is microtask-chained to its
+    // first spawn; a caller-supplied resolve step that does real work holds its
+    // own handle) — a future async-dial refactor must preserve that.
+    pendingTimer.unref();
   };
 
   /** Bound the `admit` handshake by the SAME `connectTimeoutMs` the non-admit path's
@@ -624,6 +648,16 @@ export function makeSession<
    *  slot, NOT the shared `pendingTimer` — the phase timer isn't armed yet here). */
   const withHandshakeTimeout = <T>(p: Promise<T>): Promise<T> =>
     new Promise<T>((resolve, reject) => {
+      // Deliberately NOT unref'd (the one ref'd timer here — docs/atlas
+      // session-timer-unref): its firing rejects a promise `attempt` →
+      // `clientPromise` → `pin()` propagates to an AWAITING caller, and a
+      // pending await holds no event-loop handle of its own — unref'd, a
+      // process whose only handle is this timer would exit silently mid-await
+      // instead of delivering the settle the API promised. It cannot
+      // immortalize anything: bounded (≤connectTimeoutMs), self-clearing,
+      // armed at most once per dial — and the moment it fires, the next hold
+      // is the unref'd backoff, which is the process's exit window. Pinned by
+      // `processExit.test.ts`.
       const timer = setTimeout(() => {
         reject(
           new ConnectError(
@@ -1170,6 +1204,11 @@ export function makeSession<
         ac.abort(err);
         reject(err);
       }, clockProbeTimeoutMs);
+      // UNREF'd — its abort/reject drives only session-internal probe state
+      // (never a caller-awaited settle; docs/atlas session-timer-unref), and
+      // whenever the probe can matter, the in-flight RPC's own transport holds
+      // the loop, so the deadline still fires.
+      clockProbeDeadlineTimer.unref();
       measureSurfaceClockOffset(client, ac.signal).then(resolve, reject);
     })
       .then((clockOffset) => {
@@ -1243,6 +1282,10 @@ export function makeSession<
           if (probeStale(epoch)) return;
           pollClockNow(client);
         }, clockProbeRetryMs);
+        // UNREF'd — a clock-offset retry serves no one in a process the
+        // session is the last thing keeping alive (docs/atlas
+        // session-timer-unref); it still fires normally under any other hold.
+        clockProbeTimer.unref();
       });
   };
 

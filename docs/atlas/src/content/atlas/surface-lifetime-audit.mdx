@@ -54,10 +54,13 @@ and the dispositions — not all 29 rows.</Footnote>
 - **`makeSession` promises a hold "for the parent's lifetime" but binds to
   nothing** (weakened-confirmed): an abandoned, undestroyed session respawns
   ssh children forever, and its non-unref'd reconnect timer pins the event
-  loop — the seed's shape plus process churn. Disposition: **follow-up** —
-  minimum honest fix is `unref()` on the arm/probe timers (an abandoned
-  session then can't immortalize its host process); the fuller parent-binding
-  (boundToPid-style auto-destroy) waits for a real consumer bite.
+  loop — the seed's shape plus process churn. Disposition: **fixed** by the
+  per-timer census in [session-timer-unref](session-timer-unref.html) —
+  `unref()` on the backoff/watchdog/probe timers (an abandoned session can no
+  longer immortalize its host process), with the admit-handshake timeout
+  deliberately kept ref'd (it settles a caller-awaited `pin()`); the fuller
+  parent-binding (boundToPid-style auto-destroy) still waits for a real
+  consumer bite.
 
 ## The pattern the minors share
 

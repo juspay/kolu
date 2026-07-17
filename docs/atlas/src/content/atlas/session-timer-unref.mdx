@@ -47,15 +47,27 @@ a single turn.</Footnote>
 
 The honest test for each timer is *who its firing serves*:
 
-- **Unref the four whose effect is internal.** The backoff redial, the connect
-  watchdog's teardown, and both clock-probe timers drive only session-internal
-  state (a redial, a force-cycle, a frame re-stamp). That work is meaningful
-  only in a process that has a future by some *other* means — a server socket,
-  stdin, a live transport. An `unref()`'d timer still fires normally whenever
-  anything else holds the loop, so a **held** session in a living process
-  loses nothing; only a session that is the *last thing standing* stops
-  keeping the corpse warm. The backoff timer's own fire-guard already concedes
-  this: it returns without redialing when `refCount === 0`.
+- **Unref the four whose effect is internal — owning one named semantics
+  change.** The backoff redial, the connect watchdog's teardown, and both
+  clock-probe timers drive session-internal state (a redial, a force-cycle, a
+  frame re-stamp). An `unref()`'d timer still fires normally whenever anything
+  else holds the loop — a server socket, stdin, a live transport — so a
+  **held** session in a living process reconnects exactly as before; only a
+  session that is the *last thing standing* stops keeping the corpse warm.
+  The backoff timer's own fire-guard already concedes this: it returns without
+  redialing when `refCount === 0`. But "internal effect" is not the whole
+  truth for the backoff: **`ClientCursor.next()`** (`waitForNextClient.ts`, an
+  exported wait `hostFanout`'s pump parks on) is settled across a reconnect
+  gap *only by the backoff firing* — its own comment says so — which is a
+  caller-visible settle by derivation. The backoff's unref is therefore
+  justified not because nothing awaits it, but because the class of things
+  that await it — onState-derived cursor waits — are **pump loops** whose
+  processes hold the loop by other means (every grounded cursor consumer runs
+  inside a server process), and a pump whose process has *nothing else left*
+  is precisely the abandoned shape this fix targets: it **should** die with
+  its process. This is a deliberate, documented semantics change — a parked
+  `cursor.next()` is not a process hold — stated in the Reference lifetime
+  contract, never silent.
 - **`withHandshakeTimeout` may not be unref'd.** Its firing rejects a promise
   that `attempt()` → `clientPromise` → `pin()` propagates to an **awaiting
   caller** — and a pending `await` holds no event-loop handle, so if this
@@ -69,11 +81,21 @@ The honest test for each timer is *who its firing serves*:
 
 One deliberate asymmetry, stated so the lens gate can weigh it: the connect
 watchdog (unref) and the handshake timeout (ref'd) look like twins, but they
-differ on the verdict line — by the time the watchdog arms, `attempt()` has
-already **returned** the client (`pin()` is settled; the watchdog's firing is
-observable only via `onState`), whereas the handshake timeout arms while
-`pin()` is still **pending**. Settling a caller's parked continuation is a
-guaranteed effect; a passive state transition is not.
+differ on the verdict line — by the time the watchdog **fires**, `attempt()`
+has already **returned** the client (they arm in the same tick, `attempt`'s
+tail; `pin()` is settled, so the watchdog's firing is observable only via
+`onState`), whereas the handshake timeout fires while `pin()` is still
+**pending** — it can, and must, reject a pending `pin()`. Settling a caller's
+parked continuation is a guaranteed effect; a passive state transition is not.
+
+Exit safety when an unref'd backoff *does* fire rests on one invariant, stated
+here so a refactor can't silently break it: the dial chain reaches the
+transport's first event-loop handle without parking on a handle-free await —
+`launchAttempt` → `attempt` → `connectOnce` runs microtask-chained to its
+first child spawn, and a caller-supplied resolve step that does real work (a
+nix-instantiate child, fs I/O) holds its own handle. A future async-dial
+refactor that parks on a bare promise between the timer firing and the first
+spawn would reopen a silent mid-dial exit window for a held session.
 
 ## Pins (red-first)
 
@@ -110,15 +132,25 @@ change → `fetchPnpmDeps` hash refresh rides the same commit), doc sync
 
 ## Consumer gate (grounded at their pins)
 
-- **drishti** (`f3609d0`, master): `makeSession` lives in
+- **drishti** (grepped at master `f3609d0` and the pending pair tip
+  `7e358fd`, same shape at both): `makeSession` lives in
   `packages/app/src/server/hostRegistry.ts` — a warm host pool inside the app
-  server, whose HTTP/socket listeners hold the loop. No dependence on session
-  timers as process holds; no API delta (signatures unchanged). Verdict: **no
-  behavioral impact — no drishti pair PR needed** (final call re-checked at
-  final HEAD per the surface rule).
-- **odu** (`914c388`, main; kolu pinned at `7d51cb2b290`): `makeSession` in
-  `src/coordinator/lane.ts`, which already `unref?.()`s its *own* lane
-  deadline — the coordinator deliberately refuses to let lane timers hold it
-  alive, and it bounds connect attempts itself (`MAX_CONNECT_ATTEMPTS` → lane
-  death), never relying on eternal session backoff. Verdict: **`none`** for
-  the odu ledger (this change aligns the session with odu's own posture).
+  server, whose HTTP/socket listeners hold the loop; its `hostFanout`-style
+  pumps park on cursor waits *inside that held process*. No dependence on
+  session timers as process holds; no API delta (signatures unchanged).
+  Verdict: **no behavioral impact — no drishti pair PR needed** (final call
+  re-checked at final HEAD per the surface rule).
+- **odu** (grepped at master `914c388` and the pending pin-bump tip
+  `647d348`, same shape at both): `makeSession` in `src/coordinator/lane.ts`,
+  which already `unref?.()`s its *own* lane deadline — the coordinator
+  deliberately refuses to let lane timers hold it alive, and it bounds connect
+  attempts itself (`MAX_CONNECT_ATTEMPTS` → lane death), never relying on
+  eternal session backoff. Verdict: **`none`** for the odu ledger (this
+  change aligns the session with odu's own posture).
+- **kaval-tui / padi-tui** (this repo, one-shot CLIs): both dial through
+  `dialAgentOnce` (`hostConnect.ts` in each), which `pin()`s once, `destroy()`s
+  the session on every pre-`Connection` failure, and never parks on a cursor
+  wait — a live dial's ssh child holds the loop; a failed dial is destroyed
+  before the CLI exits. Verdict: **no behavioral impact** (and the
+  defensively-documented leak `dialAgentOnce` guards against is exactly what
+  this change retires).
