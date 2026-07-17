@@ -16,6 +16,7 @@
     "@kolu/surface-remote": "workspace:*",
     "cleye": "^2.3.0",
     "kolu-mcp": "workspace:*",
+    "kolu-pty": "workspace:*",
     "kolu-server": "workspace:*",
     "ts-pattern": "^5.9.0"
   },

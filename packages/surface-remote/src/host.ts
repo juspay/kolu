@@ -186,12 +186,32 @@ export function buildAgentCommand(opts: {
    *  through the remote login shell); localhost runs the binary directly via
    *  `spawn`, so they pass through verbatim. */
   extraArgs?: readonly string[];
-}): { command: string; args: string[] } {
+  /** The COMPLETE env for the localhost arm's direct `spawn` — REQUIRED, never
+   *  optional. A localhost agent runs with EXACTLY this env, never the caller's
+   *  ambient `process.env`, so identity vars (`CLAUDE_CODE_CHILD_SESSION`, …) cannot
+   *  ride an ambient inherit into a locally-hosted agent (#1872 / PR1.5 — the
+   *  future-forgotten localhost path #1880 left). surface-remote is POLICY-FREE: it
+   *  neither composes nor scrubs; the caller hands over a clean env (kolu via
+   *  kolu-pty's `composeSpawnEnv`/`SPAWN_ENV_ALLOWLIST`). Making it required is the
+   *  type-level guard — omitting it is a COMPILE error, so ambient full-inherit is
+   *  unspellable, never a review catch. IGNORED on the ssh arm (the returned `env`
+   *  is `undefined` there): that child is the LOCAL ssh client, which legitimately
+   *  inherits the caller's env for `SSH_AUTH_SOCK` / `~/.ssh`. */
+  localEnv: Record<string, string>;
+}): {
+  command: string;
+  args: string[];
+  /** `localEnv` on the localhost arm; `undefined` on the ssh arm (spawn inherits, so
+   *  the local ssh client keeps its `SSH_AUTH_SOCK` / `~/.ssh`). ONE place decides
+   *  env per arm, so the two arms cannot drift. */
+  env: Record<string, string> | undefined;
+} {
   const exe = `${opts.agentPath}/bin/${opts.binary}`;
   const extra = opts.extraArgs ?? [];
   if (isLocalHost(opts.host)) {
-    // Direct `spawn`, no shell — args pass through verbatim, no quoting.
-    return { command: exe, args: ["--stdio", ...extra] };
+    // Direct `spawn`, no shell — args pass through verbatim, no quoting. The child
+    // runs with EXACTLY `localEnv`; nothing ambient leaks in (#1872 / PR1.5).
+    return { command: exe, args: ["--stdio", ...extra], env: opts.localEnv };
   }
   return {
     command: "ssh",
@@ -218,6 +238,11 @@ export function buildAgentCommand(opts: {
       // fixed tokens above are metacharacter-free store paths, so they don't.
       ...extra.map(shellQuoteArg),
     ],
+    // The ssh child is the LOCAL ssh client, not the agent — it needs the caller's
+    // env (`SSH_AUTH_SOCK`, `HOME` for `~/.ssh`), so `spawn` inherits it (`env`
+    // undefined). The agent runs on the REMOTE host; its env is owned there, never
+    // by this local spawn — so `localEnv` is deliberately unused on this arm.
+    env: undefined,
   };
 }
 

@@ -116,6 +116,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
     envVar: "AGENT_DRVS_JSON",
     drvNoun: "agent",
     fatalPrefix: "agent:",
+    localEnv: {},
     probe: async () => undefined,
   };
 
@@ -178,6 +179,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       }),
       drvNoun: "agent",
       fatalPrefix: "agent:",
+      localEnv: {},
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
@@ -193,6 +195,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "pulam",
       fatalPrefix: "pulam:",
+      localEnv: {},
       probe: async () => undefined,
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
@@ -210,6 +213,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "pulam",
       fatalPrefix: "pulam:",
+      localEnv: {},
       probe: async () => undefined,
     });
     expect(sshOpts()?.extraArgs).toBeUndefined();
@@ -227,6 +231,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       }),
       drvNoun: "widget",
       fatalPrefix: "widget:",
+      localEnv: {},
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
@@ -250,6 +255,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "agent",
       fatalPrefix: "agent:",
+      localEnv: {},
       probe,
     });
 
@@ -274,6 +280,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         agentDrvsJson: VALID_MAP,
         drvNoun: "agent",
         fatalPrefix: "agent:",
+        localEnv: {},
         probe: async () => {
           throw new Error("link dead");
         },
@@ -331,6 +338,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "pulam",
       fatalPrefix: "pulam:",
+      localEnv: {},
       probe: async () => {
         throw new Error("[AsyncIdQueue] Queue[1] was closed");
       },
@@ -377,6 +385,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "kaval",
       fatalPrefix: "kaval --stdio:",
+      localEnv: {},
       probe: async () => {
         throw new Error("[AsyncIdQueue] Queue[1] was closed");
       },
@@ -402,6 +411,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         agentDrvsJson: VALID_MAP,
         drvNoun: "agent",
         fatalPrefix: "agent:",
+        localEnv: {},
         probe: async () => {
           throw new Error("transport blip");
         },
@@ -422,6 +432,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
     agentDrvsJson: VALID_MAP,
     drvNoun: "agent",
     fatalPrefix: "agent:",
+    localEnv: {},
     probe: async () => "ok",
   };
 

@@ -92,6 +92,11 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
     connectOnce: sshConnector<typeof surface.contract>({
       host,
       binary: "fleet-top-agent",
+      // The localhost arm's spawn env — surface-remote is policy-free, so the CONSUMER
+      // composes it (kolu uses a fixed allowlist via `composeSpawnEnv`). A "localhost"
+      // dial runs the agent with EXACTLY this env, never the caller's ambient
+      // `process.env`; unused for a real ssh host. A minimal base suffices here.
+      localEnv: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
       // Constant resolver — this demo takes the agent .drv from the environment.
       // A consumer that picks the .drv per host's nix-system passes an async
       // `resolveSystem(host)` probe here instead.

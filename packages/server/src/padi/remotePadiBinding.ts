@@ -46,6 +46,7 @@ import {
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import type { PadiConvergence } from "kolu-common/surface";
 import {
@@ -378,6 +379,14 @@ export function ensureRemotePadiBinding(
     host,
     binary: "padi",
     extraArgs,
+    // The localhost arm's env — composed clean from kolu-server's own env via the
+    // shared `SPAWN_ENV_ALLOWLIST` (identity vars like CLAUDE_CODE_CHILD_SESSION
+    // dropped), so a remote-padi binding whose host resolves to localhost spawns padi
+    // WITHOUT inheriting kolu-server's ambient env (#1872 / PR1.5 — the path #1880
+    // left). Unused for a real ssh host (the local ssh client inherits). The remote
+    // padi's own operational overrides ride `extraArgs` (`--state-root`), not env.
+    // The twin of the local arm's `daemonEnv` base; reuses kolu-pty's source of truth.
+    localEnv: composeSpawnEnv(process.env),
     // Reset-before-attempt, tag-on-fault: a fault classified on THIS dial stands
     // until the NEXT dial starts (whether that one succeeds, clearing it, or hits a
     // different fault, replacing it) — never a stale cause surviving a recovery.

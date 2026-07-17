@@ -116,29 +116,39 @@ describe("buildSshProbeCommand", () => {
 });
 
 describe("buildAgentCommand", () => {
-  it("runs the binary directly for localhost", () => {
+  it("runs the binary directly for localhost, spawning with EXACTLY the composed env", () => {
+    // The localhost arm returns the caller-composed `localEnv` verbatim — the
+    // agent runs locally with THIS env, never the caller's ambient `process.env`
+    // (#1872 / PR1.5). surface-remote is policy-free: it passes the env through.
+    const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const cmd = buildAgentCommand({
       host: "localhost",
       agentPath: "/nix/store/x-agent",
       binary: "my-agent",
+      localEnv,
     });
     expect(cmd).toEqual({
       command: "/nix/store/x-agent/bin/my-agent",
       args: ["--stdio"],
+      env: localEnv,
     });
   });
 
-  it("wraps a remote agent in ssh with the shared keepalive opts", () => {
-    const { command, args } = buildAgentCommand({
+  it("wraps a remote agent in ssh with the shared keepalive opts — env undefined (the local ssh client inherits)", () => {
+    const { command, args, env } = buildAgentCommand({
       host: "bob.example",
       agentPath: "/nix/store/x-agent",
       binary: "my-agent",
+      // Supplied but IGNORED on the ssh arm: that child is the local ssh client,
+      // which legitimately inherits the caller's env (SSH_AUTH_SOCK / ~/.ssh).
+      localEnv: { HOME: "/home/x", PATH: "/usr/bin" },
     });
     expect(command).toBe("ssh");
     expect(args.slice(-2)).toEqual([
       "/nix/store/x-agent/bin/my-agent",
       "--stdio",
     ]);
+    expect(env).toBeUndefined();
     assertKeepAlive(args);
   });
 
@@ -151,6 +161,7 @@ describe("buildAgentCommand", () => {
       host: evil,
       agentPath: "/nix/store/x-agent",
       binary: "my-agent",
+      localEnv: {},
     });
     const sep = args.indexOf("--");
     expect(sep).toBeGreaterThanOrEqual(0);
@@ -164,6 +175,7 @@ describe("buildAgentCommand", () => {
       agentPath: "/nix/store/x-agent",
       binary: "pulam",
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
+      localEnv: {},
     });
     expect(args).toEqual([
       "--stdio",
@@ -182,6 +194,7 @@ describe("buildAgentCommand", () => {
       // safe bare word like `--kaval` is left unquoted by `shellQuoteArg` (the
       // canonical quoter) — equivalent through the remote shell.
       extraArgs: ["--kaval", "/tmp/we ird/pty's.sock"],
+      localEnv: {},
     });
     expect(args.slice(-3)).toEqual([
       "--stdio",
@@ -219,6 +232,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
         host: "bob.example",
         agentPath: "/nix/store/x-agent",
         binary: "my-agent",
+        localEnv: {},
       }).args,
     );
     assertMultiplex(
@@ -232,6 +246,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
         host: "bob.example",
         agentPath: "/nix/store/x-agent",
         binary: "my-agent",
+        localEnv: {},
       }).args,
     ).ControlPath;
     const envOpts = sshOpts(nixSshOpts().split(" "));
@@ -253,6 +268,7 @@ describe("ssh multiplexing (ControlMaster)", () => {
         host: "h",
         agentPath: "/nix/store/x-agent",
         binary: "a",
+        localEnv: {},
       }).args,
       buildSshProbeCommand("h", "nix-store", "--realise", "x").args,
     ]) {
@@ -277,7 +293,12 @@ describe("ssh multiplexing (ControlMaster)", () => {
       buildSshProbeCommand("h", "nix-store", "--realise", "x").args,
     );
     const dial = sshOpts(
-      buildAgentCommand({ host: "h", agentPath: "/p", binary: "a" }).args,
+      buildAgentCommand({
+        host: "h",
+        agentPath: "/p",
+        binary: "a",
+        localEnv: {},
+      }).args,
     );
     const env = sshOpts(nixSshOpts().split(" "));
     for (const opts of [probe, dial, env]) {

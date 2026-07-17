@@ -124,6 +124,7 @@ describe("HostSession child-exit classification", () => {
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 10,
@@ -168,6 +169,7 @@ describe("HostSession.recheck", () => {
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 50,
@@ -205,6 +207,7 @@ describe("HostSession.recheck", () => {
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 50,
@@ -238,6 +241,7 @@ describe("HostSession.recheck", () => {
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       label: "testhost",

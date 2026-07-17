@@ -72,6 +72,12 @@ async function main(): Promise<void> {
     connectOnce: sshConnector<typeof surface.contract>({
       host: HOST,
       binary: "process-monitor-agent",
+      // The localhost arm's spawn env — surface-remote is policy-free, so the CONSUMER
+      // composes it. A "localhost" dial runs the agent with EXACTLY this env, never the
+      // caller's ambient `process.env` (so identity/secrets can't leak in); it is unused
+      // for a real ssh host. kolu composes it from a fixed allowlist (`composeSpawnEnv`);
+      // here a minimal base suffices.
+      localEnv: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
       // This example takes the .drv straight from the environment (no arch
       // probe), so the resolver is a constant. Consumers that pick the .drv
       // per host's nix-system pass an async probe here instead — see

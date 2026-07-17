@@ -64,6 +64,7 @@ const built = makeSession({
   connectOnce: sshConnector<SpecificContract>({
     host: "h",
     binary: "b",
+    localEnv: {},
     resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
   }),
 });

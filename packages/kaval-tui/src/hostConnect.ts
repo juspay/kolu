@@ -24,6 +24,7 @@
  * never leak into the kaval daemon closure (the staleKey allow-list).
  */
 import { dialAgentOnce } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import type { ptyHostSurface } from "kaval";
 import type { Connection } from "./connect.ts";
 
@@ -41,6 +42,11 @@ const KAVAL_AGENT_DRVS_ENV = "KAVAL_AGENT_DRVS_JSON";
 export function connectPtyHostViaHost(host: string): Promise<Connection> {
   return dialAgentOnce<PtyHostContract>({
     host,
+    // The localhost arm's env — composed clean from this CLI's own env via the shared
+    // `SPAWN_ENV_ALLOWLIST` (identity vars dropped), so a `connect localhost` dial
+    // spawns kaval WITHOUT inheriting ambient identity (#1872 / PR1.5). Unused for a
+    // real ssh host (the local ssh client inherits). Reuses kolu-pty's source of truth.
+    localEnv: composeSpawnEnv(process.env),
     // `${agentPath}/bin/kaval`, run as `kaval --stdio`.
     binary: "kaval",
     envVar: KAVAL_AGENT_DRVS_ENV,

@@ -134,6 +134,9 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     connectOnce: sshConnector<typeof entry.contract>({
       host,
       binary: "fleet-top-agent",
+      // Policy-free: the consumer composes the localhost arm's spawn env (kolu uses
+      // `composeSpawnEnv`). Never the caller's ambient `process.env`; unused for ssh.
+      localEnv: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
       resolveDrvPath: () => Promise.resolve(agentDrv), // deferred per dial
     }),
   });

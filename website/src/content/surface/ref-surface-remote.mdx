@@ -28,16 +28,33 @@ shared pool; key your own map and `destroy()` them yourself.
 | `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
-`sshConnector` opts are `{ host, binary, resolveDrvPath }`: `host` is any ssh
-target (`"localhost"` short-circuits), `binary` the exe name inside the realised
+`sshConnector` opts are `{ host, binary, resolveDrvPath, localEnv }`: `host` is any
+ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
 closure, `resolveDrvPath: () => Promise<string>` resolves the agent `.drv` for the
-*target* arch. `dialAgentOnce`'s `dispose()` tears down only its own session; it
-is what `kaval-tui --host` and `pulam-tui --host` use.
+*target* arch, and **`localEnv: Record<string, string>` is the REQUIRED env for a
+`localhost` dial's direct spawn** (see the caution below). `dialAgentOnce`'s
+`dispose()` tears down only its own session; it is what `kaval-tui --host` and
+`pulam-tui --host` use — and it carries the same required `localEnv`.
 
 <Aside type="caution" title="resolveDrvPath is deferred by contract">
   Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the
   session exists, so an unreachable host throws out of construction instead of
   becoming a retryable `network` fault inside the spawn cycle.
+</Aside>
+
+<Aside type="caution" title="localEnv is REQUIRED — the localhost arm never inherits ambient env">
+  A `localhost` dial runs the agent binary directly via `spawn`, so its env comes from
+  ONE place: `localEnv`. It is a **required** field (on `sshConnector` and
+  `dialAgentOnce` both) — omitting it is a **compile** error, not a review catch — so a
+  locally-hosted agent can never silently inherit the caller's `process.env` (identity
+  vars, secrets, a parent agent's session markers). surface-remote is **policy-free**:
+  it neither composes nor scrubs the env; the consumer hands over a clean one (kolu
+  composes it from a fixed allowlist — `kolu-pty`'s
+  `composeSpawnEnv`/`SPAWN_ENV_ALLOWLIST`). On a **real ssh host** `localEnv` is unused:
+  that child is the LOCAL ssh client, which legitimately inherits the caller's env for
+  `SSH_AUTH_SOCK` / `~/.ssh`; the agent runs remotely with its env owned there. So
+  `buildAgentCommand` returns `env: Record<string, string>` on the localhost arm and
+  `env: undefined` on the ssh arm — one place decides env per arm, so the two can't drift.
 </Aside>
 
 ## The mirror pump

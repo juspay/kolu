@@ -33,6 +33,7 @@
 import { assertPadiSurfaceCompatible, scopePadiSurface } from "@kolu/padi/dial";
 import type { PadiDaemonContract } from "@kolu/padi/surface";
 import { dialAgentOnce } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import type { Connection } from "./connect.ts";
 
 /** The per-system `{ system → padi .drv }` map env var, baked onto the padi-tui
@@ -49,6 +50,11 @@ const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
 export async function connectPadiTuiViaHost(host: string): Promise<Connection> {
   const dial = await dialAgentOnce<PadiDaemonContract>({
     host,
+    // The localhost arm's env — composed clean from this CLI's own env via the shared
+    // `SPAWN_ENV_ALLOWLIST` (identity vars dropped), so a `connect localhost` dial
+    // spawns padi WITHOUT inheriting ambient identity (#1872 / PR1.5). Unused for a
+    // real ssh host (the local ssh client inherits). Reuses kolu-pty's source of truth.
+    localEnv: composeSpawnEnv(process.env),
     // `${agentPath}/bin/padi`, run as `padi --stdio`. The connector appends
     // `--stdio` itself, so it is NEVER added here (F2 in remotePadiBinding).
     binary: "padi",

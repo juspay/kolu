@@ -55,6 +55,11 @@ const session: Session<
   connectOnce: sshConnector<typeof base.contract>({
     host: "alice@bob.example", // any ssh target; "localhost" short-circuits
     binary: "my-agent", // exe name inside the realised closure
+    // The localhost arm's spawn env — surface-remote is policy-free, so YOU compose it
+    // (kolu uses a fixed allowlist via `composeSpawnEnv`). A "localhost" dial runs the
+    // agent with EXACTLY this env, never the caller's ambient `process.env`; unused for
+    // a real ssh host, where the local ssh client inherits.
+    localEnv: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
     resolveDrvPath: () => resolveDrv("bob.example"), // deferred — see the caution
   }),
 });
