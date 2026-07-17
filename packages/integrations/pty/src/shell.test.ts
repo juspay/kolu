@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   cleanEnv,
+  composeSpawnEnv,
   koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
@@ -25,6 +26,10 @@ import {
   OSC2_PREEXEC_FN,
   OSC7_FN,
   prepareShellInit,
+  SPAWN_ENV_ALLOWLIST,
+  SPAWN_ENV_FUNCTIONAL,
+  SPAWN_ENV_OPERATIONAL,
+  SPAWN_ENV_PRESENTATION,
 } from "./shell.ts";
 
 const shellSubprocessHome = mkdtempSync(
@@ -211,66 +216,151 @@ describe("koluIdentityEnv", () => {
   });
 });
 
-describe("cleanEnv — kolu's own internal env never reaches a hosted shell", () => {
-  // Regression: a production kolu bakes its internal env (KOLU_KAVAL_BIN et al.,
-  // plus the kaval identity vars KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) into its own
-  // process via the nix wrapper (default.nix). cleanEnv()'s production
-  // passthrough would forward those into every PTY it spawns — so a nested
-  // `just dev` (from source, run inside a kolu terminal) inherited a STALE
-  // KOLU_KAVAL_BIN and spawned a contract-skewed kaval, AND inherited the OUTER
-  // kaval identity so its staleness readout reported the wrong build. cleanEnv
-  // must strip both. Default module state (no configureNixShellEnv call) is
-  // passthrough mode — the exact production path that leaked.
+describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as data BY CLASS", () => {
+  // Rider: the exact-set test groups keys by their NAMED CLASS, each with a one-line
+  // rationale, so a future addition must name the class it belongs to — and an
+  // identity-ish key has no class to claim (it fails this test, not review vigilance).
+  // The invariant is "no ambient IDENTITY, finite, pinned" — not "narrow for its own
+  // sake"; a non-identity capability var the login session owns is legitimately in-scope.
+
+  it("Class 1 FUNCTIONAL — exactly what a shell/daemon needs to run", () => {
+    expect([...SPAWN_ENV_FUNCTIONAL]).toEqual([
+      "HOME",
+      "USER",
+      "LOGNAME",
+      "PATH",
+      "SHELL",
+    ]);
+  });
+
+  it("Class 2 PRESENTATION — exactly the terminal/locale vars (full POSIX locale-category set)", () => {
+    expect([...SPAWN_ENV_PRESENTATION]).toEqual([
+      "TERM",
+      "COLORTERM",
+      "LANG",
+      "LANGUAGE",
+      "LC_ALL",
+      "LC_CTYPE",
+      "LC_MESSAGES",
+      "LC_TIME",
+      "LC_NUMERIC",
+      "LC_COLLATE",
+      "LC_MONETARY",
+    ]);
+  });
+
+  it("Class 3 OPERATIONAL-SESSION — exactly the login-session capability vars (never dotfile-restorable)", () => {
+    expect([...SPAWN_ENV_OPERATIONAL]).toEqual([
+      "XDG_RUNTIME_DIR",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME",
+      "SSH_AUTH_SOCK", // signing capability — needed; SSH_AGENT_PID (kill) is OUT.
+      "DISPLAY", // X11 GUI-session capability, sibling of WAYLAND_DISPLAY.
+      "WAYLAND_DISPLAY",
+      "XAUTHORITY",
+      "DBUS_SESSION_BUS_ADDRESS",
+      "TMPDIR", // darwin: launchd mints a per-user /var/folders temp per session.
+    ]);
+    // SSH_AGENT_PID (kill-the-agent capability) is deliberately NOT here.
+    expect(SPAWN_ENV_OPERATIONAL as readonly string[]).not.toContain(
+      "SSH_AGENT_PID",
+    );
+  });
+
+  it("the full allowlist is exactly the three named classes, in order, no extras", () => {
+    expect([...SPAWN_ENV_ALLOWLIST]).toEqual([
+      ...SPAWN_ENV_FUNCTIONAL,
+      ...SPAWN_ENV_PRESENTATION,
+      ...SPAWN_ENV_OPERATIONAL,
+    ]);
+  });
+
+  it("no identity var can claim a class — CLAUDE_CODE_* / secrets / kolu-internal are absent", () => {
+    for (const forbidden of [
+      "CLAUDE_CODE_CHILD_SESSION",
+      "CLAUDECODE",
+      "CLAUDE_CODE_SESSION_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "KOLU_KAVAL_BIN",
+      "KAVAL_BUILD_ID",
+      "SSH_AGENT_PID",
+    ]) {
+      expect(SPAWN_ENV_ALLOWLIST as readonly string[]).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("composeSpawnEnv — mines a source env for ONLY the allowlist keys", () => {
+  it("keeps allowlisted vars, drops everything else", () => {
+    const env = composeSpawnEnv({
+      HOME: "/home/u",
+      PATH: "/usr/bin",
+      TERM: "xterm-256color",
+      // dropped — outside the allowlist:
+      CLAUDE_CODE_CHILD_SESSION: "1",
+      AWS_SECRET_ACCESS_KEY: "shhh",
+      NOT_CANONICAL: "x",
+      GONE: undefined,
+    });
+    expect(env).toEqual({
+      HOME: "/home/u",
+      PATH: "/usr/bin",
+      TERM: "xterm-256color",
+    });
+    expect("CLAUDE_CODE_CHILD_SESSION" in env).toBe(false);
+    expect("AWS_SECRET_ACCESS_KEY" in env).toBe(false);
+  });
+});
+
+describe("cleanEnv — composes from the allowlist; identity/leaked/arbitrary env never reaches a hosted shell", () => {
+  // #1872 + the pre-existing regression: a production kolu bakes its internal env
+  // (KOLU_KAVAL_BIN et al., the kaval identity vars KAVAL_BUILD_ID/COMMIT_HASH) into
+  // its own process via the nix wrapper, AND an orchestrator that launched the daemon
+  // can leave its identity vars (CLAUDE_CODE_CHILD_SESSION) in that env. cleanEnv()'s
+  // OLD production passthrough forwarded ALL of it into every PTY it spawned — a nested
+  // `just dev` inherited a STALE KOLU_KAVAL_BIN, and a spawned agent lost its transcript.
+  // cleanEnv now composes from SPAWN_ENV_ALLOWLIST, so anything outside that narrow set
+  // is dropped by construction. Default module state (no configureNixShellEnv call) is
+  // the production path — the exact one that leaked.
   const saved = { ...process.env };
   afterEach(() => {
     for (const k of Object.keys(process.env)) delete process.env[k];
     Object.assign(process.env, saved);
   });
 
-  it("strips KOLU_* (incl. the spawn-deciding KOLU_KAVAL_* vars), keeps the user's env", () => {
+  it("drops KOLU_* / the kaval identity vars / a leaked CLAUDE_CODE_* — keeps the allowlisted base", () => {
     process.env.KOLU_KAVAL_BIN = "/nix/store/stale-kaval/bin/kaval";
-    process.env.KOLU_KAVAL_SOCKET = "/run/stale/pty-host.sock";
-    process.env.KOLU_KAVAL_SPAWN = "detached";
     process.env.KOLU_STATE_DIR = "/home/x/.config/kolu";
-    process.env.PTY_TEST_USER_VAR = "keep-me";
-
-    const env = cleanEnv();
-
-    // kolu's namespace is gone — nothing ancestral can ride it into the shell.
-    expect(env.KOLU_KAVAL_BIN).toBeUndefined();
-    expect(env.KOLU_KAVAL_SOCKET).toBeUndefined();
-    expect(env.KOLU_KAVAL_SPAWN).toBeUndefined();
-    expect(env.KOLU_STATE_DIR).toBeUndefined();
-    expect(Object.keys(env).some((k) => k.startsWith("KOLU_"))).toBe(false);
-
-    // the user's real environment is untouched.
-    expect(env.PTY_TEST_USER_VAR).toBe("keep-me");
-    expect(env.PATH).toBe(process.env.PATH);
-  });
-
-  it("strips the wrapper-baked kaval identity vars (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH)", () => {
-    // These are --set onto the kolu wrapper (default.nix:336-337) because kaval
-    // runs in-process there; buildId.ts reads them to derive the staleKey /
-    // "update pending" signal. A from-source kolu nested inside a production
-    // kolu terminal must NOT inherit the outer production identity, or its
-    // staleness readout reports the wrong build and masks the stale-daemon nudge.
     process.env.KAVAL_BUILD_ID = "outer-production-build";
     process.env.KAVAL_COMMIT_HASH = "deadbeef";
-    // A user's own KAVAL_* env is NOT internal — only the two baked identity
-    // vars are. KAVAL_AGENT_DRVS_JSON (kaval-tui's drv map) and an arbitrary
-    // user KAVAL_* must still reach the shell.
-    process.env.KAVAL_AGENT_DRVS_JSON = '{"x86_64-linux":"/nix/store/x.drv"}';
-    process.env.KAVAL_MY_OWN_VAR = "keep-me";
+    // the #1872 leak: an orchestrator's identity var in the daemon's env.
+    process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+    // an arbitrary user/leaked var — now DROPPED (was forwarded by the old passthrough).
+    process.env.PTY_TEST_USER_VAR = "drop-me";
+    // an allowlisted var — kept.
+    process.env.HOME = "/home/x";
 
     const env = cleanEnv();
 
+    // The whole identity/leaked/internal class is gone — nothing ancestral rides in.
+    expect(env.KOLU_KAVAL_BIN).toBeUndefined();
+    expect(env.KOLU_STATE_DIR).toBeUndefined();
     expect(env.KAVAL_BUILD_ID).toBeUndefined();
     expect(env.KAVAL_COMMIT_HASH).toBeUndefined();
-    // not a blanket KAVAL_* strip — unrelated KAVAL_* survives.
-    expect(env.KAVAL_AGENT_DRVS_JSON).toBe(
-      '{"x86_64-linux":"/nix/store/x.drv"}',
-    );
-    expect(env.KAVAL_MY_OWN_VAR).toBe("keep-me");
+    expect(env.CLAUDE_CODE_CHILD_SESSION).toBeUndefined(); // the #1872 fix
+    expect(env.PTY_TEST_USER_VAR).toBeUndefined();
+    expect(Object.keys(env).some((k) => k.startsWith("KOLU_"))).toBe(false);
+
+    // the allowlisted base is kept.
+    expect(env.HOME).toBe("/home/x");
+    expect(env.PATH).toBe(process.env.PATH);
+
+    // every surviving key is on the allowlist (or the SHELL fallback) — no leak.
+    for (const k of Object.keys(env)) {
+      expect(SPAWN_ENV_ALLOWLIST as readonly string[]).toContain(k);
+    }
   });
 });
 

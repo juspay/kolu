@@ -33,6 +33,21 @@ const GATE_PATH = "/run/fleet-top/daemon.pid";
 const SOCKET_PATH = "/run/fleet-top/daemon.sock";
 const daemonEntry = "/nix/store/…/bin/fleet-top-daemon";
 
+// A supervisor's DETACHED spawn runs the daemon under `cfg.env` ALONE — no parent
+// env is layered under it (that would leak the supervisor's ambient identity into
+// the daemon). So `cfg.env` must be the COMPLETE child env: compose it from a fixed
+// allowlist of the vars the daemon needs to run, never the whole parent env. (kolu's
+// own supervisors mine `kolu-pty`'s `SPAWN_ENV_ALLOWLIST`; a standalone consumer
+// names its own base, as here.)
+function spawnEnvBase(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of ["HOME", "PATH", "SHELL", "TERM", "LANG"]) {
+    const v = process.env[key];
+    if (v != null) env[key] = v;
+  }
+  return env;
+}
+
 /** The contract-typed client the endpoint holds. */
 type TopClient = ContractRouterClient<typeof surface.contract>;
 /** What "identity" means for this daemon — enough to prove the link answered. */
@@ -82,7 +97,13 @@ export async function bootSupervisor(): Promise<void> {
     driver: survivableSpawnDriver({
       binPath: daemonEntry,
       args: [],
-      env: { FLEET_TOP_GATE: GATE_PATH, FLEET_TOP_SOCKET: SOCKET_PATH },
+      // COMPLETE child env for the detached spawn: the daemon's base plus its
+      // locator vars. A partial env here would spawn a daemon with no PATH/HOME.
+      env: {
+        ...spawnEnvBase(),
+        FLEET_TOP_GATE: GATE_PATH,
+        FLEET_TOP_SOCKET: SOCKET_PATH,
+      },
       unitPrefix: "fleet-top",
     }),
     connect: () => connectTop(SOCKET_PATH), // dial + identity handshake

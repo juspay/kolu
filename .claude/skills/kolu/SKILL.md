@@ -205,6 +205,15 @@ provisioning, the old-daemon polling fallback). The verb map:
 | `terminals` resource | `kaval-tui list` (autodiscovers every daemon, self-labeling) · `padi-tui status` |
 | `lifecycle_kill` | `kaval-tui kill "$id"` |
 
+> **Interim (agent-spawn-first-class, #1872).** Prefer the MCP `lifecycle_create`
+> / `padi-tui create` (shell-rooted, kolu-owned) over raw `kaval-tui create --
+> <agent>`: a command-rooted agent is transcript-safe as of PR1 but Dock-invisible
+> and not agent-state-tracked until PR2 (no shell → no OSC markers). And a fresh
+> `kaval-tui create` shell is clean, but launching an agent from your *own* shell
+> (or one reached via `ssh`/`sudo -E`) still needs `unset
+> CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID` first. Full detail +
+> tagged deletion points: [TUI.md](TUI.md) → interim doctrine.
+
 ## Acceptance
 
 Before calling a driven turn done:
