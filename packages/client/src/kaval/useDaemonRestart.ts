@@ -123,7 +123,7 @@ export function renewInFlight(host: HostKey): boolean {
  *  bakes an old kaval, not merely an orphaned survivor) throws `KAVAL_CONTRACT_SKEW`
  *  — recycling can't fix that, only re-provisioning the host's closure can — so we
  *  offer that heavier {@link drainReprovisionDaemon} as the honest escalation. */
-export async function renewDaemon(host: HostKey): Promise<void> {
+export async function restartIncompatibleKaval(host: HostKey): Promise<void> {
   const key = encodeHostKey(host);
   if (renewingHosts().has(key)) return;
   setRenewingHosts((s) => new Set(s).add(key));
@@ -163,12 +163,13 @@ export async function renewDaemon(host: HostKey): Promise<void> {
 }
 
 /** The heavier ESCALATION for a genuinely-stale host closure (offered from
- *  `renewDaemon`'s skew branch): drain THIS host's padi via the binder-owned
- *  `hosts.renewDaemon` — padi persists + exits, the reconnect loop re-dials and
- *  re-realises the CURRENT closure on the host, and the fresh padi's converge
- *  policy recycles the old kaval from its new build. One seam for local and remote
- *  alike (D1). Re-entrant calls while one is in flight are ignored. */
-export async function drainReprovisionDaemon(host: HostKey): Promise<void> {
+ *  `restartIncompatibleKaval`'s skew branch): drain THIS host's padi via the
+ *  binder-owned `hosts.renewDaemon` — padi persists + exits, the reconnect loop
+ *  re-dials and re-realises the CURRENT closure on the host, and the fresh padi's
+ *  converge policy recycles the old kaval from its new build. One seam for local
+ *  and remote alike (D1). Module-private: reached only through the skew toast's
+ *  action above. Re-entrant calls while one is in flight are ignored. */
+async function drainReprovisionDaemon(host: HostKey): Promise<void> {
   const key = encodeHostKey(host);
   if (renewingHosts().has(key)) return;
   setRenewingHosts((s) => new Set(s).add(key));

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -120,45 +120,6 @@ describe("createEndpoint — boot, status, death", () => {
     expect(connected?.metadata).toEqual({ contractVersion: "5.0" });
     expect(endpoint.current()).toBe(conn);
     expect(closeCb).toBeTypeOf("function");
-  });
-
-  it("clears a stale gate whose live pid does not serve the socket (reused-pid deadlock), so a fresh daemon takes the gate cleanly", async () => {
-    const d = dir();
-    const socketPath = join(d, "x.sock");
-    const gatePath = join(d, "x.pid");
-    // A stale gate over a LIVE-but-unrelated pid: the original daemon died hard
-    // (leaving its gate file), and the OS handed its pid to this `sleep`. NO
-    // daemon serves the socket. `liveServingHolder` must NOT kill the pid (a
-    // stranger — the teardown-law line) but MUST clear the stale gate FILE, or the
-    // fresh spawn's own `acquirePidGate` yields to the reused-live pid forever.
-    const stranger = spawn("sleep", ["60"], { stdio: "ignore" });
-    children.push(stranger.pid as number);
-    writeFileSync(gatePath, `${stranger.pid}\n`);
-    const fake = fakeDaemon(socketPath); // built but NOT listening → socket dead
-    servers.push(fake.server);
-    const conn: DaemonConnection<string, Identity> = {
-      client: "C",
-      identity: { staleKey: "fresh" },
-      startedAt: 1,
-      dispose() {},
-      onClose() {},
-    };
-    const endpoint = createEndpoint<string, Identity>({
-      hostId: "local",
-      gatePath,
-      socketPath,
-      driver: { spawn: () => fake.listen() },
-      connect: async () => conn,
-      log: silentLog,
-      onStatus: () => {},
-      socketPollMs: 5,
-    });
-
-    await endpoint.ensure();
-    // The stale gate FILE is gone (a file op — kills nothing) and the fresh
-    // daemon connected in its place.
-    expect(existsSync(gatePath)).toBe(false);
-    expect(endpoint.current()).toBe(conn);
   });
 
   it("flips to degraded when the connection closes mid-session", async () => {

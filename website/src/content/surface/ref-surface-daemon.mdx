@@ -95,7 +95,8 @@ machine-readable `outcome`.
 when the caller **already holds an external single-instance lock** (a pid gate)
 so a live holder of the path is a provably-illegitimate squatter — its socket
 file is then unlinked and rebound (the squatter is left running on its orphaned
-inode, a reported stray; nothing is signalled). `daemonMain` passes it because it
+inode; nothing is signalled, and a `log`, if supplied, records the reclaim at
+debug level). `daemonMain` passes it because it
 reaches the serve holding the gate. The `not-a-socket` data-loss guard is absolute
 and independent of `reclaim` — a regular file/dir at the path is never unlinked.
 

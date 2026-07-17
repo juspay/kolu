@@ -3,13 +3,13 @@
  * daemon state is `incompatible` (the skew canvas card and the kaval dialog's
  * incompatible banner), on BOTH local and remote hosts (D1: no host split).
  *
- * The confirmed action is `renewDaemon(activeHost())` — the session-preserving
+ * The confirmed action is `restartIncompatibleKaval(activeHost())` — the session-preserving
  * kaval RECYCLE (stop the old skewed kaval, spawn a fresh one from the host's
  * CURRENT closure — which reclaims the rendezvous socket from any orphaned old
  * kaval squatting it — and park the session for restore). An `incompatible` card
  * means padi is HEALTHY and only its kaval is skewed, so a recycle is all that is
  * needed and it comes up the correct version — no whole-padi drain. (If the
- * recycle STILL skews, padi's own closure is genuinely stale and `renewDaemon`
+ * recycle STILL skews, padi's own closure is genuinely stale and `restartIncompatibleKaval`
  * offers the heavier re-provision as an escalation.)
  */
 
@@ -17,7 +17,7 @@ import type { Component } from "solid-js";
 import { RestartIcon } from "../ui/Icons";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { activeHost } from "../wire";
-import { renewDaemon, renewInFlight } from "./useDaemonRestart";
+import { renewInFlight, restartIncompatibleKaval } from "./useDaemonRestart";
 
 const UpdateKavalButton: Component<{
   tone: "neutral" | "danger";
@@ -39,7 +39,7 @@ const UpdateKavalButton: Component<{
       // KavalInfoDialog's host-scoping header), and the skew canvas card only
       // ever renders for the active host — so the presented facts and the
       // recycled host agree by construction.
-      void renewDaemon(activeHost());
+      void restartIncompatibleKaval(activeHost());
     }}
   />
 );
