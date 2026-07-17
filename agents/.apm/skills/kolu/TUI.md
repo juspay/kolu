@@ -198,6 +198,31 @@ returns, **`snapshot --viewport` and read** what's on screen before responding.
 
 ## Provisioning a worktree'd agent — `padi-tui create`
 
+> **Interim doctrine — agent-spawn-first-class (#1872).** Two footguns in the
+> raw-spawn path, each tagged with the PR that retires it. *These notes are
+> deleted the day their tagged PR lands — do not carry them past it.*
+>
+> - **Don't spawn an agent as the PTY *root*** — `kaval-tui create -- <agent>`
+>   (claude/codex as argv[0], no shell). Its transcript is now safe (PR1 composes
+>   a clean env — the caller's `CLAUDE_CODE_*` identity vars no longer leak in),
+>   but a shell-less PTY emits no OSC markers, so kolu never learns an agent is
+>   running: the Dock shows bare terminal activity, `padi-tui wait --until` can't
+>   read agent state, and `lastCommand` stays unset. Want a Dock-visible,
+>   state-tracked agent: create a **shell** and launch the agent *from* it, or use
+>   `padi-tui create` / the MCP `lifecycle_create`. *Delete when PR2 (kaval seeds
+>   `lastCommand`/title from the spawn argv) ships.*
+> - **A fresh `kaval-tui create` shell is clean — but your OWN shell is not.**
+>   PR1 makes every `kaval-tui create` env a clean canonical base, so typing
+>   `claude` into a create'd shell is safe with no scrub. The residual trap is
+>   launching an agent in a shell that *already* carries the orchestrator's
+>   identity — your own session's shell, or one reached over `ssh` / `sudo -E`:
+>   `CLAUDE_CODE_CHILD_SESSION` rides in and the `claude` you launch classifies
+>   itself as a nested child that never saves its conversation (real data loss).
+>   `unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID` before
+>   launching an agent in such a shell. *This is the upstream env-suppression
+>   fragility the note filed upstream; delete when PR3's face verb removes the
+>   raw-shell launch path (or upstream stops reading inherited identity vars).*
+
 When the terminal should be a **kolu-owned** workspace — visible on the canvas,
 tracked by padi's agent sensors so `padi-tui wait` works against it — provision
 it with `padi-tui create` instead of raw `kaval-tui create`:

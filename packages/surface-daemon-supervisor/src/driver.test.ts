@@ -153,9 +153,11 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     expect(statSync(crashDir).mode & 0o777).toBe(0o700);
   });
 
-  it("off systemd, spawns the bin directly, detached+unref, with the forwarded env layered on", async () => {
+  it("off systemd (non-fromSource), spawns detached+unref with cfg.env ALONE — no parent env layered (#1872 parity)", async () => {
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(cfg, {
+      // The supervisor's own parent env — an orchestrator's ambient identity vars in
+      // production. It must NOT ride into the daemon (and every PTY it spawns).
       env: { PATH: "/usr/bin", FOO: "bar" }, // no INVOCATION_ID
       spawnProcess,
     });
@@ -166,12 +168,10 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     expect(c.args).toEqual(["--socket", "/run/user/1000/kaval/pty-host.sock"]);
     expect(c.options.detached).toBe(true);
     expect(c.unrefd).toBe(true);
-    // forwarded env wins over inherited
-    expect(c.options.env).toMatchObject({
-      PATH: "/usr/bin",
-      FOO: "bar",
-      XDG_RUNTIME_DIR: "/run/user/1000",
-    });
+    // The child env is cfg.env ALONE — parity with the systemd branch's `--setenv`
+    // (which overlays cfg.env on systemd's own manager env, never the supervisor's).
+    // The parent's PATH/FOO do NOT layer under it: that ambient leak is the #1872 class.
+    expect(c.options.env).toEqual({ XDG_RUNTIME_DIR: "/run/user/1000" });
   });
 
   it("fromSource forces a detached fork even under a systemd session", async () => {
@@ -180,11 +180,50 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     // detached.
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(
-      { ...cfg, fromSource: true },
+      { ...cfg, fromSource: { inheritParentEnv: false } },
       { env: { INVOCATION_ID: "deadbeef" }, spawnProcess },
     );
     await driver.spawn();
     expect(only(calls).command).toBe("/nix/store/abc/bin/kaval");
+  });
+
+  it("inheritParentEnv layers the parent env under cfg.env (dev: the from-source daemon needs the nix-shell env)", async () => {
+    // The ONE caller that opts INTO parent layering — `just dev` runs kaval from a
+    // nix-shell whose store paths / dev vars the daemon genuinely needs. cfg.env still
+    // wins on overlap. Gated on `inheritParentEnv`, NOT `fromSource`.
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, fromSource: { inheritParentEnv: true } },
+      { env: { PATH: "/dev/shell/bin", FOO: "bar" }, spawnProcess }, // no INVOCATION_ID → detached
+    );
+    await driver.spawn();
+    expect(only(calls).options.env).toEqual({
+      PATH: "/dev/shell/bin",
+      FOO: "bar",
+      XDG_RUNTIME_DIR: "/run/user/1000", // cfg.env, layered on top
+    });
+  });
+
+  it("fromSource WITHOUT inheritParentEnv (a built daemon forced detached) gets cfg.env ALONE — no leak (#1872, F1)", async () => {
+    // A built kaval/padi forced onto the detached branch by `KOLU_*_SPAWN=detached`
+    // (a bare/pu box): `fromSource` skips systemd-run, but the built binary carries
+    // its own wrapper env, so `inheritParentEnv` stays false — the supervisor's
+    // ambient parent env (an orchestrator's CLAUDE_CODE_* here) must NOT ride in.
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, fromSource: { inheritParentEnv: false } },
+      {
+        env: { PATH: "/parent/bin", CLAUDE_CODE_CHILD_SESSION: "1" },
+        spawnProcess,
+      },
+    );
+    await driver.spawn();
+    expect(only(calls).options.env).toEqual({
+      XDG_RUNTIME_DIR: "/run/user/1000",
+    });
+    expect("CLAUDE_CODE_CHILD_SESSION" in (only(calls).options.env ?? {})).toBe(
+      false,
+    );
   });
 
   it("treats an empty INVOCATION_ID as not-under-systemd", async () => {
@@ -208,7 +247,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       args: [],
       env: {},
       unitPrefix: "kaval",
-      fromSource: true, // force the detached branch, skip systemd-run
+      fromSource: { inheritParentEnv: false }, // force detached, skip systemd-run
     });
     await expect(driver.spawn()).rejects.toMatchObject({ code: "ENOENT" });
   });

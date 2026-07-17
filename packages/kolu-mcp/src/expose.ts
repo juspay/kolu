@@ -46,8 +46,14 @@ export const KOLU_MCP_EXPOSE = {
   "fs.readFile": { tool: { mutates: false } },
 
   // ── Mutating tools ───────────────────────────────────────────────────────
-  /** Spawn a terminal (command, cwd, parent) — returns the TerminalInfo whose
-   *  `id` the driving agent captures. */
+  /** Spawn a terminal — takes only `cwd` + an optional `parentId` (plus display
+   *  chrome); returns the TerminalInfo whose `id` the driving agent captures.
+   *  There is deliberately NO `command` and NO `env` parameter (`PadiCreateInputSchema`
+   *  is `{ cwd?, parentId? }` — packages/padi/src/surface.ts): a terminal created
+   *  through a face always gets the rc-hooked shell with the daemon's own clean env,
+   *  so an agent literally cannot ask for a shell-less, caller-env-carrying terminal —
+   *  the exact shape that silently lost agent transcripts in #1872. The missing
+   *  `command`/`env` is the protection, not a gap; do not add it here. */
   "lifecycle.create": { tool: { mutates: true } },
   /** Kill one terminal by id. */
   "lifecycle.kill": { tool: { mutates: true } },
