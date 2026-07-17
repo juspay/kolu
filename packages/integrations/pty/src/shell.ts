@@ -22,9 +22,12 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 
 /**
- * Default env vars safe to forward from a nix devshell to PTY shells.
- * Everything else (NIX_*, DIRENV_*, derivation vars) is excluded.
- * Exported so callers can pass it as the default whitelist value.
+ * Extra env vars a nix devshell may forward to PTY shells, layered ADDITIVELY on
+ * top of the canonical {@link SPAWN_ENV_ALLOWLIST} base (see `cleanEnv`) — NOT a
+ * replacement for it, so dev keeps the same OPERATIONAL login-session vars
+ * production carries and merely widens with these. Everything else (NIX_*,
+ * DIRENV_*, derivation vars) is excluded. Exported so callers can pass it as the
+ * default whitelist value.
  *
  * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
  * VTE_VERSION, COLORTERM) live in `koluIdentityEnv()` and are layered on
@@ -201,8 +204,10 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
  * clean canonical base, NOT the whole parent env. This is the #1872 fix: the
  * daemon's env can carry leaked identity vars, and forwarding it wholesale leaked
  * them into every hosted PTY.
- * With a whitelist (dev/test inside nix shell): pick only whitelisted vars
- * and override SHELL with the user's login shell from /etc/passwd.
+ * With a whitelist (dev/test inside nix shell): compose the SAME canonical base,
+ * then ADDITIVELY widen it with the whitelisted nix-devshell vars, and override
+ * SHELL with the user's login shell from /etc/passwd. The whitelist widens the
+ * base, it does not replace it — so dev never gets a narrower env than production.
  *
  * Either way, a single shared post-step strips kolu's own internal env
  * (the `KOLU_*` namespace plus the wrapper-baked kaval identity vars — see
@@ -219,7 +224,16 @@ export function cleanEnv(): Record<string, string> {
   const loginShell = userInfo().shell || "/bin/sh";
   let env: Record<string, string>;
   if (envWhitelist) {
-    env = pickEnv(envWhitelist, process.env);
+    // Dev/test inside a nix devshell: start from the SAME canonical allowlist base
+    // production composes — so the OPERATIONAL login-session vars (XDG_RUNTIME_DIR,
+    // SSH_AUTH_SOCK, WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS, TMPDIR) are present
+    // in dev too, matching production and the class's own rationale (dropping them
+    // silently breaks an interactive terminal). Then ADDITIVELY widen with the
+    // nix-devshell vars the whitelist names, on top. The whitelist is a dev-only
+    // WIDENING, not a replacement, so a developer running `just dev` never silently
+    // gets a narrower env than production.
+    env = composeSpawnEnv(process.env);
+    Object.assign(env, pickEnv(envWhitelist, process.env));
     // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp
     // that user bashrc files expect. Use the real login shell from /etc/passwd.
     env.SHELL = loginShell;
