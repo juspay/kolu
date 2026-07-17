@@ -78,6 +78,37 @@ Feature: Deep links — every view addressable by a #/… URL
     When I follow the live deep link "#/bananas"
     Then a toast should appear with text "doesn't point anywhere kolu knows"
 
+  Scenario: Back and forward never replay a consumed deep link — the view stays put (DL3)
+    # The deployed-build repro inverted: hashchange fires on history TRAVERSAL
+    # too, and routing a browser-restored old hash teleported the view to a
+    # previous link's terminal. A handled command is consumed once per history
+    # entry (koluRouted stamp): back/forward revert the URL silently; a FRESH
+    # hash navigation still routes (the two live links below prove it).
+    When I create a terminal
+    And I run "echo DEEP-BACK-ONE"
+    And I create a terminal
+    And I run "echo DEEP-BACK-TWO"
+    And I follow the live deep link "#/t/local/{id1}"
+    Then the active terminal should show "DEEP-BACK-ONE"
+    When I follow the live deep link "#/t/local/{id2}"
+    Then the active terminal should show "DEEP-BACK-TWO"
+    When I go back in browser history
+    Then the URL hash should still be "#/t/local/{id1}"
+    And the active terminal should show "DEEP-BACK-TWO"
+    # A second back lands the boot entry (stamped by the boot parse's `none`
+    # verdict — the gate holds on non-link entries too). Then forward re-enters
+    # the {id1} entry while terminal 2 is active — THE discriminating forward
+    # leg: a forward replay would teleport to terminal 1. (Forward onto {id2}
+    # couldn't tell — a wrongful route targets the already-active terminal.)
+    When I go back in browser history
+    Then the active terminal should show "DEEP-BACK-TWO"
+    When I go forward in browser history
+    Then the URL hash should still be "#/t/local/{id1}"
+    And the active terminal should show "DEEP-BACK-TWO"
+    When I go forward in browser history
+    Then the URL hash should still be "#/t/local/{id2}"
+    And the active terminal should show "DEEP-BACK-TWO"
+
   Scenario: A deep link clicked inside the Code-tab preview routes the parent app (DL2)
     # The felt proof for the whole bridge→router path: the sandboxed preview
     # can't navigate the parent, so the in-iframe SDK posts the `#/…` hash and
@@ -97,10 +128,14 @@ Feature: Deep links — every view addressable by a #/… URL
     Then the file preview iframe should be visible
     # Routing a deep link must push NO history entries — mouse-back must never
     # replay a stale teleport (srid's dogfood finding; the bug was one push PER
-    # routed link, so one routed link pins it). A second pill can't be
-    # click-tested here: routing the first activates the authoring terminal and
-    # the per-terminal preview is gone afterwards (#/settings has its own scenario).
+    # routed link, so one routed link pins it).
     When I note the page history length
     And I click the link "jump to agent" in the file preview iframe
     Then the active terminal should show "DEEP-PILL-MARKER"
     And the page history length should be unchanged
+    # Repeating the SAME pill must re-route (the consumed-once stamp gates only
+    # history TRAVERSAL, never a fresh bridge request): refocus the previewing
+    # terminal — its per-terminal panel restores the preview — and click again.
+    When I select terminal 2 in the workspace switcher
+    And I click the link "jump to agent" in the file preview iframe
+    Then the active terminal should show "DEEP-PILL-MARKER"

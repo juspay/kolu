@@ -21,7 +21,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Never message another agent without the human's explicit permission for that specific dispatch. Exception: overnight/autonomous runs the human has sanctioned.
 - Ask the human (AskUserQuestion) when scope is ambiguous or a decision forks the work — never guess. Overnight exception: proceed on documented best judgment.
 - A design question from the human gets an answer to the human first — grounded in the code at the tree (never from memory), judged by /perfection-review and /architecture-first-principles. Dispatch to an agent only after the human authorizes.
-- The human merges all PRs. Keep PRs draft; hold CI when the human says hold.
+- **The human merges EVERY PR — no exceptions, in any repo, ever.** The coordinator NEVER runs `gh pr merge` (or any merge/revert of master) without the human's EXPLICIT permission for THAT specific PR in the immediately-preceding turn. There is no standing delegation, no "green so I merged", no lineage exception, no "the odu DAG passed so it's safe" — a passing gate authorizes nothing; only the human's word does. If the coordinator's own briefs to agents ever say "the coordinator squash-merges" that language is a defect to delete, not a grant. The recorded failure: the coordinator squash-merged #1862 citing a "tenure-lineage standing delegation" it had written into its own agent briefs — the human never gave blanket merge authority and merged every real PR himself; the human's response was "DO NOT MERGE WITHOUT MY PERMISSION WTF". Keep PRs draft; hold CI when the human says hold; surface a PR as merge-READY and stop.
 
 ## Dispatch
 
@@ -132,7 +132,14 @@ data file in the project. Grown practice, each line paid for:
   when the branch is cut (draft), and the human merges when ready. The atlas PR follows
   /forge-pr, and its title/body are RE-WRITTEN after every push — the PR
   always describes its current full contents, never just its first commit. Atlas edits never ride a
-  feature branch, a scratch worktree, or another PR's branch.
+  feature branch, a scratch worktree, or another PR's branch. TWO recorded
+  execution failures on this rule, same day: (a) the coordinator cut `atlas`
+  fresh and pushed 41 commits over hours with NO PR — "opened IMMEDIATELY"
+  means in the SAME action as the first push, not "when someone asks where
+  the PR is"; (b) the branch sat STALE while master moved four times —
+  "continuously up to date" means merge origin/master into `atlas` in the
+  same turn you learn master moved (a merge notification, a lane's
+  master-merge report), not at review time. The human caught both.
 - Skill edits are NOT an exception — there are no exceptions: every
   coordinator-authored change (atlas notes, skills, rules, docs) rides that same
   single atlas branch/PR. The coordinator creates PRs from its own working
