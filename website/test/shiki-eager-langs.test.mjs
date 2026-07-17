@@ -8,8 +8,11 @@
 //
 // Runs in the website's Nix derivation checkPhase (CI-gated via ci::nix) and
 // under `just website::check`. The fence scanner itself is fixture-tested in
-// docs/atlas/build/fence-langs.test.mjs — here only the wiring and the
-// class-kill are asserted.
+// docs/atlas/build/fence-langs.test.mjs (version-independent shapes) — here
+// the wiring and the class-kill are asserted, PLUS the scanner's two upstream
+// drift pins, which are version-DEPENDENT: the website pins its own
+// shiki/astro versions in a separate lockfile, so docs/atlas's pins say
+// nothing about the exports installed here.
 
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -18,16 +21,35 @@ import { pathToFileURL } from "node:url";
 
 // The exact object astro.config.mjs hands to astro — plain node can't load
 // astro.config.mjs itself (its TS imports need vite's resolver), which is why
-// the shiki setup lives in this shared plain-ESM module. `fenceLangs` comes
-// through the same module so exactly one place knows the
-// working-tree-vs-Nix-sandbox resolution of scripts/fence-langs.mjs.
-import { fenceLangs, shikiConfig } from "../src/shiki-config.mjs";
+// the shiki setup lives in this shared plain-ESM module. `fenceLangs` (and the
+// two drift-pinned mirror sets) come through the same module so exactly one
+// place knows the working-tree-vs-Nix-sandbox resolution of
+// scripts/fence-langs.mjs.
+import {
+  ASTRO_EXCLUDED_LANGS,
+  SPECIAL_LANGS,
+  fenceLangs,
+  shikiConfig,
+} from "../src/shiki-config.mjs";
 
 const requireFromAstro = createRequire(
   createRequire(import.meta.url).resolve("astro/package.json"),
 );
 const { createShikiHighlighter } = await import(
   pathToFileURL(requireFromAstro.resolve("@astrojs/markdown-remark/shiki")).href
+);
+const shiki = await import(
+  pathToFileURL(requireFromAstro.resolve("shiki")).href
+);
+// (anchored on the resolved entry file — the package doesn't export
+// ./package.json)
+const requireFromMdRemark = createRequire(
+  requireFromAstro.resolve("@astrojs/markdown-remark"),
+);
+const astroMarkdown = await import(
+  pathToFileURL(
+    requireFromMdRemark.resolve("@astrojs/internal-helpers/markdown"),
+  ).href
 );
 
 // Mirror rehype-shiki.js: the exact construction + call the build uses.
@@ -98,5 +120,30 @@ test("guard: shiki special plaintext languages stay allowed", async () => {
   assert.ok(
     distinctLightColors(html) <= 1,
     "plaintext carries no token palette",
+  );
+});
+
+// ── drift pins: the scanner's two hand-held upstream mirrors, checked against
+// the WEBSITE-installed shiki/astro (its own lockfile, its own versions) ─────
+test("drift pin: every SPECIAL_LANGS member is special per the installed shiki", () => {
+  // The dangerous direction: a non-special entry here would make the guard
+  // silently allow a racy mid-build lazy load for a real language.
+  for (const lang of SPECIAL_LANGS) {
+    assert.ok(
+      shiki.isSpecialLang(lang),
+      `"${lang}" is in SPECIAL_LANGS but shiki.isSpecialLang rejects it — the guard would silently skip a real language`,
+    );
+  }
+  // Canary for the benign direction (a special lang we miss is filtered out
+  // by shiki's own resolveLangs, so no crash — but keep one honest sample).
+  assert.ok(!shiki.isSpecialLang("yaml"));
+});
+
+test("drift pin: ASTRO_EXCLUDED_LANGS exactly equals astro's defaultExcludeLanguages", () => {
+  // Either direction of drift is a hole: a stale extra entry silently allows
+  // a racy lazy load; a missing entry crashes the build on a legal fence.
+  assert.deepEqual(
+    [...ASTRO_EXCLUDED_LANGS].sort(),
+    [...astroMarkdown.defaultExcludeLanguages].sort(),
   );
 });

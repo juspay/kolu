@@ -18,9 +18,11 @@
 // website/default.nix, same pattern as kolu-server-package.json). Because the
 // two projects pin different shiki/astro versions in separate lockfiles, this
 // module stays dependency-free: the two small sets below are hand-held copies
-// of upstream facts, each drift-pinned by a unit test that reaches the real
-// export through a consumer project's node_modules
-// (docs/atlas/build/fence-langs.test.mjs).
+// of upstream facts, drift-pinned PER CONSUMER by a unit test that reaches
+// the real export through that consumer's own node_modules
+// (docs/atlas/build/fence-langs.test.mjs and
+// website/test/shiki-eager-langs.test.mjs) — one consumer's pin says nothing
+// about the versions the other installs.
 //
 // Over-approximation is deliberate and benign: a fence opener inside a
 // ````markdown example block still contributes its language. A fence in a
@@ -37,8 +39,8 @@ import { fileURLToPath } from "node:url";
 
 // Shiki renders these without a grammar — never preload them. Mirror of
 // shiki's isSpecialLang (ansi + the plaintext aliases); exported ONLY for the
-// drift pin in fence-langs.test.mjs, which asserts every member really is
-// special per the installed shiki (a non-special entry here would make the
+// per-consumer drift pins, which assert every member really is special per
+// each consumer's installed shiki (a non-special entry here would make the
 // guard silently allow a racy lazy load).
 export const SPECIAL_LANGS = new Set([
   "plaintext",
@@ -51,10 +53,10 @@ export const SPECIAL_LANGS = new Set([
 // Fence languages astro excludes from highlighting BEFORE they ever reach
 // shiki (@astrojs/internal-helpers `defaultExcludeLanguages`) — enumerate one
 // and createHighlighter would crash on a fence astro itself treats as legal.
-// Exported ONLY for the drift pin in fence-langs.test.mjs, which asserts
-// exact equality with the installed astro export (drift in either direction
-// is a hole: a stale extra entry silently allows a racy lazy load, a missing
-// entry crashes the build on a legal fence).
+// Exported ONLY for the per-consumer drift pins, which assert exact equality
+// with each consumer's installed astro export (drift in either direction is a
+// hole: a stale extra entry silently allows a racy lazy load, a missing entry
+// crashes the build on a legal fence).
 export const ASTRO_EXCLUDED_LANGS = new Set(["math"]);
 
 const SKIPPED_LANGS = new Set([...SPECIAL_LANGS, ...ASTRO_EXCLUDED_LANGS]);

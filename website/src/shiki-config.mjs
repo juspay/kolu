@@ -24,13 +24,15 @@ const fenceLangsModule = [
 if (!fenceLangsModule) {
   throw new Error("fence-langs.mjs is required for the website build");
 }
-const { fenceLangs, shikiFencePreload } = await import(fenceLangsModule.href);
+const { ASTRO_EXCLUDED_LANGS, SPECIAL_LANGS, fenceLangs, shikiFencePreload } =
+  await import(fenceLangsModule.href);
 
-// Re-exported so the tests reach the scanner through THIS module — one place
-// (here) knows the working-tree-vs-sandbox resolution above; a second copy of
-// that candidates dance would have to track default.nix's copy destination
+// Re-exported so the tests reach the scanner (and its two hand-held upstream
+// mirrors, drift-pinned per consumer) through THIS module — one place (here)
+// knows the working-tree-vs-sandbox resolution above; a second copy of that
+// candidates dance would have to track default.nix's copy destination
 // independently.
-export { fenceLangs };
+export { ASTRO_EXCLUDED_LANGS, SPECIAL_LANGS, fenceLangs };
 
 // The scan root: the website's content all lives under src/ (this module's
 // own directory) — content collections, pages, components.
