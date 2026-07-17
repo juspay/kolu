@@ -618,18 +618,23 @@ export const store = new Conf<PersistedState>({
 // rather than only after the next incidental write.
 if (existsSync(store.path)) chmodSync(store.path, 0o600);
 
-/** Read `clientId` off a store, MINTING one (`randomUUID()`) and persisting it if the
- *  key is absent — the mint-once, stable-forever identity path. Idempotent: once a
- *  value is on disk every later call (this boot or any future one, against the same
- *  `KOLU_STATE_DIR`) returns the SAME string, which is the whole point — a remote-padi
- *  binding keys a per-client state-root on it, so a re-minted id would orphan the
- *  client's remote estate on every restart.
+/** Read `clientId` off a store, MINTING one (`randomUUID()`) and persisting it ONLY
+ *  when the key is genuinely ABSENT — the mint-once, stable-forever identity path.
+ *  Idempotent: once a value is on disk every later call (this boot or any future one,
+ *  against the same `KOLU_STATE_DIR`) returns the SAME string, which is the whole point
+ *  — a remote-padi binding keys a per-client state-root on it, so a re-minted id would
+ *  orphan the client's remote estate on every restart.
  *
  *  `clientId` is `z.string().uuid()` (required) in the schema but carries NO `defaults`
  *  entry — a static default would hand every install the same id — so `conf` returns
  *  `undefined` for the key on a file that predates the field, hence the `undefined`
- *  guard the compile-time type doesn't show. The empty-string guard rejects a
- *  hand-blanked value the same way, re-minting rather than persisting `""`.
+ *  guard the compile-time type doesn't show. That absent case is the ONLY mint path.
+ *
+ *  A key that is PRESENT but not a valid UUID (a hand-blanked `""`, a corrupt value)
+ *  is NOT re-minted: re-minting would silently change the estate key and orphan this
+ *  client's remote terminals. It FAILS LOUD instead (the same fail-fast discipline
+ *  `getPersistedHosts` applies to a corrupt `hosts` value) — identity is never
+ *  silently repaired.
  *
  *  Takes the store explicitly (rather than closing over the module singleton) so
  *  `state.test.ts` can drive the mint/persist/re-read cycle against ephemeral `Conf`
@@ -637,10 +642,21 @@ if (existsSync(store.path)) chmodSync(store.path, 0o600);
  *  `stripLegacyStateKeys_1_31_0`. */
 export function mintClientIdIfAbsent(store: Conf<PersistedState>): string {
   const existing = store.get("clientId") as string | undefined;
-  if (typeof existing === "string" && existing.length > 0) return existing;
-  const minted = randomUUID();
-  store.set("clientId", minted);
-  return minted;
+  if (existing === undefined) {
+    const minted = randomUUID();
+    store.set("clientId", minted);
+    return minted;
+  }
+  const parsed = z.string().uuid().safeParse(existing);
+  if (!parsed.success) {
+    throw new Error(
+      `clientId in ${store.path} is present but not a valid UUID (${JSON.stringify(
+        existing,
+      )}) — refusing to re-mint (that would orphan this client's remote estates). ` +
+        "Fix or remove the corrupt value.",
+    );
+  }
+  return parsed.data;
 }
 
 /** This kolu-server's stable, minted-once client UUID (see `PersistedStateSchema` and

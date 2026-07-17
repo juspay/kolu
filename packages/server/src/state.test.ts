@@ -291,4 +291,24 @@ describe("mintClientIdIfAbsent", () => {
     // And it persisted — a re-open sees the same value (the upgrade is durable).
     expect(mintClientIdIfAbsent(openStore(dir))).toBe(minted);
   });
+
+  it("FAILS LOUD on a present-but-invalid clientId — never re-mints (that would orphan the estate)", () => {
+    // A corrupt/hand-blanked identity is NOT silently repaired: re-minting would
+    // change the estate key and orphan this client's remote terminals, so it throws
+    // (the same fail-fast discipline getPersistedHosts applies to a corrupt hosts value).
+    for (const bad of ["", "not-a-uuid", "1234"]) {
+      const dir = freshStateDir();
+      writeFileSync(
+        join(dir, "config.json"),
+        JSON.stringify({
+          preferences: DEFAULT_PREFERENCES,
+          hosts: [],
+          clientId: bad,
+        }),
+      );
+      expect(() => mintClientIdIfAbsent(openStore(dir))).toThrow(
+        /clientId .* not a valid UUID|refusing to re-mint/,
+      );
+    }
+  });
 });
