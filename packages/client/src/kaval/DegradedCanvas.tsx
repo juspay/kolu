@@ -24,10 +24,16 @@
 
 import { type Component, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
+import { activeHost } from "../wire";
 import type { DaemonDownState } from "./daemonPresentation";
+import { skewRenewVerdict } from "./renewVerdict";
 import RestartKavalButton from "./RestartKavalButton";
 import UpdateKavalButton from "./UpdateKavalButton";
-import { restartDaemon } from "./useDaemonRestart";
+import {
+  renewInFlight,
+  renewSettledUnconverged,
+  restartDaemon,
+} from "./useDaemonRestart";
 import { localDaemonStatus } from "./useDaemonStatus";
 
 /** The restartable down card — `dead` (never came up) / `degraded` (died
@@ -94,38 +100,74 @@ const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
 };
 
 /** The contract-skew card (SK5) — both versions from the TYPED status fields,
- *  and the renew action. No Restart verb, by construction. */
+ *  and the renew action. No Restart verb, by construction.
+ *
+ *  Two copies, one card: the FIRST-time skew offers the update with its ordinary
+ *  copy; once a renew for this host has SETTLED and the card is STILL here
+ *  (`renewSettledUnconverged`), the renew did NOT converge — so the card says so
+ *  honestly and names the real cause (another kolu install/instance on the host
+ *  is still respawning the old kaval), instead of looping the same hopeful
+ *  promise the user just watched fail. The verdict is a total function of the two
+ *  per-host renew markers ({@link skewRenewVerdict}). */
 const IncompatibleCard: Component<{
   daemonVersion: string;
   requiredVersion: string;
-}> = (props) => (
-  <DangerCard
-    heading="kaval is incompatible with this kolu"
-    versions={
-      <p
-        class="mt-1.5 font-mono text-xs text-fg-2"
-        data-testid="kaval-skew-versions"
+}> = (props) => {
+  const didNotConverge = () =>
+    skewRenewVerdict(
+      renewSettledUnconverged(activeHost()),
+      renewInFlight(activeHost()),
+    ) === "did-not-converge";
+  return (
+    <DangerCard
+      heading={
+        didNotConverge()
+          ? "Update didn’t converge — kaval is still incompatible"
+          : "kaval is incompatible with this kolu"
+      }
+      versions={
+        <p
+          class="mt-1.5 font-mono text-xs text-fg-2"
+          data-testid="kaval-skew-versions"
+        >
+          this host’s kaval speaks{" "}
+          <span class="font-semibold text-danger">{props.daemonVersion}</span> ·
+          your kolu needs{" "}
+          <span class="font-semibold text-ok">{props.requiredVersion}</span>
+        </p>
+      }
+      action={<UpdateKavalButton tone="danger" />}
+    >
+      <Show
+        when={didNotConverge()}
+        fallback={
+          <p class="mt-2 text-sm leading-relaxed text-fg-2">
+            Restarting can’t fix this — the host’s kaval binary is from an older
+            kolu install, and a respawn brings back the same version. Updating
+            re-provisions the current build on the host and starts a
+            correct-version kaval.
+          </p>
+        }
       >
-        this host’s kaval speaks{" "}
-        <span class="font-semibold text-danger">{props.daemonVersion}</span> ·
-        your kolu needs{" "}
-        <span class="font-semibold text-ok">{props.requiredVersion}</span>
+        <p class="mt-2 text-sm leading-relaxed text-fg-2">
+          The update ran but the host came back on the same old kaval —
+          something else on this host is still running it. Most often another
+          kolu install or session on this host owns a kaval from an older build
+          and keeps respawning it. Close those, or update the host’s kolu, then
+          try again.
+        </p>
+      </Show>
+      <p
+        class="mt-2 text-xs leading-relaxed text-fg-3"
+        data-testid="kaval-skew-nonconvergence"
+        data-nonconvergence={didNotConverge() ? "true" : "false"}
+      >
+        Your saved session is preserved and offered for restore on the fresh
+        daemon.
       </p>
-    }
-    action={<UpdateKavalButton tone="danger" />}
-  >
-    <p class="mt-2 text-sm leading-relaxed text-fg-2">
-      Restarting can’t fix this — the host’s kaval binary is from an older kolu
-      install, and a respawn brings back the same version. Updating
-      re-provisions the current build on the host and starts a correct-version
-      kaval.
-    </p>
-    <p class="mt-2 text-xs leading-relaxed text-fg-3">
-      Your saved session is preserved and offered for restore on the fresh
-      daemon.
-    </p>
-  </DangerCard>
-);
+    </DangerCard>
+  );
+};
 
 const DegradedCanvas: Component<{ down: DaemonDownState }> = (props) => {
   // Discriminate ONCE — each accessor narrows the union, so neither card ever
