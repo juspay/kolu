@@ -82,10 +82,10 @@ export const DAEMON_STATE_PRESENTATION: Record<
     recovery: "restart",
   },
   // The PROVEN contract skew (SK4): terminal like `dead`, but a DIFFERENT
-  // verdict — the host's kaval is an orphaned leftover from an older install while
-  // padi is healthy on the current closure, so the canvas/dialog render the skew
-  // card with both versions and the recovery that works: RESTART the kaval (the
-  // recycle), which spawns a correct-version kaval from padi's current closure.
+  // verdict — a restart provably cannot fix it (the arm's only producer is a
+  // respawn that already skewed), so the canvas/dialog render the skew card
+  // with both versions and the ONE recovery that changes the closure
+  // (`hosts.renewDaemon`), never a Restart verb.
   incompatible: {
     tone: "down",
     label: "incompatible — needs update",

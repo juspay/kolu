@@ -35,7 +35,7 @@ import {
 import { expectedKaval } from "./KavalUpdateBadge";
 import { type KavalAttention, kavalAttention } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
-import RestartIncompatibleKavalButton from "./RestartIncompatibleKavalButton";
+import UpdateKavalButton from "./UpdateKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
@@ -297,10 +297,9 @@ const KavalInfoDialog: Component<{
       </Show>
 
       {/* The action slot — a total function of the attention axis (SK5, D1):
-          a proven skew offers the incompatible recovery (the same session-
-          preserving recycle, whose copy names the skew and escalates to a host
-          re-provision only if padi's own closure is stale, on local and remote
-          hosts alike); every other state keeps the plain Restart. */}
+          a proven skew offers ONLY the renew (a restart provably respawns the
+          same incompatible binary, on local and remote hosts alike); every
+          other state keeps the session-preserving Restart. */}
       <Show
         when={incompatible()}
         fallback={
@@ -326,14 +325,13 @@ const KavalInfoDialog: Component<{
         }
       >
         <div class="space-y-2">
-          <RestartIncompatibleKavalButton
+          <UpdateKavalButton
             tone="neutral"
             onConfirm={() => props.onOpenChange(false)}
           />
           <p class="text-[11px] leading-relaxed text-fg-3">
-            Stops the stale kaval and starts a correct-version one from the
-            host’s current build — this host’s terminals restart and the session
-            is offered for restore.
+            Drains the host daemon, re-provisions the current build, and starts
+            a correct-version kaval — this host’s terminals restart.
           </p>
         </div>
       </Show>

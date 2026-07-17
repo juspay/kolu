@@ -30,12 +30,11 @@ export type KavalAttention =
    *  sites pair the human-readable `navigableCommit`s off their own sources
    *  (the compared `staleKey`s are opaque closure hashes nobody renders). */
   | { kind: "stale" }
-  /** Contract axis (SK4/SK5): a PROVEN skew — the daemon speaks a contract this
-   *  kolu cannot talk to. The host's kaval is an orphaned leftover from an older
-   *  install; padi is healthy on the current closure. Carries the wire's typed
-   *  skew payload ({@link KavalSkewVersions}, the ONE spelling of the version
-   *  pair). The recovery is a session-preserving RESTART (recycle) of the kaval,
-   *  which spawns a correct-version one from padi's current closure. */
+  /** Contract axis (SK4/SK5): a PROVEN skew — the daemon speaks a contract
+   *  this kolu cannot talk to, and a respawn from the host's current closure
+   *  has already been tried. Carries the wire's typed skew payload
+   *  ({@link KavalSkewVersions}, the ONE spelling of the version pair). The
+   *  recovery is `hosts.renewDaemon`, never a plain restart. */
   | ({ kind: "incompatible" } & KavalSkewVersions);
 
 /** True when the running daemon is provably a build behind the kaval the server
