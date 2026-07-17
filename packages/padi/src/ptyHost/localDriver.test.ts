@@ -61,7 +61,8 @@ describe("daemonEnv — the env kaval is spawned with (2a parity pin, #1872)", (
     // complete base — kaval gets HOME/PATH (parity with systemd's PAM env):
     expect(env.HOME).toBe("/home/prod");
     expect(env.PATH).toBe("/run/current-system/sw/bin:/usr/bin");
-    // operational var kaval needs beyond the base:
+    // XDG_RUNTIME_DIR rides in via the shared allowlist base (it is a
+    // SPAWN_ENV_OPERATIONAL member), not a hand-carried extra:
     expect(env.XDG_RUNTIME_DIR).toBe("/run/user/1000");
     // the ambient identity/secret never rides in:
     expect("CLAUDE_CODE_CHILD_SESSION" in env).toBe(false);
@@ -69,12 +70,7 @@ describe("daemonEnv — the env kaval is spawned with (2a parity pin, #1872)", (
 
     // every key is either on the shared allowlist or a named operational var — the
     // exact set, so a future broad addition fails THIS test, not review vigilance.
-    const OPERATIONAL = [
-      "XDG_RUNTIME_DIR",
-      "NODE_OPTIONS",
-      "KOLU_DIAG_DIR",
-      DAEMON_BIND_PID_ENV,
-    ];
+    const OPERATIONAL = ["NODE_OPTIONS", "KOLU_DIAG_DIR", DAEMON_BIND_PID_ENV];
     const allowed = new Set<string>([...SPAWN_ENV_ALLOWLIST, ...OPERATIONAL]);
     for (const k of Object.keys(env)) {
       expect(allowed.has(k)).toBe(true);

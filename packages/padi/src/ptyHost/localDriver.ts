@@ -86,19 +86,19 @@ export function resolveKavalLaunch(socketPath: string): {
  *     itself be a COMPLETE env, matching what the systemd branch gets from PAM's
  *     manager env + `--setenv`. Composing from the allowlist (not forwarding
  *     process.env) is what keeps an orchestrator's `CLAUDE_CODE_*` out.
- *  2. The daemon-operational vars kaval needs that a transient systemd unit's env
- *     reset would otherwise drop — chiefly `XDG_RUNTIME_DIR` (decides the socket
- *     path), the scrubbed `NODE_OPTIONS`, the run-bind pid, and `KOLU_DIAG_DIR`.
- *     (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH are set by kaval's own nix wrapper, so they
- *     don't need forwarding; PTY env arrives per-spawn on the wire since B0.)
+ *  2. The daemon-operational extras kaval needs on TOP of that base — the scrubbed
+ *     `NODE_OPTIONS`, the run-bind pid, and `KOLU_DIAG_DIR`. `XDG_RUNTIME_DIR`
+ *     (which decides the socket path) is NOT re-added here: it is a member of
+ *     `SPAWN_ENV_OPERATIONAL`, so it already arrives via the allowlist base in (1)
+ *     like every other operational var — exactly as padi's `daemonEnv` twin relies
+ *     on it, keeping the two twins carrying it by the ONE mechanism. (KAVAL_BUILD_ID
+ *     / KAVAL_COMMIT_HASH are set by kaval's own nix wrapper, so they don't need
+ *     forwarding; PTY env arrives per-spawn on the wire since B0.)
  *
  *  Its exact key set is pinned in `localDriver.test.ts` so neither spawn branch's env
  *  can drift silently. */
 export function daemonEnv(): Record<string, string> {
   const env: Record<string, string> = composeSpawnEnv(process.env);
-  if (process.env.XDG_RUNTIME_DIR) {
-    env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
-  }
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   // Forward the run-bind pid one hop further (server → padi → kaval): a harness/
