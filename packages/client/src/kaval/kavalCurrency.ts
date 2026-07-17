@@ -1,11 +1,36 @@
-/** The pure B3.4 currency derivation — "is the running kaval a build behind?"
+/** The pure kaval-attention derivation — "does this host's kaval need the
+ *  user's attention, and on which axis?" (B3.4 currency + SK5 contract skew).
  *
  *  Extracted as its own side-effect-free module (like `canvasModeResolver`) so
  *  its truth table is unit-tested without mounting `useDaemonStatus`'s
- *  `daemonStatus` subscription. The host-chip tooltip and Kaval dialog join the
- *  live `expected`/`reported` sources and call this at their read sites. */
+ *  `daemonStatus` subscription. The host-chip pip/tooltip, the Kaval dialog
+ *  banner, and the canvas skew card all join the live `expected`/`status`
+ *  sources and call {@link kavalAttention} at their read sites — the ONE
+ *  version-comparison site in the client, so the surfaces can never disagree
+ *  about whether (or why) a kaval needs attention (the reuse-as-fortification
+ *  ruling: two independently-drifting "your kaval needs attention" predicates
+ *  would be this bug's own shape rebuilt in the UI).
+ *
+ *  The two axes are MUTUALLY EXCLUSIVE by construction: `stale` (a newer build
+ *  is available) requires a CONNECTED kaval — a build-behind daemon is honestly
+ *  connected — while `incompatible` (a proven contract skew, SK4) is a daemon
+ *  that NEVER connects; its verdict arrives on the `incompatible` status arm
+ *  with both versions as typed fields (never re-parsed from message prose). */
 
-import type { DaemonState } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi/surface";
+
+/** The attention verdict — one of the two axes, or none. */
+export type KavalAttention =
+  | { kind: "none" }
+  /** Currency axis (B3.4): connected, but a newer kaval build is available —
+   *  the amber "restart to update" nudge. `running`/`expected` are the two
+   *  closure `staleKey`s (display sites pair them with `navigableCommit`s). */
+  | { kind: "stale"; running: string; expected: string }
+  /** Contract axis (SK4/SK5): a PROVEN skew — the daemon speaks a contract
+   *  this kolu cannot talk to, and a respawn from the host's current closure
+   *  has already been tried. The recovery is `hosts.renewDaemon`, never a
+   *  plain restart. */
+  | { kind: "incompatible"; daemonVersion: string; requiredVersion: string };
 
 /** True when the running daemon is provably a build behind the kaval the server
  *  would spawn (B3.4 — "update pending"): the link is `live`, it's `connected`, both
@@ -20,18 +45,12 @@ import type { DaemonState } from "@kolu/padi/surface";
  *  reported identity to compare. Orthogonal to `DaemonState` — a build-behind
  *  daemon is honestly `connected`, so this is a SECOND axis, not a state.
  *
- *  `live` (the watchdog-backed transport liveness, `daemonTransportLive()`) is a
- *  REQUIRED leg, threaded through the predicate itself rather than left to each
- *  caller: over a dead/half-open link the retained `connected` identity is stale, so
- *  the "a newer build is available — restart" nudge can't honestly fire (its restart
- *  would fail loudly, beside a grey "unknown" dot). Making it a parameter means BOTH
- *  read sites — the host-chip tooltip and the dialog banner (`KavalInfoDialog`'s
- *  `pending`) — MUST pass it; there is no way left to spell the connected-and-behind
- *  verdict without the floor (the unfloored call is a type error). */
-export function kavalStale(
+ *  MODULE-PRIVATE since SK5: every consumer reads the joined verdict through
+ *  {@link kavalAttention}, so a second comparison site can't be re-minted. */
+function kavalStale(
   expected: string | undefined,
   reported: string | undefined,
-  state: DaemonState | undefined,
+  state: DaemonStatus["state"] | undefined,
   live: boolean,
 ): boolean {
   return (
@@ -41,4 +60,38 @@ export function kavalStale(
     !!reported &&
     expected !== reported
   );
+}
+
+/** The ONE attention derivation (SK5). `live` (the watchdog-backed channel
+ *  liveness, `channelLive(...)`) is a REQUIRED leg, threaded through the
+ *  predicate itself rather than left to each caller: over a dead/half-open link
+ *  the retained status is stale, so neither the "newer build — restart" nudge
+ *  nor the "incompatible — update" verdict can honestly fire (their actions
+ *  would fail loudly beside a grey "unknown" dot). Making it a parameter means
+ *  every read site — the host-chip pip/tooltip, the dialog banner, the canvas
+ *  card — MUST pass it; there is no way left to spell an attention verdict
+ *  without the floor. */
+export function kavalAttention(
+  expected: string | undefined,
+  status: DaemonStatus | undefined,
+  live: boolean,
+): KavalAttention {
+  if (!live || status === undefined) return { kind: "none" };
+  if (status.state === "incompatible") {
+    return {
+      kind: "incompatible",
+      daemonVersion: status.daemonVersion,
+      requiredVersion: status.requiredVersion,
+    };
+  }
+  const reported = status.identity?.staleKey;
+  if (kavalStale(expected, reported, status.state, live)) {
+    // `kavalStale` proved both keys non-empty; narrow without re-asserting.
+    return {
+      kind: "stale",
+      running: reported as string,
+      expected: expected as string,
+    };
+  }
+  return { kind: "none" };
 }

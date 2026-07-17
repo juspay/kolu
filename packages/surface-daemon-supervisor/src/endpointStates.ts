@@ -23,6 +23,14 @@ export const ENDPOINT_STATES = [
   "restarting",
   "degraded",
   "dead",
+  // A PROVEN contract skew (SK4): the daemon that is (or would be) at this
+  // endpoint speaks a contract this supervisor's build cannot talk to, and a
+  // respawn from the currently-realised closure has already been tried (or is
+  // pointless by construction — the refuse arm). Terminal like `dead`, but a
+  // DIFFERENT verdict: restarting cannot fix it, only changing the closure
+  // can — so a UI deriving affordances from this sum never offers a restart
+  // against it. Carries both contract versions on the status arm.
+  "incompatible",
 ] as const;
 
 export type EndpointState = (typeof ENDPOINT_STATES)[number];

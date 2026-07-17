@@ -456,7 +456,7 @@ const App: Component = () => {
             <ConnectCanvas daemonState={undefined} />
           </Match>
           <Match when={downMode()}>
-            {(m) => <DegradedCanvas state={m().state} />}
+            {(m) => <DegradedCanvas down={m().down} />}
           </Match>
           <Match when={hostFailedMode()}>
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,

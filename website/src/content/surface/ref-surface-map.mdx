@@ -109,7 +109,10 @@ mapped type over the entry spec's `procedures`, so it types straight from the
 declaration with **no cast**, while dodging the union-budget overflow (TS2590) a
 full `ContractRouterClient` over an abstract entry spec would trip. The
 key-injecting link folds `{ mapKey }` into every call, so the caller never passes
-the key. `entry.rpc` stays typed **`unknown`** on a generic map — it is only for
+the key. A procedure's **declared error union** (`ProcedureSpec.errors`) rides
+the folded contract too, so a typed error minted behind the map's keyed proxy
+arrives at the outer client `defined: true` with its data intact — the map hop
+never demotes a declared error to `INTERNAL_SERVER_ERROR`. `entry.rpc` stays typed **`unknown`** on a generic map — it is only for
 the framework-**reserved** procedures (`system.live` / `system.identity`) and the
 link-root escape hatch, which a consumer reaches through its own concrete contract;
 a declared procedure never needs it.

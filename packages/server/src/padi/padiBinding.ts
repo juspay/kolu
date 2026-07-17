@@ -472,11 +472,19 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     connect: () => connectPadi(socketPath),
     log,
     onStatus: (_hostId, status) => {
-      // A degraded/dead close ends the current dial → resolve its `closed` so the
-      // session loop reconnects. connecting/connected/restarting are transient warmth
-      // the loop's own state covers; the binder's health rides the re-serve `connection`
-      // cell, so there is nothing to publish to daemonStatus.
-      if (status.state === "degraded" || status.state === "dead") {
+      // A degraded/dead/incompatible close ends the current dial → resolve its
+      // `closed` so the session loop reconnects. connecting/connected/restarting
+      // are transient warmth the loop's own state covers; the binder's health
+      // rides the re-serve `connection` cell, so there is nothing to publish to
+      // daemonStatus. The `incompatible` arm (SK4 — the refuse-policy verdict a
+      // skewed padi survivor now reports instead of `degraded`) is
+      // LOAD-BEARING here: without it a skew would strand `closed` unresolved
+      // and the session loop would stop reconciling.
+      if (
+        status.state === "degraded" ||
+        status.state === "dead" ||
+        status.state === "incompatible"
+      ) {
         const resolve = currentClosed;
         currentClosed = null;
         // `Endpoint`'s in-process daemon link died with NO child process — a

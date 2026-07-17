@@ -560,12 +560,16 @@ export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
 ]) satisfies z.ZodType<DaemonLifetimeInfo>;
 
+// `connected` and `incompatible` are the two PAYLOAD-BEARING arms — each gets
+// its own object schema below, so the shared payload-less enum arm excludes
+// both (leaving either in this enum would make its payload structurally
+// unspellable: the shared arm pins every payload field `z.never()`).
 const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
-  (state): state is Exclude<EndpointState, "connected"> =>
-    state !== "connected",
+  (state): state is Exclude<EndpointState, "connected" | "incompatible"> =>
+    state !== "connected" && state !== "incompatible",
 ) as [
-  Exclude<EndpointState, "connected">,
-  ...Exclude<EndpointState, "connected">[],
+  Exclude<EndpointState, "connected" | "incompatible">,
+  ...Exclude<EndpointState, "connected" | "incompatible">[],
 ];
 
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
@@ -611,6 +615,28 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
      *  survivor predating the field reports none, and the reader falls back
      *  to "—". Set once at boot, constant for the daemon's life. */
     lifetime: DaemonLifetimeInfoSchema.optional(),
+    daemonVersion: z.never().optional(),
+    requiredVersion: z.never().optional(),
+  }),
+  // The PROVEN-skew arm (SK4, padiSurface 4.1's one emitted delta): a daemon
+  // the supervisor has proven incompatible — a respawn from the realised
+  // closure already skewed (or a refuse-policy survivor skews by handshake).
+  // Carries BOTH contract versions as REQUIRED typed fields, read off the
+  // `DaemonContractSkewError`'s own fields at the emit site — the client's
+  // skew card renders them structurally; nothing ever re-parses the prose.
+  z.object({
+    state: z.literal("incompatible"),
+    /** The contract version the daemon actually speaks. */
+    daemonVersion: z.string(),
+    /** The contract version this kolu's build requires. */
+    requiredVersion: z.string(),
+    identity: z.never().optional(),
+    contractVersion: z.never().optional(),
+    startedAt: z.never().optional(),
+    adopted: z.never().optional(),
+    adoptedAt: z.never().optional(),
+    lifetime: z.never().optional(),
+    socketPath: z.string().optional(),
   }),
   z.object({
     // The state set is the spine's volatility — derive the enum from the
@@ -624,6 +650,8 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
     adopted: z.never().optional(),
     adoptedAt: z.never().optional(),
     lifetime: z.never().optional(),
+    daemonVersion: z.never().optional(),
+    requiredVersion: z.never().optional(),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). */

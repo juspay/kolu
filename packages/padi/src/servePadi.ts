@@ -441,7 +441,7 @@ export function buildPadiSurfaceDeps(deps: {
         // this is the `adopt-or-ensure` recycle arm, never a padi restart (that is
         // the separate `control.drain` upgrade path). Resolves once the fresh kaval
         // is connected; a failure rejects with the captured session safe on disk.
-        recycleKaval: async () => {
+        recycleKaval: async ({ errors }) => {
           log.info({}, "recycle kaval (Restart kaval)");
           try {
             await restartLocalDaemon();
@@ -459,11 +459,12 @@ export function buildPadiSurfaceDeps(deps: {
             // is the knowing endpoint (the `fileGoneAsNotFound` precedent): a
             // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
             // and the user would read an opaque toast (the field failure,
-            // bug-remote-kaval-contract-skew defect A). Refuse TYPED, versions
-            // as data — one recycle attempt was the diagnosis; padi is not the
-            // actor that can fix a skew (only the binder's reprovision is).
+            // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
+            // error constructor (SK6) — versions as typed data, `defined: true`
+            // on the wire — one recycle attempt was the diagnosis; padi is not
+            // the actor that can fix a skew (only the binder's reprovision is).
             if (isContractSkewError(err)) {
-              throw new ORPCError("KAVAL_CONTRACT_SKEW", {
+              throw errors.KAVAL_CONTRACT_SKEW({
                 message: err.message,
                 data: {
                   daemonVersion: err.daemonVersion,

@@ -590,6 +590,7 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
       addHost: async () => {},
       removeHost: async () => {},
       reconnectHost: () => {},
+      renewHostDaemon: async () => {},
     }) as Record<string, unknown>;
     expect(r.terminal).toBeUndefined();
     expect(r.git).toBeUndefined();

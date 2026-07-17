@@ -13,8 +13,14 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
+import type { ClientPromiseResult } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import type {
+  AnyContractRouter,
+  ContractRouterClient,
+  ErrorFromErrorMap,
+  ErrorMap,
+} from "@orpc/contract";
 import {
   type Accessor,
   createMemo,
@@ -351,6 +357,18 @@ export interface BoundProcedureOptions {
  *  would wrongly REQUIRE a defaulted key the server fills in. The result arm uses
  *  `z.output<Schema>` (the parsed value the wire returns). This matches oRPC's
  *  `.input(schema)` client, which accepts `z.input` and resolves `z.output`. */
+/** The bound face's REJECTION type (SK6): the spec's declared error union —
+ *  `ORPCError<code, data>` per declared code, plus `ThrowableError` for the
+ *  undeclared crash-loudly channel — carried as `ClientPromiseResult`'s
+ *  phantom, exactly oRPC's own contract-client shape. A caller feeds the call
+ *  to `safe(...)` / narrows with `isDefinedError` to read `{ code, data }`
+ *  typed; a spec with no `errors` resolves the plain `ThrowableError` phantom
+ *  and the face reads as an ordinary `Promise`, so existing callers are
+ *  untouched. */
+type BoundProcedureError<S> = ErrorFromErrorMap<
+  S extends { errors: infer E extends ErrorMap } ? E : Record<never, never>
+>;
+
 export type BoundProcedure<
   // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.
   S extends ProcedureSpec<any, any>,
@@ -361,15 +379,21 @@ export type BoundProcedure<
   ? (
       input: z.input<In>,
       options?: BoundProcedureOptions,
-    ) => Promise<z.output<Out>>
+    ) => ClientPromiseResult<z.output<Out>, BoundProcedureError<S>>
   : S extends { input: infer In extends ZodType }
-    ? (input: z.input<In>, options?: BoundProcedureOptions) => Promise<void>
+    ? (
+        input: z.input<In>,
+        options?: BoundProcedureOptions,
+      ) => ClientPromiseResult<void, BoundProcedureError<S>>
     : S extends { output: infer Out extends ZodType }
       ? (
           input?: undefined,
           options?: BoundProcedureOptions,
-        ) => Promise<z.output<Out>>
-      : (input?: undefined, options?: BoundProcedureOptions) => Promise<void>;
+        ) => ClientPromiseResult<z.output<Out>, BoundProcedureError<S>>
+      : (
+          input?: undefined,
+          options?: BoundProcedureOptions,
+        ) => ClientPromiseResult<void, BoundProcedureError<S>>;
 
 type BoundProceduresFor<S extends SurfaceSpec> = {
   [NS in keyof S["procedures"] & string]: {

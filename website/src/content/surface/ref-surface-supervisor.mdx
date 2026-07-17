@@ -14,10 +14,18 @@ dependency.
 
 ## The endpoint
 
-`createEndpoint(spec)` is the state machine: `connecting → connected | dead`,
-then `connected → degraded` if the daemon dies mid-session. `ensure()` runs the
-always-recycle boot; `current()` is the live connection. It is generic over the
-client `C` and identity `I`.
+`createEndpoint(spec)` is the state machine: `connecting → connected | dead |
+incompatible`, then `connected → degraded` if the daemon dies mid-session.
+`incompatible` is the PROVEN contract-skew verdict — a respawn from the
+realised closure already skewed (or a refuse-policy survivor skews at
+handshake) — reported with both contract versions on the status
+(`{ state: "incompatible", daemonVersion, requiredVersion }`), never collapsed
+into `dead`/`degraded`: a consumer deriving affordances from the state sum
+must not offer a restart against it (restarting cannot fix a skew; only
+changing the closure can). It is deliberately NOT coerced by a restart hold —
+a skew inside a restart is that restart's terminal verdict, not a transition.
+`ensure()` runs the always-recycle boot; `current()` is the live connection.
+It is generic over the client `C` and identity `I`.
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="endpoint" />
 

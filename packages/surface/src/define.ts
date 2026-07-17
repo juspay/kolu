@@ -30,7 +30,12 @@
  * object (never re-finalize it via oRPC `implement`).
  */
 
-import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
+import {
+  type AnyContractRouter,
+  type ErrorMap,
+  eventIterator,
+  oc,
+} from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import {
   CLOCK_NOW_NAMESPACE,
@@ -229,6 +234,16 @@ export interface ProcedureSpec<I = unknown, O = unknown> {
   input?: ZodType<I>;
   /** When omitted the procedure returns void. */
   output?: ZodType<O>;
+  /** The procedure's DECLARED error union (SK6) — oRPC contract-level typed
+   *  errors, keyed by error code. A declaring handler receives per-code typed
+   *  constructors on its oRPC `opts.errors` (`opts.errors.SOME_CODE({ data })`),
+   *  and the bound client face's rejection carries the union, so a caller
+   *  narrows a failure with `isDefinedError` / `safe` to `{ code, data }` —
+   *  a typed domain error can no longer flatten to an opaque
+   *  `INTERNAL_SERVER_ERROR` at a generic hop. Undeclared throws still cross
+   *  as `INTERNAL_SERVER_ERROR` (TypeScript cannot type `throw`) — that
+   *  remains the fail-fast crash-loudly channel; declare what is actionable. */
+  errors?: ErrorMap;
 }
 
 /** `TPolicy` DEFAULTS to `any`, not `never` — so every bare `extends SurfaceSpec`
@@ -408,7 +423,13 @@ function eventContractEntries<I, T>(
 function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
   const input = spec.input ?? z.void();
   const output = spec.output ?? z.void();
-  return oc.input(input).output(output);
+  // `.errors` is applied UNCONDITIONALLY (empty map when undeclared) so this
+  // runtime entry and the `buildProcedure*` type oracles below stay one shape
+  // — the drift-watch rule; an empty map is semantically "no declared errors".
+  return oc
+    .input(input)
+    .output(output)
+    .errors(spec.errors ?? {});
 }
 
 // ── Mapped types for `surface.contract` ────────────────────────────────
@@ -601,16 +622,23 @@ type EventContract<S extends EventSpec<any, any>> = S extends {
   ? ReturnType<typeof buildEvent<I, T>>
   : never;
 
+/** The spec's declared error map, or the empty map when it declares none —
+ *  threaded through ALL FOUR `buildProcedure*` oracles (the drift-watch rule:
+ *  the runtime entry applies `.errors` on every shape, so must the types). */
+type ProcedureErrors<S> = S extends { errors: infer E extends ErrorMap }
+  ? E
+  : Record<never, never>;
+
 type ProcedureContract<S extends ProcedureSpec<any, any>> = S extends {
   input: ZodType<infer I>;
   output: ZodType<infer O>;
 }
-  ? ReturnType<typeof buildProcedure<I, O>>
+  ? ReturnType<typeof buildProcedure<I, O, ProcedureErrors<S>>>
   : S extends { input: ZodType<infer I> }
-    ? ReturnType<typeof buildProcedureNoOutput<I>>
+    ? ReturnType<typeof buildProcedureNoOutput<I, ProcedureErrors<S>>>
     : S extends { output: ZodType<infer O> }
-      ? ReturnType<typeof buildProcedureNoInput<O>>
-      : ReturnType<typeof buildProcedureNoIO>;
+      ? ReturnType<typeof buildProcedureNoInput<O, ProcedureErrors<S>>>
+      : ReturnType<typeof buildProcedureNoIO<ProcedureErrors<S>>>;
 
 type MergeContract<
   A extends Record<string, unknown>,
@@ -842,20 +870,48 @@ function buildEvent<I, T>(opts: {
   };
 }
 
-function buildProcedure<I, O>(opts: { input: ZodType<I>; output: ZodType<O> }) {
-  return oc.input(opts.input).output(opts.output);
+// Each oracle threads the spec's DECLARED error map (SK6) — `E` defaults to
+// the empty map so an errors-less spec resolves the same contract type it
+// always did. All four apply `.errors` because the runtime entry does
+// (unconditionally, empty when undeclared) — one shape, no drift.
+function buildProcedure<I, O, E extends ErrorMap = Record<never, never>>(opts: {
+  input: ZodType<I>;
+  output: ZodType<O>;
+  errors?: E;
+}) {
+  return oc
+    .input(opts.input)
+    .output(opts.output)
+    .errors((opts.errors ?? {}) as E);
 }
 
-function buildProcedureNoOutput<I>(opts: { input: ZodType<I> }) {
-  return oc.input(opts.input).output(z.void());
+function buildProcedureNoOutput<
+  I,
+  E extends ErrorMap = Record<never, never>,
+>(opts: { input: ZodType<I>; errors?: E }) {
+  return oc
+    .input(opts.input)
+    .output(z.void())
+    .errors((opts.errors ?? {}) as E);
 }
 
-function buildProcedureNoInput<O>(opts: { output: ZodType<O> }) {
-  return oc.input(z.void()).output(opts.output);
+function buildProcedureNoInput<
+  O,
+  E extends ErrorMap = Record<never, never>,
+>(opts: { output: ZodType<O>; errors?: E }) {
+  return oc
+    .input(z.void())
+    .output(opts.output)
+    .errors((opts.errors ?? {}) as E);
 }
 
-function buildProcedureNoIO() {
-  return oc.input(z.void()).output(z.void());
+function buildProcedureNoIO<E extends ErrorMap = Record<never, never>>(opts?: {
+  errors?: E;
+}) {
+  return oc
+    .input(z.void())
+    .output(z.void())
+    .errors((opts?.errors ?? {}) as E);
 }
 
 // ── Surface value ──────────────────────────────────────────────────────

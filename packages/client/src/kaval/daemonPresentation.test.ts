@@ -8,10 +8,32 @@ import {
   kavalDot,
   liveDownState,
   liveWarming,
+  offerRestartVerb,
   serverDot,
   toKavalPresence,
   toneDot,
 } from "./daemonPresentation";
+
+// ── Wire-status fixtures — `liveDownState` takes the FULL status since SK4 (the
+// `incompatible` arm's version pair rides the same wire value). ──────────────
+
+/** A payload-less down/transient wire status. */
+const down = (state: "dead" | "degraded"): DaemonStatus => ({ state });
+
+/** The proven-skew wire arm (SK4) — both versions as REQUIRED typed fields. */
+const incompatibleStatus = (): DaemonStatus => ({
+  state: "incompatible",
+  daemonVersion: "5.0",
+  requiredVersion: "5.2",
+});
+
+/** A minimal connected wire status (identity present). */
+const minimalConnected = (): DaemonStatus => ({
+  state: "connected",
+  identity: { staleKey: "k", navigableCommit: "c".repeat(40) },
+  contractVersion: "5.2",
+  startedAt: 1,
+});
 
 describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1568 green-dot class)", () => {
   it("paints the daemon-state tone only when the transport is LIVE", () => {
@@ -90,14 +112,24 @@ describe("liveWarming / liveDownState — daemon-state claims FLOORED on transpo
   });
 
   it("liveDownState is the down sub-state ONLY over a live link, else undefined (unknown ≠ down)", () => {
-    expect(liveDownState("dead", true)).toBe("dead");
-    expect(liveDownState("degraded", true)).toBe("degraded");
+    expect(liveDownState(down("dead"), true)).toEqual({ state: "dead" });
+    expect(liveDownState(down("degraded"), true)).toEqual({
+      state: "degraded",
+    });
+    // The proven skew (SK4) is a DOWN verdict carrying its typed version pair
+    // through to the skew card — never collapsed to a bare dead/degraded.
+    expect(liveDownState(incompatibleStatus(), true)).toEqual({
+      state: "incompatible",
+      daemonVersion: "5.0",
+      requiredVersion: "5.2",
+    });
     // Dead link: a retained down state is stale → unknown, NOT a definite "down"
     // (so DegradedCanvas never paints over a link we can't see through).
-    expect(liveDownState("dead", false)).toBeUndefined();
-    expect(liveDownState("degraded", false)).toBeUndefined();
+    expect(liveDownState(down("dead"), false)).toBeUndefined();
+    expect(liveDownState(down("degraded"), false)).toBeUndefined();
+    expect(liveDownState(incompatibleStatus(), false)).toBeUndefined();
     // A non-down or unknown state is not down regardless.
-    expect(liveDownState("connected", true)).toBeUndefined();
+    expect(liveDownState(minimalConnected(), true)).toBeUndefined();
     expect(liveDownState(undefined, true)).toBeUndefined();
   });
 });
@@ -137,7 +169,7 @@ describe("the active-entry leg — the SECOND floor on the host-scoped kaval dae
     // the describe block below). A dead entry reads unknown (undefined down-state,
     // not-warming) — `daemonConnected()` therefore reads false.
     const dead = channelLive(true, false);
-    expect(liveDownState("dead", dead)).toBeUndefined();
+    expect(liveDownState(down("dead"), dead)).toBeUndefined();
     expect(liveWarming("restarting", dead)).toBe(false);
   });
 });
@@ -164,14 +196,14 @@ describe("the daemon-rail floor is now host-UNIFORM (W4 daemon-rail unification 
     expect(liveWarming("connected", localDrain)).toBe(
       liveWarming("connected", remoteFlap),
     );
-    expect(liveDownState("degraded", localDrain)).toBe(
-      liveDownState("degraded", remoteFlap),
+    expect(liveDownState(down("degraded"), localDrain)).toBe(
+      liveDownState(down("degraded"), remoteFlap),
     );
     // Concretely: neither reads a stale claim over the dropped channel — unknown, not a
     // frozen "running"/"degraded" (the #1034 never-show-a-stale-verdict invariant, now
     // enforced identically for every host by construction, not by a per-host gate).
     expect(liveWarming("connected", localDrain)).toBe(false);
-    expect(liveDownState("degraded", localDrain)).toBeUndefined();
+    expect(liveDownState(down("degraded"), localDrain)).toBeUndefined();
   });
 });
 
@@ -283,5 +315,46 @@ describe("formatLifetime — the shared humanizer for the Kaval/Padi dialog life
     // `undefined` is a survivor predating the wire field — an honest dash, never a
     // fabricated policy.
     expect(formatLifetime(undefined)).toBe("—");
+  });
+});
+
+describe("the incompatible arm (SK4) — a proven skew is its own verdict, never a warming pulse", () => {
+  it("toKavalPresence maps incompatible to its OWN arm with both versions — not warming, not down", () => {
+    expect(toKavalPresence(incompatibleStatus(), true)).toEqual({
+      kind: "incompatible",
+      daemonVersion: "5.0",
+      requiredVersion: "5.2",
+    });
+  });
+
+  it("over a dead link the retained skew folds to warming like every stale claim (unknown ≠ incompatible)", () => {
+    expect(toKavalPresence(incompatibleStatus(), false)).toEqual({
+      kind: "warming",
+    });
+  });
+
+  it("the presentation row is a DOWN tone (red dot, down: true) — never the warming pulse the old fallthrough painted", () => {
+    expect(DAEMON_STATE_PRESENTATION.incompatible.tone).toBe("down");
+    expect(DAEMON_STATE_PRESENTATION.incompatible.down).toBe(true);
+    expect(kavalDot("incompatible", true)).toBe(toneDot.down);
+  });
+});
+
+describe("offerRestartVerb — the palette's Restart gate is a total function of the state sum (D5c)", () => {
+  it("offered when idle/down-but-restartable; withheld while warming", () => {
+    expect(offerRestartVerb(false, undefined)).toBe(true);
+    expect(offerRestartVerb(false, { state: "dead" })).toBe(true);
+    expect(offerRestartVerb(false, { state: "degraded" })).toBe(true);
+    expect(offerRestartVerb(true, undefined)).toBe(false);
+  });
+
+  it("withheld against a PROVEN skew — the palette never offers the dead-end restart the skew card replaces", () => {
+    expect(
+      offerRestartVerb(false, {
+        state: "incompatible",
+        daemonVersion: "5.0",
+        requiredVersion: "5.2",
+      }),
+    ).toBe(false);
   });
 });

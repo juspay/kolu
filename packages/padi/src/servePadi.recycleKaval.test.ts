@@ -69,6 +69,15 @@ function contractSkewRejection(): Error {
   );
 }
 
+/** The typed per-code constructor map oRPC hands a DECLARING procedure's
+ *  handler (`opts.errors`, SK6) — mimicked here exactly as `implementSurface`
+ *  delivers it (the oRPC `ORPCErrorConstructorMap` shape), since this unit
+ *  drives the dep handler directly rather than through the contract router. */
+const errorCtors = {
+  KAVAL_CONTRACT_SKEW: (opts: { message?: string; data?: unknown }) =>
+    new ORPCError("KAVAL_CONTRACT_SKEW", opts),
+};
+
 function recycleKavalHandler() {
   const deps = buildPadiSurfaceDeps({
     endpoint: fakeEndpoint,
@@ -79,7 +88,7 @@ function recycleKavalHandler() {
     stateRoot: "/tmp/padi-recyclekaval-test-state-root",
   });
   const recycle = deps.procedures?.lifecycle?.recycleKaval as
-    | ((opts: Record<string, never>) => Promise<void>)
+    | ((opts: { errors: typeof errorCtors }) => Promise<void>)
     | undefined;
   if (!recycle) throw new Error("padi deps must serve lifecycle.recycleKaval");
   return recycle;
@@ -92,7 +101,7 @@ describe("recycleKaval on a contract skew — refuse typed, versions as data", (
     vi.mocked(restartLocalDaemon).mockRejectedValue(contractSkewRejection());
     const recycle = recycleKavalHandler();
 
-    const rejection = await recycle({}).then(
+    const rejection = await recycle({ errors: errorCtors }).then(
       () => {
         throw new Error("recycleKaval resolved — expected a typed rejection");
       },
@@ -114,6 +123,6 @@ describe("recycleKaval on a contract skew — refuse typed, versions as data", (
     vi.mocked(restartLocalDaemon).mockRejectedValue(boom);
     const recycle = recycleKavalHandler();
 
-    await expect(recycle({})).rejects.toBe(boom);
+    await expect(recycle({ errors: errorCtors })).rejects.toBe(boom);
   });
 });

@@ -652,6 +652,116 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 
+  it("a recycle whose FRESH SPAWN still skews reports incompatible with both versions — never dead (SK4)", async () => {
+    // The field failure's terminal shape (bug-remote-kaval-contract-skew): the
+    // skewed survivor is recycled, but the respawn from the currently-realised
+    // closure ALSO skews — proof that no respawn can converge this endpoint.
+    // Reporting `dead` here is the collapse that made the UI offer the exact
+    // retry that just failed; the honest verdict is `incompatible`, versions
+    // attached, so every affordance downstream can refuse to offer a restart.
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    const survivorExited = new Promise<void>((r) =>
+      survivor.on("exit", () => r()),
+    );
+
+    // The in-process socket stays up across the kill (it is not the sleep pid),
+    // so the post-recycle spawn's socket wait passes and `connect` runs again.
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} },
+      // EVERY connect skews — the survivor AND the fresh spawn: the closure on
+      // this host cannot speak the required contract, whoever runs it.
+      connect: async () => {
+        throw new DaemonContractSkewError({
+          subject: "pty-host",
+          daemonVersion: "5.0",
+          requiredVersion: "5.2",
+        });
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+      adoptConnectAttempts: 3,
+      adoptConnectRetryMs: 1,
+    });
+
+    await expect(endpoint.adoptOrEnsure()).rejects.toMatchObject({
+      isContractSkew: true,
+    });
+    await survivorExited; // the skewed survivor was still recycled (killed)
+
+    // The terminal status is the PROVEN verdict, payload attached — never `dead`.
+    expect(statuses.map((s) => s.state)).toEqual([
+      "connecting",
+      "incompatible",
+    ]);
+    const last = statuses.at(-1);
+    if (last?.state === "incompatible") {
+      expect(last.daemonVersion).toBe("5.0");
+      expect(last.requiredVersion).toBe("5.2");
+    }
+  });
+
+  it("an incompatible verdict inside a restart hold is NOT coerced to restarting (SK4)", async () => {
+    // `holdRestarting` coerces the recycle's transient `connecting`/`degraded`
+    // into one honest "restarting" — but a proven skew is the restart's
+    // terminal VERDICT, not a transition: repainting it as `restarting` would
+    // show progress against a daemon a restart cannot fix. The hold must let
+    // `incompatible` through, and the hold's recovery must not stomp it.
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} },
+      connect: async () => {
+        throw new DaemonContractSkewError({
+          subject: "pty-host",
+          daemonVersion: "5.0",
+          requiredVersion: "5.2",
+        });
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await endpoint.holdRestarting(async () => {
+      await endpoint.ensure().catch(() => {});
+    });
+
+    // `connecting` was coerced into the hold's `restarting`; the skew verdict
+    // passed through UN-coerced and stands as the last word (never `dead`,
+    // never a lingering `restarting`).
+    expect(statuses.map((s) => s.state)).toEqual([
+      "restarting",
+      "restarting",
+      "incompatible",
+    ]);
+  });
+
   it("does NOT kill a survivor whose NON-skew connect fails every attempt: leaves it up, reports degraded, returns false (F4)", async () => {
     const d = dir();
     const socketPath = join(d, "x.sock");
@@ -742,7 +852,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
 });
 
 describe("adoptOrSpawnOrRefuse — the padi binder's boot policy (W2.2)", () => {
-  it("REFUSES a survivor that is a contract skew: leaves it up (NO kill, NO spawn), reports degraded, returns false", async () => {
+  it("REFUSES a survivor that is a contract skew: leaves it up (NO kill, NO spawn), reports incompatible with both versions, returns false", async () => {
     const d = dir();
     const socketPath = join(d, "x.sock");
     const gatePath = join(d, "x.pid");
@@ -801,8 +911,19 @@ describe("adoptOrSpawnOrRefuse — the padi binder's boot policy (W2.2)", () => 
     expect(survivorExited).toBe(false); // NEVER killed the running padi (the delta)
     expect(connectCount).toBe(1); // skew is terminal — no retries
     expect(endpoint.current()).toBeUndefined(); // no connection held
-    // Reports degraded: a daemon is there, incompatible, left standing.
-    expect(statuses.map((s) => s.state)).toEqual(["connecting", "degraded"]);
+    // Reports the PROVEN verdict by name (SK4): `incompatible`, carrying both
+    // contract versions off the typed error's fields — never a plain `degraded`
+    // that a UI cannot distinguish from "unreachable"/"died mid-session".
+    expect(statuses.map((s) => s.state)).toEqual([
+      "connecting",
+      "incompatible",
+    ]);
+    const last = statuses.at(-1);
+    expect(last?.state).toBe("incompatible");
+    if (last?.state === "incompatible") {
+      expect(last.daemonVersion).toBe("3.0");
+      expect(last.requiredVersion).toBe("4.0");
+    }
   });
 
   it("ADOPTS a live, handshake-compatible survivor: no kill, no spawn, holds it", async () => {
