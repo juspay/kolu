@@ -27,6 +27,8 @@ import {
   OSC7_FN,
   prepareShellInit,
   SPAWN_ENV_ALLOWLIST,
+  SPAWN_ENV_FUNCTIONAL,
+  SPAWN_ENV_OPERATIONAL,
   SPAWN_ENV_PRESENTATION,
 } from "./shell.ts";
 
@@ -214,27 +216,25 @@ describe("koluIdentityEnv", () => {
   });
 });
 
-describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as data", () => {
-  // The coordinator's rider: assert the EXACT contents as data so a future broad
-  // key that reopens the #1872 identity-leak class fails a TEST, not review
-  // vigilance. Every kolu spawn composer funnels through this one list.
-  it("is exactly the narrow non-identity base (functional + presentation)", () => {
-    expect([...SPAWN_ENV_ALLOWLIST]).toEqual([
+describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as data BY CLASS", () => {
+  // Rider: the exact-set test groups keys by their NAMED CLASS, each with a one-line
+  // rationale, so a future addition must name the class it belongs to — and an
+  // identity-ish key has no class to claim (it fails this test, not review vigilance).
+  // The invariant is "no ambient IDENTITY, finite, pinned" — not "narrow for its own
+  // sake"; a non-identity capability var the login session owns is legitimately in-scope.
+
+  it("Class 1 FUNCTIONAL — exactly what a shell/daemon needs to run", () => {
+    expect([...SPAWN_ENV_FUNCTIONAL]).toEqual([
       "HOME",
       "USER",
       "LOGNAME",
       "PATH",
       "SHELL",
-      "DISPLAY",
-      "TERM",
-      "COLORTERM",
-      "LANG",
-      "LC_ALL",
-      "LC_CTYPE",
+      "DISPLAY", // X11 sibling of WAYLAND_DISPLAY (operational) — a functional need.
     ]);
   });
 
-  it("presentation subset is exactly the terminal/locale vars", () => {
+  it("Class 2 PRESENTATION — exactly the terminal/locale vars", () => {
     expect([...SPAWN_ENV_PRESENTATION]).toEqual([
       "TERM",
       "COLORTERM",
@@ -242,13 +242,36 @@ describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as da
       "LC_ALL",
       "LC_CTYPE",
     ]);
-    // The presentation set is a subset of the full allowlist (no drift).
-    for (const k of SPAWN_ENV_PRESENTATION) {
-      expect(SPAWN_ENV_ALLOWLIST).toContain(k);
-    }
   });
 
-  it("no identity var can ride the allowlist — CLAUDE_CODE_* / secrets are not in it", () => {
+  it("Class 3 OPERATIONAL-SESSION — exactly the login-session capability vars (never dotfile-restorable)", () => {
+    expect([...SPAWN_ENV_OPERATIONAL]).toEqual([
+      "XDG_RUNTIME_DIR",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME",
+      "SSH_AUTH_SOCK", // signing capability — needed; SSH_AGENT_PID (kill) is OUT.
+      "WAYLAND_DISPLAY",
+      "XAUTHORITY",
+      "DBUS_SESSION_BUS_ADDRESS",
+      "TMPDIR", // darwin: launchd mints a per-user /var/folders temp per session.
+    ]);
+    // SSH_AGENT_PID (kill-the-agent capability) is deliberately NOT here.
+    expect(SPAWN_ENV_OPERATIONAL as readonly string[]).not.toContain(
+      "SSH_AGENT_PID",
+    );
+  });
+
+  it("the full allowlist is exactly the three named classes, in order, no extras", () => {
+    expect([...SPAWN_ENV_ALLOWLIST]).toEqual([
+      ...SPAWN_ENV_FUNCTIONAL,
+      ...SPAWN_ENV_PRESENTATION,
+      ...SPAWN_ENV_OPERATIONAL,
+    ]);
+  });
+
+  it("no identity var can claim a class — CLAUDE_CODE_* / secrets / kolu-internal are absent", () => {
     for (const forbidden of [
       "CLAUDE_CODE_CHILD_SESSION",
       "CLAUDECODE",
@@ -256,8 +279,9 @@ describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as da
       "AWS_SECRET_ACCESS_KEY",
       "KOLU_KAVAL_BIN",
       "KAVAL_BUILD_ID",
+      "SSH_AGENT_PID",
     ]) {
-      expect(SPAWN_ENV_ALLOWLIST).not.toContain(forbidden);
+      expect(SPAWN_ENV_ALLOWLIST as readonly string[]).not.toContain(forbidden);
     }
   });
 });

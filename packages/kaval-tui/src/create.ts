@@ -23,7 +23,7 @@ import {
 // cleanEnv), so kaval-tui's composers cannot drift from cleanEnv / daemonEnv / the
 // e2e harness. This is the #1872 structural invariant: identity cannot ride ambient
 // env into any kolu-spawned process.
-import { SPAWN_ENV_ALLOWLIST, SPAWN_ENV_PRESENTATION } from "kolu-pty";
+import { composeSpawnEnv, SPAWN_ENV_PRESENTATION } from "kolu-pty";
 import { commandName, sanitizeCell, shortId, tildeify } from "./render.ts";
 
 /** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema).
@@ -66,11 +66,10 @@ export function buildCreateInput(opts: {
    *  `opts.env`: the child is owned by THIS daemon, not an outer one. */
   kavalSocket: string;
 }): PtyHostSpawnInput {
-  const env: Record<string, string> = {};
-  for (const k of SPAWN_ENV_ALLOWLIST) {
-    const v = opts.env[k];
-    if (v != null) env[k] = v;
-  }
+  // The shared primitive — same allowlist mine cleanEnv / daemonEnv funnel through,
+  // so this composer cannot drift from them. Explicit `--env` additions layer on top,
+  // then the KAVAL_SOCKET stamp.
+  const env: Record<string, string> = composeSpawnEnv(opts.env);
   for (const [k, v] of Object.entries(opts.extraEnv ?? {})) env[k] = v;
   env.KAVAL_SOCKET = opts.kavalSocket;
   return composeCreateInput({

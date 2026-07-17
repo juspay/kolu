@@ -34,13 +34,28 @@ import { join } from "node:path";
 export const NIX_ENV_WHITELIST =
   "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY";
 
-/**
- * Presentation-only env keys safe to carry into ANY kolu-spawned process — they
- * describe the *terminal* (colour, locale), never machine identity or secrets. A
- * subset of {@link SPAWN_ENV_ALLOWLIST}, named separately so a composer that reads
- * functional vars from a different source (a remote host's `system.info`) can still
- * carry presentation from the local terminal. Pinned exactly as data in the tests.
- */
+// The ONE canonical allowlist of env keys safe to carry into a kolu-spawned process,
+// composed from THREE named classes so a future addition must name a class it belongs
+// to — and an identity-ish key has no class to claim. It is an ALLOWLIST, not a
+// blacklist: a key NOT named here is DROPPED, so an identity var that doesn't exist yet
+// (a future agent's `CLAUDE_CODE_CHILD_SESSION` kin, an orchestrator's private marker)
+// cannot ride ambient env into any kolu-spawned process (the #1872 class). The line is
+// not "narrow for its own sake" — it is "no ambient IDENTITY, finite, pinned"; a
+// non-identity CAPABILITY var the user's login session owns is in-scope.
+
+/** Class 1 — FUNCTIONAL base: what a shell or daemon needs to run at all. */
+export const SPAWN_ENV_FUNCTIONAL = [
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "PATH",
+  "SHELL",
+  "DISPLAY",
+] as const;
+
+/** Class 2 — PRESENTATION: describes the *terminal* (colour, locale), never identity.
+ *  Named separately so a composer that reads functional vars from a different source (a
+ *  remote host's `system.info`) can still carry presentation from the local terminal. */
 export const SPAWN_ENV_PRESENTATION = [
   "TERM",
   "COLORTERM",
@@ -49,33 +64,40 @@ export const SPAWN_ENV_PRESENTATION = [
   "LC_CTYPE",
 ] as const;
 
-/**
- * The ONE canonical allowlist of env keys safe to carry into a kolu-spawned
- * process — the single source of truth every composer funnels through: `cleanEnv`
- * (below, for hosted PTY shells), kaval-tui's `create`, padi's `daemonEnv`, the e2e
- * harness, and the remote connector's localhost arm. It is an ALLOWLIST, not a
- * blacklist: a key NOT named here is DROPPED, so an identity var that doesn't exist
- * yet — a future agent's `CLAUDE_CODE_CHILD_SESSION` kin, an orchestrator's private
- * marker — cannot ride ambient env into any kolu-spawned process (the #1872 class).
- * A caller that genuinely needs a dropped var adds it back EXPLICITLY (kaval-tui's
- * `--env K=V`); there is no inherit-everything switch.
- *
- * The functional half (HOME/USER/LOGNAME/PATH/SHELL/DISPLAY) is what a shell or
- * daemon needs to run; the presentation half is {@link SPAWN_ENV_PRESENTATION}.
- * Deliberately NARROW and pinned exactly as data (`shell.test.ts`): adding a key is
- * a reviewed one-line diff that fails the exact-contents test, never a silent widen.
- * Operational session vars a hosted shell might want (e.g. `XDG_RUNTIME_DIR` for
- * `systemctl --user`) are intentionally OUT for now — the wrapper rcfile replay
- * restores the user's dotfile env, and adding one is a deliberate, test-visible act.
- */
+/** Class 3 — OPERATIONAL-SESSION: capability vars MINTED BY THE USER'S LOGIN SESSION
+ *  (PAM / systemd-user / launchd), NOT by dotfiles — so the wrapper rcfile replay
+ *  cannot restore them, and dropping them silently breaks an interactive terminal
+ *  (ssh-agent git push, `systemctl --user`, GUI apps, desktop notifications). All are
+ *  non-identity CAPABILITY vars, so carrying them honors the invariant.
+ *   - `TMPDIR` is load-bearing on DARWIN: launchd mints a per-user `/var/folders/…`
+ *     temp dir per login session; narrowing it out silently falls every macOS tool
+ *     back to `/tmp`.
+ *   - `SSH_AGENT_PID` is deliberately OUT: `SSH_AUTH_SOCK` grants *signing* capability
+ *     (a terminal workload needs it); `SSH_AGENT_PID` grants *kill-the-agent*
+ *     capability, which no terminal workload needs — smaller is honest. */
+export const SPAWN_ENV_OPERATIONAL = [
+  "XDG_RUNTIME_DIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_STATE_HOME",
+  "SSH_AUTH_SOCK",
+  "WAYLAND_DISPLAY",
+  "XAUTHORITY",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "TMPDIR",
+] as const;
+
+/** The single source of truth every composer funnels through: `cleanEnv` (below, for
+ *  every hosted PTY shell), kaval-tui's `create`, padi's `daemonEnv`, and the e2e
+ *  harness. A caller that genuinely needs a var outside all three classes adds it back
+ *  EXPLICITLY (kaval-tui's `--env K=V`); there is no inherit-everything switch. Pinned
+ *  exactly as data (`shell.test.ts`), grouped by class, so a widen is a reviewed,
+ *  test-visible act. */
 export const SPAWN_ENV_ALLOWLIST = [
-  "HOME",
-  "USER",
-  "LOGNAME",
-  "PATH",
-  "SHELL",
-  "DISPLAY",
+  ...SPAWN_ENV_FUNCTIONAL,
   ...SPAWN_ENV_PRESENTATION,
+  ...SPAWN_ENV_OPERATIONAL,
 ] as const;
 
 /**
