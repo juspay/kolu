@@ -48,3 +48,24 @@ describe("deep-link router is view-only (the negative pin)", () => {
     }
   });
 });
+
+/** The loop pin: `navigate` is a COMMAND, and its whole body must run under
+ *  `untrack`. It reads reactive state (the disarm guard's `pending()`) and
+ *  writes it (`setPending`) — executed inside a caller's tracking scope (the
+ *  preview-bridge `createEffect` delivers hashes from exactly such a scope),
+ *  those reads subscribe the delivering effect to the very signals navigate
+ *  writes, and the app busy-loops re-routing forever after the first
+ *  bridge-delivered link (reproduced deterministically on both CI platforms;
+ *  the DL2 repeat-pill e2e leg is the felt symptom). Losing the `untrack`
+ *  must fail THIS test, not resurface as a CI-only e2e red. */
+describe("navigate is a command — it runs untracked (the loop pin)", () => {
+  it("wraps navigate's body in untrack()", () => {
+    const start = routerSrc.indexOf("function navigate(");
+    expect(start).toBeGreaterThan(-1);
+    const body = routerSrc.slice(
+      start,
+      routerSrc.indexOf("stampEntryRouted();", start),
+    );
+    expect(body).toContain("untrack(() => {");
+  });
+});

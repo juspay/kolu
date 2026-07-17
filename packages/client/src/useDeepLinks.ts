@@ -29,6 +29,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
@@ -202,35 +203,48 @@ export function useDeepLinks(): void {
    *  can't enact, toast, or steer hydration after the user has moved on (a
    *  later host/settings switch, or a second link). */
   function navigate(link: ParsedDeepLink): void {
-    batch(() => {
-      disarmInFlightRoute();
-      match(link)
-        .with({ kind: "none" }, () => {})
-        .with({ kind: "invalid" }, ({ reason }) =>
-          toast.error(`That link doesn't point anywhere kolu knows: ${reason}`),
-        )
-        .with({ kind: "settings" }, () => openSettings())
-        .with({ kind: "host" }, ({ host }) =>
-          setActiveHost(decodeHostKey(host)),
-        )
-        // terminal · code · inspector all target a terminal — one handler.
-        .with(
-          { kind: "terminal" },
-          { kind: "code" },
-          { kind: "inspector" },
-          (l) => routeToTerminal(l),
-        )
-        .exhaustive();
+    // A COMMAND, not a derivation — the whole body runs UNTRACKED. Navigate
+    // both reads reactive state (the disarm guard's `pending()`) and writes it
+    // (`setPending`); run inside a caller's tracking scope — the preview-bridge
+    // effect is one today — those reads would subscribe that effect to the very
+    // signals navigate writes, and the app busy-loops re-routing forever after
+    // the first bridge-delivered link (reproduced deterministically on both CI
+    // platforms). `untrack` severs that class at the one funnel all four
+    // delivery paths share; the unit pin holds the spelling.
+    untrack(() => {
+      batch(() => {
+        disarmInFlightRoute();
+        match(link)
+          .with({ kind: "none" }, () => {})
+          .with({ kind: "invalid" }, ({ reason }) =>
+            toast.error(
+              `That link doesn't point anywhere kolu knows: ${reason}`,
+            ),
+          )
+          .with({ kind: "settings" }, () => openSettings())
+          .with({ kind: "host" }, ({ host }) =>
+            setActiveHost(decodeHostKey(host)),
+          )
+          // terminal · code · inspector all target a terminal — one handler.
+          .with(
+            { kind: "terminal" },
+            { kind: "code" },
+            { kind: "inspector" },
+            (l) => routeToTerminal(l),
+          )
+          .exhaustive();
+      });
+      // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's
+      // command handled, so a later back/forward traversal RESTORING it does
+      // not re-route (the `hashchange` gate below) — mouse-back must revert
+      // the URL silently, never teleport the view to an old link (DL3).
+      // Uniform for every verdict incl. `invalid` (traversing onto a bad-link
+      // entry must not re-toast) and `none` (harmless). A same-URL
+      // `replaceState` — the hash stays in the bar (durability), no entry is
+      // added, and a RELOAD still re-routes because the boot parse never
+      // reads this gate.
+      stampEntryRouted();
     });
-    // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's command
-    // handled, so a later back/forward traversal RESTORING it does not
-    // re-route (the `hashchange` gate below) — mouse-back must revert the URL
-    // silently, never teleport the view to an old link (DL3). Uniform for
-    // every verdict incl. `invalid` (traversing onto a bad-link entry must not
-    // re-toast) and `none` (harmless). A same-URL `replaceState` — the hash
-    // stays in the bar (durability), no entry is added, and a RELOAD still
-    // re-routes because the boot parse never reads this gate.
-    stampEntryRouted();
   }
 
   /** Resolve a route's target record AND the tile that OWNS its right panel —
