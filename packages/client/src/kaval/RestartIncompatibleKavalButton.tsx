@@ -31,7 +31,7 @@ const RestartIncompatibleKavalButton: Component<{
     tone={props.tone}
     inFlight={recoveryInFlight(activeHost())}
     icon={<RestartIcon class="h-3.5 w-3.5" />}
-    testid="update-kaval"
+    testid="restart-incompatible-kaval"
     onConfirm={() => {
       props.onConfirm?.();
       // `activeHost()` is correct by the dialog/canvas MOUNT CONVENTION:
