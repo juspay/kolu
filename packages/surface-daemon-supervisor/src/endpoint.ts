@@ -135,6 +135,7 @@ export function isContractSkewError(
 ): err is DaemonContractSkewError {
   const e = err as {
     isContractSkew?: unknown;
+    subject?: unknown;
     daemonVersion?: unknown;
     requiredVersion?: unknown;
   };
@@ -142,10 +143,12 @@ export function isContractSkewError(
     typeof err === "object" &&
     err !== null &&
     e.isContractSkew === true &&
-    // The narrowed type promises version FIELDS (the incompatible status arm
-    // and the typed rethrow read them) — so the brand attests them too: a
-    // foreign brand-carrier without the payload must not narrow to a type
-    // whose fields it cannot honor.
+    // The narrowed type promises its FIELDS (`subject` for the flavor a
+    // consumer logs/routes by; the versions for the incompatible status arm
+    // and the typed rethrow) — so the brand attests them all: a foreign
+    // brand-carrier without the payload must not narrow to a type whose
+    // fields it cannot honor.
+    typeof e.subject === "string" &&
     typeof e.daemonVersion === "string" &&
     typeof e.requiredVersion === "string"
   );

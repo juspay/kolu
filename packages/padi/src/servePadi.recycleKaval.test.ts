@@ -63,6 +63,7 @@ function contractSkewRejection(): Error {
     new Error("pty-host contract skew: kaval speaks 5.0, server needs 5.2"),
     {
       isContractSkew: true as const,
+      subject: "pty-host" as const,
       daemonVersion: "5.0",
       requiredVersion: "5.2",
     },
