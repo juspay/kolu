@@ -155,13 +155,23 @@ describe("buildCreateInput", () => {
     ).toBe(id);
   });
 
-  // SPAWN1 red-first pin (#1872). The caller may itself be an orchestrating Claude
-  // session, whose private identity vars (CLAUDE_CODE_CHILD_SESSION=1 + kin) MUST NOT
-  // ride into the spawned terminal: a claude that sees CLAUDE_CODE_CHILD_SESSION
-  // classifies itself as a nested child and never persists its conversation (real data
-  // loss — 3 agents, A/B-proven in agent-spawn-first-class.mdx). The composer builds the
-  // child env from a clean canonical base, so no unrecognized caller var reaches the child.
-  it("does not forward the caller's CLAUDE_CODE_CHILD_SESSION (identity-leak / data-loss guard, #1872)", () => {
+  // SPAWN1 red-first pin (#1872), parameterized over BOTH spawn modes. The caller may
+  // itself be an orchestrating Claude session, whose private identity vars
+  // (CLAUDE_CODE_CHILD_SESSION=1 + kin) MUST NOT ride into the spawned terminal: a claude
+  // that sees CLAUDE_CODE_CHILD_SESSION classifies itself as a nested child and never
+  // persists its conversation (real data loss — 3 agents, A/B-proven in
+  // agent-spawn-first-class.mdx). The #1872 field repro was COMMAND mode
+  // (`create -- claude`); a shell-mode-only pin would let a command-mode regression — the
+  // exact #1872 shape — pass. Both modes must strip the identity vars.
+  it.each([
+    { mode: "shell mode (plain $SHELL)", command: undefined },
+    {
+      mode: "command mode (`create -- claude`, the #1872 field repro)",
+      command: ["claude"],
+    },
+  ])("does not forward the caller's CLAUDE_CODE_* identity vars — $mode (data-loss guard, #1872)", ({
+    command,
+  }) => {
     const input = buildCreateInput({
       id: "x",
       cwd: "/",
@@ -171,6 +181,7 @@ describe("buildCreateInput", () => {
         CLAUDECODE: "1",
         CLAUDE_CODE_SESSION_ID: "abc",
       },
+      command,
       kavalSocket: SOCK,
     });
     expect("CLAUDE_CODE_CHILD_SESSION" in input.env).toBe(false);

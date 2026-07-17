@@ -22,7 +22,7 @@ import {
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
 import getPort from "get-port";
-import { NIX_ENV_WHITELIST } from "kolu-pty";
+import { composeSpawnEnv, NIX_ENV_WHITELIST } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
 import * as engine from "../screencast/engine.ts";
@@ -731,6 +731,48 @@ function assertRemoteDestructiveAck(): void {
   }
 }
 
+/** Runtime/devshell env keys the e2e kolu-server child legitimately needs beyond the
+ *  shared spawn-env allowlist base — this harness runs inside `nix develop`, so the
+ *  server is launched with the nix devshell env, and a NARROW allowlist alone would
+ *  strip what it needs to run. Named explicitly (a prefix for the nix devshell family)
+ *  so the composition stays an ALLOWLIST — the ambient identity class
+ *  (CLAUDE_CODE_CHILD_SESSION and kin, #1872) is dropped by not being named, even if
+ *  the harness itself was launched from an orchestrator whose vars leaked into it. */
+const E2E_SERVER_ENV_PREFIXES = ["NIX_", "XDG_", "LC_"] as const;
+const E2E_SERVER_ENV_KEYS = [
+  "IN_NIX_SHELL",
+  "NODE_OPTIONS",
+  "TMPDIR",
+  "PWD",
+  "CI",
+  "HEADLESS",
+  "CUCUMBER_WORKER_ID",
+  "KOLU_TEST_VERBOSE",
+  // Which kaval the server spawns (nix-built vs from-source) — the spawn-deciding var.
+  "KOLU_KAVAL_BIN",
+  "KOLU_COMMIT_HASH",
+  "TZ",
+  "TERMINFO",
+] as const;
+
+/** Compose the e2e server child's env from a NAMED base — the shared spawn allowlist
+ *  plus the devshell/runtime keys above — instead of a wholesale `...process.env`, so
+ *  no ambient identity var rides in. The caller layers the explicit per-worker test
+ *  config (state dirs, mock agent bins, bind pid) on top. */
+function composeE2eServerEnv(): Record<string, string> {
+  const env = composeSpawnEnv(process.env);
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v == null) continue;
+    if (
+      E2E_SERVER_ENV_KEYS.includes(k as (typeof E2E_SERVER_ENV_KEYS)[number]) ||
+      E2E_SERVER_ENV_PREFIXES.some((p) => k.startsWith(p))
+    ) {
+      env[k] = v;
+    }
+  }
+  return env;
+}
+
 async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -774,7 +816,11 @@ async function startServerChild(koluServer: string): Promise<void> {
       {
         stdio: "pipe",
         env: {
-          ...process.env,
+          // Composed from a NAMED base (shared spawn allowlist + devshell/runtime
+          // keys), NOT a wholesale `...process.env` — so an orchestrator's ambient
+          // identity vars (CLAUDE_CODE_*, #1872) that leaked into the harness can't
+          // ride into the server → padi → and muddy agent-detection scenarios.
+          ...composeE2eServerEnv(),
           // Route server state to an ephemeral $TMPDIR path so test runs
           // never touch ~/.config and the dir can be wiped in AfterAll.
           KOLU_STATE_DIR: koluStateDir,

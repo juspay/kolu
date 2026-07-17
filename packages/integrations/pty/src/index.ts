@@ -13,10 +13,13 @@
 
 export {
   cleanEnv,
+  composeSpawnEnv,
   configureNixShellEnv,
   type InitFile,
   koluIdentityEnv,
   NIX_ENV_WHITELIST,
   prepareShellInit,
   type ShellInitPlan,
+  SPAWN_ENV_ALLOWLIST,
+  SPAWN_ENV_PRESENTATION,
 } from "./shell.ts";

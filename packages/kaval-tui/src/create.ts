@@ -19,52 +19,16 @@ import {
   type PtyHostSpawnInput,
   type PtyHostSpawnResult,
 } from "kaval";
+// The ONE shared spawn-env allowlist lives in kolu-pty (the env-policy home beside
+// cleanEnv), so kaval-tui's composers cannot drift from cleanEnv / daemonEnv / the
+// e2e harness. This is the #1872 structural invariant: identity cannot ride ambient
+// env into any kolu-spawned process.
+import { SPAWN_ENV_ALLOWLIST, SPAWN_ENV_PRESENTATION } from "kolu-pty";
 import { commandName, sanitizeCell, shortId, tildeify } from "./render.ts";
 
 /** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema).
  *  Consumes the contract's inferred type so it can't drift from the schema. */
 export type CreateResult = PtyHostSpawnResult;
-
-/** Presentation-only env vars safe to carry into ANY spawned terminal: they
- *  describe the *terminal we're attaching with* (colour, locale), not the caller's
- *  machine identity or secrets, so they improve the shell without leaking anything.
- *  Shared by both composers — the local one reads them from `process.env` (this
- *  machine's facts), the remote (`--host`) one from the local CLI env to colour the
- *  remote shell. Everything outside this set (and the functional base below) is
- *  dropped from the caller's env. */
-const PRESENTATION_ENV_PASSTHROUGH = [
-  "TERM",
-  "COLORTERM",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-] as const;
-
-/** The canonical base for a LOCAL `create`: the functional vars a spawned shell
- *  needs to be usable — HOME/USER/LOGNAME (identity), PATH (find commands), SHELL
- *  (picks argv[0]), DISPLAY (X11) — plus the presentation set. Read from THIS
- *  process's env, because locally the CLI's env IS the host's facts (the same ones
- *  the remote composer reads from `system.info`).
- *
- *  This is an ALLOWLIST, not a forward: the caller's env is *mined* for these keys,
- *  never copied wholesale. That is the point — `kaval-tui create` may run inside an
- *  orchestrating Claude session, whose private identity vars
- *  (`CLAUDE_CODE_CHILD_SESSION=1` + kin) would otherwise ride into the child and make
- *  a spawned claude classify itself as a nested session that never persists its
- *  conversation (real data loss — see `agent-spawn-first-class.mdx`, #1872). A clean
- *  base closes that for EVERY tool, including agents that don't exist yet (codex,
- *  gemini-cli, …) with identity vars we could never enumerate — the reason we
- *  compose a base rather than blacklist the known Claude keys. Anything the base
- *  drops that a caller genuinely needs is added back explicitly with `--env K=V`. */
-const LOCAL_ENV_ALLOWLIST = [
-  "HOME",
-  "USER",
-  "LOGNAME",
-  "PATH",
-  "SHELL",
-  "DISPLAY",
-  ...PRESENTATION_ENV_PASSTHROUGH,
-] as const;
 
 /** Compose the fully-specified spawn input. Pure: `id`, `cwd`, `env`, and an
  *  optional `command`/`extraEnv` are passed in (`main.ts` supplies `randomUUID()` /
@@ -74,11 +38,11 @@ const LOCAL_ENV_ALLOWLIST = [
  *  host-agreeing `/bin/sh`) when none is passed — a plain shell, run with no login
  *  flag. There are no rcfiles.
  *
- *  The env is NOT the caller's own copied wholesale — it is composed from
- *  {@link LOCAL_ENV_ALLOWLIST} (the caller's env mined for the canonical base),
- *  then the explicit `--env K=V` additions layered on top, then the `KAVAL_SOCKET`
- *  stamp. Composing (not forwarding) is what stops an orchestrator's identity vars
- *  leaking into the child — the #1872 data loss; see the allowlist's docblock.
+ *  The env is NOT the caller's own copied wholesale — it is composed from the shared
+ *  {@link SPAWN_ENV_ALLOWLIST} (kolu-pty; the caller's env mined for the canonical
+ *  base), then the explicit `--env K=V` additions layered on top, then the
+ *  `KAVAL_SOCKET` stamp. Composing (not forwarding) is what stops an orchestrator's
+ *  identity vars leaking into the child — the #1872 data loss.
  *
  *  This is the LOCAL-host composer: the daemon runs on this machine, so our own
  *  `process.cwd()`/`process.env`/`$SHELL` ARE the host's facts. The remote
@@ -103,7 +67,7 @@ export function buildCreateInput(opts: {
   kavalSocket: string;
 }): PtyHostSpawnInput {
   const env: Record<string, string> = {};
-  for (const k of LOCAL_ENV_ALLOWLIST) {
+  for (const k of SPAWN_ENV_ALLOWLIST) {
     const v = opts.env[k];
     if (v != null) env[k] = v;
   }
@@ -140,7 +104,7 @@ const BASELINE_REMOTE_PATH =
  *  composer, the cwd/shell/HOME come from the daemon's `system.info` (the
  *  machine the PTY runs on), and the env is NOT the local `process.env` — it is
  *  a minimal env built from the host's own `HOME`/`SHELL` plus only the
- *  presentation vars in `PRESENTATION_ENV_PASSTHROUGH`. This keeps the contract's
+ *  presentation vars in the shared `SPAWN_ENV_PRESENTATION` (kolu-pty). This keeps the contract's
  *  invariant honest (the host derives nothing — the client specifies it all)
  *  while not shipping a local cwd that may not exist there or leaking local
  *  environment. cwd defaults to the host's `home` (no remote-cwd flag yet). */
@@ -164,7 +128,7 @@ export function buildRemoteCreateInput(opts: {
     // first one. Falls back to a baseline if an older daemon didn't report it.
     PATH: opts.host.path || BASELINE_REMOTE_PATH,
   };
-  for (const k of PRESENTATION_ENV_PASSTHROUGH) {
+  for (const k of SPAWN_ENV_PRESENTATION) {
     const v = opts.localEnv[k];
     if (v != null) env[k] = v;
   }

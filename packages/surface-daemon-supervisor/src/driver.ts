@@ -224,7 +224,24 @@ export function survivableSpawnDriver(
           typeof stderrFd === "number"
             ? ["ignore", "ignore", stderrFd]
             : "ignore",
-        env: { ...(env as Record<string, string>), ...cfg.env },
+        // ENV PARITY with the systemd branch, and the #1872 invariant. systemd-run
+        // (above) runs the daemon under systemd's own manager env with `--setenv`
+        // OVERLAYING cfg.env on top (--setenv WINS over any PAM/manager value it
+        // shadows). This detached branch must reach the SAME child env — so it is
+        // `cfg.env` alone, NOT `{ ...parentEnv, ...cfg.env }`. Layering the
+        // supervisor's full parent env underneath is exactly the ambient-leak the
+        // structural fix closes: the supervisor's own env can carry an orchestrator's
+        // identity vars (CLAUDE_CODE_CHILD_SESSION, #1872) or other ambient markers,
+        // and they would ride into the daemon and every PTY it spawns. cfg.env is
+        // caller-composed COMPLETE (its base is the shared spawn-env allowlist — see
+        // padi's `daemonEnv`), so the child needs nothing layered under it.
+        //   The ONE exception is `fromSource` (dev: `just dev` from a nix-shell),
+        // where the daemon genuinely needs the developer's ambient shell env (nix
+        // store paths, dev vars) to run from source — a deliberate dev-only path, the
+        // single caller that opts into parent layering.
+        env: cfg.fromSource
+          ? { ...(env as Record<string, string>), ...cfg.env }
+          : cfg.env,
       });
       // The child inherited the fd; drop the parent's copy so we don't leak it.
       if (typeof stderrFd === "number") closeSync(stderrFd);

@@ -36,6 +36,7 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { KAVAL_GATE_FILE, kavalLogPath } from "kaval";
+import { composeSpawnEnv } from "kolu-pty";
 
 /** The single-instance gate kaval claims, beside its socket — the same path
  *  kaval's own `daemonMain` derives (`<socket-dir>/kaval.pid`), so the
@@ -75,13 +76,26 @@ export function resolveKavalLaunch(socketPath: string): {
   };
 }
 
-/** The daemon-operational env kaval needs that doesn't survive a transient
- *  systemd unit's env reset — chiefly `XDG_RUNTIME_DIR`, which decides the
- *  socket path. (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH are set by kaval's own nix
- *  wrapper, so they don't need forwarding in production; PTY env arrives
- *  per-spawn on the wire since B0, so it isn't here either.) */
-function daemonEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
+/** The env kaval is spawned with. Two layers:
+ *
+ *  1. A clean base composed from the shared `SPAWN_ENV_ALLOWLIST` (kolu-pty) —
+ *     HOME/PATH/SHELL/… mined from the supervisor's own env. This is the 2a parity
+ *     fix (#1872): the supervisor's detached spawn branch runs the daemon with
+ *     `cfg.env` ALONE (no parent env layered — that would leak the supervisor's
+ *     ambient identity vars into kaval and every PTY it spawns), so `cfg.env` must
+ *     itself be a COMPLETE env, matching what the systemd branch gets from PAM's
+ *     manager env + `--setenv`. Composing from the allowlist (not forwarding
+ *     process.env) is what keeps an orchestrator's `CLAUDE_CODE_*` out.
+ *  2. The daemon-operational vars kaval needs that a transient systemd unit's env
+ *     reset would otherwise drop — chiefly `XDG_RUNTIME_DIR` (decides the socket
+ *     path), the scrubbed `NODE_OPTIONS`, the run-bind pid, and `KOLU_DIAG_DIR`.
+ *     (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH are set by kaval's own nix wrapper, so they
+ *     don't need forwarding; PTY env arrives per-spawn on the wire since B0.)
+ *
+ *  Its exact key set is pinned in `localDriver.test.ts` so neither spawn branch's env
+ *  can drift silently. */
+export function daemonEnv(): Record<string, string> {
+  const env: Record<string, string> = composeSpawnEnv(process.env);
   if (process.env.XDG_RUNTIME_DIR) {
     env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
   }
