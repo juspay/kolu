@@ -18,11 +18,15 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 // `@kolu/surface/solid` re-export), never from `@orpc/client` directly — the
 // transport vendor stays encapsulated behind the surface boundary.
 import { isDefinedError, safe } from "@kolu/surface/solid";
-import { decodeHostKey, encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { activePadiRpc, client, padiMap } from "../wire";
-import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
+import { activeHost, activePadiRpc, client } from "../wire";
+import {
+  daemonChannelLive,
+  daemonConnected,
+  liveWarming,
+} from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't
@@ -122,26 +126,26 @@ export function renewSettledUnconverged(host: HostKey): boolean {
   return renewSettledHosts().has(encodeHostKey(host));
 }
 
-// Clear each host's settled-marker the instant THAT host reconnects — that IS the
-// convergence the renew was awaiting, so a later genuinely-new skew starts from the
-// first-time copy again. Symmetric with the SET (which marks any host, active or
-// not): a per-host clear, keyed on each marked host's OWN entry state — NOT the
-// single active host — so a host that converges while BACKGROUNDED still clears
-// (else its stale marker would paint the "didn't converge" copy over a brand-new
-// skew when you switch back to it). Rooted so the effect owns itself at module
-// scope (the same `createRoot` shape `localDaemonStatus` uses).
+// Clear the ACTIVE host's settled-marker when its KAVAL has CONVERGED — a healthy,
+// connected kaval ({@link daemonConnected}, which reads FALSE on `incompatible` and is
+// floored on channel liveness), NOT merely a live ssh/padi LINK. This is the load-bearing
+// distinction: a skewed kaval sits behind a connected link, so clearing on link-up would
+// drop the marker while the host is STILL `incompatible`, and the honest "renew did not
+// converge" copy — the whole point of move 4 — would never show. Keyed on `activeHost`
+// and driven by `daemonConnected` (both reactive on the active host): the effect also
+// re-fires on SWITCH-TO, so a host that converged while BACKGROUNDED clears its marker the
+// instant you switch to it (its status becomes readable and healthy). Rooted so the effect
+// owns itself at module scope (the same `createRoot` shape `localDaemonStatus` uses).
 createRoot(() => {
   createEffect(() => {
-    for (const key of renewSettledHosts()) {
-      if (padiMap.entry(decodeHostKey(key)).state().kind === "connected") {
-        setRenewSettledHosts((s) => {
-          if (!s.has(key)) return s;
-          const next = new Set(s);
-          next.delete(key);
-          return next;
-        });
-      }
-    }
+    if (!daemonConnected()) return;
+    const key = encodeHostKey(activeHost());
+    setRenewSettledHosts((s) => {
+      if (!s.has(key)) return s;
+      const next = new Set(s);
+      next.delete(key);
+      return next;
+    });
   });
 });
 

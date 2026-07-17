@@ -270,14 +270,15 @@ export function composePadiExtraArgs(
   // (`KOLU_REMOTE_PADI_STATE_DIR`, dev/e2e) wins verbatim; else the ISOLATION-DEFAULT
   // — this kolu-server's stable per-client id, so padi anchors to a per-client
   // private estate on the host and two kolus binding one host never share the kaval
-  // rendezvous they'd LIVELOCK over. `--legacy-state-root` rides with it: the first
-  // isolated boot adopts the pre-isolation DEFAULT estate's terminals ONCE so the
-  // upgrade orphans nothing. `--state-root` first so the remote padi resolves its
-  // digest/socket before the version stamp; all are order-insensitive to padi's parser.
+  // rendezvous they'd LIVELOCK over. (Auto-migrating the pre-isolation default estate's
+  // terminals was dropped — it re-created that livelock; padi instead NAMES a live
+  // default-estate daemon it leaves abandoned. Seamless migration is a follow-up.)
+  // `--state-root` first so the remote padi resolves its digest/socket before the
+  // version stamp; all are order-insensitive to padi's parser.
   if (remoteStateDir != null && remoteStateDir !== "") {
     args.push("--state-root", remoteStateDir);
   } else if (clientId != null && clientId !== "") {
-    args.push("--client-id", clientId, "--legacy-state-root");
+    args.push("--client-id", clientId);
   }
   if (spawnVersion != null) args.push("--spawn-version", spawnVersion);
   return args;

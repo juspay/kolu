@@ -67,11 +67,8 @@ Options:
                       (host-computed base + this opaque leaf), so two kolu-servers
                       binding one host reach DISTINCT estates and never livelock over a
                       shared kaval. Standalone (no flag), padi uses its plain default.
-  --legacy-state-root the isolation cutover bridge (the --client-id twin of
-                      --legacy-kaval-socket): on the FIRST boot at a per-client estate,
-                      if that estate has no session yet but the host's plain DEFAULT
-                      estate ($HOME/.local/state/padi) has adoptable terminals, adopt
-                      them ONCE so an upgrade to isolation doesn't orphan them.
+                      A live daemon left at the pre-isolation default estate is
+                      ABANDONED-RUNNING (named in the log, never adopted or killed).
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
@@ -85,7 +82,6 @@ const { values } = parseArgs({
     "spawn-version": { type: "string" },
     "legacy-kaval-socket": { type: "string" },
     "client-id": { type: "string" },
-    "legacy-state-root": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -137,7 +133,6 @@ if (values.stdio) {
         spawnVersion: values["spawn-version"],
         legacyKavalSocket: values["legacy-kaval-socket"],
         clientId: values["client-id"],
-        adoptLegacyStateRoot: values["legacy-state-root"] ?? false,
         log: stderrLogger(),
       }),
   });

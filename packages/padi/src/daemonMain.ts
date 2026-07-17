@@ -68,6 +68,7 @@ import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
+  residentPadiSocket,
   resolvePadiStateRoot,
   writeStateRootManifest,
 } from "./stateRoot.ts";
@@ -114,13 +115,6 @@ export interface PadiDaemonOptions {
    *  host reach DISTINCT estates (never a shared kaval they'd livelock over). Absent
    *  for a standalone/local padi. */
   clientId?: string;
-  /** `--legacy-state-root`: the isolation CUTOVER bridge (the `clientId` twin of
-   *  {@link legacyKavalSocket}). On the first boot at a per-client estate that has no
-   *  terminals yet, adopt the host's pre-isolation DEFAULT estate's running kaval
-   *  (its PTYs) + saved session ONCE, so upgrading to isolation doesn't orphan them.
-   *  padi's single-instance gate arbitrates a historical race (the first isolated
-   *  padi wins; a loser finds the estate claimed and starts private). */
-  adoptLegacyStateRoot?: boolean;
   log: Logger;
   /** External stop signal (tests / a parent teardown). Composed with the
    *  drain-triggered abort. */
@@ -377,17 +371,6 @@ export async function runPadiDaemon(
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   const gatePath = padiGatePath(socketPath);
   const kavalSocket = padiKavalSocketPath(stateRoot);
-  // Isolation CUTOVER: when the binder asks (`--legacy-state-root`) and this padi is
-  // anchored to a per-client estate, the pre-isolation DEFAULT estate may still hold
-  // the running terminals. Hint its digest kaval socket for ONE-TIME adoption (the
-  // `--legacy-kaval-socket` mechanism, aimed at the default estate's kaval instead of
-  // a pre-W2.2 port kaval) so the upgrade to isolation doesn't orphan live PTYs. Only
-  // when a `clientId` actually isolated us AND no explicit state-root was forced.
-  const legacyDefaultKavalSocket =
-    opts.adoptLegacyStateRoot &&
-    estateIsolatedByClient(opts.stateRoot, opts.clientId)
-      ? padiKavalSocketPath(defaultPadiStateRoot())
-      : undefined;
 
   // ── Claim the single-instance gate FIRST, before ANY boot side effect ──
   // A second padi racing this same state-root must learn it lost the race BEFORE it
@@ -410,6 +393,25 @@ export async function runPadiDaemon(
       "padi gate directory is not private (owner-only); refusing to start",
     );
     return { kind: "serve-failed", detail: "dir-not-private" };
+  }
+
+  // Isolation CUTOVER — LOUD, never silent (RENEW1 (B)). When this padi is a per-client
+  // ISOLATED estate and a LIVE daemon is still serving the pre-isolation DEFAULT estate,
+  // that default daemon is now ABANDONED-RUNNING: this client no longer binds it, its
+  // terminals are NOT migrated to the isolated estate, and it idles until reboot / manual
+  // cleanup. Auto-adopting it was DROPPED (it re-created the cross-supervisor livelock — two
+  // isolated clients racing to adopt one shared estate, arbitrated by nothing; see the
+  // seamless-migration follow-up). We do NOT touch it (no kill — this PR kills nothing); we
+  // NAME it once, here, where the detection is local and cheap.
+  if (estateIsolatedByClient(opts.stateRoot, opts.clientId)) {
+    const abandoned = residentPadiSocket(defaultPadiStateRoot());
+    if (abandoned !== undefined)
+      log.warn(
+        { abandonedDefaultEstatePadiSocket: abandoned, isolatedStateRoot: stateRoot },
+        "isolation cutover: a live daemon at the pre-isolation DEFAULT estate is left " +
+          "ABANDONED-RUNNING — its terminals are NOT migrated to this per-client estate and " +
+          "it idles until reboot or manual cleanup. (Seamless migration is a follow-up.)",
+      );
   }
 
   // Gate → stores → identity: each phase takes the prior's token, so none can run
@@ -467,11 +469,10 @@ export async function runPadiDaemon(
   try {
     const endpoint = await bootLocalEndpoint(served, {
       kavalSocket,
-      // The one-time legacy adopt hint: a pre-W2.2 PORT kaval (local upgrade bridge)
-      // OR the pre-isolation DEFAULT-estate kaval (remote isolation cutover). They are
-      // mutually exclusive by context — a local padi has the port hint, a per-client
-      // remote padi has the default-estate hint — so a plain `??` picks the one in play.
-      legacyKavalSocket: opts.legacyKavalSocket ?? legacyDefaultKavalSocket,
+      // The one-time W2.2 upgrade bridge: adopt a surviving pre-W2.2 PORT kaval (the
+      // LOCAL binder's own listen-port socket). The isolation cutover does NOT adopt the
+      // default estate (that re-created the livelock — dropped; see the boot warn above).
+      legacyKavalSocket: opts.legacyKavalSocket,
     });
 
     // Manifests run AFTER the endpoint boot (the `endpoint` token proves it): they

@@ -984,22 +984,20 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
     expect(composePadiExtraArgs(null, "")).toEqual([]);
   });
 
-  it("ISOLATION-DEFAULT: with no override but a clientId, forwards --client-id + --legacy-state-root", () => {
+  it("ISOLATION-DEFAULT: with no override but a clientId, forwards --client-id", () => {
     // The common case the fix exists for: no explicit override, so the binder's
     // STABLE per-client id isolates the remote estate by construction (never a shared
-    // rendezvous two kolus livelock over), and --legacy-state-root migrates the
-    // pre-isolation default estate's terminals once so the upgrade orphans nothing.
+    // rendezvous two kolus livelock over). Auto-migrating the pre-isolation default
+    // estate was DROPPED (it re-created the livelock) — so NO --legacy-state-root.
     expect(composePadiExtraArgs("1.2.3", undefined, "client-uuid")).toEqual([
       "--client-id",
       "client-uuid",
-      "--legacy-state-root",
       "--spawn-version",
       "1.2.3",
     ]);
     expect(composePadiExtraArgs("1.2.3", "", "client-uuid")).toEqual([
       "--client-id",
       "client-uuid",
-      "--legacy-state-root",
       "--spawn-version",
       "1.2.3",
     ]);

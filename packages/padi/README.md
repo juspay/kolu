@@ -104,10 +104,15 @@ remote host — reusing the local arm's seam, not a parallel one:
   per-client estate `$HOME/.local/state/padi-<uuid>` (`isolatedPadiStateRoot`,
   computed host-side — only the opaque id crosses the wire). The UUID is stable, so
   the same kolu **re-attaches** its own estate across restarts; distinct across
-  installs, so two kolus **never collide**. On the first isolated boot,
-  `--legacy-state-root` adopts the pre-isolation default estate's running terminals
-  ONCE (the `--client-id` twin of the W2.2 `--legacy-kaval-socket` bridge), so the
-  upgrade orphans nothing. See `bin.ts` USAGE for the flags.
+  installs, so two kolus **never collide**. **Cutover is not seamless (yet):** a live
+  daemon still serving the pre-isolation DEFAULT estate is left **abandoned-running**
+  — this client no longer binds it, its terminals are NOT migrated, and it idles
+  until reboot / manual cleanup; the isolated padi NAMES it in a boot `warn`
+  (`residentPadiSocket(defaultPadiStateRoot())`) but never adopts or kills it.
+  Auto-adopting it was **dropped** — two isolated clients could both adopt one shared
+  default estate, re-creating the cross-supervisor livelock; a safe explicit hand-off
+  (an atomic default-estate claim, or a user-mediated adopt) is the follow-up. See
+  `bin.ts` USAGE for the flags.
 - **The ssh-user 0700 caveat.** The remote padi runs AS THE SSH USER, and (like
   kaval) serves its socket in a `0700` owner-only runtime dir — so the SSH identity
   **is** the daemon owner. Two ssh users get two isolated padis by construction; a
