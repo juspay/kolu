@@ -18,9 +18,9 @@
  * already realises the current closure (a padi-level skew rides the surface
  * connection cell, never this card). Its card states BOTH versions from the typed
  * status fields and offers the ONE recovery that works — RESTART the kaval (the
- * session-preserving recycle): it stops the stale kaval and spawns a correct-
- * version one from padi's current closure, which takes over the rendezvous socket
- * from the orphaned survivor. The affordance is a total function of the state sum.
+ * session-preserving recycle): the supervisor stops the stale kaval (killing its
+ * recorded gate holder) and spawns a correct-version one from padi's current
+ * closure. The affordance is a total function of the state sum.
  */
 
 import { type Component, type JSX, Show } from "solid-js";
@@ -119,8 +119,7 @@ const IncompatibleCard: Component<{
   >
     <p class="mt-2 text-sm leading-relaxed text-fg-2">
       This host’s kaval is a leftover from an older kolu install. Restarting
-      stops it and starts a correct-version kaval from the host’s current build
-      — taking over from the stale one.
+      stops it and starts a correct-version kaval from the host’s current build.
     </p>
     <p class="mt-2 text-xs leading-relaxed text-fg-3">
       Your saved session is preserved and offered for restore on the fresh

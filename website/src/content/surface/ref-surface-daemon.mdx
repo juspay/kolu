@@ -80,7 +80,7 @@ broken expansion, distinct from unset), non-canonical decimal, fractional, or ou
 
 ## Serving the surface
 
-The listener is `serveOverUnixSocket({ socketPath, router, log, reclaim })` from
+The listener is `serveOverUnixSocket({ socketPath, router, log })` from
 `@kolu/surface/unix-socket` — a `@kolu/surface` subpath, not this package. It
 never crashes: every failure mode resolves to a no-op listener with a
 machine-readable `outcome`.
@@ -90,15 +90,6 @@ machine-readable `outcome`.
 | `listening` | bound and serving |
 | `dir-not-private` · `not-a-socket` · `bind-failed` | could not bind |
 | `already-served` · `probe-failed` | another holder is (or may be) live |
-
-`reclaim` (default `false`) relaxes the `already-served` refusal: pass it only
-when the caller **already holds an external single-instance lock** (a pid gate)
-so a live holder of the path is a provably-illegitimate squatter — its socket
-file is then unlinked and rebound (the squatter is left running on its orphaned
-inode; nothing is signalled, and a `log`, if supplied, records the reclaim at
-debug level). `daemonMain` passes it because it
-reaches the serve holding the gate. The `not-a-socket` data-loss guard is absolute
-and independent of `reclaim` — a regular file/dir at the path is never unlinked.
 
 ## Fronting over stdio
 

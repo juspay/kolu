@@ -143,14 +143,15 @@ export function recoveryInFlight(host: HostKey): boolean {
 
 /** The `incompatible` (contract-skew) recovery (SK5, D1: the ONE action for
  *  `incompatible`, on BOTH local and remote hosts). It is the SAME session-
- *  preserving kaval RECYCLE as `restartDaemon` — stop the old skewed kaval, spawn
- *  a fresh one from padi's CURRENT closure (which now takes the rendezvous socket
- *  from any orphaned old kaval squatting it — the supervisor's gate is the
- *  single-instance authority, so a fresh kaval reclaims the path), and park the
- *  session for restore. NOT a whole-padi drain: padi already realises the current
- *  closure (an `incompatible` card means padi is HEALTHY and serving — only its
- *  kaval is skewed), so recycling the kaval is all that is needed and it comes up
- *  the correct version.
+ *  preserving kaval RECYCLE as `restartDaemon` — the supervisor stops the old
+ *  skewed kaval (killing its recorded gate holder), spawns a fresh one from padi's
+ *  CURRENT closure, and parks the session for restore. NOT a whole-padi drain: padi
+ *  already realises the current closure (an `incompatible` card means padi is
+ *  HEALTHY and serving — only its kaval is skewed), so recycling the kaval is all
+ *  that is needed and it comes up the correct version. (A pollution artifact — a
+ *  gate-LESS stray daemon squatting the socket with no recorded pid to kill — the
+ *  restart cannot displace; it fails safe to the honest skew toast, never reaping
+ *  an unrecorded pid.)
  *
  *  Re-entrant calls while one is in flight are ignored. Keyed on `host` for the
  *  in-flight marker even though the recycle runs on `activePadiRpc`: the skew card
