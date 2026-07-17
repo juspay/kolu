@@ -286,12 +286,16 @@ fails loud too (exit 3 — the agent you were driving died); `--json` →
 > pickup first, then the turn-end:
 >
 > ```sh
-> kaval-tui send "$id" "fix the parser"          # the text
-> kaval-tui wait "$id" --until idle:300          # observe the settle
-> kaval-tui send "$id" --key Enter               # submit
-> padi-tui  wait "$id" --until working           # 1. it picked up the prompt
-> padi-tui  wait "$id" --until awaiting,waiting   # 2. its turn ended
+> kaval-tui send "$id" "fix the parser"                          # the text
+> kaval-tui wait "$id" --until idle:300 --timeout 15000         # observe the settle
+> kaval-tui send "$id" --key Enter                              # submit
+> padi-tui  wait "$id" --until working --timeout 15000          # 1. it picked up the prompt
+> padi-tui  wait "$id" --until awaiting,waiting --timeout 600000 # 2. its turn ended
 > ```
+>
+> (Every wait is bounded — the Acceptance rule. A timeout on the phase-1
+> `--until working` is a "target already moved past pickup" signal; on the
+> phase-2 wait it's a wedged-agent guard.)
 
 > **Reach — `padi-tui` dials padi, not kaval.** `padi-tui` reads a running
 > **padi** (the per-host workspace daemon a kolu-server owns), so **inside a kolu

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-17T00:14:41.010137+00:00'
+generated_at: '2026-07-17T00:19:32.303813+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agents
@@ -62,7 +62,7 @@ dependencies:
     .agents/skills/codex-debate/SKILL.md: sha256:87edc39c1b3de77e06a4075fe8ec314838da84f6470dda820ae59eae29f3b5ba
     .agents/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .agents/skills/kolu/SKILL.md: sha256:137c5cc3c5410913eaad644587945eb5b6780080cbfc6c80773a4e8ad5f56428
-    .agents/skills/kolu/TUI.md: sha256:dfa2f935bc6411769bc67ce0e7c20eb7ec940c19c1e9668a0abd97782b29a39f
+    .agents/skills/kolu/TUI.md: sha256:5e88e659bbfe466db0166b75ecbc54e1ee43902a74bf4e2f776089d6c7b44e2a
     .agents/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .agents/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
     .agents/skills/orchestrator/SKILL.md: sha256:15f64517f97aa37230c6414a5ad436baf3dfc821d6842dd52453e7509c7eb88f
@@ -76,7 +76,7 @@ dependencies:
     .claude/skills/codex-debate/SKILL.md: sha256:87edc39c1b3de77e06a4075fe8ec314838da84f6470dda820ae59eae29f3b5ba
     .claude/skills/diataxis/SKILL.md: sha256:596e06f555aa0218ea2138270ceb3419584038a519ba43c8ff1823bf597d9aa6
     .claude/skills/kolu/SKILL.md: sha256:137c5cc3c5410913eaad644587945eb5b6780080cbfc6c80773a4e8ad5f56428
-    .claude/skills/kolu/TUI.md: sha256:dfa2f935bc6411769bc67ce0e7c20eb7ec940c19c1e9668a0abd97782b29a39f
+    .claude/skills/kolu/TUI.md: sha256:5e88e659bbfe466db0166b75ecbc54e1ee43902a74bf4e2f776089d6c7b44e2a
     .claude/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .claude/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
     .claude/skills/orchestrator/SKILL.md: sha256:15f64517f97aa37230c6414a5ad436baf3dfc821d6842dd52453e7509c7eb88f
@@ -695,7 +695,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:dfa2f935bc6411769bc67ce0e7c20eb7ec940c19c1e9668a0abd97782b29a39f
+  content_hash: sha256:5e88e659bbfe466db0166b75ecbc54e1ee43902a74bf4e2f776089d6c7b44e2a
 - kind: project-relative
   target: agents
   value: .agents/skills/lens-debate
@@ -1686,7 +1686,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:dfa2f935bc6411769bc67ce0e7c20eb7ec940c19c1e9668a0abd97782b29a39f
+  content_hash: sha256:5e88e659bbfe466db0166b75ecbc54e1ee43902a74bf4e2f776089d6c7b44e2a
 - kind: project-relative
   target: claude
   value: .claude/skills/lens-debate
