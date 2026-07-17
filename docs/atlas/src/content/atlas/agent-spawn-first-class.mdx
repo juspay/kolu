@@ -1,6 +1,6 @@
 ---
 title: "Agent spawn is a face verb — fixing #1872 (Dock detection + transcript loss)"
-description: "Both #1872 mechanisms share one cause: spawning an agent through a path with no agent semantics. The fix is layered per srid's steer — the faces (kolu mcp / kolu-tui) own agent-spawn as a first-class verb; kaval-tui composes env instead of forwarding it; kaval stays a dumb PTY daemon and gains only bookkeeping it should have had anyway."
+description: "Both #1872 bugs happen because an agent was launched through a path that doesn't know it's launching an agent. The fix: kolu's faces (mcp, the coming tui) own 'launch an agent' as a proper operation; kaval-tui builds a clean environment instead of copying the caller's; kaval itself stays a dumb PTY daemon."
 parents: [bug, kolu-cli]
 status: proposed
 maturity: seedling
@@ -9,64 +9,85 @@ updated: 2026-07-17
 
 import Callout from "../../components/Callout.astro";
 
-Issue [#1872](https://github.com/juspay/kolu/issues/1872), two proven
-mechanisms when an agent is spawned as the PTY's root command
-(`kaval-tui create -- claude …`):
+## What happened
 
-- **A · Dock detection dead.** The daemon receives the exact argv at spawn
-  (`ptyHostSurface` requires it) and **drops it** — `entry.lastCommand` starts
-  `undefined` (`ptyHost.ts:663`) and its only writer is the OSC `633;E` parse
-  (`:710-727`), a mark only kolu's rc-hooked *shell* emits (`shell.ts:218`). A
-  shell-less PTY never learns its own command. **Second lock**: padi's sensors
-  compute `shellIdle = foregroundPid === pid` assuming pid is a shell
-  (`sensors.ts:394-402`) — a command-rooted PTY reads as "idle at prompt" and
-  detection is suppressed *even if the command were known*.
-- **B · Transcript loss (data loss).** `kaval-tui`'s create composer copies
-  the caller's **whole `process.env` verbatim** (`create.ts:55-57`). From an
-  orchestrating Claude session, `CLAUDE_CODE_CHILD_SESSION=1` rides in; the
-  spawned claude self-classifies as a nested child and **never persists its
-  conversation** (A/B-proven on #1872). Shell-mode create leaks identically.
+An orchestrating Claude session created terminals for three worker agents by
+running `kaval-tui create -- claude …` — that is, making **claude itself the
+terminal's root process**, with no shell wrapping it. Two things silently
+broke ([#1872](https://github.com/juspay/kolu/issues/1872)):
 
-## Why the kolu face never had this bug
+**Bug A — the Dock never showed agent activity.** Kolu decides "this terminal
+is running claude" by watching for a special marker that the *shell* prints
+whenever you run a command (the OSC `633;E` mark, emitted by kolu's shell
+hooks). No shell → no marker → kolu never learns what's running. The daemon
+actually *received* the command line at spawn time — it just throws it away
+(`ptyHost.ts:663` initializes `lastCommand` to undefined and nothing but the
+shell marker ever sets it). There's also a second, sneakier blocker: the
+"is the shell sitting idle?" check assumes the terminal's root process is a
+shell. When the root *is* the agent, that check wrongly answers "yes, idle" —
+so even if we fixed the first problem, detection would still be suppressed
+(`sensors.ts:394-402`).
 
-`PadiCreateInputSchema` is `{ cwd?, parentId? }` — **no `command`, no `env`**
-(`surface.ts:513-518`). An agent launched through kolu/mcp is *necessarily*
-create-shell-then-send: the rc hooks run (633;E fires), and env comes from
-padi's own `cleanEnv()` (`ptyHost/index.ts:397`), never the caller's. Both
-illegal states are **unspellable at the face wire schema**. That absence is
-load-bearing — the `kolu-mcp` docstring saying "(command, cwd, parent)"
-overstates and must be corrected to match.
+**Bug B — the agents' conversations were never saved (real data loss).**
+`kaval-tui create` copies the caller's **entire environment** into the new
+terminal (`create.ts:55-57`). The orchestrator is itself a Claude session, so
+its private variables came along — including `CLAUDE_CODE_CHILD_SESSION=1`.
+A claude that sees that variable thinks "I'm a temporary child session" and
+**doesn't save its conversation to disk at all**. When kaval restarted, three
+agents' entire histories were simply gone. We proved this with a clean A/B
+test: same spawn with those variables removed → the conversation file appears
+immediately.
 
-## The fix, layered (each change names what it makes inexpressible)
+## Why terminals created through kolu never had this bug
 
-| Layer | Change | Kills |
+When you create a terminal in kolu (or through `kolu mcp`), the request
+schema only has `cwd` and `parentId` — **there is no way to pass a command or
+an environment** (`surface.ts:513-518`). So every kolu terminal gets the
+rc-hooked shell (markers work), and its environment comes from the padi
+daemon's own clean one (no caller variables can leak). You literally cannot
+express either bug through the kolu face. That "missing" `command` parameter
+is not a gap — it's the protection. (One nit: the `kolu mcp` tool description
+*claims* it takes a command; it doesn't, and the text should stop saying so.)
+
+## The fix
+
+The idea in one sentence: **"launch an agent" becomes a real operation at the
+level that knows it's launching an agent** — the faces — and the lower layers
+just stop losing information or leaking it.
+
+| Where | What changes | What becomes impossible |
 | --- | --- | --- |
-| **Faces** (kolu mcp now; kolu-tui when it ships) | Agent launch is a **first-class verb** — internally create(shell) + send + detection seed. Never a `command` param on create. The mcp face already has this shape; kolu-tui inherits it as a requirement of the kolu-cli plan. | "Agent as PTY root" and "agent under caller env" have **no spelling** at any face. |
-| **kaval-tui composer** (client, not daemon) | **Compose env, don't forward it** — the way its own *remote* composer already does (minimal canonical base + explicit additions). Caller additions become an explicit `--env K=V`. At minimum: never verbatim-forward when a `-- command` is given. | The caller's ambient session identity **cannot reach the child** — including agents that don't exist yet. (A `CLAUDE_*` deny-list is rejected: blacklist = the class survives every new orchestrator.) |
-| **kaval** (daemon — dumb bookkeeping only) | Seed `entry.lastCommand` (+ initial title) from spawn argv and publish on the command channel; the 633;E mark stays the *live* writer (last-writer-wins, seed writes first). | "A PTY whose own daemon forgot what it spawned." `lastCommand === undefined` regains a single meaning: *nothing has run yet in a shell*. |
-| **padi sensors** (only if command-rooted PTYs ever become sensor-visible) | `shellIdle` becomes conditional on a typed *shell-rooted* fact of the PTY; for command-rooted PTYs, `foregroundPid === pid` means "the agent IS foreground" — the opposite reading. | The ambient assumption "root is a shell" becomes a checked fact, never a silent misreading. |
-| **upstream (Claude Code)** | File the A/B evidence: classifying "I am a child session, don't persist" from an **inherited ambient env var** is fragile by design — any env-forwarding intermediary (ssh, `sudo -E`, a Makefile) silently destroys a transcript. kolu's composition **mitigates, not cures**. | — (out of our tree; recorded so the residual is explicit) |
+| **kolu mcp / kolu-tui** (the faces) | "Launch an agent" is its own verb: internally it creates a shell terminal, types the agent command into it, and waits for detection to pick it up. Creating a terminal never takes a raw command. The mcp face already works this way; the coming kolu-tui must too. | Launching an agent without a shell, or with the caller's environment — there's simply no way to ask for it. |
+| **kaval-tui** (the CLI) | Stop copying the caller's environment wholesale. Build the child's environment from a clean base, and let the caller add specific variables explicitly (`--env K=V`). We deliberately did NOT go with "strip the known Claude variables": that fixes only today's agent — the next tool (codex, gemini-cli, …) has different variables and the data loss quietly returns. A clean base fixes all of them, including ones that don't exist yet. | A new terminal accidentally carrying the orchestrator's identity. |
+| **kaval** (the PTY daemon) | One tiny change, and it's bookkeeping, not smarts: when spawning with an explicit command, *remember it* (seed `lastCommand` from the argv it already receives). The shell marker remains the live source when commands run inside a shell. | A terminal whose own daemon doesn't know what it spawned. |
+| **padi's sensors** (only if needed later) | If command-rooted terminals ever become visible to the workspace sensors, the "is the shell idle?" check must first ask "is the root even a shell?" — for an agent-rooted terminal, root-in-foreground means *busy*, the exact opposite of today's reading. | Misreading a running agent as an idle prompt. |
 
-kaval remains a dumb PTY daemon throughout: it gains no agent semantics, no
-env opinion (it spawns what the composer sends, verbatim) — only the
-bookkeeping of not discarding a fact it was handed.
+Kaval stays what it is — a dumb PTY daemon. It gains no knowledge of agents
+and no opinions about environments; it just stops discarding a fact it was
+already handed.
 
-## Doctrine until the fix ships
+**One thing kolu cannot fix**: Claude Code decides "don't save this
+conversation" based on an *inherited environment variable*. Anything that
+forwards environments — ssh, `sudo -E`, a Makefile — can trigger the same
+data loss with no kolu involved. Our clean-environment change protects kolu's
+paths; the root fragility belongs upstream, and we should file it there with
+our A/B evidence.
 
-- `kaval-tui create -- <agent>` is **forbidden from any agent session** (it
-  hits both mechanisms); the `/kolu` skill's neutral mention becomes a
-  warning.
-- Shell-mode create + send is **not sufficient** either — the shell inherits
-  the orchestrator's vars; the launch line must scrub
-  (`unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID` first),
-  or use a daemon-spawned (restored) shell.
-- Each workaround edit carries a ships-with marker so the text is deleted
-  when the structural fix merges.
+## Until the fix ships (the working rules)
 
-<Callout kind="warn" title="Sequencing">
-  (1) kaval-tui composed env — closes the data loss for every kaval-tui path;
-  (2) mcp docstring fix + the kolu-cli plan pins agent-spawn-as-verb for the
-  tui face; (3) skill doctrine; (4) kaval argv seeding (+ the sensor
-  discrimination only when needed). Grounded by a 16-agent a-f-p + perfection
-  lens run (13 findings, 0 refuted).
+- Never run `kaval-tui create -- claude …` (or any agent) from an agent
+  session. It hits both bugs.
+- Creating a shell terminal and typing `claude` into it is **not** enough on
+  its own — the shell inherited the orchestrator's variables too. First run
+  `unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID`, then
+  launch. (Shells restored by kaval itself after a restart are already clean.)
+- These workaround notes in the skills get deleted the day the structural fix
+  merges.
+
+<Callout kind="warn" title="Order of work">
+  1. kaval-tui's clean environment (stops the data loss everywhere) →
+  2. fix the mcp tool description + pin "agent launch is a verb" in the
+  kolu-cli plan → 3. the skill rules above → 4. kaval's remember-the-argv
+  bookkeeping. Grounded by a 16-agent architecture + perfection review
+  (13 findings, 0 refuted).
 </Callout>
