@@ -7,11 +7,11 @@
 // prefix was added.
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -22,8 +22,19 @@ import {
   shikiFencePreload,
 } from "../../../scripts/fence-langs.mjs";
 
-const dirWith = (content) => {
+// Every fixture dir is tracked and removed after the suite — the soak runs
+// this file dozens of times in a row and must not accumulate temp debris.
+const fixtureDirs = [];
+after(() => {
+  for (const dir of fixtureDirs) rmSync(dir, { recursive: true, force: true });
+});
+const freshDir = () => {
   const dir = mkdtempSync(join(tmpdir(), "fence-langs-"));
+  fixtureDirs.push(dir);
+  return dir;
+};
+const dirWith = (content) => {
+  const dir = freshDir();
   writeFileSync(join(dir, "note.mdx"), content);
   return dir;
 };
@@ -97,16 +108,84 @@ test("nested example fences over-approximate (benign by design)", () => {
 
 test("special plaintext languages are never preloaded; closing fences don't match", () => {
   const dir = dirWith(
-    ["```text", "words", "```", "", "```ansi", "[31mred", "```"].join("\n"),
+    ["```text", "words", "```", "", "```ansi", "\x1b[31mred", "```"].join("\n"),
   );
   assert.deepEqual(fenceLangs(dir), []);
 });
 
 test("scan is sorted and unique across files", () => {
-  const dir = mkdtempSync(join(tmpdir(), "fence-langs-"));
+  const dir = freshDir();
   writeFileSync(join(dir, "a.md"), "```yaml\na: 1\n```\n");
   writeFileSync(join(dir, "b.mdx"), "```bash\nls\n```\n\n```yaml\nb: 2\n```\n");
   assert.deepEqual(fenceLangs(dir), ["bash", "yaml"]);
+});
+
+// The container-prefix + info-string shapes astro's parser accepts that the
+// pre-round-1 regex missed (codex F1, red-first: each of these failed before
+// the scanner learned markdown container prefixes).
+const PARSER_BOUNDARY_FIXTURE = [
+  "- ```ruby", // fence opens ON the list-marker line
+  "  x = 1",
+  "  ```",
+  "",
+  "1. ```lua", // ordered list marker
+  "   x = 1",
+  "   ```",
+  "",
+  "> - ```elixir", // blockquote + list combination
+  ">   x",
+  ">   ```",
+  "",
+  "[^1]: ```erlang", // GFM footnote definition
+  "    x.",
+  "    ```",
+  "",
+  "``` yaml", // whitespace before the info string — still a yaml fence
+  "a: 1",
+  "```",
+  "",
+  "```文言", // shiki's Unicode bundled alias — ASCII-only capture missed it
+  "吾有一數",
+  "```",
+].join("\n");
+
+test("container-prefix and info-string fence shapes are scanned (codex F1, red-first)", () => {
+  const dir = dirWith(PARSER_BOUNDARY_FIXTURE);
+  assert.deepEqual(fenceLangs(dir), [
+    "elixir",
+    "erlang",
+    "lua",
+    "ruby",
+    "yaml",
+    "文言",
+  ]);
+});
+
+test("cross-pin: every fence astro's real parser highlights is in the scanner's census", async () => {
+  // The scanner must OVER-approximate the parser: render the boundary fixture
+  // through astro's actual markdown processor (syntax highlighting off, so
+  // the language survives as a class instead of being consumed by shiki) and
+  // assert every language the parser hands to the highlighter was scanned.
+  // This pins the accepted shapes to the installed parser, not to our own
+  // expectations of it.
+  const { createMarkdownProcessor } = await import(
+    pathToFileURL(requireFromAstro.resolve("@astrojs/markdown-remark")).href
+  );
+  const processor = await createMarkdownProcessor({ syntaxHighlight: false });
+  const { code: html } = await processor.render(PARSER_BOUNDARY_FIXTURE);
+  const parserLangs = new Set(
+    [...html.matchAll(/class="language-([^"\s]+)"/g)].map((m) =>
+      decodeURIComponent(m[1]),
+    ),
+  );
+  assert.ok(parserLangs.size >= 5, `parser saw too few fences:\n${html}`);
+  const scanned = new Set(fenceLangs(dirWith(PARSER_BOUNDARY_FIXTURE)));
+  const missed = [...parserLangs].filter((l) => !scanned.has(l));
+  assert.deepEqual(
+    missed,
+    [],
+    `astro's parser highlights language(s) the scanner missed: ${missed.join(", ")}`,
+  );
 });
 
 test("eagerLangsOnly: allows preloaded + specials, throws on the rest", () => {

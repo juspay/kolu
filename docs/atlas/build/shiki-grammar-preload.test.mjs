@@ -140,8 +140,21 @@ test("mechanism: yaml grammar absent → plain frontmatter; present → YAML tok
 
 // ── 3. the GUARD: an un-enumerated language fails loudly ────────────────────
 test("guard: a fence language outside shikiConfig.langs throws at build time", async () => {
+  // Derive the probe language from the installed shiki bundle instead of
+  // hardcoding one: a hardcoded "ruby" would make correct production behavior
+  // fail this test the day a real ruby fence lands in content (codex F3).
+  const { bundledLanguages } = await import(
+    pathToFileURL(requireFromAstro.resolve("shiki")).href
+  );
+  const probe = Object.keys(bundledLanguages).find(
+    (l) => !shikiConfig.langs.includes(l),
+  );
+  assert.ok(
+    probe,
+    "no bundled language outside the derived list — impossible census",
+  );
   await assert.rejects(
-    astroHighlight("ruby", "puts 1"),
+    astroHighlight(probe, "x = 1"),
     /not in shikiConfig\.langs|eager-langs-only/i,
     "an un-enumerated language must fail the build, not silently lazy-load",
   );

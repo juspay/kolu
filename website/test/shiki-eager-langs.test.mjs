@@ -104,11 +104,18 @@ test("a content language renders with its grammar engaged (sanity, fix-independe
 });
 
 test("guard: an un-preloaded language fails the build loudly", async () => {
-  const lang = ["ruby", "erlang", "lua"].find(
+  // Derive the probe language from the installed shiki bundle instead of
+  // hardcoding candidates: a hardcoded list would make correct production
+  // behavior fail this test the day a real fence in one lands (codex F3).
+  const probe = Object.keys(shiki.bundledLanguages).find(
     (l) => !shikiConfig.langs.includes(l),
   );
+  assert.ok(
+    probe,
+    "no bundled language outside the derived list — impossible census",
+  );
   await assert.rejects(
-    astroHighlight(lang, "x = 1"),
+    astroHighlight(probe, "x = 1"),
     /eager-langs-only/,
     "a fence language outside the derived list must throw, not silently lazy-load",
   );

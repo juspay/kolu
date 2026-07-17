@@ -11,6 +11,9 @@ on:
       - "website/**"
       - "docs/atlas/dist/**"
       - "packages/client/favicon.svg"
+      # The website derivation copies the shared fence scanner in (see
+      # website/default.nix) — a scanner change rebuilds the site.
+      - "scripts/fence-langs.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

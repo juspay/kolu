@@ -61,12 +61,19 @@ export const ASTRO_EXCLUDED_LANGS = new Set(["math"]);
 
 const SKIPPED_LANGS = new Set([...SPECIAL_LANGS, ...ASTRO_EXCLUDED_LANGS]);
 
-// Fence openers: optional list indentation, optional blockquote markers
-// (`> ```yaml`, nested `> > ```ts`), three-or-more ``` or ~~~ (````markdown
-// is a real four-backtick fence), then the language (incl. `#` for c#), then
-// an ignored info string (```ts title="x"). Closing fences carry no language
-// and don't match.
-const FENCE_OPENER = /^[ \t]*(?:>[ \t]*)*(?:`{3,}|~{3,})([a-zA-Z0-9_+#-]+)/gm;
+// Fence openers, matching what astro's markdown parser actually accepts:
+// any run of container prefixes — blockquote `>`, list markers `-`/`*`/`+`,
+// ordered `1.`/`1)`, GFM footnote definitions `[^id]:` — each with optional
+// following space, then three-or-more ``` or ~~~ (````markdown is a real
+// four-backtick fence), optional whitespace (``` yaml is a yaml fence: the
+// info string is stripped of leading spaces), then the language as the first
+// non-whitespace token (Unicode included — shiki bundles the 文言 alias;
+// `#` for c#), then an ignored info string (```ts title="x"). Closing fences
+// carry no language and don't match. The fixture suite cross-pins these
+// shapes against astro's real createMarkdownProcessor so the scanner can't
+// silently diverge from what the parser hands to shiki.
+const FENCE_OPENER =
+  /^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)]|\[\^[^\]\s]*\]:)[ \t]*)*(?:`{3,}|~{3,})[ \t]*([^\s`~]+)/gm;
 
 /**
  * Scan every markdown/MDX file under `dir` for fence openers and return the
