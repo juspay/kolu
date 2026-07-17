@@ -81,16 +81,17 @@ const astroHighlight = async (lang, code) => {
 
 // ── 2. the FIX: deterministic grammar readiness on the real config ─────────
 //
-// NB: astro's highlighter cache is keyed by theme, not langs, and node:test
-// runs this file in one process — so the config-backed tests run FIRST, before
-// anything else could warm the shared cache with extra grammars.
-test("real astro config: first-ever mdx tokenization gets embedded YAML (no order dependence)", async () => {
-  const html = await astroHighlight("mdx", SAMPLE);
+// NB: astro's highlighter cache is keyed by theme, not langs. Taken at module
+// load — structurally the first-ever tokenization, provably before any test
+// body could warm that shared cache with extra grammars.
+const firstMdxHtml = await astroHighlight("mdx", SAMPLE);
+
+test("real astro config: first-ever mdx tokenization gets embedded YAML (no order dependence)", () => {
   assert.ok(
-    html.includes(YAML_KEY) && html.includes(YAML_STRING),
+    firstMdxHtml.includes(YAML_KEY) && firstMdxHtml.includes(YAML_STRING),
     `mdx frontmatter must tokenize as embedded YAML on the first block the build
 sees — got the order-dependent plain rendering instead (the atlas-sync flake):
-${html}`,
+${firstMdxHtml}`,
   );
 });
 
