@@ -1,15 +1,16 @@
 /**
- * The "Update &amp; restart kaval" button — the CONTRACT-SKEW recovery verb
- * (SK5). Renders wherever the daemon state is `incompatible` (the skew canvas
- * card and the kaval dialog's incompatible banner), on BOTH local and remote
- * hosts (D1: no host split — by `incompatible`'s construction a respawn from
- * the host's current closure has already been tried and skewed, so the only
- * action offered is the one that changes the closure).
+ * The `incompatible` (contract-skew) recovery button (SK5). Renders wherever the
+ * daemon state is `incompatible` (the skew canvas card and the kaval dialog's
+ * incompatible banner), on BOTH local and remote hosts (D1: no host split).
  *
- * Destructive (drains the host's padi; its terminals restart on the fresh
- * stack), so it rides the same inline-confirm shell as Restart kaval. The
- * confirmed action is `renewDaemon(activeHost())` — the binder-owned drain →
- * re-realise → fresh correct-version kaval pipeline.
+ * The confirmed action is `renewDaemon(activeHost())` — the session-preserving
+ * kaval RECYCLE (stop the old skewed kaval, spawn a fresh one from the host's
+ * CURRENT closure — which reclaims the rendezvous socket from any orphaned old
+ * kaval squatting it — and park the session for restore). An `incompatible` card
+ * means padi is HEALTHY and only its kaval is skewed, so a recycle is all that is
+ * needed and it comes up the correct version — no whole-padi drain. (If the
+ * recycle STILL skews, padi's own closure is genuinely stale and `renewDaemon`
+ * offers the heavier re-provision as an escalation.)
  */
 
 import type { Component } from "solid-js";
@@ -20,13 +21,13 @@ import { renewDaemon, renewInFlight } from "./useDaemonRestart";
 
 const UpdateKavalButton: Component<{
   tone: "neutral" | "danger";
-  /** Runs before the confirmed renew (the dialog closes itself here). */
+  /** Runs before the confirmed recycle (the dialog closes itself here). */
   onConfirm?: () => void;
 }> = (props) => (
   <InlineConfirmButton
-    label="Update & restart kaval"
-    inFlightLabel="Updating…"
-    confirmCopy="Update & restart this host's kaval? This drains the host daemon, re-provisions the current build on the host, and starts a correct-version kaval — the terminals on this host restart."
+    label="Restart kaval"
+    inFlightLabel="Restarting…"
+    confirmCopy="Restart this host's kaval? This stops the old (incompatible) kaval and starts a correct-version one from the host's current build — the terminals on this host restart and your saved session is offered for restore."
     tone={props.tone}
     inFlight={renewInFlight(activeHost())}
     icon={<RestartIcon class="h-3.5 w-3.5" />}
@@ -37,7 +38,7 @@ const UpdateKavalButton: Component<{
       // opening a daemon icon switches the canvas to that host first (see
       // KavalInfoDialog's host-scoping header), and the skew canvas card only
       // ever renders for the active host — so the presented facts and the
-      // renewed host agree by construction.
+      // recycled host agree by construction.
       void renewDaemon(activeHost());
     }}
   />

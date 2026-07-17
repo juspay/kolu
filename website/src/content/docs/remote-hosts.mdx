@@ -173,12 +173,14 @@ hatch). The causes it distinguishes:
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |
 
 A related — but distinct — card covers the host's **[kaval](/kaval)**: if the
-machine carries a kaval that speaks an **incompatible wire contract** (an
-outdated build a plain restart provably cannot fix — restarting respawns the
-same binary), the canvas says so with **both versions** ("this host's kaval
-speaks 5.0, your kolu needs 5.2") and offers **Update &amp; restart kaval**
-behind a confirm: it re-provisions the host's build and starts a
-correct-version kaval. The same verdict shows in the kaval dialog and on the
+machine carries a kaval that speaks an **incompatible wire contract** (a leftover
+from an older kolu install, while the host's padi is healthy on the current
+build), the canvas says so with **both versions** ("this host's kaval speaks 5.0,
+your kolu needs 5.2") and offers **Restart kaval** behind a confirm: it stops the
+stale kaval and starts a correct-version one from the host's current build —
+taking over from the leftover — and offers your session for restore. (Only in the
+rare case where the host's own build is genuinely stale does it escalate to a
+full host re-provision.) The same verdict shows in the kaval dialog and on the
 host chip — the one badge that also flags an ordinary "newer build available".
 
 ## Known limitations

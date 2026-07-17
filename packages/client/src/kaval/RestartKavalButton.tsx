@@ -11,10 +11,11 @@
  * can't drift between them. The actual restart is the caller's `onConfirm`: the
  * dialog closes itself first (then restarts); the canvas just restarts.
  *
- * This verb is a total function of the daemon state sum (SK4): it renders only
- * against `dead`/`degraded`/healthy states — an `incompatible` (proven skew)
- * surface offers `UpdateKavalButton` instead, because a restart provably
- * respawns the same incompatible binary.
+ * This verb is a total function of the daemon state sum (SK4): it renders against
+ * `dead`/`degraded`/healthy states. An `incompatible` (proven skew) surface offers
+ * `UpdateKavalButton` instead — the SAME session-preserving recycle, but its copy
+ * names the skew and it escalates to a host re-provision if padi's own closure
+ * turns out to be stale.
  */
 
 import type { DaemonStatus } from "@kolu/padi/surface";

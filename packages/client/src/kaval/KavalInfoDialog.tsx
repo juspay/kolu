@@ -297,9 +297,10 @@ const KavalInfoDialog: Component<{
       </Show>
 
       {/* The action slot — a total function of the attention axis (SK5, D1):
-          a proven skew offers ONLY the renew (a restart provably respawns the
-          same incompatible binary, on local and remote hosts alike); every
-          other state keeps the session-preserving Restart. */}
+          a proven skew offers the incompatible recovery (the same session-
+          preserving recycle, whose copy names the skew and escalates to a host
+          re-provision only if padi's own closure is stale, on local and remote
+          hosts alike); every other state keeps the plain Restart. */}
       <Show
         when={incompatible()}
         fallback={
@@ -330,8 +331,9 @@ const KavalInfoDialog: Component<{
             onConfirm={() => props.onOpenChange(false)}
           />
           <p class="text-[11px] leading-relaxed text-fg-3">
-            Drains the host daemon, re-provisions the current build, and starts
-            a correct-version kaval — this host’s terminals restart.
+            Stops the stale kaval and starts a correct-version one from the
+            host’s current build — this host’s terminals restart and the session
+            is offered for restore.
           </p>
         </div>
       </Show>

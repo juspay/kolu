@@ -75,12 +75,12 @@ export async function restartDaemon(): Promise<void> {
     });
   } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
     // Surface the server's own message (the versions ride it, typed —
-    // toast-conventions.md: never swallow `err.message`) AND the guidance the
-    // typed skew lets us add: a restart can't fix a contract skew, so point at
-    // the recovery the `incompatible` daemon state surfaces beside this toast
-    // (the skew card / dialog's "Update & restart kaval").
+    // toast-conventions.md: never swallow `err.message`). A plain restart that
+    // STILL skews means the host's own build is stale (a fresh kaval from that
+    // closure is skewed too) — the daemon flips to `incompatible`, whose card
+    // offers the recovery (restart, and a host re-provision if that still skews).
     toast.error(
-      `Couldn’t restart kaval: ${error.message} — restarting can’t fix that. Use “Update & restart kaval”.`,
+      `Couldn’t restart kaval: ${error.message} — the host’s build itself is stale. See the incompatible card to recover.`,
       { id },
     );
   } else {
@@ -104,31 +104,88 @@ export function renewInFlight(host: HostKey): boolean {
   return renewingHosts().has(encodeHostKey(host));
 }
 
-/** Update & restart a host's daemon stack — the CONTRACT-SKEW recovery (SK5,
- *  D1: the ONE action for `incompatible`, on BOTH local and remote hosts).
- *  Calls `hosts.renewDaemon`: the binder drains that host's padi (session
- *  persisted), the reconnect loop re-dials — re-realising the CURRENT closure
- *  on the host — and the fresh padi's converge policy recycles the old kaval
- *  from its new build. Re-entrant calls while one is in flight are ignored. */
+/** The `incompatible` (contract-skew) recovery (SK5, D1: the ONE action for
+ *  `incompatible`, on BOTH local and remote hosts). It is the SAME session-
+ *  preserving kaval RECYCLE as `restartDaemon` — stop the old skewed kaval, spawn
+ *  a fresh one from padi's CURRENT closure (which now takes the rendezvous socket
+ *  from any orphaned old kaval squatting it — the supervisor's gate is the
+ *  single-instance authority, so a fresh kaval reclaims the path), and park the
+ *  session for restore. NOT a whole-padi drain: padi already realises the current
+ *  closure (an `incompatible` card means padi is HEALTHY and serving — only its
+ *  kaval is skewed), so recycling the kaval is all that is needed and it comes up
+ *  the correct version.
+ *
+ *  Re-entrant calls while one is in flight are ignored. Keyed on `host` for the
+ *  in-flight marker even though the recycle runs on `activePadiRpc`: the skew card
+ *  is active-host-only by the mount convention, so `host === activeHost()` here.
+ *
+ *  A recycle that STILL skews (the rare case where padi's OWN closure genuinely
+ *  bakes an old kaval, not merely an orphaned survivor) throws `KAVAL_CONTRACT_SKEW`
+ *  — recycling can't fix that, only re-provisioning the host's closure can — so we
+ *  offer that heavier {@link drainReprovisionDaemon} as the honest escalation. */
 export async function renewDaemon(host: HostKey): Promise<void> {
   const key = encodeHostKey(host);
   if (renewingHosts().has(key)) return;
   setRenewingHosts((s) => new Set(s).add(key));
-  const id = toast.loading("Updating & restarting kaval…");
+  const id = toast.loading("Restarting kaval…");
+  // `safe()` (not try/catch) preserves the DECLARED error union so
+  // `KAVAL_CONTRACT_SKEW` arrives TYPED (SK6) — see `restartDaemon`.
+  const { error } = await safe(activePadiRpc.lifecycle.recycleKaval());
+  if (!error) {
+    toast.success(
+      "kaval restarted from the host’s current build — your session is offered for restore",
+      { id },
+    );
+  } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
+    // The recycle proved padi's OWN closure is stale (a fresh spawn STILL skews),
+    // not just an orphaned old kaval — so re-provisioning the host is the recovery
+    // that works. Offer it as an action rather than dead-ending (toast-conventions:
+    // persistent action toast), and never swallow the server's typed message.
+    toast.error(
+      `Couldn’t converge kaval: ${error.message} — the host’s build itself is stale, so a restart brings back the same version. Re-provision the host to fix it.`,
+      {
+        id,
+        duration: Number.POSITIVE_INFINITY,
+        action: {
+          label: "Re-provision host",
+          onClick: () => void drainReprovisionDaemon(host),
+        },
+      },
+    );
+  } else {
+    toast.error(`Couldn’t restart kaval: ${(error as Error).message}`, { id });
+  }
+  setRenewingHosts((s) => {
+    const next = new Set(s);
+    next.delete(key);
+    return next;
+  });
+}
+
+/** The heavier ESCALATION for a genuinely-stale host closure (offered from
+ *  `renewDaemon`'s skew branch): drain THIS host's padi via the binder-owned
+ *  `hosts.renewDaemon` — padi persists + exits, the reconnect loop re-dials and
+ *  re-realises the CURRENT closure on the host, and the fresh padi's converge
+ *  policy recycles the old kaval from its new build. One seam for local and remote
+ *  alike (D1). Re-entrant calls while one is in flight are ignored. */
+export async function drainReprovisionDaemon(host: HostKey): Promise<void> {
+  const key = encodeHostKey(host);
+  if (renewingHosts().has(key)) return;
+  setRenewingHosts((s) => new Set(s).add(key));
+  const id = toast.loading("Re-provisioning host…");
   try {
     await client.hosts.renewDaemon({ host });
-    // HONEST at resolve time: the RPC resolves when the DRAIN takes (the old
-    // padi persisted + exited) — the re-provision + fresh kaval land
-    // asynchronously via the binder's reconnect loop, and the daemon-status
-    // chrome (the same surface that raised the skew card) narrates that
-    // convergence live. Claiming "restarted at the current build" here would
-    // assert an outcome this call never waits for.
+    // HONEST at resolve time: the RPC resolves when the DRAIN takes (the old padi
+    // persisted + exited) — the re-provision + fresh kaval land asynchronously via
+    // the binder's reconnect loop, which the daemon-status chrome narrates live.
     toast.success(
       "Host daemon drained — re-provisioning the current build; kaval reconnects shortly",
       { id },
     );
   } catch (err) {
-    toast.error(`Couldn’t update kaval: ${(err as Error).message}`, { id });
+    toast.error(`Couldn’t re-provision host: ${(err as Error).message}`, {
+      id,
+    });
   } finally {
     setRenewingHosts((s) => {
       const next = new Set(s);

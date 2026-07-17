@@ -222,7 +222,20 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
 
-  const listener = await serveOverUnixSocket({ socketPath, router, log });
+  // `reclaim: true` is SAFE here and only here: control only reaches this line
+  // holding the pid gate (`acquirePidGate` above returned `acquired`, or the
+  // caller handed a claimed `spec.gate`), so this process IS the one legitimate
+  // instance. A live peer on the rendezvous socket is therefore an ungated
+  // squatter — an orphaned prior daemon whose own gate is gone (the sincereintent
+  // shape) — and we take the PATH from it (unlink + rebind) instead of yielding
+  // `already-served`. The gate, not the socket, is the single-instance authority;
+  // the squatter is left running as a reported stray, never signalled.
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    router,
+    log,
+    reclaim: true,
+  });
   if (listener.outcome.kind !== "listening") {
     // A daemon whose socket won't bind has no reason to exist — release the
     // gate so a retry isn't blocked, and report the refusal verbatim.

@@ -29,6 +29,7 @@
  * transition reports.
  */
 
+import { unlinkSync } from "node:fs";
 import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
@@ -394,11 +395,33 @@ export function createEndpoint<C, I, M = undefined>(
     const holder = gatePid(rv.gatePath);
     if (holder === undefined || !isHolderLive(holder)) return undefined;
     if (await socketAccepting(rv.socketPath)) return holder;
+    // The gate names a live pid whose socket is DEAD. On a LOCAL unix socket a
+    // listening daemon accepts a connect immediately (the kernel completes it to
+    // the backlog before `accept()` is even called), so "socket not accepting"
+    // means this pid is NOT serving the rendezvous — a stale gate over a crashed
+    // daemon's REUSED pid (the OS handed the dead daemon's pid to an unrelated
+    // process). We must NOT SIGTERM it — killing an unrecorded/unrelated pid is
+    // the teardown-law line — but the stale gate FILE is ours to clear: leaving it
+    // makes the fresh spawn's own `acquirePidGate` YIELD to the reused-live pid, a
+    // permanent no-progress deadlock (the recycle never binds). Unlinking the file
+    // (kills nothing) lets the fresh daemon acquire the gate cleanly; its serve
+    // then reclaims any socket remnant (`daemonMain`'s gate-held `reclaim`). Safe
+    // under this supervisor's single-writer sequencing: it never probes a daemon
+    // it is itself mid-spawn (that daemon's gate-acquired-but-socket-pending
+    // startup window is inside `spawnConnectHold`, not a `liveServingHolder`
+    // probe), so a genuinely-starting daemon's gate is never mistaken for stale.
     spec.log.warn(
       { hostId: spec.hostId, pid: holder, socketPath: rv.socketPath },
-      "gate names a live pid but its socket is dead — treating gate as " +
-        "stale (not killing the pid: it may be an unrelated reused pid)",
+      "gate names a live pid but its socket is dead — clearing the stale gate " +
+        "FILE (not the pid: it may be an unrelated reused pid) so a fresh daemon " +
+        "can take the gate",
     );
+    try {
+      unlinkSync(rv.gatePath);
+    } catch {
+      // Already gone (a peer cleared it, or the real holder released it between
+      // the read and here) — fine; the fresh spawn acquires either way.
+    }
     return undefined;
   };
 

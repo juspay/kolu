@@ -13,13 +13,14 @@
  * (recycle → fresh) and offers the preserved session for restore on the empty
  * canvas. Here we name what happened and give the user that single button.
  *
- * SK4/SK5 add the third arm: `incompatible` — a PROVEN contract skew. Its card
- * states BOTH versions from the typed status fields and offers the ONE recovery
- * that can work — "Update &amp; restart kaval" (`hosts.renewDaemon`, the binder's
- * drain → re-realise pipeline) — and deliberately NO Restart verb: by the arm's
- * construction a respawn from the host's current closure has already been tried
- * and skewed, so offering Restart would be the dead-end loop this fix removes.
- * The affordance is a total function of the state sum.
+ * SK4/SK5 add the third arm: `incompatible` — a PROVEN contract skew. The host's
+ * kaval is a leftover from an older kolu install; padi itself is HEALTHY and
+ * already realises the current closure (a padi-level skew rides the surface
+ * connection cell, never this card). Its card states BOTH versions from the typed
+ * status fields and offers the ONE recovery that works — RESTART the kaval (the
+ * session-preserving recycle): it stops the stale kaval and spawns a correct-
+ * version one from padi's current closure, which takes over the rendezvous socket
+ * from the orphaned survivor. The affordance is a total function of the state sum.
  */
 
 import { type Component, type JSX, Show } from "solid-js";
@@ -94,7 +95,9 @@ const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
 };
 
 /** The contract-skew card (SK5) — both versions from the TYPED status fields,
- *  and the renew action. No Restart verb, by construction. */
+ *  and the RESTART (recycle) action. The host's padi is healthy and already
+ *  realises the current closure; only its kaval is a skewed survivor, so
+ *  restarting the kaval spawns a correct-version one from that closure. */
 const IncompatibleCard: Component<{
   daemonVersion: string;
   requiredVersion: string;
@@ -115,10 +118,9 @@ const IncompatibleCard: Component<{
     action={<UpdateKavalButton tone="danger" />}
   >
     <p class="mt-2 text-sm leading-relaxed text-fg-2">
-      Restarting can’t fix this — the host’s kaval binary is from an older kolu
-      install, and a respawn brings back the same version. Updating
-      re-provisions the current build on the host and starts a correct-version
-      kaval.
+      This host’s kaval is a leftover from an older kolu install. Restarting
+      stops it and starts a correct-version kaval from the host’s current build
+      — taking over from the stale one.
     </p>
     <p class="mt-2 text-xs leading-relaxed text-fg-3">
       Your saved session is preserved and offered for restore on the fresh

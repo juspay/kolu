@@ -187,6 +187,65 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
     dispose();
   });
 
+  it("with reclaim, takes the path from a LIVE but ungated squatter (single-instance is the caller's gate, not the socket)", async () => {
+    // The sincereintent shape: an orphaned old daemon (no single-instance gate)
+    // is still LIVE on the rendezvous path. A caller that ALREADY holds the
+    // single-instance gate (a pid gate) is the one legitimate instance, so the
+    // live holder is a provably-illegitimate squatter — `reclaim` unlinks the
+    // path and rebinds, taking the rendezvous. The squatter keeps its now-
+    // orphaned inode (a reported stray); nothing is signalled.
+    const dir = mkdtempSync(join(tmpdir(), "surface-usock-reclaim-"));
+    const squatPath = join(dir, "rendezvous.sock");
+    const squatter = await serveOverUnixSocket({
+      socketPath: squatPath,
+      router: buildRouter(),
+    });
+    expect(squatter.outcome).toEqual({ kind: "listening" });
+
+    // WITHOUT reclaim: the live squatter wins (the safe single-instance-by-socket default).
+    const refused = await serveOverUnixSocket({
+      socketPath: squatPath,
+      router: buildRouter(),
+    });
+    expect(refused.outcome).toEqual({ kind: "already-served" });
+
+    // WITH reclaim: the gate-holding caller takes the path.
+    const reclaimed = await serveOverUnixSocket({
+      socketPath: squatPath,
+      router: buildRouter(),
+      reclaim: true,
+    });
+    expect(reclaimed.outcome).toEqual({ kind: "listening" });
+
+    // New connections now reach the RECLAIMING server (a fresh round-trip proves
+    // the path was rebound, not merely left on the squatter).
+    const { client, dispose } = await unixSocketLink<typeof surface.contract>({
+      socketPath: squatPath,
+    });
+    expect(await client.surface.math.double({ x: 4 })).toEqual({ y: 8 });
+    dispose();
+    reclaimed.close();
+    squatter.close();
+  });
+
+  it("reclaim still REFUSES a non-socket inode (never unlinks a regular file, even when asked to reclaim)", async () => {
+    // `reclaim` relaxes only the LIVE-socket refusal; the data-loss guard (never
+    // delete a regular file/dir at the path) is absolute and independent of it.
+    const filePath = join(
+      mkdtempSync(join(tmpdir(), "surface-usock-reclaim-file-")),
+      "important.txt",
+    );
+    writeFileSync(filePath, "precious user data");
+    const l = await serveOverUnixSocket({
+      socketPath: filePath,
+      router: buildRouter(),
+      reclaim: true,
+    });
+    expect(l.outcome).toEqual({ kind: "not-a-socket" });
+    expect(readFileSync(filePath, "utf8")).toBe("precious user data");
+    l.close();
+  });
+
   it("refuses to delete an existing regular file at the socket path (no data loss)", async () => {
     // A user-supplied path may name their own regular file; a connect() probe
     // against it fails (ENOTSOCK-ish), which must not be read as "stale

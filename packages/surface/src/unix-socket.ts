@@ -219,8 +219,23 @@ export async function serveOverUnixSocket(opts: {
    *  deaths, post-listen listener errors). Bind-time verdicts arrive via
    *  `outcome` instead. */
   log?: UnixSocketLogger;
+  /** Reclaim the path from a LIVE peer that holds it. Default `false`: a live
+   *  peer means `already-served` — the safe single-instance-BY-SOCKET default a
+   *  gate-less caller relies on.
+   *
+   *  Pass `true` ONLY when the caller ALREADY guarantees single-instance by an
+   *  EXTERNAL lock (a pid gate held before this call): past that gate no second
+   *  legitimate instance can exist, so a live holder of the rendezvous path is a
+   *  provably-illegitimate squatter (an orphaned daemon whose own gate is gone —
+   *  the sincereintent shape). Its path is then unlinked and rebound exactly like
+   *  a stale inode. The squatter keeps its now-orphaned socket fd (a REPORTED
+   *  stray — this evicts it from the PATH, it does NOT signal the process; killing
+   *  an unrecorded pid is the teardown-law line we do not cross). The absolute
+   *  data-loss guard is unchanged: a non-socket inode (a regular file/dir) is
+   *  still refused with `not-a-socket`, reclaim or not. */
+  reclaim?: boolean;
 }): Promise<UnixSocketListener> {
-  const { socketPath, router, log } = opts;
+  const { socketPath, router, log, reclaim = false } = opts;
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,
@@ -239,8 +254,19 @@ export async function serveOverUnixSocket(opts: {
     }
 
     const probe = await probeSocket(socketPath);
-    if (probe.kind === "live") {
+    if (probe.kind === "live" && !reclaim) {
       return refused({ kind: "already-served" });
+    }
+    if (probe.kind === "live") {
+      // reclaim === true: the caller holds an external single-instance gate, so
+      // this live holder is an ungated squatter. Evict it from the PATH (the
+      // `rmSync` below, guarded by the same not-a-socket check) and rebind. The
+      // squatter process is left running on its orphaned inode — a reported
+      // stray, never signalled from here.
+      log?.debug(
+        { socketPath },
+        "reclaiming rendezvous path from a live but ungated peer (single-instance is the caller's gate); prior holder is left an orphaned stray",
+      );
     }
     if (probe.kind === "unknown") {
       // A non-`ECONNREFUSED`/`ENOENT` probe error normally means "I couldn't
@@ -253,9 +279,9 @@ export async function serveOverUnixSocket(opts: {
       }
       return refused({ kind: "probe-failed", code: probe.code });
     }
-    // probe.kind === "stale": ECONNREFUSED (a crashed peer's leftover inode)
-    // or ENOENT (nothing there — the fresh-start case). Clear the path so
-    // listen() won't EADDRINUSE, but ONLY if the inode is actually a socket
+    // probe.kind === "stale" (ECONNREFUSED — a crashed peer's leftover inode —
+    // or ENOENT — the fresh-start case), OR a reclaimed live squatter (above).
+    // Clear the path so listen() won't EADDRINUSE, but ONLY if the inode is a socket
     // (or already gone): an arbitrary user-supplied path pointed at a
     // regular file/dir/symlink must refuse, never silently unlink data.
     if (classifyInode(socketPath) === "other") {

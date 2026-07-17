@@ -6,9 +6,9 @@
  * overlay bug a second `Dialog` caused).
  *
  * Extracted from `RestartKavalButton` so the second destructive kaval action —
- * "Update &amp; restart kaval" (`hosts.renewDaemon`, the contract-skew recovery,
- * SK5) — reuses the exact affordance rather than re-implementing the confirm
- * scaffolding; only the copy, tone, and the confirmed action differ per caller.
+ * the `incompatible` recovery (SK5, a session-preserving kaval recycle) — reuses
+ * the exact affordance rather than re-implementing the confirm scaffolding; only
+ * the copy, tone, and the confirmed action differ per caller.
  */
 
 import { type Component, createSignal, type JSX, Show } from "solid-js";
