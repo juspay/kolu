@@ -1,8 +1,8 @@
 ---
 title: "Bug — atlas-sync shiki flake: the embedded-grammar load race"
-description: "release-workflow.html byte-shrinks under load because whether an ```mdx code block gets embedded-YAML highlighting depends on whether some other file's ```yaml block happened to be highlighted first. Fix: enumerate langs eagerly in both astro configs, with a fail-fast guard so a new fence language can never silently reopen the race."
+description: "release-workflow.html byte-shrinks under load because whether an ```mdx code block gets embedded-YAML highlighting depends on whether some other file's ```yaml block happened to be highlighted first. Fix: derive the langs list from the content itself and preload it in both astro configs, with a fail-fast guard so a fence the scan misses can never silently reopen the race."
 parents: [bug]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-07-16
 ---
@@ -15,7 +15,8 @@ The flaky-test tracker's `release-workflow.html` byte-shrink row (see
 [flaky-test-tracker](./flaky-test-tracker.html)) recurred **twice** after
 <PrLink pr={1853} /> disabled shiki's tokenization time budget — because the
 time budget was the wrong mechanism. This note pins the real one, verified
-from scratch against the installed sources, and the fix.
+from scratch against the installed sources, and the fix — implemented in
+<PrLink pr={1874} />.
 
 ## SG1 — Mechanism: a cross-file grammar-load order race
 
