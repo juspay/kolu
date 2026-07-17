@@ -32,7 +32,8 @@ terminals a **kolu owns** (the last section); for raw terminals, reach for
 ## The loop
 
 ```sh
-id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner agent
+id=$(kaval-tui create --json -- env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID \
+    claude | jq -r .id)                                        # spawn the inner agent (env -u: below)
 kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
 kaval-tui wait  "$id" --until idle:300                         # 2. observe the TUI settle
 kaval-tui send  "$id" --key Enter                              # 3. submit (its own command)
@@ -45,6 +46,21 @@ Leaf commands, all `kaval-tui`: **create** (spawn) · **send** (write text, OR a
 Submitting a prompt is its **own** `send --key Enter`, sent *after* you observe
 the TUI settle — never folded into the text send. Why: a same-breath Enter races
 the TUI's paste debounce and is silently dropped. See the next section.
+
+> **⚠️ ALWAYS spawn the agent behind `env -u CLAUDE_CODE_CHILD_SESSION -u
+> CLAUDE_CODE_SESSION_ID` — or a spawned Claude's transcript is silently lost.**
+> `create` (kaval-tui and padi-tui alike) hands the **caller's full environment**
+> to the new PTY. When the driver is itself a Claude Code session, its Bash tool
+> exports `CLAUDE_CODE_CHILD_SESSION=1` and `CLAUDE_CODE_SESSION_ID=<driver's
+> id>` — and an interactive `claude` launched with `CLAUDE_CODE_CHILD_SESSION=1`
+> treats itself as a nested child session and **never persists its root
+> transcript** (`~/.claude/projects/…/<session>.jsonl`) nor registers in the
+> session registry. Nothing errors; the run just becomes un-resumable after a
+> crash and un-minable forever (`/self-improve`, `/blog-post` mine those
+> transcripts). All three lanes of one 2026-07-16 campaign lost their entire
+> histories this way. The `env -u` prefix is a no-op for non-Claude agents
+> (`codex`, `opencode`) and for drivers that aren't Claude sessions, so bake it
+> into **every** spawn rather than remembering when it matters.
 
 > **Read with `snapshot --viewport`, not `| tail`.** A bare `snapshot` prints the
 > **whole scrollback** — thousands of lines on a long-running or compacted agent —
@@ -216,8 +232,10 @@ it with `padi-tui create` instead of raw `kaval-tui create`:
 
 ```sh
 git -C /abs/path/to/repo pull --ff-only     # the worktree is cut from the repo's CURRENT checkout
-padi-tui create --repo /abs/path/to/repo --worktree my-branch -- <agent> <mode-flags>
-# e.g. `-- claude --dangerously-skip-permissions` — prints the new terminal's id; padi owns it
+padi-tui create --repo /abs/path/to/repo --worktree my-branch -- \
+    env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID <agent> <mode-flags>
+# e.g. `… claude --dangerously-skip-permissions` — prints the new terminal's id; padi owns it
+# (env -u: the transcript-loss guard from "The loop" — padi-tui create leaks your env too)
 ```
 
 > **A split tile BESIDE you — `--parent "$KAVAL_TERMINAL_ID"`.** When you want the
