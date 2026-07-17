@@ -81,14 +81,51 @@ export function defaultPadiStateRoot(): string {
   );
 }
 
-/** Resolve the state-root a padi process should use: an explicit override
- *  (`--state-root` / `KOLU_PADI_STATE_DIR`, dev/e2e) if set, else the binary's
- *  {@link defaultPadiStateRoot}. Always absolute, so the digest is stable. The
- *  binder (kolu-server) resolves the SAME way and passes the result explicitly,
- *  so a supervised padi and its supervisor never disagree on the identity. */
-export function resolvePadiStateRoot(override?: string): string {
+/** The per-client-ISOLATED default state-root: the host's OWN default estate
+ *  ({@link defaultPadiStateRoot}) with a stable CLIENT identity appended to its
+ *  leaf, so two kolu-servers binding one host reach DISTINCT estates (distinct
+ *  digest → distinct socket + kaval) by construction — never the shared default
+ *  rendezvous they would otherwise LIVELOCK over (each padi classifies the
+ *  other's kaval as skew and recycles it, forever). Isolation is structural, not
+ *  arbitrated: an old-closure padi can't honor a gate it predates, so the only
+ *  fix that converges is not sharing the estate at all.
+ *
+ *  The base is still computed ON THE HOST (the identity-anchor invariant in
+ *  {@link defaultPadiStateRoot}'s doc): only the opaque `clientId` crosses the
+ *  wire, NEVER a client-computed path — so two ways of reaching the host can't
+ *  split the estate. `clientId` MUST be stable-per-client (kolu-server's persisted
+ *  UUID), so the SAME client re-attaches its own estate across restarts; an
+ *  ephemeral id would mint a new estate every restart (a graveyard factory).
+ *
+ *  Rejects a `clientId` bearing a path separator — it names the estate's leaf, so
+ *  a `/` or `..` must never let it climb out of the default state dir (fail fast,
+ *  never silently place the estate somewhere unexpected). */
+export function isolatedPadiStateRoot(clientId: string): string {
+  if (clientId === "" || /[/\\]|\.\./.test(clientId)) {
+    throw new Error(
+      `padi: refusing an isolated state-root for an unsafe client id ${JSON.stringify(
+        clientId,
+      )} — a client id names the estate leaf and must not contain a path separator.`,
+    );
+  }
+  return `${defaultPadiStateRoot()}-${clientId}`;
+}
+
+/** Resolve the state-root a padi process should use, in precedence order:
+ *  an explicit override (`--state-root` / `KOLU_PADI_STATE_DIR`, dev/e2e) wins;
+ *  else, given a stable `clientId`, the per-client {@link isolatedPadiStateRoot}
+ *  (the isolation-default for a remote binding); else the binary's
+ *  {@link defaultPadiStateRoot} (a standalone/local padi with no client). Always
+ *  absolute, so the digest is stable. The binder (kolu-server) resolves the SAME
+ *  way and passes the result explicitly, so a supervised padi and its supervisor
+ *  never disagree on the identity. */
+export function resolvePadiStateRoot(
+  override?: string,
+  clientId?: string,
+): string {
   const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
-  return explicit ? resolve(explicit) : defaultPadiStateRoot();
+  if (explicit) return resolve(explicit);
+  return clientId ? isolatedPadiStateRoot(clientId) : defaultPadiStateRoot();
 }
 
 /** A short, stable digest of the state-root path — the rendezvous key. A hex

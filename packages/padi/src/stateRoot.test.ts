@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defaultPadiStateRoot,
   discoverPadiDaemons,
+  isolatedPadiStateRoot,
   PADI_GATE_FILE,
   padiDigest,
   padiGatePath,
@@ -134,6 +135,53 @@ describe("resolvePadiStateRoot — override wins, always absolute", () => {
     process.env.XDG_STATE_HOME = "/x/state"; // ignored — the default is env-insensitive
     process.env.HOME = "/home/u";
     expect(resolvePadiStateRoot()).toBe("/home/u/.local/state/padi");
+  });
+
+  it("uses the per-client ISOLATED default when a clientId is given (isolation-default)", () => {
+    delete process.env.KOLU_PADI_STATE_DIR;
+    process.env.HOME = "/home/u";
+    // Two clients binding one host reach DISTINCT estates by construction —
+    // never the shared default they'd livelock over.
+    expect(resolvePadiStateRoot(undefined, "client-A")).toBe(
+      "/home/u/.local/state/padi-client-A",
+    );
+    expect(resolvePadiStateRoot(undefined, "client-B")).toBe(
+      "/home/u/.local/state/padi-client-B",
+    );
+    expect(
+      padiDigest(resolvePadiStateRoot(undefined, "client-A")),
+    ).not.toBe(padiDigest(resolvePadiStateRoot(undefined, "client-B")));
+  });
+
+  it("an explicit override STILL wins over a clientId (dev/e2e isolation)", () => {
+    process.env.HOME = "/home/u";
+    expect(resolvePadiStateRoot("/e2e/w1/padi", "client-A")).toBe(
+      "/e2e/w1/padi",
+    );
+    process.env.KOLU_PADI_STATE_DIR = "/e2e/env/padi";
+    expect(resolvePadiStateRoot(undefined, "client-A")).toBe("/e2e/env/padi");
+  });
+});
+
+describe("isolatedPadiStateRoot — host-computed base + opaque client leaf", () => {
+  it("appends the client id to the HOST's own default estate leaf", () => {
+    process.env.HOME = "/home/u";
+    expect(isolatedPadiStateRoot("abc123")).toBe(
+      "/home/u/.local/state/padi-abc123",
+    );
+  });
+
+  it("is stable per client (re-attach) and distinct across clients (no shared estate)", () => {
+    process.env.HOME = "/home/u";
+    expect(isolatedPadiStateRoot("id-1")).toBe(isolatedPadiStateRoot("id-1"));
+    expect(isolatedPadiStateRoot("id-1")).not.toBe(isolatedPadiStateRoot("id-2"));
+  });
+
+  it("refuses a client id with a path separator or traversal — never climbs out", () => {
+    process.env.HOME = "/home/u";
+    for (const bad of ["../evil", "a/b", "a\\b", "..", ""]) {
+      expect(() => isolatedPadiStateRoot(bad)).toThrow(/unsafe client id|separator/);
+    }
   });
 });
 
