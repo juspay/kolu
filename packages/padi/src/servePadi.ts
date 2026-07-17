@@ -446,14 +446,16 @@ export function buildPadiSurfaceDeps(deps: {
           try {
             await restartLocalDaemon();
           } catch (err) {
+            const skew = isContractSkewError(err);
             // A failed restart otherwise surfaces ONLY as a client toast — padi's
             // journal would show the "recycle kaval" start line and then an
             // unexplained silence. Surface it: the endpoint has already reported
-            // dead/degraded and the captured session is safe on disk (the user can
-            // retry or restore), but the failure must be legible in the journal.
+            // its terminal state and the captured session is safe on disk (the
+            // user can retry or restore), but the failure must be legible in the
+            // journal — naming the ACTUAL state (skew → `incompatible`).
             log.error(
               { err },
-              isContractSkewError(err)
+              skew
                 ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
                 : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
             );

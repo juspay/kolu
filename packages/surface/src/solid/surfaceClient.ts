@@ -337,6 +337,25 @@ export interface BoundProcedureOptions {
   signal?: AbortSignal;
 }
 
+/** The bound face's REJECTION type (SK6): the spec's declared error union —
+ *  `ORPCError<code, data>` per declared code, plus `ThrowableError` for the
+ *  undeclared crash-loudly channel — carried as `ClientPromiseResult`'s
+ *  phantom, exactly oRPC's own contract-client shape. A caller feeds the call
+ *  to `safe(...)` / narrows with `isDefinedError` to read `{ code, data }`
+ *  typed; a spec with no `errors` resolves the plain `ThrowableError` phantom
+ *  (via define.ts's shared {@link ProcedureSpecErrors} extractor) and the
+ *  face reads as an ordinary `Promise`, so existing callers are untouched. */
+type BoundProcedureError<S> = ErrorFromErrorMap<ProcedureSpecErrors<S>>;
+
+// The narrowing VERBS for that declared union (SK6), re-exported so a consumer
+// reads a typed rejection through the SAME receptacle that declares and types
+// it: `const { error } = await safe(client.procedures.ns.verb(...))` then
+// `isDefinedError(error)` narrows to the declared `{ code, data }`. Without
+// this, every app-side read of a declared error imports the transport vendor
+// (`@orpc/client`) past the surface boundary — exactly the volatility this
+// package exists to encapsulate.
+export { isDefinedError, safe } from "@orpc/client";
+
 /** A bound imperative procedure — a declaration-typed callable at
  *  `client.procedures.<ns>.<verb>(input, options?)`. It IS the underlying oRPC
  *  procedure call at the wire path `surface.<ns>.<verb>`, re-exposed off the
@@ -357,25 +376,6 @@ export interface BoundProcedureOptions {
  *  would wrongly REQUIRE a defaulted key the server fills in. The result arm uses
  *  `z.output<Schema>` (the parsed value the wire returns). This matches oRPC's
  *  `.input(schema)` client, which accepts `z.input` and resolves `z.output`. */
-/** The bound face's REJECTION type (SK6): the spec's declared error union —
- *  `ORPCError<code, data>` per declared code, plus `ThrowableError` for the
- *  undeclared crash-loudly channel — carried as `ClientPromiseResult`'s
- *  phantom, exactly oRPC's own contract-client shape. A caller feeds the call
- *  to `safe(...)` / narrows with `isDefinedError` to read `{ code, data }`
- *  typed; a spec with no `errors` resolves the plain `ThrowableError` phantom
- *  (via define.ts's shared {@link ProcedureSpecErrors} extractor) and the
- *  face reads as an ordinary `Promise`, so existing callers are untouched. */
-type BoundProcedureError<S> = ErrorFromErrorMap<ProcedureSpecErrors<S>>;
-
-// The narrowing VERBS for that declared union (SK6), re-exported so a consumer
-// reads a typed rejection through the SAME receptacle that declares and types
-// it: `const { error } = await safe(client.procedures.ns.verb(...))` then
-// `isDefinedError(error)` narrows to the declared `{ code, data }`. Without
-// this, every app-side read of a declared error imports the transport vendor
-// (`@orpc/client`) past the surface boundary — exactly the volatility this
-// package exists to encapsulate.
-export { isDefinedError, safe } from "@orpc/client";
-
 export type BoundProcedure<
   // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.
   S extends ProcedureSpec<any, any>,

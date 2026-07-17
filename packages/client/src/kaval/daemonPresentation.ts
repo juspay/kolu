@@ -231,18 +231,40 @@ export function liveDownState(
   live: boolean,
 ): DaemonDownState | undefined {
   if (!live || !status) return undefined;
-  // ONE authority for "is this state down": the presentation table's `down`
-  // flag — the incompatible arm only shapes the payload, never re-decides
-  // downness (flipping the table row is the single switch for every reader).
-  if (!DAEMON_STATE_PRESENTATION[status.state].down) return undefined;
-  if (status.state === "incompatible") {
-    return {
-      state: "incompatible",
-      daemonVersion: status.daemonVersion,
-      requiredVersion: status.requiredVersion,
-    };
+  // Exhaustive over the WHOLE wire union — no `.state as "dead" | "degraded"`
+  // cast: a new `DaemonState` member is a compile error here (the `never`
+  // default) until it picks an arm, so a future down state can never slip
+  // through mislabelled as `dead`/`degraded` and render the Restart verb
+  // against a daemon a restart can't fix (the exact class SK4 made
+  // unspellable — never re-open it via a cast). The up arms return `undefined`
+  // ("not down"); their `down: false` in DAEMON_STATE_PRESENTATION is pinned
+  // equal to this by daemonPresentation.test.ts, so the two agree by test.
+  switch (status.state) {
+    case "connecting":
+    case "connected":
+    case "restarting":
+      return undefined;
+    case "dead":
+    case "degraded":
+      return { state: status.state };
+    case "incompatible":
+      return {
+        state: "incompatible",
+        daemonVersion: status.daemonVersion,
+        requiredVersion: status.requiredVersion,
+      };
+    default:
+      return assertExhaustiveState(status);
   }
-  return { state: status.state as "dead" | "degraded" };
+}
+
+/** A `DaemonStatus` arm no `liveDownState` case handles — unreachable while
+ *  the switch stays exhaustive; a compile error the moment a new state is
+ *  added without an arm. */
+function assertExhaustiveState(status: never): never {
+  throw new Error(
+    `liveDownState: unhandled daemon state: ${(status as DaemonStatus).state}`,
+  );
 }
 
 /** Whether a surface may OFFER the "Restart kaval" verb (D5c/SK4): never while

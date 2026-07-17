@@ -22,7 +22,7 @@
  * The affordance is a total function of the state sum.
  */
 
-import { type Component, Show } from "solid-js";
+import { type Component, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
 import type { DaemonDownState } from "./daemonPresentation";
 import RestartKavalButton from "./RestartKavalButton";
@@ -34,44 +34,62 @@ import { localDaemonStatus } from "./useDaemonStatus";
  *  mid-session). `downState()` in useDaemonStatus.ts is the single source that
  *  narrows the full `DaemonState` to the down union (a `restarting` daemon is
  *  coming back, not down, so it never renders here). */
+/** The shared danger-card shell — the identical border/icon/heading chrome
+ *  both down cards wear. Only the copy and the recovery action differ per arm,
+ *  so the shell lives once (the twin of the button-side `InlineConfirmButton`
+ *  extraction: one frame, per-arm content). */
+const DangerCard: Component<{
+  heading: string;
+  versions?: JSX.Element;
+  children: JSX.Element;
+  action: JSX.Element;
+}> = (props) => (
+  <div class="mx-6 max-w-md rounded-xl border border-danger/50 bg-danger/5 px-6 py-5">
+    <div class="flex items-start gap-3">
+      <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-danger" />
+      <div class="min-w-0">
+        <h2 class="text-sm font-semibold text-fg">{props.heading}</h2>
+        {props.versions}
+        {props.children}
+        <div class="mt-3">{props.action}</div>
+      </div>
+    </div>
+  </div>
+);
+
 const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
   const isDead = () => props.state === "dead";
   return (
-    <div class="mx-6 max-w-md rounded-xl border border-danger/50 bg-danger/5 px-6 py-5">
-      <div class="flex items-start gap-3">
-        <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-danger" />
-        <div class="min-w-0">
-          <h2 class="text-sm font-semibold text-fg">
-            {isDead()
-              ? "kaval didn’t start"
-              : "kaval — your terminal daemon — stopped"}
-          </h2>
-          <p class="mt-1.5 text-sm leading-relaxed text-fg-2">
-            <span class="font-mono text-fg">kaval</span> is the process that
-            owns your shells.{" "}
-            <Show
-              when={isDead()}
-              fallback="It went away, so the terminals it was running ended."
-            >
-              It couldn’t be started, so no terminals can run yet.
-            </Show>{" "}
-            This isn’t an empty workspace — it’s a daemon that needs to come
-            back.
-          </p>
-          <p class="mt-2 text-xs leading-relaxed text-fg-3">
-            Your saved session is preserved. Restart kaval to bring it back —
-            your terminals are offered for restore on the fresh daemon.
-          </p>
-          <div class="mt-3">
-            <RestartKavalButton
-              status={localDaemonStatus()}
-              tone="danger"
-              onConfirm={() => void restartDaemon()}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+    <DangerCard
+      heading={
+        isDead()
+          ? "kaval didn’t start"
+          : "kaval — your terminal daemon — stopped"
+      }
+      action={
+        <RestartKavalButton
+          status={localDaemonStatus()}
+          tone="danger"
+          onConfirm={() => void restartDaemon()}
+        />
+      }
+    >
+      <p class="mt-1.5 text-sm leading-relaxed text-fg-2">
+        <span class="font-mono text-fg">kaval</span> is the process that owns
+        your shells.{" "}
+        <Show
+          when={isDead()}
+          fallback="It went away, so the terminals it was running ended."
+        >
+          It couldn’t be started, so no terminals can run yet.
+        </Show>{" "}
+        This isn’t an empty workspace — it’s a daemon that needs to come back.
+      </p>
+      <p class="mt-2 text-xs leading-relaxed text-fg-3">
+        Your saved session is preserved. Restart kaval to bring it back — your
+        terminals are offered for restore on the fresh daemon.
+      </p>
+    </DangerCard>
   );
 };
 
@@ -81,38 +99,32 @@ const IncompatibleCard: Component<{
   daemonVersion: string;
   requiredVersion: string;
 }> = (props) => (
-  <div class="mx-6 max-w-md rounded-xl border border-danger/50 bg-danger/5 px-6 py-5">
-    <div class="flex items-start gap-3">
-      <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-danger" />
-      <div class="min-w-0">
-        <h2 class="text-sm font-semibold text-fg">
-          kaval is incompatible with this kolu
-        </h2>
-        <p
-          class="mt-1.5 font-mono text-xs text-fg-2"
-          data-testid="kaval-skew-versions"
-        >
-          this host’s kaval speaks{" "}
-          <span class="font-semibold text-danger">{props.daemonVersion}</span> ·
-          your kolu needs{" "}
-          <span class="font-semibold text-ok">{props.requiredVersion}</span>
-        </p>
-        <p class="mt-2 text-sm leading-relaxed text-fg-2">
-          Restarting can’t fix this — the host’s kaval binary is from an older
-          kolu install, and a respawn brings back the same version. Updating
-          re-provisions the current build on the host and starts a
-          correct-version kaval.
-        </p>
-        <p class="mt-2 text-xs leading-relaxed text-fg-3">
-          Your saved session is preserved and offered for restore on the fresh
-          daemon.
-        </p>
-        <div class="mt-3">
-          <UpdateKavalButton tone="danger" />
-        </div>
-      </div>
-    </div>
-  </div>
+  <DangerCard
+    heading="kaval is incompatible with this kolu"
+    versions={
+      <p
+        class="mt-1.5 font-mono text-xs text-fg-2"
+        data-testid="kaval-skew-versions"
+      >
+        this host’s kaval speaks{" "}
+        <span class="font-semibold text-danger">{props.daemonVersion}</span> ·
+        your kolu needs{" "}
+        <span class="font-semibold text-ok">{props.requiredVersion}</span>
+      </p>
+    }
+    action={<UpdateKavalButton tone="danger" />}
+  >
+    <p class="mt-2 text-sm leading-relaxed text-fg-2">
+      Restarting can’t fix this — the host’s kaval binary is from an older kolu
+      install, and a respawn brings back the same version. Updating
+      re-provisions the current build on the host and starts a correct-version
+      kaval.
+    </p>
+    <p class="mt-2 text-xs leading-relaxed text-fg-3">
+      Your saved session is preserved and offered for restore on the fresh
+      daemon.
+    </p>
+  </DangerCard>
 );
 
 const DegradedCanvas: Component<{ down: DaemonDownState }> = (props) => {

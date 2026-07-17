@@ -19,6 +19,20 @@ const silentLog = {
   error() {},
 };
 
+/** A `DaemonContractSkewError` for tests — defaults to the common pty-host
+ *  5.0-vs-5.2 skew, overridable per case (the padi-axis suite passes its own).
+ *  One spelling of the SK2 payload shape, so a field change is a one-site edit. */
+const skewError = ({
+  subject = "pty-host",
+  daemonVersion = "5.0",
+  requiredVersion = "5.2",
+}: {
+  subject?: string;
+  daemonVersion?: string;
+  requiredVersion?: string;
+} = {}): DaemonContractSkewError =>
+  new DaemonContractSkewError({ subject, daemonVersion, requiredVersion });
+
 type Identity = { staleKey: string };
 
 /** A fake daemon: a net server the driver "spawns" by listening on socketPath. */
@@ -621,11 +635,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         // burn retries re-dialing a daemon that can't become compatible. Only the
         // post-recycle fresh spawn connects.
         if (connectCount === 1) {
-          throw new DaemonContractSkewError({
-            subject: "pty-host",
-            daemonVersion: "5.0",
-            requiredVersion: "5.2",
-          });
+          throw skewError();
         }
         return {
           client: "FRESH",
@@ -686,11 +696,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       // EVERY connect skews — the survivor AND the fresh spawn: the closure on
       // this host cannot speak the required contract, whoever runs it.
       connect: async () => {
-        throw new DaemonContractSkewError({
-          subject: "pty-host",
-          daemonVersion: "5.0",
-          requiredVersion: "5.2",
-        });
+        throw skewError();
       },
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
@@ -737,11 +743,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       socketPath,
       driver: { spawn: async () => {} },
       connect: async () => {
-        throw new DaemonContractSkewError({
-          subject: "pty-host",
-          daemonVersion: "5.0",
-          requiredVersion: "5.2",
-        });
+        throw skewError();
       },
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
@@ -889,7 +891,7 @@ describe("adoptOrSpawnOrRefuse — the padi binder's boot policy (W2.2)", () => 
       },
       connect: async () => {
         connectCount += 1;
-        throw new DaemonContractSkewError({
+        throw skewError({
           subject: "padiSurface",
           daemonVersion: "3.0",
           requiredVersion: "4.0",
@@ -1168,7 +1170,7 @@ describe("adoptOrEnsure — the W2.2 upgrade adopt-hint (legacy port kaval)", ()
         gatePath: hint.gatePath,
         socketPath: hint.socketPath,
         connect: async () => {
-          throw new DaemonContractSkewError({
+          throw skewError({
             subject: "pty-host",
             daemonVersion: "1.0",
             requiredVersion: "5.2",
@@ -1222,7 +1224,7 @@ describe("adoptOrEnsure — the W2.2 upgrade adopt-hint (legacy port kaval)", ()
       // The PRIMARY handshake skews too — the whole closure on this host is
       // incompatible, whoever runs it.
       connect: async () => {
-        throw new DaemonContractSkewError({
+        throw skewError({
           subject: "pty-host",
           daemonVersion: "1.0",
           requiredVersion: "5.2",
@@ -1236,7 +1238,7 @@ describe("adoptOrEnsure — the W2.2 upgrade adopt-hint (legacy port kaval)", ()
         gatePath: hint.gatePath,
         socketPath: hint.socketPath,
         connect: async () => {
-          throw new DaemonContractSkewError({
+          throw skewError({
             subject: "pty-host",
             daemonVersion: "1.0",
             requiredVersion: "5.2",

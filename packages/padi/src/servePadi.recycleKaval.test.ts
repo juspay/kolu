@@ -17,12 +17,11 @@
  */
 
 import { ORPCError } from "@orpc/server";
-import type { Logger } from "pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TerminalEndpoint } from "./endpoint.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
+import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
 
 vi.mock("./ptyHost/restartLocal.ts", () => ({
   restartLocalDaemon: vi.fn(),
@@ -31,28 +30,6 @@ vi.mock("./ptyHost/restartLocal.ts", () => ({
 // `cleanupTerminalScratch` (reached via other members' construction) reads the
 // per-instance scratch root; boot injects the server id before any of this runs.
 setDaemonProcessId("recyclekaval-test-server");
-
-const stubLog = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  debug: () => {},
-  child: () => stubLog,
-} as unknown as Logger;
-
-const fakeEndpoint = {
-  fs: {
-    listAll: async () => [],
-    readFile: async () => ({ content: "", truncated: false }),
-    filePreviewTag: async () => "tag",
-    subscribeRepoChange: () => () => {},
-    subscribeFileChange: () => () => {},
-  },
-  git: {
-    getStatus: async () => ({}),
-    getDiff: async () => ({}),
-  },
-} as unknown as TerminalEndpoint;
 
 /** The recycle rejection as the endpoint really raises it: brand-checked
  *  (`isContractSkew === true` — realm-robust, never `instanceof`) and version-

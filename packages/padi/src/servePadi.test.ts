@@ -16,10 +16,8 @@
 import { inMemoryStore } from "@kolu/surface/server";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
-import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setPadiSessionStore } from "./confStores.ts";
-import type { TerminalEndpoint } from "./endpoint.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -27,6 +25,7 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
+import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
   PADI_SURFACE_VERSION,
@@ -63,32 +62,6 @@ setDaemonProcessId("servepadi-test-server");
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SLEEPING_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const PARKED_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-
-/** A stub logger — construction of the deps threads it through, but the
- *  `terminals` read handlers never call it. */
-const stubLog = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  debug: () => {},
-  child: () => stubLog,
-} as unknown as Logger;
-
-/** A fake endpoint — the `terminals` collection reads neither `fs` nor `git`, so
- *  the wrapper (`fsGitSurfaceDeps`) only needs the shape to construct. */
-const fakeEndpoint = {
-  fs: {
-    listAll: async () => [],
-    readFile: async () => ({ content: "", truncated: false }),
-    filePreviewTag: async () => "tag",
-    subscribeRepoChange: () => () => {},
-    subscribeFileChange: () => () => {},
-  },
-  git: {
-    getStatus: async () => ({}),
-    getDiff: async () => ({}),
-  },
-} as unknown as TerminalEndpoint;
 
 const activeMeta: AuthoredActiveTerminal = {
   state: "active",
