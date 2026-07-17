@@ -1,4 +1,8 @@
 import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import {
+  ENDPOINT_STATES,
+  isDownEndpointState,
+} from "@kolu/surface-daemon-supervisor/states";
 import { describe, expect, it } from "vitest";
 import {
   channelLive,
@@ -68,6 +72,18 @@ describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1
     // 'down' (red): the two failures must not collapse into one verdict.
     expect(DAEMON_UNKNOWN_DOT).not.toBe(toneDot.down);
     expect(kavalDot("dead", true)).not.toBe(DAEMON_UNKNOWN_DOT);
+  });
+});
+
+describe("DAEMON_STATE_PRESENTATION.down — the table's VALUES equal the states' home classification", () => {
+  // The table's rows are already compile-forced (Record<DaemonState, …>); this
+  // pins the down FLAGS to `isDownEndpointState`, the classification declared at
+  // the states' home (`@kolu/surface-daemon-supervisor/states`). A future state
+  // classified at the home therefore can't silently diverge in this client table.
+  it("every state's `down` flag equals isDownEndpointState(state)", () => {
+    for (const s of ENDPOINT_STATES) {
+      expect(DAEMON_STATE_PRESENTATION[s].down).toBe(isDownEndpointState(s));
+    }
   });
 });
 
