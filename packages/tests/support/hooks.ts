@@ -32,12 +32,19 @@ import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
 
-/** Fixtures scaffold real git repos in /tmp and run `git commit` against
- *  them. On a pristine NixOS host with no `~/.gitconfig`, git aborts with
- *  "Author identity unknown" and 31 scenarios fail (see #887). Pin a test
- *  identity here so every fixture — current and future — inherits one.
- *  `??=` lets a host with `git config --global` set still take precedence
- *  when developers run locally. */
+/** Fixtures scaffold real git repos and run `git commit` against them. On a
+ *  pristine NixOS host with no `~/.gitconfig`, git aborts with "Author identity
+ *  unknown" and scenarios fail (see #887). Pin a test identity so every fixture
+ *  — current and future — inherits one. `??=` lets a host with `git config
+ *  --global` set still take precedence when developers run locally.
+ *
+ *  This env identity reaches the git that runs in the HARNESS process directly
+ *  (`execFileSync("git", …)` in worktree/git-context steps). Git that runs in a
+ *  spawned PTY can NOT read it: the #1872 spawn allowlist (`composeSpawnEnv`)
+ *  deliberately drops identity vars, so `GIT_AUTHOR_*` never rides ambient env
+ *  into a hosted terminal. Those fixtures get their identity from the fake
+ *  `$HOME/.gitconfig` seeded below — the forwarded-HOME config channel, the same
+ *  one that sources `.bashrc` (see `cleanEnv`). */
 process.env.GIT_AUTHOR_NAME ??= "kolu-test";
 process.env.GIT_AUTHOR_EMAIL ??= "test@kolu.dev";
 process.env.GIT_COMMITTER_NAME ??= "kolu-test";
@@ -126,6 +133,19 @@ const fixtureHomeRoot =
 const fixtureHome = RECORDING
   ? undefined
   : fs.mkdtempSync(path.join(fixtureHomeRoot, ".kolu-e2e-home-"));
+
+/** Git identity travels into a spawned PTY via `$HOME/.gitconfig`, NOT ambient
+ *  `GIT_AUTHOR_*` env — the #1872 spawn allowlist strips those. Seed the fake
+ *  home's config with the resolved test identity (respecting a dev's `??=`
+ *  override above, so the PTY and the harness-process git agree) so a fixture's
+ *  `git commit` inside the terminal under test succeeds on pristine hosts.
+ *  RECORDING mode uses the real HOME, whose real `~/.gitconfig` already applies. */
+if (fixtureHome) {
+  fs.writeFileSync(
+    path.join(fixtureHome, ".gitconfig"),
+    `[user]\n\tname = ${process.env.GIT_AUTHOR_NAME}\n\temail = ${process.env.GIT_AUTHOR_EMAIL}\n`,
+  );
+}
 
 const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
@@ -777,15 +797,11 @@ async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
   assertRemoteDestructiveAck();
-  // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
-  // shells in fixtures like `code-tab.feature` (which run `git init &&
-  // git commit` inside the terminal under test) inherit the same
-  // identity set on process.env above. Without this, the whitelist
-  // filter strips them and those scenarios fail on pristine hosts.
-  const envWhitelist = [
-    NIX_ENV_WHITELIST,
-    "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
-  ].join(",");
+  // The server runs inside the nix devshell, so it needs the devshell env
+  // whitelist. Git identity is NOT threaded here: fixtures' in-terminal
+  // `git commit` reads it from the fake `$HOME/.gitconfig` (seeded at startup),
+  // not ambient `GIT_AUTHOR_*` env the spawn allowlist strips (#1872).
+  const envWhitelist = NIX_ENV_WHITELIST;
   // Append-mode per-worker server log: a server that dies mid-run otherwise
   // leaves NO trace in the suite log; the file preserves the crash stack /
   // clean-exit / silence-then-gone that distinguishes a crash from a wedge.
