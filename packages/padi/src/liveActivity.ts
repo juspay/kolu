@@ -34,10 +34,7 @@ import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
  *  `terminalWorkspaceSurface` assembler that once named it is gone. */
 type ActivityStreamDeps = {
   source: (
-    // `undefined` joined the wire shape at padiSurface 4.1: the MCP face reads
-    // this no-input stream as a static resource via `.get(undefined)`. The
-    // source ignores its input either way.
-    input: Record<string, never> | undefined,
+    input: Record<string, never>,
     signal: AbortSignal | undefined,
   ) => AsyncIterable<TerminalId[]>;
 };

@@ -206,21 +206,15 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
  *  padi-surface bump does not touch the kaval contract.
  *
- *  4.1 (additive · minor): the `activity` stream's input LOOSENS from
- *  `z.object({})` to `z.object({}).optional()` — the honest schema for a stream
- *  that takes no parameters, so a no-input read/subscribe via `.get(undefined)`
- *  validates rather than being rejected by a bare object schema. (Its original
- *  motivation was the kolu MCP face reading `activity` as a static resource;
- *  that read was removed in #1865 review — padi's activity stream has no
- *  current-value snapshot, so it can't honor an MCP resource read — but the
- *  loosening stands on its own merit as the correct no-input-stream shape, and
- *  reverting a deployed contract version carries more risk than the harmless
- *  wider input domain. Whether to fold 4.1 back into 4.0 is a contract-version
- *  call for the note owner.) Loosening is one-directional: every existing `{}`
- *  caller still validates against a 4.1 padi, while a 4.1 client that SENDS
- *  `undefined` against a 4.0 padi would be rejected — the old-daemon/new-client
- *  skew a minor bump gates (the 4.1 client refuses the 4.0 padi loudly). */
-export const PADI_SURFACE_VERSION = "4.1";
+ *  (A 4.1 minor was briefly cut in #1865 to loosen the `activity` stream input
+ *  to `z.object({}).optional()` so the kolu MCP face could read it as a static
+ *  resource via `.get(undefined)`. That read was removed in review — padi's
+ *  activity stream has no current-value snapshot, so it can't honor an MCP
+ *  resource read — which left the loosening with no consumer. Rather than ship
+ *  an orphan version bump (a 4.0 client vs 4.1 server skewed for zero real
+ *  contract delta — the exact gratuitous skew the remote-kaval note warns
+ *  against), the input reverted to `z.object({})` and the version stayed 4.0.) */
+export const PADI_SURFACE_VERSION = "4.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -801,13 +795,9 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
   streams: {
     /** The set of terminals producing output RIGHT NOW — snapshot-then-deltas,
      *  each frame the full current live set. DELTA/fail-through: a mid-chain
-     *  disconnect terminates the downstream stream so a fresh snapshot re-seeds.
-     *  The input accepts `undefined` beside the historical `{}` (4.1): the
-     *  stream carries no parameters, and the MCP face reads a no-input stream
-     *  as a static resource via `.get(undefined)` — a bare `z.object({})`
-     *  would reject that read at the boundary. */
+     *  disconnect terminates the downstream stream so a fresh snapshot re-seeds. */
     activity: {
-      inputSchema: z.object({}).optional(),
+      inputSchema: z.object({}),
       outputSchema: z.array(TerminalIdSchema),
     },
     /** Live change-pulses for a repo's working tree + git dir. Value-bearing

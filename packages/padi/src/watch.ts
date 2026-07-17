@@ -58,16 +58,29 @@ export const WAIT_STATES = [
 
 export type WaitState = (typeof WAIT_STATES)[number];
 
+/** The live agent of a record IF it is in one of the target buckets, else
+ *  `null` — the wait's match payload. A record with no live agent (a bare
+ *  shell, a sleeping/parked terminal, or an agent that exited) never matches;
+ *  otherwise its `state` folds through the shared `agentBucket` and is tested
+ *  for membership. Returns the matched agent (not a bare boolean) so a caller
+ *  that needs it for the `met` outcome doesn't re-resolve `activeAgent` a second
+ *  time — one narrowing, one source of truth. */
+export function matchingActiveAgent(
+  v: PadiTerminal,
+  targets: ReadonlySet<string>,
+): AgentInfo | null {
+  const agent = activeAgent(v);
+  return agent !== null && targets.has(agentBucket(agent.state)) ? agent : null;
+}
+
 /** Whether a terminal's agent is in one of the target buckets — the wait
- *  predicate. A record with no live agent (a bare shell, a sleeping/parked
- *  terminal, or an agent that exited) is never a match; otherwise its `state`
- *  folds through the shared `agentBucket` and is tested for membership. */
+ *  predicate, spelled over {@link matchingActiveAgent} so the narrowing lives
+ *  once. */
 export function agentMatchesUntil(
   v: PadiTerminal,
   targets: ReadonlySet<string>,
 ): boolean {
-  const agent = activeAgent(v);
-  return agent !== null && targets.has(agentBucket(agent.state));
+  return matchingActiveAgent(v, targets) !== null;
 }
 
 /** Handlers a live watch reacts to. `live` is whether the terminal is moving
@@ -121,6 +134,15 @@ export async function watchTerminals(
   // there is nothing a pre-seed subscription could recover. An already-busy
   // terminal simply lights on its next output chunk.
   const live = new Set<TerminalId>();
+  // The activity stream feeds ONLY `onActivity` and the `live` boolean coloring
+  // that upsert reads — so a consumer that wants neither (the `wait` paths pass
+  // only `onUpsert`/`onRemove` and ignore the `live` arg) pays nothing for it.
+  // Gate the whole subscription on `onActivity`: an unbounded `wait_agentState`
+  // over `--host` would otherwise hold a second ssh-piped stream open and churn
+  // a discarded `new Set` per ~1s activity pulse for its entire lifetime, all to
+  // drive a no-op callback. When gated off, `live` stays empty and upsert's
+  // `live.has(id)` is a harmless constant `false` (the coloring was unused).
+  const wantsActivity = handlers.onActivity !== undefined;
   await mirrorRemoteSurface(
     padiSurface,
     client,
@@ -154,29 +176,31 @@ export async function watchTerminals(
           ...(initialKeys !== undefined ? { initialKeys } : {}),
         },
       },
-      streams: {
-        activity: {
-          input: {},
-          onFrame: (ids) => {
-            const next = new Set(ids);
-            // Emit a transition for each terminal that STARTED or STOPPED moving
-            // bytes since the last frame, so byte-activity shows on its own line.
-            // `live` starts empty and fills from these frames. Guard the callback
-            // so a throwing consumer can't wedge the mirror loop.
-            const fire = (id: TerminalId, isLive: boolean): void => {
-              try {
-                handlers.onActivity?.(id, isLive);
-              } catch (err) {
-                log?.(`activity handler failed: ${(err as Error).message}`);
-              }
-            };
-            for (const id of next) if (!live.has(id)) fire(id, true);
-            for (const id of live) if (!next.has(id)) fire(id, false);
-            live.clear();
-            for (const id of next) live.add(id);
-          },
-        },
-      },
+      streams: wantsActivity
+        ? {
+            activity: {
+              input: {},
+              onFrame: (ids) => {
+                const next = new Set(ids);
+                // Emit a transition for each terminal that STARTED or STOPPED
+                // moving bytes since the last frame, so byte-activity shows on
+                // its own line. `live` starts empty and fills from these frames.
+                // Guard the callback so a throwing consumer can't wedge the loop.
+                const fire = (id: TerminalId, isLive: boolean): void => {
+                  try {
+                    handlers.onActivity?.(id, isLive);
+                  } catch (err) {
+                    log?.(`activity handler failed: ${(err as Error).message}`);
+                  }
+                };
+                for (const id of next) if (!live.has(id)) fire(id, true);
+                for (const id of live) if (!next.has(id)) fire(id, false);
+                live.clear();
+                for (const id of next) live.add(id);
+              },
+            },
+          }
+        : {},
     },
     { signal, log },
   ).done;
@@ -223,10 +247,8 @@ export async function awaitAgentState(
         client,
         {
           onUpsert: (id, value) => {
-            if (id !== opts.id || !agentMatchesUntil(value, opts.targets))
-              return;
-            // The match guarantees a live agent; re-read it for the met outcome.
-            const agent = activeAgent(value);
+            if (id !== opts.id) return;
+            const agent = matchingActiveAgent(value, opts.targets);
             if (agent !== null) {
               ctx.settle({ kind: "met", agent, elapsedMs: ctx.elapsedMs() });
             }
@@ -351,8 +373,9 @@ export async function awaitOutputSettled(
           // dead socket forever. A healthy-transport lost feed (a slow-consumer
           // drop) still settles `closed` below.
           if (isDeadTransportError(err)) throw err;
-          feedError ??= errMessage(err);
-          ctx.recordUpstreamError(errMessage(err));
+          const m = errMessage(err);
+          feedError ??= m;
+          ctx.recordUpstreamError(m);
         }
         ctx.settle({
           kind: "closed",
@@ -393,8 +416,9 @@ export async function awaitOutputSettled(
           // settle loud.
           if (!ctx.signal.aborted) {
             if (isDeadTransportError(err)) throw err;
-            feedError ??= errMessage(err);
-            ctx.recordUpstreamError(errMessage(err));
+            const m = errMessage(err);
+            feedError ??= m;
+            ctx.recordUpstreamError(m);
             await settleOnLostFeed();
           }
         }

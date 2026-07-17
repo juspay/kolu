@@ -24,7 +24,7 @@ describe("padiSurface 1.0 contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -39,11 +39,7 @@ describe("padiSurface 1.0 contract", () => {
     // (retired per #1784's W12 disposition — no production caller). A removed procedure
     // is a shape-break, so an old binder that still called it must refuse a 4.0 padi
     // rather than hit a missing proc — only a major closes that skew in both directions.
-    // 4.1 (additive minor): the `activity` stream's input loosens to accept
-    // `undefined` beside `{}` — the MCP face reads a no-input stream as a static
-    // resource via `.get(undefined)`. A 4.1 client refuses a 4.0 padi (it may
-    // send the form 4.0 rejects); every `{}` caller still validates.
-    expect(PADI_SURFACE_VERSION).toBe("4.1");
+    expect(PADI_SURFACE_VERSION).toBe("4.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,

@@ -282,8 +282,9 @@ export async function awaitOutputCondition(
           // CLI wait dials its own link and exits, but the discrimination stays
           // in lockstep with padi's watcher, the port-not-extract twin).
           if (isDeadTransportError(err)) throw err;
-          feedError ??= errMessage(err);
-          ctx.recordUpstreamError(errMessage(err));
+          const m = errMessage(err);
+          feedError ??= m;
+          ctx.recordUpstreamError(m);
         }
         ctx.settle({
           kind: "closed",
@@ -339,8 +340,9 @@ export async function awaitOutputCondition(
           // reading.
           if (!ctx.signal.aborted) {
             if (isDeadTransportError(err)) throw err;
-            feedError ??= errMessage(err);
-            ctx.recordUpstreamError(errMessage(err));
+            const m = errMessage(err);
+            feedError ??= m;
+            ctx.recordUpstreamError(m);
             await settleOnLostFeed();
           }
         }
