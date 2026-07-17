@@ -8,9 +8,10 @@
  * `await` holds no handle itself, so if that timer were `unref()`'d the
  * process would exit here silently, mid-await, without ever delivering the
  * rejection `pin()` promised. The pin: the timeout rejection REACHES the
- * awaiter (the marker prints, carrying the timeout's own message), and only
- * then does the process exit — the backoff armed after the failure is
- * unref'd, which is exactly the exit window.
+ * awaiter (the marker prints, carrying a CHILD-measured elapsed around the
+ * await — tsx startup noise can't fake it — plus the timeout's own message),
+ * and only then does the process exit — the backoff armed after the failure
+ * is unref'd, which is exactly the exit window.
  */
 import { makeSession } from "./session.ts";
 
@@ -37,16 +38,21 @@ const session = makeSession<{ hello: () => Promise<void> }>({
     new Promise<never>(() => {
       /* never settles; holds no handle */
     }),
-  connectTimeoutMs: 1_500,
+  connectTimeoutMs: 300,
   onLog: () => {},
 });
 
+// Monotonic, measured around the await itself — the parent asserts this value
+// ≥ connectTimeoutMs, proving the ref'd timer FIRED (an instant rejection or a
+// silent early exit can't produce it), unpolluted by tsx startup time.
+const awaitedAt = performance.now();
 session.pin().then(
   () => {
     console.log("UNEXPECTED-RESOLVE");
   },
   (err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    console.log(`HANDSHAKE-REJECTED: ${message}`);
+    const elapsed = Math.round(performance.now() - awaitedAt);
+    console.log(`HANDSHAKE-REJECTED after ${elapsed}ms: ${message}`);
   },
 );

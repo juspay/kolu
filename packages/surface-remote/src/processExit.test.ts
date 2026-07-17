@@ -4,8 +4,10 @@
  *
  * Event-loop holding is invisible from inside a vitest worker (the runner
  * itself keeps the loop alive), so both pins spawn a REAL node child running a
- * fixture under tsx's in-process ESM loader (the `kaval` `socketDaemon.test.ts`
- * shape) and assert on the child's actual exit:
+ * fixture under tsx's in-process ESM loader (the shape several suites share —
+ * kaval's `socketDaemon.test.ts`, padi's `dial.test.ts`, server's
+ * `padiBinding.test.ts`; a shared helper is ledgered for when one is extracted)
+ * and assert on the child's actual exit:
  *
  *  1. IMMORTALIZATION (red-first): an abandoned session — pinned, never
  *     destroyed, against a never-connecting endpoint — must not keep its host
@@ -18,13 +20,22 @@
  *     deliberately NOT unref'd — its firing rejects a promise `pin()`
  *     propagates to an awaiting caller, and a pending await holds no handle of
  *     its own. The fixture makes that timer the process's ONLY handle; the pin
- *     is that the rejection still REACHES the awaiter (elapsed ≥ the timeout,
- *     marker printed) instead of the process exiting silently at 0ms — and
- *     that the process then exits (the backoff armed after the failure is
- *     unref'd: the exit window).
+ *     is that the rejection still REACHES the awaiter (the marker carries a
+ *     CHILD-measured elapsed ≥ the timeout — tsx startup can't fake it)
+ *     instead of the process exiting silently at 0ms — and that the process
+ *     then exits (the backoff armed after the failure is unref'd: the exit
+ *     window).
+ *
+ *  A third, source-level pin makes the census STRUCTURAL: session.ts may
+ *  contain exactly two bare `setTimeout(` call sites — inside
+ *  `armInternalTimer` (the unref seam every internal timer routes through) and
+ *  inside `withHandshakeTimeout` (the one must-fire timer). A future timer
+ *  added beside the seam fails this test instead of silently reviving the
+ *  immortalization class.
  */
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { text } from "node:stream/consumers";
@@ -42,10 +53,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 interface FixtureRun {
   timedOut: boolean;
   code: number | null;
-  signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
-  elapsedMs: number;
 }
 
 /** Spawn `fixture` as a real node child and wait for it to exit, up to
@@ -53,14 +62,16 @@ interface FixtureRun {
  *  killer timer; the runtime clears its deadline on exit itself). On deadline
  *  the child is SIGKILLed (it was immortal — the red this suite exists to pin)
  *  and `timedOut: true` is returned; assertions on it fail loud instead of
- *  hanging the suite. */
+ *  hanging the suite.
+ *
+ *  Deliberately NOT `process.ts`'s `runCapture` (this package's blessed
+ *  fire-and-collect): the pins need spawn's `timeout`/`killSignal` deadline and
+ *  the child's stderr, which `runCapture` doesn't carry — and widening its
+ *  exported signature for a test would trip the drishti pair-PR gate. */
 async function runFixture(
   fixture: string,
   deadlineMs: number,
 ): Promise<FixtureRun> {
-  // Monotonic clock — elapsedMs feeds a duration lower-bound assertion, which a
-  // wall-clock step (NTP) could falsify.
-  const startedAt = performance.now();
   const child = spawn(
     process.execPath,
     ["--import", TSX_LOADER, join(here, fixture)],
@@ -86,14 +97,14 @@ async function runFixture(
     // whose failure message carries the stderr to tell them apart).
     timedOut: signal === "SIGKILL",
     code,
-    signal,
     stdout,
     stderr,
-    elapsedMs: performance.now() - startedAt,
   };
 }
 
-describe("makeSession timers vs the host process's life", () => {
+// `.concurrent`: the two child-process pins are independent pure I/O waits, so
+// they run side by side — file wall-clock is the slower child, not the sum.
+describe.concurrent("makeSession timers vs the host process's life", () => {
   it("an abandoned session (pinned, undestroyed, endpoint gone) does not immortalize its host process", {
     timeout: 20_000,
   }, async () => {
@@ -114,16 +125,41 @@ describe("makeSession timers vs the host process's life", () => {
   }, async () => {
     const run = await runFixture("processExit.fixture.handshake.ts", 10_000);
     // The rejection was DELIVERED — not a silent early exit: the marker
-    // carries withHandshakeTimeout's own message, and the child lived at
-    // least the 1.5s timeout it took to fire.
-    expect(run.stdout).toContain(
-      "HANDSHAKE-REJECTED: admit handshake timed out",
+    // carries a child-measured elapsed around the awaited pin() plus
+    // withHandshakeTimeout's own message. The elapsed proves the ref'd timer
+    // FIRED (≥ the fixture's 300ms connectTimeoutMs) — measured inside the
+    // child, so tsx startup time can't satisfy the bound spuriously.
+    const marker = run.stdout.match(
+      /HANDSHAKE-REJECTED after (\d+)ms: admit handshake timed out/,
     );
-    expect(run.elapsedMs).toBeGreaterThanOrEqual(1_500);
+    expect(
+      marker,
+      `marker missing from child stdout: ${JSON.stringify(run.stdout)} (stderr: ${run.stderr})`,
+    ).not.toBeNull();
+    expect(Number(marker?.[1])).toBeGreaterThanOrEqual(300);
     expect(
       run.timedOut,
       `child still alive after 10s (stderr: ${run.stderr})`,
     ).toBe(false);
     expect(run.code).toBe(0);
+  });
+});
+
+describe("the unref seam is structural, not conventional", () => {
+  it("session.ts has exactly two bare setTimeout call sites: the seam and the must-fire timer", () => {
+    const source = readFileSync(join(here, "session.ts"), "utf8");
+    // Strip block + line comments so prose mentioning setTimeout doesn't count;
+    // only real call sites remain (the type-position `typeof setTimeout` reads
+    // don't match the call form).
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    const calls = code.match(/\bsetTimeout\(/g) ?? [];
+    expect(
+      calls.length,
+      "a new bare setTimeout landed in session.ts — route it through " +
+        "armInternalTimer (unref'd) or justify a must-fire exception in the " +
+        "census (docs/atlas session-timer-unref) and update this pin",
+    ).toBe(2);
   });
 });

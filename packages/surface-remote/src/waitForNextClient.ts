@@ -26,11 +26,8 @@ export interface ClientCursor {
    *  session subscription, so a supervised pump can stop deterministically.
    *
    *  NOT a process hold: across a reconnect gap this wait is settled only by
-   *  the session's *unref'd* backoff firing (see `Session.pin()`'s contract and
-   *  the Reference lifetime invariants; docs/atlas session-timer-unref), so in
-   *  a process nothing else holds alive it can go silently unsettled as the
-   *  process exits — the consumer's process must be held by its own means (a
-   *  server socket, stdin, a live transport). */
+   *  the session's *unref'd* backoff, so a process nothing else holds alive
+   *  exits with it unsettled — see `Session.pin()`'s contract. */
   next(signal?: AbortSignal): Promise<SurfaceClientLike>;
 }
 

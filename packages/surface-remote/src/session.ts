@@ -628,11 +628,8 @@ export function makeSession<
    *  alive — stops immortalizing its process. Every timer in this file goes
    *  through here EXCEPT {@link withHandshakeTimeout}'s, the one must-fire
    *  timer (it settles a caller-awaited `pin()`). */
-  const armInternalTimer = (delayMs: number, fn: () => void): NodeJS.Timeout => {
-    const t = setTimeout(fn, delayMs);
-    t.unref();
-    return t;
-  };
+  const armInternalTimer = (delayMs: number, fn: () => void): NodeJS.Timeout =>
+    setTimeout(fn, delayMs).unref();
 
   const armTimer = (delayMs: number, fn: () => void): void => {
     // The one caller wait this timer alone settles — a pump parked on
