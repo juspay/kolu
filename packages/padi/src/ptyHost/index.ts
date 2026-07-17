@@ -366,7 +366,8 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  * Compose the fully-specified spawn input the pty-host wire expects, from kolu's
  * spawn policy applied against the host's facts. Pure (no IO): the env is
  * layered least → most authoritative —
- *   1. `cleanEnv()`        — parent env passthrough (Nix devshell filter).
+ *   1. `cleanEnv()`        — the canonical SPAWN_ENV_ALLOWLIST composed from the
+ *      parent env (a clean base, NOT a wholesale passthrough — #1872).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
  *   4. `KAVAL_TERMINAL_ID` — this terminal's own id, so a process inside can name
@@ -408,10 +409,12 @@ export function composeSpawnInput(
   Object.assign(env, plan.env);
   // (rationale in docblock item 4). Two facts not captured there: it's assigned
   // directly, not via prepareShellInit's plan.env, so it reaches even a shell we
-  // don't wrap — the id is a fact about the terminal, not the shell; and the direct
-  // overwrite is load-bearing because KAVAL_* rides through cleanEnv unstripped
-  // (unlike KOLU_*), so an inherited outer id must be stomped here, same as
-  // KAVAL_SOCKET. Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
+  // don't wrap — the id is a fact about the terminal, not the shell; and it is the
+  // AUTHORITATIVE source of the id (a fact about THIS terminal), assigned here rather
+  // than inherited. Post-#1872, cleanEnv composes from the allowlist, which carries no
+  // KAVAL_* key, so any ambient KAVAL_TERMINAL_ID is already dropped upstream — this
+  // stamp doesn't need to STOMP an inherited value, it simply IS the value.
+  // Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
   env.KAVAL_TERMINAL_ID = args.id;
   env.KAVAL_SOCKET = kavalSocket;
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the

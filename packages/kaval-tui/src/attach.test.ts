@@ -493,9 +493,13 @@ describe("send — canonical two-command submit against a real paste-debounce TU
     const { id } = await conn.client.surface.terminal.spawn(
       buildCreateInput({
         id: newPtyId(),
+        // `env` is mined for the canonical base (PATH, so `node` resolves); the
+        // fixture's own config vars are NOT canonical, so they ride the explicit
+        // `--env` escape hatch (extraEnv) — the same path a real caller uses to add
+        // a var the clean base drops. This also exercises extraEnv over a real spawn.
         cwd: dir,
-        env: {
-          ...process.env,
+        env: process.env,
+        extraEnv: {
           FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
           // The fixture recognizes the SAME bracketed-paste markers `planSend`
           // wraps text with — pass the protocol constants so it can't drift.

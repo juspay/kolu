@@ -24,8 +24,11 @@ kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ## Creating a terminal
 
 A freshly-started daemon owns no terminals, so `create` is what `attach` needs
-first. It spawns a plain `$SHELL` (no rcfiles, no kolu policy — the _raw_
-multiplexer's spawn), prints the new id, and exits without attaching:
+first. It spawns a plain `$SHELL` (no kolu **rc-hooks** injected — the _raw_
+multiplexer's spawn; the shell still sources your own `~/.bashrc` / `~/.zshrc` as any
+interactive shell does). Kolu's **spawn-env policy still applies** (the clean composed
+environment below); "raw" means no rc-hooks/shell-init, not no env policy. It prints
+the new id and exits without attaching:
 
 ```sh
 kaval-tui create                 # spawned a1b2c3d4 · bash · ~/code/kolu (pid 12843)
@@ -37,6 +40,19 @@ its own flags, so they reach the program rather than kaval-tui:
 
 ```sh
 kaval-tui create -- htop -d 5    # run htop, not a shell
+```
+
+The new terminal's environment is a clean canonical base — three named classes:
+the **functional** vars a shell needs (`HOME`, `PATH`, `SHELL`, …), **presentation**
+(`TERM`, `COLORTERM`, `LANG`/`LC_*`), and the **login-session capability** vars your
+session mints and dotfiles can't (`XDG_RUNTIME_DIR`, `SSH_AUTH_SOCK`, `WAYLAND_DISPLAY`,
+`DBUS_SESSION_BUS_ADDRESS`, `TMPDIR`, …) — mined from your env, **not** a wholesale copy
+of it, so a var you exported into your shell doesn't follow in (see [_Reaching a remote
+kaval_](#reaching-a-remote-kaval----host) for why). Add one back with `--env K=V`,
+repeatable:
+
+```sh
+kaval-tui create --env FOO=bar --env RUST_LOG=debug    # base + these two
 ```
 
 `--json` prints `{ id, pid, cwd }` (the full id) for scripts; the `attach with
@@ -268,8 +284,18 @@ and `$PATH` are the **remote** machine's (so the shell finds the remote's own
 commands — a shell with no `$PATH` would exit `127` on the first one), and only
 your terminal's _presentation_ vars (`TERM`, `COLORTERM`, `LANG`/`LC_*`) are
 carried across. Your local environment — and any secrets in it — never crosses
-the wire. (A _local_ `create` ships your own env, since the daemon is on your
-machine; the remote path deliberately does not.)
+the wire. A _local_ `create` composes the **same** clean canonical base — the
+functional vars a shell needs (`HOME`, `PATH`, `SHELL`, …), those presentation vars,
+and the **login-session capability** vars your session mints and dotfiles can't
+(`DISPLAY`, `XDG_RUNTIME_DIR`, `SSH_AUTH_SOCK`, `WAYLAND_DISPLAY`, `TMPDIR`, …, so
+ssh-agent, `systemctl --user`, GUI apps and notifications keep working) — mined from
+your own env rather than copied wholesale: a var you exported into the current shell
+does **not** follow into the new terminal (an interactive shell still sources your
+`~/.bashrc` / `~/.zshrc`, so vars set there are present). This is deliberate — copying
+the caller's env wholesale leaked an orchestrating agent's private identity vars and
+silently lost that agent's conversation ([#1872](https://github.com/juspay/kolu/issues/1872)).
+Add a specific var back with `--env K=V` (repeatable); there is no
+inherit-everything switch.
 
 `--host` is mutually exclusive with `--socket` (a remote ssh target vs a local
 path). It needs passwordless ssh and the remote's nix-daemon trusting your user

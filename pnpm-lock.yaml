@@ -651,6 +651,9 @@ importers:
       kaval:
         specifier: workspace:*
         version: link:../kaval
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
     devDependencies:
       '@types/columnify':
         specifier: ^1.5.4

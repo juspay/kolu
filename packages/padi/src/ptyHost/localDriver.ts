@@ -36,6 +36,7 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 import { KAVAL_GATE_FILE, kavalLogPath } from "kaval";
+import { composeSpawnEnv } from "kolu-pty";
 
 /** The single-instance gate kaval claims, beside its socket — the same path
  *  kaval's own `daemonMain` derives (`<socket-dir>/kaval.pid`), so the
@@ -75,16 +76,31 @@ export function resolveKavalLaunch(socketPath: string): {
   };
 }
 
-/** The daemon-operational env kaval needs that doesn't survive a transient
- *  systemd unit's env reset — chiefly `XDG_RUNTIME_DIR`, which decides the
- *  socket path. (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH are set by kaval's own nix
- *  wrapper, so they don't need forwarding in production; PTY env arrives
- *  per-spawn on the wire since B0, so it isn't here either.) */
-function daemonEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (process.env.XDG_RUNTIME_DIR) {
-    env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
-  }
+/** The env kaval is spawned with. Two layers:
+ *
+ *  1. A clean base composed from the shared `SPAWN_ENV_ALLOWLIST` (kolu-pty) —
+ *     HOME/PATH/SHELL/… mined from the supervisor's own env. This is the 2a parity
+ *     fix (#1872): the supervisor's detached spawn branch runs the daemon with
+ *     `cfg.env` ALONE (no parent env layered — that would leak the supervisor's
+ *     ambient identity vars into kaval and every PTY it spawns) unless
+ *     `inheritParentEnv`, which we set ONLY for an actual from-source kaval
+ *     (`!KOLU_KAVAL_BIN`) — so the built/production path gets `cfg.env` alone and
+ *     `cfg.env` must itself be a COMPLETE env, matching what the systemd branch gets
+ *     from PAM's manager env + `--setenv`. Composing from the allowlist (not
+ *     forwarding process.env) is what keeps an orchestrator's `CLAUDE_CODE_*` out.
+ *  2. The daemon-operational extras kaval needs on TOP of that base — the scrubbed
+ *     `NODE_OPTIONS`, the run-bind pid, and `KOLU_DIAG_DIR`. `XDG_RUNTIME_DIR`
+ *     (which decides the socket path) is NOT re-added here: it is a member of
+ *     `SPAWN_ENV_OPERATIONAL`, so it already arrives via the allowlist base in (1)
+ *     like every other operational var — exactly as padi's `daemonEnv` twin relies
+ *     on it, keeping the two twins carrying it by the ONE mechanism. (KAVAL_BUILD_ID
+ *     / KAVAL_COMMIT_HASH are set by kaval's own nix wrapper, so they don't need
+ *     forwarding; PTY env arrives per-spawn on the wire since B0.)
+ *
+ *  Its exact key set is pinned in `localDriver.test.ts` so neither spawn branch's env
+ *  can drift silently. */
+export function daemonEnv(): Record<string, string> {
+  const env: Record<string, string> = composeSpawnEnv(process.env);
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   // Forward the run-bind pid one hop further (server → padi → kaval): a harness/
@@ -108,20 +124,31 @@ function daemonEnv(): Record<string, string> {
 
 /** The kaval driver: the survivable-spawn mechanism bound to kaval's values.
  *
- *  The only survival-relevant fact kolu uniquely knows is whether kaval is being
- *  launched from source: no `KOLU_KAVAL_BIN` wrapper means dev/source, and
- *  `KOLU_KAVAL_SPAWN=detached` lets e2e force the same. That single boolean is
- *  all the spine needs — it owns the launch-path decision. */
+ *  Two facts the spine needs, DELIBERATELY separate (they used to be conflated):
+ *    - `fromSource` — should we SKIP `systemd-run` and fork detached? True when there
+ *      is no `KOLU_KAVAL_BIN` wrapper (dev/source) OR `KOLU_KAVAL_SPAWN=detached` forces
+ *      it (e2e / a bare/pu box). This is the launch-path decision only.
+ *    - `inheritParentEnv` — should the child layer our ambient env? True ONLY for an
+ *      actual from-source kaval (`!KOLU_KAVAL_BIN`), which needs the dev nix-shell env.
+ *      A BUILT kaval forced detached sets `fromSource` but NOT this — it carries its own
+ *      wrapper env and must not inherit ours (#1872). */
 export function localKavalDriver(socketPath: string): DaemonDriver {
   const { binPath, args } = resolveKavalLaunch(socketPath);
-  const fromSource =
+  const forceDetached =
     !process.env.KOLU_KAVAL_BIN || process.env.KOLU_KAVAL_SPAWN === "detached";
   return survivableSpawnDriver({
     binPath,
     args,
     env: daemonEnv(),
     unitPrefix: "kaval",
-    fromSource,
+    // Force the detached branch for a from-source kaval OR a built one a box forces
+    // detached; inherit the parent (nix-shell) env ONLY for an ACTUAL from-source kaval
+    // (`!KOLU_KAVAL_BIN`) — a built forced-detached kaval carries its own wrapper env and
+    // must not inherit ours (#1872). The union makes an env-inherit-on-normal-launch
+    // unspellable.
+    fromSource: forceDetached
+      ? { inheritParentEnv: !process.env.KOLU_KAVAL_BIN }
+      : false,
     // P0: kaval has no pino — its stderr (the surface-daemon stderrLogger) IS its log, so
     // capture it to the deterministic `kaval.log` beside its socket, bounded by
     // truncate-on-boot, so a kaval that outlives padi/kolu-server stays diagnosable.

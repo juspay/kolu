@@ -16,7 +16,8 @@
     "@kolu/terminal-protocol": "workspace:*",
     "cleye": "^2.3.0",
     "columnify": "^1.6.0",
-    "kaval": "workspace:*"
+    "kaval": "workspace:*",
+    "kolu-pty": "workspace:*"
   },
   "devDependencies": {
     "@types/columnify": "^1.5.4",
