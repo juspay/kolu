@@ -24,6 +24,7 @@
  * woke the reader.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { silentLogger } from "./loggerStubs.testutil";
 import {
   type ClosedInfo,
   ConnectError,
@@ -89,12 +90,7 @@ const mk = (connectOnce: Connector<FakeClient, never>) =>
     reconnectDelayMs: 1000,
     liveness: false,
     label: "h",
-    log: {
-      debug: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-    },
+    log: silentLogger,
   });
 
 describe("Session.currentState() — the honest liveness point-read (LIVE-FIX)", () => {

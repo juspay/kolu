@@ -24,6 +24,7 @@
  * fail; case 2's resolver rejects before `provisionAgent` is ever reached.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { collectLogger } from "./loggerStubs.testutil";
 import { provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
@@ -80,11 +81,6 @@ function failingSession() {
  *  unreachable at arch-probe time (`resolveSystem` ssh exits non-zero).
  *  `provisionAgent` is never reached, so it stays unmocked here. */
 function unresolvableSession(onLine?: (line: string) => void) {
-  const collect = onLine
-    ? (obj: Record<string, unknown>): void => {
-        onLine(String(obj.line));
-      }
-    : undefined;
   return makeSession({
     initialConnection: "probing",
     connectOnce: sshConnector({
@@ -99,9 +95,7 @@ function unresolvableSession(onLine?: (line: string) => void) {
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
-    log: collect
-      ? { debug: collect, info: collect, warn: collect, error: collect }
-      : undefined,
+    log: onLine ? collectLogger(onLine) : undefined,
   });
 }
 
@@ -117,9 +111,6 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
 
   it("routes every diagnostic line to the logger and none to process.stderr", async () => {
     const lines: string[] = [];
-    const collect = (obj: Record<string, unknown>): void => {
-      lines.push(String(obj.line));
-    };
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
       initialConnection: "probing",
@@ -129,7 +120,7 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 1000,
-      log: { debug: collect, info: collect, warn: collect, error: collect },
+      log: collectLogger((l) => lines.push(l)),
       // Production (`dialAgentOnce`) tags every line `[host:<host> …]`; mirror that.
       label: "host:altscreen",
     });

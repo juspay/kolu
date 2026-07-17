@@ -52,6 +52,7 @@ import {
   type SshProv,
   sshConnector,
 } from "@kolu/surface-remote";
+import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -232,12 +233,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         extraArgs: [],
         resolveDrvPath: async () => PADI_DRV as string,
       }),
-      log: {
-        debug: (obj) => console.log(`[host] ${String(obj.line)}`),
-        info: (obj) => console.log(`[host] ${String(obj.line)}`),
-        warn: (obj) => console.log(`[host] ${String(obj.line)}`),
-        error: (obj) => console.log(`[host] ${String(obj.line)}`),
-      },
+      log: collectLogger((l) => console.log(`[host] ${l}`)),
     });
     sessions.push(s);
     return s;

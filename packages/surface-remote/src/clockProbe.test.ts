@@ -13,6 +13,7 @@
  * the in-flight request and leaves no active timer behind.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { collectLogger } from "./loggerStubs.testutil";
 import type { ClosedInfo, Connection, Connector } from "./session";
 import { makeSession } from "./session";
 
@@ -83,16 +84,13 @@ describe("makeSession clock-probe deadline + cancellation (F4)", () => {
     };
 
     const lines: string[] = [];
-    const collect = (obj: Record<string, unknown>): void => {
-      lines.push(String(obj.line));
-    };
     const session = makeSession<FakeClient, never>({
       connectOnce: fakeConnector(client),
       initialConnection: "connecting",
       reconnectDelayMs: 1000,
       liveness: false,
       label: "clockhost",
-      log: { debug: collect, info: collect, warn: collect, error: collect },
+      log: collectLogger((l) => lines.push(l)),
     });
 
     let phase = "";
