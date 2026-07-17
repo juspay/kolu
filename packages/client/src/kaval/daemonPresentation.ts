@@ -35,7 +35,19 @@ export type DaemonTone = "ok" | "warming" | "down";
  *  `DaemonStatusSchema`. */
 export const DAEMON_STATE_PRESENTATION: Record<
   DaemonState,
-  { tone: DaemonTone; label: string; canvasLabel: string; down: boolean }
+  {
+    tone: DaemonTone;
+    label: string;
+    canvasLabel: string;
+    down: boolean;
+    /** Which recovery VERB a down state gets: `restart` (a plain restart can
+     *  fix it — dead/degraded) or `renew` (only a closure change can —
+     *  `incompatible`'s "Update & restart kaval"). Declared in the SAME row
+     *  that declares tone and downness, so a future down state must pick its
+     *  verb here rather than silently inheriting Restart at a consumer
+     *  (see {@link offerRestartVerb}). Absent on the not-down states. */
+    recovery?: "restart" | "renew";
+  }
 > = {
   connecting: {
     tone: "warming",
@@ -60,12 +72,14 @@ export const DAEMON_STATE_PRESENTATION: Record<
     label: "stopped (session preserved)",
     canvasLabel: "Stopped",
     down: true,
+    recovery: "restart",
   },
   dead: {
     tone: "down",
     label: "not running",
     canvasLabel: "Not running",
     down: true,
+    recovery: "restart",
   },
   // The PROVEN contract skew (SK4): terminal like `dead`, but a DIFFERENT
   // verdict — a restart provably cannot fix it (the arm's only producer is a
@@ -77,6 +91,7 @@ export const DAEMON_STATE_PRESENTATION: Record<
     label: "incompatible — needs update",
     canvasLabel: "Incompatible",
     down: true,
+    recovery: "renew",
   },
 };
 
@@ -232,15 +247,24 @@ export function liveDownState(
 
 /** Whether a surface may OFFER the "Restart kaval" verb (D5c/SK4): never while
  *  warming (a restart is already in flight / booting — the verb would be a
- *  no-op) and never against a PROVEN skew (`incompatible` — a restart provably
- *  respawns the same incompatible binary; the skew card's "Update & restart
- *  kaval" is the recovery there). The palette reads this so the affordance
- *  stays a total function of the state sum, testable without the wire. */
+ *  no-op) and, for a down state, only when its presentation row declares
+ *  `recovery: "restart"` — a PROVEN skew (`incompatible`) declares `renew`
+ *  instead (a restart provably respawns the same incompatible binary; the skew
+ *  card's "Update & restart kaval" is the recovery there). Read off
+ *  {@link DAEMON_STATE_PRESENTATION} — not an open negative check against one
+ *  state literal — so a future down state must declare its verb in the same
+ *  row that declares its tone and downness, never silently inheriting Restart.
+ *  The palette reads this so the affordance stays a total function of the
+ *  state sum, testable without the wire. */
 export function offerRestartVerb(
   warming: boolean,
   down: DaemonDownState | undefined,
 ): boolean {
-  return !warming && down?.state !== "incompatible";
+  return (
+    !warming &&
+    (down === undefined ||
+      DAEMON_STATE_PRESENTATION[down.state].recovery === "restart")
+  );
 }
 
 // ── The active-entry leg: the SECOND floor on the (host-scoped) kaval daemonStatus ──
