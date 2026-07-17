@@ -60,10 +60,8 @@ export async function connect(opts: ConnectOptions): Promise<Connection> {
     connectOnce: sshConnector<typeof surface.contract>({
       host: opts.host,
       binary: "mini-ci-runner",
-      // The localhost arm's spawn env — surface-remote is policy-free, so the CONSUMER
-      // composes it (kolu uses a fixed allowlist via `composeSpawnEnv`). A "localhost"
-      // dial runs the runner with EXACTLY this env, never the caller's ambient
-      // `process.env`; unused for a real ssh host. A minimal base suffices here.
+      // Policy-free: the CONSUMER composes the localhost arm's spawn env (kolu uses
+      // kolu-pty's `composeSpawnEnv`). Never the caller's ambient `process.env`; unused for ssh.
       localEnv: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
       // Constant resolver: the justfile already picked the host-arch drv. A
       // consumer that defers the probe would call `resolveSystem(host)` here.

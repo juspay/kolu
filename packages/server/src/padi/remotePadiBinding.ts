@@ -379,13 +379,9 @@ export function ensureRemotePadiBinding(
     host,
     binary: "padi",
     extraArgs,
-    // The localhost arm's env — composed clean from kolu-server's own env via the
-    // shared `SPAWN_ENV_ALLOWLIST` (identity vars like CLAUDE_CODE_CHILD_SESSION
-    // dropped), so a remote-padi binding whose host resolves to localhost spawns padi
-    // WITHOUT inheriting kolu-server's ambient env (#1872 / PR1.5 — the path #1880
-    // left). Unused for a real ssh host (the local ssh client inherits). The remote
-    // padi's own operational overrides ride `extraArgs` (`--state-root`), not env.
-    // The twin of the local arm's `daemonEnv` base; reuses kolu-pty's source of truth.
+    // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the
+    // localEnv doc on buildAgentCommand. (Remote-padi operational overrides ride
+    // `extraArgs`/`--state-root`, not env — the twin of the local arm's `daemonEnv`.)
     localEnv: composeSpawnEnv(process.env),
     // Reset-before-attempt, tag-on-fault: a fault classified on THIS dial stands
     // until the NEXT dial starts (whether that one succeeds, clearing it, or hits a
