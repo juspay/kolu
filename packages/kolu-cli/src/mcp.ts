@@ -51,8 +51,14 @@ export function guardedMcpConnect(
         process.stderr.write(`kolu mcp: ${err.message}\n`);
         process.exit(1);
       }
+      // Guard the message the agent actually reads — a non-`Error` rejection
+      // (a thrown string, a rejected non-Error value) would make an unguarded
+      // `(err as Error).message` read `undefined`, degrading the ONE diagnostic
+      // that tells the operator/agent what broke. Same `instanceof` guard the
+      // sibling `errMessage` helpers apply in the wait watchers.
+      const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `padi transport down: ${(err as Error).message} (retryable — kolu mcp queues nothing; retry once padi is reachable)`,
+        `padi transport down: ${detail} (retryable — kolu mcp queues nothing; retry once padi is reachable)`,
       );
     }
   };
