@@ -53,7 +53,6 @@ export const SPAWN_ENV_FUNCTIONAL = [
   "LOGNAME",
   "PATH",
   "SHELL",
-  "DISPLAY",
 ] as const;
 
 /** Class 2 — PRESENTATION: describes the *terminal* (colour, locale), never identity.
@@ -85,6 +84,10 @@ export const SPAWN_ENV_OPERATIONAL = [
   "XDG_CACHE_HOME",
   "XDG_STATE_HOME",
   "SSH_AUTH_SOCK",
+  // The GUI-session display group, all minted by the login session: `DISPLAY` (X11)
+  // is a session capability like its Wayland sibling, NOT a "run at all" functional
+  // var — a shell runs fine without it — so it lives here, not in FUNCTIONAL.
+  "DISPLAY",
   "WAYLAND_DISPLAY",
   "XAUTHORITY",
   "DBUS_SESSION_BUS_ADDRESS",

@@ -230,7 +230,6 @@ describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as da
       "LOGNAME",
       "PATH",
       "SHELL",
-      "DISPLAY", // X11 sibling of WAYLAND_DISPLAY (operational) — a functional need.
     ]);
   });
 
@@ -252,6 +251,7 @@ describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as da
       "XDG_CACHE_HOME",
       "XDG_STATE_HOME",
       "SSH_AUTH_SOCK", // signing capability — needed; SSH_AGENT_PID (kill) is OUT.
+      "DISPLAY", // X11 GUI-session capability, sibling of WAYLAND_DISPLAY.
       "WAYLAND_DISPLAY",
       "XAUTHORITY",
       "DBUS_SESSION_BUS_ADDRESS",
