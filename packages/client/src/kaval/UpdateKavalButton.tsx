@@ -17,7 +17,7 @@ import type { Component } from "solid-js";
 import { RestartIcon } from "../ui/Icons";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { activeHost } from "../wire";
-import { renewInFlight, restartIncompatibleKaval } from "./useDaemonRestart";
+import { recoveryInFlight, restartIncompatibleKaval } from "./useDaemonRestart";
 
 const UpdateKavalButton: Component<{
   tone: "neutral" | "danger";
@@ -29,7 +29,7 @@ const UpdateKavalButton: Component<{
     inFlightLabel="Restarting…"
     confirmCopy="Restart this host's kaval? This stops the old (incompatible) kaval and starts a correct-version one from the host's current build — the terminals on this host restart and your saved session is offered for restore."
     tone={props.tone}
-    inFlight={renewInFlight(activeHost())}
+    inFlight={recoveryInFlight(activeHost())}
     icon={<RestartIcon class="h-3.5 w-3.5" />}
     testid="update-kaval"
     onConfirm={() => {

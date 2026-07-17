@@ -89,19 +89,22 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(false);
 }
 
-// The hosts with a renew in flight, from click until the drain RPC settles —
-// the renew twin of `restarting` above (same double-fire guard; a second
-// drain queued behind the first is never useful). KEYED BY HOST: renew is a
-// per-host, multi-second operation, so one host's in-flight renew must not
-// disable (or swallow) another host's button.
-const [renewingHosts, setRenewingHosts] = createSignal<ReadonlySet<string>>(
+// The hosts with an incompatible-recovery in flight, from click until the RPC
+// settles — the per-host twin of `restarting` above (same double-fire guard; a
+// second recovery queued behind the first is never useful). This one set gates
+// BOTH recovery tiers on the host: the session-preserving recycle
+// (`restartIncompatibleKaval`) and the heavier drain (`drainReprovisionDaemon`).
+// KEYED BY HOST: recovery is a per-host, multi-second operation, so one host's
+// in-flight recovery must not disable (or swallow) another host's button.
+const [recoveringHosts, setRecoveringHosts] = createSignal<ReadonlySet<string>>(
   new Set(),
 );
 
-/** The "an update-&-restart is underway on THIS host" predicate — gates the
- *  `UpdateKavalButton` the way `restartInFlight` gates the Restart button. */
-export function renewInFlight(host: HostKey): boolean {
-  return renewingHosts().has(encodeHostKey(host));
+/** The "an incompatible-recovery (either tier) is underway on THIS host"
+ *  predicate — gates the incompatible-kaval restart button the way
+ *  `restartInFlight` gates the Restart button. */
+export function recoveryInFlight(host: HostKey): boolean {
+  return recoveringHosts().has(encodeHostKey(host));
 }
 
 /** The `incompatible` (contract-skew) recovery (SK5, D1: the ONE action for
@@ -125,8 +128,8 @@ export function renewInFlight(host: HostKey): boolean {
  *  offer that heavier {@link drainReprovisionDaemon} as the honest escalation. */
 export async function restartIncompatibleKaval(host: HostKey): Promise<void> {
   const key = encodeHostKey(host);
-  if (renewingHosts().has(key)) return;
-  setRenewingHosts((s) => new Set(s).add(key));
+  if (recoveringHosts().has(key)) return;
+  setRecoveringHosts((s) => new Set(s).add(key));
   const id = toast.loading("Restarting kaval…");
   // `safe()` (not try/catch) preserves the DECLARED error union so
   // `KAVAL_CONTRACT_SKEW` arrives TYPED (SK6) — see `restartDaemon`.
@@ -155,7 +158,7 @@ export async function restartIncompatibleKaval(host: HostKey): Promise<void> {
   } else {
     toast.error(`Couldn’t restart kaval: ${(error as Error).message}`, { id });
   }
-  setRenewingHosts((s) => {
+  setRecoveringHosts((s) => {
     const next = new Set(s);
     next.delete(key);
     return next;
@@ -171,8 +174,8 @@ export async function restartIncompatibleKaval(host: HostKey): Promise<void> {
  *  action above. Re-entrant calls while one is in flight are ignored. */
 async function drainReprovisionDaemon(host: HostKey): Promise<void> {
   const key = encodeHostKey(host);
-  if (renewingHosts().has(key)) return;
-  setRenewingHosts((s) => new Set(s).add(key));
+  if (recoveringHosts().has(key)) return;
+  setRecoveringHosts((s) => new Set(s).add(key));
   const id = toast.loading("Re-provisioning host…");
   try {
     await client.hosts.renewDaemon({ host });
@@ -188,7 +191,7 @@ async function drainReprovisionDaemon(host: HostKey): Promise<void> {
       id,
     });
   } finally {
-    setRenewingHosts((s) => {
+    setRecoveringHosts((s) => {
       const next = new Set(s);
       next.delete(key);
       return next;
