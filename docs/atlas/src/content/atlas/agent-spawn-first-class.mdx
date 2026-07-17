@@ -1,0 +1,72 @@
+---
+title: "Agent spawn is a face verb — fixing #1872 (Dock detection + transcript loss)"
+description: "Both #1872 mechanisms share one cause: spawning an agent through a path with no agent semantics. The fix is layered per srid's steer — the faces (kolu mcp / kolu-tui) own agent-spawn as a first-class verb; kaval-tui composes env instead of forwarding it; kaval stays a dumb PTY daemon and gains only bookkeeping it should have had anyway."
+parents: [bug, kolu-cli]
+status: proposed
+maturity: seedling
+updated: 2026-07-17
+---
+
+import Callout from "../../components/Callout.astro";
+
+Issue [#1872](https://github.com/juspay/kolu/issues/1872), two proven
+mechanisms when an agent is spawned as the PTY's root command
+(`kaval-tui create -- claude …`):
+
+- **A · Dock detection dead.** The daemon receives the exact argv at spawn
+  (`ptyHostSurface` requires it) and **drops it** — `entry.lastCommand` starts
+  `undefined` (`ptyHost.ts:663`) and its only writer is the OSC `633;E` parse
+  (`:710-727`), a mark only kolu's rc-hooked *shell* emits (`shell.ts:218`). A
+  shell-less PTY never learns its own command. **Second lock**: padi's sensors
+  compute `shellIdle = foregroundPid === pid` assuming pid is a shell
+  (`sensors.ts:394-402`) — a command-rooted PTY reads as "idle at prompt" and
+  detection is suppressed *even if the command were known*.
+- **B · Transcript loss (data loss).** `kaval-tui`'s create composer copies
+  the caller's **whole `process.env` verbatim** (`create.ts:55-57`). From an
+  orchestrating Claude session, `CLAUDE_CODE_CHILD_SESSION=1` rides in; the
+  spawned claude self-classifies as a nested child and **never persists its
+  conversation** (A/B-proven on #1872). Shell-mode create leaks identically.
+
+## Why the kolu face never had this bug
+
+`PadiCreateInputSchema` is `{ cwd?, parentId? }` — **no `command`, no `env`**
+(`surface.ts:513-518`). An agent launched through kolu/mcp is *necessarily*
+create-shell-then-send: the rc hooks run (633;E fires), and env comes from
+padi's own `cleanEnv()` (`ptyHost/index.ts:397`), never the caller's. Both
+illegal states are **unspellable at the face wire schema**. That absence is
+load-bearing — the `kolu-mcp` docstring saying "(command, cwd, parent)"
+overstates and must be corrected to match.
+
+## The fix, layered (each change names what it makes inexpressible)
+
+| Layer | Change | Kills |
+| --- | --- | --- |
+| **Faces** (kolu mcp now; kolu-tui when it ships) | Agent launch is a **first-class verb** — internally create(shell) + send + detection seed. Never a `command` param on create. The mcp face already has this shape; kolu-tui inherits it as a requirement of the kolu-cli plan. | "Agent as PTY root" and "agent under caller env" have **no spelling** at any face. |
+| **kaval-tui composer** (client, not daemon) | **Compose env, don't forward it** — the way its own *remote* composer already does (minimal canonical base + explicit additions). Caller additions become an explicit `--env K=V`. At minimum: never verbatim-forward when a `-- command` is given. | The caller's ambient session identity **cannot reach the child** — including agents that don't exist yet. (A `CLAUDE_*` deny-list is rejected: blacklist = the class survives every new orchestrator.) |
+| **kaval** (daemon — dumb bookkeeping only) | Seed `entry.lastCommand` (+ initial title) from spawn argv and publish on the command channel; the 633;E mark stays the *live* writer (last-writer-wins, seed writes first). | "A PTY whose own daemon forgot what it spawned." `lastCommand === undefined` regains a single meaning: *nothing has run yet in a shell*. |
+| **padi sensors** (only if command-rooted PTYs ever become sensor-visible) | `shellIdle` becomes conditional on a typed *shell-rooted* fact of the PTY; for command-rooted PTYs, `foregroundPid === pid` means "the agent IS foreground" — the opposite reading. | The ambient assumption "root is a shell" becomes a checked fact, never a silent misreading. |
+| **upstream (Claude Code)** | File the A/B evidence: classifying "I am a child session, don't persist" from an **inherited ambient env var** is fragile by design — any env-forwarding intermediary (ssh, `sudo -E`, a Makefile) silently destroys a transcript. kolu's composition **mitigates, not cures**. | — (out of our tree; recorded so the residual is explicit) |
+
+kaval remains a dumb PTY daemon throughout: it gains no agent semantics, no
+env opinion (it spawns what the composer sends, verbatim) — only the
+bookkeeping of not discarding a fact it was handed.
+
+## Doctrine until the fix ships
+
+- `kaval-tui create -- <agent>` is **forbidden from any agent session** (it
+  hits both mechanisms); the `/kolu` skill's neutral mention becomes a
+  warning.
+- Shell-mode create + send is **not sufficient** either — the shell inherits
+  the orchestrator's vars; the launch line must scrub
+  (`unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID` first),
+  or use a daemon-spawned (restored) shell.
+- Each workaround edit carries a ships-with marker so the text is deleted
+  when the structural fix merges.
+
+<Callout kind="warn" title="Sequencing">
+  (1) kaval-tui composed env — closes the data loss for every kaval-tui path;
+  (2) mcp docstring fix + the kolu-cli plan pins agent-spawn-as-verb for the
+  tui face; (3) skill doctrine; (4) kaval argv seeding (+ the sensor
+  discrimination only when needed). Grounded by a 16-agent a-f-p + perfection
+  lens run (13 findings, 0 refuted).
+</Callout>
