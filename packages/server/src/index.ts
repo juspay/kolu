@@ -84,6 +84,7 @@ import {
 } from "./padi/remotePadiBinding.ts";
 import { pruneToMembers } from "./padi/reServeEviction.ts";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
+import { getClientId } from "./state.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter } from "./router.ts";
 import {
@@ -332,6 +333,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
             : ensureRemotePadiBinding({
                 host: key.target,
                 spawnVersion: serverVersion,
+                // This server's STABLE per-client identity → the remote padi anchors
+                // to a per-client PRIVATE estate (isolation-default), so two kolus
+                // binding one host never share the kaval rendezvous they'd livelock
+                // over. Persisted, so it survives restarts (re-attach).
+                clientId: getClientId(),
               }),
         handler: undefined,
       };

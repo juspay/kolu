@@ -974,21 +974,52 @@ describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", ()
     expect(composePadiExtraArgs(undefined)).toEqual([]);
   });
 
-  it("D3: forwards KOLU_REMOTE_PADI_STATE_DIR as --state-root so two kolus isolate their remote padis", () => {
-    // The primary defense against a remote cross-supervisor war: a per-kolu remote
-    // state-root → distinct digest → distinct socket → no shared padi to fight over.
-    expect(composePadiExtraArgs("1.2.3", "/srv/kolu-a/padi")).toEqual([
-      "--state-root",
-      "/srv/kolu-a/padi",
+  it("D3: an EXPLICIT KOLU_REMOTE_PADI_STATE_DIR override still wins as --state-root (dev/e2e)", () => {
+    // The explicit operator override is verbatim and takes precedence over the
+    // per-client isolation-default below — a per-kolu remote state-root → distinct
+    // digest → distinct socket → no shared padi to fight over.
+    expect(
+      composePadiExtraArgs("1.2.3", "/srv/kolu-a/padi", "client-uuid"),
+    ).toEqual(["--state-root", "/srv/kolu-a/padi", "--spawn-version", "1.2.3"]);
+    expect(composePadiExtraArgs(null, "")).toEqual([]);
+  });
+
+  it("ISOLATION-DEFAULT: with no override but a clientId, forwards --client-id + --legacy-state-root", () => {
+    // The common case the fix exists for: no explicit override, so the binder's
+    // STABLE per-client id isolates the remote estate by construction (never a shared
+    // rendezvous two kolus livelock over), and --legacy-state-root migrates the
+    // pre-isolation default estate's terminals once so the upgrade orphans nothing.
+    expect(composePadiExtraArgs("1.2.3", undefined, "client-uuid")).toEqual([
+      "--client-id",
+      "client-uuid",
+      "--legacy-state-root",
       "--spawn-version",
       "1.2.3",
     ]);
-    // Unset / empty → omitted (single-kolu common case: the remote padi picks its own default).
+    expect(composePadiExtraArgs("1.2.3", "", "client-uuid")).toEqual([
+      "--client-id",
+      "client-uuid",
+      "--legacy-state-root",
+      "--spawn-version",
+      "1.2.3",
+    ]);
+  });
+
+  it("no override AND no clientId → omitted (a caller with no identity to isolate on)", () => {
+    // A caller that passes no client id keeps the pre-isolation behavior (the remote
+    // padi picks its own plain default) — the isolation is opt-in on having an id.
     expect(composePadiExtraArgs("1.2.3", undefined)).toEqual([
       "--spawn-version",
       "1.2.3",
     ]);
-    expect(composePadiExtraArgs(null, "")).toEqual([]);
+    expect(composePadiExtraArgs("1.2.3", undefined, undefined)).toEqual([
+      "--spawn-version",
+      "1.2.3",
+    ]);
+    expect(composePadiExtraArgs("1.2.3", undefined, "")).toEqual([
+      "--spawn-version",
+      "1.2.3",
+    ]);
   });
 });
 

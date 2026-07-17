@@ -45,6 +45,10 @@ export interface RunPadiStdioBridgeOptions {
   stateRoot?: string;
   /** The value of `--socket` (rare override); the daemon's gate sits beside it. */
   socketOverride?: string;
+  /** The value of `--client-id` (the binder's stable per-client UUID) — the
+   *  isolation-default. Rides through in `process.argv` to the re-exec'd daemon,
+   *  so the front resolves the SAME per-client estate the daemon will serve. */
+  clientId?: string;
 }
 
 /** Run the `--stdio` bridge: front padi's durable daemon over this process's
@@ -60,10 +64,14 @@ export interface RunPadiStdioBridgeOptions {
 export function runPadiStdioBridge(
   opts: RunPadiStdioBridgeOptions = {},
 ): Promise<void> {
-  const socketPath = padiSocketPath(
-    resolvePadiStateRoot(opts.stateRoot),
-    opts.socketOverride,
-  );
+  // Resolve ONCE to the (possibly per-client isolated) absolute state-root, so the
+  // front's socket + stderr-log and the re-exec'd daemon agree on the estate: the
+  // daemon resolves the SAME token set from argv (`--client-id` rides through the
+  // `--stdio`-strip). Passing the resolved ABSOLUTE path back into the path helpers
+  // is a no-op re-resolve (an absolute path is returned as-is), so the isolation is
+  // applied exactly once, here.
+  const stateRoot = resolvePadiStateRoot(opts.stateRoot, opts.clientId);
+  const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   return frontDaemonOverStdio({
     socketPath,
     // Start padi's own durable daemon: re-exec this binary minus `--stdio`. Any
@@ -77,7 +85,7 @@ export function runPadiStdioBridge(
     spawnDaemon: () =>
       reExecAsDetachedDaemon({
         stripArgs: ["--stdio"],
-        stderrLog: padiStderrLogPath(opts.stateRoot),
+        stderrLog: padiStderrLogPath(stateRoot),
       }),
     log: (msg) => process.stderr.write(`padi --stdio: ${msg}\n`),
   });

@@ -23,6 +23,7 @@
  * a PRESENT-but-corrupt one crashes the boot.
  */
 
+import { randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
@@ -111,10 +112,21 @@ export function migratePreferences_1_32_0(
  *  the 1.31.0 migration strips their legacy residue. `hosts` (W10) is the strip-added
  *  fleet, validated by `PersistedHostsSchema` (rejects `local` + duplicates) so a
  *  hand-corrupted list fails loud, never silently normalized. Adding a new domain key
- *  requires a migration entry below. */
+ *  requires a migration entry below.
+ *
+ *  `clientId` (renew) is this store's FIRST persisted UUID — a stable, minted-once
+ *  identity for THIS kolu-server, so a remote-padi binding can key a per-client-private
+ *  state-root on it (isolation-default: same client → same remote estate on re-attach).
+ *  It is real identity data, not a preference: an ephemeral id would orphan a client's
+ *  remote terminals on every restart. It carries no `defaults` entry (a static default
+ *  would hand every install the SAME id) and no rest-required presence on old files —
+ *  it is MINTED ON FIRST READ by `getClientId()` (below) and persisted then, so a file
+ *  that predates the field simply gains it at the next boot. The `z.string().uuid()`
+ *  shape matches the repo's UUID convention (`TerminalId` in terminal-vocab). */
 const PersistedStateSchema = z.object({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
+  clientId: z.string().uuid(),
 });
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
@@ -124,7 +136,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.33.0";
+const SCHEMA_VERSION = "1.34.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -213,14 +225,20 @@ export const store = new Conf<PersistedState>({
   // applies on every rewrite, not just first creation); a store left at a looser mode by a
   // pre-1.33 boot is tightened by the `chmodSync` below.
   configFileMode: 0o600,
+  // `clientId` carries NO default on purpose — a static default would clone ONE identity
+  // across every install, defeating the per-client estate key. It is minted lazily by
+  // `getClientId()` on first read (see `mintClientIdIfAbsent`), so it is legitimately
+  // absent from `defaults`; conf never reads a default for it. The literal is `satisfies`
+  // -checked against the real per-domain default types (so a typo in a preference/hosts
+  // default is still caught), then asserted to the Conf generic's `PersistedState`.
   defaults: {
     preferences: DEFAULT_PREFERENCES,
     // W10 — the strip-added fleet. Fresh install: no `hosts` key yet, so conf merges this
     // empty default (a one-member local-only pool); a genuine fleet is written by the
     // pool's `persist` hook on the first strip add. The 1.33.0 migration seeds it onto an
     // existing pre-W10 file so the on-disk shape matches the schema exactly.
-    hosts: [],
-  },
+    hosts: [] as string[],
+  } satisfies Omit<PersistedState, "clientId"> as unknown as PersistedState,
   migrations: {
     // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
     // removed entirely in 1.18.0 (replaced by Map insertion order);
@@ -580,6 +598,16 @@ export const store = new Conf<PersistedState>({
     "1.33.0": (store: Conf<PersistedState>) => {
       if (!store.has("hosts")) store.set("hosts", []);
     },
+    // renew — `clientId` (the store's first persisted UUID) is now a field on the
+    // schema. It is MINTED ON FIRST READ, not at rest: `getClientId()` runs at module
+    // load (in the boot `safeParse` below) and persists a fresh `randomUUID()` the very
+    // first time it's absent, so a pre-renew file gains its id at the next boot without
+    // any ladder work here. This step is therefore a no-op VERSION MARKER — it must NOT
+    // mint here (that would duplicate the lazy path) and above all must NOT throw on an
+    // old file lacking `clientId`. The bump + this entry honor the "persisted-shape
+    // change ⇒ ladder step" rule (.claude/rules/state.md); the mint-on-read below does
+    // the real work. (Same no-op-marker shape as 1.16.0 / 1.28.0.)
+    "1.34.0": () => {},
   },
 });
 
@@ -590,17 +618,55 @@ export const store = new Conf<PersistedState>({
 // rather than only after the next incidental write.
 if (existsSync(store.path)) chmodSync(store.path, 0o600);
 
+/** Read `clientId` off a store, MINTING one (`randomUUID()`) and persisting it if the
+ *  key is absent — the mint-once, stable-forever identity path. Idempotent: once a
+ *  value is on disk every later call (this boot or any future one, against the same
+ *  `KOLU_STATE_DIR`) returns the SAME string, which is the whole point — a remote-padi
+ *  binding keys a per-client state-root on it, so a re-minted id would orphan the
+ *  client's remote estate on every restart.
+ *
+ *  `clientId` is `z.string().uuid()` (required) in the schema but carries NO `defaults`
+ *  entry — a static default would hand every install the same id — so `conf` returns
+ *  `undefined` for the key on a file that predates the field, hence the `undefined`
+ *  guard the compile-time type doesn't show. The empty-string guard rejects a
+ *  hand-blanked value the same way, re-minting rather than persisting `""`.
+ *
+ *  Takes the store explicitly (rather than closing over the module singleton) so
+ *  `state.test.ts` can drive the mint/persist/re-read cycle against ephemeral `Conf`
+ *  stores under throwaway dirs — the same "exported so a test can drive it" idiom as
+ *  `stripLegacyStateKeys_1_31_0`. */
+export function mintClientIdIfAbsent(store: Conf<PersistedState>): string {
+  const existing = store.get("clientId") as string | undefined;
+  if (typeof existing === "string" && existing.length > 0) return existing;
+  const minted = randomUUID();
+  store.set("clientId", minted);
+  return minted;
+}
+
+/** This kolu-server's stable, minted-once client UUID (see `PersistedStateSchema` and
+ *  `mintClientIdIfAbsent`). Mints + persists on the first call ever against a given
+ *  `KOLU_STATE_DIR`, then returns that same value on every subsequent call and across
+ *  restarts. The domain accessor twin of `getPreferences()` / `getPersistedHosts()`. */
+export function getClientId(): string {
+  return mintClientIdIfAbsent(store);
+}
+
 // Early validation so a schema-invalid store shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the on-disk shape of
 // both domains — `preferences.ts` and `hostPersistence.ts` trust the validated store
-// thereafter. This is a LOG, not the fail-loud gate: an unparseable store already
-// threw in conf's own read above (fail-fast; `clearInvalidConfig` is false), and an
-// invalid `hosts` value additionally crashes the boot loud where it's read
-// (`getPersistedHosts`). No "delete to reset" advice: `hosts` is user data, so blindly
-// deleting the store would empty the fleet — the offending domain must be fixed.
+// thereafter. `clientId` is read through `getClientId()`, which MINTS + persists it on
+// the very first boot after upgrade, so the field is always present for the parse (an
+// old file has no `clientId` key; conf returns undefined, we mint it here) and never
+// trips the required `z.string().uuid()`. This is a LOG, not the fail-loud gate: an
+// unparseable store already threw in conf's own read above (fail-fast;
+// `clearInvalidConfig` is false), and an invalid `hosts` value additionally crashes the
+// boot loud where it's read (`getPersistedHosts`). No "delete to reset" advice: `hosts`
+// and `clientId` are user/identity data, so blindly deleting the store would empty the
+// fleet and re-mint a new estate key — the offending domain must be fixed.
 const result = PersistedStateSchema.safeParse({
   preferences: store.get("preferences"),
   hosts: store.get("hosts"),
+  clientId: getClientId(),
 });
 if (!result.success) {
   const summary = result.error.issues

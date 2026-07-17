@@ -63,6 +63,7 @@ import { publisher } from "./publisher.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
 import {
+  defaultPadiStateRoot,
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
@@ -106,6 +107,19 @@ export interface PadiDaemonOptions {
    *  instead of leaking it. Absent for a STANDALONE padi (no binder → no legacy
    *  adoption, so a dev instance's port kaval is never touched). */
   legacyKavalSocket?: string;
+  /** The BINDER's stable per-client identity (`--client-id`, its persisted UUID) —
+   *  the isolation-default. With no explicit `stateRoot`, padi anchors to the
+   *  per-client estate {@link isolatedPadiStateRoot} so two kolu-servers binding one
+   *  host reach DISTINCT estates (never a shared kaval they'd livelock over). Absent
+   *  for a standalone/local padi. */
+  clientId?: string;
+  /** `--legacy-state-root`: the isolation CUTOVER bridge (the `clientId` twin of
+   *  {@link legacyKavalSocket}). On the first boot at a per-client estate that has no
+   *  terminals yet, adopt the host's pre-isolation DEFAULT estate's running kaval
+   *  (its PTYs) + saved session ONCE, so upgrading to isolation doesn't orphan them.
+   *  padi's single-instance gate arbitrates a historical race (the first isolated
+   *  padi wins; a loser finds the estate claimed and starts private). */
+  adoptLegacyStateRoot?: boolean;
   log: Logger;
   /** External stop signal (tests / a parent teardown). Composed with the
    *  drain-triggered abort. */
@@ -352,10 +366,26 @@ export async function runPadiDaemon(
   // entrypoint every spawn path runs, so no spawn path can forget it; fails loud here if the
   // state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
   configureDaemonLog();
-  const stateRoot = resolvePadiStateRoot(opts.stateRoot);
+  // With no explicit override, `clientId` anchors this padi to its per-client
+  // ISOLATED estate (the isolation-default) — the base is still spelled on THIS host,
+  // only the opaque id crosses the wire (the identity-anchor invariant).
+  const stateRoot = resolvePadiStateRoot(opts.stateRoot, opts.clientId);
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   const gatePath = padiGatePath(socketPath);
   const kavalSocket = padiKavalSocketPath(stateRoot);
+  // Isolation CUTOVER: when the binder asks (`--legacy-state-root`) and this padi is
+  // anchored to a per-client estate, the pre-isolation DEFAULT estate may still hold
+  // the running terminals. Hint its digest kaval socket for ONE-TIME adoption (the
+  // `--legacy-kaval-socket` mechanism, aimed at the default estate's kaval instead of
+  // a pre-W2.2 port kaval) so the upgrade to isolation doesn't orphan live PTYs. Only
+  // when a `clientId` actually isolated us AND no explicit state-root was forced.
+  const legacyDefaultKavalSocket =
+    opts.adoptLegacyStateRoot &&
+    opts.clientId !== undefined &&
+    opts.stateRoot === undefined &&
+    process.env.KOLU_PADI_STATE_DIR === undefined
+      ? padiKavalSocketPath(defaultPadiStateRoot())
+      : undefined;
 
   // ── Claim the single-instance gate FIRST, before ANY boot side effect ──
   // A second padi racing this same state-root must learn it lost the race BEFORE it
@@ -435,7 +465,11 @@ export async function runPadiDaemon(
   try {
     const endpoint = await bootLocalEndpoint(served, {
       kavalSocket,
-      legacyKavalSocket: opts.legacyKavalSocket,
+      // The one-time legacy adopt hint: a pre-W2.2 PORT kaval (local upgrade bridge)
+      // OR the pre-isolation DEFAULT-estate kaval (remote isolation cutover). They are
+      // mutually exclusive by context — a local padi has the port hint, a per-client
+      // remote padi has the default-estate hint — so a plain `??` picks the one in play.
+      legacyKavalSocket: opts.legacyKavalSocket ?? legacyDefaultKavalSocket,
     });
 
     // Manifests run AFTER the endpoint boot (the `endpoint` token proves it): they

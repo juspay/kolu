@@ -61,6 +61,17 @@ Options:
                       If padi has no digest kaval yet but a compatible pre-W2.2 kaval
                       is alive here, it is ADOPTED (its PTYs survive the upgrade), not
                       leaked. Standalone (no flag), padi never adopts a stray port kaval.
+  --client-id ID      the BINDER's stable per-client identity (its persisted UUID) —
+                      the isolation-default. With no explicit --state-root, padi
+                      anchors to the per-client estate $HOME/.local/state/padi-<ID>
+                      (host-computed base + this opaque leaf), so two kolu-servers
+                      binding one host reach DISTINCT estates and never livelock over a
+                      shared kaval. Standalone (no flag), padi uses its plain default.
+  --legacy-state-root the isolation cutover bridge (the --client-id twin of
+                      --legacy-kaval-socket): on the FIRST boot at a per-client estate,
+                      if that estate has no session yet but the host's plain DEFAULT
+                      estate ($HOME/.local/state/padi) has adoptable terminals, adopt
+                      them ONCE so an upgrade to isolation doesn't orphan them.
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
@@ -73,6 +84,8 @@ const { values } = parseArgs({
     "allow-nix-shell-with-env-whitelist": { type: "string" },
     "spawn-version": { type: "string" },
     "legacy-kaval-socket": { type: "string" },
+    "client-id": { type: "string" },
+    "legacy-state-root": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -89,6 +102,9 @@ if (values.stdio) {
   runPadiStdioBridge({
     stateRoot: values["state-root"],
     socketOverride: values.socket,
+    // The front must resolve the SAME (isolated) state-root as the daemon it
+    // spawns, so its connect-socket and the daemon's serve-socket agree.
+    clientId: values["client-id"],
   })
     .then(() => process.exit(0))
     .catch((err: unknown) => {
@@ -120,6 +136,8 @@ if (values.stdio) {
         nixShellWhitelist: values["allow-nix-shell-with-env-whitelist"],
         spawnVersion: values["spawn-version"],
         legacyKavalSocket: values["legacy-kaval-socket"],
+        clientId: values["client-id"],
+        adoptLegacyStateRoot: values["legacy-state-root"] ?? false,
         log: stderrLogger(),
       }),
   });

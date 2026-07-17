@@ -1,18 +1,42 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   backfillLocation,
   backfillRemoteUrl,
   backfillTerminalState,
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
+import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
+  getClientId,
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
+  mintClientIdIfAbsent,
 } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Open a bare `Conf` under a throwaway dir — enough surface for
+ *  `mintClientIdIfAbsent` (which touches only `get`/`set` on `clientId`). Cast to the
+ *  helper's param type without needing the module-internal `PersistedState` export. */
+function openStore(cwd: string): Parameters<typeof mintClientIdIfAbsent>[0] {
+  // Mirror the module singleton's construction: `cwd` only ⇒ the store lives at
+  // `<cwd>/config.json` (conf's default `configName`), exactly where state.ts writes.
+  return new Conf({ cwd }) as unknown as Parameters<
+    typeof mintClientIdIfAbsent
+  >[0];
+}
+
+function freshStateDir(): string {
+  return mkdtempSync(join(tmpdir(), "kolu-clientid-test-"));
+}
 
 describe("migratePreferences_1_30_0", () => {
   it("maps legacy shuffleTheme: true → { shuffle, auto } (the new default)", () => {
@@ -212,5 +236,59 @@ describe("backfillTerminalState", () => {
       sleptAt: 1_700_000_000_000,
     };
     expect(backfillTerminalState(record)).toEqual(record);
+  });
+});
+
+describe("getClientId (module singleton)", () => {
+  it("returns a valid UUID and is stable within a boot (same value every call)", () => {
+    const first = getClientId();
+    expect(first).toMatch(UUID_RE);
+    // Idempotent: the persisted value, not a fresh mint, on every subsequent call.
+    expect(getClientId()).toBe(first);
+  });
+});
+
+describe("mintClientIdIfAbsent", () => {
+  it("mints a valid UUID on first read and is idempotent thereafter", () => {
+    const store = openStore(freshStateDir());
+    const minted = mintClientIdIfAbsent(store);
+    expect(minted).toMatch(UUID_RE);
+    // Second call reads the persisted value, never re-mints.
+    expect(mintClientIdIfAbsent(store)).toBe(minted);
+  });
+
+  it("is STABLE across a restart — a fresh store-open on the same dir returns the SAME id", () => {
+    // The re-attach guarantee: an ephemeral id would orphan a client's remote
+    // estate on every restart, so the persisted value must survive a store re-open.
+    const dir = freshStateDir();
+    const minted = mintClientIdIfAbsent(openStore(dir));
+    // Simulate a server restart: a brand-new Conf pointed at the same KOLU_STATE_DIR.
+    const afterRestart = mintClientIdIfAbsent(openStore(dir));
+    expect(afterRestart).toBe(minted);
+  });
+
+  it("mints DIFFERENT ids for DIFFERENT dirs (different clients → different estates)", () => {
+    const a = mintClientIdIfAbsent(openStore(freshStateDir()));
+    const b = mintClientIdIfAbsent(openStore(freshStateDir()));
+    expect(a).toMatch(UUID_RE);
+    expect(b).toMatch(UUID_RE);
+    expect(a).not.toBe(b);
+  });
+
+  it("does NOT throw on a pre-existing file lacking clientId (an upgrade), and mints one", () => {
+    // A file written before the field existed: `preferences` + `hosts`, no `clientId`.
+    const dir = freshStateDir();
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({ preferences: DEFAULT_PREFERENCES, hosts: [] }),
+    );
+    const store = openStore(dir);
+    // Pre-condition: the store really has no clientId to read.
+    expect(store.get("clientId")).toBeUndefined();
+    // The lazy-mint path must be safe on a predates-the-field file: no throw, a UUID out.
+    const minted = mintClientIdIfAbsent(store);
+    expect(minted).toMatch(UUID_RE);
+    // And it persisted — a re-open sees the same value (the upgrade is durable).
+    expect(mintClientIdIfAbsent(openStore(dir))).toBe(minted);
   });
 });

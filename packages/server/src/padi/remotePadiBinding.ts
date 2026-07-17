@@ -263,12 +263,22 @@ export interface RemotePadiSessionDeps {
 export function composePadiExtraArgs(
   spawnVersion: string | null | undefined,
   remoteStateDir?: string | null,
+  clientId?: string | null,
 ): string[] {
   const args: string[] = [];
-  // `--state-root` first so the remote padi resolves its digest/socket before the
-  // version stamp is applied; both are order-insensitive to padi's CLI parser.
-  if (remoteStateDir != null && remoteStateDir !== "")
+  // Estate anchoring, precedence: an explicit operator override
+  // (`KOLU_REMOTE_PADI_STATE_DIR`, dev/e2e) wins verbatim; else the ISOLATION-DEFAULT
+  // — this kolu-server's stable per-client id, so padi anchors to a per-client
+  // private estate on the host and two kolus binding one host never share the kaval
+  // rendezvous they'd LIVELOCK over. `--legacy-state-root` rides with it: the first
+  // isolated boot adopts the pre-isolation DEFAULT estate's terminals ONCE so the
+  // upgrade orphans nothing. `--state-root` first so the remote padi resolves its
+  // digest/socket before the version stamp; all are order-insensitive to padi's parser.
+  if (remoteStateDir != null && remoteStateDir !== "") {
     args.push("--state-root", remoteStateDir);
+  } else if (clientId != null && clientId !== "") {
+    args.push("--client-id", clientId, "--legacy-state-root");
+  }
   if (spawnVersion != null) args.push("--spawn-version", spawnVersion);
   return args;
 }
@@ -278,6 +288,13 @@ export interface EnsureRemotePadiBindingOptions {
   host: string;
   /** The kolu app version to stamp as the remote-spawned PTYs' `TERM_PROGRAM_VERSION`. */
   spawnVersion?: string;
+  /** This kolu-server's STABLE per-client identity (its persisted UUID, from
+   *  `getClientId()`) — the isolation-default key. Forwarded to the remote padi as
+   *  `--client-id` (unless an explicit `KOLU_REMOTE_PADI_STATE_DIR` override is set),
+   *  so this client's remote estate is private and stable across restarts. Absent →
+   *  the remote padi uses its plain default estate (the pre-isolation shared behavior;
+   *  a caller with no identity to isolate on). */
+  clientId?: string;
 }
 
 /**
@@ -303,6 +320,7 @@ export function ensureRemotePadiBinding(
   const extraArgs = composePadiExtraArgs(
     opts.spawnVersion,
     process.env[KOLU_REMOTE_PADI_STATE_DIR_ENV],
+    opts.clientId,
   );
 
   const binderVersion = deps.binderVersion ?? PADI_SURFACE_VERSION;
