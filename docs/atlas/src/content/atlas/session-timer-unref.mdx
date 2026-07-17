@@ -1,0 +1,167 @@
+---
+title: Session timers must not immortalize the host process
+description: Per-timer census of makeSession's un-unref'd timers with honest unref-vs-must-fire verdicts — an abandoned session must let its host process exit; timers that settle a caller's promise stay ref'd.
+parents: [bug, surface-lifetime-audit]
+status: implemented
+maturity: seedling
+updated: 2026-07-16
+---
+
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+
+The [surface lifetime audit](surface-lifetime-audit.html) confirmed (weakened)
+that `makeSession` "promises a hold for the parent's lifetime but binds to
+nothing": an **abandoned** session — one whose consumer dropped every reference
+without `destroy()`, or whose useful work is done — keeps redialing forever,
+and its ref'd reconnect timer **pins the Node event loop**, so a host process
+that reaches the end of its main script never exits. The codebase already
+knows this hazard defensively: `dialAgentOnce.ts` must `destroy()` the session
+on every pre-`Connection` failure precisely because "its ref-counted reconnect
+loop/watchdog timer leaks for any caller that catches the rejection." The fix
+is not a blanket `unref()` — one timer in this file exists to settle a
+caller's promise and may **not** be unref'd away. This note is the per-timer
+census with the verdict and argument for each. Implemented in
+<PrLink pr={1873} />.
+
+## The census — every timer in `packages/surface-remote/src`, at HEAD
+
+All non-test timers in the package live in `session.ts`. `controlMaster.ts`
+has none (its `ControlPersist=10m` is ssh's own lifecycle, outside Node's
+loop), and the connectors (`sshConnector`/`dialAgentOnce`) arm none — their
+children are event-loop holds, but bounded ones (ssh's `ConnectTimeout` /
+`ServerAlive` opts, ~30s), so an in-flight dial can only *delay* exit, never
+prevent it.<Footnote>Grounded by grep over `packages/surface-remote/src`
+(non-test): `setTimeout`/`setInterval` occur only in `session.ts`; `.unref(`
+occurs nowhere. The one `setImmediate` (`dialAgentOnce.ts`) holds the loop for
+a single turn.</Footnote>
+
+| Timer | Armed when | Holds the loop today | Verdict |
+| --- | --- | --- | --- |
+| `pendingTimer` — reconnect backoff (`scheduleReconnect` → `armTimer`) | after every failed dial / link death; ≤60s each, re-armed forever on `"network"` cause | **YES — the immortalizer.** Between dials it is often the *sole* handle; an abandoned pinned session re-arms it eternally | **unref** |
+| `pendingTimer` — connect watchdog (`attempt`, non-admit path, same slot) | transport up, awaiting first RPC; ≤`connectTimeoutMs` (30s), fires once | transiently; while it's armed the live transport (ssh child / socket) usually holds the loop anyway | **unref** |
+| `clockProbeTimer` — clock-offset retry cadence | after a genuine `system.clockNow` probe failure while `connected`; 10s, repeating | yes while armed | **unref** |
+| `clockProbeDeadlineTimer` — in-flight clock-probe deadline | while a clock probe RPC is in flight; ≤8s, self-clearing | yes while in flight (bounded) | **unref** |
+| `withHandshakeTimeout`'s timer — admit-handshake bound | admit path, while `admit(client)`'s hello is in flight; ≤`connectTimeoutMs`, self-clearing | yes while in flight (bounded) | **MUST FIRE — keep ref'd** |
+| liveness heartbeat (`createHeartbeat`, `@kolu/surface`) | born at first connect, session-scoped | **no** — already `unref()`s both its interval and its probe timer | already correct; census row only |
+
+## The verdict line — internal effect vs. caller-promised settle
+
+The honest test for each timer is *who its firing serves*:
+
+- **Unref the four whose effect is internal — owning one named semantics
+  change.** The backoff redial, the connect watchdog's teardown, and both
+  clock-probe timers drive session-internal state (a redial, a force-cycle, a
+  frame re-stamp). An `unref()`'d timer still fires normally whenever anything
+  else holds the loop — a server socket, stdin, a live transport — so a
+  **held** session in a living process reconnects exactly as before; only a
+  session that is the *last thing standing* stops keeping the corpse warm.
+  The backoff timer's own fire-guard already concedes this: it returns without
+  redialing when `refCount === 0`. But "internal effect" is not the whole
+  truth for the backoff: **`ClientCursor.next()`** (`waitForNextClient.ts`, an
+  exported wait `hostFanout`'s pump parks on) is settled across a reconnect
+  gap *only by the backoff firing* — its own comment says so — which is a
+  caller-visible settle by derivation. The backoff's unref is therefore
+  justified not because nothing awaits it, but because the class of things
+  that await it — onState-derived cursor waits — are **pump loops** whose
+  processes hold the loop by other means (every grounded cursor consumer runs
+  inside a server process), and a pump whose process has *nothing else left*
+  is precisely the abandoned shape this fix targets: it **should** die with
+  its process. This is a deliberate, documented semantics change — a parked
+  `cursor.next()` is not a process hold — stated in the Reference lifetime
+  contract, never silent.
+- **`withHandshakeTimeout` may not be unref'd.** Its firing rejects a promise
+  that `attempt()` → `clientPromise` → `pin()` propagates to an **awaiting
+  caller** — and a pending `await` holds no event-loop handle, so if this
+  timer were unref'd and happened to be the last handle, the process would
+  exit *silently mid-await* instead of delivering the timeout rejection the
+  API promised. This is exactly the brief's "pending op's timeout that
+  settles a caller's promise" class. It cannot immortalize anything: it is
+  bounded (≤30s), self-clearing, armed at most once per dial — and the moment
+  it fires, the next hold is the *unref'd* backoff, which is the process's
+  exit window.
+
+One deliberate asymmetry, stated so the lens gate can weigh it: the connect
+watchdog (unref) and the handshake timeout (ref'd) look like twins, but they
+differ on the verdict line — by the time the watchdog **fires**, `attempt()`
+has already **returned** the client (they arm in the same tick, `attempt`'s
+tail; `pin()` is settled, so the watchdog's firing is observable only via
+`onState`), whereas the handshake timeout fires while `pin()` is still
+**pending** — it can, and must, reject a pending `pin()`. Settling a caller's
+parked continuation is a guaranteed effect; a passive state transition is not.
+
+Exit safety when an unref'd backoff *does* fire rests on one invariant, stated
+here so a refactor can't silently break it: the dial chain reaches the
+transport's first event-loop handle without parking on a handle-free await —
+`launchAttempt` → `attempt` → `connectOnce` runs microtask-chained to its
+first child spawn, and a caller-supplied resolve step that does real work (a
+nix-instantiate child, fs I/O) holds its own handle. A future async-dial
+refactor that parks on a bare promise between the timer firing and the first
+spawn would reopen a silent mid-dial exit window for a held session.
+
+## Pins (red-first)
+
+1. **The immortalization red.** A real child process (`node --import`
+   tsx-loader, the `kaval` `socketDaemon.test.ts` precedent — vitest itself
+   holds the loop, so this cannot be pinned in-process) creates a session over
+   a never-connecting connector, `pin()`s it, drops every reference without
+   `destroy()`, and lets its main script end. Today: the child hangs on the
+   backoff timer (test times it out → red). After: exits cleanly, bounded.
+2. **Guarantee preservation.** (a) The existing suite — reconnect, recheck,
+   liveness, clock-probe, admit-timeout tests — stays green unchanged: the
+   runner holds the loop, so every unref'd timer still fires. (b) The
+   must-fire pin: a child process whose `pin()` awaits an admit hello that
+   never settles still *receives the timeout rejection* (prints the delivered
+   marker, having lived at least the timeout, then exits `0` naturally through
+   the unref'd-backoff exit window — that clean exit is itself part of the
+   pin) rather than exiting silently at 0ms — proving the handshake timer
+   stayed ref'd even as the sole handle.
+3. Existing surface-remote suite green (the fake-timer tests exercise
+   `.unref()` on sinon fake timers, which support it; verified at build).
+
+## Shape of the change
+
+One PR. One `.unref()` call site in `session.ts` — inside `armInternalTimer`,
+the file-local seam (a lens-gauntlet refinement of the original three-direct-
+calls shape) that all three internal-timer arms route through (`armTimer`, the
+`clockProbeTimer` arm, the `clockProbeDeadlineTimer` arm), leaving
+`withHandshakeTimeout`'s must-fire timer as the file's only bare ref'd
+`setTimeout` — a census pinned *structurally* by a source-level test (exactly
+two bare `setTimeout(` sites in the file). The seam is direct Node `.unref()`,
+no browser guard: the package is Node-only (`tsconfig` `types: ["node"]`, it
+spawns ssh children); the browser-safe `unrefTimer` dance in `@kolu/surface`'s
+heartbeat exists because *that* package is shared with the browser leg, which
+this one is not (and widening that helper into an export would compel a
+drishti PR for six lines — the `controlMaster.ts` precedent declines the same
+trade). Plus a
+`tsx` devDependency in `surface-remote` for the child-process pins — a
+links-only lockfile delta (`tsx@4.21.0` was already fetched for other
+workspace packages), so the pinned `fetchPnpmDeps` hash needed **no** refresh
+(verified by a green `nix build` against the changed lockfile) — doc sync
+(`ref-surface-remote.mdx` lifetime contract + changelog), and the audit note's
+`makeSession` row flipped to point here.
+
+## Consumer gate (grounded at their pins)
+
+- **drishti** (grepped at master `f3609d0` and the pending pair tip
+  `7e358fd`, same shape at both): `makeSession` lives in
+  `packages/app/src/server/hostRegistry.ts` — a warm host pool inside the app
+  server, whose HTTP/socket listeners hold the loop; its `hostFanout`-style
+  pumps park on cursor waits *inside that held process*. No dependence on
+  session timers as process holds; no API delta (signatures unchanged).
+  Verdict: **no behavioral impact — no drishti pair PR needed** (final call
+  re-checked at final HEAD per the surface rule).
+- **odu** (grepped at master `914c388` and the pending pin-bump tip
+  `647d348`, same shape at both): `makeSession` in `src/coordinator/lane.ts`,
+  which already `unref?.()`s its *own* lane deadline — the coordinator
+  deliberately refuses to let lane timers hold it alive, and it bounds connect
+  attempts itself (`MAX_CONNECT_ATTEMPTS` → lane death), never relying on
+  eternal session backoff. Verdict: **`none`** for the odu ledger (this
+  change aligns the session with odu's own posture).
+- **kaval-tui / padi-tui** (this repo, one-shot CLIs): both dial through
+  `dialAgentOnce` (`hostConnect.ts` in each), which `pin()`s once, `destroy()`s
+  the session on every pre-`Connection` failure, and never parks on a cursor
+  wait — a live dial's ssh child holds the loop; a failed dial is destroyed
+  before the CLI exits. Verdict: **no behavioral impact** (and the
+  defensively-documented leak `dialAgentOnce` guards against is exactly what
+  this change retires).

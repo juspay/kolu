@@ -233,9 +233,11 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     return block.trim() || undefined;
   };
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
-  // failure anywhere in pin/probe must destroy the session itself — otherwise
-  // its ref-counted reconnect loop/watchdog timer leaks for any caller that
-  // catches the rejection (the CLI exits, but this dialer is also used by tests).
+  // failure anywhere in pin/probe must destroy the session itself. The session's
+  // timers no longer pin the process (they are unref'd — docs/atlas
+  // session-timer-unref), but an undestroyed session in a HELD process (tests,
+  // a server embedding this dialer) would keep redialing/spawning ssh children
+  // for as long as that process lives — the leak this destroy still prevents.
   try {
     // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE
     // the connect watchdog arms, so a cold copy doesn't time it out) and spawns
