@@ -65,6 +65,7 @@ import {
   vi,
 } from "vitest";
 import {
+  AGENT_DIR_ENV_KEYS,
   daemonEnv,
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -846,6 +847,13 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
       process.env.KAVAL_BUILD_ID = "bid";
       process.env.KAVAL_COMMIT_HASH = "hash";
       process.env[DAEMON_BIND_PID_ENV] = "4321";
+      // Agent-detection dir overrides padi's sensors read — MUST be forwarded, or
+      // detection silently breaks on a built forced-detached deployment (the exact
+      // e2e regression). Seed + expect each.
+      for (const k of AGENT_DIR_ENV_KEYS) {
+        process.env[k] = `dir-${k}`;
+        expected[k] = `dir-${k}`;
+      }
       // ambient identity/secret in the server's own env — must NOT reach padi:
       process.env.CLAUDE_CODE_CHILD_SESSION = "1";
       Object.assign(expected, {
