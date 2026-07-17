@@ -14,7 +14,7 @@ Take a task to a shipped, reviewed PR. Unlike `/do` (autonomous start to finish)
 
 ## 0. Interview (the differentiator)
 
-Before any work, ask the user via **`AskUserQuestion`** (one call, batched):
+Before any work, ask the user via **`AskUserQuestion`** (one call, batched) — **unless a delegating brief routes questions elsewhere.** When you run under a coordinator whose brief says questions go to its terminal (e.g. via `/kolu`, blocking on the reply), that channel *replaces* `AskUserQuestion` for the **whole** interview: write the batch to a file, send a one-line pointer, and block — never open a question dialog in your own PTY, where it hangs unseen until a human happens to look. The brief's route wins even when it only *routes* without naming the tool: reaching for `AskUserQuestion` here is `/be`'s built-in reflex (this *is* the interview step), so treat "a coordinator is driving me" as itself the ban.
 
 - **Plan first?** — write the plan as an **Atlas note** (`docs/atlas/src/content/atlas/<slug>.mdx`) for review *before* implementing, or implement straight. Default: straight, unless the task is large/ambiguous. *(If the prompt already points at an existing Atlas note or legacy `docs/plans/*.html`, skip this question — that file is the plan of record; reuse it.)*
 - **Task kind** — bug fix · feature/new behavior · refactor/chore. This sets the test strategy (see §2).
