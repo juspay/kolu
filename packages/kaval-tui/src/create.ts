@@ -5,7 +5,7 @@
  * the contract, and prints these.
  *
  * `create` is the *raw* multiplexer's spawn: a plain `$SHELL` (or a command
- * you pass) run with no login flag, no rcfiles, no kolu policy. Since B0 the
+ * you pass) run with no login flag and no kolu rc-hooks/shell-init policy (the shared spawn-env policy still applies — see composeSpawnEnv). Since B0 the
  * wire is fully specified (the host derives nothing from its own env), so the
  * client composes the whole input itself — here, from kaval-tui's own
  * `process.env`/`cwd`, the same

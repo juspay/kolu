@@ -48,33 +48,50 @@ describe("daemonEnv — the env kaval is spawned with (2a parity pin, #1872)", (
     Object.assign(process.env, saved);
   });
 
-  it("carries the allowlist base + operational vars, and NO leaked identity var", () => {
+  it("is EXACTLY the allowlist base present (+ operational extras) — a dropped or added key both fail (#1872)", () => {
+    // Control the SOURCE env precisely so the assertion is EXACT, not a membership
+    // check a deletion would silently pass: clear, then set a known set. A regression
+    // that starts daemonEnv from `{}` again (dropping HOME/PATH) fails `toEqual`, and a
+    // leaked ambient identity var fails it too.
+    for (const k of Object.keys(process.env)) delete process.env[k];
     process.env.HOME = "/home/prod";
     process.env.PATH = "/run/current-system/sw/bin:/usr/bin";
-    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
-    // the #1872 leak in the supervisor's own env — must NOT reach kaval:
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000"; // operational, via the allowlist
+    process.env.SSH_AUTH_SOCK = "/tmp/agent.sock"; // operational, via the allowlist
+    // ambient identity/secret in the supervisor's own env — must NOT reach kaval:
     process.env.CLAUDE_CODE_CHILD_SESSION = "1";
     process.env.AWS_SECRET_ACCESS_KEY = "shhh";
 
-    const env = daemonEnv();
+    // EXACT: the allowlist keys present, and nothing else (no operational extras set).
+    expect(daemonEnv()).toEqual({
+      HOME: "/home/prod",
+      PATH: "/run/current-system/sw/bin:/usr/bin",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+      SSH_AUTH_SOCK: "/tmp/agent.sock",
+    });
+  });
 
-    // complete base — kaval gets HOME/PATH (parity with systemd's PAM env):
-    expect(env.HOME).toBe("/home/prod");
-    expect(env.PATH).toBe("/run/current-system/sw/bin:/usr/bin");
-    // XDG_RUNTIME_DIR rides in via the shared allowlist base (it is a
-    // SPAWN_ENV_OPERATIONAL member), not a hand-carried extra:
-    expect(env.XDG_RUNTIME_DIR).toBe("/run/user/1000");
-    // the ambient identity/secret never rides in:
-    expect("CLAUDE_CODE_CHILD_SESSION" in env).toBe(false);
-    expect("AWS_SECRET_ACCESS_KEY" in env).toBe(false);
+  it("layers the operational extras (NODE_OPTIONS scrubbed, KOLU_DIAG_DIR, bind-pid) on top of the base", () => {
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    process.env.HOME = "/home/prod";
+    process.env.NODE_OPTIONS = "--max-old-space-size=4096"; // survives the dev-flag scrub
+    process.env.KOLU_DIAG_DIR = "/diag";
+    process.env[DAEMON_BIND_PID_ENV] = "4321";
 
-    // every key is either on the shared allowlist or a named operational var — the
-    // exact set, so a future broad addition fails THIS test, not review vigilance.
-    const OPERATIONAL = ["NODE_OPTIONS", "KOLU_DIAG_DIR", DAEMON_BIND_PID_ENV];
-    const allowed = new Set<string>([...SPAWN_ENV_ALLOWLIST, ...OPERATIONAL]);
-    for (const k of Object.keys(env)) {
-      expect(allowed.has(k)).toBe(true);
-    }
+    expect(daemonEnv()).toEqual({
+      HOME: "/home/prod",
+      NODE_OPTIONS: "--max-old-space-size=4096",
+      KOLU_DIAG_DIR: "/diag",
+      [DAEMON_BIND_PID_ENV]: "4321",
+    });
+    // every key is on the allowlist or a NAMED operational extra — nothing else.
+    const allowed = new Set<string>([
+      ...SPAWN_ENV_ALLOWLIST,
+      "NODE_OPTIONS",
+      "KOLU_DIAG_DIR",
+      DAEMON_BIND_PID_ENV,
+    ]);
+    for (const k of Object.keys(daemonEnv())) expect(allowed.has(k)).toBe(true);
   });
 });
 

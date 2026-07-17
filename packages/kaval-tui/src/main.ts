@@ -492,6 +492,24 @@ async function cmdHistory(
  *  Fails loud (never silently drops) on a malformed entry — a missing `=` or an
  *  empty key — because a swallowed `--env` is exactly the kind of silent
  *  degradation the fail-fast rule forbids. An empty VALUE (`--env FOO=`) is legal. */
+/** Env keys `--env` MUST reject, each fail-fast rather than a silent no-op:
+ *   - the JS prototype-pollution triad (`__proto__`/`prototype`/`constructor`) — on a
+ *     plain object `env.__proto__ = v` mutates the prototype instead of adding a key,
+ *     so the var would vanish silently;
+ *   - the daemon-authoritative locator stamps (`KAVAL_TERMINAL_ID`, `KAVAL_SOCKET`) —
+ *     both composers overwrite them with the real terminal id / dialed socket AFTER
+ *     `extraEnv`, so a `--env KAVAL_SOCKET=x` is a no-op (locally) or an inconsistency
+ *     (remotely). One rule: they are stamped, never caller-set. */
+const REJECTED_ENV_KEYS = new Set([
+  "__proto__",
+  "prototype",
+  "constructor",
+  "KAVAL_TERMINAL_ID",
+  "KAVAL_SOCKET",
+]);
+
+/** Parse+VALIDATE the repeatable `--env K=V` flag, pre-dial (like `sendCall`), so a
+ *  malformed value fails before `--host` provisions and launches a remote daemon. */
 function parseEnvAssignments(pairs: readonly string[]): Record<string, string> {
   const env: Record<string, string> = {};
   for (const pair of pairs) {
@@ -499,7 +517,13 @@ function parseEnvAssignments(pairs: readonly string[]): Record<string, string> {
     if (eq <= 0) {
       fail(`--env expects K=V, got ${JSON.stringify(pair)}`);
     }
-    env[pair.slice(0, eq)] = pair.slice(eq + 1);
+    const key = pair.slice(0, eq);
+    if (REJECTED_ENV_KEYS.has(key)) {
+      fail(
+        `--env cannot set ${JSON.stringify(key)} — it is ${key.startsWith("KAVAL_") ? "a daemon-stamped locator, set authoritatively" : "reserved (prototype pollution)"}.`,
+      );
+    }
+    env[key] = pair.slice(eq + 1);
   }
   return env;
 }
@@ -1052,6 +1076,12 @@ async function main(): Promise<void> {
       json: argv.flags.json,
     };
   }
+  // Validate `--env` PRE-DIAL too (mirrors `sendCall`): a malformed `K=V` or a
+  // rejected key must fail BEFORE `--host` provisions the closure and launches a
+  // remote `kaval --stdio` — otherwise the loud validation error lands after the
+  // expensive, side-effecting remote spawn. `env` is a create-only flag.
+  const createEnv =
+    argv.command === "create" ? parseEnvAssignments(argv.flags.env) : {};
   // The endpoint this command targets — its transport AND the suffix that
   // re-targets a later `attach` at the same daemon (see `endpointHint`). A local
   // endpoint resolves its socket ONCE here, up front, and CARRIES it: we dial it
@@ -1085,7 +1115,7 @@ async function main(): Promise<void> {
         conn,
         endpoint,
         argv._.command,
-        parseEnvAssignments(argv.flags.env),
+        createEnv,
         argv.flags.json,
       );
     else if (argv.command === "snapshot") {

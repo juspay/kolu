@@ -136,6 +136,10 @@ export function localKavalDriver(socketPath: string): DaemonDriver {
     env: daemonEnv(),
     unitPrefix: "kaval",
     fromSource,
+    // Layer the parent (nix-shell) env ONLY for an ACTUAL from-source kaval — NOT a
+    // built kaval forced detached via `KOLU_KAVAL_SPAWN=detached` (a bare/pu box),
+    // which carries its own wrapper env and must not inherit ours (#1872).
+    inheritParentEnv: !process.env.KOLU_KAVAL_BIN,
     // P0: kaval has no pino — its stderr (the surface-daemon stderrLogger) IS its log, so
     // capture it to the deterministic `kaval.log` beside its socket, bounded by
     // truncate-on-boot, so a kaval that outlives padi/kolu-server stays diagnosable.

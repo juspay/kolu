@@ -41,6 +41,7 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
+import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
@@ -839,6 +840,30 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
     expect(env.PATH).toBe("/usr/bin:/bin");
     expect(env.SSH_AUTH_SOCK).toBe("/private/tmp/agent.sock"); // operational session var
     expect(env).not.toHaveProperty("CLAUDE_CODE_CHILD_SESSION"); // the #1872 guard
+
+    // Deletion guard: EVERY allowlist key present in the source env must survive — a
+    // regression that starts daemonEnv from `{}` again (dropping the base) fails here.
+    for (const k of SPAWN_ENV_ALLOWLIST) {
+      if (process.env[k] != null) expect(k in env).toBe(true);
+    }
+    // Addition guard: every output key is on the allowlist or a NAMED padi-operational
+    // extra — no ambient key can slip through.
+    const PADI_OPERATIONAL = new Set<string>([
+      "KOLU_PADI_STATE_DIR",
+      "KOLU_STATE_DIR",
+      "KOLU_KAVAL_SPAWN",
+      "LOG_LEVEL",
+      "NODE_OPTIONS",
+      "KOLU_DIAG_DIR",
+      "KAVAL_BUILD_ID",
+      "KAVAL_COMMIT_HASH",
+      DAEMON_BIND_PID_ENV,
+    ]);
+    const allowed = new Set<string>([
+      ...SPAWN_ENV_ALLOWLIST,
+      ...PADI_OPERATIONAL,
+    ]);
+    for (const k of Object.keys(env)) expect(allowed.has(k)).toBe(true);
   });
 });
 

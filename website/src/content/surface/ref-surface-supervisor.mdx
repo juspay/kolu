@@ -44,7 +44,7 @@ It is generic over the client `C` and identity `I`.
   production default) `env` is the COMPLETE child env — nothing from the parent is
   layered under it, so a partial set spawns a daemon with no `PATH`/`HOME`; carry
   the daemon's whole base (compose it from a fixed allowlist, as the snippet
-  above does — kolu mines `@kolu/pty`'s `SPAWN_ENV_ALLOWLIST`). Under **systemd**
+  above does — kolu mines `kolu-pty`'s `SPAWN_ENV_ALLOWLIST`). Under **systemd**
   `env` OVERLAYS the unit's PAM/manager env via `--setenv`, so a partial set is
   fine. With **`fromSource: true`** (dev) `env` is layered OVER the supervisor's
   full parent env — the one path that inherits the ambient shell.

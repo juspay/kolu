@@ -37,7 +37,7 @@ const daemonEntry = "/nix/store/…/bin/fleet-top-daemon";
 // env is layered under it (that would leak the supervisor's ambient identity into
 // the daemon). So `cfg.env` must be the COMPLETE child env: compose it from a fixed
 // allowlist of the vars the daemon needs to run, never the whole parent env. (kolu's
-// own supervisors mine `@kolu/pty`'s `SPAWN_ENV_ALLOWLIST`; a standalone consumer
+// own supervisors mine `kolu-pty`'s `SPAWN_ENV_ALLOWLIST`; a standalone consumer
 // names its own base, as here.)
 function spawnEnvBase(): Record<string, string> {
   const env: Record<string, string> = {};

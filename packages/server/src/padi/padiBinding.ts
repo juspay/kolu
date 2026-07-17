@@ -265,6 +265,10 @@ export function localPadiDriver(
     env: daemonEnv(stateRoot, verbose),
     unitPrefix: "padi",
     fromSource,
+    // Layer the parent (nix-shell) env ONLY for an ACTUAL from-source padi — NOT a
+    // built padi forced detached via `KOLU_PADI_SPAWN=detached` (a bare/pu box),
+    // which carries its own wrapper env and must not inherit ours (#1872).
+    inheritParentEnv: !process.env.KOLU_PADI_BIN,
     // P0: the local padi daemon's RAW stderr (native errors / crash stacks pino can't see) →
     // its crash-catcher on the DETACHED (non-systemd) branch; its pino stream rides `padi.log`
     // via the daemon entrypoint's multistream (no flag). Under systemd, stderr → journald.

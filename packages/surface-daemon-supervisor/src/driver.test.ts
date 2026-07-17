@@ -187,14 +187,13 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     expect(only(calls).command).toBe("/nix/store/abc/bin/kaval");
   });
 
-  it("fromSource DOES layer the parent env under cfg.env (dev: the from-source daemon needs the nix-shell env)", async () => {
+  it("inheritParentEnv layers the parent env under cfg.env (dev: the from-source daemon needs the nix-shell env)", async () => {
     // The ONE caller that opts INTO parent layering — `just dev` runs kaval from a
     // nix-shell whose store paths / dev vars the daemon genuinely needs. cfg.env still
-    // wins on overlap. Production (non-fromSource) never takes this path, so no ambient
-    // identity var can leak there.
+    // wins on overlap. Gated on `inheritParentEnv`, NOT `fromSource`.
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(
-      { ...cfg, fromSource: true },
+      { ...cfg, fromSource: true, inheritParentEnv: true },
       { env: { PATH: "/dev/shell/bin", FOO: "bar" }, spawnProcess }, // no INVOCATION_ID → detached
     );
     await driver.spawn();
@@ -203,6 +202,28 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       FOO: "bar",
       XDG_RUNTIME_DIR: "/run/user/1000", // cfg.env, layered on top
     });
+  });
+
+  it("fromSource WITHOUT inheritParentEnv (a built daemon forced detached) gets cfg.env ALONE — no leak (#1872, F1)", async () => {
+    // A built kaval/padi forced onto the detached branch by `KOLU_*_SPAWN=detached`
+    // (a bare/pu box): `fromSource` skips systemd-run, but the built binary carries
+    // its own wrapper env, so `inheritParentEnv` stays false — the supervisor's
+    // ambient parent env (an orchestrator's CLAUDE_CODE_* here) must NOT ride in.
+    const { calls, spawnProcess } = capture();
+    const driver = survivableSpawnDriver(
+      { ...cfg, fromSource: true }, // inheritParentEnv defaults false
+      {
+        env: { PATH: "/parent/bin", CLAUDE_CODE_CHILD_SESSION: "1" },
+        spawnProcess,
+      },
+    );
+    await driver.spawn();
+    expect(only(calls).options.env).toEqual({
+      XDG_RUNTIME_DIR: "/run/user/1000",
+    });
+    expect("CLAUDE_CODE_CHILD_SESSION" in (only(calls).options.env ?? {})).toBe(
+      false,
+    );
   });
 
   it("treats an empty INVOCATION_ID as not-under-systemd", async () => {

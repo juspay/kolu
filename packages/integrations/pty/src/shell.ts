@@ -8,9 +8,9 @@
  *      otherwise suppress) and injects kolu's OSC hooks.
  *
  * The split matters under macOS launchd user agents, where the parent env
- * is near-empty and cleanEnv passthrough alone wouldn't carry a usable
- * PATH — the wrapper's replay step compensates by sourcing user dotfiles
- * directly. Linux/systemd masks this because PAM seeds the user-instance
+ * is near-empty and cleanEnv's canonical-allowlist composition alone wouldn't
+ * carry a usable PATH — the wrapper's replay step compensates by sourcing user
+ * dotfiles directly. Linux/systemd masks this because PAM seeds the user-instance
  * env from the login session.
  *
  * Nix devshell pollution is handled at startup: the server refuses to run
@@ -57,13 +57,22 @@ export const SPAWN_ENV_FUNCTIONAL = [
 
 /** Class 2 — PRESENTATION: describes the *terminal* (colour, locale), never identity.
  *  Named separately so a composer that reads functional vars from a different source (a
- *  remote host's `system.info`) can still carry presentation from the local terminal. */
+ *  remote host's `system.info`) can still carry presentation from the local terminal.
+ *  The full POSIX locale-category set is carried, not just `LANG`/`LC_ALL`: a user who
+ *  sets an individual category (`LC_TIME`, `LC_MESSAGES`, …) without `LC_ALL` would
+ *  otherwise silently lose it, so date/number/message formatting drifts in the PTY. */
 export const SPAWN_ENV_PRESENTATION = [
   "TERM",
   "COLORTERM",
   "LANG",
+  "LANGUAGE",
   "LC_ALL",
   "LC_CTYPE",
+  "LC_MESSAGES",
+  "LC_TIME",
+  "LC_NUMERIC",
+  "LC_COLLATE",
+  "LC_MONETARY",
 ] as const;
 
 /** Class 3 — OPERATIONAL-SESSION: capability vars MINTED BY THE USER'S LOGIN SESSION
@@ -141,7 +150,8 @@ export function composeSpawnEnv(
   return pickEnv(SPAWN_ENV_ALLOWLIST, source);
 }
 
-/** Whitelist set once at startup; undefined means passthrough mode (production). */
+/** Set once at startup. `undefined` (production) means compose from the canonical
+ *  SPAWN_ENV_ALLOWLIST; a set value is the dev/nix-shell WIDENING of that base. */
 let envWhitelist: Set<string> | undefined;
 
 /**

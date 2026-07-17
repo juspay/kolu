@@ -233,13 +233,19 @@ describe("SPAWN_ENV_ALLOWLIST — the one shared allowlist, pinned exactly as da
     ]);
   });
 
-  it("Class 2 PRESENTATION — exactly the terminal/locale vars", () => {
+  it("Class 2 PRESENTATION — exactly the terminal/locale vars (full POSIX locale-category set)", () => {
     expect([...SPAWN_ENV_PRESENTATION]).toEqual([
       "TERM",
       "COLORTERM",
       "LANG",
+      "LANGUAGE",
       "LC_ALL",
       "LC_CTYPE",
+      "LC_MESSAGES",
+      "LC_TIME",
+      "LC_NUMERIC",
+      "LC_COLLATE",
+      "LC_MONETARY",
     ]);
   });
 
