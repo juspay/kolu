@@ -492,26 +492,23 @@ async function cmdHistory(
  *  Fails loud (never silently drops) on a malformed entry — a missing `=` or an
  *  empty key — because a swallowed `--env` is exactly the kind of silent
  *  degradation the fail-fast rule forbids. An empty VALUE (`--env FOO=`) is legal. */
-/** Env keys `--env` MUST reject, each fail-fast rather than a silent no-op:
- *   - the JS prototype-pollution triad (`__proto__`/`prototype`/`constructor`) — on a
- *     plain object `env.__proto__ = v` mutates the prototype instead of adding a key,
- *     so the var would vanish silently;
- *   - the daemon-authoritative locator stamps (`KAVAL_TERMINAL_ID`, `KAVAL_SOCKET`) —
- *     both composers overwrite them with the real terminal id / dialed socket AFTER
- *     `extraEnv`, so a `--env KAVAL_SOCKET=x` is a no-op (locally) or an inconsistency
- *     (remotely). One rule: they are stamped, never caller-set. */
-const REJECTED_ENV_KEYS = new Set([
-  "__proto__",
-  "prototype",
-  "constructor",
-  "KAVAL_TERMINAL_ID",
-  "KAVAL_SOCKET",
-]);
+/** The daemon-authoritative locator stamps `--env` must reject (fail-fast, not a silent
+ *  no-op): both composers overwrite them with the real terminal id / dialed socket AFTER
+ *  `extraEnv`, so `--env KAVAL_SOCKET=x` is a no-op (locally) or an inconsistency
+ *  (remotely). One rule — they are STAMPED, never caller-set. (`__proto__`/`prototype`/
+ *  `constructor` are NOT rejected: they are valid env names, and the record is
+ *  null-prototype below, so a literal `__proto__=…` round-trips as an ordinary data key
+ *  rather than mutating a prototype — the arbitrary-K=V contract holds.) */
+const REJECTED_ENV_KEYS = new Set(["KAVAL_TERMINAL_ID", "KAVAL_SOCKET"]);
 
 /** Parse+VALIDATE the repeatable `--env K=V` flag, pre-dial (like `sendCall`), so a
- *  malformed value fails before `--host` provisions and launches a remote daemon. */
+ *  malformed value fails BEFORE `--host` provisions the closure and launches a remote
+ *  `kaval --stdio`. Splits on the FIRST `=` so a value may itself contain `=`
+ *  (`--env URL=a=b` → `URL`→`a=b`), and rejects the daemon-stamped locator keys
+ *  (`REJECTED_ENV_KEYS`). The record is **null-prototype** so a literal `__proto__=…`
+ *  is a real data property, not a silent prototype mutation. */
 function parseEnvAssignments(pairs: readonly string[]): Record<string, string> {
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = Object.create(null);
   for (const pair of pairs) {
     const eq = pair.indexOf("=");
     if (eq <= 0) {
@@ -520,7 +517,7 @@ function parseEnvAssignments(pairs: readonly string[]): Record<string, string> {
     const key = pair.slice(0, eq);
     if (REJECTED_ENV_KEYS.has(key)) {
       fail(
-        `--env cannot set ${JSON.stringify(key)} — it is ${key.startsWith("KAVAL_") ? "a daemon-stamped locator, set authoritatively" : "reserved (prototype pollution)"}.`,
+        `--env cannot set ${JSON.stringify(key)} — it is a daemon-stamped locator, set authoritatively.`,
       );
     }
     env[key] = pair.slice(eq + 1);

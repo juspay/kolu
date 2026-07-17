@@ -106,6 +106,40 @@ describe("buildCreateInput", () => {
     expect("DISPLAY" in input.env).toBe(false);
   });
 
+  it("--env round-trips env names that collide with Object.prototype keys (constructor/prototype/__proto__)", () => {
+    // codex F3: these are valid env-var names, not something to reject. The composer's
+    // null-prototype records carry them as DATA, not prototype mutations. `__proto__`
+    // must be an OWN key on the extraEnv (a plain `{__proto__: x}` literal would set the
+    // prototype), so build extraEnv on a null-proto object.
+    const extraEnv: Record<string, string> = Object.create(null);
+    const pairs: [string, string][] = [
+      ["constructor", "c"],
+      ["prototype", "p"],
+      ["__proto__", "pp"],
+    ];
+    for (const [k, v] of pairs) {
+      extraEnv[k] = v; // variable key → index signature, so no `.constructor` Function type
+    }
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { SHELL: "/bin/sh" },
+      extraEnv,
+      kavalSocket: SOCK,
+    });
+    // All three reached the child env as OWN data properties — read via descriptor to
+    // dodge the `.constructor` accessor / the `__proto__` getter that a `.` read hits.
+    expect(
+      Object.getOwnPropertyDescriptor(input.env, "constructor")?.value,
+    ).toBe("c");
+    expect(Object.getOwnPropertyDescriptor(input.env, "prototype")?.value).toBe(
+      "p",
+    );
+    expect(Object.getOwnPropertyDescriptor(input.env, "__proto__")?.value).toBe(
+      "pp",
+    );
+  });
+
   it("--env additions (extraEnv) re-add a dropped var and can override a base var", () => {
     const input = buildCreateInput({
       id: "x",

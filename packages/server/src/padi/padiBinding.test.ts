@@ -41,7 +41,6 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
-import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
@@ -823,47 +822,31 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
   });
 
-  it("composes the shared allowlist base so the detached-branch child is COMPLETE — no macOS HOME regression (#1872 2a parity)", () => {
+  it("is EXACTLY the allowlist base present + KOLU_PADI_STATE_DIR — a dropped base key OR an added ambient key both fail (#1872 2a parity)", () => {
     // The supervisor's detached spawn branch passes `cfg.env` ALONE (macOS launchd,
     // bare non-systemd) — so daemonEnv MUST carry the login-session base, or padi
     // launches HOME-less and kaval's own daemonEnv (which mines HOME from padi's env)
-    // cascades the loss into every PTY. This is the twin of localDriver.daemonEnv.
-    vi.stubEnv("HOME", "/Users/prod");
-    vi.stubEnv("PATH", "/usr/bin:/bin");
-    vi.stubEnv("SSH_AUTH_SOCK", "/private/tmp/agent.sock");
-    // an ambient identity var in the server's own env — must NOT reach padi.
-    vi.stubEnv("CLAUDE_CODE_CHILD_SESSION", "1");
+    // cascades the loss into every PTY. Twin of localDriver.daemonEnv. CLEAR + seed a
+    // known source env so the assertion is EXACT (`toEqual`) — a regression that starts
+    // daemonEnv from `{}` fails, and a leaked ambient identity var fails too.
+    const saved = { ...process.env };
+    try {
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      process.env.HOME = "/Users/prod";
+      process.env.PATH = "/usr/bin:/bin";
+      process.env.SSH_AUTH_SOCK = "/private/tmp/agent.sock"; // operational session var
+      process.env.CLAUDE_CODE_CHILD_SESSION = "1"; // ambient identity — must NOT reach padi
 
-    const env = daemonEnv("/state/root", false);
-
-    expect(env.HOME).toBe("/Users/prod");
-    expect(env.PATH).toBe("/usr/bin:/bin");
-    expect(env.SSH_AUTH_SOCK).toBe("/private/tmp/agent.sock"); // operational session var
-    expect(env).not.toHaveProperty("CLAUDE_CODE_CHILD_SESSION"); // the #1872 guard
-
-    // Deletion guard: EVERY allowlist key present in the source env must survive — a
-    // regression that starts daemonEnv from `{}` again (dropping the base) fails here.
-    for (const k of SPAWN_ENV_ALLOWLIST) {
-      if (process.env[k] != null) expect(k in env).toBe(true);
+      expect(daemonEnv("/state/root", false)).toEqual({
+        HOME: "/Users/prod",
+        PATH: "/usr/bin:/bin",
+        SSH_AUTH_SOCK: "/private/tmp/agent.sock",
+        KOLU_PADI_STATE_DIR: "/state/root", // always stamped
+      });
+    } finally {
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      Object.assign(process.env, saved);
     }
-    // Addition guard: every output key is on the allowlist or a NAMED padi-operational
-    // extra — no ambient key can slip through.
-    const PADI_OPERATIONAL = new Set<string>([
-      "KOLU_PADI_STATE_DIR",
-      "KOLU_STATE_DIR",
-      "KOLU_KAVAL_SPAWN",
-      "LOG_LEVEL",
-      "NODE_OPTIONS",
-      "KOLU_DIAG_DIR",
-      "KAVAL_BUILD_ID",
-      "KAVAL_COMMIT_HASH",
-      DAEMON_BIND_PID_ENV,
-    ]);
-    const allowed = new Set<string>([
-      ...SPAWN_ENV_ALLOWLIST,
-      ...PADI_OPERATIONAL,
-    ]);
-    for (const k of Object.keys(env)) expect(allowed.has(k)).toBe(true);
   });
 });
 

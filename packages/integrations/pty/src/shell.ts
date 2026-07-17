@@ -127,7 +127,9 @@ export function pickEnv(
   keys: Iterable<string>,
   source: NodeJS.ProcessEnv,
 ): Record<string, string> {
-  const env: Record<string, string> = {};
+  // Null-prototype so a key literally named `__proto__` (a caller's `--env __proto__=…`
+  // layered on top downstream) is a real data property, never a prototype mutation.
+  const env: Record<string, string> = Object.create(null);
   for (const key of keys) {
     const value = source[key];
     if (value != null) env[key] = value;
