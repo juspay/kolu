@@ -1,0 +1,186 @@
+---
+title: "Bug — a gate-less socket squatter wedges kolu forever"
+description: "A kaval orphan whose gate file is gone but which still holds the rendezvous socket wedges kolu permanently: recycle only ever kills gate-recorded pids, so the squatter survives every recycle and the incompatible card's renew loops forever (field case: sincereintent 25494, 8 days). The fix gives the supervisor identity over its OWN socket: OS socket-holder lookup + kaval handshake → recycle the verified orphan; a non-kaval process is never killed."
+parents: [bug, pty-daemon, surface]
+status: proposed
+maturity: seedling
+updated: 2026-07-17
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import Svg from "../../components/Svg.astro";
+import flow from "../../diagrams/squatter-recovery-flow.svg?raw";
+
+srid's ruling, verbatim: *"I want the bug to be fixed. WHY is a stray process
+breaking kolu?"* The field incident was closed by hand-killing pid 25494 on
+`sincereintent` after it had wedged the box for **8 days** — but a hand-reap is
+cheating. The product must converge on its own. This note is the plan of record
+for making it do so.
+
+## The wedge
+
+The single-instance gate (`kaval.pid`) and the rendezvous socket
+(`pty-host.sock`) are two separate files. Normally they move together: the daemon
+holding the socket is the one the gate names. The bug is the state where they
+**come apart** — the gate file is gone (or names a different / dead pid) but a
+live orphan kaval **still holds the socket**. That state is representable, it
+happens in the field, and **no supervisor arm handles it.**
+
+Trace it against the code at HEAD:
+
+1. A fresh kolu-server boots and runs its convergence probe. The orphan's socket
+   is accepting, so the probe reads its `system.version`, sees an **older**
+   pty-host contract, and `decide` returns `recycle` — routing the boot to the
+   endpoint's `adoptOrEnsure`.
+2. `adoptOrEnsure` → `adoptSurvivor` calls `liveServingHolder`, which is
+   **gate-pid-only**: it reads `gatePid(gatePath)`, finds the gate absent, and
+   returns `undefined`. The recycle arm (`killLiveHolder`) only ever fires against
+   a **gate-recorded** pid, so it never targets the orphan.
+3. With no gate holder, the boot falls to `spawnConnectHold`. It spawns a fresh
+   kaval — which acquires the now-absent gate, then tries to bind the socket, is
+   refused `already-served` by the live orphan, releases the gate and **exits**.
+   The gate is empty again.
+4. `spawnConnectHold` meanwhile sees the socket accepting (the orphan), dials it,
+   handshakes the **orphan**, gets the contract skew, and reports `incompatible`.
+5. The client shows the incompatible card. "Update & restart" re-runs the same
+   boot. `liveServingHolder` reads the empty gate, returns `undefined`, and the
+   loop repeats — **forever**. The socket is also non-durable (F1): if the orphan
+   ever does `close()`, it unlinks whatever socket path a successor managed to
+   bind.<Footnote>F1 is the file-ops half of the same wound — a successor that
+   briefly binds by clearing a stale-looking inode can later have its socket path
+   unlinked by the original squatter's clean `close()`. The fix dissolves F1 by
+   *removal*: the orphan is gone before the successor binds, so there is no later
+   `close()` to unlink anything.</Footnote>
+
+<Callout kind="note">
+The safety mechanism that protects everyone else is exactly what wedges here.
+`liveServingHolder` refuses to kill a live pid it can't prove is the daemon
+(a stale gate over an OS-reused pid must not cost a stranger its life). Being
+gate-only, it has no way to prove the *socket's* holder — so it correctly
+refuses, and correctly never recovers. The gap is not a bug in that check; it is
+a **missing identity source**.
+</Callout>
+
+## The fix — the supervisor owns its own socket namespace
+
+Supervision of one's own verified daemons is the supervisor's job. When the gate
+gap opens but the socket is still held, the supervisor should **identify the
+holder itself** and recycle it — using identity, not bookkeeping, as the safety
+line.
+
+<Svg svg={flow} wide caption="The recovery arm (green/red) grafts onto the existing boot policy. It fires ONLY when the gate names no live serving holder yet the socket is still accepting — the exact gate-less-squatter state. Every other path is unchanged." />
+
+The arm fires **only** in the gate-less-squatter state and does three things:
+
+- **IDENTIFY** — ask the OS which pid listens on *this exact socket path*. A
+  dependency-free platform leaf: on Linux, the bound listener is the one row in
+  `/proc/net/unix` carrying the path (state `01`, the `SO_ACCEPTCON` flag), and its
+  inode maps to a pid via `/proc/<pid>/fd/* → socket:[inode]`; on darwin, `lsof`
+  against the path.<Footnote>The field case ran on `sincereintent` (darwin), so the
+  `lsof` path is production-load-bearing, not a nicety — it is verified on a real mac
+  in acceptance, not assumed. The Linux `/proc` parse is already grounded empirically
+  (exact column layout + inode→pid mapping).</Footnote>
+- **VERIFY IDENTITY by handshake** — dial the socket and run the existing kaval
+  version exchange (the very handshake that already detects skew). It answers
+  `system.version` → it **is** an orphaned kaval of this estate, *at any contract
+  version*. It does **not** speak kaval → a genuinely foreign process, and we
+  **fail loud** (a typed error naming its pid + command) and **never touch it**.
+- **RECYCLE the verified orphan** — SIGTERM the identified pid, `waitForPidGone`,
+  then bind fresh. The wait/ceiling machinery is `killLiveHolder`'s, reused
+  verbatim; the *only* new thing is the identity source.
+
+This makes the existing `incompatible → renewDaemon` flow **self-heal**: a fresh
+padi boots → socket held gate-less → handshake → old kaval → recycle → bind the
+new contract → converge. It is srid's "stop the old kaval, start the new kaval",
+extended from gate-recorded daemons to verified orphans.
+
+### The identity model (the load-bearing decision)
+
+The orchestration teardown law — *agents kill only the pids they recorded* — does
+**not** govern the product's own supervisor. A supervisor recycling a daemon it has
+just proven, over the wire, to be its own kind is doing its job, not violating a
+bookkeeping rule. The safety line is **IDENTITY**, made of three independent
+attestations that must agree before any signal is sent:
+
+| Attestation | Source | Guarantees |
+| --- | --- | --- |
+| The socket speaks kaval | the version handshake succeeds (compatible **or** skewed) | it is our daemon, not a stranger |
+| A specific pid holds *this* socket | the OS socket-holder lookup | we know exactly whom to signal |
+| That pid is the one that answered | handshake **self-reports its pid**<Footnote>kaval's `system.version` already returns `{ contractVersion, pid, startedAt, identity?, lifetime? }` — the daemon's own `process.pid`. So the recycle target is a pid the daemon named *over the very socket we are recycling*, cross-checked against the OS's independent view. No new wire field is needed.</Footnote> | the process answering IS the process holding the socket |
+
+Only when all three agree — and are **re-confirmed unchanged immediately before the
+SIGTERM** — is the orphan recycled. Any disagreement (foreign process, pid the OS
+doesn't corroborate, holder that moved between identify and kill) **aborts the kill
+and fails loud**. We never kill anything that didn't handshake as kaval, and we
+never touch another daemon's socket namespace.
+
+## Where it lives (structure)
+
+The recovery arm grafts onto the **endpoint spine**
+(`@kolu/surface-daemon-supervisor`), beside the machinery it reuses — the endpoint
+already owns `killLiveHolder`, `waitForPidGone`, `spawnConnectHold`, and the
+gate read. It is a Node-only module (it already imports `gatePid` / `isHolderLive`
+and dials `node:net`), so a new sibling leaf is a clean fit:
+
+- **`socketHolder.ts`** — a new leaf next to `waitForPidGone.ts`: `socketHolderPid(socketPath)
+  → { pid, command } | undefined`, platform-dispatched (`/proc` on linux, `lsof` on
+  darwin), fail-fast on an unsupported platform. It hides a *bounded* OS-lookup
+  volatility — a **leaf**, not electricity (no transport / reconnect / persistence
+  lifecycle of its own), so it belongs in the package that uses it, not a new
+  `@kolu/*` receptacle.
+- **the recovery arm** — a private helper in `endpoint.ts` invoked where both boot
+  policies currently fall through to `spawnConnectHold`. "Speaks kaval?" reuses the
+  existing `connectSurvivor` three-way verdict (`adopted` / `skew` / `unreachable`),
+  so the handshake logic is not re-implemented. The kaval-side self-reported pid is
+  threaded through the existing `connect` result and the typed skew error (both
+  already read `system.version`), so no new soul hook is invented.
+
+The `@kolu/surface-daemon-supervisor` public API is consumed by drishti and odu,
+so any exported-surface change is checked against both, and
+`ref-surface-supervisor.mdx` is updated in the same PR.
+
+## Design philosophy
+
+- **Fail fast — no fallbacks.** The foreign-holder arm and every identity
+  disagreement **crash loud** (a typed error naming the pid + command); there is no
+  degrade-to-spawn-anyway path that could stomp a stranger. An unsupported platform
+  throws rather than silently skipping recovery.
+- **Volatility boundary.** The OS socket-holder lookup is a bounded platform leaf,
+  co-located with `waitForPidGone` (its twin — pid lifecycle via the OS). It is not
+  extracted into a package: it hides an algorithm, not electricity.
+- **Reuse the source of truth.** The recycle wait/ceiling is `killLiveHolder`'s; the
+  "speaks kaval?" verdict is `connectSurvivor`'s; the self-reported pid is the
+  existing `system.version` field. The one genuinely new capability is the OS lookup.
+
+## Acceptance — the pins
+
+Each pin is **red on today's code** before the fix and green after.
+
+| Pin | Manufacture | Today | After |
+| --- | --- | --- | --- |
+| **The squatter** | spawn a real kaval, **delete its gate file**, boot/recycle | wedged: fresh cannot bind; card loops | holder identified → handshaked → recycled; fresh binds; **durable** (old holder gone) |
+| **Foreign holder** | a plain non-kaval net server bound at the path | (falls through / opaque) | **not killed**; loud typed error naming pid + command |
+| **Gate-present unchanged** | the existing killLiveHolder / adopt suites | green | green |
+| **Version-agnostic** | an OLD-contract kaval (handshake succeeds, version skews) | wedged (this IS 25494) | identified as kaval → recycled |
+
+The end-to-end proof, on a pu box (or `sincereintent` if offered): manufacture the
+gate-less squatter, then drive the **real UI flow** — the incompatible card's
+"Update & restart" — and watch it converge **one click, no manual reaping**. The
+point is not that a test passes; it is that **the product heals itself**.
+
+## The adversaries this must survive (for the lens gate)
+
+- **pid-reuse between lookup and kill** — the identified pid could exit and the OS
+  reuse it before the SIGTERM. Mitigation: the kill target is the handshake's
+  self-reported pid, cross-checked against the OS holder, and **re-confirmed as the
+  current holder immediately before the signal**; a moved holder aborts the kill.
+  The residual window is the same irreducible one `killLiveHolder` already lives
+  with, and strictly smaller here (three attestations vs. one).
+- **TOCTOU on the socket** — the squatter may close between "accepting" and the
+  handshake, or between handshake and kill. Every transition re-checks; a vanished
+  holder simply falls through to the ordinary fresh spawn.
+- **the foreign-process arm** — a non-kaval must be *impossible* to kill. It is
+  gated behind a **successful kaval handshake**, never behind the OS lookup alone.
+- **platform lookup differences** — linux (`/proc`) is grounded; darwin (`lsof`,
+  the field platform) is verified on a real mac in acceptance, never assumed.
