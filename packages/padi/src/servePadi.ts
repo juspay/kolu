@@ -453,7 +453,9 @@ export function buildPadiSurfaceDeps(deps: {
             // retry or restore), but the failure must be legible in the journal.
             log.error(
               { err },
-              "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
+              isContractSkewError(err)
+                ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
+                : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
             );
             // A contract skew is the ONE failure this handler can translate — it
             // is the knowing endpoint (the `fileGoneAsNotFound` precedent): a

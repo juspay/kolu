@@ -478,6 +478,17 @@ export function createEndpoint<C, I, M = undefined>(
       );
     }
 
+    // A spawn always lands at the PRIMARY — commit it as the held rendezvous
+    // (and tell the caller, which resets any recorded hint location back to
+    // the primary socket) the moment the primary socket is UP, BEFORE the
+    // handshake. Every post-spawn outcome — connected, skew (`incompatible`),
+    // or a boot failure (`dead`) — must report against the daemon that now
+    // holds the socket: leaving `held` on a recycled adopt-hint's dead legacy
+    // rendezvous made a later recycle probe the wrong holder and padi's
+    // status carry the dead legacy socket.
+    held = primaryRv;
+    spec.onSpawned?.();
+
     let next: DaemonConnection<C, I, M>;
     try {
       next = await spec.connect();
@@ -501,13 +512,6 @@ export function createEndpoint<C, I, M = undefined>(
       throw err;
     }
 
-    // A spawn always lands at the PRIMARY — so record it as the held rendezvous
-    // (a recycle after an adopted hint converges here) and tell the caller (which
-    // resets any recorded hint location back to the primary socket) BEFORE the
-    // connected status is emitted, so that status carries the primary socket — the
-    // twin of `adoptAt` firing `onAdopted` before its `holdConnection`.
-    held = primaryRv;
-    spec.onSpawned?.();
     // A fresh daemon is a load-bearing lifecycle event — the twin of "adopted a
     // surviving daemon". Logged so a cold boot, a recycle respawn, and a
     // drain-then-respawn each leave an honest "brought a new daemon up here" line
@@ -650,7 +654,7 @@ export function createEndpoint<C, I, M = undefined>(
     if (outcome.kind === "skew") {
       // Proven incompatible: `adoptOrEnsure` RECYCLES (kill this holder + respawn at
       // the primary — converging a skewed legacy kaval to the digest keying);
-      // `adoptOrSpawnOrRefuse` REFUSES (leave standing + degraded).
+      // `adoptOrSpawnOrRefuse` REFUSES (leave standing + report `incompatible`).
       await onSkew(holder, outcome.err);
       return false;
     }
@@ -803,8 +807,9 @@ export function createEndpoint<C, I, M = undefined>(
       // recycled. Clients never kill a running padi: a second binder (a dev kolu,
       // another worktree) that speaks an incompatible contract must NOT SIGTERM the
       // padi that owns the real PTYs (the #1313 inversion the state-root identity
-      // exists to enforce). So a skewed survivor is left STANDING + `degraded` — the
-      // SAME non-killing shape an unreachable survivor already gets — and the operator
+      // exists to enforce). So a skewed survivor is left STANDING and reported
+      // `incompatible` (SK4) — the same NON-KILLING shape an unreachable survivor
+      // gets, under its honest verdict — and the operator
       // resolves the skew (upgrade the binder, or drain the daemon through the frozen
       // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
       // the shared `adoptSurvivor` sequence.

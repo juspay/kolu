@@ -1191,6 +1191,76 @@ describe("adoptOrEnsure — the W2.2 upgrade adopt-hint (legacy port kaval)", ()
     expect(onSpawnedCalled).toBe(1);
   });
 
+  it("hint-adopt SKEW → recycle → the fresh PRIMARY spawn ALSO skews: the primary rendezvous is still committed (onSpawned fired), status is incompatible", async () => {
+    // The F1 ordering pin (codex round 1): committing `held = primaryRv` +
+    // `onSpawned` must happen when the primary socket comes UP, BEFORE the
+    // handshake — otherwise a skewing fresh spawn leaves the endpoint holding
+    // the recycled hint's DEAD legacy rendezvous (a later recycle probes the
+    // wrong holder; padi's status carries the dead legacy socket) and the
+    // caller's hint-reset never fires.
+    const d = dir();
+    const primary = {
+      gatePath: join(d, "p.pid"),
+      socketPath: join(d, "p.sock"),
+    };
+    const hint = { gatePath: join(d, "l.pid"), socketPath: join(d, "l.sock") };
+    const legacy = await liveSurvivor(hint);
+    const fakePrimary = fakeDaemon(primary.socketPath);
+    servers.push(fakePrimary.server);
+
+    let onSpawnedCalled = 0;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const ep = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath: primary.gatePath,
+      socketPath: primary.socketPath,
+      driver: {
+        spawn: async () => {
+          await fakePrimary.listen();
+        },
+      },
+      // The PRIMARY handshake skews too — the whole closure on this host is
+      // incompatible, whoever runs it.
+      connect: async () => {
+        throw new DaemonContractSkewError({
+          subject: "pty-host",
+          daemonVersion: "1.0",
+          requiredVersion: "5.2",
+        });
+      },
+      log: silentLog,
+      onStatus: (_h, st) => statuses.push(st),
+      socketPollMs: 5,
+      adoptConnectRetryMs: 1,
+      adoptHint: {
+        gatePath: hint.gatePath,
+        socketPath: hint.socketPath,
+        connect: async () => {
+          throw new DaemonContractSkewError({
+            subject: "pty-host",
+            daemonVersion: "1.0",
+            requiredVersion: "5.2",
+          });
+        },
+        onAdopted: () => {},
+      },
+      onSpawned: () => {
+        onSpawnedCalled += 1;
+      },
+    });
+
+    await expect(ep.adoptOrEnsure()).rejects.toMatchObject({
+      isContractSkew: true,
+    });
+    await tick();
+
+    expect(legacy.exited()).toBe(true); // the skewed hint survivor was recycled
+    // The rendezvous commit + hint reset happened DESPITE the failed handshake:
+    // the primary socket is up and the daemon there is the held one now.
+    expect(onSpawnedCalled).toBe(1);
+    expect(statuses.at(-1)?.state).toBe("incompatible");
+  });
+
   it("PRIMARY empty + NO live survivor at the hint → spawns fresh at the PRIMARY (never probes the dead hint)", async () => {
     const d = dir();
     const primary = {

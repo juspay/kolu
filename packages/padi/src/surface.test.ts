@@ -19,12 +19,12 @@ import {
   padiSurface,
 } from "./surface.ts";
 
-describe("padiSurface 1.0 contract", () => {
+describe("padiSurface contract", () => {
   it("builds the padi surface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
