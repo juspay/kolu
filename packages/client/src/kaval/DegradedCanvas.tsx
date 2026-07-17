@@ -27,7 +27,7 @@ import { type Component, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
 import type { DaemonDownState } from "./daemonPresentation";
 import RestartKavalButton from "./RestartKavalButton";
-import UpdateKavalButton from "./UpdateKavalButton";
+import RestartIncompatibleKavalButton from "./RestartIncompatibleKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import { localDaemonStatus } from "./useDaemonStatus";
 
@@ -115,7 +115,7 @@ const IncompatibleCard: Component<{
         <span class="font-semibold text-ok">{props.requiredVersion}</span>
       </p>
     }
-    action={<UpdateKavalButton tone="danger" />}
+    action={<RestartIncompatibleKavalButton tone="danger" />}
   >
     <p class="mt-2 text-sm leading-relaxed text-fg-2">
       This host’s kaval is a leftover from an older kolu install. Restarting

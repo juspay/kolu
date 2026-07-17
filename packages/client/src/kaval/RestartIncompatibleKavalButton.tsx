@@ -19,7 +19,7 @@ import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { activeHost } from "../wire";
 import { recoveryInFlight, restartIncompatibleKaval } from "./useDaemonRestart";
 
-const UpdateKavalButton: Component<{
+const RestartIncompatibleKavalButton: Component<{
   tone: "neutral" | "danger";
   /** Runs before the confirmed recycle (the dialog closes itself here). */
   onConfirm?: () => void;
@@ -44,4 +44,4 @@ const UpdateKavalButton: Component<{
   />
 );
 
-export default UpdateKavalButton;
+export default RestartIncompatibleKavalButton;

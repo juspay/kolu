@@ -13,7 +13,7 @@
  *
  * This verb is a total function of the daemon state sum (SK4): it renders against
  * `dead`/`degraded`/healthy states. An `incompatible` (proven skew) surface offers
- * `UpdateKavalButton` instead — the SAME session-preserving recycle, but its copy
+ * `RestartIncompatibleKavalButton` instead — the SAME session-preserving recycle, but its copy
  * names the skew and it escalates to a host re-provision if padi's own closure
  * turns out to be stale.
  */

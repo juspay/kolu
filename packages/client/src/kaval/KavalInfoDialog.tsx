@@ -35,7 +35,7 @@ import {
 import { expectedKaval } from "./KavalUpdateBadge";
 import { type KavalAttention, kavalAttention } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
-import UpdateKavalButton from "./UpdateKavalButton";
+import RestartIncompatibleKavalButton from "./RestartIncompatibleKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
@@ -326,7 +326,7 @@ const KavalInfoDialog: Component<{
         }
       >
         <div class="space-y-2">
-          <UpdateKavalButton
+          <RestartIncompatibleKavalButton
             tone="neutral"
             onConfirm={() => props.onOpenChange(false)}
           />
