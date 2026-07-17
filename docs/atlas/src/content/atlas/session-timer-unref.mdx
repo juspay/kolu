@@ -2,12 +2,13 @@
 title: Session timers must not immortalize the host process
 description: Per-timer census of makeSession's un-unref'd timers with honest unref-vs-must-fire verdicts — an abandoned session must let its host process exit; timers that settle a caller's promise stay ref'd.
 parents: [bug, surface-lifetime-audit]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-07-16
 ---
 
 import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
 
 The [surface lifetime audit](surface-lifetime-audit.html) confirmed (weakened)
 that `makeSession` "promises a hold for the parent's lifetime but binds to
@@ -20,7 +21,8 @@ on every pre-`Connection` failure precisely because "its ref-counted reconnect
 loop/watchdog timer leaks for any caller that catches the rejection." The fix
 is not a blanket `unref()` — one timer in this file exists to settle a
 caller's promise and may **not** be unref'd away. This note is the per-timer
-census with the verdict and argument for each.
+census with the verdict and argument for each. Implemented in
+<PrLink pr={1873} />.
 
 ## The census — every timer in `packages/surface-remote/src`, at HEAD
 
