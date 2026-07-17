@@ -28,13 +28,15 @@ import { once } from "node:events";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { text } from "node:stream/consumers";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // tsx's ESM loader, resolved from THIS package's node_modules — `node --import
 // <loader> fixture.ts` runs the TypeScript fixture as a real child without a
 // hoisted .bin/tsx symlink (pnpm doesn't hoist it to the repo root).
-const TSX_LOADER = createRequire(import.meta.url).resolve("tsx");
+const TSX_LOADER = pathToFileURL(
+  createRequire(import.meta.url).resolve("tsx"),
+).href;
 const here = dirname(fileURLToPath(import.meta.url));
 
 interface FixtureRun {
