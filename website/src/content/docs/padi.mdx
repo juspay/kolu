@@ -16,7 +16,6 @@ import Aside from "../../components/docs/Aside.astro";
 import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
-import Steps from "../../components/docs/Steps.astro";
 
 <Aside type="caution" title="alpha">
   `padi` and `padi-tui` are an early preview. Commands, flags, and output
@@ -155,87 +154,6 @@ notes live in the [padi atlas note](https://kolu.dev/atlas/padi.html).
 | `padi-tui watch` · `--json` | Follow the workspace live, including state changes and activity indicators. |
 | `padi-tui wait <id> --until awaiting,waiting` · `--timeout <ms>` · `--json` | Block until an agent turn ends using padi's real agent-state fold, not a guess from terminal silence. |
 | `padi-tui create -- claude` · `--parent <id>` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell: a new tile, a split tile (`--parent`) that opens and selects just like a browser-made split, or a worktree'd agent — all appearing live on the canvas. |
-
-## The agent face — `kolu mcp`
-
-`kolu mcp` is the third face of this same surface. Where the browser is the human
-face and [`padi-tui`](#the-thin-shell-face--padi-tui) is the shell face, `kolu mcp`
-serves padi to a **coding agent** over [MCP](https://modelcontextprotocol.io) — so
-an agent can list the terminals, spawn one, type into it, wait for a turn to end,
-and read the screen, all as structured tool calls instead of scraped text. It is a
-pure padi client over stdio, with no web server behind it, exposing a
-**default-deny** slice of the surface (an unlisted procedure is simply
-unreachable). The framework underneath is [`@kolu/surface-mcp`](/surface/expose-to-agents);
-[Architecture](/architecture) places the `kolu-mcp` package in the stack.
-
-### How to wire it
-
-<Steps>
-
-1. Put `kolu` on your PATH. The home-manager `services.kolu` module installs the
-   binary through its `cliPackage` option — **on by default**, pinned to the same
-   build as the running daemon — so `kolu mcp` resolves from any shell. Without
-   home-manager, run it straight from the flake (no install):
-
-   ```sh
-   # kolu on PATH (home-manager cliPackage)
-   claude mcp add kolu -- kolu mcp
-   # or, no install — run from the flake
-   claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
-   ```
-
-2. Or register it as an `.mcp.json` entry — the same stdio server, spelled for any
-   MCP host that reads that file:
-
-   ```json
-   {
-     "mcpServers": {
-       "kolu": { "command": "kolu", "args": ["mcp"] }
-     }
-   }
-   ```
-
-3. To drive a padi on **another machine**, add `--host` — the same ssh path as
-   [`padi-tui --host`](#the-thin-shell-face--padi-tui), pointed over the wire:
-
-   ```sh
-   claude mcp add kolu-prod -- kolu mcp --host nix@prod
-   ```
-
-</Steps>
-
-The driving loop itself — spawn a terminal, send a prompt, **wait** for the turn
-to end, read the reply, prompt again — is packaged in the `/kolu` agent skill,
-MCP-first with the `padi-tui` / `kaval-tui` CLIs as the fallback when no MCP is
-connected. Input follows the same discipline as the shell faces: send the text and
-the submit key (`Enter`) as **separate** calls, never one, so a same-breath Enter
-can't race the paste.
-
-### Tools and resources
-
-The face exposes a reviewed slice of padi's surface. **Resources** are
-subscribable live projections; **tools** are one-shot calls (read-only or
-mutating). The wire name is what the agent sees.
-
-| Wire name | Kind | What it does |
-| --- | --- | --- |
-| `terminals` | resource | The live roster — one record per terminal: id, title, command, agent kind + state. |
-| `urgency` | resource | The awaiting set — which terminals need a human or agent **now**. |
-| `daemonStatus` · `status` · `identity` | resource | Daemon health: kaval liveness, build-currency, and padi's own boot time + build commit — so an agent can **see** "the daemon restarted under me" rather than infer it. |
-| `screen_text` | read tool | A terminal's rendered screen as text; `tail` returns just the last N lines. |
-| `screen_history` | read tool | Older scrollback above the current screen. |
-| `git_getStatus` · `git_getDiff` | read tool | Git status and diff for a terminal's repo. |
-| `fs_listAll` · `fs_readFile` | read tool | List and read files in a terminal's workspace. |
-| `lifecycle_create` | mutating tool | Spawn a terminal (command, cwd, `parentId` split) and return the `id` to drive. |
-| `lifecycle_sendInput` | mutating tool | Write to a terminal — text **or** one named key/chord (`Enter`, `Escape`, `C-c`, arrows…), never both in one call. |
-| `lifecycle_kill` | mutating tool | End one terminal by id. |
-| `wait_outputSettled` | wait tool | Block until a terminal's output goes quiet — the turn ended / it's awaiting input. |
-| `wait_agentState` | wait tool | Block until a terminal's agent reaches a state (`working`, `awaiting`, `waiting`) — the real padi fold, not guessed from silence. |
-
-Everything else on the surface is denied by default: raw byte-stream attach,
-`lifecycle.killAll` and other daemon-admin verbs, and worktree provisioning
-(`padi-tui create --worktree` stays the path for that). Widening the slice is a
-reviewed one-line change, never a runtime knob.
 
 ## Why it is not inside kolu-server
 

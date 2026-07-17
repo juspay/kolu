@@ -72,22 +72,21 @@ flags and boot the same server, so everything above works spelled either way:
 nix --refresh run github:juspay/kolu -- web --host 0.0.0.0 --port 8080
 ```
 
-`kolu mcp` serves this host's terminals to a **coding agent** over MCP
-(stdio) — a pure padi client, no web server. Register it with your agent and
-it can create terminals, type into them (text and Enter as separate sends,
-the way agent-driving protocols expect), wait for output to settle or an
-agent state to land, read the screen, and watch which terminals need you:
+`kolu mcp` connects a **coding agent** — Claude Code, Codex, any MCP host — to
+this host's terminals over MCP (stdio), no browser involved. Register it and the
+agent can create terminals, type into them (text and Enter as separate sends),
+wait for output to settle or a turn to end, read the screen, and watch which
+terminals need you:
 
 ```sh
 # Claude Code
 claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
-# a padi on another machine, over ssh
+# a kolu on another machine, over ssh
 claude mcp add kolu-zest -- nix --refresh run github:juspay/kolu -- mcp --host user@zest
 ```
 
-The full wiring options and the tool/resource reference are on the [padi
-page](/padi#the-agent-face--kolu-mcp) — `kolu mcp` is the agent face of the same
-surface `padi-tui` reads.
+The full guide — wiring, the drive loop, and every tool — is on the [MCP
+page](/mcp).
 
 `kolu tui` (a terminal-side canvas) is **reserved**: today it exits with a
 pointer at the plan instead of running. `kolu --help` lists the subcommands.
