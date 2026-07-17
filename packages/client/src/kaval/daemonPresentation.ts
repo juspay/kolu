@@ -15,7 +15,7 @@ import type {
   DaemonStatus,
   KavalSkewVersions,
 } from "@kolu/padi/surface";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -231,40 +231,26 @@ export function liveDownState(
   live: boolean,
 ): DaemonDownState | undefined {
   if (!live || !status) return undefined;
-  // Exhaustive over the WHOLE wire union — no `.state as "dead" | "degraded"`
-  // cast: a new `DaemonState` member is a compile error here (the `never`
-  // default) until it picks an arm, so a future down state can never slip
-  // through mislabelled as `dead`/`degraded` and render the Restart verb
+  // Exhaustive `match` over the WHOLE wire union — no `.state as "dead" |
+  // "degraded"` cast: `.exhaustive()` makes a new `DaemonState` member a
+  // compile error here until it picks an arm, so a future down state can never
+  // slip through mislabelled as `dead`/`degraded` and render the Restart verb
   // against a daemon a restart can't fix (the exact class SK4 made
-  // unspellable — never re-open it via a cast). The up arms return `undefined`
+  // unspellable — never re-open it via a cast). The up arms map to `undefined`
   // ("not down"); their `down: false` in DAEMON_STATE_PRESENTATION is pinned
   // equal to this by daemonPresentation.test.ts, so the two agree by test.
-  switch (status.state) {
-    case "connecting":
-    case "connected":
-    case "restarting":
-      return undefined;
-    case "dead":
-    case "degraded":
-      return { state: status.state };
-    case "incompatible":
-      return {
-        state: "incompatible",
-        daemonVersion: status.daemonVersion,
-        requiredVersion: status.requiredVersion,
-      };
-    default:
-      return assertExhaustiveState(status);
-  }
-}
-
-/** A `DaemonStatus` arm no `liveDownState` case handles — unreachable while
- *  the switch stays exhaustive; a compile error the moment a new state is
- *  added without an arm. */
-function assertExhaustiveState(status: never): never {
-  throw new Error(
-    `liveDownState: unhandled daemon state: ${(status as DaemonStatus).state}`,
-  );
+  return match(status)
+    .with(
+      { state: P.union("connecting", "connected", "restarting") },
+      () => undefined,
+    )
+    .with({ state: P.union("dead", "degraded") }, (s) => ({ state: s.state }))
+    .with({ state: "incompatible" }, (s) => ({
+      state: "incompatible" as const,
+      daemonVersion: s.daemonVersion,
+      requiredVersion: s.requiredVersion,
+    }))
+    .exhaustive();
 }
 
 /** Whether a surface may OFFER the "Restart kaval" verb (D5c/SK4): never while

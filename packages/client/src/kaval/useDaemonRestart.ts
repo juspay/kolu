@@ -74,12 +74,13 @@ export async function restartDaemon(): Promise<void> {
       id,
     });
   } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
-    // The recovery lives on the skew card / dialog ("Update & restart
-    // kaval"), which the `incompatible` daemon state surfaces alongside this
-    // toast.
-    const { daemonVersion, requiredVersion } = error.data;
+    // Surface the server's own message (the versions ride it, typed —
+    // toast-conventions.md: never swallow `err.message`) AND the guidance the
+    // typed skew lets us add: a restart can't fix a contract skew, so point at
+    // the recovery the `incompatible` daemon state surfaces beside this toast
+    // (the skew card / dialog's "Update & restart kaval").
     toast.error(
-      `Couldn’t restart kaval: it speaks contract ${daemonVersion}, this kolu needs ${requiredVersion} — restarting can’t fix that. Use “Update & restart kaval”.`,
+      `Couldn’t restart kaval: ${error.message} — restarting can’t fix that. Use “Update & restart kaval”.`,
       { id },
     );
   } else {
