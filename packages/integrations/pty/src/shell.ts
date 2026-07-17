@@ -22,12 +22,14 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 
 /**
- * Extra env vars a nix devshell may forward to PTY shells, layered ADDITIVELY on
- * top of the canonical {@link SPAWN_ENV_ALLOWLIST} base (see `cleanEnv`) — NOT a
- * replacement for it, so dev keeps the same OPERATIONAL login-session vars
- * production carries and merely widens with these. Everything else (NIX_*,
- * DIRENV_*, derivation vars) is excluded. Exported so callers can pass it as the
- * default whitelist value.
+ * The DEFAULT dev/nix-shell whitelist, layered ADDITIVELY on top of the canonical
+ * {@link SPAWN_ENV_ALLOWLIST} base (see `cleanEnv`) — NOT a replacement. Note every one
+ * of its keys is ALREADY in that base (HOME/USER/PATH/LOGNAME → FUNCTIONAL, TERM/LANG/
+ * LC_ALL → PRESENTATION, DISPLAY → OPERATIONAL), so this default widens the base with
+ * *nothing* — it exists as the harmless compat default. The whitelist MECHANISM earns its
+ * keep as the CUSTOMIZATION seam: a caller passes MORE keys to admit genuinely-extra dev
+ * vars the base drops (e.g. the e2e harness extends it with `GIT_AUTHOR_*`). Everything
+ * unnamed (NIX_*, DIRENV_*, derivation vars) is excluded. Exported so callers can build on it.
  *
  * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
  * VTE_VERSION, COLORTERM) live in `koluIdentityEnv()` and are layered on

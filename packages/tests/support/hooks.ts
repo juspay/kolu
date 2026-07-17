@@ -22,7 +22,7 @@ import {
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
 import getPort from "get-port";
-import { composeSpawnEnv, NIX_ENV_WHITELIST } from "kolu-pty";
+import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
 import * as engine from "../screencast/engine.ts";
@@ -731,18 +731,19 @@ function assertRemoteDestructiveAck(): void {
   }
 }
 
-/** Runtime/devshell env keys the e2e kolu-server child legitimately needs beyond the
- *  shared spawn-env allowlist base — this harness runs inside `nix develop`, so the
- *  server is launched with the nix devshell env, and a NARROW allowlist alone would
- *  strip what it needs to run. Named explicitly (a prefix for the nix devshell family)
- *  so the composition stays an ALLOWLIST — the ambient identity class
- *  (CLAUDE_CODE_CHILD_SESSION and kin, #1872) is dropped by not being named, even if
- *  the harness itself was launched from an orchestrator whose vars leaked into it. */
-const E2E_SERVER_ENV_PREFIXES = ["NIX_", "XDG_", "LC_"] as const;
+/** The genuinely-harness-specific env keys the e2e kolu-server child needs BEYOND the
+ *  shared spawn-env allowlist base — nix-develop build env and test knobs that have no
+ *  home in the production allowlist. NOT a widening of the shared policy: the base
+ *  (`composeSpawnEnv`) already carries the allowlisted `LC_*`/`XDG_*`/`TMPDIR`, and this
+ *  harness must NOT re-admit the extension keys prod deliberately strips (`LC_PAPER`,
+ *  `XDG_DATA_DIRS`, …), or the e2e env would silently diverge from production — a scenario
+ *  could then pass relying on a var prod drops. If the server truly needs one, that is a
+ *  statement about the shared PRESENTATION/OPERATIONAL classes (add it there), not here.
+ *  Only the `NIX_` devshell family (an open prefix) has no fixed-key form. */
+const E2E_SERVER_ENV_PREFIXES = ["NIX_"] as const;
 const E2E_SERVER_ENV_KEYS = [
   "IN_NIX_SHELL",
   "NODE_OPTIONS",
-  "TMPDIR",
   "PWD",
   "CI",
   "HEADLESS",
@@ -755,18 +756,17 @@ const E2E_SERVER_ENV_KEYS = [
   "TERMINFO",
 ] as const;
 
-/** Compose the e2e server child's env from a NAMED base — the shared spawn allowlist
- *  plus the devshell/runtime keys above — instead of a wholesale `...process.env`, so
- *  no ambient identity var rides in. The caller layers the explicit per-worker test
- *  config (state dirs, mock agent bins, bind pid) on top. */
+/** Compose the e2e server child's env from the shared spawn allowlist base plus the
+ *  harness-specific keys above — instead of a wholesale `...process.env`, so no ambient
+ *  identity var rides in. The caller layers the explicit per-worker test config (state
+ *  dirs, mock agent bins, bind pid) on top. */
 function composeE2eServerEnv(): Record<string, string> {
   const env = composeSpawnEnv(process.env);
+  // The fixed harness keys via the SAME shared primitive the base uses (no drift); the
+  // open `NIX_` devshell family via a prefix scan (no fixed-key helper fits a prefix).
+  Object.assign(env, pickEnv(E2E_SERVER_ENV_KEYS, process.env));
   for (const [k, v] of Object.entries(process.env)) {
-    if (v == null) continue;
-    if (
-      E2E_SERVER_ENV_KEYS.includes(k as (typeof E2E_SERVER_ENV_KEYS)[number]) ||
-      E2E_SERVER_ENV_PREFIXES.some((p) => k.startsWith(p))
-    ) {
+    if (v != null && E2E_SERVER_ENV_PREFIXES.some((p) => k.startsWith(p))) {
       env[k] = v;
     }
   }

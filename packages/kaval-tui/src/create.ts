@@ -70,7 +70,7 @@ export function buildCreateInput(opts: {
   // so this composer cannot drift from them. Explicit `--env` additions layer on top,
   // then the KAVAL_SOCKET stamp.
   const env: Record<string, string> = composeSpawnEnv(opts.env);
-  for (const [k, v] of Object.entries(opts.extraEnv ?? {})) env[k] = v;
+  Object.assign(env, opts.extraEnv ?? {}); // null-proto env preserves a __proto__ key
   env.KAVAL_SOCKET = opts.kavalSocket;
   return composeCreateInput({
     id: opts.id,
@@ -130,7 +130,7 @@ export function buildRemoteCreateInput(opts: {
     PATH: opts.host.path || BASELINE_REMOTE_PATH,
   });
   Object.assign(env, pickEnv(SPAWN_ENV_PRESENTATION, opts.localEnv));
-  for (const [k, v] of Object.entries(opts.extraEnv ?? {})) env[k] = v;
+  Object.assign(env, opts.extraEnv ?? {}); // null-proto env preserves a __proto__ key
   return composeCreateInput({
     id: opts.id,
     cwd: opts.host.home,
