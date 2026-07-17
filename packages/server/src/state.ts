@@ -588,8 +588,7 @@ export const store = new Conf<OnDiskState>({
     // real disks from earlier eras — off this store. `session`/`activityFeed`
     // moved to the padi PROCESS's own state-root at W2.2; this store keeps only
     // `preferences` now. BACKUP-FIRST (see `stripLegacyStateKeys_1_31_0`).
-    "1.31.0": (store: Conf<OnDiskState>) =>
-      stripLegacyStateKeys_1_31_0(store),
+    "1.31.0": (store: Conf<OnDiskState>) => stripLegacyStateKeys_1_31_0(store),
     // The new-terminal collapsed DEFAULT moved off `rightPanel.collapsed` (a
     // write-dead seed jammed next to live geometry) to a top-level
     // `newTerminalCollapsed` preference beside `newTerminalTheme`. Seed the new

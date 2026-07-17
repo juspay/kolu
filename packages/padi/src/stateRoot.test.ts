@@ -149,9 +149,9 @@ describe("resolvePadiStateRoot — override wins, always absolute", () => {
     expect(resolvePadiStateRoot(undefined, "client-B")).toBe(
       "/home/u/.local/state/padi-client-B",
     );
-    expect(
-      padiDigest(resolvePadiStateRoot(undefined, "client-A")),
-    ).not.toBe(padiDigest(resolvePadiStateRoot(undefined, "client-B")));
+    expect(padiDigest(resolvePadiStateRoot(undefined, "client-A"))).not.toBe(
+      padiDigest(resolvePadiStateRoot(undefined, "client-B")),
+    );
   });
 
   it("an explicit override STILL wins over a clientId (dev/e2e isolation)", () => {
@@ -175,13 +175,17 @@ describe("isolatedPadiStateRoot — host-computed base + opaque client leaf", ()
   it("is stable per client (re-attach) and distinct across clients (no shared estate)", () => {
     process.env.HOME = "/home/u";
     expect(isolatedPadiStateRoot("id-1")).toBe(isolatedPadiStateRoot("id-1"));
-    expect(isolatedPadiStateRoot("id-1")).not.toBe(isolatedPadiStateRoot("id-2"));
+    expect(isolatedPadiStateRoot("id-1")).not.toBe(
+      isolatedPadiStateRoot("id-2"),
+    );
   });
 
   it("refuses a client id with a path separator or traversal — never climbs out", () => {
     process.env.HOME = "/home/u";
     for (const bad of ["../evil", "a/b", "a\\b", "..", ""]) {
-      expect(() => isolatedPadiStateRoot(bad)).toThrow(/unsafe client id|separator/);
+      expect(() => isolatedPadiStateRoot(bad)).toThrow(
+        /unsafe client id|separator/,
+      );
     }
   });
 });
@@ -205,7 +209,9 @@ describe("estateIsolatedByClient — the ONE precedence predicate (no divergence
     delete process.env.KOLU_PADI_STATE_DIR;
     process.env.HOME = "/home/u";
     // The divergence lowy-1 fixed: guard and receptacle must both treat "" as non-isolation.
-    expect(resolvePadiStateRoot(undefined, "")).toBe("/home/u/.local/state/padi");
+    expect(resolvePadiStateRoot(undefined, "")).toBe(
+      "/home/u/.local/state/padi",
+    );
     expect(estateIsolatedByClient(undefined, "")).toBe(false);
   });
 });

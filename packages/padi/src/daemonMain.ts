@@ -410,7 +410,10 @@ export async function runPadiDaemon(
     const defaultEstateSocket = residentPadiSocket(defaultPadiStateRoot());
     if (defaultEstateSocket !== undefined)
       log.warn(
-        { defaultEstatePadiSocket: defaultEstateSocket, isolatedStateRoot: stateRoot },
+        {
+          defaultEstatePadiSocket: defaultEstateSocket,
+          isolatedStateRoot: stateRoot,
+        },
         "isolation cutover: a live daemon is still serving the pre-isolation DEFAULT estate, " +
           "which this per-client isolated padi no longer binds. If it is a leftover from this " +
           "host's own pre-isolation binding it is now abandoned (its terminals are not migrated " +
