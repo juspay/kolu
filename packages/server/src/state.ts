@@ -122,11 +122,15 @@ export function migratePreferences_1_32_0(
  *  would hand every install the SAME id) and no rest-required presence on old files —
  *  it is MINTED ON FIRST READ by `getClientId()` (below) and persisted then, so a file
  *  that predates the field simply gains it at the next boot. The `z.string().uuid()`
- *  shape matches the repo's UUID convention (`TerminalId` in terminal-vocab). */
+ *  shape matches the repo's UUID convention (`TerminalId` in terminal-vocab); spelled
+ *  ONCE as {@link ClientIdSchema} so the schema field and the read-side validation
+ *  (`mintClientIdIfAbsent`) can't drift. Local, not a shared import — `clientId`
+ *  (this server's identity) and `TerminalId` are different domains. */
+const ClientIdSchema = z.string().uuid();
 const PersistedStateSchema = z.object({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
-  clientId: z.string().uuid(),
+  clientId: ClientIdSchema,
 });
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
@@ -647,7 +651,7 @@ export function mintClientIdIfAbsent(store: Conf<PersistedState>): string {
     store.set("clientId", minted);
     return minted;
   }
-  const parsed = z.string().uuid().safeParse(existing);
+  const parsed = ClientIdSchema.safeParse(existing);
   if (!parsed.success) {
     throw new Error(
       `clientId in ${store.path} is present but not a valid UUID (${JSON.stringify(
