@@ -83,6 +83,7 @@ import {
   makeSession,
   type Session,
 } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -122,19 +123,21 @@ import { asPadiSession, type PadiSession } from "./padiSession.ts";
  *                              `LOG_LEVEL` crosses the boundary.
  *   - `NODE_OPTIONS` (scrubbed) + `KOLU_DIAG_DIR` — as kaval's driver forwards.
  *
- * The nix-shell env WHITELIST rides padi's CLI flag (`--allow-nix-shell-with-env-
- * whitelist`, see `resolvePadiLaunch`); the whitelisted VARS themselves need no
- * explicit forwarding here — a whitelist only applies under a nix shell, which is
- * always the dev/e2e (`fromSource`) path, and the survivable-spawn driver layers
- * the child env OVER the full parent env on that path (systemd/prod runs off-nix).
+ * The base is the shared `SPAWN_ENV_ALLOWLIST` (composed from kolu-server's own env):
+ * HOME/USER/SHELL/PATH + the login-session capability vars. This is LOAD-BEARING since
+ * #1872 — the survivable-spawn driver's detached branch now passes `cfg.env` ALONE (no
+ * parent env layered) whenever `!fromSource`, which is the macOS-launchd and bare
+ * non-systemd production path. Without the composed base padi would spawn with no HOME,
+ * and kaval's own `daemonEnv` mines HOME from *padi's* env — so the loss would cascade
+ * into kaval and every PTY. The twin of kaval's `localDriver.daemonEnv`; its exact key
+ * set is pinned in `padiBinding.test.ts`. (The `fromSource` dev/e2e path additionally
+ * layers the parent env, so the nix-shell whitelisted vars still ride there.)
  */
 export function daemonEnv(
   resolvedStateRoot: string,
   verbose: boolean,
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (process.env.XDG_RUNTIME_DIR)
-    env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
+  const env: Record<string, string> = composeSpawnEnv(process.env);
   if (process.env.KOLU_STATE_DIR)
     env.KOLU_STATE_DIR = process.env.KOLU_STATE_DIR;
   // Pin padi's state-root explicitly so the digest (socket + kaval) is stable and

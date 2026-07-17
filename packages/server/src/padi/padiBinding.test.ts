@@ -821,6 +821,25 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
     vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
   });
+
+  it("composes the shared allowlist base so the detached-branch child is COMPLETE — no macOS HOME regression (#1872 2a parity)", () => {
+    // The supervisor's detached spawn branch passes `cfg.env` ALONE (macOS launchd,
+    // bare non-systemd) — so daemonEnv MUST carry the login-session base, or padi
+    // launches HOME-less and kaval's own daemonEnv (which mines HOME from padi's env)
+    // cascades the loss into every PTY. This is the twin of localDriver.daemonEnv.
+    vi.stubEnv("HOME", "/Users/prod");
+    vi.stubEnv("PATH", "/usr/bin:/bin");
+    vi.stubEnv("SSH_AUTH_SOCK", "/private/tmp/agent.sock");
+    // an ambient identity var in the server's own env — must NOT reach padi.
+    vi.stubEnv("CLAUDE_CODE_CHILD_SESSION", "1");
+
+    const env = daemonEnv("/state/root", false);
+
+    expect(env.HOME).toBe("/Users/prod");
+    expect(env.PATH).toBe("/usr/bin:/bin");
+    expect(env.SSH_AUTH_SOCK).toBe("/private/tmp/agent.sock"); // operational session var
+    expect(env).not.toHaveProperty("CLAUDE_CODE_CHILD_SESSION"); // the #1872 guard
+  });
 });
 
 describe("resolvePadiLaunch — the from-source entrypoint (KOLU_PADI_BIN unset) resolves to a REAL file", () => {
