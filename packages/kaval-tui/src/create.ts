@@ -23,7 +23,7 @@ import {
 // cleanEnv), so kaval-tui's composers cannot drift from cleanEnv / daemonEnv / the
 // e2e harness. This is the #1872 structural invariant: identity cannot ride ambient
 // env into any kolu-spawned process.
-import { composeSpawnEnv, SPAWN_ENV_PRESENTATION } from "kolu-pty";
+import { composeSpawnEnv, pickEnv, SPAWN_ENV_PRESENTATION } from "kolu-pty";
 import { commandName, sanitizeCell, shortId, tildeify } from "./render.ts";
 
 /** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema).
@@ -127,10 +127,7 @@ export function buildRemoteCreateInput(opts: {
     // first one. Falls back to a baseline if an older daemon didn't report it.
     PATH: opts.host.path || BASELINE_REMOTE_PATH,
   };
-  for (const k of SPAWN_ENV_PRESENTATION) {
-    const v = opts.localEnv[k];
-    if (v != null) env[k] = v;
-  }
+  Object.assign(env, pickEnv(SPAWN_ENV_PRESENTATION, opts.localEnv));
   for (const [k, v] of Object.entries(opts.extraEnv ?? {})) env[k] = v;
   return composeCreateInput({
     id: opts.id,

@@ -18,6 +18,7 @@ export {
   type InitFile,
   koluIdentityEnv,
   NIX_ENV_WHITELIST,
+  pickEnv,
   prepareShellInit,
   type ShellInitPlan,
   SPAWN_ENV_ALLOWLIST,
