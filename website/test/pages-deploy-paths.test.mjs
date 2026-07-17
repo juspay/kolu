@@ -13,12 +13,21 @@
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const defaultNix = new URL("../default.nix", import.meta.url);
 const pagesYml = new URL("../../.github/workflows/pages.yml", import.meta.url);
 const inWorkingTree = existsSync(defaultNix) && existsSync(pagesYml);
+
+// A real YAML parser for the workflow file (a regex over structured data is
+// brittle to reformatting); `yaml` is astro's own transitive dep, resolved
+// through its require context like the other test-side imports.
+const requireFromAstro = createRequire(
+  createRequire(import.meta.url).resolve("astro/package.json"),
+);
+const YAML = await import(pathToFileURL(requireFromAstro.resolve("yaml")).href);
 
 test("every out-of-tree cp-source in default.nix has a pages.yml deploy trigger", {
   skip:
@@ -34,16 +43,23 @@ test("every out-of-tree cp-source in default.nix has a pages.yml deploy trigger"
     `expected the known cp-sources in default.nix, found: ${copied.join(", ")}`,
   );
 
-  const yml = readFileSync(fileURLToPath(pagesYml), "utf8");
-  const pathsBlock = yml.match(/paths:\n((?:\s+(?:#[^\n]*|- "[^"]+")\n)+)/);
-  assert.ok(pathsBlock, "pages.yml push.paths block not found");
-  const triggers = [...pathsBlock[1].matchAll(/- "([^"]+)"/g)].map((m) => m[1]);
+  const workflow = YAML.parse(readFileSync(fileURLToPath(pagesYml), "utf8"));
+  // YAML 1.1 would read the `on:` key as boolean true; the `yaml` package
+  // defaults to 1.2, where it stays the string key GitHub means.
+  const triggers = workflow?.on?.push?.paths;
+  assert.ok(
+    Array.isArray(triggers) && triggers.length > 0,
+    "pages.yml push.paths block not found",
+  );
 
   // A trigger covers a copied path if it names it exactly or as a
-  // directory glob (`docs/atlas/dist/**` covers `docs/atlas/dist`).
+  // directory glob (`docs/atlas/dist/**` covers `docs/atlas/dist` and
+  // everything under `docs/atlas/dist/` — but NOT a sibling like
+  // `docs/atlas/dist-staging`, hence the slash-preserving prefix).
   const covers = (trigger, p) =>
     trigger === p ||
-    (trigger.endsWith("/**") && p.startsWith(trigger.slice(0, -3)));
+    (trigger.endsWith("/**") &&
+      (p === trigger.slice(0, -3) || p.startsWith(trigger.slice(0, -2))));
   const missing = copied.filter((p) => !triggers.some((t) => covers(t, p)));
   assert.deepEqual(
     missing,

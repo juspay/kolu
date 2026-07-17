@@ -7,7 +7,7 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-export const requireFromAstro = createRequire(
+const requireFromAstro = createRequire(
   createRequire(import.meta.url).resolve("astro/package.json"),
 );
 
