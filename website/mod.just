@@ -24,9 +24,10 @@ install:
 dev: install
     cd {{ here }} && {{ nix_shell }} pnpm dev
 
-# Type-check .astro files and TypeScript
+# Type-check .astro files and TypeScript, then the unit pins (the shiki
+# eager-langs preload — test/*.test.mjs; also run in the Nix build's checkPhase)
 check: install
-    cd {{ here }} && {{ nix_shell }} pnpm check
+    cd {{ here }} && {{ nix_shell }} sh -c 'pnpm check && node --test test/*.test.mjs'
 
 # Build the static site via pnpm (fast, local) — emits ./dist
 build: install
