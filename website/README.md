@@ -29,6 +29,16 @@ Search: `pnpm build` runs `astro build && pagefind --site dist`. Search is not
 available during `astro dev`; use `just website::search-preview` to build the
 index and serve `dist` locally.
 
+Code fences: every fence language used in `src/` is **derived and preloaded**
+into shiki at build start (`src/shiki-config.mjs`, on the shared
+`scripts/fence-langs.mjs` scanner; see the Atlas note
+`bug-shiki-grammar-load-race`), so a fence in any real language just works, an
+unbundled/typo'd language fails the build loudly, and a fence in a language
+*new to the project* added while `astro dev` runs needs a dev-server restart
+(the list is derived when the config evaluates; fences in already-used
+languages work immediately). Unit pins live in `test/*.test.mjs`, run by
+`just website::check` and the Nix build's `checkPhase`.
+
 Blog posts: `src/content/blog/*.{md,mdx}` (schema in `src/content.config.ts`).
 Frontmatter `title`, `description`, `pubDate`, optional `author` +
 `authorUrl`. Don't include a leading `# ` heading — it comes from the
