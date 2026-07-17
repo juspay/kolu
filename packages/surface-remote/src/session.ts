@@ -637,10 +637,8 @@ export function makeSession<
   const armTimer = (delayMs: number, fn: () => void): void => {
     // The one caller wait this timer alone settles — a pump parked on
     // `ClientCursor.next()` across a reconnect gap — is by contract not a
-    // process hold; see `pin()`. Exit safety when the backoff fires rests on
-    // `attempt` → `connectOnce` being microtask-chained to its first spawn
-    // without a handle-free await; a future async-dial refactor must preserve
-    // that.
+    // process hold; see `pin()`. Exit safety when this fires: see `attempt`'s
+    // invariant note.
     pendingTimer = armInternalTimer(delayMs, () => {
       pendingTimer = null;
       fn();
@@ -992,6 +990,13 @@ export function makeSession<
     if (!destroyed && refCount > 0) scheduleReconnect(cause, reason);
   };
 
+  /** EXIT-SAFETY INVARIANT (docs/atlas session-timer-unref): the reconnect
+   *  backoff is unref'd, so when it fires as the last handle this chain must
+   *  reach the transport's first event-loop handle without parking on a
+   *  handle-free await — `attempt` → `connectOnce` is microtask-chained to its
+   *  first spawn, and a caller-supplied resolve step that does real work holds
+   *  its own handle. An async-dial refactor that parks on a bare promise before
+   *  the first spawn reopens a silent mid-dial exit for a held session. */
   const attempt = async (): Promise<Client> => {
     dialEpoch += 1;
     // A fresh dial reopens at the connector's opening phase — always an up arm
