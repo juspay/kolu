@@ -148,3 +148,21 @@ export function shikiFencePreload(contentDir) {
   const langs = fenceLangs(contentDir);
   return { langs, guard: eagerLangsOnly(langs) };
 }
+
+// Disable shiki's per-line tokenization budget, for both consumers. Shiki
+// budgets each line's tokenization at 500ms (`tokenizeTimeLimit`,
+// @shikijs/primitive) and vscode-textmate's over-budget bail returns PARTIAL
+// tokens with a `stoppedEarly` flag shiki never checks — so on a
+// CPU-contended box a slow line silently loses its per-token <span> wrappers
+// instead of failing. Zero disables the budget: output is correct or the
+// build visibly hangs — never silently degraded. Astro doesn't forward
+// unknown shikiConfig keys, so the option rides a transformer's preprocess
+// hook. Distinct from (and unaffected by) the grammar-load race the fence
+// preload above closes.
+/** @type {import("shiki").ShikiTransformer} */
+export const noTokenizeBail = {
+  name: "kolu:shiki-no-tokenize-bail",
+  preprocess(_code, options) {
+    options.tokenizeTimeLimit = 0;
+  },
+};

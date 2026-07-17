@@ -3,7 +3,10 @@
 import mdx from "@astrojs/mdx";
 import { defineConfig } from "astro/config";
 
-import { shikiFencePreload } from "../../scripts/fence-langs.mjs";
+import {
+  noTokenizeBail,
+  shikiFencePreload,
+} from "../../scripts/fence-langs.mjs";
 import stableInlineStyles from "./build/stable-inline-styles.mjs";
 
 // Self-contained, internal Atlas — NOT published anywhere. Deliberately
@@ -57,23 +60,11 @@ export default defineConfig({
       ),
       transformers: [
         fencePreload.guard,
-        // Shiki budgets each line's tokenization at 500ms (tokenizeTimeLimit,
-        // @shikijs/primitive) and vscode-textmate's over-budget bail returns
-        // PARTIAL tokens with a `stoppedEarly` flag shiki never checks — so on a
-        // CPU-contended box a slow line silently loses its per-token <span>
-        // wrappers instead of failing. dist/ is committed, so that degradation
-        // surfaces as non-deterministic ci::atlas-sync byte-drift (the flaky-test
-        // tracker's "release-workflow.html byte-shrinks under load" row). Zero
-        // disables the budget: output is correct or the build visibly hangs —
-        // never silently degraded. Astro doesn't forward unknown shikiConfig
-        // keys, so the option rides a transformer's preprocess hook. Distinct
-        // from (and unaffected by) the grammar-load race above.
-        {
-          name: "kolu:shiki-no-tokenize-bail",
-          preprocess(_code, options) {
-            options.tokenizeTimeLimit = 0;
-          },
-        },
+        // dist/ is committed, so shiki's silent over-budget tokenization bail
+        // (mechanism in scripts/fence-langs.mjs) surfaces here as
+        // non-deterministic ci::atlas-sync byte-drift (the flaky-test
+        // tracker's "release-workflow.html byte-shrinks under load" row).
+        noTokenizeBail,
       ],
     },
   },

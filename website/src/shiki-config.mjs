@@ -26,8 +26,13 @@ const fenceLangsModule = [
 if (!fenceLangsModule) {
   throw new Error("fence-langs.mjs is required for the website build");
 }
-const { ASTRO_EXCLUDED_LANGS, SPECIAL_LANGS, fenceLangs, shikiFencePreload } =
-  await import(fenceLangsModule.href);
+const {
+  ASTRO_EXCLUDED_LANGS,
+  SPECIAL_LANGS,
+  fenceLangs,
+  noTokenizeBail,
+  shikiFencePreload,
+} = await import(fenceLangsModule.href);
 
 // Re-exported so the tests reach the scanner (and its two hand-held upstream
 // mirrors, drift-pinned per consumer) through THIS module — one place (here)
@@ -62,18 +67,9 @@ export const shikiConfig = {
   ),
   transformers: [
     fencePreload.guard,
-    // Disable shiki's 500ms/line tokenization budget: the over-budget bail
-    // silently drops per-token spans under CPU contention (see
-    // docs/atlas/astro.config.mjs for the full mechanism + the flaky-test
-    // tracker row it caused there). Here the un-gated degradation would ship
-    // straight to kolu.dev as un-highlighted code. Correct or loud, never
-    // silently degraded. Distinct from (and unaffected by) the grammar-load
-    // race the langs preload above closes.
-    {
-      name: "kolu:shiki-no-tokenize-bail",
-      preprocess(_code, options) {
-        options.tokenizeTimeLimit = 0;
-      },
-    },
+    // Shiki's silent over-budget tokenization bail (mechanism in
+    // scripts/fence-langs.mjs) would ship here straight to kolu.dev as
+    // un-highlighted code.
+    noTokenizeBail,
   ],
 };
