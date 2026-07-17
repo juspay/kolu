@@ -30,6 +30,7 @@
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */
 
+import { isDeadTransportError } from "@kolu/surface/client";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -264,12 +265,23 @@ export async function awaitOutputCondition(
       const settleOnLostFeed = async (): Promise<void> => {
         disarmIdle();
         try {
-          const { entries } = await client.surface.terminal.list({});
+          // Thread ctx.signal: a half-open wire makes even this unary read hang
+          // indefinitely, and runWait still awaits the watcher — so without the
+          // signal the "bounded" wait outlives its own timeout/cancel. An abort
+          // rejects the read into the catch below (a first-writer settle no-op).
+          const { entries } = await client.surface.terminal.list(
+            {},
+            { signal: ctx.signal },
+          );
           if (!entries.some((e) => e.id === opts.id)) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
           }
         } catch (err) {
+          // A dead transport poisons a shared connection, so it PROPAGATES (a
+          // CLI wait dials its own link and exits, but the discrimination stays
+          // in lockstep with padi's watcher, the port-not-extract twin).
+          if (isDeadTransportError(err)) throw err;
           feedError ??= errMessage(err);
           ctx.recordUpstreamError(errMessage(err));
         }
@@ -326,6 +338,7 @@ export async function awaitOutputCondition(
           // fire a false `met` and a `match` can't hang on a stream we stopped
           // reading.
           if (!ctx.signal.aborted) {
+            if (isDeadTransportError(err)) throw err;
             feedError ??= errMessage(err);
             ctx.recordUpstreamError(errMessage(err));
             await settleOnLostFeed();

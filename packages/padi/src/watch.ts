@@ -17,9 +17,17 @@
  * scaffold; this module owns only the padi-shaped watchers and predicates.
  */
 
-import { unenrolledStreamCall } from "@kolu/surface/client";
+import {
+  isDeadTransportError,
+  unenrolledStreamCall,
+} from "@kolu/surface/client";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-import { runWait, type WaitOutcome } from "@kolu/surface/wait";
+import {
+  isValidTimerMs,
+  MAX_TIMER_MS,
+  runWait,
+  type WaitOutcome,
+} from "@kolu/surface/wait";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
@@ -270,6 +278,16 @@ export async function awaitOutputSettled(
     signal?: AbortSignal;
   },
 ): Promise<OutputSettledOutcome> {
+  // Fail fast at the boundary — this is an EXPORTED primitive (the MCP schema
+  // guards its own caller, but a direct caller could pass 0 / non-finite / a
+  // value above the setTimeout ceiling, which would fire a FALSE near-instant
+  // `met` off an overflowed idle window). The shared timer-range rule, same as
+  // `runWait`'s `timeoutMs` guard.
+  if (!isValidTimerMs(opts.idleMs)) {
+    throw new RangeError(
+      `awaitOutputSettled: idleMs must be between 1 and ${MAX_TIMER_MS} (~24.8 days), got ${opts.idleMs} — a larger window overflows setTimeout and fires a false near-instant met.`,
+    );
+  }
   return runWait<{ fired: "idle"; elapsedMs: number }>(
     { timeoutMs: opts.timeoutMs, signal: opts.signal },
     async (ctx) => {
@@ -326,6 +344,13 @@ export async function awaitOutputSettled(
             return;
           }
         } catch (err) {
+          // A DEAD transport is not a healthy feed-end — it poisons the shared
+          // connection, so it must PROPAGATE (out of runWait → the tool throws →
+          // surface-mcp's `withClient` resets the connection so the NEXT wait
+          // redials). Folding it into `closed` here leaves the caller reusing a
+          // dead socket forever. A healthy-transport lost feed (a slow-consumer
+          // drop) still settles `closed` below.
+          if (isDeadTransportError(err)) throw err;
           feedError ??= errMessage(err);
           ctx.recordUpstreamError(errMessage(err));
         }
@@ -362,9 +387,12 @@ export async function awaitOutputSettled(
           if (!ctx.signal.aborted) await settleOnLostFeed();
         } catch (err) {
           // An abort (the window fired, a timeout, a cancelled request) is the
-          // expected end. A non-abort error is a dropped feed — a dead transport
-          // rejects non-retryably through STREAM_RETRY's fence and lands here.
+          // expected end. A DEAD transport rejects non-retryably through
+          // STREAM_RETRY's fence and PROPAGATES (poisons the shared connection —
+          // see settleOnLostFeed). Any other non-abort error is a dropped feed →
+          // settle loud.
           if (!ctx.signal.aborted) {
+            if (isDeadTransportError(err)) throw err;
             feedError ??= errMessage(err);
             ctx.recordUpstreamError(errMessage(err));
             await settleOnLostFeed();

@@ -207,14 +207,19 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  padi-surface bump does not touch the kaval contract.
  *
  *  4.1 (additive · minor): the `activity` stream's input LOOSENS from
- *  `z.object({})` to `z.object({}).optional()` — the stream carries no
- *  parameters, and the kolu MCP face (`kolu mcp`, the kolu-cli plan's PR2)
- *  reads a no-input stream as a subscribable static resource via
- *  `.get(undefined)`, which the bare object schema would reject. Loosening is
- *  one-directional: every existing `{}` caller still validates against a 4.1
- *  padi, while a 4.1 client that SENDS `undefined` against a 4.0 padi would be
- *  rejected — exactly the old-daemon/new-client skew a minor bump gates (the
- *  4.1 client refuses the 4.0 padi with the honest "upgrade" line). */
+ *  `z.object({})` to `z.object({}).optional()` — the honest schema for a stream
+ *  that takes no parameters, so a no-input read/subscribe via `.get(undefined)`
+ *  validates rather than being rejected by a bare object schema. (Its original
+ *  motivation was the kolu MCP face reading `activity` as a static resource;
+ *  that read was removed in #1865 review — padi's activity stream has no
+ *  current-value snapshot, so it can't honor an MCP resource read — but the
+ *  loosening stands on its own merit as the correct no-input-stream shape, and
+ *  reverting a deployed contract version carries more risk than the harmless
+ *  wider input domain. Whether to fold 4.1 back into 4.0 is a contract-version
+ *  call for the note owner.) Loosening is one-directional: every existing `{}`
+ *  caller still validates against a 4.1 padi, while a 4.1 client that SENDS
+ *  `undefined` against a 4.0 padi would be rejected — the old-daemon/new-client
+ *  skew a minor bump gates (the 4.1 client refuses the 4.0 padi loudly). */
 export const PADI_SURFACE_VERSION = "4.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

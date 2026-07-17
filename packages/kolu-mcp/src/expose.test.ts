@@ -40,7 +40,6 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
   it("resolves against the real padiSurface spec", () => {
     const resolved = resolveExpose(padiSurface.spec, KOLU_MCP_EXPOSE);
     expect(resolved.resources.map((r) => r.key).sort()).toEqual([
-      "activity",
       "daemonStatus",
       "identity",
       "status",
@@ -155,8 +154,11 @@ describe("the served face — default deny at the wire", () => {
       "surface://cells/urgency",
       "surface://collections/daemonStatus",
       "surface://collections/terminals",
-      "surface://streams/activity",
     ]);
+    // activity — the named denial (no current-value snapshot) — is not exposed.
+    await expect(
+      mcp.subscribeResource({ uri: "surface://streams/activity" }),
+    ).rejects.toThrow(/cannot subscribe to unknown resource/);
     // terminalAttach — the named denial — is not a resource and can't be
     // subscribed into existence.
     await expect(

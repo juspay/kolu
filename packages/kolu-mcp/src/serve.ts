@@ -7,11 +7,14 @@
  * injects `connect`, a factory producing a CONNECTED, padi-scoped client
  * (local digest-keyed socket or the ssh stdio dial). The factory is re-invoked
  * by the adapter after a drop, which is exactly the restart discipline's
- * redial hook: kolu-cli's factory re-RESOLVES the digest-keyed socket (an
- * upgraded padi listens at a different path), re-dials, and re-runs the
- * hello/compat gate — so a padi restart heals here without this package
- * knowing what a socket is. The package manifest is the graduation fence:
- * padi/surface deps only, no kolu app package.
+ * redial hook: kolu-cli's factory re-RESOLVES the running padi's socket and
+ * re-runs the hello/compat gate. The socket path is keyed by a digest of the
+ * STATE-ROOT (stable across a normal restart/upgrade — a padi that respawns at
+ * the same state-root listens at the same path), so the re-resolve is for
+ * robustness (a moved state-root, a different running daemon) and the compat
+ * gate is what proves the new generation speaks our contract — a padi restart
+ * heals here without this package knowing what a socket is. The package
+ * manifest is the graduation fence: padi/surface deps only, no kolu app package.
  */
 
 import { padiSurface } from "@kolu/padi/surface";

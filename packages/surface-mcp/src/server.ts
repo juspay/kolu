@@ -172,6 +172,10 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // call re-dials a fresh connection rather than reusing a dead socket.
   type OwnedConn = { client: SurfaceClientCallable; dispose: () => void };
   let sharedConn: OwnedConn | null = null;
+  // Latched by teardown so a dial that RESOLVES after `close()` disposes its
+  // socket instead of publishing an orphan nobody will ever tear down (the
+  // adapter's promise: dispose every connection it opens).
+  let closed = false;
   // The IN-FLIGHT dial, memoized so two concurrent `getClient()` calls (a
   // long-blocking wait tool beside a read — the kolu-mcp case) share ONE dial
   // instead of each racing `sharedConn === null` across the await and opening
@@ -182,8 +186,16 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     if (dialing === null) {
       dialing = dial().then(
         (conn) => {
-          sharedConn = conn;
           dialing = null;
+          // Teardown happened while this dial was in flight — dispose the just-
+          // opened socket rather than storing it (disposeSharedConn already ran
+          // and saw `sharedConn === null`). Reject so a caller mid-`getConn`
+          // fails loud instead of running against a socket about to close.
+          if (closed) {
+            conn.dispose();
+            throw new Error("surface-mcp: server closed during dial");
+          }
+          sharedConn = conn;
           return conn;
         },
         (err) => {
@@ -201,9 +213,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     sharedConn = null;
     conn.dispose();
   };
-  // Teardown: dispose whatever connection is current (identity-agnostic — the
-  // server is closing, so there is no successor to protect).
+  // Teardown: latch `closed` (so a still-pending dial disposes its own result —
+  // see getConn), then dispose whatever connection is current (identity-agnostic
+  // — the server is closing, so there is no successor to protect).
   const disposeSharedConn = (): void => {
+    closed = true;
     const conn = sharedConn;
     sharedConn = null;
     conn?.dispose();

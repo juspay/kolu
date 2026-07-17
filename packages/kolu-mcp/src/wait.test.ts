@@ -6,6 +6,7 @@
  * key (loud, never a false met), and timeout. Plus the tool's JSON frame.
  */
 import { awaitOutputSettled, type PadiSurfaceClient } from "@kolu/padi/dial";
+import { deadTransportError } from "@kolu/surface/client";
 import { describe, expect, it } from "vitest";
 import { waitJson, waitOutputSettledTool } from "./wait.ts";
 
@@ -182,6 +183,53 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     s.exit.end();
     await awaitOutputSettled(fakeClient(s, spy), { id: ID, idleMs: 60_000 });
     expect(spy.keysSawSignal).toBe(true);
+  });
+
+  it("PIN: a DEAD-transport attach error PROPAGATES (rejects), never folds to closed", async () => {
+    // A dead transport poisons the shared connection — it must reject out of
+    // awaitOutputSettled so surface-mcp's withClient resets it, not settle a
+    // clean `closed` that leaves the caller reusing a dead socket (codex F2).
+    const dead = deadTransportError(
+      "SURFACE_STDIO_TRANSPORT_CLOSED",
+      "pipe closed",
+    );
+    const client = {
+      surface: {
+        terminalAttach: {
+          get: async () => {
+            throw dead;
+          },
+        },
+        terminalExit: {
+          get: async () => {
+            throw dead;
+          },
+        },
+        terminals: {
+          keys: async () => {
+            throw dead;
+          },
+        },
+      },
+    } as unknown as PadiSurfaceClient;
+    await expect(
+      awaitOutputSettled(client, { id: ID, idleMs: 800, timeoutMs: 5000 }),
+    ).rejects.toBe(dead);
+  });
+
+  it("PIN: a non-positive / over-ceiling idleMs fails fast (RangeError)", async () => {
+    // The exported primitive validates the timer range at its boundary — a
+    // direct caller can't get a false near-instant met off an overflowed window
+    // (codex F5).
+    await expect(
+      awaitOutputSettled(fakeClient(streams()), { id: ID, idleMs: 0 }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      awaitOutputSettled(fakeClient(streams()), {
+        id: ID,
+        idleMs: 2_147_483_648,
+      }),
+    ).rejects.toThrow(RangeError);
   });
 
   it("resolves timeout when the terminal never settles", async () => {

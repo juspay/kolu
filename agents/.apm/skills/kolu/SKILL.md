@@ -73,9 +73,6 @@ screen_text        { id, tail: 40 }                                     # 5. rea
   state, `parentId`, foreground process) reads at
   `surface://collections/terminals/<id>`. **`surface://cells/urgency`** lists
   the terminals whose agent awaits a human right now.
-  *(The `activity` resource's one-shot read is always `[]` by construction — a
-  fresh subscription counts bytes only from subscribe time — so it's useful
-  via subscription updates, not reads.)*
 
 > **Interrupt a runaway** before redirecting it:
 > `lifecycle_sendInput { id, key: "Escape" }` (stop Claude Code mid-stream),

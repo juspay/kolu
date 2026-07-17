@@ -90,10 +90,14 @@ export const sendInputTool: BespokeTool = {
     const data = resolveSendInputData(rest);
     await client.surface.lifecycle.sendInput({ id, data }, { signal });
     // A named acknowledgement (sendInput's procedure output is void) so the
-    // driving agent sees what landed rather than an empty null.
+    // driving agent sees what landed rather than an empty null. The byte count
+    // is the actual UTF-8 wire length (`data.length` counts UTF-16 code units,
+    // which lies for non-ASCII input).
     return {
       sent:
-        rest.key !== undefined ? { key: rest.key } : { textBytes: data.length },
+        rest.key !== undefined
+          ? { key: rest.key }
+          : { textBytes: Buffer.byteLength(data, "utf8") },
     };
   },
 };

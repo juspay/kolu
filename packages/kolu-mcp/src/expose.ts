@@ -33,8 +33,6 @@ export const KOLU_MCP_EXPOSE = {
   terminals: "resource",
   /** The awaiting-ids set — which terminals need a human/agent NOW. */
   urgency: "resource",
-  /** The host's byte-activity live set — the state transitions to wait on. */
-  activity: "resource",
   // The "status" story — daemon/kaval health + generation visibility:
   daemonStatus: "resource",
   status: "resource",
@@ -69,6 +67,11 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
     member: "terminalAttach",
     reason:
       "a raw byte stream is the wrong shape for MCP consumers — screen_text is the read face (the wait_outputSettled tool consumes the stream internally, watched not rendered)",
+  },
+  {
+    member: "activity",
+    reason:
+      "padi's activity stream has NO current-value snapshot — createLiveActivitySource builds a fresh empty tracker per subscription and counts bytes only from subscribe-time, so a fresh subscriber (every MCP resources/read opens one) always starts empty. An MCP resource read of activity is therefore always [] and its subscribe delivers a bare change-nudge with no readable value — a resource that can't honor the read contract. `urgency` (a snapshot-bearing cell) answers who-needs-attention; the `terminals` records carry per-terminal agent state. A readable activity would need a snapshot-bearing source or an adapter that retains the streamed frame — a follow-up, not a v1 row.",
   },
   {
     member: "lifecycle.killAll",

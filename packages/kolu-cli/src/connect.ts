@@ -8,10 +8,14 @@
  * `KoluCliConnection` shape so a face is transport-blind.
  *
  * Re-invoked per (re)dial by the MCP adapter, which is the restart
- * discipline's redial hook: `resolveRunningPadiSocket` runs FRESH each call —
- * padi's socket path is keyed by a DIGEST of its build, so an upgraded padi
- * listens at a DIFFERENT path and redial is re-*resolve* + dial, never
- * retry-same-path.
+ * discipline's redial hook: `resolveRunningPadiSocket` runs FRESH each call.
+ * padi's socket path is keyed by a digest of its STATE-ROOT (`padiDigest`),
+ * not its build — a padi that respawns at the same state-root listens at the
+ * SAME path across a restart/upgrade. So the fresh re-resolve is for
+ * robustness (it re-discovers the running daemon and drops a dead
+ * registration via the liveness gate, rather than pinning a cached path), and
+ * `connectPadi`'s hello/compat gate is what proves the redialed generation
+ * speaks our contract — never retry-same-path-blind.
  */
 
 import {

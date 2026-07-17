@@ -819,4 +819,49 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     expect(dials).toBe(1);
     expect(disposes).toBe(0); // no leaked loser connection
   });
+
+  it("close() during a pending dial disposes the connection that lands after it (no orphan)", async () => {
+    // The memoized dial resolves AFTER close() — disposeSharedConn saw null, so
+    // the connection would orphan without the closed-latch that disposes a
+    // late-landing dial (codex F3).
+    const over = concurrencySurface();
+    let disposes = 0;
+    let releaseDial: (() => void) | undefined;
+    const dialGate = new Promise<void>((r) => {
+      releaseDial = r;
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: async () => {
+        await dialGate; // hold the dial open until we release it
+        return {
+          client: over.client,
+          dispose: () => {
+            disposes += 1;
+          },
+        };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+
+    // Start a call so getConn's dial is in flight, then close before it lands.
+    const inflight = mcp
+      .callTool({ name: "ok_ping", arguments: {} })
+      .catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    await close(); // sharedConn is still null (dial pending)
+    releaseDial?.(); // the dial resolves AFTER close
+    await inflight;
+    await new Promise((r) => setTimeout(r, 5));
+
+    // The late-landing connection was disposed exactly once — not orphaned.
+    expect(disposes).toBe(1);
+    await mcp.close();
+  });
 });
