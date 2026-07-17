@@ -1,8 +1,8 @@
 /**
  * The shared lifetime-pin contract — served by the stdio child fixture
- * (`peer-server.lifetime.fixture.testlib.ts`) and implemented in-process by
- * transport lifetime tests (`peer-server.lifetime.test.ts`,
- * `unix-socket.test.ts`). A module of its own so the
+ * (`peer-server.lifetime.fixture.testlib.ts`), implemented in-process by
+ * `unix-socket.test.ts`, and consumed type-only as the client contract by
+ * `peer-server.lifetime.test.ts`. A module of its own so the
  * test never has any reason to import the fixture at all: a VALUE import
  * would run the fixture's top-level code and serve the importing process's
  * stdio, and while an `import type` would be erased at compile time, nothing

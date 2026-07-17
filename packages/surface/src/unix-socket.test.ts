@@ -388,9 +388,12 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
     // Peer A is a raw connection so its lifecycle is directly observable —
     // both ends live in this process. The shed itself is not behaviorally
     // assertable (destroy() on a closed socket is a no-op; the shed's value
-    // is the index not retaining dead sockets) — the waits below only ensure
-    // the close() under test iterates a Set that has already shed peer A,
-    // i.e. the named code path is the one exercised.
+    // is the index not retaining dead sockets) — the waits below give the
+    // SERVER-side 'close' handler its event-loop turns (the client-side
+    // 'close' fires first; the server socket sees EOF at the next poll
+    // phase and emits 'close' a turn later — measured at two setImmediate
+    // turns), so the close() under test iterates a Set that has already
+    // shed peer A: the named code path is the one exercised.
     const rawA = createConnection(socketPath);
     await once(rawA, "connect");
     const b = await unixSocketLink<typeof surface.contract>({ socketPath });
@@ -400,7 +403,10 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
     const aGone = once(rawA, "close");
     rawA.destroy();
     await aGone;
-    await new Promise((r) => setImmediate(r)); // let the server-side 'close' handler run
+    // Two turns, not one — the server-side 'close' (and its Set delete)
+    // lands two setImmediate turns behind the client-side 'close'.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
 
     expect(() => listener.close()).not.toThrow();
     expect(() => listener.close()).not.toThrow(); // still idempotent

@@ -191,7 +191,8 @@ export interface UnixSocketListener {
   /** Stop accepting connections, DISCONNECT every established peer, and
    *  remove the socket file — the ordered teardown of surface-lifetime-audit
    *  step 3. The destroys are synchronous; each severed connection's serve
-   *  then settles through its own chain in the microtasks BEHIND this call
+   *  then settles through its own chain in the event-loop turns BEHIND this
+   *  call
    *  (subscriptions finalize, their timers clear) — `close()` returns
    *  without waiting for that. Closing one listener never touches another
    *  listener's connections.

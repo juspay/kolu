@@ -340,8 +340,8 @@ oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
 `serveOverUnixSocket`'s listener `close()` runs the whole ordered teardown:
 it stops accepting, **disconnects every established peer**, and removes the
 socket file. Each severed connection then settles its own serve in the
-microtasks behind the call — in-flight subscriptions finalize and their
-timers clear — without `close()` waiting on it. A closed host cannot go on
+event-loop turns behind the call — in-flight subscriptions finalize and
+their timers clear — without `close()` waiting on it. A closed host cannot go on
 serving live peers; a wedged half-open peer is destroyed without drain
 negotiation (its unflushed frames are dropped — a host that closed is
 closed). Closing one listener never touches another listener's connections.
