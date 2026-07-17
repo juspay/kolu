@@ -57,6 +57,25 @@ export {
   resolveRunningPadiSocket,
 } from "./stateRoot.ts";
 
+// The client-side terminal WATCH kit — `watchTerminals` + `awaitAgentState` +
+// `awaitOutputSettled` and the bucket vocabulary they predicate on — rides the
+// dial entry too: the same "a daemon's package owns the client kit its
+// consumers share" rule, and both consumers (padi-tui's `wait`/`watch`, the
+// kolu MCP face's `wait_agentState`/`wait_outputSettled`) already import this
+// entry to dial.
+export {
+  activeAgent,
+  agentMatchesUntil,
+  type AgentStateOutcome,
+  awaitAgentState,
+  awaitOutputSettled,
+  type OutputSettledOutcome,
+  WAIT_STATES,
+  type WaitState,
+  type WatchHandlers,
+  watchTerminals,
+} from "./watch.ts";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /** The client a dial produces — typed to the COMBINED contract, so the handshake

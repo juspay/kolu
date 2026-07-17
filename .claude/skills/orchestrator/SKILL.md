@@ -3,8 +3,8 @@ name: orchestrator
 description: >-
   Running memory of the coordination rules for an orchestrator agent driving
   implementing agents on kolu terminals — authorization boundaries, the
-  kaval-tui dispatch protocol, verification discipline, and how to communicate
-  with the human. Load whenever coordinating a multi-agent campaign
+  dispatch protocol (MCP-first via the kolu skill, with its TUI fallback),
+  verification discipline, and how to communicate with the human. Load whenever coordinating a multi-agent campaign
   (dispatching briefs to agents in kolu PTYs, tracking their PRs, verifying
   their claims), or when acting as the coordinator in a padi/surface-style
   campaign. Triggers on "orchestrate the agents", "coordinate the campaign",
@@ -25,7 +25,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 
 ## Dispatch
 
-- Drive kolu terminals through the kolu skill's messaging loop; submission is its own keystroke; never interrupt a working agent.
+- Drive kolu terminals through **the [/kolu](../../../apm_modules/_local/agents/.apm/skills/kolu/SKILL.md) skill's messaging loop** — the single source of truth for the driving protocol (MCP-first, its CLI fallback). The coordinator inherits whichever transport /kolu selects; never restate the loop or hardcode `kaval-tui`/`padi-tui` verbs here. Submission is its own Enter send after an observed settle; never interrupt a working agent.
 - Payloads must survive the shell unmangled; large briefs ride in a file with a short pointer.
 - Every brief carries a unique report-back token.
 - An implementing agent runs /be by default: the dispatch prompt leads with

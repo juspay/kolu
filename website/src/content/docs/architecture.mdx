@@ -398,9 +398,11 @@ _out_. The map, grouped:
 
 - **Faces** — `client` (SolidJS + xterm.js + Tailwind), `server` (the Hono web
   shell that serves the SPA, the preview route, and the websocket, and binds padi),
-  and `kolu-cli` (the `kolu` binary itself — the composition root that owns
-  subcommand dispatch and boots the server's web face; `kolu tui` and `kolu mcp`
-  are reserved for later faces).
+  `kolu-cli` (the `kolu` binary itself — the composition root that owns
+  subcommand dispatch, the padi connect layer, and boots whichever face was
+  asked for), and `kolu-mcp` (the `kolu mcp` agent face — `padiSurface`
+  re-exposed to coding agents over MCP, a pure padi client with no kolu-server
+  behind it; `kolu tui` is reserved for a later face).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
   terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
   PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.

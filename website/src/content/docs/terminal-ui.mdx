@@ -1,0 +1,28 @@
+---
+title: Terminal UI
+description: "Drive kolu from outside the browser — from a coding agent over MCP, or from the shell with kolu's command-line tools."
+order: 90
+section: Command Line
+koluHero:
+  eyebrow: "drive kolu outside the browser · alpha"
+  headline: |
+    Drive {kolu}
+    from a terminal.
+---
+
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+The canvas is one way to use kolu — the browser. But every terminal kolu owns is
+also reachable from **outside** the browser, so you can script it, automate it,
+or hand it to a coding agent.
+
+Two ways in:
+
+- **[MCP](/mcp)** — connect your **coding agent** (Claude Code, Codex, any MCP
+  host) to kolu, so it can create, drive, and observe terminals itself. This is
+  how one agent drives a fleet of others.
+- **The command-line tools** — drive the same terminals from a shell: list them,
+  create one, read a screen, send a prompt, wait for a turn to end. See
+  [Kaval](/kaval) for the terminal commands.
+
+<LinkCard title="MCP" href="/mcp" description="drive kolu from your coding agent — create, drive, and observe terminals over MCP" />

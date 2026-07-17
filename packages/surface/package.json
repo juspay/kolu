@@ -17,6 +17,7 @@
     "./identity": "./src/identity.ts",
     "./liveness": "./src/liveness.ts",
     "./first-frame": "./src/firstFrame.ts",
+    "./wait": "./src/wait.ts",
     "./loopback": "./src/loopback.ts",
     "./mirror": "./src/mirrorRemoteSurface.ts",
     "./poll-on-change": "./src/pollOnChange.ts",

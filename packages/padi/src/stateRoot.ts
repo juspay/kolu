@@ -358,9 +358,20 @@ export function residentPadiSocket(
     (d) =>
       d.stateRoot !== null &&
       resolve(d.stateRoot) === resolved &&
-      d.gatePid !== null &&
-      isHolderLive(d.gatePid),
+      daemonIsLive(d),
   )?.socket;
+}
+
+/** A discovered daemon whose gate holder is PROVEN alive — the one liveness
+ *  rule both live-consumers (`residentPadiSocket`, `resolveRunningPadiSocket`)
+ *  narrow the raw `discoverPadiDaemons()` list with. It stays a shared predicate
+ *  (not folded into discovery, which is deliberately raw so the info dialogs can
+ *  list leaked/dead registrations at a glance) so a future refinement — a
+ *  socket-inode check, a grace window on an unreadable gate pid — lands in ONE
+ *  place and the two paths can't drift into classifying the same daemon
+ *  differently (the corpse-dial / double-spawn class both guards prevent). */
+function daemonIsLive(d: PadiDaemon): boolean {
+  return d.gatePid !== null && isHolderLive(d.gatePid);
 }
 
 /** The outcome of resolving which running padi to dial — the whole selection
@@ -401,7 +412,14 @@ export function resolveRunningPadiSocket(opts?: {
   }
   const env = process.env.PADI_SOCKET;
   if (env) return { kind: "env", socket: env };
-  const found = discoverPadiDaemons();
+  // Gate discovery on a LIVE gate holder — the shared {@link daemonIsLive}
+  // predicate `residentPadiSocket` applies too. A discovered daemon is only a
+  // directory + gate-pid registration; a dead one (its holder gone, the socket
+  // stale) must not be classified `one`/`many`, or a client dials a corpse and
+  // gets an opaque ECONNREFUSED instead of the honest `none` → default-path
+  // error. A registration whose gate-pid is unreadable (`null`) is likewise not
+  // a proven-live daemon, so it drops out too.
+  const found = discoverPadiDaemons().filter(daemonIsLive);
   const [first, ...rest] = found;
   if (first !== undefined && rest.length === 0) {
     return { kind: "one", socket: first.socket };
