@@ -29,11 +29,14 @@ const _killAll: () => Promise<void> = activePadiRpc.lifecycle.killAll;
 void _killAll;
 
 // A declared OUTPUT flows through: `screen.text` declares `output: z.string()`, so
-// its bound return is EXACTLY `Promise<string>`. `toEqualTypeOf` is invariant (not a
-// mere assignment, which `Promise<unknown>` would also satisfy), pinning that precision.
-expectTypeOf<ReturnType<typeof activePadiRpc.screen.text>>().toEqualTypeOf<
-  Promise<string>
->();
+// its bound return resolves EXACTLY `string`. Since SK6 the bound face returns
+// oRPC's `ClientPromiseResult<out, err>` (a `Promise` plus a phantom error slot
+// that types the DECLARED error union for `safe`/`isDefinedError`), so the pin
+// asserts the awaited output invariantly rather than bare-`Promise` identity —
+// `Promise<unknown>` would still fail it.
+expectTypeOf<
+  Awaited<ReturnType<typeof activePadiRpc.screen.text>>
+>().toEqualTypeOf<string>();
 
 // `padiMap.entry(host).procedures` (the fixed-host face `createViewState` reaches)
 // is the SAME declaration-typed procedures.

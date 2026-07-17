@@ -23,7 +23,7 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { implement } from "@orpc/server";
+import { implement, type ORPCErrorConstructorMap } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
   collectionDeltasChannel,
@@ -40,6 +40,7 @@ import {
   defineSurface,
   type EventSpec,
   type ProcedureSpec,
+  type ProcedureSpecErrors,
   resolveCellVerbs,
   resolveCollectionVerbs,
   type StreamSpec,
@@ -1383,24 +1384,43 @@ export type SurfaceCtx<S extends SurfaceSpec> = {
   };
 };
 
+/** The typed per-code error CONSTRUCTORS a declaring procedure's handler
+ *  receives on `opts.errors` (SK6) — oRPC's contract-first handler face:
+ *  `throw opts.errors.SOME_CODE({ data })` mints the declared `ORPCError`
+ *  with its data validated against the declared schema. A spec with no
+ *  `errors` resolves the empty map (via define.ts's shared
+ *  {@link ProcedureSpecErrors} extractor), so the field is invisible to
+ *  existing handlers. */
+type ProcedureErrorCtors<S> = ORPCErrorConstructorMap<ProcedureSpecErrors<S>>;
+
+/** The opts every procedure handler receives regardless of its input/output
+ *  arms — `ctx` (the mutation helpers), the abort `signal`, and `errors` (the
+ *  declared error union's typed constructors, SK6). The four arms below add
+ *  `input` (or not) and vary the return; this is the ONE spelling of what they
+ *  share, so a new handler-opts field lands in one place, not four. */
+type ProcedureHandlerOpts<S, Ctx> = {
+  ctx: Ctx;
+  signal?: AbortSignal;
+  errors: ProcedureErrorCtors<S>;
+};
+
 /** Handler for an imperative procedure. Receives `ctx` exposing the
  *  surface's cell/collection mutation helpers so cross-descriptor publishes
  *  (e.g. `notes.create` writing to the `notes` collection) go through the
- *  same channels the wire handlers do. */
+ *  same channels the wire handlers do — plus `errors`, the declared error
+ *  union's typed constructors (SK6). */
 export type ProcedureImpl<
   S extends ProcedureSpec<unknown, unknown>,
   Ctx,
 > = S extends { input: ZodType<infer I>; output: ZodType<infer O> }
-  ? (opts: { input: I; ctx: Ctx; signal?: AbortSignal }) => Promise<O> | O
+  ? (opts: ProcedureHandlerOpts<S, Ctx> & { input: I }) => Promise<O> | O
   : S extends { input: ZodType<infer I> }
-    ? (opts: {
-        input: I;
-        ctx: Ctx;
-        signal?: AbortSignal;
-      }) => Promise<void> | void
+    ? (
+        opts: ProcedureHandlerOpts<S, Ctx> & { input: I },
+      ) => Promise<void> | void
     : S extends { output: ZodType<infer O> }
-      ? (opts: { ctx: Ctx; signal?: AbortSignal }) => Promise<O> | O
-      : (opts: { ctx: Ctx; signal?: AbortSignal }) => Promise<void> | void;
+      ? (opts: ProcedureHandlerOpts<S, Ctx>) => Promise<O> | O
+      : (opts: ProcedureHandlerOpts<S, Ctx>) => Promise<void> | void;
 
 // ── ImplementSurfaceDeps ────────────────────────────────────────────────
 

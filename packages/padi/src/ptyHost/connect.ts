@@ -93,10 +93,15 @@ export async function connectKaval(
     socket.destroy();
     // The ONE failure that proves the survivor is incompatible — raise the typed
     // skew error so `adoptOrEnsure` recycles it (retrying can't fix incompatible
-    // contracts). Every other reject above stays a plain Error (non-skew).
-    throw new DaemonContractSkewError(
-      `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
-    );
+    // contracts). Every other reject above stays a plain Error (non-skew). The
+    // versions ride as FIELDS (SK2) so every downstream consumer — the typed
+    // recycleKaval rethrow, the `incompatible` status arm — reads them
+    // structurally, never re-parsing the message prose.
+    throw new DaemonContractSkewError({
+      subject: "pty-host",
+      daemonVersion: version.contractVersion,
+      requiredVersion: PTY_HOST_CONTRACT_VERSION,
+    });
   }
   let closed = false;
   socket.once("close", () => {

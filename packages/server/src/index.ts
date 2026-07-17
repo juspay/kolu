@@ -738,6 +738,21 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         );
       s.recheck();
     },
+    // The skew card's [Update & restart kaval] (SK5): drain THIS host's padi via
+    // the binder-owned `renew()` — padi persists + exits, the reconnect loop
+    // re-dials (re-realising the CURRENT closure on the host — `resolveDrvPath`
+    // runs fresh at the top of every dial), and the new padi's converge policy
+    // recycles the old kaval from its new build. One seam for local and remote
+    // alike (D1): the local session is a pool member exactly like a remote one.
+    // An unknown host is a loud throw, never a silent no-op.
+    renewHostDaemon: async (host) => {
+      const s = pool.getSession(encodeHostKey(host));
+      if (s === undefined)
+        throw new Error(
+          `cannot renew daemon on unknown host "${encodeHostKey(host)}"`,
+        );
+      await s.renew();
+    },
   });
 
   // --- oRPC handlers (HTTP non-streaming + WS streaming) ---

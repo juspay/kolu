@@ -44,13 +44,21 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     // Without the guard these connected facts would resolve to `down`…
     expect(
       resolveCanvasMode(
-        connected({ down: "dead", warming: true, terminalCount: 0 }),
+        connected({
+          down: { state: "dead" as const },
+          warming: true,
+          terminalCount: 0,
+        }),
       ),
-    ).toEqual({ kind: "down", state: "dead" });
+    ).toEqual({ kind: "down", down: { state: "dead" } });
     // …but with isLoading the guard fires first.
     expect(
       resolveCanvasMode(
-        connected({ isLoading: true, down: "dead", terminalCount: 0 }),
+        connected({
+          isLoading: true,
+          down: { state: "dead" as const },
+          terminalCount: 0,
+        }),
       ),
     ).toEqual({ kind: "connecting" });
   });
@@ -75,7 +83,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
           terminalCount: 0,
         }),
       ),
-    ).toEqual({ kind: "down", state: "dead" });
+    ).toEqual({ kind: "down", down: { state: "dead" } });
     // The SAME facts before the timeout still hold the neutral connecting surface.
     expect(
       resolveCanvasMode(
@@ -93,7 +101,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
       resolveCanvasMode(
         connected({ isLoading: true, pendingTimedOut: true, terminalCount: 0 }),
       ),
-    ).toEqual({ kind: "down", state: "dead" });
+    ).toEqual({ kind: "down", down: { state: "dead" } });
   });
 
   it("a REMOTE binding coming up (connectPhase copying/building) resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
@@ -131,7 +139,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
         pendingTimedOut: true,
         isLocalHost: true,
       }),
-    ).toEqual({ kind: "down", state: "dead" });
+    ).toEqual({ kind: "down", down: { state: "dead" } });
   });
 
   it("A' — a CONNECTED entry can NEVER show the connect overlay (the green-chip / Building-forever trap is unspellable)", () => {
@@ -261,17 +269,23 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
 describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
   it("down beats empty and carries its dead/degraded sub-state", () => {
     expect(
-      resolveCanvasMode(connected({ down: "dead", terminalCount: 0 })),
-    ).toEqual({ kind: "down", state: "dead" });
+      resolveCanvasMode(
+        connected({ down: { state: "dead" as const }, terminalCount: 0 }),
+      ),
+    ).toEqual({ kind: "down", down: { state: "dead" } });
     expect(
-      resolveCanvasMode(connected({ down: "degraded", terminalCount: 5 })),
-    ).toEqual({ kind: "down", state: "degraded" });
+      resolveCanvasMode(
+        connected({ down: { state: "degraded" as const }, terminalCount: 5 }),
+      ),
+    ).toEqual({ kind: "down", down: { state: "degraded" } });
   });
 
   it("down beats warming when both are set", () => {
     expect(
-      resolveCanvasMode(connected({ down: "degraded", warming: true })),
-    ).toEqual({ kind: "down", state: "degraded" });
+      resolveCanvasMode(
+        connected({ down: { state: "degraded" as const }, warming: true }),
+      ),
+    ).toEqual({ kind: "down", down: { state: "degraded" } });
   });
 
   it("warming beats empty and carries its daemonState payload (copy is derived at render)", () => {
@@ -345,5 +359,45 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
     expect(
       resolveCanvasMode(connected({ channelLive: true, terminalCount: 0 })),
     ).toEqual({ kind: "empty" });
+  });
+});
+
+describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", () => {
+  it("flows to the down mode WITH its typed version payload — the skew card renders both versions", () => {
+    expect(
+      resolveCanvasMode(
+        connected({
+          down: {
+            state: "incompatible" as const,
+            daemonVersion: "5.0",
+            requiredVersion: "5.2",
+          },
+          terminalCount: 0,
+        }),
+      ),
+    ).toEqual({
+      kind: "down",
+      down: {
+        state: "incompatible",
+        daemonVersion: "5.0",
+        requiredVersion: "5.2",
+      },
+    });
+  });
+
+  it("beats warming and empty exactly like dead/degraded — a terminal verdict, not a transient", () => {
+    expect(
+      resolveCanvasMode(
+        connected({
+          down: {
+            state: "incompatible" as const,
+            daemonVersion: "5.0",
+            requiredVersion: "5.2",
+          },
+          warming: true,
+          terminalCount: 3,
+        }),
+      ).kind,
+    ).toBe("down");
   });
 });
