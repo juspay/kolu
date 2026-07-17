@@ -180,8 +180,28 @@ speaks 5.0, your kolu needs 5.2") and offers **Update &amp; restart kaval**
 behind a confirm: it re-provisions the host's build and starts a
 correct-version kaval. The same verdict shows in the kaval dialog and on the
 host chip — the one badge that also flags an ordinary "newer build available".
+And if an update genuinely **can't converge** — most often because another kolu
+install or session on that machine is still running an old-build kaval — the
+card now **says so honestly** ("renew didn't converge — still kaval 5.0, needs
+5.2") instead of repainting the same hopeful promise for you to click again.
+
+**One private workspace per kolu.** Each kolu binds a machine in its **own
+private workspace** on that machine, keyed to a stable per-install identity — so
+two kolus (or a lingering older session) pointed at the same machine no longer
+**share and fight over** its terminal daemon, which is what used to make _Update
+&amp; restart kaval_ loop forever. The same kolu re-attaches its own workspace
+across restarts; two different kolus never collide.
 
 ## Known limitations
+
+**The move to a private workspace is a one-time cutover.** The first time your
+kolu re-binds a machine after this landed, it starts a **fresh** private
+workspace there — the terminals from the old **shared** workspace are **not
+carried over**. That old daemon keeps running, idle and unbound, until the
+machine reboots or you clean it up (kolu names it in its logs but never touches
+it). Carrying those terminals across automatically was removed on purpose: done
+naively it could re-introduce the very daemon fight this change fixes. A safe
+explicit hand-off is planned.
 
 A kolu remote terminal is an **ssh session** — not the machine's GUI login
 session. A class of tools that "just work" in the box's own terminal lean on that

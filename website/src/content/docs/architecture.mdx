@@ -90,7 +90,7 @@ it keeps running.
 | --- | --- | --- |
 | [`PWA client`](/install-pwa) | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
 | `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds padi | Restart it and no terminal metadata is lost — padi's registry stays warm; the remote-host fleet you added survives too (kolu-server persists its own small membership list as a field in its config store, distinct from the per-terminal state the daemons hold). |
-| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds. |
+| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds. On a **remote** host, each kolu binds its own **private** padi workspace (the folder's leaf carries that kolu's stable per-install id), so two kolus pointed at one machine never share and fight over its daemon. |
 | [`kaval`](/kaval) | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
 
 ## A deploy _adopts_ what's running
