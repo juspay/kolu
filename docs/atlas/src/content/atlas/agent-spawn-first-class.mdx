@@ -84,10 +84,37 @@ our A/B evidence.
 - These workaround notes in the skills get deleted the day the structural fix
   merges.
 
-<Callout kind="warn" title="Order of work">
-  1. kaval-tui's clean environment (stops the data loss everywhere) →
-  2. fix the mcp tool description + pin "agent launch is a verb" in the
-  kolu-cli plan → 3. the skill rules above → 4. kaval's remember-the-argv
-  bookkeeping. Grounded by a 16-agent architecture + perfection review
-  (13 findings, 0 refuted).
+## PR phases
+
+Three PRs, each independently shippable, ordered by harm:
+
+**PR 1 — stop the data loss** (small; `kaval-tui` + docs + skills).
+The clean-environment change in `kaval-tui`'s create path, the corrected
+`kolu mcp` tool description, and the interim skill rules (the "until the fix
+ships" section above) landed in the same PR — each rule tagged with which PR
+deletes it. Red-first pin: the #1872 A/B itself — spawn a claude via
+`kaval-tui create` from a session carrying the orchestrator variables; today
+its transcript never appears (red), after: it does (green).
+
+**PR 2 — stop the detection loss** (small; `kaval`).
+The remember-the-argv bookkeeping: seed `lastCommand` (and the initial title)
+from the spawn argv, publish it on the same channel the shell marker uses,
+with a precedence test (seed writes first, live shell marks win later). Pin:
+a command-rooted terminal's `lastCommand` equals its argv at birth. This PR
+deletes PR 1's "never `create -- <agent>`" skill rule for the *detection*
+reason; the terminal is still shell-less, so the Dock's richer shell
+affordances stay absent — which is fine for the raw CLI path.
+
+**PR 3 — the face verb** (rides the kolu-tui build-out, not before).
+"Launch an agent" as a first-class operation on the tui face (create shell →
+type command → detection confirmed), matching what the mcp face already does
+by construction. The padi sensor discrimination ("is the root even a shell?")
+is **demand-gated into this PR only if** command-rooted terminals become
+visible to workspace sensors by then — otherwise it stays unbuilt, recorded
+here.
+
+<Callout kind="warn" title="Grounding">
+  Shapes and file:line anchors from a 16-agent architecture + perfection
+  review over the #1872 evidence (13 findings, 0 refuted). Each PR carries
+  its own red-first pin; none depends on the others to merge.
 </Callout>
