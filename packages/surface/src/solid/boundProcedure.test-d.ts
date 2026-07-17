@@ -159,3 +159,96 @@ expectTypeOf<TransformedInput>().toEqualTypeOf<string>();
 expectTypeOf<
   Awaited<ReturnType<BoundProcedure<Divergent["transformed"]>>>
 >().toEqualTypeOf<number>();
+
+// ── The DECLARED-ERRORS axis (SK6) threads through BOTH ladders, all four arms ─
+//
+// `ProcedureSpec.errors` must reach the wire callable's error phantom via
+// `ProcedureContract` (so `safe()` narrows a raw `.rpc` call) AND the
+// hand-rolled `BoundProcedure` face (so `client.procedures.*` rejections carry
+// the same union) — for EVERY input/output arm, not just the shape one caller
+// happens to use (the define.ts drift-watch: all four `buildProcedure*`
+// oracles moved, this pins that none regresses). The declared code's DATA
+// shape survives to the narrowed `ORPCError`.
+
+const skewData = z.object({
+  daemonVersion: z.string(),
+  requiredVersion: z.string(),
+});
+
+const withErrors = defineSurface({
+  procedures: {
+    ns: {
+      both: {
+        input: z.object({ a: z.string() }),
+        output: z.number(),
+        errors: { E_BOTH: { data: skewData } },
+      },
+      inputOnly: {
+        input: z.object({ b: z.string() }),
+        errors: { E_IN: { data: skewData } },
+      },
+      outputOnly: {
+        output: z.boolean(),
+        errors: { E_OUT: { data: skewData } },
+      },
+      neither: { errors: { E_NONE: { data: skewData } } },
+    },
+  },
+});
+
+type EProcs = NonNullable<(typeof withErrors.spec)["procedures"]>["ns"];
+type EWire = ContractRouterClient<
+  typeof withErrors.contract,
+  ClientRetryPluginContext
+>["surface"]["ns"];
+
+// Extract the error phantom off a callable's `ClientPromiseResult` return.
+// biome-ignore lint/suspicious/noExplicitAny: type-level extraction over any callable arm.
+type ErrOf<F extends (...args: any) => any> = NonNullable<
+  ReturnType<F>["__error"]
+>["type"];
+
+// The declared code is present in the union with its declared data type, on
+// BOTH derivations, for each arm.
+type DataOf<E, Code extends string> =
+  Extract<E, { code: Code }> extends {
+    data: infer D;
+  }
+    ? D
+    : never;
+
+expectTypeOf<DataOf<ErrOf<EWire["both"]>, "E_BOTH">>().toEqualTypeOf<
+  z.output<typeof skewData>
+>();
+expectTypeOf<
+  DataOf<ErrOf<BoundProcedure<EProcs["both"]>>, "E_BOTH">
+>().toEqualTypeOf<z.output<typeof skewData>>();
+
+expectTypeOf<DataOf<ErrOf<EWire["inputOnly"]>, "E_IN">>().toEqualTypeOf<
+  z.output<typeof skewData>
+>();
+expectTypeOf<
+  DataOf<ErrOf<BoundProcedure<EProcs["inputOnly"]>>, "E_IN">
+>().toEqualTypeOf<z.output<typeof skewData>>();
+
+expectTypeOf<DataOf<ErrOf<EWire["outputOnly"]>, "E_OUT">>().toEqualTypeOf<
+  z.output<typeof skewData>
+>();
+expectTypeOf<
+  DataOf<ErrOf<BoundProcedure<EProcs["outputOnly"]>>, "E_OUT">
+>().toEqualTypeOf<z.output<typeof skewData>>();
+
+expectTypeOf<DataOf<ErrOf<EWire["neither"]>, "E_NONE">>().toEqualTypeOf<
+  z.output<typeof skewData>
+>();
+expectTypeOf<
+  DataOf<ErrOf<BoundProcedure<EProcs["neither"]>>, "E_NONE">
+>().toEqualTypeOf<z.output<typeof skewData>>();
+
+// An errors-LESS spec keeps the plain face — the SAME error phantom the wire
+// derivation resolves for it (oRPC's default `ThrowableError`, no declared
+// union): the cross-derivation equality the rest of this file pins, applied
+// to the new axis's absent case.
+expectTypeOf<ErrOf<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
+  ErrOf<WireProcs["both"]>
+>();

@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 620" font-family="ui-sans-serif,system-ui" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
+    </marker>
+    <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1b7a3a"/>
+    </marker>
+  </defs>
+
+  <!-- ══ Row 1: the skew FACT's typed path ══ -->
+  <text x="20" y="24" font-weight="700" fill="#1a1c20" font-size="14">The skew fact — typed at the mint, typed at every hop</text>
+
+  <!-- A: mint -->
+  <rect x="20" y="40" width="252" height="112" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="34" y="64" font-weight="700" fill="#1b7a3a">MINT · connect.ts:97</text>
+  <text x="34" y="86" font-family="ui-monospace,monospace" font-size="12" fill="#1a1c20">DaemonContractSkewError</text>
+  <text x="34" y="106" font-family="ui-monospace,monospace" font-size="12" fill="#1b7a3a">+ daemonVersion</text>
+  <text x="34" y="124" font-family="ui-monospace,monospace" font-size="12" fill="#1b7a3a">+ requiredVersion</text>
+  <text x="34" y="143" font-size="11" fill="#5b6470">SK2 — message derived from fields</text>
+
+  <line x1="272" y1="96" x2="316" y2="96" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#arrg)"/>
+
+  <!-- B: state sum -->
+  <rect x="320" y="40" width="286" height="112" rx="10" fill="#fff" stroke="#0b6478" stroke-width="1.5"/>
+  <text x="334" y="64" font-weight="700" fill="#0b6478">STATE · supervisor endpoint</text>
+  <text x="334" y="86" font-family="ui-monospace,monospace" font-size="12" fill="#1a1c20">… | degraded | dead |</text>
+  <text x="334" y="106" font-family="ui-monospace,monospace" font-size="12" fill="#0b6478" font-weight="700">incompatible{dv, rv}</text>
+  <text x="334" y="126" font-size="11" fill="#b3261e">today: catch→dead (endpoint.ts:431),</text>
+  <text x="334" y="142" font-size="11" fill="#b3261e">refuse→degraded (:741) — the collapse</text>
+
+  <line x1="606" y1="96" x2="650" y2="96" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#arrg)"/>
+
+  <!-- C: wire -->
+  <rect x="654" y="40" width="256" height="112" rx="10" fill="#fff" stroke="#0b6478" stroke-width="1.5"/>
+  <text x="668" y="64" font-weight="700" fill="#0b6478">WIRE · daemonStatus</text>
+  <text x="668" y="86" font-size="12" fill="#1a1c20">DaemonStatusSchema — a third</text>
+  <text x="668" y="104" font-size="12" fill="#1a1c20">object arm (vocab.ts:577)</text>
+  <text x="668" y="126" font-family="ui-monospace,monospace" font-size="11" fill="#0b6478">{state:"incompatible",</text>
+  <text x="668" y="142" font-family="ui-monospace,monospace" font-size="11" fill="#0b6478"> daemonVersion, requiredVersion}</text>
+
+  <line x1="910" y1="96" x2="954" y2="96" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#arrg)"/>
+
+  <!-- D: derivation -->
+  <rect x="958" y="40" width="262" height="112" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="972" y="64" font-weight="700" fill="#1b7a3a">DERIVE · kavalAttention()</text>
+  <text x="972" y="86" font-size="12" fill="#1a1c20">kavalCurrency.ts — the ONE</text>
+  <text x="972" y="104" font-size="12" fill="#1a1c20">version-comparison site (SK5)</text>
+  <text x="972" y="126" font-family="ui-monospace,monospace" font-size="11" fill="#1b7a3a">none | stale{run,exp}</text>
+  <text x="972" y="142" font-family="ui-monospace,monospace" font-size="11" fill="#1b7a3a">     | incompatible{dv,rv}</text>
+
+  <!-- ══ Row 2: one chrome, three readouts ══ -->
+  <line x1="1000" y1="152" x2="760" y2="216" stroke="#5b6470" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="1060" y1="152" x2="960" y2="216" stroke="#5b6470" stroke-width="1.2" marker-end="url(#arr)"/>
+  <line x1="1120" y1="152" x2="1128" y2="216" stroke="#5b6470" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="654" y="220" width="200" height="76" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.2"/>
+  <text x="668" y="244" font-weight="700" font-size="12" fill="#8a5200">canvas skew card</text>
+  <text x="668" y="262" font-size="11" fill="#1a1c20">DegradedCanvas gains the</text>
+  <text x="668" y="278" font-size="11" fill="#1a1c20">incompatible arm — no Restart</text>
+
+  <rect x="874" y="220" width="200" height="76" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.2"/>
+  <text x="888" y="244" font-weight="700" font-size="12" fill="#8a5200">KavalInfoDialog banner</text>
+  <text x="888" y="262" font-size="11" fill="#1a1c20">same slot as "newer build</text>
+  <text x="888" y="278" font-size="11" fill="#1a1c20">available" — two axes, one chrome</text>
+
+  <rect x="1094" y="220" width="126" height="76" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.2"/>
+  <text x="1108" y="244" font-weight="700" font-size="12" fill="#8a5200">host-chip pip</text>
+  <text x="1108" y="262" font-size="11" fill="#1a1c20">+ tooltip, same</text>
+  <text x="1108" y="278" font-size="11" fill="#1a1c20">derivation</text>
+
+  <!-- ══ Row 3: recovery, a total function ══ -->
+  <line x1="937" y1="296" x2="937" y2="336" stroke="#5b6470" stroke-width="1.2" marker-end="url(#arr)"/>
+
+  <rect x="654" y="340" width="566" height="118" rx="10" fill="#fff" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="668" y="364" font-weight="700" fill="#1b7a3a">RECOVERY · a total function of the axis — SK5</text>
+  <text x="668" y="388" font-size="12" fill="#1a1c20"><tspan font-weight="700">stale</tspan> → lifecycle.recycleKaval (RestartKavalButton — converge the build from</text>
+  <text x="668" y="404" font-size="12" fill="#1a1c20">the padi's own closure)</text>
+  <text x="668" y="428" font-size="12" fill="#1a1c20"><tspan font-weight="700">incompatible · any host</tspan> → confirm → hosts.renewDaemon → binder renew(): drain →</text>
+  <text x="668" y="444" font-size="12" fill="#1a1c20">re-realise closure → re-exec → converge recycles kaval. <tspan fill="#b3261e">Respawn already failed; change the closure.</tspan></text>
+
+  <!-- ══ Left-bottom: the RPC error leg ══ -->
+  <text x="20" y="214" font-weight="700" fill="#1a1c20" font-size="14">The RPC leg — declared, not flattened</text>
+
+  <rect x="20" y="230" width="280" height="96" rx="10" fill="#fff" stroke="#0b6478" stroke-width="1.5"/>
+  <text x="34" y="254" font-weight="700" fill="#0b6478">HANDLER · recycleKaval</text>
+  <text x="34" y="274" font-size="12" fill="#1a1c20">servePadi.ts:443 — catch skew,</text>
+  <text x="34" y="292" font-family="ui-monospace,monospace" font-size="11" fill="#0b6478">throw errors.KAVAL_CONTRACT_SKEW</text>
+  <text x="34" y="308" font-size="11" fill="#5b6470">SK3 (ad-hoc) → SK6 (declared)</text>
+
+  <line x1="300" y1="278" x2="344" y2="278" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#arrg)"/>
+
+  <rect x="348" y="230" width="258" height="96" rx="10" fill="#fff" stroke="#0b6478" stroke-width="1.5"/>
+  <text x="362" y="254" font-weight="700" fill="#0b6478">CONTRACT · defineSurface</text>
+  <text x="362" y="274" font-family="ui-monospace,monospace" font-size="11" fill="#1a1c20">ProcedureSpec.errors → oc.errors()</text>
+  <text x="362" y="292" font-size="12" fill="#1a1c20">declared union on the wire (SK6)</text>
+  <text x="362" y="308" font-size="11" fill="#5b6470">oRPC 1.13.13 — API exists at the pin</text>
+
+  <line x1="477" y1="326" x2="477" y2="366" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#arrg)"/>
+
+  <rect x="348" y="370" width="258" height="88" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.5"/>
+  <text x="362" y="394" font-weight="700" fill="#1b7a3a">CLIENT · discriminated catch</text>
+  <text x="362" y="414" font-family="ui-monospace,monospace" font-size="11" fill="#1a1c20">isDefinedError(e) → e.data:</text>
+  <text x="362" y="430" font-family="ui-monospace,monospace" font-size="11" fill="#1a1c20">{daemonVersion, requiredVersion}</text>
+  <text x="362" y="448" font-size="11" fill="#5b6470">feeds the same kavalAttention chrome</text>
+
+  <!-- the killed path -->
+  <rect x="20" y="370" width="280" height="88" rx="10" fill="#fbeaea" stroke="#b3261e" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="34" y="394" font-weight="700" fill="#b3261e">KILLED · the flatten</text>
+  <text x="34" y="414" font-family="ui-monospace,monospace" font-size="11" fill="#b3261e">plain Error → toORPCError →</text>
+  <text x="34" y="430" font-family="ui-monospace,monospace" font-size="11" fill="#b3261e">"INTERNAL_SERVER_ERROR"</text>
+  <text x="34" y="448" font-size="11" fill="#b3261e">today's toast — the P5 defect</text>
+  <line x1="30" y1="380" x2="290" y2="448" stroke="#b3261e" stroke-width="2"/>
+
+  <!-- footer strip: log bridge -->
+  <rect x="20" y="490" width="1200" height="106" rx="10" fill="#f4f1e8" stroke="#e6e2d6" stroke-width="1.2"/>
+  <text x="34" y="514" font-weight="700" fill="#1a1c20">SK1 · the log bridge — the crash that hid everything</text>
+  <text x="34" y="538" font-size="12" fill="#1a1c20">makeSession's <tspan font-family="ui-monospace,monospace">onLog?: (line, severity) =&gt; void</tspan> becomes <tspan font-family="ui-monospace,monospace">log?: Logger</tspan> (the @kolu/log shape). emit calls <tspan font-family="ui-monospace,monospace">opts.log[severity]({ line }, label)</tspan> —</text>
+  <text x="34" y="558" font-size="12" fill="#1a1c20">a receiver-bound call, so the consumer-side unbound-pino ternary (remotePadiBinding.ts:697, padiBinding.ts:605) has no spellable form left.</text>
+  <text x="34" y="578" font-size="12" fill="#b3261e">The compensating per-line try/catch (session.ts:567) is DELETED — its reason to exist is gone; keeping it would hide the next regression.</text>
+</svg>

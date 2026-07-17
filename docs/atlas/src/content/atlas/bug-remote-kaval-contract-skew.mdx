@@ -2,7 +2,7 @@
 title: "Bug — remote host: kaval didn't start, Restart → Internal server error (contract skew)"
 description: "A newer local kolu binds a stale remote host whose kaval speaks an older pty-host contract. The skew is well-typed at its source but flattens to a generic error, the Restart button is a dead end, and the remote log bridge crashes per line. Fix in two tiers — the instances, and the surface-framework fortification that makes the class inexpressible."
 parents: [bug, surface]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-07-16
 ---

@@ -322,7 +322,14 @@ function foldedEvent(
 function foldedProcedure(spec: ProcedureSpec<unknown, unknown>): unknown {
   const input = foldInput(spec.input);
   const output = spec.output ?? z.void();
-  return oc.input(input).output(output);
+  // The entry's DECLARED error union rides the folded contract too (SK6):
+  // without it, the map hop's `validateORPCError` finds the code undeclared
+  // and RESETS `defined` to false — the leaf's typed error would arrive
+  // demoted at the outer client, exactly the flatten the declaration kills.
+  return oc
+    .input(input)
+    .output(output)
+    .errors(spec.errors ?? {});
 }
 
 /** Walk the entry spec and produce the key-folded inner contract — one

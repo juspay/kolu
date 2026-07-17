@@ -72,6 +72,7 @@ import {
   createEndpoint,
   type DaemonDriver,
   daemonBuild,
+  isDownEndpointState,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -472,11 +473,18 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     connect: () => connectPadi(socketPath),
     log,
     onStatus: (_hostId, status) => {
-      // A degraded/dead close ends the current dial → resolve its `closed` so the
-      // session loop reconnects. connecting/connected/restarting are transient warmth
-      // the loop's own state covers; the binder's health rides the re-serve `connection`
-      // cell, so there is nothing to publish to daemonStatus.
-      if (status.state === "degraded" || status.state === "dead") {
+      // A down/terminal close ends the current dial → resolve its `closed` so
+      // the session loop reconnects. connecting/connected/restarting are
+      // transient warmth the loop's own state covers; the binder's health
+      // rides the re-serve `connection` cell, so there is nothing to publish to
+      // daemonStatus. The `incompatible` arm (SK4 — the refuse-policy verdict a
+      // skewed padi survivor now reports instead of `degraded`) is covered
+      // because the states' HOME classification (`ENDPOINT_STATE_DOWN` in
+      // `@kolu/surface-daemon-supervisor`) marks it down — missing it there
+      // would strand `closed` unresolved and stop the session loop reconciling,
+      // which is exactly why the classification is total at the home rather
+      // than hand-spelled per consumer.
+      if (isDownEndpointState(status.state)) {
         const resolve = currentClosed;
         currentClosed = null;
         // `Endpoint`'s in-process daemon link died with NO child process — a
@@ -602,12 +610,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     initialConnection: "connecting",
     reconnectDelayMs: opts.reconnectDelayMs,
     label: PADI_HOST_ID,
-    onLog: (line, severity) =>
-      (severity === "error"
-        ? log.error
-        : severity === "debug"
-          ? log.debug
-          : log.info)({ line }, "local padi session"),
+    // The session dispatches severity internally on the receiver (SK1) — no
+    // consumer-side method extraction (the unbound-`this` pino crash class).
+    log,
   });
 
   // NB: this builds the session but does NOT dial — the loop warms on the first `pin()`.

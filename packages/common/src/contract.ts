@@ -103,5 +103,15 @@ export const contract = oc.router({
      *  it is NOT the inert-retry we forbade — it genuinely re-dials the held arm. An
      *  unknown host is a typed reject. */
     reconnect: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
+    /** Update & restart a host's daemon stack — the CONTRACT-SKEW recovery (SK5).
+     *  The binder DRAINS that host's padi (session persisted; the reconnect loop
+     *  re-dials, re-realising the CURRENT closure on the host) and the fresh
+     *  padi's converge policy recycles the old kaval from its new build. The one
+     *  action that changes the BINARY — offered by the `incompatible` skew card,
+     *  where a plain restart provably respawns the same old kaval. Applies to
+     *  BOTH local and remote hosts (D1 — the local drain rides the same seam).
+     *  An unknown host rejects loudly (a plain server error the caller's
+     *  toast surfaces — same shape as `reconnect`'s guard). */
+    renewDaemon: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
   },
 });

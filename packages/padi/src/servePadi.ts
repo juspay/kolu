@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
@@ -440,20 +441,41 @@ export function buildPadiSurfaceDeps(deps: {
         // this is the `adopt-or-ensure` recycle arm, never a padi restart (that is
         // the separate `control.drain` upgrade path). Resolves once the fresh kaval
         // is connected; a failure rejects with the captured session safe on disk.
-        recycleKaval: async () => {
+        recycleKaval: async ({ errors }) => {
           log.info({}, "recycle kaval (Restart kaval)");
           try {
             await restartLocalDaemon();
           } catch (err) {
+            const skew = isContractSkewError(err);
             // A failed restart otherwise surfaces ONLY as a client toast — padi's
             // journal would show the "recycle kaval" start line and then an
             // unexplained silence. Surface it: the endpoint has already reported
-            // dead/degraded and the captured session is safe on disk (the user can
-            // retry or restore), but the failure must be legible in the journal.
+            // its terminal state and the captured session is safe on disk (the
+            // user can retry or restore), but the failure must be legible in the
+            // journal — naming the ACTUAL state (skew → `incompatible`).
             log.error(
               { err },
-              "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
+              skew
+                ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
+                : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
             );
+            // A contract skew is the ONE failure this handler can translate — it
+            // is the knowing endpoint (the `fileGoneAsNotFound` precedent): a
+            // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
+            // and the user would read an opaque toast (the field failure,
+            // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
+            // error constructor (SK6) — versions as typed data, `defined: true`
+            // on the wire — one recycle attempt was the diagnosis; padi is not
+            // the actor that can fix a skew (only the binder's reprovision is).
+            if (isContractSkewError(err)) {
+              throw errors.KAVAL_CONTRACT_SKEW({
+                message: err.message,
+                data: {
+                  daemonVersion: err.daemonVersion,
+                  requiredVersion: err.requiredVersion,
+                },
+              });
+            }
             throw err;
           }
         },
