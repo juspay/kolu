@@ -44,7 +44,8 @@ The package graduated to a **process**: `package = process = restart-hash`.
   `node --import <tsx loader> bin.ts` with a `PADI_BUILD_ID` staleKey (a content
   hash of padi's daemon source closure — pinned by `buildId.closure.test.ts`).
 - **Identity IS the state-root** (`./stateRoot`). The persistent state-root (the
-  binary spells the default on the host: `$XDG_STATE_HOME/padi`) holds padi's
+  binary spells the default on the host, env-insensitive: `$HOME/.local/state/padi`)
+  holds padi's
   `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
   a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
   live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root
@@ -94,8 +95,19 @@ remote host — reusing the local arm's seam, not a parallel one:
 - **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of
   `getHostSession` + `frontDaemonOverStdio` (kill the remote padi → the reconnect
   respawns it; restart kolu-server → it re-adopts the still-running daemon, PTYs
-  intact). The remote padi spells its OWN default state-root on ITS host; the binder
-  passes nothing, and a fresh host's legacy import correctly no-ops.
+  intact). The remote padi still spells its state-root's BASE on ITS host (the
+  identity-anchor invariant) — the binder never sends a path.
+- **Isolation-default — one estate per client.** So two kolu-servers binding the
+  SAME host don't share (and livelock over) one kaval, the binder forwards its
+  **stable persisted per-client UUID** as `--client-id` (unless an explicit
+  `KOLU_REMOTE_PADI_STATE_DIR` override is set); the remote padi anchors to a
+  per-client estate `$HOME/.local/state/padi-<uuid>` (`isolatedPadiStateRoot`,
+  computed host-side — only the opaque id crosses the wire). The UUID is stable, so
+  the same kolu **re-attaches** its own estate across restarts; distinct across
+  installs, so two kolus **never collide**. On the first isolated boot,
+  `--legacy-state-root` adopts the pre-isolation default estate's running terminals
+  ONCE (the `--client-id` twin of the W2.2 `--legacy-kaval-socket` bridge), so the
+  upgrade orphans nothing. See `bin.ts` USAGE for the flags.
 - **The ssh-user 0700 caveat.** The remote padi runs AS THE SSH USER, and (like
   kaval) serves its socket in a `0700` owner-only runtime dir — so the SSH identity
   **is** the daemon owner. Two ssh users get two isolated padis by construction; a

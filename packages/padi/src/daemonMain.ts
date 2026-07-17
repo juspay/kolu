@@ -361,15 +361,18 @@ export async function runPadiDaemon(
   opts: PadiDaemonOptions,
 ): Promise<DaemonExit> {
   const { log } = opts;
-  // A DAEMON boot: route padi's domain pino stream (the `@kolu/padi` `log` this module and its
-  // domain code share) to the rolled-file + stderr multistream (P0). Unconditional at the ONE
-  // entrypoint every spawn path runs, so no spawn path can forget it; fails loud here if the
-  // state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
-  configureDaemonLog();
-  // With no explicit override, `clientId` anchors this padi to its per-client
-  // ISOLATED estate (the isolation-default) — the base is still spelled on THIS host,
-  // only the opaque id crosses the wire (the identity-anchor invariant).
+  // Resolve the state-root FIRST (pure, no side effects) so the daemon log below is
+  // keyed to it: with no explicit override, `clientId` anchors this padi to its
+  // per-client ISOLATED estate (the isolation-default) — the base is still spelled on
+  // THIS host, only the opaque id crosses the wire (the identity-anchor invariant).
   const stateRoot = resolvePadiStateRoot(opts.stateRoot, opts.clientId);
+  // A DAEMON boot: route padi's domain pino stream (the `@kolu/padi` `log` this module and its
+  // domain code share) to the rolled-file + stderr multistream (P0), KEYED to the resolved
+  // state-root so an isolated daemon's `padi.log` lands in its own `padi-<uuid>` estate (not
+  // the shared default, where N isolated daemons would race one rolled file). Unconditional at
+  // the ONE entrypoint every spawn path runs, so no spawn path can forget it; fails loud here
+  // if the state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
+  configureDaemonLog(stateRoot);
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   const gatePath = padiGatePath(socketPath);
   const kavalSocket = padiKavalSocketPath(stateRoot);

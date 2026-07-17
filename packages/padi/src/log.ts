@@ -44,8 +44,14 @@ function buildDefaultLogger(): Logger {
  *  a detached daemon's crash-catcher file wired by the spawn spine) still works, and every
  *  daemon leaves a bounded, readable file instead of `/dev/null`. Fails LOUD at boot if the
  *  state root is unwritable — never a silently log-less daemon. */
-function buildDaemonLogger(): Logger {
-  const file = padiLogPath();
+function buildDaemonLogger(stateRoot?: string): Logger {
+  // Keyed by the daemon's RESOLVED state-root so the rolled log lands in the estate
+  // the daemon actually serves — for a per-client ISOLATED padi that is
+  // `$HOME/.local/state/padi-<uuid>/padi.log`, not the shared default estate. Passing
+  // the already-resolved absolute path is a no-op re-resolve (see `padiLogPath`), so
+  // isolation is honored here exactly as it is for the stderr log. Absent (a standalone
+  // daemon) → the binary default, unchanged.
+  const file = padiLogPath(stateRoot);
   // Fail-fast writability probe (synchronous, so an unwritable state root crashes the boot
   // loudly rather than the pino-roll worker failing async and the daemon logging nowhere).
   // `mode: 0o700` keeps a freshly-created state root owner-only (consistent with the daemon's
@@ -72,8 +78,8 @@ let active: Logger = buildDefaultLogger();
 /** Reconfigure padi's logs for a DAEMON boot — the rolled file + stderr multistream. Called
  *  UNCONDITIONALLY by the daemon entrypoint (`runPadiDaemon`); because EVERY spawn path runs
  *  that same entrypoint, no spawn path can forget it and silently discard logs. Idempotent. */
-export function configureDaemonLog(): void {
-  active = buildDaemonLogger();
+export function configureDaemonLog(stateRoot?: string): void {
+  active = buildDaemonLogger(stateRoot);
 }
 
 /** A stable handle forwarding to the ACTIVE logger, so {@link configureDaemonLog} can swap the
