@@ -21,7 +21,7 @@ import { isDefinedError, safe } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { activeHost, activePadiRpc, client } from "../wire";
+import { activeHost, activePadiRpc, client, hostKeys } from "../wire";
 import {
   daemonChannelLive,
   daemonConnected,
@@ -131,21 +131,52 @@ export function renewSettledUnconverged(host: HostKey): boolean {
 // floored on channel liveness), NOT merely a live ssh/padi LINK. This is the load-bearing
 // distinction: a skewed kaval sits behind a connected link, so clearing on link-up would
 // drop the marker while the host is STILL `incompatible`, and the honest "renew did not
-// converge" copy — the whole point of move 4 — would never show. Keyed on `activeHost`
-// and driven by `daemonConnected` (both reactive on the active host): the effect also
-// re-fires on SWITCH-TO, so a host that converged while BACKGROUNDED clears its marker the
-// instant you switch to it (its status becomes readable and healthy). Rooted so the effect
-// owns itself at module scope (the same `createRoot` shape `localDaemonStatus` uses).
+// converge" copy — the whole point of move 4 — would never show.
+//
+// The effect READS `renewSettledHosts()` at the top so it re-runs when a marker is ADDED,
+// not only on a `daemonConnected` transition. Without that, a renew whose host is ALREADY
+// `connected` by the time `renewDaemon`'s await resolves and adds the marker (the drain +
+// respawn + reconnect can beat the RPC round-trip, esp. locally) would never see a fresh
+// `false→true` edge, so the marker would be POISONED forever and later paint "did not
+// converge" over an unrelated brand-new skew. Tracking the marker signal re-checks against
+// the LIVE `daemonConnected` value on every add, closing that race regardless of arrival
+// order. Keyed on `activeHost`, so it also clears a host that converged while BACKGROUNDED
+// the instant you switch to it. Rooted at module scope (the `localDaemonStatus` shape).
 createRoot(() => {
   createEffect(() => {
+    const settled = renewSettledHosts();
     if (!daemonConnected()) return;
     const key = encodeHostKey(activeHost());
+    if (!settled.has(key)) return;
     setRenewSettledHosts((s) => {
       if (!s.has(key)) return s;
       const next = new Set(s);
       next.delete(key);
       return next;
     });
+  });
+});
+
+// Prune both per-host marker Sets to the LIVE fleet. They are module-lifetime and
+// otherwise clear only on convergence (`renewSettledHosts`) or the drain's `finally`
+// (`renewingHosts`); a host REMOVED from the fleet while marked would leak its key for
+// the session. `hostKeys()` is the reactive fleet, so this drops any key no longer in it
+// the moment a host leaves. Returns the SAME Set reference when nothing changed (no
+// spurious downstream notify).
+createRoot(() => {
+  createEffect(() => {
+    const live = new Set(hostKeys().map(encodeHostKey));
+    const pruneToFleet = (s: ReadonlySet<string>): ReadonlySet<string> => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const key of s) {
+        if (live.has(key)) next.add(key);
+        else changed = true;
+      }
+      return changed ? next : s;
+    };
+    setRenewSettledHosts(pruneToFleet);
+    setRenewingHosts(pruneToFleet);
   });
 });
 

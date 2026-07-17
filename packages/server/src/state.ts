@@ -135,6 +135,15 @@ const PersistedStateSchema = z.object({
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
 
+/** The store's ON-DISK shape: `PersistedState` but with `clientId` OPTIONAL, because
+ *  it is genuinely absent until {@link getClientId} mints it on first read (there is no
+ *  static `defaults` for it — a default would clone one id across every install). Typing
+ *  the `Conf` on this — instead of on `PersistedState` with the field forced present —
+ *  is what lets the `defaults` literal omit `clientId` and `store.get("clientId")` return
+ *  `string | undefined` HONESTLY, with no casts. `getClientId()` is the one boundary that
+ *  refines it to a definite string (minting or failing loud). */
+type OnDiskState = Omit<PersistedState, "clientId"> & { clientId?: string };
+
 /**
  * Schema version — bump this when adding migrations.
  * Must be valid semver. `conf` runs all migration handlers
@@ -169,7 +178,7 @@ log.info({ path: stateDir }, "state directory");
  *  the conf-ladder idiom for stripping a legacy/orphan key (Conf's typed
  *  `delete` rejects keys outside the current schema, hence the double-cast).
  *  Harmless when the key is absent. */
-function deleteLegacyKey(store: Conf<PersistedState>, key: string): void {
+function deleteLegacyKey(store: Conf<OnDiskState>, key: string): void {
   (store as unknown as { delete: (key: string) => void }).delete(key);
 }
 
@@ -205,7 +214,7 @@ const LEGACY_KEYS_STRIPPED_1_31_0 = [
  *
  *  Exported so a test can drive it against a real `Conf` under an ephemeral
  *  `KOLU_STATE_DIR` without walking the whole ladder. */
-export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
+export function stripLegacyStateKeys_1_31_0(store: Conf<OnDiskState>): void {
   const raw = store.store as unknown as Record<string, unknown>;
   const hasLegacy = LEGACY_KEYS_STRIPPED_1_31_0.some((key) => key in raw);
   const bakPath = `${store.path}.pre-1.31-strip.bak`;
@@ -219,7 +228,7 @@ export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
   for (const key of LEGACY_KEYS_STRIPPED_1_31_0) deleteLegacyKey(store, key);
 }
 
-export const store = new Conf<PersistedState>({
+export const store = new Conf<OnDiskState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
   // Owner-only (0600). `hosts` holds ssh targets (`user@host` keys), so the store must
@@ -232,9 +241,10 @@ export const store = new Conf<PersistedState>({
   // `clientId` carries NO default on purpose — a static default would clone ONE identity
   // across every install, defeating the per-client estate key. It is minted lazily by
   // `getClientId()` on first read (see `mintClientIdIfAbsent`), so it is legitimately
-  // absent from `defaults`; conf never reads a default for it. The literal is `satisfies`
-  // -checked against the real per-domain default types (so a typo in a preference/hosts
-  // default is still caught), then asserted to the Conf generic's `PersistedState`.
+  // absent from `defaults`; conf never reads a default for it. The `OnDiskState` generic
+  // types `clientId` optional, so the literal `satisfies OnDiskState` directly — no cast:
+  // a typo in a preference/hosts default is still caught, and the omitted `clientId` is
+  // honest, not papered over.
   defaults: {
     preferences: DEFAULT_PREFERENCES,
     // W10 — the strip-added fleet. Fresh install: no `hosts` key yet, so conf merges this
@@ -242,7 +252,7 @@ export const store = new Conf<PersistedState>({
     // pool's `persist` hook on the first strip add. The 1.33.0 migration seeds it onto an
     // existing pre-W10 file so the on-disk shape matches the schema exactly.
     hosts: [] as string[],
-  } satisfies Omit<PersistedState, "clientId"> as unknown as PersistedState,
+  } satisfies OnDiskState,
   migrations: {
     // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
     // removed entirely in 1.18.0 (replaced by Map insertion order);
@@ -251,13 +261,13 @@ export const store = new Conf<PersistedState>({
     "1.1.0": () => {},
     // Preferences added — old state files don't have them.
     // conf auto-merges defaults, but explicit migration ensures clean shape.
-    "1.2.0": (store: Conf<PersistedState>) => {
+    "1.2.0": (store: Conf<OnDiskState>) => {
       if (!store.has("preferences")) {
         store.set("preferences", DEFAULT_PREFERENCES);
       }
     },
     // sidebarAgentPreviews added — old preference blobs lack this field.
-    "1.3.0": (store: Conf<PersistedState>) => {
+    "1.3.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as
         | Partial<Preferences>
         | undefined;
@@ -270,7 +280,7 @@ export const store = new Conf<PersistedState>({
     // 1.15.0 (#622); migrations preserved as historical record. The 1.15.0
     // pass strips the key from disk for any user that walked through these
     // earlier migrations.
-    "1.4.0": (store: Conf<PersistedState>) => {
+    "1.4.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as unknown as
         | Record<string, unknown>
         | undefined;
@@ -293,7 +303,7 @@ export const store = new Conf<PersistedState>({
     // The `recentAgents` key was a top-level slot until 1.19.0 collapsed
     // it into `activityFeed.recentAgents`; the cast keeps this historical
     // migration valid against the post-1.19 schema.
-    "1.5.0": (store: Conf<PersistedState>) => {
+    "1.5.0": (store: Conf<OnDiskState>) => {
       const untyped = store as unknown as {
         has: (key: string) => boolean;
         set: (key: string, value: unknown) => void;
@@ -303,7 +313,7 @@ export const store = new Conf<PersistedState>({
       }
     },
     // rightPanelCollapsed + rightPanelSize added — old preference blobs lack these fields.
-    "1.6.0": (store: Conf<PersistedState>) => {
+    "1.6.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as
         | Partial<Preferences>
         | undefined;
@@ -313,7 +323,7 @@ export const store = new Conf<PersistedState>({
       });
     },
     // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — discard old flat fields, use default rightPanel.
-    "1.7.0": (store: Conf<PersistedState>) => {
+    "1.7.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as
         | Record<string, unknown>
         | undefined;
@@ -329,7 +339,7 @@ export const store = new Conf<PersistedState>({
     // migration converted that to a DU, and 1.20.0 flattened it again
     // into `activeTab` + `codeMode` — neither of those shapes has a
     // string `tab`, so the early-return skips them cleanly.
-    "1.8.0": (store: Conf<PersistedState>) => {
+    "1.8.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown>;
       if (typeof rp.tab !== "string") return;
@@ -343,7 +353,7 @@ export const store = new Conf<PersistedState>({
     },
     // Tab renamed: "review" → "diff" (#514). Same string-tab guard as
     // 1.8.0 — only acts on the legacy flat-string shape.
-    "1.9.0": (store: Conf<PersistedState>) => {
+    "1.9.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown>;
       if (typeof rp.tab !== "string") return;
@@ -358,7 +368,7 @@ export const store = new Conf<PersistedState>({
     // semantics changed under the hood — "shuffle" now uses a perceptual
     // distance picker instead of pure random, so collisions vanish — but
     // the user-facing on/off bit carries over verbatim.
-    "1.10.0": (store: Conf<PersistedState>) => {
+    "1.10.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as unknown as
         | (Record<string, unknown> & { randomTheme?: unknown })
         | undefined;
@@ -376,7 +386,7 @@ export const store = new Conf<PersistedState>({
       });
     },
     // rightPanel.pinned added — default to true (docked) for existing users.
-    "1.11.0": (store: Conf<PersistedState>) => {
+    "1.11.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences");
       if (
         (current.rightPanel as Record<string, unknown>).pinned === undefined
@@ -390,7 +400,7 @@ export const store = new Conf<PersistedState>({
     // canvasMode preference added — default to false (focus mode).
     // Field removed in 1.15.0 (#622). Historical migration preserved so
     // users walking the ladder don't lose any other preference fields.
-    "1.12.0": (store: Conf<PersistedState>) => {
+    "1.12.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       if (current.canvasMode === undefined) {
         store.set("preferences", {
@@ -407,7 +417,7 @@ export const store = new Conf<PersistedState>({
     // and the post-1.20.0 flat shape (no `tab` field at all). The
     // `_codeMode` strip drops any transient flat field from an
     // in-flight build of #576 — released versions never had it.
-    "1.13.0": (store: Conf<PersistedState>) => {
+    "1.13.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences");
       const rp = current.rightPanel as Record<string, unknown>;
       if (typeof rp.tab !== "string") return;
@@ -423,7 +433,7 @@ export const store = new Conf<PersistedState>({
     },
     // terminalRenderer preference added — default to "auto" (existing behavior:
     // WebGL on focused+visible tile, DOM elsewhere).
-    "1.14.0": (store: Conf<PersistedState>) => {
+    "1.14.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences");
       if ((current as Record<string, unknown>).terminalRenderer === undefined) {
         store.set("preferences", { ...current, terminalRenderer: "auto" });
@@ -432,7 +442,7 @@ export const store = new Conf<PersistedState>({
     // canvasMode + sidebarAgentPreviews removed (#622) — the workspace is
     // now mode-less (canvas always on desktop) and the sidebar with its
     // preview cards is gone, replaced by the floating workspace switcher.
-    "1.15.0": (store: Conf<PersistedState>) => {
+    "1.15.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const { canvasMode: _cm, sidebarAgentPreviews: _sap, ...rest } = current;
       store.set("preferences", rest as Preferences);
@@ -445,7 +455,7 @@ export const store = new Conf<PersistedState>({
     // rightPanel.pinned removed — the panel now always docks, so the
     // pin/overlay toggle (1.11.0) is gone. Strip the field from disk so
     // the 1.17.0 preferences shape matches the schema exactly.
-    "1.17.0": (store: Conf<PersistedState>) => {
+    "1.17.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences");
       const rp = current.rightPanel as Record<string, unknown>;
       if (rp.pinned !== undefined) {
@@ -466,7 +476,7 @@ export const store = new Conf<PersistedState>({
     // (it is padi's now, stripped by 1.31.0 below), so the WRITE is gone — but
     // keep deleting the two pre-1.19 orphan keys, which 1.31.0's strip list does
     // not cover, so a jump from pre-1.19 straight to W2.3 still cleans them.
-    "1.19.0": (store: Conf<PersistedState>) => {
+    "1.19.0": (store: Conf<OnDiskState>) => {
       deleteLegacyKey(store, "recentRepos");
       deleteLegacyKey(store, "recentAgents");
     },
@@ -475,7 +485,7 @@ export const store = new Conf<PersistedState>({
     // fields); `codeMode` now persists across Inspector↔Code toggles.
     // The DU view is reconstructed at consumption sites via
     // `rightPanelView()`. Corrupt/missing tab degrades to inspector/local.
-    "1.20.0": (store: Conf<PersistedState>) => {
+    "1.20.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown>;
       const tab = rp.tab as
@@ -513,7 +523,7 @@ export const store = new Conf<PersistedState>({
     // `DEFAULT_RIGHT_PANEL_PER_TERMINAL` at first read. The CodeTab's
     // legacy `kolu-codetab-selected-files` localStorage key is dropped
     // client-side (no on-disk state to migrate).
-    "1.23.0": (store: Conf<PersistedState>) => {
+    "1.23.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown> | undefined;
       if (!rp) return;
@@ -528,7 +538,7 @@ export const store = new Conf<PersistedState>({
     // written before then carry a `rightPanel` with only `collapsed`/`size`,
     // so `preferences.get` failed Zod validation on the wire
     // (EVENT_ITERATOR_VALIDATION_FAILED) until the field was backfilled (#1237).
-    "1.24.0": (store: Conf<PersistedState>) => {
+    "1.24.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown> | undefined;
       if (!rp || rp.codeTabTreeSize !== undefined) return;
@@ -564,7 +574,7 @@ export const store = new Conf<PersistedState>({
     // + `shuffleBehavior` (random|dark|light|auto) — see
     // `migratePreferences_1_30_0` for the conversion (on→{shuffle,auto},
     // off→{inherit,auto}, legacy-field-wins ladder handling).
-    "1.30.0": (store: Conf<PersistedState>) => {
+    "1.30.0": (store: Conf<OnDiskState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       // `migratePreferences_1_30_0` self-guards (returns `current` untouched
       // when there's no legacy `shuffleTheme`), so no inline presence check.
@@ -578,7 +588,7 @@ export const store = new Conf<PersistedState>({
     // real disks from earlier eras — off this store. `session`/`activityFeed`
     // moved to the padi PROCESS's own state-root at W2.2; this store keeps only
     // `preferences` now. BACKUP-FIRST (see `stripLegacyStateKeys_1_31_0`).
-    "1.31.0": (store: Conf<PersistedState>) =>
+    "1.31.0": (store: Conf<OnDiskState>) =>
       stripLegacyStateKeys_1_31_0(store),
     // The new-terminal collapsed DEFAULT moved off `rightPanel.collapsed` (a
     // write-dead seed jammed next to live geometry) to a top-level
@@ -586,7 +596,7 @@ export const store = new Conf<PersistedState>({
     // top-level field from DEFAULT_PREFERENCES and strip the stale
     // `rightPanel.collapsed` key so the blob matches the schema exactly — same
     // spread-defaults shape as the 1.6.0/1.7.0 rightPanel steps.
-    "1.32.0": (store: Conf<PersistedState>) => {
+    "1.32.0": (store: Conf<OnDiskState>) => {
       store.set(
         "preferences",
         migratePreferences_1_32_0(
@@ -599,7 +609,7 @@ export const store = new Conf<PersistedState>({
     // exactly. conf's `defaults` already merges `[]` on read, so this is belt-and-suspenders
     // that also honors the "persisted-shape change ⇒ ladder step" rule (.claude/rules/state.md).
     // A genuine fleet is only ever written by the pool's `persist` hook, never here.
-    "1.33.0": (store: Conf<PersistedState>) => {
+    "1.33.0": (store: Conf<OnDiskState>) => {
       if (!store.has("hosts")) store.set("hosts", []);
     },
     // renew — `clientId` (the store's first persisted UUID) is now a field on the
@@ -644,8 +654,8 @@ if (existsSync(store.path)) chmodSync(store.path, 0o600);
  *  `state.test.ts` can drive the mint/persist/re-read cycle against ephemeral `Conf`
  *  stores under throwaway dirs — the same "exported so a test can drive it" idiom as
  *  `stripLegacyStateKeys_1_31_0`. */
-export function mintClientIdIfAbsent(store: Conf<PersistedState>): string {
-  const existing = store.get("clientId") as string | undefined;
+export function mintClientIdIfAbsent(store: Conf<OnDiskState>): string {
+  const existing = store.get("clientId");
   if (existing === undefined) {
     const minted = randomUUID();
     store.set("clientId", minted);

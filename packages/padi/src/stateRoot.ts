@@ -119,12 +119,28 @@ export function isolatedPadiStateRoot(clientId: string): string {
  *  daemonMain's one-time legacy-adopt guard) calls THIS rather than re-deriving
  *  the precedence from the raw inputs, so the two can never diverge on an edge
  *  (an empty-string clientId, a future third estate source). */
+/** The estate-precedence decision, spelled ONCE: the explicit override
+ *  (`--state-root` / `KOLU_PADI_STATE_DIR`) if any, and whether — absent it — a
+ *  non-empty `clientId` isolates. Both {@link estateIsolatedByClient} and
+ *  {@link resolvePadiStateRoot} read it here rather than re-spelling
+ *  `override ?? env` (the exact two-copies-must-agree precedence a prior bug
+ *  already diverged on). */
+function resolveEstate(
+  override?: string,
+  clientId?: string,
+): { explicit: string | undefined; isolated: boolean } {
+  const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
+  return {
+    explicit,
+    isolated: !explicit && clientId !== undefined && clientId !== "",
+  };
+}
+
 export function estateIsolatedByClient(
   override?: string,
   clientId?: string,
 ): boolean {
-  const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
-  return !explicit && clientId !== undefined && clientId !== "";
+  return resolveEstate(override, clientId).isolated;
 }
 
 /** Resolve the state-root a padi process should use, in precedence order:
@@ -139,9 +155,8 @@ export function resolvePadiStateRoot(
   override?: string,
   clientId?: string,
 ): string {
-  if (estateIsolatedByClient(override, clientId))
-    return isolatedPadiStateRoot(clientId as string);
-  const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
+  const { explicit, isolated } = resolveEstate(override, clientId);
+  if (isolated) return isolatedPadiStateRoot(clientId as string);
   return explicit ? resolve(explicit) : defaultPadiStateRoot();
 }
 
