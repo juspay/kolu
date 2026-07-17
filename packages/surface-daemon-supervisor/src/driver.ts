@@ -44,9 +44,22 @@ export interface DaemonSpawnConfig {
   /** Arguments after `binPath` (e.g. `["--socket", path]`, or `[]` to let the
    *  daemon pick its own default socket). */
   args: string[];
-  /** Vars the daemon needs that don't survive a transient-unit env reset —
-   *  forwarded as `--setenv` under systemd, or set on the child's env
-   *  otherwise. The caller's "soul" chooses the set (e.g. `XDG_RUNTIME_DIR`). */
+  /** The env the daemon runs under — but its meaning depends on the launch mode
+   *  the driver selects, so the caller must compose it for the mode it will hit:
+   *   - **detached** (non-`fromSource`, the production path): `env` is the
+   *     COMPLETE child env. NO parent env is layered underneath — that would leak
+   *     the supervisor's ambient identity vars into the daemon and every PTY it
+   *     spawns (the #1872 class) — so `env` must already carry HOME/PATH/SHELL/…
+   *     itself. Compose it from the shared spawn-env allowlist (see padi's
+   *     `daemonEnv`); a PARTIAL env here spawns a daemon with no PATH/HOME.
+   *   - **systemd** (`systemd-run --user`): `env` OVERLAYS the unit's PAM/manager
+   *     env via `--setenv` (each key WINS over the value it shadows). Here a
+   *     partial set is fine — it names only the vars that don't survive the
+   *     transient-unit env reset (e.g. `XDG_RUNTIME_DIR`).
+   *   - **fromSource** (dev: `just dev` from a nix-shell): `env` is LAYERED OVER
+   *     the supervisor's full parent env, the one path that opts into inheriting
+   *     the developer's ambient shell (nix store paths, dev vars) to run from
+   *     source. */
   env: Record<string, string>;
   /** Transient `.service` unit-name prefix (a per-spawn unique suffix is
    *  appended). Only used on the systemd branch. */

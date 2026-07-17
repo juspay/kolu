@@ -38,6 +38,18 @@ It is generic over the client `C` and identity `I`.
 | `DaemonContractSkewError` · `isContractSkewError(err)` | the ONE typed connect rejection that proves incompatibility. Constructed from fields — `{ subject, daemonVersion, requiredVersion }` — with the message derived from them (no consumer ever re-parses the prose); `readonly daemonVersion` / `requiredVersion` ride the instance so downstream translators (a typed RPC rethrow, a status arm) read them structurally. The guard is brand-checked (realm-robust), never `instanceof` |
 | `ENDPOINT_STATES` · `ENDPOINT_STATE_DOWN` · `isDownEndpointState(s)` | the state tuple and its TOTAL down/terminal classification, both living in the zero-dependency, browser-safe `/states` subpath (re-exported from the package root). `ENDPOINT_STATE_DOWN` is a `Record<EndpointState, boolean>`, so a new state is a compile error at the home until classified; consumers (a dial-ended check, a client presentation table) read `isDownEndpointState` instead of hand-spelling the `degraded \|\| dead \|\| incompatible` disjunct |
 
+<Aside type="caution" title="`cfg.env` means different things per launch mode">
+  `survivableSpawnDriver`'s `cfg.env` is read differently by the mode the driver
+  picks, so compose it for the mode you will hit. On the **detached** path (the
+  production default) `env` is the COMPLETE child env — nothing from the parent is
+  layered under it, so a partial set spawns a daemon with no `PATH`/`HOME`; carry
+  the daemon's whole base (compose it from a fixed allowlist, as the snippet
+  above does — kolu mines `@kolu/pty`'s `SPAWN_ENV_ALLOWLIST`). Under **systemd**
+  `env` OVERLAYS the unit's PAM/manager env via `--setenv`, so a partial set is
+  fine. With **`fromSource: true`** (dev) `env` is layered OVER the supervisor's
+  full parent env — the one path that inherits the ambient shell.
+</Aside>
+
 ## The convergence kit
 
 `converge(args)` is the live upgrade/recycle decision: it probes the running
