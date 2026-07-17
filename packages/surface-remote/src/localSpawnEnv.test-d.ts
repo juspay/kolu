@@ -59,7 +59,7 @@ sshConnector({
 // must cover it, since a future optional/default regression at THIS forwarding seam
 // (dialAgentOnce → sshConnector → buildAgentCommand) would otherwise leave the
 // advertised guarantee green while ambient full-inherit became spellable again.
-dialAgentOnce({
+void dialAgentOnce({
   host: "h",
   binary: "a",
   envVar: "E",
@@ -69,7 +69,7 @@ dialAgentOnce({
   localEnv: {},
 });
 
-dialAgentOnce({
+void dialAgentOnce({
   host: "h",
   binary: "a",
   envVar: "E",
@@ -80,7 +80,7 @@ dialAgentOnce({
   localEnv: undefined,
 });
 
-dialAgentOnce(
+void dialAgentOnce(
   // @ts-expect-error — `localEnv` omitted on the one-shot dial: required, same as the connector.
   {
     host: "h",
