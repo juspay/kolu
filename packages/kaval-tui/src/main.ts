@@ -156,10 +156,15 @@ const argv = cli({
       parameters: ["[command...]"],
       help: {
         description:
-          "Spawn a new terminal and print its id; the daemon owns it. Runs a plain $SHELL by default, or the command you pass — prefix it with `--` when it takes its own flags: `kaval-tui create -- htop -d 5`. Then `kaval-tui attach <id>` to take it over.",
+          "Spawn a new terminal and print its id; the daemon owns it. Runs a plain $SHELL by default, or the command you pass — prefix it with `--` when it takes its own flags: `kaval-tui create -- htop -d 5`. Then `kaval-tui attach <id>` to take it over. The new terminal's environment is composed from a clean canonical base — HOME, USER, LOGNAME, PATH, SHELL, DISPLAY, TERM, COLORTERM, LANG, LC_ALL, LC_CTYPE — NOT a copy of this process's env: a var you exported into the current shell does not follow into the new terminal (an interactive shell still sources your ~/.bashrc / ~/.zshrc, so vars set there are present). This is deliberate — copying the caller's env leaks an orchestrating agent's private identity vars and silently loses that agent's data (see issue #1872). Add specific vars back explicitly with `--env K=V` (repeatable).",
       },
       flags: {
         ...endpointFlags,
+        env: {
+          type: [String],
+          description:
+            "add an env var to the new terminal as K=V (repeatable) — the explicit escape hatch for a var the clean canonical base drops. `--env FOO=bar --env BAZ=1`. A later --env overrides a base var of the same name. This is the ONLY way to add env; there is no inherit-everything switch (that would reopen the #1872 identity-leak).",
+        },
         json: {
           type: Boolean,
           description: "machine-readable JSON output ({ id, pid, cwd })",
@@ -482,10 +487,28 @@ async function cmdHistory(
   );
 }
 
+/** Parse the repeatable `--env K=V` flag into an env record. Splits each entry on
+ *  the FIRST `=` so a value may itself contain `=` (`--env URL=a=b` → `URL`→`a=b`).
+ *  Fails loud (never silently drops) on a malformed entry — a missing `=` or an
+ *  empty key — because a swallowed `--env` is exactly the kind of silent
+ *  degradation the fail-fast rule forbids. An empty VALUE (`--env FOO=`) is legal. */
+function parseEnvAssignments(pairs: readonly string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const pair of pairs) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) {
+      fail(`--env expects K=V, got ${JSON.stringify(pair)}`);
+    }
+    env[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return env;
+}
+
 async function cmdCreate(
   conn: Connection,
   endpoint: Endpoint,
   command: readonly string[],
+  extraEnv: Record<string, string>,
   json: boolean,
 ): Promise<void> {
   // Compose the WHOLE fully-specified input client-side (the host derives
@@ -504,6 +527,7 @@ async function cmdCreate(
       host: { shell: info.shell, home: info.home, path: info.path },
       localEnv: process.env,
       command,
+      extraEnv,
     });
     home = info.home;
   } else {
@@ -516,6 +540,7 @@ async function cmdCreate(
       cwd: process.cwd(),
       env: process.env,
       command,
+      extraEnv,
       kavalSocket: endpoint.socket,
     });
     home = homedir();
@@ -1056,7 +1081,13 @@ async function main(): Promise<void> {
     // not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
-      await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
+      await cmdCreate(
+        conn,
+        endpoint,
+        argv._.command,
+        parseEnvAssignments(argv.flags.env),
+        argv.flags.json,
+      );
     else if (argv.command === "snapshot") {
       // `--viewport`, `--tail`, and `--lines` (a synonym for `--tail`) each
       // bound the output differently, so more than one is ambiguous — crash

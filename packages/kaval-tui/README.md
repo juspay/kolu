@@ -39,6 +39,17 @@ its own flags, so they reach the program rather than kaval-tui:
 kaval-tui create -- htop -d 5    # run htop, not a shell
 ```
 
+The new terminal's environment is a clean canonical base (`HOME`, `USER`,
+`LOGNAME`, `PATH`, `SHELL`, `DISPLAY`, `TERM`, `COLORTERM`, `LANG`, `LC_ALL`,
+`LC_CTYPE`) mined from your env — **not** a wholesale copy of it, so a var you
+exported into your shell doesn't follow in (see [_Reaching a remote
+kaval_](#reaching-a-remote-kaval----host) for why). Add one back with `--env
+K=V`, repeatable:
+
+```sh
+kaval-tui create --env FOO=bar --env RUST_LOG=debug    # base + these two
+```
+
 `--json` prints `{ id, pid, cwd }` (the full id) for scripts; the `attach with
 …` next-step hint always goes to stderr, so stdout stays just the spawn line:
 
@@ -268,8 +279,16 @@ and `$PATH` are the **remote** machine's (so the shell finds the remote's own
 commands — a shell with no `$PATH` would exit `127` on the first one), and only
 your terminal's _presentation_ vars (`TERM`, `COLORTERM`, `LANG`/`LC_*`) are
 carried across. Your local environment — and any secrets in it — never crosses
-the wire. (A _local_ `create` ships your own env, since the daemon is on your
-machine; the remote path deliberately does not.)
+the wire. A _local_ `create` composes the **same** clean canonical base — the
+functional vars a shell needs (`HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`,
+`DISPLAY`) plus those presentation vars — mined from your own env rather than
+copied wholesale: a var you exported into the current shell does **not** follow
+into the new terminal (an interactive shell still sources your `~/.bashrc` /
+`~/.zshrc`, so vars set there are present). This is deliberate — copying the
+caller's env wholesale leaked an orchestrating agent's private identity vars and
+silently lost that agent's conversation ([#1872](https://github.com/juspay/kolu/issues/1872)).
+Add a specific var back with `--env K=V` (repeatable); there is no
+inherit-everything switch.
 
 `--host` is mutually exclusive with `--socket` (a remote ssh target vs a local
 path). It needs passwordless ssh and the remote's nix-daemon trusting your user
