@@ -133,9 +133,11 @@ backoff timer (test times it out → red). After: exits cleanly, bounded.</li>
 liveness, clock-probe, admit-timeout tests — stays green unchanged: the
 runner holds the loop, so every unref’d timer still fires. (b) The
 must-fire pin: a child process whose <code>pin()</code> awaits an admit hello that
-never settles still <em>receives the timeout rejection</em> (prints it, exits
-nonzero by its own hand) rather than exiting silently — proving the
-handshake timer stayed ref’d even as the sole handle.</li>
+never settles still <em>receives the timeout rejection</em> (prints the delivered
+marker, having lived at least the timeout, then exits <code>0</code> naturally through
+the unref’d-backoff exit window — that clean exit is itself part of the
+pin) rather than exiting silently at 0ms — proving the handshake timer
+stayed ref’d even as the sole handle.</li>
 <li>Existing surface-remote suite green (the fake-timer tests exercise
 <code>.unref()</code> on sinon fake timers, which support it; verified at build).</li>
 </ol>
@@ -148,8 +150,10 @@ the browser-safe <code>unrefTimer</code> dance in <code>@kolu/surface</code>’s
 because <em>that</em> package is shared with the browser leg, which this one is not
 (and widening that helper into an export would compel a drishti PR for six
 lines — the <code>controlMaster.ts</code> precedent declines the same trade). Plus a
-<code>tsx</code> devDependency in <code>surface-remote</code> for the child-process pins (lockfile
-change → <code>fetchPnpmDeps</code> hash refresh rides the same commit), doc sync
+<code>tsx</code> devDependency in <code>surface-remote</code> for the child-process pins — a
+links-only lockfile delta (<code>tsx@4.21.0</code> was already fetched for other
+workspace packages), so the pinned <code>fetchPnpmDeps</code> hash needed <strong>no</strong> refresh
+(verified by a green <code>nix build</code> against the changed lockfile) — doc sync
 (<code>ref-surface-remote.mdx</code> lifetime contract + changelog), and the audit note’s
 <code>makeSession</code> row flipped to point here.</p>
 <h2 id="consumer-gate-grounded-at-their-pins">Consumer gate (grounded at their pins)</h2>

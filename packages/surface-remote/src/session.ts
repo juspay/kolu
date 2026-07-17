@@ -160,13 +160,16 @@ export interface Session<
    *  Resolves with the first client.
    *
    *  NOT a process hold: a pinned session's internal timers are `unref()`'d
-   *  (docs/atlas session-timer-unref), so the session never keeps an
-   *  otherwise-finished process alive by itself — a consumer whose sole purpose
-   *  is waiting on a session must hold the process by its own means (a server
-   *  socket, stdin, a live transport). Consequently a parked onState-derived
-   *  wait (`ClientCursor.next()` across a reconnect gap) is not a process hold
-   *  either: if nothing else holds the loop, it can go silently unsettled as
-   *  the process exits. */
+   *  (docs/atlas session-timer-unref) — except the bounded admit-handshake
+   *  timeout, which stays ref'd precisely so a pending `pin()` is settled
+   *  rather than the process exiting silently mid-await — so once its link is
+   *  down, an abandoned session cannot keep an otherwise-finished process
+   *  running (a LIVE link's child/socket is a real hold while it lasts). A
+   *  consumer whose sole purpose is waiting on a session must hold the process
+   *  by its own means (a server socket, stdin, a live transport). Consequently
+   *  a parked onState-derived wait (`ClientCursor.next()` across a reconnect
+   *  gap) is not a process hold either: if nothing else holds the loop, it can
+   *  go silently unsettled as the process exits. */
   pin(): Promise<Client>;
   /** The in-flight/current client promise, or `null` between a link death and the
    *  next dial. Each dial reassigns it, so a pump detects a respawn by identity

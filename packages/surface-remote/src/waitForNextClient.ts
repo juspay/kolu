@@ -23,7 +23,14 @@ export interface ClientCursor {
    *  An optional `signal` lets a caller wake the wait early (a re-serve's
    *  `close()` aborting the pump while the link is DOWN and no fresh spawn is
    *  coming) — the wait then rejects with the signal's reason and detaches its
-   *  session subscription, so a supervised pump can stop deterministically. */
+   *  session subscription, so a supervised pump can stop deterministically.
+   *
+   *  NOT a process hold: across a reconnect gap this wait is settled only by
+   *  the session's *unref'd* backoff firing (see `Session.pin()`'s contract and
+   *  the Reference lifetime invariants; docs/atlas session-timer-unref), so in
+   *  a process nothing else holds alive it can go silently unsettled as the
+   *  process exits — the consumer's process must be held by its own means (a
+   *  server socket, stdin, a live transport). */
   next(signal?: AbortSignal): Promise<SurfaceClientLike>;
 }
 

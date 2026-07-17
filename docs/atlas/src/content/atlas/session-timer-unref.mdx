@@ -111,9 +111,11 @@ spawn would reopen a silent mid-dial exit window for a held session.
    liveness, clock-probe, admit-timeout tests — stays green unchanged: the
    runner holds the loop, so every unref'd timer still fires. (b) The
    must-fire pin: a child process whose `pin()` awaits an admit hello that
-   never settles still *receives the timeout rejection* (prints it, exits
-   nonzero by its own hand) rather than exiting silently — proving the
-   handshake timer stayed ref'd even as the sole handle.
+   never settles still *receives the timeout rejection* (prints the delivered
+   marker, having lived at least the timeout, then exits `0` naturally through
+   the unref'd-backoff exit window — that clean exit is itself part of the
+   pin) rather than exiting silently at 0ms — proving the handshake timer
+   stayed ref'd even as the sole handle.
 3. Existing surface-remote suite green (the fake-timer tests exercise
    `.unref()` on sinon fake timers, which support it; verified at build).
 
@@ -127,8 +129,10 @@ the browser-safe `unrefTimer` dance in `@kolu/surface`'s heartbeat exists
 because *that* package is shared with the browser leg, which this one is not
 (and widening that helper into an export would compel a drishti PR for six
 lines — the `controlMaster.ts` precedent declines the same trade). Plus a
-`tsx` devDependency in `surface-remote` for the child-process pins (lockfile
-change → `fetchPnpmDeps` hash refresh rides the same commit), doc sync
+`tsx` devDependency in `surface-remote` for the child-process pins — a
+links-only lockfile delta (`tsx@4.21.0` was already fetched for other
+workspace packages), so the pinned `fetchPnpmDeps` hash needed **no** refresh
+(verified by a green `nix build` against the changed lockfile) — doc sync
 (`ref-surface-remote.mdx` lifetime contract + changelog), and the audit note's
 `makeSession` row flipped to point here.
 

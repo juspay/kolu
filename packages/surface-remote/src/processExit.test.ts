@@ -23,9 +23,11 @@
  *     that the process then exits (the backoff armed after the failure is
  *     unref'd: the exit window).
  */
-import { type ChildProcess, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -45,46 +47,48 @@ interface FixtureRun {
 }
 
 /** Spawn `fixture` as a real node child and wait for it to exit, up to
- *  `deadlineMs`. On deadline the child is SIGKILLed (it was immortal — the
- *  red this suite exists to pin) and `timedOut: true` is returned; assertions
- *  on it fail loud instead of hanging the suite. */
-function runFixture(fixture: string, deadlineMs: number): Promise<FixtureRun> {
-  return new Promise((resolve, reject) => {
-    const startedAt = Date.now();
-    const child: ChildProcess = spawn(
-      process.execPath,
-      ["--import", TSX_LOADER, join(here, fixture)],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    const killer = setTimeout(() => {
-      child.kill("SIGKILL");
-    }, deadlineMs);
-    child.on("error", (err) => {
-      clearTimeout(killer);
-      reject(err);
-    });
-    child.on("exit", (code, signal) => {
-      clearTimeout(killer);
-      resolve({
-        // SIGKILL from the deadline killer above ⇒ the child outlived the
-        // deadline (a self-exiting child never sees it).
-        timedOut: signal === "SIGKILL",
-        code,
-        signal,
-        stdout,
-        stderr,
-        elapsedMs: Date.now() - startedAt,
-      });
-    });
-  });
+ *  `deadlineMs` — via spawn's own `timeout`/`killSignal` options (no hand-rolled
+ *  killer timer; the runtime clears its deadline on exit itself). On deadline
+ *  the child is SIGKILLed (it was immortal — the red this suite exists to pin)
+ *  and `timedOut: true` is returned; assertions on it fail loud instead of
+ *  hanging the suite. */
+async function runFixture(
+  fixture: string,
+  deadlineMs: number,
+): Promise<FixtureRun> {
+  // Monotonic clock — elapsedMs feeds a duration lower-bound assertion, which a
+  // wall-clock step (NTP) could falsify.
+  const startedAt = performance.now();
+  const child = spawn(
+    process.execPath,
+    ["--import", TSX_LOADER, join(here, fixture)],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: deadlineMs,
+      killSignal: "SIGKILL",
+    },
+  );
+  if (child.stdout === null || child.stderr === null) {
+    throw new Error("spawn contract broken: piped stdio yielded null streams");
+  }
+  const [stdout, stderr, exit] = await Promise.all([
+    text(child.stdout),
+    text(child.stderr),
+    // Rejects on the child's 'error' event by itself — no hand-paired handlers.
+    once(child, "exit") as Promise<[number | null, NodeJS.Signals | null]>,
+  ]);
+  const [code, signal] = exit;
+  return {
+    // SIGKILL ⇒ spawn's deadline fired (nothing else here SIGKILLs the child; a
+    // stray external SIGKILL would misread as a deadline, acceptable in a test
+    // whose failure message carries the stderr to tell them apart).
+    timedOut: signal === "SIGKILL",
+    code,
+    signal,
+    stdout,
+    stderr,
+    elapsedMs: performance.now() - startedAt,
+  };
 }
 
 describe("makeSession timers vs the host process's life", () => {
