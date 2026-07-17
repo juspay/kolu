@@ -572,6 +572,21 @@ const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
   ...Exclude<EndpointState, "connected" | "incompatible">[],
 ];
 
+/** What a PROVEN kaval contract skew carries — the ONE spelling of the skew
+ *  version pair on this side of the wire. Spread into the `incompatible` status
+ *  arm below and used verbatim as `recycleKaval`'s declared
+ *  `KAVAL_CONTRACT_SKEW` error data (surface.ts); the client's projections type
+ *  their incompatible arms against the inferred {@link KavalSkewVersions}.
+ *  Adding a field to the skew report is an edit HERE, not N hand-kept
+ *  re-spellings across the layers. */
+export const KavalSkewVersionsSchema = z.object({
+  /** The contract version the daemon actually speaks. */
+  daemonVersion: z.string(),
+  /** The contract version this kolu's build requires. */
+  requiredVersion: z.string(),
+});
+export type KavalSkewVersions = z.infer<typeof KavalSkewVersionsSchema>;
+
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
  *  endpoint reports it — the honest-state surface that makes "the daemon is
  *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
@@ -626,10 +641,10 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
   // skew card renders them structurally; nothing ever re-parses the prose.
   z.object({
     state: z.literal("incompatible"),
-    /** The contract version the daemon actually speaks. */
-    daemonVersion: z.string(),
-    /** The contract version this kolu's build requires. */
-    requiredVersion: z.string(),
+    // BOTH contract versions, spread from the ONE skew-payload spelling
+    // ({@link KavalSkewVersionsSchema}) shared with `recycleKaval`'s declared
+    // error data.
+    ...KavalSkewVersionsSchema.shape,
     identity: z.never().optional(),
     contractVersion: z.never().optional(),
     startedAt: z.never().optional(),

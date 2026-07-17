@@ -10,7 +10,11 @@
  *  on its own, which is what lets `kavalDot`'s transport-liveness floor be pinned by
  *  a unit test without standing up a socket. */
 
-import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import type {
+  DaemonState,
+  DaemonStatus,
+  KavalSkewVersions,
+} from "@kolu/padi/surface";
 import { match } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
@@ -189,11 +193,12 @@ export function liveWarming(
 
 /** The daemon's down verdict as the canvas consumes it — a payload-bearing sum
  *  (SK4): `dead`/`degraded` carry nothing extra; `incompatible` carries BOTH
- *  contract versions off the typed wire arm, so the skew card renders them
- *  structurally (never re-parsed from prose). */
+ *  contract versions off the typed wire arm ({@link KavalSkewVersions}, the
+ *  ONE skew-payload spelling), so the skew card renders them structurally
+ *  (never re-parsed from prose). */
 export type DaemonDownState =
   | { state: "dead" | "degraded" }
-  | { state: "incompatible"; daemonVersion: string; requiredVersion: string };
+  | ({ state: "incompatible" } & KavalSkewVersions);
 
 /** The daemon's down sub-state, FLOORED on transport liveness — the down twin of
  *  {@link liveWarming}. "The daemon is down" is a claim the dead channel can't
@@ -323,7 +328,7 @@ export type KavalPresence =
   /** The PROVEN contract skew (SK4) — its own arm, never folded into `down`
    *  (a restart can fix `down`; nothing but a closure change fixes this) and
    *  never allowed to fall through to a lying `warming` pulse. */
-  | { kind: "incompatible"; daemonVersion: string; requiredVersion: string };
+  | ({ kind: "incompatible" } & KavalSkewVersions);
 
 /** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
  *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.

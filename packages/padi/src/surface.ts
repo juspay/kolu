@@ -93,6 +93,7 @@ import {
   DEFAULT_PADI_PROCESS_MEMORY,
   CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
+  KavalSkewVersionsSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -885,15 +886,14 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       recycleKaval: {
         // The DECLARED error union (SK6): a proven contract skew is the one
         // failure this procedure can translate — versions ride as TYPED data
-        // (the client narrows with `isDefinedError`; nothing re-parses prose).
-        // An undeclared throw still crosses as INTERNAL_SERVER_ERROR — the
-        // fail-fast channel for genuinely unexpected failures.
+        // (the client narrows with `isDefinedError`; nothing re-parses prose),
+        // shaped by the ONE skew-payload spelling (`KavalSkewVersionsSchema`,
+        // shared with the `incompatible` status arm). An undeclared throw
+        // still crosses as INTERNAL_SERVER_ERROR — the fail-fast channel for
+        // genuinely unexpected failures.
         errors: {
           KAVAL_CONTRACT_SKEW: {
-            data: z.object({
-              daemonVersion: z.string(),
-              requiredVersion: z.string(),
-            }),
+            data: KavalSkewVersionsSchema,
           },
         },
       },

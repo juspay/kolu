@@ -20,7 +20,7 @@
  *  that NEVER connects; its verdict arrives on the `incompatible` status arm
  *  with both versions as typed fields (never re-parsed from message prose). */
 
-import type { DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonStatus, KavalSkewVersions } from "@kolu/padi/surface";
 
 /** The attention verdict — one of the two axes, or none. */
 export type KavalAttention =
@@ -32,9 +32,10 @@ export type KavalAttention =
   | { kind: "stale" }
   /** Contract axis (SK4/SK5): a PROVEN skew — the daemon speaks a contract
    *  this kolu cannot talk to, and a respawn from the host's current closure
-   *  has already been tried. The recovery is `hosts.renewDaemon`, never a
-   *  plain restart. */
-  | { kind: "incompatible"; daemonVersion: string; requiredVersion: string };
+   *  has already been tried. Carries the wire's typed skew payload
+   *  ({@link KavalSkewVersions}, the ONE spelling of the version pair). The
+   *  recovery is `hosts.renewDaemon`, never a plain restart. */
+  | ({ kind: "incompatible" } & KavalSkewVersions);
 
 /** True when the running daemon is provably a build behind the kaval the server
  *  would spawn (B3.4 — "update pending"): the link is `live`, it's `connected`, both
