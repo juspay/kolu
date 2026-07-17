@@ -117,10 +117,19 @@ export function publishDaemonStatus(
           lifetime: status.metadata.lifetime,
           ...socket,
         }
-      : {
-          state: status.state,
-          ...socket,
-        };
+      : status.state === "incompatible"
+        ? {
+            // The proven-skew verdict keeps its payload on the wire (SK4): both
+            // versions ride to the client's skew card as typed fields.
+            state: "incompatible",
+            daemonVersion: status.daemonVersion,
+            requiredVersion: status.requiredVersion,
+            ...socket,
+          }
+        : {
+            state: status.state,
+            ...socket,
+          };
   publishFullDaemonStatus(hostId, full);
 }
 

@@ -21,9 +21,11 @@ describe("guardedMcpConnect", () => {
     }) as never);
     const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const connect = guardedMcpConnect(async () => {
-      throw new DaemonContractSkewError(
-        "padi contract skew: padi serves padiSurface 9.0, client needs 4.1",
-      );
+      throw new DaemonContractSkewError({
+        subject: "padi",
+        daemonVersion: "9.0",
+        requiredVersion: "4.1",
+      });
     });
     await expect(connect()).rejects.toThrow("exit(1)");
     expect(exitSpy).toHaveBeenCalledWith(1);

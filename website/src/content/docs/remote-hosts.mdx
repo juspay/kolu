@@ -172,6 +172,15 @@ hatch). The causes it distinguishes:
 | **No build for this host's architecture** | the baked build map has no derivation for the host's CPU/OS |
 | **This host's padi never settled** | a contract upgrade's drain never provably finished |
 
+A related — but distinct — card covers the host's **[kaval](/kaval)**: if the
+machine carries a kaval that speaks an **incompatible wire contract** (an
+outdated build a plain restart provably cannot fix — restarting respawns the
+same binary), the canvas says so with **both versions** ("this host's kaval
+speaks 5.0, your kolu needs 5.2") and offers **Update &amp; restart kaval**
+behind a confirm: it re-provisions the host's build and starts a
+correct-version kaval. The same verdict shows in the kaval dialog and on the
+host chip — the one badge that also flags an ordinary "newer build available".
+
 ## Known limitations
 
 A kolu remote terminal is an **ssh session** — not the machine's GUI login

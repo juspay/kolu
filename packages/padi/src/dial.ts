@@ -168,9 +168,11 @@ export function assertPadiSurfaceCompatible(
   if (
     !isContractVersionCompatible(runningSurfaceVersion, PADI_SURFACE_VERSION)
   ) {
-    throw new DaemonContractSkewError(
-      `padi contract skew: padi serves padiSurface ${runningSurfaceVersion}, client needs ${PADI_SURFACE_VERSION}`,
-    );
+    throw new DaemonContractSkewError({
+      subject: "padiSurface",
+      daemonVersion: runningSurfaceVersion,
+      requiredVersion: PADI_SURFACE_VERSION,
+    });
   }
 }
 

@@ -23,7 +23,11 @@ export interface ClientCursor {
    *  An optional `signal` lets a caller wake the wait early (a re-serve's
    *  `close()` aborting the pump while the link is DOWN and no fresh spawn is
    *  coming) — the wait then rejects with the signal's reason and detaches its
-   *  session subscription, so a supervised pump can stop deterministically. */
+   *  session subscription, so a supervised pump can stop deterministically.
+   *
+   *  NOT a process hold: across a reconnect gap this wait is settled only by
+   *  the session's *unref'd* backoff, so a process nothing else holds alive
+   *  exits with it unsettled — see `Session.pin()`'s contract. */
   next(signal?: AbortSignal): Promise<SurfaceClientLike>;
 }
 

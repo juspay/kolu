@@ -52,15 +52,35 @@ export type ConnectedEndpointStatus<I, M = undefined> = {
   identity: I;
   /** The daemon's boot time (ms epoch), for uptime. */
   startedAt: number;
+  daemonVersion?: never;
+  requiredVersion?: never;
 } & ConnectedMetadata<M>;
+
+/** The PROVEN-skew arm (SK4) — the one non-connected state that carries a
+ *  payload: both contract versions, read structurally off the
+ *  `DaemonContractSkewError` fields (never re-parsed from prose), so every
+ *  downstream surface can state "the daemon speaks X, this build needs Y". */
+export type IncompatibleEndpointStatus = {
+  state: "incompatible";
+  /** The contract version the daemon actually speaks. */
+  daemonVersion: string;
+  /** The contract version this supervisor's build requires. */
+  requiredVersion: string;
+  identity?: never;
+  startedAt?: never;
+  metadata?: never;
+};
 
 export type EndpointStatus<I, M = undefined> =
   | ConnectedEndpointStatus<I, M>
+  | IncompatibleEndpointStatus
   | {
-      state: Exclude<EndpointState, "connected">;
+      state: Exclude<EndpointState, "connected" | "incompatible">;
       identity?: never;
       startedAt?: never;
       metadata?: never;
+      daemonVersion?: never;
+      requiredVersion?: never;
     };
 
 /**
@@ -81,9 +101,29 @@ export type EndpointStatus<I, M = undefined> =
  */
 export class DaemonContractSkewError extends Error {
   readonly isContractSkew = true as const;
-  constructor(message: string) {
-    super(message);
+  /** Which contract flavor skewed ("pty-host", "padiSurface") — a readable
+   *  FIELD, so a consumer that logs or routes by flavor never parses prose. */
+  readonly subject: string;
+  /** The contract version the running daemon actually speaks. */
+  readonly daemonVersion: string;
+  /** The contract version this supervisor's build requires. */
+  readonly requiredVersion: string;
+  /** The message is DERIVED from the fields (parse-don't-validate — no
+   *  consumer ever regexes the prose back apart); `subject` names the
+   *  contract's flavor for a legible journal line ("pty-host", "padiSurface")
+   *  while staying a field, never free prose. */
+  constructor(versions: {
+    subject: string;
+    daemonVersion: string;
+    requiredVersion: string;
+  }) {
+    super(
+      `${versions.subject} contract skew: daemon speaks ${versions.daemonVersion}, needs ${versions.requiredVersion}`,
+    );
     this.name = "DaemonContractSkewError";
+    this.subject = versions.subject;
+    this.daemonVersion = versions.daemonVersion;
+    this.requiredVersion = versions.requiredVersion;
   }
 }
 
@@ -93,10 +133,24 @@ export class DaemonContractSkewError extends Error {
 export function isContractSkewError(
   err: unknown,
 ): err is DaemonContractSkewError {
+  const e = err as {
+    isContractSkew?: unknown;
+    subject?: unknown;
+    daemonVersion?: unknown;
+    requiredVersion?: unknown;
+  };
   return (
     typeof err === "object" &&
     err !== null &&
-    (err as { isContractSkew?: unknown }).isContractSkew === true
+    e.isContractSkew === true &&
+    // The narrowed type promises its FIELDS (`subject` for the flavor a
+    // consumer logs/routes by; the versions for the incompatible status arm
+    // and the typed rethrow) — so the brand attests them all: a foreign
+    // brand-carrier without the payload must not narrow to a type whose
+    // fields it cannot honor.
+    typeof e.subject === "string" &&
+    typeof e.daemonVersion === "string" &&
+    typeof e.requiredVersion === "string"
   );
 }
 
@@ -169,10 +223,12 @@ export interface EndpointSpec<C, I, M = undefined> {
      *  stamped into spawned PTYs and shown in the daemon dialog). */
     onAdopted?(): void;
   };
-  /** Fired after a FRESH SPAWN holds a connection at the PRIMARY socket (a boot
-   *  spawn, or a recycle that converges off an adopted hint) — the twin of
-   *  `adoptHint.onAdopted`, so a caller that recorded the hint location can reset it
-   *  back to the primary. A no-op for endpoints with no hint. */
+  /** Fired once a FRESH SPAWN's socket is up at the PRIMARY rendezvous — BEFORE
+   *  the handshake, so it may precede a `connected`, `incompatible`, or `dead`
+   *  outcome (it is a LOCATION signal, never a readiness signal): the daemon at
+   *  the primary socket is the held one now, whatever its handshake says. The
+   *  twin of `adoptHint.onAdopted`, so a caller that recorded the hint location
+   *  can reset it back to the primary. A no-op for endpoints with no hint. */
   onSpawned?(): void;
 }
 
@@ -304,6 +360,9 @@ export function createEndpoint<C, I, M = undefined>(
     // (`connecting`) — are both part of one "restarting", not separate states a
     // consumer should render. Coerce them; let the terminal `connected`/`dead`
     // (and the explicit `restarting` from `holdRestarting`) report honestly.
+    // `incompatible` is DELIBERATELY not coerced (SK4): a proven skew inside a
+    // restart is that restart's terminal VERDICT — repainting it as
+    // "restarting" would show progress against a daemon a restart cannot fix.
     const reported: EndpointStatus<I, M> =
       restartHold &&
       (status.state === "connecting" || status.state === "degraded")
@@ -421,24 +480,40 @@ export function createEndpoint<C, I, M = undefined>(
       );
     }
 
+    // A spawn always lands at the PRIMARY — commit it as the held rendezvous
+    // (and tell the caller, which resets any recorded hint location back to
+    // the primary socket) the moment the primary socket is UP, BEFORE the
+    // handshake. Every post-spawn outcome — connected, skew (`incompatible`),
+    // or a boot failure (`dead`) — must report against the daemon that now
+    // holds the socket: leaving `held` on a recycled adopt-hint's dead legacy
+    // rendezvous made a later recycle probe the wrong holder and padi's
+    // status carry the dead legacy socket.
+    held = primaryRv;
+    spec.onSpawned?.();
+
     let next: DaemonConnection<C, I, M>;
     try {
       next = await spec.connect();
     } catch (err) {
-      // A fresh spawn shouldn't skew (it's the current build), so this is a
-      // genuine boot failure — never an import-time throw, just an honest
-      // `dead`.
-      emit({ state: "dead" });
+      // A fresh spawn that STILL skews is the proven-incompatible verdict
+      // (SK4): the currently-realised closure has been tried and cannot speak
+      // this build's contract — respawning it again can never converge, so
+      // report `incompatible` with both versions (never `dead`, whose UI
+      // affordance is exactly the retry that just failed). Every OTHER
+      // rejection is a genuine boot failure — never an import-time throw,
+      // just an honest `dead`.
+      if (isContractSkewError(err)) {
+        emit({
+          state: "incompatible",
+          daemonVersion: err.daemonVersion,
+          requiredVersion: err.requiredVersion,
+        });
+      } else {
+        emit({ state: "dead" });
+      }
       throw err;
     }
 
-    // A spawn always lands at the PRIMARY — so record it as the held rendezvous
-    // (a recycle after an adopted hint converges here) and tell the caller (which
-    // resets any recorded hint location back to the primary socket) BEFORE the
-    // connected status is emitted, so that status carries the primary socket — the
-    // twin of `adoptAt` firing `onAdopted` before its `holdConnection`.
-    held = primaryRv;
-    spec.onSpawned?.();
     // A fresh daemon is a load-bearing lifecycle event — the twin of "adopted a
     // surviving daemon". Logged so a cold boot, a recycle respawn, and a
     // drain-then-respawn each leave an honest "brought a new daemon up here" line
@@ -475,7 +550,9 @@ export function createEndpoint<C, I, M = undefined>(
   //                reports `degraded` and leaves the survivor be.
   type SurvivorConnect =
     | { kind: "adopted"; conn: DaemonConnection<C, I, M> }
-    | { kind: "skew"; err: unknown }
+    // The skew arm carries the TYPED error — its `daemonVersion`/`requiredVersion`
+    // fields feed the `incompatible` status arm (SK4), never re-parsed prose.
+    | { kind: "skew"; err: DaemonContractSkewError }
     | { kind: "unreachable"; err: unknown };
 
   // Connect to a live survivor for adoption, retrying bounded times on a
@@ -544,7 +621,10 @@ export function createEndpoint<C, I, M = undefined>(
     holder: number,
     connect: () => Promise<DaemonConnection<C, I, M>>,
     onAdopted: (() => void) | undefined,
-    onSkew: (holder: number) => void | Promise<void>,
+    onSkew: (
+      holder: number,
+      err: DaemonContractSkewError,
+    ) => void | Promise<void>,
     // Which rendezvous this adoption is against — `primary` (the digest socket) or
     // `upgrade-hint` (the pre-W2.2 legacy port socket, the migration bridge). Stamped
     // on the adopted log so an operator can grep "did the W2.2 upgrade bridge fire?"
@@ -576,8 +656,8 @@ export function createEndpoint<C, I, M = undefined>(
     if (outcome.kind === "skew") {
       // Proven incompatible: `adoptOrEnsure` RECYCLES (kill this holder + respawn at
       // the primary — converging a skewed legacy kaval to the digest keying);
-      // `adoptOrSpawnOrRefuse` REFUSES (leave standing + degraded).
-      await onSkew(holder);
+      // `adoptOrSpawnOrRefuse` REFUSES (leave standing + report `incompatible`).
+      await onSkew(holder, outcome.err);
       return false;
     }
     // `unreachable`: alive but every NON-skew connect attempt failed. NOT proven
@@ -607,7 +687,10 @@ export function createEndpoint<C, I, M = undefined>(
   // exactly as before. The no-survivor fresh spawn is always at the PRIMARY. Returns
   // whether a live survivor was ADOPTED.
   const adoptSurvivor = async (
-    onSkew: (holder: number) => void | Promise<void>,
+    onSkew: (
+      holder: number,
+      err: DaemonContractSkewError,
+    ) => void | Promise<void>,
   ): Promise<boolean> => {
     emit({ state: "connecting" });
     const primaryHolder = await liveServingHolder(primaryRv);
@@ -726,19 +809,28 @@ export function createEndpoint<C, I, M = undefined>(
       // recycled. Clients never kill a running padi: a second binder (a dev kolu,
       // another worktree) that speaks an incompatible contract must NOT SIGTERM the
       // padi that owns the real PTYs (the #1313 inversion the state-root identity
-      // exists to enforce). So a skewed survivor is left STANDING + `degraded` — the
-      // SAME non-killing shape an unreachable survivor already gets — and the operator
+      // exists to enforce). So a skewed survivor is left STANDING and reported
+      // `incompatible` (SK4) — the same NON-KILLING shape an unreachable survivor
+      // gets, under its honest verdict — and the operator
       // resolves the skew (upgrade the binder, or drain the daemon through the frozen
       // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
       // the shared `adoptSurvivor` sequence.
-      return adoptSurvivor((holder) => {
+      return adoptSurvivor((holder, err) => {
         spec.log.error(
           { hostId: spec.hostId, pid: holder },
           "live padi survivor is a contract skew — REFUSING (never killing a " +
-            "running padi); leaving it up and reporting degraded. Upgrade the " +
-            "binder or drain the daemon via its control core to converge.",
+            "running padi); leaving it up and reporting incompatible. Upgrade " +
+            "the binder or drain the daemon via its control core to converge.",
         );
-        emit({ state: "degraded" });
+        // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
+        // `degraded` made a contract skew indistinguishable on the wire from
+        // "unreachable" / "died mid-session", which is exactly the collapse
+        // this arm exists to kill.
+        emit({
+          state: "incompatible",
+          daemonVersion: err.daemonVersion,
+          requiredVersion: err.requiredVersion,
+        });
       });
     },
   };

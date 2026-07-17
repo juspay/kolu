@@ -29,7 +29,8 @@ import {
 } from "./input/actions";
 import type { HostKey } from "kolu-common/hostKey";
 import { restartDaemon } from "./kaval/useDaemonRestart";
-import { daemonWarming } from "./kaval/useDaemonStatus";
+import { offerRestartVerb } from "./kaval/daemonPresentation";
+import { daemonWarming, downState } from "./kaval/useDaemonStatus";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
@@ -512,8 +513,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         // `restartInFlight()`, which also folds in the local-click signal the
         // palette has no access to. So in the click-but-not-yet-warming window a
         // palette-then-button double-fire isn't caught here; the server's
-        // restart coalescer is the backstop for that race.
-        ...(!daemonWarming()
+        // restart coalescer is the backstop for that race. ALSO omitted on a
+        // PROVEN contract skew (SK4): a restart provably respawns the same
+        // incompatible binary, so the palette must not offer the dead-end verb
+        // the skew card exists to replace (its recovery is "Update & restart
+        // kaval", offered state-contextually on the card/dialog).
+        ...(offerRestartVerb(daemonWarming(), downState())
           ? [
               {
                 kind: "action" as const,

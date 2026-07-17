@@ -151,11 +151,16 @@ once the probe lands — `null` means *not yet measured*. Readiness is link-live
 `clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
 the session's own state, no longer an injected `offsetOf`. A clock probe that fails is
 never swallowed: it stays `connected` with a `null` offset, re-attempts on a fixed cadence,
-and surfaces the failure on the session's diagnostic `onLog(line, severity)` sink —
-classified `error` for a genuine failure (the wedged-clock deadline, a transport fault) and
-`info` for the expected-absent case (an agent dial whose client carries no reserved
-`system.clockNow`). `onLog`'s `severity` is optional and defaults to `info`, so a one-argument
-sink stays valid. `disconnected` adds `error` +
+and surfaces the failure on the session's diagnostic logger (`MakeSessionOptions.log`, the
+`@kolu/log` `Logger` shape — four level methods `debug`/`info`/`warn`/`error`, each
+`(obj: Record<string, unknown>, msg: string) => void`; pass a pino child directly) — the session dispatches the
+severity itself via a receiver-bound `log[severity]({ line }, label)` call, classified
+`error` for a genuine failure (the wedged-clock deadline, a transport fault) and `debug`
+for the expected-absent case (an agent dial whose client carries no reserved
+`system.clockNow` — "tool not installed", not a fault). Omit `log` and diagnostic lines
+fall to raw `process.stderr` (the plain-CLI default). Consumers never dispatch severity
+over extracted method references — the unbound-`this` crash class has no spellable form —
+and a throwing logger crashes the session loop deliberately (fail fast). `disconnected` adds `error` +
 `cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`
 pinned to the `"remote"` literal (a network fault never gives up, so `failed` + `network` is
 unrepresentable). There is no separate `progressLines` / `remoteProgressLines` — provenance
@@ -179,6 +184,7 @@ is the `source` field.
 - **`currentState()` is the synchronous twin of `onState`.** It returns the current published `SessionState` frame — the point-read companion to the snapshot-then-delta subscription, reading the same cell `onState` publishes. It always returns the *freshest* frame: `onState`'s *delta* delivery is microtask-deferred (the initial snapshot fires synchronously) and one synchronous frame can drive two transitions (e.g. `disconnected` → give-up `failed`), so a listener delivered one delta frame may read a *later* one here. Honest liveness is `currentState().phase === "connected"`.
 - **`currentClient()` is not a liveness gate.** It returns the in-flight/current client promise and is legitimately *non-null while merely dialing* — during `connecting`/provisioning, and (because `scheduleReconnect` retains the rejected dial) across an entire reconnect backoff window. The pump/`markConnected` handshake depends on that "dialing-or-connected" meaning, so `currentClient() !== null` is never "the far end is live" — read `currentState().phase` for that.
 - **`pin()` is parent-lifetime intent.** It bumps the ref-count unconditionally, so the session keeps reconnecting even if the first spawn fails, and resolves with the first client. `destroy()` drops it regardless of the count.
+- **A session's internal timers never hold the process alive.** The reconnect backoff, connect watchdog, and clock probes are `unref()`'d, so once its link is down a pinned-but-abandoned session cannot keep an otherwise-finished process running — the process exits and the session dies with it. (*A LIVE link is different: its ssh child / socket is a real event-loop hold while it lasts.*) A consumer whose sole purpose is waiting on a session must hold the process by its own means (a server socket, stdin, a live transport; every live dial's child/socket is itself a hold). Consequently **a parked `ClientCursor.next()` / onState-derived wait is *not* a process hold**: across a reconnect gap it is settled only by the backoff firing, and if nothing else holds the loop it goes silently unsettled as the process exits. The one deliberately ref'd timer is the admit-handshake timeout — it must fire even as the last handle standing, because it rejects a `pin()` a caller is awaiting.
 - **Network faults retry forever; remote faults are bounded.** A `network` fault (host unreachable) never terminates — it retries at capped backoff (60s). A `remote` fault (host answered but rejected the closure) is bounded by a max consecutive-failure count, then surfaces terminal `failed`.
 - **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale).
 - **Liveness watchdog, default-on.** While `connected`, it probes the reserved `system.live` round-trip on an interval; a rejection still counts as alive (the round-trip completed). What a **timeout** does depends on the arm's structure (P5), through the optional `Connection.processAlive` same-box oracle: a **remote** arm (ssh — no oracle) reads silence as death and force-cycles the child, because the network can die silently. A **local** arm (endpoint/stdio) that supplies `processAlive` consults the same-box process table instead — process **gone** → force-cycle now; process **alive** → the link is merely slow under load, so it keeps probing rather than force-cycling, bounded by a baked minute-scale dead-man ceiling (alive-but-silent past it → force-cycle anyway). This is arm structure, not a knob. Opt out with `liveness: false`.

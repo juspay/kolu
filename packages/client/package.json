@@ -55,6 +55,7 @@
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
+    "@kolu/surface-daemon-supervisor": "workspace:*",
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^22.0.0",
     "@xterm/headless": "^6.0.0",

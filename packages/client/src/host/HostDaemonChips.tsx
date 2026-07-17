@@ -32,7 +32,7 @@ import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
-import { kavalStale } from "../kaval/kavalCurrency";
+import { type KavalAttention, kavalAttention } from "../kaval/kavalCurrency";
 import {
   DAEMON_STATE_PRESENTATION,
   daemonTransportLive,
@@ -180,12 +180,13 @@ const PadiMark: Component<{ padi: ReturnType<typeof useHostPadi> }> = (
  *  for the same host (the sub-chip already holds one). */
 const KavalMark: Component<{
   kaval: ReturnType<typeof useHostKaval>;
-  /** A newer kaval build is available for this host (see {@link kavalStale}).
-   *  Surfaces the update at a glance — an amber corner pip in the OPPOSITE
-   *  corner from the state dot — so a build-behind kaval doesn't look identical
-   *  to a current one in the chrome (the fuller "newer build …" text still
+  /** This host's kaval needs attention (see {@link kavalAttention}) — surfaces
+   *  it at a glance as a corner pip in the OPPOSITE corner from the state dot,
+   *  toned per AXIS: amber for the currency nudge ("newer build available"),
+   *  danger for a proven contract skew ("incompatible — needs update") — so
+   *  neither looks identical to a current kaval in the chrome (the fuller text
    *  rides the tooltip + dialog). Static switcher marks don't pass it. */
-  stale?: boolean;
+  attention?: KavalAttention["kind"];
 }> = (props) => (
   <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
@@ -196,10 +197,13 @@ const KavalMark: Component<{
       }
       class={kavalDot(props.kaval.daemon()?.state, props.kaval.live())}
     />
-    <Show when={props.stale}>
+    <Show
+      when={props.attention === "stale" || props.attention === "incompatible"}
+    >
       <span
         data-testid="kaval-update-pip"
-        class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-surface-2 bg-amber-500"
+        data-attention={props.attention}
+        class={`absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-surface-2 ${props.attention === "incompatible" ? "bg-danger" : "bg-amber-500"}`}
         aria-hidden="true"
       />
     </Show>
@@ -349,24 +353,27 @@ const KavalSubChip: Component<{
       return "memory unavailable";
     return formatProcessMemoryText(props.mem.value()?.kaval);
   };
-  // The at-a-glance staleness fact for THIS host's kaval — drives both the
-  // amber update pip on the mark (glanceable, no hover) and the tooltip text.
-  const kavalIsStale = (): boolean => {
-    const expected = padiStatus.value()?.expectedKaval;
-    const status = kaval.daemon();
-    return kavalStale(
-      expected?.staleKey,
-      status?.identity?.staleKey,
-      status?.state,
+  // The at-a-glance attention verdict for THIS host's kaval — the SAME joined
+  // derivation the dialog banner and the canvas skew card read (SK5's one
+  // comparison site). Drives both the corner pip on the mark (glanceable, no
+  // hover) and the tooltip text, per axis.
+  const attention = (): KavalAttention =>
+    kavalAttention(
+      padiStatus.value()?.expectedKaval?.staleKey,
+      kaval.daemon(),
       kaval.live(),
     );
-  };
   const kavalUpdateText = (): string | undefined => {
-    if (!kavalIsStale()) return undefined;
-    const expected = padiStatus.value()?.expectedKaval;
-    return expected?.navigableCommit
-      ? `newer build ${expected.navigableCommit.slice(0, 7)} available`
-      : "newer build available";
+    const a = attention();
+    if (a.kind === "incompatible")
+      return `incompatible — speaks ${a.daemonVersion}, kolu needs ${a.requiredVersion}; update needed`;
+    if (a.kind === "stale") {
+      const expected = padiStatus.value()?.expectedKaval;
+      return expected?.navigableCommit
+        ? `newer build ${expected.navigableCommit.slice(0, 7)} available`
+        : "newer build available";
+    }
+    return undefined;
   };
   const kavalTip = (): string =>
     joinTip(
@@ -393,7 +400,7 @@ const KavalSubChip: Component<{
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
-          <KavalMark kaval={kaval} stale={kavalIsStale()} />
+          <KavalMark kaval={kaval} attention={attention().kind} />
         </button>
       </Tip>
       <Show when={open()}>
