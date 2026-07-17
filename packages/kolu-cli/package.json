@@ -10,11 +10,17 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/padi": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-daemon-supervisor": "workspace:*",
+    "@kolu/surface-remote": "workspace:*",
     "cleye": "^2.3.0",
+    "kolu-mcp": "workspace:*",
     "kolu-server": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.0.0",
     "kolu-common": "workspace:*",
     "tsx": "^4.19.0",

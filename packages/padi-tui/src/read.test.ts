@@ -16,7 +16,8 @@ import type { PadiTerminal } from "@kolu/padi/surface";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import type { PadiTuiClient } from "./connect.ts";
-import { awaitAgentState, settledSnapshot } from "./read.ts";
+import { awaitAgentState } from "@kolu/padi/dial";
+import { settledSnapshot } from "./read.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
 
@@ -126,7 +127,8 @@ describe("awaitAgentState — the `wait` read", () => {
       id: id("t-gone"),
       targets: new Set(["working"]),
     });
-    expect(outcome).toEqual({ kind: "gone" });
+    // `gone` now carries the scaffold's elapsedMs stamp — assert the kind.
+    expect(outcome).toMatchObject({ kind: "gone" });
   });
 
   it("resolves `met` for a present terminal already in a target bucket (seed is inert here)", async () => {

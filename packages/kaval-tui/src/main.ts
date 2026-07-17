@@ -34,7 +34,11 @@
 import { fstatSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
+import {
+  ACCEPTED_KEY_NAMES,
+  encodeKey,
+  SNAPSHOT_TTY_RESET as TTY_RESET,
+} from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -54,8 +58,6 @@ import { materializeHistoryPage } from "./historyPage.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
 import {
-  ACCEPTED_KEY_NAMES,
-  encodeKey,
   planSend,
   rejectUnknownSendFlags,
   resolveSendInput,

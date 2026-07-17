@@ -4,7 +4,7 @@
  * The data side of the `wait` verb, factored out of `main.ts` so it is testable
  * against a real pty-host over a real socket with no `process.exit` — `cmdWait`
  * is the thin glue that maps the outcome to output + exit code (mirroring
- * `padi-tui`'s `read.ts:awaitAgentState` / `main.ts:cmdWait` split).
+ * `padi-tui`'s `awaitAgentState` / `main.ts:cmdWait` split).
  *
  * The signal source is the SAME raw PTY output the daemon already serves on the
  * `terminalAttach` stream (snapshot-then-`delta` frames — `ptyHostSurface.ts`):
@@ -17,12 +17,33 @@
  * not a new volatility receptacle in the daemon. It works over `--socket` and
  * `--host` for free because `terminalAttach`/`exit` already do.
  *
+ * The race/lifecycle boilerplate (abort-chain, first-writer-wins settle,
+ * timeout, the interrupted/closed fallback) is `@kolu/surface/wait`'s `runWait`
+ * scaffold — extracted when the kolu MCP face became its third consumer. What
+ * stays HERE is the kaval-contract-bound condition watcher: the idle window,
+ * the match buffer/scan, and the lost-feed discrimination against
+ * `terminal.list` (non-verbatim twins of padi's watchers, per the
+ * port-not-extract doctrine).
+ *
  * This is explicitly NOT `padi-tui wait`'s hooked agent-state path: that keys on
  * OSC marks a *hooked* shell emits; this keys on raw output bytes from ANY
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */
 
+import { isDeadTransportError } from "@kolu/surface/client";
+import {
+  isValidTimerMs,
+  MAX_TIMER_MS,
+  runWait,
+  type WaitCtx,
+  waitOutcomeJson,
+  type WaitOutcome as SharedWaitOutcome,
+} from "@kolu/surface/wait";
 import type { PtyTuiClient } from "./connect.ts";
+
+// The timer-range vocabulary graduated into the shared wait scaffold; re-used
+// here for the `--until idle:<ms>` / `--timeout` boundary guards.
+export { isValidTimerMs, MAX_TIMER_MS };
 
 /** The condition a `wait` blocks on, parsed from `--until`:
  *   - `idle` — resolve once no output byte has arrived for `ms` (the
@@ -38,28 +59,11 @@ export type WaitCondition =
  *  should never provision a `--host` daemon we'd immediately drop). */
 export type ParsedUntil = WaitCondition | { kind: "error"; message: string };
 
-/** Node's `setTimeout` caps its delay at the signed 32-bit max (~24.8 days); a
- *  larger delay does NOT wait longer — it silently CLAMPS to 1ms and fires
- *  almost immediately. So an idle window (or `--timeout`) above this is rejected
- *  loud at the boundary rather than "succeeding" in a millisecond: a fail-fast
- *  guard, not a silent coercion. */
-export const MAX_TIMER_MS = 2_147_483_647;
-
-/** Is `ms` a delay `setTimeout` can honor as written — positive, finite, and
- *  within the 32-bit overflow ceiling? Both `--until idle:<ms>` and `--timeout
- *  <ms>` flow into `setTimeout`, so the timer-range rule lives ONCE here rather
- *  than diverging across the two call sites. (Whole-number-ness is the `idle:`
- *  STRING grammar's job — the digit regex in `parseUntil` — not this numeric
- *  range check, so a fractional `--timeout` is accepted exactly as before.) */
-export function isValidTimerMs(ms: number): boolean {
-  return Number.isFinite(ms) && ms > 0 && ms <= MAX_TIMER_MS;
-}
-
 /** A promise that resolves after `ms` — the package's one `setTimeout` wrapper,
  *  reused by `attach`'s reconnect backoff and the send acceptance test's
- *  observed-settle wait. Lives beside {@link MAX_TIMER_MS}/{@link isValidTimerMs},
- *  the module that already owns this package's timer vocabulary, so the sleep
- *  isn't re-typed at each call site. */
+ *  observed-settle wait. Lives beside the wait vocabulary, the module that
+ *  already owns this package's timer idiom, so the sleep isn't re-typed at each
+ *  call site. */
 export const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -116,61 +120,44 @@ export function parseUntil(spec: string): ParsedUntil {
   };
 }
 
-/** The outcome of a `wait`: the condition fired (`met`, carrying which form and
- *  how long it took — plus the matched line for `match`), the wait elapsed its
- *  `--timeout` cap (`timeout`), the terminal EXITED before the condition could
- *  fire (`gone` — the driven agent died, so the condition can never land), the
- *  caller's signal aborted the wait (`interrupted` — a Ctrl+C), or the link
- *  settled without any of those (`closed` — a dropped link; `error` holds the
- *  first upstream failure). The `interrupted`/`closed` split is decided here
- *  from `opts.signal`, so the outcome alone carries the full result and `cmdWait`
- *  never re-derives it from a side channel. */
-export type WaitOutcome =
-  | { kind: "met"; fired: "idle"; elapsedMs: number }
-  | { kind: "met"; fired: "match"; elapsedMs: number; matchedLine: string }
-  | { kind: "timeout"; elapsedMs: number }
-  | { kind: "gone"; elapsedMs: number }
-  | { kind: "interrupted" }
-  | { kind: "closed"; error?: string };
+/** The met payload a `kaval-tui wait` stamps: which condition form fired and
+ *  how long it took — plus the matched line for `match`. Spread flat into the
+ *  shared union's `met` arm, so the `--json` wire frame is byte-identical to
+ *  the pre-scaffold shape. */
+type OutputMet =
+  | { fired: "idle"; elapsedMs: number }
+  | { fired: "match"; elapsedMs: number; matchedLine: string };
 
-/** Serialize a {@link WaitOutcome} to the stable `--json` wire frame — the ONE
- *  home for the driver-facing contract, so the shape lives beside the type it
- *  mirrors instead of being reassembled per branch in `cmdWait`. The `result`
- *  discriminant is derived from `outcome.kind` (NOT from `fired`, which is a
- *  success *detail* of the `met` case), so EVERY outcome — `gone` /
- *  `interrupted` / `closed` included — emits a uniform frame and a `--json`
- *  driver never has to fall back to parsing the exit code alone. */
+/** The outcome of a `wait` — the shared scaffold union over {@link OutputMet}:
+ *  `met` (which form fired + timing), `timeout`, `gone` (the terminal EXITED
+ *  before the condition could fire), `interrupted` (a Ctrl+C), or `closed` (a
+ *  dropped link; `error` holds the first upstream failure). The
+ *  `interrupted`/`closed` split is decided by the scaffold from `opts.signal`,
+ *  so the outcome alone carries the full result and `cmdWait` never re-derives
+ *  it from a side channel. */
+export type WaitOutcome = SharedWaitOutcome<OutputMet>;
+
+/** Serialize a {@link WaitOutcome} to the stable `--json` wire frame via the
+ *  shared {@link waitOutcomeJson} (which owns the four terminal arms —
+ *  `timeout`/`gone`/`interrupted`/`closed` — and the `result`-from-`kind`
+ *  discriminant, so a `--json` driver never falls back to parsing the exit
+ *  code). This face SPREADS the met detail flat: the split union guarantees
+ *  `matchedLine` exactly when `fired === "match"`, so the projection follows the
+ *  discriminant with no presence guard — an idle frame can't carry a line, a
+ *  match frame can't omit one. */
 export function waitResultJson(
   id: string,
   outcome: WaitOutcome,
 ): Record<string, unknown> {
-  switch (outcome.kind) {
-    case "met":
-      // The split union guarantees `matchedLine` exactly when `fired ===
-      // "match"`, so the projection follows the discriminant with no presence
-      // guard — an idle frame can't carry a line, a match frame can't omit one.
-      return outcome.fired === "match"
-        ? {
-            id,
-            result: "met",
-            fired: "match",
-            elapsedMs: outcome.elapsedMs,
-            matchedLine: outcome.matchedLine,
-          }
-        : { id, result: "met", fired: "idle", elapsedMs: outcome.elapsedMs };
-    case "timeout":
-      return { id, result: "timeout", elapsedMs: outcome.elapsedMs };
-    case "gone":
-      return { id, result: "gone", elapsedMs: outcome.elapsedMs };
-    case "interrupted":
-      return { id, result: "interrupted" };
-    case "closed":
-      return {
-        id,
-        result: "closed",
-        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
-      };
-  }
+  return waitOutcomeJson<OutputMet>(id, outcome, (met) =>
+    met.fired === "match"
+      ? {
+          fired: "match",
+          elapsedMs: met.elapsedMs,
+          matchedLine: met.matchedLine,
+        }
+      : { fired: "idle", elapsedMs: met.elapsedMs },
+  );
 }
 
 /** Cap the accumulated match buffer so a long-running `match` wait against a
@@ -213,7 +200,8 @@ function errMessage(err: unknown): string {
  * abort, or `closed` if the link drops. Pure data layer — no tty, no
  * `process.exit` — so it is testable over a real socket.
  *
- * It subscribes to TWO existing streams concurrently and races them:
+ * The race rides `runWait`; the watchers subscribe TWO existing streams
+ * concurrently:
  *   - `terminalAttach` — the snapshot-then-`delta` output feed. The snapshot is
  *     the current screen replay (not new output): for `idle` it just starts the
  *     quiet window; for `match` it is NOT scanned (we match NEW bytes since the
@@ -221,7 +209,7 @@ function errMessage(err: unknown): string {
  *   - `exit` — yields once when the child exits. If it fires before the
  *     condition, the condition can never land, so we resolve `gone` (exit 3 at
  *     the CLI) rather than blocking to the timeout.
- * Whichever resolves first aborts the other.
+ * Whichever settles first aborts the other (the scaffold's race).
  */
 export async function awaitOutputCondition(
   client: PtyTuiClient,
@@ -232,182 +220,172 @@ export async function awaitOutputCondition(
     signal?: AbortSignal;
   },
 ): Promise<WaitOutcome> {
-  const start = Date.now();
-  const elapsed = (): number => Date.now() - start;
-
-  const abort = new AbortController();
-  // Chain the caller's signal (Ctrl+C) into our internal abort so an interrupt
-  // unwinds both stream subscriptions the same way the timeout does.
-  if (opts.signal !== undefined) {
-    if (opts.signal.aborted) abort.abort();
-    else
-      opts.signal.addEventListener("abort", () => abort.abort(), {
-        once: true,
-      });
-  }
-
-  let outcome: WaitOutcome | undefined;
-  let upstreamError: string | undefined;
-  // First-writer-wins: timer, idle-timer, attach, and exit all race to set the
-  // outcome; `??=` keeps the first and the abort below stops the rest.
-  const settle = (o: WaitOutcome): void => {
-    outcome ??= o;
-    abort.abort();
-  };
-
-  const timer =
-    opts.timeoutMs === undefined
-      ? undefined
-      : setTimeout(
-          () => settle({ kind: "timeout", elapsedMs: elapsed() }),
-          opts.timeoutMs,
+  return runWait(
+    { timeoutMs: opts.timeoutMs, signal: opts.signal },
+    async (ctx: WaitCtx<OutputMet>) => {
+      // The idle window: (re)armed on the snapshot and on every delta; if it
+      // elapses with no further output, the terminal has been quiescent for `ms`.
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const disarmIdle = (): void => {
+        if (idleTimer !== undefined) {
+          clearTimeout(idleTimer);
+          idleTimer = undefined;
+        }
+      };
+      const armIdle = (ms: number): void => {
+        disarmIdle();
+        idleTimer = setTimeout(
+          () =>
+            ctx.settle({
+              kind: "met",
+              fired: "idle",
+              elapsedMs: ctx.elapsedMs(),
+            }),
+          ms,
         );
+      };
 
-  // The idle window: (re)armed on the snapshot and on every delta; if it elapses
-  // with no further output, the terminal has been quiescent for `ms`.
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  const disarmIdle = (): void => {
-    if (idleTimer !== undefined) {
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
-    }
-  };
-  const armIdle = (ms: number): void => {
-    disarmIdle();
-    idleTimer = setTimeout(
-      () => settle({ kind: "met", fired: "idle", elapsedMs: elapsed() }),
-      ms,
-    );
-  };
+      // The first upstream failure this watcher itself observed — preferred over
+      // the generic slow-consumer message when the lost feed settles `closed`.
+      let feedError: string | undefined;
 
-  // The output feed dropped before any outcome and without an abort WE caused.
-  // Two causes, told apart by the inventory — the SAME discrimination
-  // `runAttach` uses for an identical stream end: the PTY exited (the channel
-  // closed → `gone`), or it's still live and we were dropped as a slow
-  // subscriber / the daemon ended our attach (`Channel`'s drop-slow mode →
-  // `closed`, a dropped feed we can't honestly keep waiting on). Either way we
-  // must DISARM the idle timer first: leaving it armed would let it fire a FALSE
-  // `met` off the last delta even though we can no longer observe new output;
-  // and a `match` that simply stopped reading would otherwise hang to the
-  // timeout. So we settle loud here rather than going quiet.
-  const settleOnLostFeed = async (): Promise<void> => {
-    disarmIdle();
-    try {
-      const { entries } = await client.surface.terminal.list({});
-      if (!entries.some((e) => e.id === opts.id)) {
-        settle({ kind: "gone", elapsedMs: elapsed() });
-        return;
-      }
-    } catch (err) {
-      upstreamError ??= errMessage(err);
-    }
-    settle({
-      kind: "closed",
-      error:
-        upstreamError ??
-        `the daemon ended ${opts.id}'s output feed while its PTY was still live (a slow-consumer drop) — re-run \`kaval-tui wait\`.`,
-    });
-  };
-
-  const consumeOutput = async (): Promise<void> => {
-    let buffer = "";
-    try {
-      const stream = await client.surface.terminalAttach.get(
-        { id: opts.id },
-        { signal: abort.signal },
-      );
-      for await (const msg of stream) {
-        if (opts.condition.kind === "idle") {
-          // The snapshot is the replay of the current screen, not new output —
-          // but it's the moment to start the quiet window (an already-idle
-          // terminal then fires after `ms`); each delta resets it.
-          armIdle(opts.condition.ms);
-          continue;
+      // The output feed dropped before any outcome and without an abort WE
+      // caused. Two causes, told apart by the inventory — the SAME
+      // discrimination `runAttach` uses for an identical stream end: the PTY
+      // exited (the channel closed → `gone`), or it's still live and we were
+      // dropped as a slow subscriber / the daemon ended our attach (`Channel`'s
+      // drop-slow mode → `closed`, a dropped feed we can't honestly keep
+      // waiting on). Either way we must DISARM the idle timer first: leaving it
+      // armed would let it fire a FALSE `met` off the last delta even though we
+      // can no longer observe new output; and a `match` that simply stopped
+      // reading would otherwise hang to the timeout. So we settle loud here
+      // rather than going quiet. (A genuinely unexpected watcher THROW, by
+      // contrast, propagates per the scaffold's contract — this path handles
+      // only the EXPECTED feed-end shapes.)
+      const settleOnLostFeed = async (): Promise<void> => {
+        disarmIdle();
+        try {
+          // Thread ctx.signal: a half-open wire makes even this unary read hang
+          // indefinitely, and runWait still awaits the watcher — so without the
+          // signal the "bounded" wait outlives its own timeout/cancel. An abort
+          // rejects the read into the catch below (a first-writer settle no-op).
+          const { entries } = await client.surface.terminal.list(
+            {},
+            { signal: ctx.signal },
+          );
+          if (!entries.some((e) => e.id === opts.id)) {
+            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+            return;
+          }
+        } catch (err) {
+          // A dead transport poisons a shared connection, so it PROPAGATES (a
+          // CLI wait dials its own link and exits, but the discrimination stays
+          // in lockstep with padi's watcher, the port-not-extract twin).
+          if (isDeadTransportError(err)) throw err;
+          const m = errMessage(err);
+          feedError ??= m;
+          ctx.recordUpstreamError(m);
         }
-        // match: scan NEW output (deltas) only — the snapshot is the prior
-        // screen, not bytes that arrived "since the call".
-        if (msg.kind !== "delta") continue;
-        buffer += msg.data;
-        const m = opts.condition.regex.exec(buffer);
-        if (m !== null) {
-          settle({
-            kind: "met",
-            fired: "match",
-            elapsedMs: elapsed(),
-            matchedLine: matchedLineAt(buffer, m.index),
-          });
-          return;
+        ctx.settle({
+          kind: "closed",
+          error:
+            feedError ??
+            `the daemon ended ${opts.id}'s output feed while its PTY was still live (a slow-consumer drop) — re-run \`kaval-tui wait\`.`,
+        });
+      };
+
+      const consumeOutput = async (): Promise<void> => {
+        let buffer = "";
+        try {
+          const stream = await client.surface.terminalAttach.get(
+            { id: opts.id },
+            { signal: ctx.signal },
+          );
+          for await (const msg of stream) {
+            if (opts.condition.kind === "idle") {
+              // The snapshot is the replay of the current screen, not new output —
+              // but it's the moment to start the quiet window (an already-idle
+              // terminal then fires after `ms`); each delta resets it.
+              armIdle(opts.condition.ms);
+              continue;
+            }
+            // match: scan NEW output (deltas) only — the snapshot is the prior
+            // screen, not bytes that arrived "since the call".
+            if (msg.kind !== "delta") continue;
+            buffer += msg.data;
+            const m = opts.condition.regex.exec(buffer);
+            if (m !== null) {
+              ctx.settle({
+                kind: "met",
+                fired: "match",
+                elapsedMs: ctx.elapsedMs(),
+                matchedLine: matchedLineAt(buffer, m.index),
+              });
+              return;
+            }
+            // Bound the buffer (keep the tail, where a sentinel lands) so a chatty
+            // terminal that never matches can't grow it without limit.
+            if (buffer.length > MATCH_BUFFER_CAP)
+              buffer = buffer.slice(-MATCH_BUFFER_CAP);
+          }
+          // The stream ENDED with no outcome and without an abort we caused — the
+          // feed is gone. (Every settle — met/timeout/Ctrl+C — aborts ctx.signal
+          // synchronously, so a settled race can never reach the lost-feed path.)
+          if (!ctx.signal.aborted) await settleOnLostFeed();
+        } catch (err) {
+          // An abort (the condition fired elsewhere, a Ctrl+C, the timeout) is the
+          // expected end — don't record it as an upstream failure. A non-abort error
+          // is a dropped feed: record it, then settle loud so the idle timer can't
+          // fire a false `met` and a `match` can't hang on a stream we stopped
+          // reading.
+          if (!ctx.signal.aborted) {
+            if (isDeadTransportError(err)) throw err;
+            const m = errMessage(err);
+            feedError ??= m;
+            ctx.recordUpstreamError(m);
+            await settleOnLostFeed();
+          }
         }
-        // Bound the buffer (keep the tail, where a sentinel lands) so a chatty
-        // terminal that never matches can't grow it without limit.
-        if (buffer.length > MATCH_BUFFER_CAP)
-          buffer = buffer.slice(-MATCH_BUFFER_CAP);
-      }
-      // The stream ENDED with no outcome and without an abort we caused — the
-      // feed is gone. (Our own met/timeout/Ctrl+C settle aborts the stream, so
-      // that end lands in the catch with `abort.signal.aborted` true, NOT here.)
-      if (outcome === undefined && !abort.signal.aborted)
-        await settleOnLostFeed();
-    } catch (err) {
-      // An abort (the condition fired elsewhere, a Ctrl+C, the timeout) is the
-      // expected end — don't record it as an upstream failure. A non-abort error
-      // is a dropped feed: record it, then settle loud so the idle timer can't
-      // fire a false `met` and a `match` can't hang on a stream we stopped reading.
-      if (!abort.signal.aborted) {
-        upstreamError ??= errMessage(err);
-        await settleOnLostFeed();
-      }
-    }
-  };
+      };
 
-  const consumeExit = async (): Promise<void> => {
-    try {
-      const stream = await client.surface.exit.get(
-        { id: opts.id },
-        { signal: abort.signal },
-      );
-      // Deliberately NOT `firstFrameOrUndefined` (SR6 non-adoption): this settle
-      // is a side effect that must fire the INSTANT the first exit frame arrives,
-      // BEFORE the iterator's async close is awaited — because `consumeExit` races
-      // `consumeOutput` and the timeout in a `Promise.all`, and `settle` is
-      // first-wins. The primitive does `for await … return frame`, which awaits
-      // AsyncIteratorClose before it resolves, so it would move `settle` PAST that
-      // close and let a competing timer/feed event win the race first (and fold the
-      // close latency into `elapsedMs`). The open-coded loop keeps settle-then-close
-      // ordering, so it stays. (first-frame-guard:allow — ordering-sensitive.)
-      for await (const _msg of stream) {
-        settle({ kind: "gone", elapsedMs: elapsed() });
-        return;
+      const consumeExit = async (): Promise<void> => {
+        try {
+          const stream = await client.surface.exit.get(
+            { id: opts.id },
+            { signal: ctx.signal },
+          );
+          // Deliberately NOT `firstFrameOrUndefined` (SR6 non-adoption): this settle
+          // is a side effect that must fire the INSTANT the first exit frame arrives,
+          // BEFORE the iterator's async close is awaited — because `consumeExit` races
+          // `consumeOutput` and the timeout in a `Promise.all`, and `settle` is
+          // first-wins. The primitive does `for await … return frame`, which awaits
+          // AsyncIteratorClose before it resolves, so it would move `settle` PAST that
+          // close and let a competing timer/feed event win the race first (and fold the
+          // close latency into `elapsedMs`). The open-coded loop keeps settle-then-close
+          // ordering, so it stays. (first-frame-guard:allow — ordering-sensitive.)
+          for await (const _msg of stream) {
+            ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+            return;
+          }
+        } catch {
+          // The exit stream is the PRECISE "child exited → gone" signal, but losing
+          // it is NOT fatal, so — unlike consumeOutput — we deliberately neither
+          // settle nor disarm here. A real exit ALSO ends the terminalAttach feed →
+          // settleOnLostFeed → gone, so consumeOutput is the backstop; meanwhile a
+          // healthy output feed keeps idle/match/timeout working. (An abort — our own
+          // settle or Ctrl+C — is likewise the expected end.) We do not record this
+          // into the upstream latch: it would only ever surface through the `closed`
+          // path, and that path is reached via consumeOutput, which records its OWN
+          // error.
+        }
+      };
+
+      try {
+        await Promise.all([consumeOutput(), consumeExit()]);
+      } finally {
+        // The scaffold clears ITS timeout; the idle timer is this watcher's own.
+        disarmIdle();
       }
-    } catch {
-      // The exit stream is the PRECISE "child exited → gone" signal, but losing
-      // it is NOT fatal, so — unlike consumeOutput — we deliberately neither
-      // settle nor disarm here. A real exit ALSO ends the terminalAttach feed →
-      // settleOnLostFeed → gone, so consumeOutput is the backstop; meanwhile a
-      // healthy output feed keeps idle/match/timeout working. (An abort — our own
-      // settle or Ctrl+C — is likewise the expected end.) We do not record this
-      // into upstreamError: it would only ever surface through the `closed` path,
-      // and that path is reached via consumeOutput, which records its OWN error.
-    }
-  };
-
-  try {
-    await Promise.all([consumeOutput(), consumeExit()]);
-  } finally {
-    // `clearTimeout(undefined)` is a documented no-op, so the no-timeout case
-    // needs no guard; `disarmIdle` is the one home for the idle-timer teardown.
-    clearTimeout(timer);
-    disarmIdle();
-  }
-
-  // A settled `outcome` is the normal result. The fallback covers the case where
-  // both consumers ended without one — which is a caller abort (consumeOutput's
-  // own end-of-feed path otherwise always settles): a Ctrl+C is `interrupted`,
-  // and anything else is a defensive `closed`.
-  return (
-    outcome ??
-    (opts.signal?.aborted
-      ? { kind: "interrupted" }
-      : { kind: "closed", error: upstreamError })
+    },
   );
 }

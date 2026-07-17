@@ -59,3 +59,32 @@ export function controlByte(char: string): string | undefined {
 export function metaByte(char: string): string {
   return `\x1b${char}`;
 }
+
+/** The named keys {@link encodeKey} accepts, as one human string for help text
+ *  and unknown-key errors — so the vocabulary is written ONCE, not hand-copied
+ *  across doc strings (the drift class this module was created to kill).
+ *  Slashes group the arrow cluster; `keyInput.test.ts` guards that every token
+ *  here resolves via {@link encodeKey} and that every byte in
+ *  {@link NAMED_KEY_BYTES} is reachable from it, so adding a key to the table
+ *  without listing it here fails CI. */
+export const ACCEPTED_KEY_NAMES =
+  "Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space, Shift-Tab";
+
+/** A named key (`Escape`, `Up`, `Enter`, case-insensitive) or a modifier chord
+ *  (`C-c`, `M-b`) → its raw bytes; `undefined` when unrecognized. Graduated
+ *  here from kaval-tui's `send` the day the kolu MCP face became its second
+ *  verbatim consumer (`lifecycle_sendInput`'s `key` argument speaks the same
+ *  vocabulary), so the named-key grammar has ONE home beside the byte tables
+ *  it folds through. `M-<char>` (meta/alt) prefixes ESC to the char verbatim
+ *  (`M-b` → `\x1bb`). */
+export function encodeKey(name: string): string | undefined {
+  const named = NAMED_KEY_BYTES[name.toLowerCase()];
+  if (named !== undefined) return named;
+  // Bind the captured char directly so it narrows to `string` (the regex has one
+  // group, but `noUncheckedIndexedAccess` types `match[1]` as `string | undefined`).
+  const ctrl = /^c-(.)$/i.exec(name)?.[1];
+  if (ctrl !== undefined) return controlByte(ctrl);
+  const meta = /^m-(.)$/i.exec(name)?.[1];
+  if (meta !== undefined) return metaByte(meta);
+  return undefined;
+}

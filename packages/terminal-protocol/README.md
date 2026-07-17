@@ -33,6 +33,7 @@ Every suppressed query class sits in exactly one arm — **answered** (one answe
 | `headlessReplies` | `shouldForwardHeadlessReply` — the server-side forward/drop policy for replies the headless mirror generates. | `kaval` |
 | `deviceQueries` | `ANSWERED_DEVICE_QUERIES` / `SILENT_DEVICE_QUERIES` — the matrix as data. | `kaval` contract tests |
 | `bracketedPaste` | The `?2004` paste delimiters (`ESC [200~` / `ESC [201~`). | kaval-tui escape scanner · kolu-server paste injection |
+| `keyInput` | The named-key → bytes table (`NAMED_KEY_BYTES`), the Ctrl/Meta folds (`controlByte` / `metaByte`), and the one name/chord grammar over them (`encodeKey`, with its drift-guarded `ACCEPTED_KEY_NAMES` help vocabulary). | browser sticky modifiers · mobile key bar · kaval-tui `send --key` · kolu-mcp `lifecycle_sendInput` |
 | `snapshotReset` | `SNAPSHOT_TTY_RESET` — the reciprocal reset for every mode a replayed `@xterm/addon-serialize` snapshot can switch on. **Audit on every xterm/serialize bump.** | kaval-tui `attach` restore |
 
 What deliberately does *not* live here: the ssh-style `~.` escape state machine (an attach-control concern, `kaval-tui/src/escape.ts` — it imports only the paste markers), the OSC 7/2/633 *emission* hooks (`packages/integrations/pty` — coupled to shell-rc mechanics), and the key-input synthesis in the browser (UI-coupled).
