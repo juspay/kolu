@@ -90,13 +90,26 @@ merges.</li>
 </ul>
 <h2 id="pr-phases">PR phases</h2>
 <p>Three PRs, each independently shippable, ordered by harm:</p>
-<p><strong>PR 1 — stop the data loss</strong> (small; <code>kaval-tui</code> + docs + skills).
-The clean-environment change in <code>kaval-tui</code>’s create path, the corrected
-<code>kolu mcp</code> tool description, and the interim skill rules (the “until the fix
-ships” section above) landed in the same PR — each rule tagged with which PR
-deletes it. Red-first pin: the #1872 A/B itself — spawn a claude via
-<code>kaval-tui create</code> from a session carrying the orchestrator variables; today
-its transcript never appears (red), after: it does (green).</p>
+<p><strong>PR 1 — stop the data loss</strong> (<code>kaval-tui</code> + <code>kolu-pty</code> + <code>padi</code> +
+<code>surface-daemon-supervisor</code> + e2e harness + docs + skills). ONE shared
+allowlist (<code>SPAWN_ENV_ALLOWLIST</code> in kolu-pty, pinned as data) and
+compose-don’t-forward at every seam that reaches an <em>agent</em>: kaval-tui’s
+create composers; <code>cleanEnv</code> (every hosted PTY — was a wholesale
+<code>{...process.env}</code>); the supervisor’s detached spawn branch (<code>env = cfg.env</code>
+unless <code>fromSource</code>, parity with systemd <code>--setenv</code>); padi’s <code>daemonEnv</code>
+(expanded to a complete base so cfg.env-alone keeps macOS parity); the e2e
+harness server child. The corrected <code>kolu mcp</code> docstring and interim skill
+rules ride here too. Red-first pins: the #1872 leak assertion (shell AND
+command modes) + the allowlist/<code>daemonEnv</code> key sets as data.</p>
+<p><strong>PR 1.5 — close the last spawn seam</strong> (<code>@kolu/surface-remote</code>, immediate
+fast-follow). The remote connector’s localhost arm spawns with full
+env-inherit — the one place the ssh boundary doesn’t scrub. Defense-in-depth,
+not a present leak: with PR 1 landed, every path from a tainted daemon to an
+<em>agent</em> is composed (the localhost child is a daemon, not an agent; its
+downstream PTYs/kaval are composed). Makes the localhost env REQUIRED at the
+type level so full-inherit is unspellable. Breaking surface-remote API — so
+it carries the drishti pair PR + odu verdict + <code>ref-surface-remote.mdx</code>,
+finalized against post-gauntlet HEAD.</p>
 <p><strong>PR 2 — stop the detection loss</strong> (small; <code>kaval</code>).
 The remember-the-argv bookkeeping: seed <code>lastCommand</code> (and the initial title)
 from the spawn argv, publish it on the same channel the shell marker uses,

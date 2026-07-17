@@ -88,13 +88,27 @@ our A/B evidence.
 
 Three PRs, each independently shippable, ordered by harm:
 
-**PR 1 — stop the data loss** (small; `kaval-tui` + docs + skills).
-The clean-environment change in `kaval-tui`'s create path, the corrected
-`kolu mcp` tool description, and the interim skill rules (the "until the fix
-ships" section above) landed in the same PR — each rule tagged with which PR
-deletes it. Red-first pin: the #1872 A/B itself — spawn a claude via
-`kaval-tui create` from a session carrying the orchestrator variables; today
-its transcript never appears (red), after: it does (green).
+**PR 1 — stop the data loss** (`kaval-tui` + `kolu-pty` + `padi` +
+`surface-daemon-supervisor` + e2e harness + docs + skills). ONE shared
+allowlist (`SPAWN_ENV_ALLOWLIST` in kolu-pty, pinned as data) and
+compose-don't-forward at every seam that reaches an *agent*: kaval-tui's
+create composers; `cleanEnv` (every hosted PTY — was a wholesale
+`{...process.env}`); the supervisor's detached spawn branch (`env = cfg.env`
+unless `fromSource`, parity with systemd `--setenv`); padi's `daemonEnv`
+(expanded to a complete base so cfg.env-alone keeps macOS parity); the e2e
+harness server child. The corrected `kolu mcp` docstring and interim skill
+rules ride here too. Red-first pins: the #1872 leak assertion (shell AND
+command modes) + the allowlist/`daemonEnv` key sets as data.
+
+**PR 1.5 — close the last spawn seam** (`@kolu/surface-remote`, immediate
+fast-follow). The remote connector's localhost arm spawns with full
+env-inherit — the one place the ssh boundary doesn't scrub. Defense-in-depth,
+not a present leak: with PR 1 landed, every path from a tainted daemon to an
+*agent* is composed (the localhost child is a daemon, not an agent; its
+downstream PTYs/kaval are composed). Makes the localhost env REQUIRED at the
+type level so full-inherit is unspellable. Breaking surface-remote API — so
+it carries the drishti pair PR + odu verdict + `ref-surface-remote.mdx`,
+finalized against post-gauntlet HEAD.
 
 **PR 2 — stop the detection loss** (small; `kaval`).
 The remember-the-argv bookkeeping: seed `lastCommand` (and the initial title)
