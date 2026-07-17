@@ -82,10 +82,12 @@ export function resolveKavalLaunch(socketPath: string): {
  *     HOME/PATH/SHELL/… mined from the supervisor's own env. This is the 2a parity
  *     fix (#1872): the supervisor's detached spawn branch runs the daemon with
  *     `cfg.env` ALONE (no parent env layered — that would leak the supervisor's
- *     ambient identity vars into kaval and every PTY it spawns), so `cfg.env` must
- *     itself be a COMPLETE env, matching what the systemd branch gets from PAM's
- *     manager env + `--setenv`. Composing from the allowlist (not forwarding
- *     process.env) is what keeps an orchestrator's `CLAUDE_CODE_*` out.
+ *     ambient identity vars into kaval and every PTY it spawns) unless
+ *     `inheritParentEnv`, which we set ONLY for an actual from-source kaval
+ *     (`!KOLU_KAVAL_BIN`) — so the built/production path gets `cfg.env` alone and
+ *     `cfg.env` must itself be a COMPLETE env, matching what the systemd branch gets
+ *     from PAM's manager env + `--setenv`. Composing from the allowlist (not
+ *     forwarding process.env) is what keeps an orchestrator's `CLAUDE_CODE_*` out.
  *  2. The daemon-operational extras kaval needs on TOP of that base — the scrubbed
  *     `NODE_OPTIONS`, the run-bind pid, and `KOLU_DIAG_DIR`. `XDG_RUNTIME_DIR`
  *     (which decides the socket path) is NOT re-added here: it is a member of

@@ -125,13 +125,15 @@ import { asPadiSession, type PadiSession } from "./padiSession.ts";
  *
  * The base is the shared `SPAWN_ENV_ALLOWLIST` (composed from kolu-server's own env):
  * HOME/USER/SHELL/PATH + the login-session capability vars. This is LOAD-BEARING since
- * #1872 — the survivable-spawn driver's detached branch now passes `cfg.env` ALONE (no
- * parent env layered) whenever `!fromSource`, which is the macOS-launchd and bare
- * non-systemd production path. Without the composed base padi would spawn with no HOME,
- * and kaval's own `daemonEnv` mines HOME from *padi's* env — so the loss would cascade
- * into kaval and every PTY. The twin of kaval's `localDriver.daemonEnv`; its exact key
- * set is pinned in `padiBinding.test.ts`. (The `fromSource` dev/e2e path additionally
- * layers the parent env, so the nix-shell whitelisted vars still ride there.)
+ * #1872 — the survivable-spawn driver's detached branch passes `cfg.env` ALONE (no parent
+ * env layered) unless `inheritParentEnv`, and we set `inheritParentEnv` ONLY for an actual
+ * from-source padi (`!KOLU_PADI_BIN`). So the macOS-launchd and bare non-systemd PRODUCTION
+ * path (a built binary, `inheritParentEnv` false) gets `cfg.env` alone. Without the composed
+ * base padi would spawn with no HOME, and kaval's own `daemonEnv` mines HOME from *padi's*
+ * env — so the loss would cascade into kaval and every PTY. The twin of kaval's
+ * `localDriver.daemonEnv`; its exact key set is pinned in `padiBinding.test.ts`. (The
+ * from-source dev/e2e path additionally layers the parent env via `inheritParentEnv`, so the
+ * nix-shell whitelisted vars still ride there.)
  */
 export function daemonEnv(
   resolvedStateRoot: string,
