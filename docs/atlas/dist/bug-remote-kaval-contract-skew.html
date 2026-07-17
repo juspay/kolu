@@ -108,11 +108,32 @@ estate) — the live fight was the 5–6-day post-W2.2 padis sharing the
 eviction was adversarially falsified (a live client re-dials and re-provisions
 its old closure; an old binary can’t honor a gate that postdates it): each
 kolu client gets a private remote estate keyed by a persisted client UUID
-(<code>--client-id</code>; the host spells the path), with a one-time
-<code>--legacy-state-root</code> adopt bridge — the first legacy bridge on the remote
-arm, lifecycle modeled on the W2.2 one — so existing terminals migrate instead
-of orphaning. The fix kills nothing: a competitor’s 5.0 kaval simply lives in
-an estate the browser’s binder never touches.</p>
+(<code>--client-id</code>; the host spells the path). The fix kills nothing: a
+competitor’s 5.0 kaval simply lives in an estate the browser’s binder never
+touches.</p>
+<p><strong>A seamless auto-migration was designed and then dropped</strong>, in the gauntlet,
+for cause. The plan was a one-time <code>--legacy-state-root</code> adopt bridge (modeled
+on the W2.2 one) so a client’s existing terminals moved to its new isolated
+estate instead of being left behind. The codex review proved it re-created the
+very disease: two isolated clients (distinct UUIDs, distinct isolated gates)
+could <strong>both</strong> adopt the same live default estate — arbitrated by nothing,
+because the gate each holds is its <em>own</em> estate’s, not a shared migration
+claim — resurrecting the livelock; and it wasn’t even one-time (every
+no-override dial re-probed). A migration that can bring back the disease is
+worse than a loud one-time cutover, so <code>#1881</code> ships <strong>clean isolation with an
+honest cutover</strong>: the pre-isolation default-estate daemons are named plainly
+as <strong>abandoned-running</strong> (their terminals are <em>not</em> migrated; the daemons sit
+idle until reboot or manual cleanup), and the binder emits a loud warning when
+it boots isolated and detects a live default-estate daemon it is leaving
+behind — never adopting it, never killing it.</p>
+<p>Seamless migration <em>done right</em> is a recorded follow-up, two candidate shapes:
+<strong>(A)</strong> an atomic default-estate migration-claim (one <code>acquirePidGate</code> in the
+default estate so exactly one client adopts, once, plus a persisted
+cutover-done marker so reboots never re-probe — needs a two-client race test);
+or <strong>(B, recommended)</strong> a <strong>user-mediated</strong> explicit adopt affordance — one
+user action gives natural exclusivity with no race and no new shared
+rendezvous, and it matches the design’s own doctrine that <em>sharing is an
+explicit choice, not an accident</em>.</p>
 <p><em>Lens artifact: workflow <code>wf_97914292-c4b</code> — 15 agents, a-f-p (P4/P5/P3) +
 perfection over the fix space, every recommendation adversarially verified
 against the real code (0 refuted).</em></p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
