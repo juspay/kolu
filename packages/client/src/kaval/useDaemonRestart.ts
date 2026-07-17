@@ -13,8 +13,11 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
-import { isDefinedError, safe } from "@orpc/client";
 import type { DaemonStatus } from "@kolu/padi/surface";
+// The declared-error narrowing verbs come from the surface receptacle (its
+// `@kolu/surface/solid` re-export), never from `@orpc/client` directly — the
+// transport vendor stays encapsulated behind the surface boundary.
+import { isDefinedError, safe } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";

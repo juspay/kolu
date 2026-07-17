@@ -367,6 +367,15 @@ export interface BoundProcedureOptions {
  *  face reads as an ordinary `Promise`, so existing callers are untouched. */
 type BoundProcedureError<S> = ErrorFromErrorMap<ProcedureSpecErrors<S>>;
 
+// The narrowing VERBS for that declared union (SK6), re-exported so a consumer
+// reads a typed rejection through the SAME receptacle that declares and types
+// it: `const { error } = await safe(client.procedures.ns.verb(...))` then
+// `isDefinedError(error)` narrows to the declared `{ code, data }`. Without
+// this, every app-side read of a declared error imports the transport vendor
+// (`@orpc/client`) past the surface boundary — exactly the volatility this
+// package exists to encapsulate.
+export { isDefinedError, safe } from "@orpc/client";
+
 export type BoundProcedure<
   // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.
   S extends ProcedureSpec<any, any>,
