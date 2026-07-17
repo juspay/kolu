@@ -1,0 +1,159 @@
+---
+title: "Bug — atlas-sync shiki flake: the embedded-grammar load race"
+description: "release-workflow.html byte-shrinks under load because whether an ```mdx code block gets embedded-YAML highlighting depends on whether some other file's ```yaml block happened to be highlighted first. Fix: derive the langs list from the content itself and preload it in both astro configs, with a fail-fast guard so a fence the scan misses can never silently reopen the race."
+parents: [bug]
+status: implemented
+maturity: seedling
+updated: 2026-07-16
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Footnote from "../../components/Footnote.astro";
+
+The flaky-test tracker's `release-workflow.html` byte-shrink row (see
+[flaky-test-tracker](./flaky-test-tracker.html)) recurred **twice** after
+<PrLink pr={1853} /> disabled shiki's tokenization time budget — because the
+time budget was the wrong mechanism. This note pins the real one, verified
+from scratch against the installed sources, and the fix — implemented in
+<PrLink pr={1874} />.
+
+## SG1 — Mechanism: a cross-file grammar-load order race
+
+Shiki's bundled `mdx` grammar declares its embedded languages **lazily**:
+`@shikijs/langs/mdx` ships `embeddedLangs: []`,
+`embeddedLangsLazy: ["tsx","toml","yaml",…]`. Loading `mdx` does **not** load
+`yaml`. The embedded YAML grammar only engages after `yaml` is loaded for some
+*other* reason — and when that happens, shiki re-resolves every grammar that
+lazily embeds it (`Registry.loadLanguage`'s `embeddedLazilyBy` re-load,
+`@shikijs/primitive` 4.1.0).
+
+Astro's shiki path (`@astrojs/markdown-remark` 7.2.0 →
+`@astrojs/internal-helpers` 0.10.0) loads grammars **per code block, on
+demand**: `highlight()` checks `getLoadedLanguages()` and lazily
+`loadLanguage()`s the block's language. The highlighter instance is a
+**module-level cache shared across every MDX file** the build compiles, and
+vite transforms those files concurrently — so registry state at the moment any
+given block tokenizes depends on cross-file timing.
+
+The Atlas content holds the minimal race pair: exactly one `mdx` fence
+(`release-workflow.mdx`, a changelog sample with YAML frontmatter) and exactly
+one `yaml` fence (`roadmap-graph.mdx`).
+
+| Transform order under vite | Registry when the `mdx` block tokenizes | `---` frontmatter renders as | Result |
+| --- | --- | --- | --- |
+| `roadmap-graph` first | `yaml` present → mdx re-resolved with embedded YAML | YAML tokens (key `#22863A`, string `#032F62`) | committed dist, 24757 B |
+| `release-workflow` first | `yaml` absent | bold thematic breaks (`#005CC5`), body plain | flaked dist, 24721 B |
+
+Reproduced empirically on the pinned `shiki@4.1.0`: a highlighter with
+`langs: ["mdx"]` renders the exact frontmatter sample with zero YAML tokens
+and the `#005CC5` bold-fence signature; with `yaml` present (either load
+order) it renders the committed dist's YAML tokens. This explains everything
+the time-budget theory couldn't: per-box/per-run variance under a nix-pinned
+closure, whole-block (not tail-truncated) divergence, immediate-green reruns,
+and recurrence with `tokenizeTimeLimit: 0` in the tree.
+
+## SG2 — Fix: `langs` derived from the content, plus a fail-fast guard
+
+Make grammar readiness deterministic by construction: preload every fence
+language the content uses as `shikiConfig.langs`, in **both** astro
+projects.<Footnote>The website is the same class — same astro/shiki pipeline,
+and its silent degradation ships to kolu.dev unnoticed. <PrLink pr={1853} />
+fixed both, so this does too.</Footnote> Astro forwards `langs` to
+`createHighlighter()`, which loads every listed grammar — re-resolving lazy
+embedders — **before** the highlighter is handed to the first code block.
+Once every content language is preloaded, the per-block lazy-load path never
+fires mid-build, so the registry is immutable during tokenization and the
+output is a pure function of source. Load *order* within the preload doesn't
+matter: shiki's `embeddedLazilyBy` re-resolution converges to the same final
+registry.
+
+The list is **derived from the content, never hand-enumerated**: one shared
+scanner, `scripts/fence-langs.mjs`, globs the project's `src/` for fence
+openers (indented, blockquoted, `~~~`, four-backtick, info-string forms — all
+fixture-tested, the blockquote form red-first) and both configs call it at
+config-eval time. The content is the source of truth, so the list cannot
+drift from it — a fence in a new language is preloaded on the next build by
+construction.<Footnote>Preloading *all* 332 bundled grammars was measured as
+the alternative: ~3.2 s and ~340 MB RSS per highlighter — paid on every
+build, three times per `atlas::check-sync` run, on exactly the CPU-contended
+CI boxes where the flake bites. The derived list gets the same
+zero-maintenance determinism without that tax. `docs/atlas` imports the
+scanner relatively; the website's Nix sandbox copies only `website/`, so
+`default.nix` places a copy beside the config (the
+`kolu-server-package.json` pattern) and `src/shiki-config.mjs` holds the
+whole shiki object as plain ESM — the one module both `astro.config.mjs` and
+the unit pins import.</Footnote>
+
+The remaining hole is a fence **shape** the scanner might not recognize, so
+each config also installs a **fail-fast transformer**
+(`kolu:shiki-eager-langs-only`): `preprocess` throws when a block's language
+is neither skipped by design (shiki specials
+`plaintext`/`text`/`txt`/`plain`/`ansi`; astro's own excluded `math`) nor
+preloaded. The guard is a check-after-write, not a gate — astro lazy-loads
+the offending grammar *before* any transformer runs — but the throw fails the
+build before the order-dependent bytes can ship, and determinism of *emitted
+output* is what the flake is made of, not registry purity. Every cell of the
+failure matrix is then loud or deterministic, never racy:
+
+| Fence | Language known to shiki | Outcome |
+| --- | --- | --- |
+| scanned | yes (incl. decorative-but-bundled `mermaid`/`console`) | preloaded — deterministic by construction |
+| scanned | no (typo, an unbundled name like `pseudocode`) | `createHighlighter` fails at build start naming the language — **loud** |
+| scan-missed shape | yes | mid-build load, then the guard throws — **loud** |
+| scan-missed shape | no | astro rewrites to plaintext before any transformer runs — deterministic plaintext (no grammar ever loads), console warning |
+
+The decorative-language policy follows from rows 1–2: a decorative fence is
+enumerated like any other, and shiki *does* bundle `mermaid` and `console`,
+so those silently preload (row 1 — a harmless extra grammar); a name shiki
+doesn't bundle fails the build at startup with the language named (row 2 —
+the error carries the language, not the fence's file, so grep the fences for
+it). Renaming a decorative fence to `text` is an authoring convention, not a
+build-enforced rule.
+
+`kolu:shiki-no-tokenize-bail` (<PrLink pr={1853} />) **stays**: it addresses a
+real, distinct degradation — vscode-textmate's over-budget bail returns
+partial tokens with a `stoppedEarly` flag shiki never checks — with its own
+red-first pin (8001 spans → 361 at `tokenizeTimeLimit: 1`). Removing it would
+need its own argument; this fix neither depends on it nor supersedes it.
+
+**Accepted residual (documented, not chased):** astro's `&lt;Code&gt;`
+component caches highlighters by *theme*, so the website's `Snippet.astro`
+(same vitesse theme pair as the markdown config) shares the markdown path's
+highlighter instance and loads its `lang` on it mid-build. Today that lang is
+only `ts` — already preloaded, no lazy embeds — and the website content has
+no `mdx`/`markdown` fence to re-resolve, so the cell is inert; it becomes
+racy only if a `&lt;Code&gt;` use introduces a language that is both
+un-preloaded and lazily embedded by a content grammar, which the soak and the
+wiring pins would surface as a diff.
+
+## SG3 — Pins: red-first, then soak-certified
+
+1. **Deterministic red** (unit, `docs/atlas/build/shiki-grammar-preload.test.mjs`,
+   runs under `just atlas::check`): build the highlighter through astro's real
+   `createShikiHighlighter` with the *actual* `astro.config.mjs` shikiConfig
+   and tokenize the release-workflow frontmatter sample as `mdx` **first** —
+   no prior yaml load. Demonstrated red on the pre-fix config (no YAML
+   tokens, the `#005CC5` plain signature), green with the fix (YAML tokens,
+   always). Plus the mechanism-regression case (grammar presence flips the
+   signature, order-independent) and guard cases (un-preloaded language
+   throws; `text` passes as plaintext).
+2. **One scanner, wired and fixture-tested**: `fence-langs.test.mjs` covers
+   the fence shapes (blockquoted red-first — the initial regex missed a
+   fence opener behind a `>` blockquote marker), and each project carries a wiring assert
+   (`shikiConfig.langs` deep-equals `fenceLangs(src/)`) so the config can
+   never quietly stop deriving. The website's pins
+   (`website/test/shiki-eager-langs.test.mjs`, theme-agnostic: distinct-color
+   counts, not github-light hexes) run in the Nix derivation's `checkPhase`,
+   CI-gated via `ci::nix`.
+3. **Measured outcome**: rebuilding with the fix leaves the committed
+   `docs/atlas/dist/` **byte-identical** — the preload deterministically
+   reproduces the lucky-order rendering the committed dist happened to
+   capture (yaml present; the preloaded `tsx` adds nothing to the one mdx
+   sample). `atlas::check-sync` and the website build stay green.
+4. **Byte-determinism**: N repeated `atlas::build`s are byte-identical
+   (script-level, on a pu box — not CI-only).
+5. **Soak cert** (the evidence <PrLink pr={1853} /> never had): ≥20
+   consecutive `just atlas::check-sync` runs on the linux CI class where it
+   flaked, plus a darwin window — N/N byte-identical or the mechanism is
+   incomplete and the divergent bytes get preserved before anything else.
