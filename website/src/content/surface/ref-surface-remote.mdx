@@ -46,9 +46,11 @@ closure, `resolveDrvPath: () => Promise<string>` resolves the agent `.drv` for t
 <Aside type="caution" title="localEnv is REQUIRED — the localhost arm never inherits ambient env">
   A `localhost` dial runs the agent binary directly via `spawn`, so its env comes from
   ONE place: `localEnv`. It is a **required** field (on `sshConnector` and
-  `dialAgentOnce` both) — omitting it is a **compile** error, not a review catch — so a
-  locally-hosted agent can never silently inherit the caller's `process.env` (identity
-  vars, secrets, a parent agent's session markers). surface-remote is **policy-free**:
+  `dialAgentOnce` both) — omitting it is a **compile** error, not a review catch, and
+  the localhost arm additionally **throws at runtime** if `localEnv` is ever `undefined`
+  (an untyped caller, an `as any`, a `.d.ts`/build skew) rather than degrading to an
+  ambient inherit — so a locally-hosted agent can never silently inherit the caller's
+  `process.env` (identity vars, secrets, a parent agent's session markers). surface-remote is **policy-free**:
   it neither composes nor scrubs the env; the consumer hands over a clean one (kolu
   composes it from a fixed allowlist — `kolu-pty`'s
   `composeSpawnEnv`/`SPAWN_ENV_ALLOWLIST`). On a **real ssh host** `localEnv` is unused:
