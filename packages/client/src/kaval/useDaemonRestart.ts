@@ -19,10 +19,14 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 // transport vendor stays encapsulated behind the surface boundary.
 import { isDefinedError, safe } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import { createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { activePadiRpc, client } from "../wire";
-import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
+import { activeHost, activePadiRpc, client, hostKeys } from "../wire";
+import {
+  daemonChannelLive,
+  daemonConnected,
+  liveWarming,
+} from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't
@@ -104,6 +108,78 @@ export function renewInFlight(host: HostKey): boolean {
   return renewingHosts().has(encodeHostKey(host));
 }
 
+// Hosts where a renew has SETTLED (its drain RPC returned) this session but the
+// daemon has NOT since reached `connected`. Set when `renewDaemon` resolves;
+// CLEARED the moment that host connects (the convergence the renew was waiting
+// for). It is the one bit the skew card reads to stop repainting the hopeful
+// first-time copy over a renew the user already watched loop (see
+// `renewVerdict.ts`). Keyed by host, like `renewingHosts`.
+const [renewSettledHosts, setRenewSettledHosts] = createSignal<
+  ReadonlySet<string>
+>(new Set());
+
+/** True once a renew for THIS host has SETTLED and the host has not since
+ *  reconnected — i.e. the last update did not converge. Read by the skew card
+ *  (via {@link skewRenewVerdict}) to switch from the first-time "updating starts
+ *  a correct-version kaval" copy to the honest "renew did not converge" copy. */
+export function renewSettledUnconverged(host: HostKey): boolean {
+  return renewSettledHosts().has(encodeHostKey(host));
+}
+
+// Clear the ACTIVE host's settled-marker when its KAVAL has CONVERGED — a healthy,
+// connected kaval ({@link daemonConnected}, which reads FALSE on `incompatible` and is
+// floored on channel liveness), NOT merely a live ssh/padi LINK. This is the load-bearing
+// distinction: a skewed kaval sits behind a connected link, so clearing on link-up would
+// drop the marker while the host is STILL `incompatible`, and the honest "renew did not
+// converge" copy — the whole point of move 4 — would never show.
+//
+// The effect READS `renewSettledHosts()` at the top so it re-runs when a marker is ADDED,
+// not only on a `daemonConnected` transition. Without that, a renew whose host is ALREADY
+// `connected` by the time `renewDaemon`'s await resolves and adds the marker (the drain +
+// respawn + reconnect can beat the RPC round-trip, esp. locally) would never see a fresh
+// `false→true` edge, so the marker would be POISONED forever and later paint "did not
+// converge" over an unrelated brand-new skew. Tracking the marker signal re-checks against
+// the LIVE `daemonConnected` value on every add, closing that race regardless of arrival
+// order. Keyed on `activeHost`, so it also clears a host that converged while BACKGROUNDED
+// the instant you switch to it. Rooted at module scope (the `localDaemonStatus` shape).
+createRoot(() => {
+  createEffect(() => {
+    const settled = renewSettledHosts();
+    if (!daemonConnected()) return;
+    const key = encodeHostKey(activeHost());
+    if (!settled.has(key)) return;
+    setRenewSettledHosts((s) => {
+      if (!s.has(key)) return s;
+      const next = new Set(s);
+      next.delete(key);
+      return next;
+    });
+  });
+});
+
+// Prune both per-host marker Sets to the LIVE fleet. They are module-lifetime and
+// otherwise clear only on convergence (`renewSettledHosts`) or the drain's `finally`
+// (`renewingHosts`); a host REMOVED from the fleet while marked would leak its key for
+// the session. `hostKeys()` is the reactive fleet, so this drops any key no longer in it
+// the moment a host leaves. Returns the SAME Set reference when nothing changed (no
+// spurious downstream notify).
+createRoot(() => {
+  createEffect(() => {
+    const live = new Set(hostKeys().map(encodeHostKey));
+    const pruneToFleet = (s: ReadonlySet<string>): ReadonlySet<string> => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const key of s) {
+        if (live.has(key)) next.add(key);
+        else changed = true;
+      }
+      return changed ? next : s;
+    };
+    setRenewSettledHosts(pruneToFleet);
+    setRenewingHosts(pruneToFleet);
+  });
+});
+
 /** Update & restart a host's daemon stack — the CONTRACT-SKEW recovery (SK5,
  *  D1: the ONE action for `incompatible`, on BOTH local and remote hosts).
  *  Calls `hosts.renewDaemon`: the binder drains that host's padi (session
@@ -123,6 +199,13 @@ export async function renewDaemon(host: HostKey): Promise<void> {
     // chrome (the same surface that raised the skew card) narrates that
     // convergence live. Claiming "restarted at the current build" here would
     // assert an outcome this call never waits for.
+    //
+    // Record that a renew SETTLED for this host — cleared the instant it
+    // reconnects (the clear-on-`daemonConnected` effect above). Until then, a
+    // skew card that RE-APPEARS for this host means the renew did not converge,
+    // and the card reads that via `renewSettledUnconverged` to drop the hopeful
+    // first-time copy for the honest one — instead of looping the promise below.
+    setRenewSettledHosts((s) => new Set(s).add(key));
     toast.success(
       "Host daemon drained — re-provisioning the current build; kaval reconnects shortly",
       { id },
