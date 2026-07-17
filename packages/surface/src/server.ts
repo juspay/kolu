@@ -23,7 +23,6 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import type { ErrorMap } from "@orpc/contract";
 import { implement, type ORPCErrorConstructorMap } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
@@ -41,6 +40,7 @@ import {
   defineSurface,
   type EventSpec,
   type ProcedureSpec,
+  type ProcedureSpecErrors,
   resolveCellVerbs,
   resolveCollectionVerbs,
   type StreamSpec,
@@ -1388,11 +1388,10 @@ export type SurfaceCtx<S extends SurfaceSpec> = {
  *  receives on `opts.errors` (SK6) — oRPC's contract-first handler face:
  *  `throw opts.errors.SOME_CODE({ data })` mints the declared `ORPCError`
  *  with its data validated against the declared schema. A spec with no
- *  `errors` resolves the empty map, so the field is invisible to existing
- *  handlers. */
-type ProcedureErrorCtors<S> = ORPCErrorConstructorMap<
-  S extends { errors: infer E extends ErrorMap } ? E : Record<never, never>
->;
+ *  `errors` resolves the empty map (via define.ts's shared
+ *  {@link ProcedureSpecErrors} extractor), so the field is invisible to
+ *  existing handlers. */
+type ProcedureErrorCtors<S> = ORPCErrorConstructorMap<ProcedureSpecErrors<S>>;
 
 /** Handler for an imperative procedure. Receives `ctx` exposing the
  *  surface's cell/collection mutation helpers so cross-descriptor publishes

@@ -19,7 +19,6 @@ import type {
   AnyContractRouter,
   ContractRouterClient,
   ErrorFromErrorMap,
-  ErrorMap,
 } from "@orpc/contract";
 import {
   type Accessor,
@@ -41,6 +40,7 @@ import type {
   CollectionVerbsOf,
   EventSpec,
   ProcedureSpec,
+  ProcedureSpecErrors,
   StreamSpec,
   Surface,
   SurfaceSpec,
@@ -363,11 +363,9 @@ export interface BoundProcedureOptions {
  *  phantom, exactly oRPC's own contract-client shape. A caller feeds the call
  *  to `safe(...)` / narrows with `isDefinedError` to read `{ code, data }`
  *  typed; a spec with no `errors` resolves the plain `ThrowableError` phantom
- *  and the face reads as an ordinary `Promise`, so existing callers are
- *  untouched. */
-type BoundProcedureError<S> = ErrorFromErrorMap<
-  S extends { errors: infer E extends ErrorMap } ? E : Record<never, never>
->;
+ *  (via define.ts's shared {@link ProcedureSpecErrors} extractor) and the
+ *  face reads as an ordinary `Promise`, so existing callers are untouched. */
+type BoundProcedureError<S> = ErrorFromErrorMap<ProcedureSpecErrors<S>>;
 
 export type BoundProcedure<
   // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.

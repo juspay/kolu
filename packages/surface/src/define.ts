@@ -623,9 +623,15 @@ type EventContract<S extends EventSpec<any, any>> = S extends {
   : never;
 
 /** The spec's declared error map, or the empty map when it declares none —
- *  threaded through ALL FOUR `buildProcedure*` oracles (the drift-watch rule:
- *  the runtime entry applies `.errors` on every shape, so must the types). */
-type ProcedureErrors<S> = S extends { errors: infer E extends ErrorMap }
+ *  the ONE extractor for "how a spec declares errors", owned here beside
+ *  {@link ProcedureSpec}. Threaded through ALL FOUR `buildProcedure*` oracles
+ *  (the drift-watch rule: the runtime entry applies `.errors` on every shape,
+ *  so must the types), and consumed by server.ts's `ProcedureErrorCtors` and
+ *  the Solid client's `BoundProcedureError` — so a change to the declaration
+ *  shape edits this alias, not three modules. */
+export type ProcedureSpecErrors<S> = S extends {
+  errors: infer E extends ErrorMap;
+}
   ? E
   : Record<never, never>;
 
@@ -633,12 +639,12 @@ type ProcedureContract<S extends ProcedureSpec<any, any>> = S extends {
   input: ZodType<infer I>;
   output: ZodType<infer O>;
 }
-  ? ReturnType<typeof buildProcedure<I, O, ProcedureErrors<S>>>
+  ? ReturnType<typeof buildProcedure<I, O, ProcedureSpecErrors<S>>>
   : S extends { input: ZodType<infer I> }
-    ? ReturnType<typeof buildProcedureNoOutput<I, ProcedureErrors<S>>>
+    ? ReturnType<typeof buildProcedureNoOutput<I, ProcedureSpecErrors<S>>>
     : S extends { output: ZodType<infer O> }
-      ? ReturnType<typeof buildProcedureNoInput<O, ProcedureErrors<S>>>
-      : ReturnType<typeof buildProcedureNoIO<ProcedureErrors<S>>>;
+      ? ReturnType<typeof buildProcedureNoInput<O, ProcedureSpecErrors<S>>>
+      : ReturnType<typeof buildProcedureNoIO<ProcedureSpecErrors<S>>>;
 
 type MergeContract<
   A extends Record<string, unknown>,
