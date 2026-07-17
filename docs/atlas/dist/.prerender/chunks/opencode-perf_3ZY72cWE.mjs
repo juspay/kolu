@@ -1,0 +1,13 @@
+//#region src/content/atlas/opencode-perf.mdx?astroPropagatedAssets
+async function getMod() {
+	return import("./opencode-perf_D9M5fJnG.mjs");
+}
+var defaultMod = {
+	__astroPropagation: true,
+	getMod,
+	collectedLinks: [],
+	collectedStyles: [".callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}\n",".d2[data-astro-cid-cfiuptvn]{text-align:center;margin:1.75rem 0}.d2[data-astro-cid-cfiuptvn] svg{max-width:100%;height:auto}.d2[data-astro-cid-cfiuptvn] figcaption[data-astro-cid-cfiuptvn]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}\n",".finding[data-astro-cid-adrh2cs3]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.9rem 1.1rem}.finding-high[data-astro-cid-adrh2cs3]{border-left-color:#a02a2a}.finding-medium[data-astro-cid-adrh2cs3]{border-left-color:#8a5a00}.finding-low[data-astro-cid-adrh2cs3]{border-left-color:#5b6470}.finding-head[data-astro-cid-adrh2cs3]{margin:0 0 .5rem;font-size:1.05rem}.sev[data-astro-cid-adrh2cs3]{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;vertical-align:middle;border-radius:5px;margin-right:.4em;padding:.12em .5em;font-size:.6rem;display:inline-block}.sev-high[data-astro-cid-adrh2cs3]{color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9}.sev-medium[data-astro-cid-adrh2cs3]{color:#8a5a00;background:#fbf1dc;border:1px solid #ecd9ab}.sev-low[data-astro-cid-adrh2cs3]{color:#5b6470;background:#eef0f2;border:1px solid #d9dde2}\n",".pill[data-astro-cid-4xidn2cs]{font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;vertical-align:middle;border-radius:999px;padding:.1em .5em;font-size:.62rem;display:inline-block}\n"],
+	collectedScripts: []
+};
+//#endregion
+export { defaultMod as default };

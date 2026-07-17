@@ -131,6 +131,30 @@ The three defects are one class each; the framework moves that kill the class:
   above are what stop the NEXT stale host from producing an opaque dead end.
 </Callout>
 
+## Field addendum — the recovery was correct but insufficient (RENEW1, <PrLink pr={1881} />)
+
+Deployed and driven against the real graveyard box, the renew recovery
+converged the *binaries* but not the *box*: a competing old padi supervisor
+re-spawned its 5.0 kaval at the **shared rendezvous** after every recycle —
+mutual recycle, forever (two padis at one rendezvous each classify the
+*other's* kaval as skew and recycle it — the livelock, `endpoint.ts` adoptAt
+skew arm). The card's paths are individually correct; nothing arbitrated
+**estate ownership**. Two graveyard strata clarified the field: the
+digest-keyed kaval scheme is only ~14 days old (W2.2 cutover `590f49e48`), so
+the 21–26-day survivors are pre-W2.2 port-keyed (a separate, irrelevant
+estate) — the live fight was the 5–6-day post-W2.2 padis sharing the
+**default state-root digest**.
+
+The follow-up fix (<PrLink pr={1881} />) is **isolation, not arbitration** —
+eviction was adversarially falsified (a live client re-dials and re-provisions
+its old closure; an old binary can't honor a gate that postdates it): each
+kolu client gets a private remote estate keyed by a persisted client UUID
+(`--client-id`; the host spells the path), with a one-time
+`--legacy-state-root` adopt bridge — the first legacy bridge on the remote
+arm, lifecycle modeled on the W2.2 one — so existing terminals migrate instead
+of orphaning. The fix kills nothing: a competitor's 5.0 kaval simply lives in
+an estate the browser's binder never touches.
+
 *Lens artifact: workflow `wf_97914292-c4b` — 15 agents, a-f-p (P4/P5/P3) +
 perfection over the fix space, every recommendation adversarially verified
 against the real code (0 refuted).*
