@@ -487,6 +487,30 @@ opaque toast; (after) the `incompatible` card with both versions, then
 correct-version kaval connects and the canvas comes back. CI: linux pu lease
 + darwin per coordinator arbitration.
 
+<Callout kind="accent" title="Evidence captured (PR #1876) — and a D2 recipe correction">
+  **Reproduce-first surfaced two dead ends in the naïve manufacture**, both
+  banked as positive facts:
+  - **A `KOLU_KAVAL_BIN` env override can't produce the skew** — the built
+    wrapper *force*-`export`s it (a plain `export`, overriding inherited env),
+    so an ambient override never reaches padi's kaval spawn.
+  - **Planting an old kaval at the adopt-hint socket self-heals** — a
+    *current* padi that adopts a 5.0 survivor recycles it (`onSkew → recycle
+    → spawnConnectHold`) and respawns its **baked** current kaval, converging
+    with no `incompatible` ever reaching the UI. So the card appears **only**
+    when padi's *own closure* is stale — which delimits exactly when
+    `renewDaemon` (re-realise the closure) is the right recovery.
+
+  A genuine `incompatible` therefore needs padi's **baked** kaval to be old.
+  The capture wires the real `packages/kaval` build from **`c9fd9a2bf`** (the
+  last 5.0-era commit, before the 5.0→5.2 bump in `557e08a86`/#1783) into
+  padi's closure, so the current padi spawns a genuine 5.0 kaval → the real
+  `connectKaval`→`spawnConnectHold` skew → `incompatible(5.0, 5.2)`. Captured
+  in a real browser: the card with both typed versions + "Update &amp; restart
+  kaval"; then `hosts.renewDaemon` → drain → re-realise (to the real 5.2
+  kaval) → the chip flips to **running · contract v5.2** and the canvas
+  returns. Both frames on the PR's `## Evidence` comment.
+</Callout>
+
 <Callout kind="warn" title="What commit 2 does NOT do">
   No override knobs, no config to re-enable Restart on a skewed daemon, no
   retry loops, no fallback path that hides a skew as `degraded`. A skewed

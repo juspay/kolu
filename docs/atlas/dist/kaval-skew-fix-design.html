@@ -579,6 +579,25 @@ correct-version kaval connects and the canvas comes back. CI: linux pu lease</p>
 <ul>
 <li>darwin per coordinator arbitration.</li>
 </ul>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Evidence captured (PR #1876) — and a D2 recipe correction</p><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>Reproduce-first surfaced two dead ends in the naïve manufacture</strong>, both
+banked as positive facts:</p><ul>
+<li><strong>A <code>KOLU_KAVAL_BIN</code> env override can’t produce the skew</strong> — the built
+wrapper <em>force</em>-<code>export</code>s it (a plain <code>export</code>, overriding inherited env),
+so an ambient override never reaches padi’s kaval spawn.</li>
+<li><strong>Planting an old kaval at the adopt-hint socket self-heals</strong> — a
+<em>current</em> padi that adopts a 5.0 survivor recycles it (<code>onSkew → recycle → spawnConnectHold</code>) and respawns its <strong>baked</strong> current kaval, converging
+with no <code>incompatible</code> ever reaching the UI. So the card appears <strong>only</strong>
+when padi’s <em>own closure</em> is stale — which delimits exactly when
+<code>renewDaemon</code> (re-realise the closure) is the right recovery.</li>
+</ul><p>A genuine <code>incompatible</code> therefore needs padi’s <strong>baked</strong> kaval to be old.
+The capture wires the real <code>packages/kaval</code> build from <strong><code>c9fd9a2bf</code></strong> (the
+last 5.0-era commit, before the 5.0→5.2 bump in <code>557e08a86</code>/#1783) into
+padi’s closure, so the current padi spawns a genuine 5.0 kaval → the real
+<code>connectKaval</code>→<code>spawnConnectHold</code> skew → <code>incompatible(5.0, 5.2)</code>. Captured
+in a real browser: the card with both typed versions + “Update &amp; restart
+kaval”; then <code>hosts.renewDaemon</code> → drain → re-realise (to the real 5.2
+kaval) → the chip flips to <strong>running · contract v5.2</strong> and the canvas
+returns. Both frames on the PR’s <code>## Evidence</code> comment.</p></div></aside>
 <aside class="callout callout-warn" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>What commit 2 does NOT do</p><div class="callout-body" data-astro-cid-q2ml7llr><p>No override knobs, no config to re-enable Restart on a skewed daemon, no
 retry loops, no fallback path that hides a skew as <code>degraded</code>. A skewed
 daemon is <code>incompatible</code>, the UI says so with both versions, and the one
