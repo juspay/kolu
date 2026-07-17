@@ -620,10 +620,14 @@ export function makeSession<
   };
 
   /** Arm a session-INTERNAL timer: always unref'd — a session's internal timers
-   *  must never be what keeps the host process alive (docs/atlas
-   *  session-timer-unref). Every timer in this file goes through here EXCEPT
-   *  {@link withHandshakeTimeout}'s, the one must-fire timer (it settles a
-   *  caller-awaited `pin()`). */
+   *  must never be what keeps the host process alive (full census: docs/atlas
+   *  session-timer-unref). An unref'd timer still fires normally in any process
+   *  something else holds up (a server socket, stdin, a live transport), so a
+   *  HELD session behaves exactly as before; only an ABANDONED session —
+   *  dropped without destroy() in a process with nothing else keeping the loop
+   *  alive — stops immortalizing its process. Every timer in this file goes
+   *  through here EXCEPT {@link withHandshakeTimeout}'s, the one must-fire
+   *  timer (it settles a caller-awaited `pin()`). */
   const armInternalTimer = (delayMs: number, fn: () => void): NodeJS.Timeout => {
     const t = setTimeout(fn, delayMs);
     t.unref();
@@ -631,21 +635,12 @@ export function makeSession<
   };
 
   const armTimer = (delayMs: number, fn: () => void): void => {
-    // UNREF'd (via `armInternalTimer`) — a session's internal timers must never
-    // be what keeps the host process alive (docs/atlas session-timer-unref). An
-    // unref'd timer still fires normally in any process something else holds up
-    // (a server socket, stdin, a live transport), so a HELD session reconnects
-    // exactly as before; only an ABANDONED session — dropped without destroy(),
-    // redialing a gone endpoint forever — stops immortalizing its process. The
-    // class of caller waits this timer alone settles (a pump parked on
-    // `ClientCursor.next()` across a reconnect gap) are pump loops whose
-    // processes hold the loop by other means; if nothing else holds it, that
-    // pump is abandoned and SHOULD die with its process. Exit safety when the
-    // backoff DOES fire rests on the dial chain reaching the transport's first
-    // handle without parking on a handle-free await (`attempt` → `connectOnce`
-    // is microtask-chained to its first spawn; a caller-supplied resolve step
-    // that does real work holds its own handle) — a future async-dial refactor
-    // must preserve that.
+    // The one caller wait this timer alone settles — a pump parked on
+    // `ClientCursor.next()` across a reconnect gap — is by contract not a
+    // process hold; see `pin()`. Exit safety when the backoff fires rests on
+    // `attempt` → `connectOnce` being microtask-chained to its first spawn
+    // without a handle-free await; a future async-dial refactor must preserve
+    // that.
     pendingTimer = armInternalTimer(delayMs, () => {
       pendingTimer = null;
       fn();
@@ -1210,10 +1205,9 @@ export function makeSession<
       probeEpoch !== dialEpoch ||
       stateCell.current().phase !== "connected";
     new Promise<number>((resolve, reject) => {
-      // UNREF'd (via `armInternalTimer`) — its abort/reject drives only
-      // session-internal probe state (never a caller-awaited settle; docs/atlas
-      // session-timer-unref), and whenever the probe can matter, the in-flight
-      // RPC's own transport holds the loop, so the deadline still fires.
+      // Internal probe state, never a caller-awaited settle; whenever the probe
+      // can matter the in-flight RPC's own transport holds the loop, so the
+      // deadline still fires.
       clockProbeDeadlineTimer = armInternalTimer(clockProbeTimeoutMs, () => {
         clockProbeDeadlineTimer = null;
         const err = new Error(
@@ -1290,9 +1284,7 @@ export function makeSession<
         // Retry on cadence for a genuine transient failure. Guard the callback the same way
         // the probe body is — a later dial or a dropped link cancels this chain, and
         // `destroy()` clears the timer outright.
-        // UNREF'd (via `armInternalTimer`) — a clock-offset retry serves no one
-        // in a process the session is the last thing keeping alive (docs/atlas
-        // session-timer-unref); it still fires normally under any other hold.
+        // Internal retry cadence — docs/atlas session-timer-unref.
         clockProbeTimer = armInternalTimer(clockProbeRetryMs, () => {
           clockProbeTimer = null;
           if (probeStale(epoch)) return;
