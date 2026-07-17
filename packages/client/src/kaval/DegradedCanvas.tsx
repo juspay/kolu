@@ -22,7 +22,7 @@
  * The affordance is a total function of the state sum.
  */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, createMemo, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
 import { activeHost } from "../wire";
 import type { DaemonDownState } from "./daemonPresentation";
@@ -113,11 +113,17 @@ const IncompatibleCard: Component<{
   daemonVersion: string;
   requiredVersion: string;
 }> = (props) => {
-  const didNotConverge = () =>
-    skewRenewVerdict(
-      renewSettledUnconverged(activeHost()),
-      renewInFlight(activeHost()),
-    ) === "did-not-converge";
+  // A `createMemo` (not a plain accessor): three reactive scopes read it — the
+  // heading ternary, the `Show`, and the `data-nonconvergence` attr — and
+  // solidjs.md calls for a memo when 2+ contexts read the same derived value, so
+  // the `activeHost`/marker reads run once per change, not once per read site.
+  const didNotConverge = createMemo(
+    () =>
+      skewRenewVerdict(
+        renewSettledUnconverged(activeHost()),
+        renewInFlight(activeHost()),
+      ) === "did-not-converge",
+  );
   return (
     <DangerCard
       heading={
