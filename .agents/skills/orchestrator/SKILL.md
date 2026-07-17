@@ -25,7 +25,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 
 ## Dispatch
 
-- Drive kolu terminals through the kolu skill's messaging loop — MCP-FIRST (the kolu MCP tools: `lifecycle_sendInput` with named keys, `wait_outputSettled`/`wait_agentState`, `screen_text`, the `terminals` resource), falling back to the CLI path (the kolu skill's TUI.md) only when no kolu MCP is available. The coordinator inherits whichever transport the kolu skill selects — never hardcode `kaval-tui` yourself. Submission is its own Enter send after an observed settle; never interrupt a working agent.
+- Drive kolu terminals through **the [/kolu](../../../apm_modules/_local/agents/.apm/skills/kolu/SKILL.md) skill's messaging loop** — the single source of truth for the driving protocol (MCP-first, its CLI fallback). The coordinator inherits whichever transport /kolu selects; never restate the loop or hardcode `kaval-tui`/`padi-tui` verbs here. Submission is its own Enter send after an observed settle; never interrupt a working agent.
 - Payloads must survive the shell unmangled; large briefs ride in a file with a short pointer.
 - Every brief carries a unique report-back token.
 - An implementing agent runs /be by default: the dispatch prompt leads with

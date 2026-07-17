@@ -22,7 +22,7 @@ terminals a **kolu owns** (the last section); for raw terminals, reach for
 ```sh
 id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner agent
 kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
-kaval-tui wait  "$id" --until idle:300                         # 2. observe the TUI settle
+kaval-tui wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
 kaval-tui send  "$id" --key Enter                              # 3. submit (its own command)
 kaval-tui wait  "$id" --until idle:800 --timeout 600000        # 4. let its turn finish (below)
 kaval-tui snapshot "$id" --viewport                            # 5. read the screen
@@ -50,7 +50,7 @@ Submitting a **normal-size** prompt to a TUI agent is **three commands**, becaus
 
 ```sh
 kaval-tui send "$id" "fix the failing test in parser.ts"   # 1. the text (no Enter)
-kaval-tui wait "$id" --until idle:300                       # 2. OBSERVE the TUI settle — a signal, not a sleep
+kaval-tui wait "$id" --until idle:300 --timeout 15000      # 2. OBSERVE the TUI settle — a signal, not a sleep (bounded: exit 2 = target busy, send Enter anyway)
 kaval-tui send "$id" --key Enter                            # 3. submit
 ```
 
@@ -355,20 +355,14 @@ Two ways to point at a specific daemon instead of autodiscovering:
 
 - **`--socket <path>`** targets one local daemon — e.g. a running **kolu-server's**
   kaval, to drive the terminals you have open in kolu (these are tracked by that
-  kolu's **padi**, so `padi-tui wait` works against them). Prefer
-  `kaval-tui list` to find the path; kolu-server namespaces its kaval **by listen
-  port** (`kaval-<port>/`), so there's no single fixed path — which is exactly why
-  `list` is the way in. The layout, per platform:
-
-  | daemon | Linux (`$XDG_RUNTIME_DIR` set) | macOS / `$XDG_RUNTIME_DIR` unset |
-  | --- | --- | --- |
-  | kolu-server on `<port>` | `$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock` | `/tmp/kaval-<port>-<uid>/pty-host.sock` |
-  | standalone kaval | `$XDG_RUNTIME_DIR/kaval/pty-host.sock` | `/tmp/kaval-<uid>/pty-host.sock` |
-
-  On macOS `$XDG_RUNTIME_DIR` is unset, so the path is the `/tmp/kaval-<port>-<uid>/`
-  form — e.g. `/tmp/kaval-7692-501/pty-host.sock` for kolu-server on port 7692. (The
-  old `$XDG_RUNTIME_DIR/kolu/…` was wrong on every platform — kolu-server never
-  serves under `kolu/` — and on macOS it collapses to a broken `/kolu/…`.)
+  kolu's **padi**, so `padi-tui wait` works against them). **Don't hand-construct
+  the path** — the rendezvous is an internal, digest-keyed detail (padi owns its
+  kaval under a state-root-digest namespace, `kaval-<digest>/pty-host.sock`, not a
+  fixed or port-named path). Get the path from **`kaval-tui list`** (it prints
+  each running daemon's socket with a human label) or, inside a kolu terminal,
+  from **`$KAVAL_SOCKET`** (the daemon that owns *this* terminal). Those are the
+  only two reliable sources; a hardcoded guess goes stale the moment the
+  namespacing changes.
 
   > **Socket paths must stay under 108 bytes (the `AF_UNIX` limit).** If you spin
   > up your *own* standalone kaval to verify (no kolu running), keep `--socket`
