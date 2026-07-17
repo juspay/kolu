@@ -193,8 +193,8 @@ export interface UnixSocketListener {
    *  step 3. The destroys are synchronous; each severed connection's serve
    *  then settles through its own chain in the microtasks BEHIND this call
    *  (subscriptions finalize, their timers clear) — `close()` returns
-   *  without waiting for that. The peer index is per-listener closure
-   *  scope, so closing one listener never touches another's connections.
+   *  without waiting for that. Closing one listener never touches another
+   *  listener's connections.
    *  Idempotent, a no-op on a non-`listening` outcome, and safe to call
    *  synchronously from a `process.on("exit")` handler (the OS sockets and
    *  the file are severed synchronously; the async finalization needs a

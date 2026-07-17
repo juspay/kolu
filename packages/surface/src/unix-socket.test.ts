@@ -346,9 +346,9 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
     });
     const { socketPath, listener } = await freshListener("sub", router);
 
-    const { client, dispose } = await unixSocketLink<{
-      tick: (typeof lifetimeContract)["tick"];
-    }>({ socketPath });
+    const { client, dispose } = await unixSocketLink<typeof lifetimeContract>({
+      socketPath,
+    });
     const ticks = await client.tick();
     const it1 = ticks[Symbol.asyncIterator]();
     expect((await it1.next()).value).toEqual({ n: 0 }); // live subscription
