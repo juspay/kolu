@@ -57,35 +57,69 @@ export function restartInFlight(status: DaemonStatus | undefined): boolean {
   return restarting() || liveWarming(status?.state, daemonChannelLive());
 }
 
+// The typed defined-error `recycleKaval` declares (SK6) — read off the bound
+// procedure's OWN rejection phantom (the declared error union it carries), so
+// it is INFERRED here, never hand-spelled nor imported from the transport
+// vendor. Exactly what `isDefinedError(error)` narrows `error` to inside
+// {@link recycleActiveKaval}, so each `onSkew` closure reads `error.message`/
+// `error.data` TYPED (a schema rename is a compile error, never a `undefined`
+// toast). Extracting the members with `{ code, data }` mirrors `isDefinedError`'s
+// own `ORPCError` narrow — a plain thrown `Error` (no `data`) drops out.
+type RecycleDefinedError =
+  ReturnType<
+    typeof activePadiRpc.lifecycle.recycleKaval
+  > extends PromiseLike<unknown> & { __error?: { type: infer E } }
+    ? Extract<E, { code: string; data: unknown }>
+    : never;
+
+/** The shared CORE of both incompatible-recovery callers (`restartDaemon` and
+ *  `restartIncompatibleKaval`): fire the ONE `recycleKaval` procedure, report
+ *  `success`, and route its ONE declared error (`KAVAL_CONTRACT_SKEW`) to the
+ *  caller's `onSkew` policy — every other error is the generic restart-failed
+ *  toast. The recycle+narrow lives HERE once; each caller keeps only its own
+ *  in-flight guard, loading toast, and skew policy.
+ *
+ *  The bound face carries the DECLARED error union as its rejection phantom
+ *  (SK6), and `safe()` — not try/catch, whose binding erases it to `unknown` —
+ *  is what surfaces it: `isDefinedError` then narrows to the declared
+ *  `{ code, data }`, so the versions arrive TYPED (a schema rename is a compile
+ *  error, never a toast printing `undefined`). */
+async function recycleActiveKaval(opts: {
+  id: string | number;
+  success: string;
+  onSkew: (error: RecycleDefinedError, id: string | number) => void;
+}): Promise<void> {
+  const { id, success, onSkew } = opts;
+  const { error } = await safe(activePadiRpc.lifecycle.recycleKaval());
+  if (!error) {
+    toast.success(success, { id });
+  } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
+    onSkew(error, id);
+  } else {
+    toast.error(`Couldn’t restart kaval: ${error.message}`, { id });
+  }
+}
+
 /** Restart the local kaval daemon, preserving the session. Safe to call from
  *  multiple affordances; re-entrant calls while one is in flight are ignored. */
 export async function restartDaemon(): Promise<void> {
   if (restarting()) return;
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
-  // The bound face carries the DECLARED error union as its rejection phantom
-  // (SK6), and `safe()` — not try/catch, whose binding erases it to `unknown`
-  // — is what surfaces it: `isDefinedError` then narrows to the declared
-  // `{ code, data }`, so both versions arrive TYPED (a schema rename here is a
-  // compile error, never a toast printing `undefined`).
-  const { error } = await safe(activePadiRpc.lifecycle.recycleKaval());
-  if (!error) {
-    toast.success("kaval restarted — your session is offered for restore", {
-      id,
-    });
-  } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
+  await recycleActiveKaval({
+    id,
+    success: "kaval restarted — your session is offered for restore",
     // Surface the server's own message (the versions ride it, typed —
     // toast-conventions.md: never swallow `err.message`). A plain restart that
     // STILL skews means the host's own build is stale (a fresh kaval from that
     // closure is skewed too) — the daemon flips to `incompatible`, whose card
     // offers the recovery (restart, and a host re-provision if that still skews).
-    toast.error(
-      `Couldn’t restart kaval: ${error.message} — the host’s build itself is stale. See the incompatible card to recover.`,
-      { id },
-    );
-  } else {
-    toast.error(`Couldn’t restart kaval: ${error.message}`, { id });
-  }
+    onSkew: (error, id) =>
+      toast.error(
+        `Couldn’t restart kaval: ${error.message} — the host’s build itself is stale. See the incompatible card to recover.`,
+        { id },
+      ),
+  });
   setRestarting(false);
 }
 
@@ -131,33 +165,27 @@ export async function restartIncompatibleKaval(host: HostKey): Promise<void> {
   if (recoveringHosts().has(key)) return;
   setRecoveringHosts((s) => new Set(s).add(key));
   const id = toast.loading("Restarting kaval…");
-  // `safe()` (not try/catch) preserves the DECLARED error union so
-  // `KAVAL_CONTRACT_SKEW` arrives TYPED (SK6) — see `restartDaemon`.
-  const { error } = await safe(activePadiRpc.lifecycle.recycleKaval());
-  if (!error) {
-    toast.success(
+  await recycleActiveKaval({
+    id,
+    success:
       "kaval restarted from the host’s current build — your session is offered for restore",
-      { id },
-    );
-  } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
     // The recycle proved padi's OWN closure is stale (a fresh spawn STILL skews),
     // not just an orphaned old kaval — so re-provisioning the host is the recovery
     // that works. Offer it as an action rather than dead-ending (toast-conventions:
     // persistent action toast), and never swallow the server's typed message.
-    toast.error(
-      `Couldn’t converge kaval: ${error.message} — the host’s build itself is stale, so a restart brings back the same version. Re-provision the host to fix it.`,
-      {
-        id,
-        duration: Number.POSITIVE_INFINITY,
-        action: {
-          label: "Re-provision host",
-          onClick: () => void drainReprovisionDaemon(host),
+    onSkew: (error, id) =>
+      toast.error(
+        `Couldn’t converge kaval: ${error.message} — the host’s build itself is stale, so a restart brings back the same version. Re-provision the host to fix it.`,
+        {
+          id,
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: "Re-provision host",
+            onClick: () => void drainReprovisionDaemon(host),
+          },
         },
-      },
-    );
-  } else {
-    toast.error(`Couldn’t restart kaval: ${(error as Error).message}`, { id });
-  }
+      ),
+  });
   setRecoveringHosts((s) => {
     const next = new Set(s);
     next.delete(key);
