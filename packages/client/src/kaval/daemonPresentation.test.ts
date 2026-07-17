@@ -335,11 +335,12 @@ describe("formatLifetime — the shared humanizer for the Kaval/Padi dialog life
 });
 
 describe("the incompatible arm (SK4) — a proven skew is its own verdict, never a warming pulse", () => {
-  it("toKavalPresence maps incompatible to its OWN arm with both versions — not warming, not down", () => {
+  it("toKavalPresence maps incompatible to its OWN payload-less arm — not warming, not down", () => {
+    // Payload-less by design: the versions are rendered by the canvas card
+    // (DaemonDownState) and the attention chip/banner (KavalAttention); the
+    // presence's one consumer (the dialog) extracts only `connected`.
     expect(toKavalPresence(incompatibleStatus(), true)).toEqual({
       kind: "incompatible",
-      daemonVersion: "5.0",
-      requiredVersion: "5.2",
     });
   });
 

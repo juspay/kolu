@@ -351,8 +351,13 @@ export type KavalPresence =
   | { kind: "down"; state: "dead" | "degraded" }
   /** The PROVEN contract skew (SK4) — its own arm, never folded into `down`
    *  (a restart can fix `down`; nothing but a closure change fixes this) and
-   *  never allowed to fall through to a lying `warming` pulse. */
-  | ({ kind: "incompatible" } & KavalSkewVersions);
+   *  never allowed to fall through to a lying `warming` pulse. PAYLOAD-LESS:
+   *  the versions are rendered by the two deliberate skew surfaces — the
+   *  canvas card ({@link DaemonDownState}) and the attention chip/banner
+   *  (`KavalAttention`) — and the presence's one consumer (the dialog)
+   *  extracts only `connected`, so carrying a third copy here would be a
+   *  projection nobody reads. */
+  | { kind: "incompatible" };
 
 /** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
  *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
@@ -369,12 +374,9 @@ export function toKavalPresence(
     return { kind: "down", state: status.state };
   if (status.state === "incompatible") {
     // The proven skew must NEVER read as a warming pulse — it is a terminal
-    // verdict with a payload the dialog renders.
-    return {
-      kind: "incompatible",
-      daemonVersion: status.daemonVersion,
-      requiredVersion: status.requiredVersion,
-    };
+    // verdict. Payload-less: the versions ride the two surfaces that render
+    // them (`liveDownState`'s canvas card, `kavalAttention`'s chip/banner).
+    return { kind: "incompatible" };
   }
   if (status.state !== "connected") return { kind: "warming" }; // connecting | restarting
   if (status.identity === undefined) return { kind: "warming" }; // pre-identity survivor
