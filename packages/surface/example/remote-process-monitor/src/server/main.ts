@@ -72,9 +72,15 @@ async function main(): Promise<void> {
     connectOnce: sshConnector<typeof surface.contract>({
       host: HOST,
       binary: "process-monitor-agent",
-      // Policy-free: the CONSUMER composes the localhost arm's spawn env (kolu uses
-      // kolu-pty's `composeSpawnEnv`). Never the caller's ambient `process.env`; unused for ssh.
-      localEnv: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
+      // Policy-free: the CONSUMER composes the localhost arm's spawn env, keeping only
+      // the keys that are SET (an empty HOME/PATH would misdirect config/command lookup).
+      // kolu uses kolu-pty's `composeSpawnEnv`; a standalone example picks inline. Never
+      // the caller's ambient `process.env`; unused for a real ssh host.
+      localEnv: Object.fromEntries(
+        (["HOME", "PATH"] as const)
+          .filter((k) => process.env[k] !== undefined)
+          .map((k): [string, string] => [k, process.env[k] as string]),
+      ),
       // This example takes the .drv straight from the environment (no arch
       // probe), so the resolver is a constant. Consumers that pick the .drv
       // per host's nix-system pass an async probe here instead — see

@@ -248,6 +248,11 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     fakeSession(client);
     const probe = vi.fn(async () => "ok");
 
+    // A distinctive composed env, so we can prove it reaches the connector verbatim
+    // through the forwarding seam (dialAgentOnce → sshConnector → buildAgentCommand →
+    // spawn) — a later optional/default regression at the one-shot API can't silently
+    // drop it (PR1.5 / #1872).
+    const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const dial = await dialAgentOnce({
       host: "nix@prod",
       binary: "agent",
@@ -255,13 +260,15 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "agent",
       fatalPrefix: "agent:",
-      localEnv: {},
+      localEnv,
       probe,
     });
 
     expect(h.sshConnector).toHaveBeenCalledWith(
       expect.objectContaining({ host: "nix@prod", binary: "agent" }),
     );
+    // The composed localEnv is forwarded verbatim to the connector.
+    expect(sshOpts().localEnv).toBe(localEnv);
     expect(probe).toHaveBeenCalledWith(client);
     expect(h.markConnected).toHaveBeenCalledTimes(1);
     expect(dial.client).toBe(client);

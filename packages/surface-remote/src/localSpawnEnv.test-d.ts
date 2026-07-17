@@ -5,6 +5,7 @@
  * holds; making `localEnv` optional (or `| undefined`) would compile the
  * `@ts-expect-error` lines below and fail the pin — reopening the seam #1880 left.
  */
+import { dialAgentOnce } from "./dialAgentOnce";
 import { buildAgentCommand } from "./host";
 import { sshConnector } from "./sshConnector";
 
@@ -43,5 +44,50 @@ sshConnector(
     host: "h",
     binary: "a",
     resolveDrvPath: () => Promise.resolve("d"),
+  },
+);
+
+sshConnector({
+  host: "h",
+  binary: "a",
+  resolveDrvPath: () => Promise.resolve("d"),
+  // @ts-expect-error — `localEnv` may not be `undefined` on the connector either.
+  localEnv: undefined,
+});
+
+// The one-shot public API (`dialAgentOnce`) carries the SAME requirement — the pin
+// must cover it, since a future optional/default regression at THIS forwarding seam
+// (dialAgentOnce → sshConnector → buildAgentCommand) would otherwise leave the
+// advertised guarantee green while ambient full-inherit became spellable again.
+dialAgentOnce({
+  host: "h",
+  binary: "a",
+  envVar: "E",
+  agentDrvsJson: "{}",
+  drvNoun: "a",
+  fatalPrefix: "a:",
+  localEnv: {},
+});
+
+dialAgentOnce({
+  host: "h",
+  binary: "a",
+  envVar: "E",
+  agentDrvsJson: "{}",
+  drvNoun: "a",
+  fatalPrefix: "a:",
+  // @ts-expect-error — `localEnv` may not be `undefined` on the one-shot dial either.
+  localEnv: undefined,
+});
+
+dialAgentOnce(
+  // @ts-expect-error — `localEnv` omitted on the one-shot dial: required, same as the connector.
+  {
+    host: "h",
+    binary: "a",
+    envVar: "E",
+    agentDrvsJson: "{}",
+    drvNoun: "a",
+    fatalPrefix: "a:",
   },
 );
