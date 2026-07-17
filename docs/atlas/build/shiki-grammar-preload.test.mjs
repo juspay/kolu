@@ -28,25 +28,13 @@
 // re-implementation that could drift from the one the build uses.
 
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
 import test from "node:test";
-import { pathToFileURL } from "node:url";
 
 import { fenceLangs } from "../../../scripts/fence-langs.mjs";
 import astroConfig from "../astro.config.mjs";
+import { createShikiHighlighter, shiki } from "./astro-deps.mjs";
 
-// Both packages are transitive deps (of `astro`), so resolve them through
-// astro's own require context — version-agnostic, unlike a .pnpm store path.
-const requireFromHere = createRequire(import.meta.url);
-const requireFromAstro = createRequire(
-  requireFromHere.resolve("astro/package.json"),
-);
-const { createShikiHighlighter } = await import(
-  pathToFileURL(requireFromAstro.resolve("@astrojs/markdown-remark/shiki")).href
-);
-const { createHighlighter } = await import(
-  pathToFileURL(requireFromAstro.resolve("shiki")).href
-);
+const { createHighlighter, bundledLanguages } = shiki;
 
 // The release-workflow.mdx fence's shape: YAML frontmatter + markdown body.
 const SAMPLE = [
@@ -143,9 +131,6 @@ test("guard: a fence language outside shikiConfig.langs throws at build time", a
   // Derive the probe language from the installed shiki bundle instead of
   // hardcoding one: a hardcoded "ruby" would make correct production behavior
   // fail this test the day a real ruby fence lands in content (codex F3).
-  const { bundledLanguages } = await import(
-    pathToFileURL(requireFromAstro.resolve("shiki")).href
-  );
   const probe = Object.keys(bundledLanguages).find(
     (l) => !shikiConfig.langs.includes(l),
   );

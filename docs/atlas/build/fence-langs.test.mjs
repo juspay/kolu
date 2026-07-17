@@ -8,11 +8,9 @@
 
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
-import { pathToFileURL } from "node:url";
 
 import {
   ASTRO_EXCLUDED_LANGS,
@@ -21,6 +19,7 @@ import {
   fenceLangs,
   shikiFencePreload,
 } from "../../../scripts/fence-langs.mjs";
+import { astroMarkdown, astroMarkdownRemark, shiki } from "./astro-deps.mjs";
 
 // Every fixture dir is tracked and removed after the suite — the soak runs
 // this file dozens of times in a row and must not accumulate temp debris.
@@ -41,23 +40,8 @@ const dirWith = (content) => {
 
 // The scanner module is dependency-free (shared across two projects with
 // separate lockfiles), so its two hand-held upstream mirrors are pinned here
-// against the REAL installed exports, resolved through astro's own deps.
-const requireFromAstro = createRequire(
-  createRequire(import.meta.url).resolve("astro/package.json"),
-);
-const shiki = await import(
-  pathToFileURL(requireFromAstro.resolve("shiki")).href
-);
-// (anchored on the resolved entry file — the package doesn't export
-// ./package.json)
-const requireFromMdRemark = createRequire(
-  requireFromAstro.resolve("@astrojs/markdown-remark"),
-);
-const astroMarkdown = await import(
-  pathToFileURL(
-    requireFromMdRemark.resolve("@astrojs/internal-helpers/markdown"),
-  ).href
-);
+// against the REAL installed exports (astro-deps.mjs resolves them through
+// astro's own require context).
 
 test("plain, indented, tilde, and info-string fences", () => {
   const dir = dirWith(
@@ -168,10 +152,9 @@ test("cross-pin: every fence astro's real parser highlights is in the scanner's 
   // assert every language the parser hands to the highlighter was scanned.
   // This pins the accepted shapes to the installed parser, not to our own
   // expectations of it.
-  const { createMarkdownProcessor } = await import(
-    pathToFileURL(requireFromAstro.resolve("@astrojs/markdown-remark")).href
-  );
-  const processor = await createMarkdownProcessor({ syntaxHighlight: false });
+  const processor = await astroMarkdownRemark.createMarkdownProcessor({
+    syntaxHighlight: false,
+  });
   const { code: html } = await processor.render(PARSER_BOUNDARY_FIXTURE);
   const parserLangs = new Set(
     [...html.matchAll(/class="language-([^"\s]+)"/g)].map((m) =>
