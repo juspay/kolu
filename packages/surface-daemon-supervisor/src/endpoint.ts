@@ -223,10 +223,12 @@ export interface EndpointSpec<C, I, M = undefined> {
      *  stamped into spawned PTYs and shown in the daemon dialog). */
     onAdopted?(): void;
   };
-  /** Fired after a FRESH SPAWN holds a connection at the PRIMARY socket (a boot
-   *  spawn, or a recycle that converges off an adopted hint) — the twin of
-   *  `adoptHint.onAdopted`, so a caller that recorded the hint location can reset it
-   *  back to the primary. A no-op for endpoints with no hint. */
+  /** Fired once a FRESH SPAWN's socket is up at the PRIMARY rendezvous — BEFORE
+   *  the handshake, so it may precede a `connected`, `incompatible`, or `dead`
+   *  outcome (it is a LOCATION signal, never a readiness signal): the daemon at
+   *  the primary socket is the held one now, whatever its handshake says. The
+   *  twin of `adoptHint.onAdopted`, so a caller that recorded the hint location
+   *  can reset it back to the primary. A no-op for endpoints with no hint. */
   onSpawned?(): void;
 }
 
