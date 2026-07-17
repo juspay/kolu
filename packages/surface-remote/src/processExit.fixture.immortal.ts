@@ -14,13 +14,14 @@
  * cannot be explained by the timer having fired.
  */
 import { ConnectError, makeSession } from "./session.ts";
+import { silentLogger } from "./loggerStubs.testutil.ts";
 
 const session = makeSession({
   initialConnection: "connecting",
   connectOnce: () =>
     Promise.reject(new ConnectError("endpoint gone", "network")),
   reconnectDelayMs: 30_000,
-  onLog: () => {},
+  log: silentLogger,
 });
 
 session.pin().catch(() => {

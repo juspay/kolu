@@ -14,6 +14,7 @@
  * is unref'd, which is exactly the exit window.
  */
 import { makeSession } from "./session.ts";
+import { silentLogger } from "./loggerStubs.testutil.ts";
 
 const session = makeSession<{ hello: () => Promise<void> }>({
   initialConnection: "connecting",
@@ -39,7 +40,7 @@ const session = makeSession<{ hello: () => Promise<void> }>({
       /* never settles; holds no handle */
     }),
   connectTimeoutMs: 300,
-  onLog: () => {},
+  log: silentLogger,
 });
 
 // Monotonic, measured around the await itself — the parent asserts this value
