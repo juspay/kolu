@@ -26,6 +26,7 @@ export {
   type EndpointSpec,
   type EndpointState,
   type EndpointStatus,
+  type IncompatibleEndpointStatus,
   ENDPOINT_STATES,
   createEndpoint,
   isContractSkewError,

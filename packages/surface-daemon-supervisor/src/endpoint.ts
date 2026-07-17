@@ -101,6 +101,9 @@ export type EndpointStatus<I, M = undefined> =
  */
 export class DaemonContractSkewError extends Error {
   readonly isContractSkew = true as const;
+  /** Which contract flavor skewed ("pty-host", "padiSurface") — a readable
+   *  FIELD, so a consumer that logs or routes by flavor never parses prose. */
+  readonly subject: string;
   /** The contract version the running daemon actually speaks. */
   readonly daemonVersion: string;
   /** The contract version this supervisor's build requires. */
@@ -118,6 +121,7 @@ export class DaemonContractSkewError extends Error {
       `${versions.subject} contract skew: daemon speaks ${versions.daemonVersion}, needs ${versions.requiredVersion}`,
     );
     this.name = "DaemonContractSkewError";
+    this.subject = versions.subject;
     this.daemonVersion = versions.daemonVersion;
     this.requiredVersion = versions.requiredVersion;
   }
@@ -129,10 +133,21 @@ export class DaemonContractSkewError extends Error {
 export function isContractSkewError(
   err: unknown,
 ): err is DaemonContractSkewError {
+  const e = err as {
+    isContractSkew?: unknown;
+    daemonVersion?: unknown;
+    requiredVersion?: unknown;
+  };
   return (
     typeof err === "object" &&
     err !== null &&
-    (err as { isContractSkew?: unknown }).isContractSkew === true
+    e.isContractSkew === true &&
+    // The narrowed type promises version FIELDS (the incompatible status arm
+    // and the typed rethrow read them) — so the brand attests them too: a
+    // foreign brand-carrier without the payload must not narrow to a type
+    // whose fields it cannot honor.
+    typeof e.daemonVersion === "string" &&
+    typeof e.requiredVersion === "string"
   );
 }
 

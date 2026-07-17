@@ -13,9 +13,9 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
-import { ORPCError } from "@orpc/client";
+import { isDefinedError, safe } from "@orpc/client";
 import type { DaemonStatus } from "@kolu/padi/surface";
-import type { HostKey } from "kolu-common/surfacesWithPadi";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { activePadiRpc, client } from "../wire";
@@ -60,46 +60,44 @@ export async function restartDaemon(): Promise<void> {
   if (restarting()) return;
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
-  try {
-    await activePadiRpc.lifecycle.recycleKaval();
+  // The bound face carries the DECLARED error union as its rejection phantom
+  // (SK6), and `safe()` — not try/catch, whose binding erases it to `unknown`
+  // — is what surfaces it: `isDefinedError` then narrows to the declared
+  // `{ code, data }`, so both versions arrive TYPED (a schema rename here is a
+  // compile error, never a toast printing `undefined`).
+  const { error } = await safe(activePadiRpc.lifecycle.recycleKaval());
+  if (!error) {
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });
-  } catch (err) {
-    // The DECLARED skew rejection (SK6): `recycleKaval` declares
-    // KAVAL_CONTRACT_SKEW with both versions as data, so the toast states the
-    // real cause from TYPED fields — never re-parsed from message prose. (A
-    // bare `catch` binds `unknown`, which `isDefinedError`'s `Extract<>`
-    // narrows to `never` — so discriminate on the ORPCError instance + code,
-    // the same pattern the wire's own transport-error brands use.) The
-    // recovery lives on the skew card / dialog ("Update & restart kaval"),
-    // which the `incompatible` daemon state surfaces alongside this toast.
-    if (err instanceof ORPCError && err.code === "KAVAL_CONTRACT_SKEW") {
-      const { daemonVersion, requiredVersion } = err.data as {
-        daemonVersion: string;
-        requiredVersion: string;
-      };
-      toast.error(
-        `Couldn’t restart kaval: it speaks contract ${daemonVersion}, this kolu needs ${requiredVersion} — restarting can’t fix that. Use “Update & restart kaval”.`,
-        { id },
-      );
-      return;
-    }
-    toast.error(`Couldn’t restart kaval: ${(err as Error).message}`, { id });
-  } finally {
-    setRestarting(false);
+  } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
+    // The recovery lives on the skew card / dialog ("Update & restart
+    // kaval"), which the `incompatible` daemon state surfaces alongside this
+    // toast.
+    const { daemonVersion, requiredVersion } = error.data;
+    toast.error(
+      `Couldn’t restart kaval: it speaks contract ${daemonVersion}, this kolu needs ${requiredVersion} — restarting can’t fix that. Use “Update & restart kaval”.`,
+      { id },
+    );
+  } else {
+    toast.error(`Couldn’t restart kaval: ${error.message}`, { id });
   }
+  setRestarting(false);
 }
 
-// True from the click until the renew RPC settles — the renew twin of
-// `restarting` above (same double-fire guard; the server-side drain is
-// idempotent-ish but a second drain queued behind the first is never useful).
-const [renewing, setRenewing] = createSignal(false);
+// The hosts with a renew in flight, from click until the drain RPC settles —
+// the renew twin of `restarting` above (same double-fire guard; a second
+// drain queued behind the first is never useful). KEYED BY HOST: renew is a
+// per-host, multi-second operation, so one host's in-flight renew must not
+// disable (or swallow) another host's button.
+const [renewingHosts, setRenewingHosts] = createSignal<ReadonlySet<string>>(
+  new Set(),
+);
 
-/** The "an update-&-restart is underway" predicate — gates the
+/** The "an update-&-restart is underway on THIS host" predicate — gates the
  *  `UpdateKavalButton` the way `restartInFlight` gates the Restart button. */
-export function renewInFlight(): boolean {
-  return renewing();
+export function renewInFlight(host: HostKey): boolean {
+  return renewingHosts().has(encodeHostKey(host));
 }
 
 /** Update & restart a host's daemon stack — the CONTRACT-SKEW recovery (SK5,
@@ -109,18 +107,29 @@ export function renewInFlight(): boolean {
  *  on the host — and the fresh padi's converge policy recycles the old kaval
  *  from its new build. Re-entrant calls while one is in flight are ignored. */
 export async function renewDaemon(host: HostKey): Promise<void> {
-  if (renewing()) return;
-  setRenewing(true);
+  const key = encodeHostKey(host);
+  if (renewingHosts().has(key)) return;
+  setRenewingHosts((s) => new Set(s).add(key));
   const id = toast.loading("Updating & restarting kaval…");
   try {
     await client.hosts.renewDaemon({ host });
+    // HONEST at resolve time: the RPC resolves when the DRAIN takes (the old
+    // padi persisted + exited) — the re-provision + fresh kaval land
+    // asynchronously via the binder's reconnect loop, and the daemon-status
+    // chrome (the same surface that raised the skew card) narrates that
+    // convergence live. Claiming "restarted at the current build" here would
+    // assert an outcome this call never waits for.
     toast.success(
-      "Host daemon updated — kaval restarted at the current build",
+      "Host daemon drained — re-provisioning the current build; kaval reconnects shortly",
       { id },
     );
   } catch (err) {
     toast.error(`Couldn’t update kaval: ${(err as Error).message}`, { id });
   } finally {
-    setRenewing(false);
+    setRenewingHosts((s) => {
+      const next = new Set(s);
+      next.delete(key);
+      return next;
+    });
   }
 }

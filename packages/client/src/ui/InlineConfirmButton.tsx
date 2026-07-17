@@ -14,7 +14,7 @@
 import { type Component, createSignal, type JSX, Show } from "solid-js";
 
 /** Per-tone accent for the trigger + the confirm's action button. */
-export const CONFIRM_ACCENT: Record<"neutral" | "danger", string> = {
+const CONFIRM_ACCENT: Record<"neutral" | "danger", string> = {
   neutral: "border-edge bg-surface-2 text-fg hover:bg-surface-3/60",
   danger: "border-danger/40 bg-danger/10 text-fg hover:bg-danger/20",
 };

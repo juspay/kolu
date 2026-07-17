@@ -219,9 +219,16 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  consuming its surface; an OLDER 4.0 binder against a new 4.1 padi is
  *  version-compatible but BUILD-mismatched, so the build axis
  *  drains-and-replaces padi first — the old client schema (no `incompatible`
- *  arm) never sits against a padi that could emit it. That is the answer to
- *  "who reports the skew of the skew-reporter": the existing convergence
- *  machinery, before the new arm can reach an old parser. */
+ *  arm) never sits against a padi that could emit it. (Two honest caveats on
+ *  that second leg: the build drain is FENCED once per binder boot, and
+ *  off-nix both build ids are "" so the axis is silent — in those windows an
+ *  old binder rides a new padi version-compatibly, and IF that host's kaval
+ *  then skews, the emitted `incompatible` frame fails the old client's
+ *  discriminated-union parse LOUDLY — fail-fast, never mis-read as another
+ *  state. That narrow edge is inherent to any additive minor; the common
+ *  nix-run path converges the binder before it can occur.) That is
+ *  the answer to "who reports the skew of the skew-reporter": the existing
+ *  convergence machinery, before the new arm can reach an old parser. */
 export const PADI_SURFACE_VERSION = "4.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

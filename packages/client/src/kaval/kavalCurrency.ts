@@ -3,13 +3,16 @@
  *
  *  Extracted as its own side-effect-free module (like `canvasModeResolver`) so
  *  its truth table is unit-tested without mounting `useDaemonStatus`'s
- *  `daemonStatus` subscription. The host-chip pip/tooltip, the Kaval dialog
- *  banner, and the canvas skew card all join the live `expected`/`status`
- *  sources and call {@link kavalAttention} at their read sites — the ONE
- *  version-comparison site in the client, so the surfaces can never disagree
- *  about whether (or why) a kaval needs attention (the reuse-as-fortification
- *  ruling: two independently-drifting "your kaval needs attention" predicates
- *  would be this bug's own shape rebuilt in the UI).
+ *  `daemonStatus` subscription. The host-chip pip/tooltip and the Kaval dialog
+ *  banner join the live `expected`/`status` sources and call
+ *  {@link kavalAttention} at their read sites — the ONE version-COMPARISON
+ *  site in the client (the canvas skew card renders the same typed
+ *  `incompatible` fact through the state-sum flow, `liveDownState`, which
+ *  performs no comparison — the versions are the arm's own fields). So the
+ *  surfaces can never disagree about whether (or why) a kaval needs attention
+ *  (the reuse-as-fortification ruling: two independently-drifting "your kaval
+ *  needs attention" predicates would be this bug's own shape rebuilt in the
+ *  UI).
  *
  *  The two axes are MUTUALLY EXCLUSIVE by construction: `stale` (a newer build
  *  is available) requires a CONNECTED kaval — a build-behind daemon is honestly
@@ -23,9 +26,10 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 export type KavalAttention =
   | { kind: "none" }
   /** Currency axis (B3.4): connected, but a newer kaval build is available —
-   *  the amber "restart to update" nudge. `running`/`expected` are the two
-   *  closure `staleKey`s (display sites pair them with `navigableCommit`s). */
-  | { kind: "stale"; running: string; expected: string }
+   *  the amber "restart to update" nudge. Carries no payload: the display
+   *  sites pair the human-readable `navigableCommit`s off their own sources
+   *  (the compared `staleKey`s are opaque closure hashes nobody renders). */
+  | { kind: "stale" }
   /** Contract axis (SK4/SK5): a PROVEN skew — the daemon speaks a contract
    *  this kolu cannot talk to, and a respawn from the host's current closure
    *  has already been tried. The recovery is `hosts.renewDaemon`, never a
@@ -86,12 +90,7 @@ export function kavalAttention(
   }
   const reported = status.identity?.staleKey;
   if (kavalStale(expected, reported, status.state, live)) {
-    // `kavalStale` proved both keys non-empty; narrow without re-asserting.
-    return {
-      kind: "stale",
-      running: reported as string,
-      expected: expected as string,
-    };
+    return { kind: "stale" };
   }
   return { kind: "none" };
 }

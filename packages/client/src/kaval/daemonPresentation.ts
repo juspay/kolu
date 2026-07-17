@@ -211,6 +211,10 @@ export function liveDownState(
   live: boolean,
 ): DaemonDownState | undefined {
   if (!live || !status) return undefined;
+  // ONE authority for "is this state down": the presentation table's `down`
+  // flag — the incompatible arm only shapes the payload, never re-decides
+  // downness (flipping the table row is the single switch for every reader).
+  if (!DAEMON_STATE_PRESENTATION[status.state].down) return undefined;
   if (status.state === "incompatible") {
     return {
       state: "incompatible",
@@ -218,9 +222,7 @@ export function liveDownState(
       requiredVersion: status.requiredVersion,
     };
   }
-  return DAEMON_STATE_PRESENTATION[status.state].down
-    ? { state: status.state as "dead" | "degraded" }
-    : undefined;
+  return { state: status.state as "dead" | "degraded" };
 }
 
 /** Whether a surface may OFFER the "Restart kaval" verb (D5c/SK4): never while

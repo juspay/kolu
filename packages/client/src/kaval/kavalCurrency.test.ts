@@ -39,7 +39,7 @@ describe("kavalAttention — the currency axis (B3.4 truth table)", () => {
     {
       expected: "newhash",
       status: connected("oldhash"),
-      result: { kind: "stale", running: "oldhash", expected: "newhash" },
+      result: { kind: "stale" },
       why: "connected + two non-empty ids that differ → build behind (nudge)",
     },
     {

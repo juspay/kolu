@@ -28,11 +28,16 @@ const UpdateKavalButton: Component<{
     inFlightLabel="Updating…"
     confirmCopy="Update & restart this host's kaval? This drains the host daemon, re-provisions the current build on the host, and starts a correct-version kaval — the terminals on this host restart."
     tone={props.tone}
-    inFlight={renewInFlight()}
+    inFlight={renewInFlight(activeHost())}
     icon={<RestartIcon class="h-3.5 w-3.5" />}
     testid="update-kaval"
     onConfirm={() => {
       props.onConfirm?.();
+      // `activeHost()` is correct by the dialog/canvas MOUNT CONVENTION:
+      // opening a daemon icon switches the canvas to that host first (see
+      // KavalInfoDialog's host-scoping header), and the skew canvas card only
+      // ever renders for the active host — so the presented facts and the
+      // renewed host agree by construction.
       void renewDaemon(activeHost());
     }}
   />

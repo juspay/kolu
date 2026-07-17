@@ -110,7 +110,8 @@ export const contract = oc.router({
      *  action that changes the BINARY — offered by the `incompatible` skew card,
      *  where a plain restart provably respawns the same old kaval. Applies to
      *  BOTH local and remote hosts (D1 — the local drain rides the same seam).
-     *  An unknown host is a typed reject. */
+     *  An unknown host rejects loudly (a plain server error the caller's
+     *  toast surfaces — same shape as `reconnect`'s guard). */
     renewDaemon: oc.input(z.object({ host: HostKeySchema })).output(z.void()),
   },
 });
