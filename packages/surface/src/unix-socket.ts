@@ -19,7 +19,7 @@
  * this module owns only the transport verdicts.
  */
 import { lstatSync, mkdirSync, rmSync } from "node:fs";
-import { createConnection, createServer } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import type { Router } from "@orpc/server";
 import { serveOverStdio } from "./peer-server";
@@ -188,9 +188,18 @@ export interface UnixSocketListener {
   readonly socketPath: string;
   /** Why this listener is (or is not) serving. */
   readonly outcome: UnixSocketServeOutcome;
-  /** Stop accepting connections and remove the socket file. Idempotent, a
-   *  no-op on a non-`listening` outcome, and safe to call synchronously from
-   *  a `process.on("exit")` handler. */
+  /** Stop accepting connections, DISCONNECT every established peer, and
+   *  remove the socket file — the ordered teardown of surface-lifetime-audit
+   *  step 3. The destroys are synchronous; each severed connection's serve
+   *  then settles through its own chain in the event-loop turns BEHIND this
+   *  call
+   *  (subscriptions finalize, their timers clear) — `close()` returns
+   *  without waiting for that. Closing one listener never touches another
+   *  listener's connections.
+   *  Idempotent, a no-op on a non-`listening` outcome, and safe to call
+   *  synchronously from a `process.on("exit")` handler (the OS sockets and
+   *  the file are severed synchronously; the async finalization needs a
+   *  live event loop and is moot when the process is exiting). */
   close(): void;
 }
 
@@ -254,7 +263,16 @@ export async function serveOverUnixSocket(opts: {
     }
     rmSync(socketPath, { force: true });
 
+    // The established-peer index, CLOSURE-scoped per listener — never module
+    // scope, where two listeners in one process (a real config: the tests
+    // round-trip several; kaval wraps its own) would alias one Set and
+    // closing listener A would destroy listener B's live connections. An
+    // index only: who is connected. What to do about a disconnect stays the
+    // per-connection settle chain below.
+    const accepted = new Set<Socket>();
     const server = createServer((socket) => {
+      accepted.add(socket);
+      socket.once("close", () => accepted.delete(socket));
       // A client vanishing mid-frame must not take down the listener.
       socket.on("error", (err) =>
         log?.debug({ err }, "unix-socket client error"),
@@ -293,7 +311,17 @@ export async function serveOverUnixSocket(opts: {
       close() {
         if (closed) return;
         closed = true;
+        // The ordered teardown (surface-lifetime-audit step 3): stop
+        // accepting → DISCONNECT established peers → release the inode. The
+        // destroy is unconditional — a wedged half-open peer gets no drain
+        // negotiation, and its unflushed outbound frames are dropped
+        // (fail-fast: a host that closed is closed). Each destroy runs the
+        // reused settle chain end-to-end: destroy (no error) → the codec's
+        // resolve-on-'close' edge → that connection's serveOverStdio settles
+        // "end" → peer.close() aborts every handler signal → subscriptions
+        // finalize and their timers clear. No reaper here — only the index.
         server.close();
+        for (const socket of accepted) socket.destroy();
         rmSync(socketPath, { force: true });
       },
     };
