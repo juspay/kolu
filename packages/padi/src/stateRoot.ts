@@ -111,6 +111,22 @@ export function isolatedPadiStateRoot(clientId: string): string {
   return `${defaultPadiStateRoot()}-${clientId}`;
 }
 
+/** The ONE estate-precedence predicate: does this padi anchor to its per-client
+ *  ISOLATED estate? True iff there is NO explicit override (`--state-root` /
+ *  `KOLU_PADI_STATE_DIR`) AND a non-empty `clientId` is present. This is the sole
+ *  spelling of "isolated on a client id" — {@link resolvePadiStateRoot} routes on
+ *  it, and any OTHER site that must know whether the estate was isolated (e.g.
+ *  daemonMain's one-time legacy-adopt guard) calls THIS rather than re-deriving
+ *  the precedence from the raw inputs, so the two can never diverge on an edge
+ *  (an empty-string clientId, a future third estate source). */
+export function estateIsolatedByClient(
+  override?: string,
+  clientId?: string,
+): boolean {
+  const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
+  return !explicit && clientId !== undefined && clientId !== "";
+}
+
 /** Resolve the state-root a padi process should use, in precedence order:
  *  an explicit override (`--state-root` / `KOLU_PADI_STATE_DIR`, dev/e2e) wins;
  *  else, given a stable `clientId`, the per-client {@link isolatedPadiStateRoot}
@@ -123,9 +139,10 @@ export function resolvePadiStateRoot(
   override?: string,
   clientId?: string,
 ): string {
+  if (estateIsolatedByClient(override, clientId))
+    return isolatedPadiStateRoot(clientId as string);
   const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
-  if (explicit) return resolve(explicit);
-  return clientId ? isolatedPadiStateRoot(clientId) : defaultPadiStateRoot();
+  return explicit ? resolve(explicit) : defaultPadiStateRoot();
 }
 
 /** A short, stable digest of the state-root path — the rendezvous key. A hex

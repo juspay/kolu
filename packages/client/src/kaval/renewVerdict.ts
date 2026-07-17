@@ -31,8 +31,8 @@ export type SkewRenewVerdict = "first-time" | "did-not-converge";
  *  label), so the honest "did not converge" only appears once the attempt has
  *  actually SETTLED and left the host unconverged. */
 export function skewRenewVerdict(
-  renewAttempted: boolean,
+  renewSettled: boolean,
   renewInFlight: boolean,
 ): SkewRenewVerdict {
-  return renewAttempted && !renewInFlight ? "did-not-converge" : "first-time";
+  return renewSettled && !renewInFlight ? "did-not-converge" : "first-time";
 }

@@ -64,6 +64,7 @@ import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
 import {
   defaultPadiStateRoot,
+  estateIsolatedByClient,
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
@@ -384,9 +385,7 @@ export async function runPadiDaemon(
   // when a `clientId` actually isolated us AND no explicit state-root was forced.
   const legacyDefaultKavalSocket =
     opts.adoptLegacyStateRoot &&
-    opts.clientId !== undefined &&
-    opts.stateRoot === undefined &&
-    process.env.KOLU_PADI_STATE_DIR === undefined
+    estateIsolatedByClient(opts.stateRoot, opts.clientId)
       ? padiKavalSocketPath(defaultPadiStateRoot())
       : undefined;
 

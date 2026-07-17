@@ -18,15 +18,11 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 // `@kolu/surface/solid` re-export), never from `@orpc/client` directly — the
 // transport vendor stays encapsulated behind the surface boundary.
 import { isDefinedError, safe } from "@kolu/surface/solid";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { decodeHostKey, encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { activeHost, activePadiRpc, client } from "../wire";
-import {
-  daemonChannelLive,
-  daemonConnected,
-  liveWarming,
-} from "./useDaemonStatus";
+import { activePadiRpc, client, padiMap } from "../wire";
+import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't
@@ -126,21 +122,26 @@ export function renewSettledUnconverged(host: HostKey): boolean {
   return renewSettledHosts().has(encodeHostKey(host));
 }
 
-// Clear the ACTIVE host's settled-marker the instant it reconnects — that IS the
-// convergence the renew was awaiting, so a later genuinely-new skew starts from
-// the first-time copy again. Rooted so the effect owns itself at module scope
-// (the same `createRoot` shape `localDaemonStatus` uses); the skew card only ever
-// renders for the active host, so clearing the active host is sufficient.
+// Clear each host's settled-marker the instant THAT host reconnects — that IS the
+// convergence the renew was awaiting, so a later genuinely-new skew starts from the
+// first-time copy again. Symmetric with the SET (which marks any host, active or
+// not): a per-host clear, keyed on each marked host's OWN entry state — NOT the
+// single active host — so a host that converges while BACKGROUNDED still clears
+// (else its stale marker would paint the "didn't converge" copy over a brand-new
+// skew when you switch back to it). Rooted so the effect owns itself at module
+// scope (the same `createRoot` shape `localDaemonStatus` uses).
 createRoot(() => {
   createEffect(() => {
-    if (!daemonConnected()) return;
-    const key = encodeHostKey(activeHost());
-    setRenewSettledHosts((s) => {
-      if (!s.has(key)) return s;
-      const next = new Set(s);
-      next.delete(key);
-      return next;
-    });
+    for (const key of renewSettledHosts()) {
+      if (padiMap.entry(decodeHostKey(key)).state().kind === "connected") {
+        setRenewSettledHosts((s) => {
+          if (!s.has(key)) return s;
+          const next = new Set(s);
+          next.delete(key);
+          return next;
+        });
+      }
+    }
   });
 });
 

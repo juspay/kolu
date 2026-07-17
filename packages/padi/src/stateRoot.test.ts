@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defaultPadiStateRoot,
   discoverPadiDaemons,
+  estateIsolatedByClient,
   isolatedPadiStateRoot,
   PADI_GATE_FILE,
   padiDigest,
@@ -182,6 +183,30 @@ describe("isolatedPadiStateRoot — host-computed base + opaque client leaf", ()
     for (const bad of ["../evil", "a/b", "a\\b", "..", ""]) {
       expect(() => isolatedPadiStateRoot(bad)).toThrow(/unsafe client id|separator/);
     }
+  });
+});
+
+describe("estateIsolatedByClient — the ONE precedence predicate (no divergence)", () => {
+  it("is true only when no override AND a non-empty clientId", () => {
+    delete process.env.KOLU_PADI_STATE_DIR;
+    expect(estateIsolatedByClient(undefined, "id")).toBe(true);
+    // an EMPTY-string clientId is NOT isolation (matches resolvePadiStateRoot's truthy check)
+    expect(estateIsolatedByClient(undefined, "")).toBe(false);
+    expect(estateIsolatedByClient(undefined, undefined)).toBe(false);
+  });
+
+  it("is false whenever an explicit override is present (override wins)", () => {
+    expect(estateIsolatedByClient("/srv/padi", "id")).toBe(false);
+    process.env.KOLU_PADI_STATE_DIR = "/env/padi";
+    expect(estateIsolatedByClient(undefined, "id")).toBe(false);
+  });
+
+  it("agrees with resolvePadiStateRoot — an empty clientId falls to the DEFAULT, never isolation", () => {
+    delete process.env.KOLU_PADI_STATE_DIR;
+    process.env.HOME = "/home/u";
+    // The divergence lowy-1 fixed: guard and receptacle must both treat "" as non-isolation.
+    expect(resolvePadiStateRoot(undefined, "")).toBe("/home/u/.local/state/padi");
+    expect(estateIsolatedByClient(undefined, "")).toBe(false);
   });
 });
 
