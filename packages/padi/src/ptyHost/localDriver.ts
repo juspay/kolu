@@ -134,18 +134,21 @@ export function daemonEnv(): Record<string, string> {
  *      wrapper env and must not inherit ours (#1872). */
 export function localKavalDriver(socketPath: string): DaemonDriver {
   const { binPath, args } = resolveKavalLaunch(socketPath);
-  const fromSource =
+  const forceDetached =
     !process.env.KOLU_KAVAL_BIN || process.env.KOLU_KAVAL_SPAWN === "detached";
   return survivableSpawnDriver({
     binPath,
     args,
     env: daemonEnv(),
     unitPrefix: "kaval",
-    fromSource,
-    // Layer the parent (nix-shell) env ONLY for an ACTUAL from-source kaval — NOT a
-    // built kaval forced detached via `KOLU_KAVAL_SPAWN=detached` (a bare/pu box),
-    // which carries its own wrapper env and must not inherit ours (#1872).
-    inheritParentEnv: !process.env.KOLU_KAVAL_BIN,
+    // Force the detached branch for a from-source kaval OR a built one a box forces
+    // detached; inherit the parent (nix-shell) env ONLY for an ACTUAL from-source kaval
+    // (`!KOLU_KAVAL_BIN`) — a built forced-detached kaval carries its own wrapper env and
+    // must not inherit ours (#1872). The union makes an env-inherit-on-normal-launch
+    // unspellable.
+    fromSource: forceDetached
+      ? { inheritParentEnv: !process.env.KOLU_KAVAL_BIN }
+      : false,
     // P0: kaval has no pino — its stderr (the surface-daemon stderrLogger) IS its log, so
     // capture it to the deterministic `kaval.log` beside its socket, bounded by
     // truncate-on-boot, so a kaval that outlives padi/kolu-server stays diagnosable.

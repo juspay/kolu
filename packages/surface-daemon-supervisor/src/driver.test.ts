@@ -180,7 +180,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     // detached.
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(
-      { ...cfg, fromSource: true },
+      { ...cfg, fromSource: { inheritParentEnv: false } },
       { env: { INVOCATION_ID: "deadbeef" }, spawnProcess },
     );
     await driver.spawn();
@@ -193,7 +193,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     // wins on overlap. Gated on `inheritParentEnv`, NOT `fromSource`.
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(
-      { ...cfg, fromSource: true, inheritParentEnv: true },
+      { ...cfg, fromSource: { inheritParentEnv: true } },
       { env: { PATH: "/dev/shell/bin", FOO: "bar" }, spawnProcess }, // no INVOCATION_ID → detached
     );
     await driver.spawn();
@@ -211,7 +211,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     // ambient parent env (an orchestrator's CLAUDE_CODE_* here) must NOT ride in.
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(
-      { ...cfg, fromSource: true }, // inheritParentEnv defaults false
+      { ...cfg, fromSource: { inheritParentEnv: false } },
       {
         env: { PATH: "/parent/bin", CLAUDE_CODE_CHILD_SESSION: "1" },
         spawnProcess,
@@ -247,7 +247,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       args: [],
       env: {},
       unitPrefix: "kaval",
-      fromSource: true, // force the detached branch, skip systemd-run
+      fromSource: { inheritParentEnv: false }, // force detached, skip systemd-run
     });
     await expect(driver.spawn()).rejects.toMatchObject({ code: "ENOENT" });
   });

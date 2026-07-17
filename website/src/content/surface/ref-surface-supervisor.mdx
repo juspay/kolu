@@ -46,13 +46,16 @@ It is generic over the client `C` and identity `I`.
   the daemon's whole base (compose it from a fixed allowlist, as the snippet
   above does — kolu mines `kolu-pty`'s `SPAWN_ENV_ALLOWLIST`). Under **systemd**
   `env` OVERLAYS the unit's PAM/manager env via `--setenv`, so a partial set is
-  fine. Env inheritance is a SEPARATE decision from launch mode: **`fromSource`**
-  only controls whether to skip `systemd-run` (set it for an actual source launch
-  OR a built binary a box forces detached), while **`inheritParentEnv: true`**
-  (a strict subset — an actual from-source launch only) is what layers `env` OVER
-  the supervisor's full parent env to inherit the ambient dev shell. A built
-  daemon forced detached sets `fromSource` but NOT `inheritParentEnv`, so it never
-  inherits the supervisor's ambient env.
+  fine. Launch mode and env inheritance are ONE union field so the illegal
+  combination is unspellable: **`fromSource`** omitted (or `false`) is a normal
+  launch (systemd-eligible, `env` complete). An **object** `{ inheritParentEnv }`
+  forces the detached branch even under a session (an actual source launch OR a
+  built binary a box forces detached), and its `inheritParentEnv` decides whether
+  `env` layers OVER the supervisor's full parent env — `true` only for an actual
+  from-source launch (the dev nix-shell env); a built forced-detached daemon uses
+  `{ inheritParentEnv: false }` and gets `env` alone. Folding the two together
+  means "inherit the parent env on a normal launch" is a type error, not a prose
+  invariant a caller must remember.
 </Aside>
 
 ## The convergence kit

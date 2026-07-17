@@ -61,11 +61,10 @@ async function main(): Promise<void> {
       },
       unitPrefix: "fleet-top",
       // Launched from source (tsx), not a built binary — so the driver forces
-      // the detached branch even under a systemd session (`fromSource`), and the
-      // daemon must inherit our ambient env (node/PATH/HOME) to run from source
-      // (`inheritParentEnv`). A built binary would set neither and pass a complete env.
-      fromSource: true,
-      inheritParentEnv: true,
+      // the detached branch even under a systemd session, and (as an actual from-source
+      // launch) must inherit our ambient env (node/PATH/HOME) to run from source. A built
+      // binary would omit `fromSource` and pass a complete env.
+      fromSource: { inheritParentEnv: true },
     }),
     connect: () => connectTop(SOCKET_PATH),
     log,

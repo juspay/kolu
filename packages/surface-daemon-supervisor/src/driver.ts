@@ -65,21 +65,23 @@ export interface DaemonSpawnConfig {
   /** Transient `.service` unit-name prefix (a per-spawn unique suffix is
    *  appended). Only used on the systemd branch. */
   unitPrefix: string;
-  /** The one fact only the caller knows: the daemon should SKIP `systemd-run` and
-   *  fork detached even under a systemd session. Set for an actual from-source launch
-   *  (a nix-shell `systemd-run` would strip the build env) AND for a built daemon a
-   *  box explicitly forces detached (`KOLU_*_SPAWN=detached`). `INVOCATION_ID` alone
-   *  can't tell "I am a systemd service" from "my shell merely runs inside a systemd
-   *  session", so the caller reports it. Defaults to `false`. Governs LAUNCH MODE
-   *  only — NOT env inheritance (that is `inheritParentEnv`). */
-  fromSource?: boolean;
-  /** Whether the detached child LAYERS the supervisor's full parent env under `env`.
-   *  A STRICT SUBSET of `fromSource`: set ONLY by an actual from-source launch that
-   *  needs the developer's ambient nix-shell env. A BUILT daemon forced detached
-   *  (`fromSource` via `KOLU_*_SPAWN=detached`) leaves this `false` — it carries its
-   *  own wrapper env and must NOT inherit the supervisor's ambient identity vars
-   *  (#1872). Defaults to `false` (the safe, no-inheritance default). */
-  inheritParentEnv?: boolean;
+  /** Launch mode + env inheritance, as ONE value so the illegal combination is
+   *  UNSPELLABLE. Omitted (or `false`) → a NORMAL launch: `systemd-run` under a systemd
+   *  session, and `cfg.env` is the COMPLETE child env (no parent layered). An OBJECT
+   *  forces the detached branch even under a session — either an actual from-source
+   *  launch, OR a built daemon a box forces detached (`KOLU_*_SPAWN=detached`) — and its
+   *  `inheritParentEnv` decides whether the supervisor's full parent env layers under
+   *  `cfg.env`: `true` ONLY for an actual from-source launch that needs the developer's
+   *  nix-shell env; a built forced-detached daemon uses `{ inheritParentEnv: false }` and
+   *  gets `cfg.env` alone (it carries its own wrapper env).
+   *
+   *  This union is deliberate: two separate booleans (`fromSource` + `inheritParentEnv`)
+   *  would let a caller spell `{ fromSource: false, inheritParentEnv: true }`, which on a
+   *  non-systemd host layers the supervisor's ambient env under `cfg.env` — reopening the
+   *  exact #1872 identity-leak this whole change closes. Folding env inheritance INTO the
+   *  detached-launch object makes "inherit the parent env on a normal launch" a type
+   *  error, not a prose invariant a future caller must remember. */
+  fromSource?: false | { inheritParentEnv: boolean };
   /** A crash-catcher file for the daemon's raw STDERR, wired ONLY when this spawn is DETACHING
    *  — detaching means nobody holds the child's stderr, so a file is mandatory (P0):
    *  truncate-on-boot (one `.old` generation) keeps it bounded. An ATTACHED (systemd) spawn
@@ -267,9 +269,10 @@ export function survivableSpawnDriver(
         // that path (the built binary carries its own wrapper env, so it needs none of
         // ours). Two decisions, two flags: `fromSource` skips systemd-run;
         // `inheritParentEnv` (a strict subset) layers the parent env.
-        env: cfg.inheritParentEnv
-          ? { ...(env as Record<string, string>), ...cfg.env }
-          : cfg.env,
+        env:
+          typeof cfg.fromSource === "object" && cfg.fromSource.inheritParentEnv
+            ? { ...(env as Record<string, string>), ...cfg.env }
+            : cfg.env,
       });
       // The child inherited the fd; drop the parent's copy so we don't leak it.
       if (typeof stderrFd === "number") closeSync(stderrFd);
