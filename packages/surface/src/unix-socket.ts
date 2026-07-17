@@ -254,10 +254,10 @@ export async function serveOverUnixSocket(opts: {
     }
 
     const probe = await probeSocket(socketPath);
-    if (probe.kind === "live" && !reclaim) {
-      return refused({ kind: "already-served" });
-    }
     if (probe.kind === "live") {
+      // The whole live-peer fork in one scope: refuse unless the caller holds an
+      // external single-instance gate (`reclaim`), else log-and-continue.
+      if (!reclaim) return refused({ kind: "already-served" });
       // reclaim === true: the caller holds an external single-instance gate, so
       // this live holder is an ungated squatter. Evict it from the PATH (the
       // `rmSync` below, guarded by the same not-a-socket check) and rebind. The
