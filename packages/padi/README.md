@@ -105,10 +105,12 @@ remote host — reusing the local arm's seam, not a parallel one:
   computed host-side — only the opaque id crosses the wire). The UUID is stable, so
   the same kolu **re-attaches** its own estate across restarts; distinct across
   installs, so two kolus **never collide**. **Cutover is not seamless (yet):** a live
-  daemon still serving the pre-isolation DEFAULT estate is left **abandoned-running**
-  — this client no longer binds it, its terminals are NOT migrated, and it idles
-  until reboot / manual cleanup; the isolated padi NAMES it in a boot `warn`
-  (`residentPadiSocket(defaultPadiStateRoot())`) but never adopts or kills it.
+  daemon still serving the pre-isolation DEFAULT estate is one this client no longer
+  binds — either a **leftover** from this host's own pre-isolation binding (now
+  abandoned: terminals not migrated, idle until reboot / manual cleanup) or an older
+  kolu that **still binds** it (in use). The isolated padi can't tell which, so it
+  NAMES it honestly in a boot `warn` (`residentPadiSocket(defaultPadiStateRoot())`)
+  and never adopts or kills it.
   Auto-adopting it was **dropped** — two isolated clients could both adopt one shared
   default estate, re-creating the cross-supervisor livelock; a safe explicit hand-off
   (an atomic default-estate claim, or a user-mediated adopt) is the follow-up. See

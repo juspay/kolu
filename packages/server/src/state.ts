@@ -653,7 +653,9 @@ export function mintClientIdIfAbsent(store: Conf<PersistedState>): string {
       `clientId in ${store.path} is present but not a valid UUID (${JSON.stringify(
         existing,
       )}) — refusing to re-mint (that would orphan this client's remote estates). ` +
-        "Fix or remove the corrupt value.",
+        "Restore the original UUID. NOTE: deleting the key does NOT repair it — the " +
+        "next boot treats an absent key as a first install and mints a NEW identity, " +
+        "abandoning any existing remote estates keyed on the old one.",
     );
   }
   return parsed.data;

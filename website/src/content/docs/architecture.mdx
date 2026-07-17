@@ -288,7 +288,7 @@ dir that's wiped on every boot. The port is config; the folder is the daemon.
 
 <div class="doc-term">
   <span class="note">// identity — durable, IS the daemon</span>
-  <span class="cmd">$XDG_STATE_HOME/padi</span>
+  <span class="cmd">$HOME/.local/state/padi</span>
   <span class="note">// address — config, wiped on boot</span>
   <span class="cmd">$XDG_RUNTIME_DIR/padi-&lt;digest&gt;/sock</span>
   <span class="note"> where &lt;digest&gt; = hash(state-root path)</span>
@@ -301,6 +301,11 @@ dir that's wiped on every boot. The port is config; the folder is the daemon.
 - The host decides its own default state-root. A client never computes it and
   never sends it over the wire — so two ways into one machine can't split its
   terminals across two daemons.
+- On a **remote** host, each kolu binds its OWN state-root: the host still spells
+  the base, but the binder passes its **stable per-install id** as an opaque leaf
+  (`…/padi-<id>`), so two kolus pointed at one machine get **distinct** daemons and
+  never share (and fight over) one. The id is stable, so the same kolu re-attaches
+  its own workspace across restarts.
 
 ## Talking over the wire
 

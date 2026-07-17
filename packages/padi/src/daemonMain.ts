@@ -397,20 +397,25 @@ export async function runPadiDaemon(
 
   // Isolation CUTOVER — LOUD, never silent (RENEW1 (B)). When this padi is a per-client
   // ISOLATED estate and a LIVE daemon is still serving the pre-isolation DEFAULT estate,
-  // that default daemon is now ABANDONED-RUNNING: this client no longer binds it, its
-  // terminals are NOT migrated to the isolated estate, and it idles until reboot / manual
-  // cleanup. Auto-adopting it was DROPPED (it re-created the cross-supervisor livelock — two
-  // isolated clients racing to adopt one shared estate, arbitrated by nothing; see the
-  // seamless-migration follow-up). We do NOT touch it (no kill — this PR kills nothing); we
-  // NAME it once, here, where the detection is local and cheap.
+  // NAME it — this client no longer binds it. We CANNOT prove it is abandoned: a live gate
+  // holder at the default estate is EITHER a leftover from this host's own pre-isolation
+  // binding (now abandoned — its terminals are not migrated here and it idles until reboot /
+  // manual cleanup) OR an older-build kolu that still binds the default estate (fine, in
+  // use). Either way we do NOT touch it (no kill — this PR kills nothing); we surface it once,
+  // here, where the detection is local and cheap, and leave the disambiguation to the reader.
+  // Auto-adopting it was DROPPED (it re-created the cross-supervisor livelock — two isolated
+  // clients racing to adopt one shared estate, arbitrated by nothing; seamless migration is a
+  // recorded follow-up).
   if (estateIsolatedByClient(opts.stateRoot, opts.clientId)) {
-    const abandoned = residentPadiSocket(defaultPadiStateRoot());
-    if (abandoned !== undefined)
+    const defaultEstateSocket = residentPadiSocket(defaultPadiStateRoot());
+    if (defaultEstateSocket !== undefined)
       log.warn(
-        { abandonedDefaultEstatePadiSocket: abandoned, isolatedStateRoot: stateRoot },
-        "isolation cutover: a live daemon at the pre-isolation DEFAULT estate is left " +
-          "ABANDONED-RUNNING — its terminals are NOT migrated to this per-client estate and " +
-          "it idles until reboot or manual cleanup. (Seamless migration is a follow-up.)",
+        { defaultEstatePadiSocket: defaultEstateSocket, isolatedStateRoot: stateRoot },
+        "isolation cutover: a live daemon is still serving the pre-isolation DEFAULT estate, " +
+          "which this per-client isolated padi no longer binds. If it is a leftover from this " +
+          "host's own pre-isolation binding it is now abandoned (its terminals are not migrated " +
+          "here; idle until reboot or manual cleanup); if an older kolu still binds it, it is in " +
+          "use. Not touched either way. (Seamless migration is a follow-up.)",
       );
   }
 
