@@ -29,6 +29,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
@@ -45,6 +46,20 @@ import { activeHost, setActiveHost } from "./wire";
  *  settle before giving up loudly (step 4b) — covers a cold boot where the host
  *  is still connecting when the link fires. */
 const MEMBERSHIP_BOUND_MS = 8000;
+
+/** The consumed-once stamp — `navigate` marks the CURRENT history entry's
+ *  command handled; the traversal gate reads it. Writer and reader are spelled
+ *  here once, both against the one constant, so a key rename can't silently
+ *  desync them (the reader going always-false would resurrect the traversal
+ *  re-route this gate exists to close). */
+const ROUTED_STAMP = { koluRouted: true } as const;
+function stampEntryRouted(): void {
+  history.replaceState(ROUTED_STAMP, "");
+}
+function entryAlreadyRouted(): boolean {
+  const state = history.state as Partial<typeof ROUTED_STAMP> | null;
+  return state?.koluRouted === true;
+}
 
 /** The route families that target a specific terminal (terminal · code ·
  *  inspector) — the ones that must defer until membership settles. */
@@ -66,14 +81,12 @@ interface LaunchQueue {
 /** A `#/…` hash handed in from OUTSIDE the URL — today the Code-tab preview
  *  bridge (a deep link clicked inside the sandboxed iframe, which can't
  *  navigate the parent itself). `equals: false` so re-requesting the SAME hash
- *  re-routes (clicking the same dashboard pill twice must refocus both times —
- *  a plain `location.hash =` write would not re-fire `hashchange`). The hook's
- *  consumer feeds it through the exact pipeline a typed URL takes (reflect into
- *  the address bar when it differs — durability — else parse+navigate
- *  directly), so an invalid hash toasts identically. */
-/** The setter IS the public request API (`requestDeepLinkNavigation`) — the
- *  house convention for module-singleton seams (`setActiveHost` is likewise a
- *  raw exported setter), so there is no single-caller wrapper to drift. */
+ *  re-routes (clicking the same dashboard pill twice must refocus both times).
+ *  The hook consumes it through `navigateFromExternal` — the same pipeline as
+ *  a PWA launch — so an invalid hash toasts exactly as a typed URL would. The
+ *  setter IS the public request API (`requestDeepLinkNavigation`) — the house
+ *  convention for module-singleton seams (`setActiveHost` is likewise a raw
+ *  exported setter), so there is no single-caller wrapper to drift. */
 const [externalNavRequest, requestDeepLinkNavigation] = createSignal<
   string | null
 >(null, { equals: false });
@@ -158,34 +171,79 @@ export function useDeepLinks(): void {
     setPending(route);
   }
 
+  /** Disarm an IN-FLIGHT terminal route: the armed command AND its hydration
+   *  focus intent — `routeToTerminal` arms them together, so any non-enacted
+   *  termination must disarm them together, or the stale intent teleports
+   *  later through cold-boot hydration (`useSessionRestore` prefers it when it
+   *  seeds). Two termination families land here: SUPERSESSION (a newer
+   *  command, a history traversal, a manual host switch — the user moved on)
+   *  and a FAULT VERDICT (list-stream error, terminal gone, backstop timeout —
+   *  the router gave up and toasted; a command declared failed must not be
+   *  half-honored by a later hydration). An already-ENACTED intent
+   *  deliberately survives (`pending` is null then): hydration must keep
+   *  preferring the view the user actually reached. Clearing `pending` also
+   *  disposes the 8s backstop timer via its effect's onCleanup. */
+  function disarmInFlightRoute(): void {
+    if (pending() === null) return;
+    // Batched HERE so the disarm-together contract holds structurally from
+    // every call site (navigate's batch, the traversal gate, the settle
+    // effect's arms, the backstop), not just the batched ones.
+    batch(() => {
+      setPending(null);
+      setDeepLinkFocusIntent(null);
+    });
+  }
+
   /** Route a parsed link. Host/settings act immediately; a terminal target
    *  defers. `none` is silent (no route present); `invalid` toasts + stays home
    *  (never silently ignores a new link shape).
    *
-   *  Batched, and clears any still-armed terminal route FIRST: a newer
-   *  navigation always supersedes an older pending one, so a stale route can't
-   *  enact or toast after the user has moved on (a later host/settings switch,
-   *  or a second link). */
+   *  Batched, and supersedes any still-armed terminal route FIRST: a newer
+   *  navigation always supersedes an older in-flight one, so a stale route
+   *  can't enact, toast, or steer hydration after the user has moved on (a
+   *  later host/settings switch, or a second link). */
   function navigate(link: ParsedDeepLink): void {
-    batch(() => {
-      setPending(null);
-      match(link)
-        .with({ kind: "none" }, () => {})
-        .with({ kind: "invalid" }, ({ reason }) =>
-          toast.error(`That link doesn't point anywhere kolu knows: ${reason}`),
-        )
-        .with({ kind: "settings" }, () => openSettings())
-        .with({ kind: "host" }, ({ host }) =>
-          setActiveHost(decodeHostKey(host)),
-        )
-        // terminal · code · inspector all target a terminal — one handler.
-        .with(
-          { kind: "terminal" },
-          { kind: "code" },
-          { kind: "inspector" },
-          (l) => routeToTerminal(l),
-        )
-        .exhaustive();
+    // A COMMAND, not a derivation — the whole body runs UNTRACKED. Navigate
+    // both reads reactive state (the disarm guard's `pending()`) and writes it
+    // (`setPending`); run inside a caller's tracking scope — the preview-bridge
+    // effect is one today — those reads would subscribe that effect to the very
+    // signals navigate writes, and the app busy-loops re-routing forever after
+    // the first bridge-delivered link (reproduced deterministically on both CI
+    // platforms). `untrack` severs that class at the one funnel all four
+    // delivery paths share; the unit pin holds the spelling.
+    untrack(() => {
+      batch(() => {
+        disarmInFlightRoute();
+        match(link)
+          .with({ kind: "none" }, () => {})
+          .with({ kind: "invalid" }, ({ reason }) =>
+            toast.error(
+              `That link doesn't point anywhere kolu knows: ${reason}`,
+            ),
+          )
+          .with({ kind: "settings" }, () => openSettings())
+          .with({ kind: "host" }, ({ host }) =>
+            setActiveHost(decodeHostKey(host)),
+          )
+          // terminal · code · inspector all target a terminal — one handler.
+          .with(
+            { kind: "terminal" },
+            { kind: "code" },
+            { kind: "inspector" },
+            (l) => routeToTerminal(l),
+          )
+          .exhaustive();
+      });
+      // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's
+      // command handled, so a later back/forward traversal RESTORING it does
+      // not re-route (the `hashchange` gate below) — mouse-back must revert
+      // the URL silently, never teleport the view to an old link (DL3).
+      // Uniform for every verdict incl. `invalid` (traversing onto a bad-link
+      // entry must not re-toast) and `none` (harmless). A same-URL
+      // `replaceState` — the hash stays in the bar (durability), no entry is
+      // added, and a RELOAD still re-routes because the boot parse never
+      // reads this gate.
+      stampEntryRouted();
     });
   }
 
@@ -239,12 +297,12 @@ export function useDeepLinks(): void {
     // Only act while the ACTIVE host IS the route's host. `setActiveHost`
     // re-windows the list sub, so a mismatch means either the switch hasn't
     // landed (never happens — `routeToTerminal` batches host+pending) or the
-    // user has since navigated AWAY (a manual host-chip switch). Treat a
-    // mismatch as SUPERSESSION: clear the route so it can't enact if the user
-    // switches back, and — because the 8s backstop tracks `pending` — clearing
-    // it disposes that timer too, so no stale toast fires in the new host's view.
+    // user has since navigated AWAY (a manual host-chip switch). That is a
+    // SUPERSESSION — disarm the command AND its hydration intent via the one
+    // named spelling, so neither the enact, the backstop toast, nor a later
+    // hydration can act on a route the user walked away from.
     if (encodeHostKey(activeHost()) !== route.host) {
-      setPending(null);
+      disarmInFlightRoute();
       return;
     }
     if (store.listSub.pending()) return; // membership not settled — wait
@@ -253,8 +311,9 @@ export function useDeepLinks(): void {
       // The list stream faulted — `pending()` is false but the value is stale
       // or absent, so we can't honestly say "gone". Fail the link loudly rather
       // than invent a gone-verdict from a broken subscription — and surface the
-      // real error, not a generic message.
-      setPending(null);
+      // real error, not a generic message. A FAULT VERDICT disarms the pair:
+      // a command declared failed must not steer a later hydration.
+      disarmInFlightRoute();
       toast.error(
         `Couldn't load this host's terminals to resolve the link: ${listError.message}`,
       );
@@ -263,7 +322,7 @@ export function useDeepLinks(): void {
     const id = route.terminalId;
     const inList = (store.listSub() ?? []).some((t) => t.id === id);
     if (!inList) {
-      setPending(null);
+      disarmInFlightRoute(); // fault verdict — disarm command + intent together
       // Name what the link pointed at (the host) — the host-gone path already
       // names its host via wire.ts's reconcile toast, so the two agree.
       toast.error(
@@ -278,6 +337,8 @@ export function useDeepLinks(): void {
     // "not a git repository"; the effect re-runs when the git fact lands
     // (getMetadata is reactive), bounded by the 8s backstop.
     if (codeRouteAwaitingRepo(route, resolved.anchorMeta)) return;
+    // Bare on purpose — the ONLY non-disarming clear: an ENACTED route's
+    // intent survives so cold-boot hydration keeps the reached view.
     setPending(null);
     enact(route, resolved.meta, resolved.anchorMeta);
   });
@@ -297,7 +358,7 @@ export function useDeepLinks(): void {
     if (!route) return;
     const timer = setTimeout(() => {
       if (pending() !== route) return;
-      setPending(null);
+      disarmInFlightRoute(); // fault verdict — disarm command + intent together
       // Same anchor + repo-readiness facts the settle gate reads, so the
       // message can't drift from the gate's own verdict.
       const resolved = resolveRoute(route);
@@ -375,7 +436,25 @@ export function useDeepLinks(): void {
 
   // (b) live in-app navigation — a `#/…` link clicked while kolu is open. The
   // hash is left in place after a handled route (durability); we never strip it.
-  makeEventListener(window, "hashchange", () =>
-    navigate(parseDeepLink(window.location.hash)),
-  );
+  //
+  // THE TRAVERSAL GATE (DL3): `hashchange` also fires when the browser RESTORES
+  // an old hash during a back/forward traversal — and routing that replay is
+  // the "mouse-back teleports to a previous link's terminal" bug (reproduced on
+  // the deployed build: every hash-bearing entry was a live teleport). A
+  // traversal lands on an entry whose command `navigate` already consumed — its
+  // state carries `koluRouted` — so skip it: the URL reverts silently and the
+  // view stays put. A FRESH navigation (a typed hash, an in-page `#/…` anchor,
+  // a script push) creates a NEW entry with null state and routes exactly as
+  // before. Entries from before this fix self-heal: their first traversal
+  // routes once (unstamped) and `navigate` stamps them.
+  makeEventListener(window, "hashchange", () => {
+    if (entryAlreadyRouted()) {
+      // A traversal is the user MOVING ON — disarm any in-flight route,
+      // exactly as `navigate` does for every fresh command (the helper's doc
+      // carries the delayed-teleport mechanics this closes).
+      disarmInFlightRoute();
+      return;
+    }
+    navigate(parseDeepLink(window.location.hash));
+  });
 }
