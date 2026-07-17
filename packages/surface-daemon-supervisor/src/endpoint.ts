@@ -81,9 +81,25 @@ export type EndpointStatus<I, M = undefined> =
  */
 export class DaemonContractSkewError extends Error {
   readonly isContractSkew = true as const;
-  constructor(message: string) {
-    super(message);
+  /** The contract version the running daemon actually speaks. */
+  readonly daemonVersion: string;
+  /** The contract version this supervisor's build requires. */
+  readonly requiredVersion: string;
+  /** The message is DERIVED from the fields (parse-don't-validate — no
+   *  consumer ever regexes the prose back apart); `subject` names the
+   *  contract's flavor for a legible journal line ("pty-host", "padiSurface")
+   *  while staying a field, never free prose. */
+  constructor(versions: {
+    subject: string;
+    daemonVersion: string;
+    requiredVersion: string;
+  }) {
+    super(
+      `${versions.subject} contract skew: daemon speaks ${versions.daemonVersion}, needs ${versions.requiredVersion}`,
+    );
     this.name = "DaemonContractSkewError";
+    this.daemonVersion = versions.daemonVersion;
+    this.requiredVersion = versions.requiredVersion;
   }
 }
 

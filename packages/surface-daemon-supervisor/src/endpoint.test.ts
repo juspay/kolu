@@ -621,7 +621,11 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         // burn retries re-dialing a daemon that can't become compatible. Only the
         // post-recycle fresh spawn connects.
         if (connectCount === 1) {
-          throw new DaemonContractSkewError("pty-host contract skew");
+          throw new DaemonContractSkewError({
+            subject: "pty-host",
+            daemonVersion: "5.0",
+            requiredVersion: "5.2",
+          });
         }
         return {
           client: "FRESH",
@@ -775,7 +779,11 @@ describe("adoptOrSpawnOrRefuse — the padi binder's boot policy (W2.2)", () => 
       },
       connect: async () => {
         connectCount += 1;
-        throw new DaemonContractSkewError("padi contract skew");
+        throw new DaemonContractSkewError({
+          subject: "padiSurface",
+          daemonVersion: "3.0",
+          requiredVersion: "4.0",
+        });
       },
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
@@ -1039,7 +1047,11 @@ describe("adoptOrEnsure — the W2.2 upgrade adopt-hint (legacy port kaval)", ()
         gatePath: hint.gatePath,
         socketPath: hint.socketPath,
         connect: async () => {
-          throw new DaemonContractSkewError("legacy kaval is a contract skew");
+          throw new DaemonContractSkewError({
+            subject: "pty-host",
+            daemonVersion: "1.0",
+            requiredVersion: "5.2",
+          });
         },
         onAdopted: () => {},
       },

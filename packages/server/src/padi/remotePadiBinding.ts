@@ -694,12 +694,9 @@ export function ensureRemotePadiBinding(
     // at "copying", its first provisioning phase.
     initialConnection: "probing",
     admit,
-    onLog: (line, severity) =>
-      (severity === "error"
-        ? log.error
-        : severity === "debug"
-          ? log.debug
-          : log.info)({ host, line }, "remote padi session"),
+    // The session dispatches severity internally on the receiver (SK1); the
+    // per-host context the old sink attached rides child bindings instead.
+    log: log.child({ host }),
     label: `host:${host}`,
   });
 

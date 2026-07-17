@@ -232,7 +232,12 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         extraArgs: [],
         resolveDrvPath: async () => PADI_DRV as string,
       }),
-      onLog: (line) => console.log(`[host] ${line}`),
+      log: {
+        debug: (obj) => console.log(`[host] ${String(obj.line)}`),
+        info: (obj) => console.log(`[host] ${String(obj.line)}`),
+        warn: (obj) => console.log(`[host] ${String(obj.line)}`),
+        error: (obj) => console.log(`[host] ${String(obj.line)}`),
+      },
     });
     sessions.push(s);
     return s;

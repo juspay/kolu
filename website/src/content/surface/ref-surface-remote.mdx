@@ -151,11 +151,15 @@ once the probe lands — `null` means *not yet measured*. Readiness is link-live
 `clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
 the session's own state, no longer an injected `offsetOf`. A clock probe that fails is
 never swallowed: it stays `connected` with a `null` offset, re-attempts on a fixed cadence,
-and surfaces the failure on the session's diagnostic `onLog(line, severity)` sink —
-classified `error` for a genuine failure (the wedged-clock deadline, a transport fault) and
-`info` for the expected-absent case (an agent dial whose client carries no reserved
-`system.clockNow`). `onLog`'s `severity` is optional and defaults to `info`, so a one-argument
-sink stays valid. `disconnected` adds `error` +
+and surfaces the failure on the session's diagnostic logger (`MakeSessionOptions.log`, the
+`@kolu/log` `Logger` shape — pass a pino child directly) — the session dispatches the
+severity itself via a receiver-bound `log[severity]({ line }, label)` call, classified
+`error` for a genuine failure (the wedged-clock deadline, a transport fault) and `debug`
+for the expected-absent case (an agent dial whose client carries no reserved
+`system.clockNow` — "tool not installed", not a fault). Omit `log` and diagnostic lines
+fall to raw `process.stderr` (the plain-CLI default). Consumers never dispatch severity
+over extracted method references — the unbound-`this` crash class has no spellable form —
+and a throwing logger crashes the session loop deliberately (fail fast). `disconnected` adds `error` +
 `cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`
 pinned to the `"remote"` literal (a network fault never gives up, so `failed` + `network` is
 unrepresentable). There is no separate `progressLines` / `remoteProgressLines` — provenance

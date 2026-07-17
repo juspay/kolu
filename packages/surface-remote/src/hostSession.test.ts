@@ -79,7 +79,12 @@ function failingSession() {
 /** A session whose `.drv` resolver always rejects — models a host that's
  *  unreachable at arch-probe time (`resolveSystem` ssh exits non-zero).
  *  `provisionAgent` is never reached, so it stays unmocked here. */
-function unresolvableSession(onLog?: (line: string) => void) {
+function unresolvableSession(onLine?: (line: string) => void) {
+  const collect = onLine
+    ? (obj: Record<string, unknown>): void => {
+        onLine(String(obj.line));
+      }
+    : undefined;
   return makeSession({
     initialConnection: "probing",
     connectOnce: sshConnector({
@@ -94,11 +99,13 @@ function unresolvableSession(onLog?: (line: string) => void) {
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
-    onLog,
+    log: collect
+      ? { debug: collect, info: collect, warn: collect, error: collect }
+      : undefined,
   });
 }
 
-describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)", () => {
+describe("HostSession log sink (alt-screen consumers divert all diagnostics)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(provisionAgent).mockResolvedValue(PROVISION_FAILURE);
@@ -108,8 +115,11 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     vi.clearAllMocks();
   });
 
-  it("routes every diagnostic line to onLog and none to process.stderr", async () => {
+  it("routes every diagnostic line to the logger and none to process.stderr", async () => {
     const lines: string[] = [];
+    const collect = (obj: Record<string, unknown>): void => {
+      lines.push(String(obj.line));
+    };
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
       initialConnection: "probing",
@@ -119,7 +129,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 1000,
-      onLog: (line) => lines.push(line),
+      log: { debug: collect, info: collect, warn: collect, error: collect },
       // Production (`dialAgentOnce`) tags every line `[host:<host> …]`; mirror that.
       label: "host:altscreen",
     });
@@ -135,44 +145,6 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     // …and NOT one of them touched the tty — the alt-screen invariant.
     const toTty = stderr.mock.calls.map((c) => String(c[0]));
     expect(toTty.some((l) => l.includes("[host:altscreen"))).toBe(false);
-
-    stderr.mockRestore();
-    session.destroy();
-  });
-
-  it("contains a throwing onLog sink so it can't break the session lifecycle", async () => {
-    // `emit` is the single funnel for the caller-supplied `onLog`, and it runs
-    // from `updateState` BEFORE `stateCell.set`. A throwing sink that escaped
-    // would skip the state write / reconnect scheduling and freeze the session.
-    // Guarded at the funnel, the throw is swallowed (surfaced on stderr) and the
-    // lifecycle proceeds: the failing-provision drive still reaches `failed`.
-    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-    const session = makeSession({
-      initialConnection: "probing",
-      connectOnce: sshConnector({
-        host: "throwsink",
-        binary: "agent",
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
-      }),
-      reconnectDelayMs: 1000,
-      onLog: () => {
-        throw new Error("sink boom");
-      },
-      label: "throwsink",
-    });
-
-    session.pin().catch(() => {});
-    // Drive all five provision failures to the terminal state. If a throwing
-    // sink had escaped `emit` (called from every transition), the state machine
-    // would have wedged before reaching `failed`.
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(session.currentState().phase).toBe("failed");
-
-    // The sink failure isn't swallowed silently — it's reported on stderr.
-    const toTty = stderr.mock.calls.map((c) => String(c[0]));
-    expect(toTty.some((l) => l.includes("onLog sink threw: sink boom"))).toBe(
-      true,
-    );
 
     stderr.mockRestore();
     session.destroy();
@@ -282,10 +254,10 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
   });
 
   it("never gives up on an unreachable host — a network fault is not terminal", async () => {
-    // Count retries off the `onLog` sink, NOT the state `log` tail: the tail is now
+    // Count retries off the log sink, NOT the state `log` tail: the tail is now
     // scoped to the CURRENT episode (it RESETS on each down→up reconnect — W6 item 4),
     // so a per-episode tail holds at most one "host unreachable" line at any instant.
-    // `onLog` receives every emitted diagnostic across all episodes, so it is the
+    // The log sink receives every emitted diagnostic across all episodes, so it is the
     // honest witness that the loop retried past the give-up ceiling.
     const emitted: string[] = [];
     const session = unresolvableSession((line) => emitted.push(line));

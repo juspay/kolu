@@ -68,7 +68,12 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      onLog: () => {},
+      log: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
     });
     const phases: string[] = [];
     session.onState((s) => phases.push(s.phase));
@@ -102,7 +107,12 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      onLog: () => {},
+      log: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
     });
     const phases: string[] = [];
     session.onState((s) => phases.push(s.phase));
@@ -140,7 +150,12 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      onLog: () => {},
+      log: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
     });
     const latest = () => {
       let s!: {
@@ -183,7 +198,12 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       initialConnection: "probing",
       liveness: false,
       reconnectDelayMs: 10,
-      onLog: () => {},
+      log: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
     });
     const snap = () => {
       let s!: {

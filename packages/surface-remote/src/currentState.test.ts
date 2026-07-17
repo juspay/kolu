@@ -89,7 +89,12 @@ const mk = (connectOnce: Connector<FakeClient, never>) =>
     reconnectDelayMs: 1000,
     liveness: false,
     label: "h",
-    onLog: () => {},
+    log: {
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    },
   });
 
 describe("Session.currentState() — the honest liveness point-read (LIVE-FIX)", () => {

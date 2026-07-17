@@ -602,12 +602,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     initialConnection: "connecting",
     reconnectDelayMs: opts.reconnectDelayMs,
     label: PADI_HOST_ID,
-    onLog: (line, severity) =>
-      (severity === "error"
-        ? log.error
-        : severity === "debug"
-          ? log.debug
-          : log.info)({ line }, "local padi session"),
+    // The session dispatches severity internally on the receiver (SK1) — no
+    // consumer-side method extraction (the unbound-`this` pino crash class).
+    log,
   });
 
   // NB: this builds the session but does NOT dial — the loop warms on the first `pin()`.

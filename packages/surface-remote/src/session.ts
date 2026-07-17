@@ -37,6 +37,7 @@
  * the first successful connect, never null-forever.
  */
 
+import type { Logger } from "@kolu/log";
 import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -402,18 +403,26 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  tunes the cadence — so the illegal "tune a disabled watchdog" state is
    *  unrepresentable. */
   liveness?: false | { intervalMs?: number; timeoutMs?: number };
-  /** Where the session's diagnostic lines go — default `process.stderr`. An
-   *  alt-screen consumer passes its own sink so lines never corrupt the render.
+  /** Where the session's diagnostic lines go — default `process.stderr` (raw
+   *  lines, the plain-CLI case). An alt-screen or daemon consumer passes its
+   *  structured logger so lines never corrupt the render; the session calls
+   *  `log[severity]({ line }, label)` — a RECEIVER-BOUND indexed call, so the
+   *  consumer never dispatches severity over extracted method references (the
+   *  unbound-`this` pino crash class,
+   *  docs/atlas/src/content/atlas/bug-remote-kaval-contract-skew.mdx defect C,
+   *  has no spellable form here). Per-host context rides child bindings:
+   *  `log.child({ host })`.
    *
-   *  `severity` classifies the line so a structured sink routes it to the right log
-   *  level (`.agency/code-police.md`: genuine failed I/O logs at `error`, expected-
-   *  absent conditions at `debug`) — a GENUINE failure (a wedged `system.clockNow`
-   *  probe that hit its deadline, a transport fault) is `"error"`, an expected-absent
-   *  condition (a dial whose client carries no reserved `system.clockNow`) is `"debug"`
-   *  ("tool not installed", not a fault), and ordinary progress is `"info"`. It is
-   *  optional and defaults to `"info"`, so a one-argument sink (`(line) => …`) stays
-   *  source-compatible. */
-  onLog?: (line: string, severity?: "debug" | "info" | "error") => void;
+   *  The session classifies each line itself (`.agency/code-police.md`: genuine
+   *  failed I/O logs at `error`, expected-absent conditions at `debug`) — a
+   *  GENUINE failure (a wedged `system.clockNow` probe that hit its deadline, a
+   *  transport fault) is `"error"`, an expected-absent condition (a dial whose
+   *  client carries no reserved `system.clockNow`) is `"debug"` ("tool not
+   *  installed", not a fault), and ordinary progress is `"info"`.
+   *
+   *  A THROWING logger crashes the session loop — deliberately (fail fast): a
+   *  broken logger is a defect to surface, not to swallow per line. */
+  log?: Logger;
   /** Label for diagnostic lines (`[<label>] …`) — e.g. the host. Default `session`. */
   label?: string;
 }
@@ -563,15 +572,12 @@ export function makeSession<
     line: string,
     severity: "debug" | "info" | "error" = "info",
   ): void => {
-    if (opts.onLog) {
-      try {
-        opts.onLog(line, severity);
-      } catch (err) {
-        // A throwing sink must not escape the diagnostic funnel and freeze the
-        // session; surface the sink's own failure on stderr so it isn't swallowed.
-        const reason = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[${label}] onLog sink threw: ${reason}\n`);
-      }
+    if (opts.log) {
+      // An INDEXED call on the receiver — `this` bound by construction, so a
+      // pino(-child) logger works as-is. No compensating try/catch: a throwing
+      // logger is a consumer defect that must crash loudly, not spam stderr
+      // per line while every diagnostic is dropped (the defect-C shape).
+      opts.log[severity]({ line }, label);
     } else {
       process.stderr.write(`${line}\n`);
     }

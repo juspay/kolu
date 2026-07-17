@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
@@ -454,6 +455,22 @@ export function buildPadiSurfaceDeps(deps: {
               { err },
               "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
             );
+            // A contract skew is the ONE failure this handler can translate — it
+            // is the knowing endpoint (the `fileGoneAsNotFound` precedent): a
+            // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
+            // and the user would read an opaque toast (the field failure,
+            // bug-remote-kaval-contract-skew defect A). Refuse TYPED, versions
+            // as data — one recycle attempt was the diagnosis; padi is not the
+            // actor that can fix a skew (only the binder's reprovision is).
+            if (isContractSkewError(err)) {
+              throw new ORPCError("KAVAL_CONTRACT_SKEW", {
+                message: err.message,
+                data: {
+                  daemonVersion: err.daemonVersion,
+                  requiredVersion: err.requiredVersion,
+                },
+              });
+            }
             throw err;
           }
         },
