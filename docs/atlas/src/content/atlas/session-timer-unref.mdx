@@ -121,14 +121,19 @@ spawn would reopen a silent mid-dial exit window for a held session.
 
 ## Shape of the change
 
-One PR. Three `.unref()` call sites in `session.ts` (`armTimer`, the
-`clockProbeTimer` arm, the `clockProbeDeadlineTimer` arm) — direct calls, no
-guard helper: the package is Node-only (`tsconfig` `types: ["node"]`, it
-spawns ssh children), so `setTimeout` is Node's and `.unref()` typechecks;
-the browser-safe `unrefTimer` dance in `@kolu/surface`'s heartbeat exists
-because *that* package is shared with the browser leg, which this one is not
-(and widening that helper into an export would compel a drishti PR for six
-lines — the `controlMaster.ts` precedent declines the same trade). Plus a
+One PR. One `.unref()` call site in `session.ts` — inside `armInternalTimer`,
+the file-local seam (a lens-gauntlet refinement of the original three-direct-
+calls shape) that all three internal-timer arms route through (`armTimer`, the
+`clockProbeTimer` arm, the `clockProbeDeadlineTimer` arm), leaving
+`withHandshakeTimeout`'s must-fire timer as the file's only bare ref'd
+`setTimeout` — a census pinned *structurally* by a source-level test (exactly
+two bare `setTimeout(` sites in the file). The seam is direct Node `.unref()`,
+no browser guard: the package is Node-only (`tsconfig` `types: ["node"]`, it
+spawns ssh children); the browser-safe `unrefTimer` dance in `@kolu/surface`'s
+heartbeat exists because *that* package is shared with the browser leg, which
+this one is not (and widening that helper into an export would compel a
+drishti PR for six lines — the `controlMaster.ts` precedent declines the same
+trade). Plus a
 `tsx` devDependency in `surface-remote` for the child-process pins — a
 links-only lockfile delta (`tsx@4.21.0` was already fetched for other
 workspace packages), so the pinned `fetchPnpmDeps` hash needed **no** refresh

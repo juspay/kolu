@@ -142,14 +142,19 @@ stayed ref’d even as the sole handle.</li>
 <code>.unref()</code> on sinon fake timers, which support it; verified at build).</li>
 </ol>
 <h2 id="shape-of-the-change">Shape of the change</h2>
-<p>One PR. Three <code>.unref()</code> call sites in <code>session.ts</code> (<code>armTimer</code>, the
-<code>clockProbeTimer</code> arm, the <code>clockProbeDeadlineTimer</code> arm) — direct calls, no
-guard helper: the package is Node-only (<code>tsconfig</code> <code>types: [&quot;node&quot;]</code>, it
-spawns ssh children), so <code>setTimeout</code> is Node’s and <code>.unref()</code> typechecks;
-the browser-safe <code>unrefTimer</code> dance in <code>@kolu/surface</code>’s heartbeat exists
-because <em>that</em> package is shared with the browser leg, which this one is not
-(and widening that helper into an export would compel a drishti PR for six
-lines — the <code>controlMaster.ts</code> precedent declines the same trade). Plus a
+<p>One PR. One <code>.unref()</code> call site in <code>session.ts</code> — inside <code>armInternalTimer</code>,
+the file-local seam (a lens-gauntlet refinement of the original three-direct-
+calls shape) that all three internal-timer arms route through (<code>armTimer</code>, the
+<code>clockProbeTimer</code> arm, the <code>clockProbeDeadlineTimer</code> arm), leaving
+<code>withHandshakeTimeout</code>’s must-fire timer as the file’s only bare ref’d
+<code>setTimeout</code> — a census pinned <em>structurally</em> by a source-level test (exactly
+two bare <code>setTimeout(</code> sites in the file). The seam is direct Node <code>.unref()</code>,
+no browser guard: the package is Node-only (<code>tsconfig</code> <code>types: [&quot;node&quot;]</code>, it
+spawns ssh children); the browser-safe <code>unrefTimer</code> dance in <code>@kolu/surface</code>’s
+heartbeat exists because <em>that</em> package is shared with the browser leg, which
+this one is not (and widening that helper into an export would compel a
+drishti PR for six lines — the <code>controlMaster.ts</code> precedent declines the same
+trade). Plus a
 <code>tsx</code> devDependency in <code>surface-remote</code> for the child-process pins — a
 links-only lockfile delta (<code>tsx@4.21.0</code> was already fetched for other
 workspace packages), so the pinned <code>fetchPnpmDeps</code> hash needed <strong>no</strong> refresh
