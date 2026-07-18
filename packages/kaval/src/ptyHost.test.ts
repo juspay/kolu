@@ -345,22 +345,22 @@ describe("createPtyHost", () => {
     await host.exitPromise(id);
   });
 
-  it("seeds the initial title from the argv for a command-rooted PTY", async () => {
-    // Lock 1 seeds the title too, so a shell-less PTY's tile carries the command
-    // it is running before any OSC 2 title (which it never sends). RED before the
-    // fix (title stays empty). The `getLastCommand` seed above is replayed to a
-    // late padi sensor by the surface's snapshot-first commandRun source
-    // (inProcessPtyHost), the same retention the 633;E path already relies on.
+  it("does not seed a title (the title tap is live-only, no snapshot replay)", async () => {
+    // The seed is `lastCommand` ONLY: the commandRun source replays snapshot-first
+    // (so a late padi sensor learns the command), but the title tap is live-only —
+    // a seeded title would be erased by the foreground sensor's first sample, so we
+    // deliberately don't seed one. The tile carries the foreground process name.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
-      shell: "/bin/sh",
-      args: ["-c", "sleep 5"],
+      shell: "claude",
+      args: ["--model", "sonnet"],
       commandRooted: true,
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getTitle(id) === "/bin/sh -c 'sleep 5'");
-    expect(host.getTitle(id)).toBe("/bin/sh -c 'sleep 5'");
+    // lastCommand is seeded; title is not.
+    await waitFor(() => host.getLastCommand(id) === "claude --model sonnet");
+    expect(host.getTitle(id)).toBe("");
     host.kill(id);
     await host.exitPromise(id);
   });

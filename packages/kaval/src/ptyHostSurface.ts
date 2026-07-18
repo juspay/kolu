@@ -199,8 +199,8 @@ const TerminalSpawnInputSchema = z.object({
    *  verbatim; it neither chooses the shell nor appends flags. */
   argv: z.array(z.string()).min(1),
   /** True when `argv[0]` is the ROOT COMMAND itself, not a shell — a
-   *  `kaval-tui create -- <cmd>` PTY (#1872). The host seeds `lastCommand` +
-   *  the initial title from the argv (no shell means no OSC 633;E mark) and
+   *  `kaval-tui create -- <cmd>` PTY (#1872). The host seeds `lastCommand` from
+   *  the argv (no shell means no OSC 633;E mark) and
    *  reports the fact on the inventory row so the workspace sensors read
    *  `foreground === root` as a busy agent, not an idle shell prompt. Optional
    *  + absent = shell-rooted (today's reading) — see the contract-version note. */

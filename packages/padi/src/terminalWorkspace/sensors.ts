@@ -867,9 +867,11 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
  *  coupling injected, not imported, so this package names no host). NO seed, no
  *  store: the producer cannot remember, so a host hands it only what it observes. */
 export interface SensorInputs {
-  /** OS pid of the PTY's shell — constant for the terminal's life, known at spawn.
-   *  The agent detectors compare it to the foreground pid to decide "shell idle"
-   *  (foreground IS the shell). */
+  /** OS pid of the PTY's ROOT process — constant for the terminal's life, known at
+   *  spawn (the shell for a shell-rooted PTY, the command for a command-rooted one).
+   *  The agent detectors compare it to the foreground pid to decide "shell idle":
+   *  `foreground === root` is an idle prompt for a shell root, but a BUSY agent for
+   *  a command root — see `isShellIdle` / `commandRooted`. */
   pid: number;
   /** Spawn-time cwd — read once at start; later cwd changes flow via `signals.cwd`. */
   cwd: string;

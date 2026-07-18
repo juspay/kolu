@@ -149,7 +149,8 @@ export type ScreenExtent =
  * `dispose()` — termination flows through {@link PtyHost.kill}.
  */
 export interface PtyHandle {
-  /** OS process ID of the spawned shell. */
+  /** OS process ID of the PTY's root process — the shell for a shell-rooted PTY,
+   *  the command itself for a command-rooted one (`commandRooted`). */
   readonly pid: number;
   /** Current working directory (from OSC 7), seeded to the spawn cwd. */
   readonly cwd: string;
@@ -180,11 +181,11 @@ export interface PtySpawnOpts {
   args?: string[];
   /** True when `shell` is not a shell but the ROOT COMMAND itself — a
    *  `kaval-tui create -- <cmd>` PTY with the command as `argv[0]` and no shell
-   *  wrapping it. The host seeds {@link PtyHandle.getLastCommand} + the initial
-   *  title from the argv (a shell-less PTY never emits the OSC 633;E mark that
-   *  is otherwise `lastCommand`'s only writer), and reports the fact on the
-   *  inventory row so the workspace sensors read foreground==root as BUSY, not
-   *  as an idle shell prompt. Absent/false = shell-rooted, today's behavior. */
+   *  wrapping it. The host seeds {@link PtyHost.getLastCommand} from the argv (a
+   *  shell-less PTY never emits the OSC 633;E mark that is otherwise
+   *  `lastCommand`'s only writer), and reports the fact on the inventory row so
+   *  the workspace sensors read foreground==root as BUSY, not as an idle shell
+   *  prompt. Absent/false = shell-rooted, today's behavior. */
   commandRooted?: boolean;
   /** Environment for the child — fully prepared by the caller. */
   env: Record<string, string>;
@@ -690,24 +691,24 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     };
     entries.set(id, entry);
 
-    // Lock 1 (#1872) — seed `lastCommand` + the initial title from the spawn
-    // argv for a command-rooted PTY. Such a PTY has the agent as `argv[0]` and
-    // no shell, so it never emits the OSC 633;E mark that is `lastCommand`'s
-    // only other writer, nor an OSC 2 title — the daemon HAS the command line
-    // and must not discard it. Written on the SAME `lastCommand` field + channel
-    // the 633;E handler uses, so the sync getter and stream never disagree; and
-    // it is only a SEED — a later live 633;E / OSC 2 mark (if a shell ever runs
-    // inside) is the temporal last-writer and overwrites it.
+    // Lock 1 (#1872) — seed `lastCommand` from the spawn argv for a command-rooted
+    // PTY. Such a PTY has the agent as `argv[0]` and no shell, so it never emits
+    // the OSC 633;E mark that is `lastCommand`'s only other writer — the daemon HAS
+    // the command line and must not discard it. Written on the SAME `lastCommand`
+    // field + channel the 633;E handler uses (so the sync getter and the stream
+    // never disagree), and it is only a SEED — a later live 633;E mark (if a shell
+    // ever runs inside) is the temporal last-writer and overwrites it. `shellJoin`
+    // (the repo's POSIX-quote source of truth, the same helper kaval-tui/padi-tui
+    // rebuild a command line with), NOT a bare `join(" ")`, so a stable flag whose
+    // value carries spaces (`--settings '{"x": 1}'`) survives `parseAgentCommand`'s
+    // tokenizer instead of word-splitting. (We deliberately do NOT seed the title:
+    // the title tap is live-only — no snapshot-first replay — so a seeded title is
+    // erased by the foreground sensor's first sample; the tile carries the agent's
+    // foreground process name instead, and the Dock reads state from the command.)
     if (entry.commandRooted) {
-      // `shellJoin` (the repo's POSIX-quote source of truth — the same helper
-      // kaval-tui/padi-tui rebuild a command line with), NOT a bare `join(" ")`:
-      // a stable flag whose value carries spaces/quotes (`--settings '{"x":1}'`)
-      // would otherwise re-split when `parseAgentCommand` tokenizes the seed.
       const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
       entry.lastCommand = command;
-      entry.title = command;
       entry.commandRunChannel.publish(command);
-      entry.titleChannel.publish(command);
     }
 
     // Dispose the anchor's live `onTrim` subscription on teardown. The anchor

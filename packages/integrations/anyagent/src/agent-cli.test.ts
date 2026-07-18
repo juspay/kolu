@@ -1,6 +1,6 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
-import { shellSplit } from "@kolu/shell-quote";
+import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
@@ -91,6 +91,25 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("claude -h")).toBeNull();
     expect(parseAgentCommand("opencode --version")).toBeNull();
     expect(parseAgentCommand("opencode --help")).toBeNull();
+  });
+
+  // #1872 command-rooted seed: kaval seeds `lastCommand` as `shellJoin(argv)`, and
+  // this parser is its consumer. Pin that a `shellJoin`ed realistic spawn round-trips
+  // — the agent is recognized and a spaced/JSON flag value is preserved (the exact
+  // case a bare `argv.join(" ")` would word-split).
+  it("recognizes a shellJoin'd command-rooted spawn and preserves flag values", () => {
+    expect(parseAgentCommand(shellJoin(["claude"]))).toBe("claude");
+    expect(
+      parseAgentCommand(shellJoin(["/usr/local/bin/claude", "--model", "sonnet"])),
+    ).toBe("claude --model sonnet");
+    expect(
+      parseAgentCommand(shellJoin(["opencode", "--dangerously-skip-permissions"])),
+    ).toBe("opencode --dangerously-skip-permissions");
+    // A stable flag whose value carries spaces/JSON survives the shellJoin round-trip
+    // (the exact case a bare `argv.join(" ")` would word-split).
+    expect(
+      parseAgentCommand(shellJoin(["claude", "--settings", '{"ultracode": true}'])),
+    ).toBe(`claude --settings '{"ultracode": true}'`);
   });
 
   it("drops unknown flags (allowlist, not denylist)", () => {
