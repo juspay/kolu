@@ -2,15 +2,18 @@
 title: "Bug — a gate-less socket squatter wedges kolu forever"
 description: "A kaval orphan whose gate file is gone but which still holds the rendezvous socket wedges kolu permanently: recycle only ever kills gate-recorded pids, so the squatter survives every recycle and the incompatible card's renew loops forever (field case: sincereintent 25494, 8 days). The fix gives the supervisor identity over its OWN socket: OS socket-holder lookup + kaval handshake → recycle the verified orphan; a non-kaval process is never killed."
 parents: [bug, pty-daemon, surface]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-07-17
 ---
 
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import flow from "../../diagrams/squatter-recovery-flow.svg?raw";
+
+<PrLink pr={1887} />
 
 srid's ruling, verbatim: *"I want the bug to be fixed. WHY is a stray process
 breaking kolu?"* The field incident was closed by hand-killing pid 25494 on
