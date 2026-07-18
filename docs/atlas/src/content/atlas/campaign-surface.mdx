@@ -1,6 +1,6 @@
 ---
-title: "The campaign surface — Atlas + live board as one kolu feature"
-description: "Unify the three coordination artifacts — Atlas notes, the orchestrator's hand-maintained dashboard, and the coming chat bot — into one observed surface: notes carry the plans and reasons (authored), a right-panel Board tab carries the live state (derived from what kolu already watches), and chat mirrors the same board. Nothing is hand-synced because status is never written, only observed."
+title: "The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors"
+description: "Unify Atlas notes, the hand-maintained orchestrator dashboard, and the coming chat bot into one zero-setup surface: notes become plain markdown rendered live by kolu itself (the Astro pipeline is deleted, not improved), campaign state becomes a Board tab derived from what kolu already observes, and the board's true shape is the supervision graph of terminals — because kolu's terminals already are actors in the actor-model sense."
 parents: [feature, chat-native-agents-and-kolu]
 status: proposed
 maturity: seedling
@@ -10,50 +10,69 @@ updated: 2026-07-18
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 
-## Why: the scribe problem
+## Why: the scribe problem, and the Atlas problem
 
-Running kolu's own development as a multi-agent campaign currently uses three
-disconnected artifacts:
+Running kolu's development as a multi-agent campaign uses three disconnected
+artifacts today, and each has a structural defect.
 
-1. **Atlas notes** — the plans and reasons (this knowledge base). Correct as
-   authored, durable files.
-2. **The orchestrator dashboard** — a JSON file (`orchestrator-data.js`) the
-   coordinator agent *hand-writes after every event*, rendered by a static
-   HTML skill asset.
-3. **The chat bot** (pesu, per [kolu under any chat app](chat-native-agents-and-kolu.html)) —
-   planned to render a "who-needs-me board" into a thread.
+**The dashboard is hand-written.** A JSON file the coordinator agent updates
+after every event, rendered by a static HTML skill asset. It violates the
+philosophy twice — the interface is supposed to be *built by observing what
+users already do*, and facts like *branch/PR/CI status derive from the
+terminal's cwd*. Hand-maintained derived state drifts (stale boards, notes
+disagreeing with the board, links dying on terminal re-key), and keeping it
+honest required a Stop hook whose only job is to nag the scribe.
 
-The dashboard violates kolu's own philosophy twice. The philosophy says the
-interface is **auto-detected, zero setup** — *"kolu builds its interface by
-observing what users already do… rather than requiring configuration"* — and
-that facts like *branch/PR/CI status derive from the terminal's current
-working directory*. The hand-written dashboard is configuration wearing a
-trench coat: it duplicates state the daemons already observe, so it drifts
-(the board goes stale, notes disagree with the board, links break when
-terminals re-key), and keeping it honest required a Stop hook whose only job
-is to nag the scribe. **The disease is that a derived view is hand-authored;
-every sync pain is a symptom.**
+**The Atlas is a static-site generator bolted onto the repo.** Measured, this
+repo: **196 MB** of `node_modules`, a 4,404-line lockfile, 23 components, an
+Astro config and build recipes — *per repo that wants a knowledge base*.
+**6.9 MB of generated HTML is committed**, and **1,151 commits** have touched
+`dist/`; a CI gate (`atlas-sync`) exists purely to police the generated
+artifact. Every note edit is a branch → PR → build → stage-dist → check-sync →
+merge ceremony. The adoption verdict is already in: **drishti and odu never
+set it up** — the per-repo cost lost.
 
-The fix is the split the chat-native note already names: **observe flows out
-raw; act flows in through one door.** Applied fully:
+The decisive fact: **kolu already ships its own markdown renderer** —
+`@kolu/solid-markdown` (rendering, highlighting, URL policy) — wired into the
+client today, including the Code tab's file dispatcher. The committed-HTML
+pipeline existed so notes were "reviewable in the Code tab without a dev
+server"; kolu since became that renderer. The generator is vestigial.
 
-| Layer | Carries | Authored or observed |
-| --- | --- | --- |
-| **Atlas note** | the plan: phases, design, rationale, post-mortem | **authored** — deliberately, once |
-| **Board** | the state: which lane is where, right now | **observed** — derived at view time, written by no one |
-| **Chat thread** | the same board, socially | **mirrored** — rendered from the board, never a copy |
+## The model: it's actors all the way down
 
-The join needs no configuration because the campaign already follows one
-naming convention: **a lane's worktree = its branch = its PR**, and a
-design-bearing lane's branch names its note slug. A convention the
-coordinator already works by — exactly the shape of "recent repos track `cd`
-events": the system observes what the workflow already does.
+The [actor model](https://www.brianstorti.com/the-actor-model/): an actor is
+the primitive unit of computation with **private state and no shared memory**;
+it has a **mailbox** and processes messages **one at a time**; on a message it
+may **create more actors, send messages, or decide its own next state**;
+**supervisors** monitor actors and reset crashed ones to a stable state
+("let it crash"); everything has an **address**.
 
-## The Board — a third right-panel tab
+kolu's campaign is already this, piece for piece:
 
-The right panel today has two tabs: `inspector` and `code` (the wire schema
-literally says `activeTab: "inspector" | "code"`). The Board is the third —
-campaign state where the campaign runs, beside the terminals it describes.
+| Actor model | kolu, today |
+| --- | --- |
+| actor: private state, no shared memory | a **terminal**: its PTY, its session — nothing shared |
+| address | the terminal UUID |
+| mailbox, one message at a time | **kaval serializes all input** — "when input arrives, last one wins" is the single-writer mailbox; the coordinator's own inbox is serialization-by-conversation |
+| create actors / send messages / decide next state | the coordinator **spawns terminals** (`lifecycle_create`), **sends briefs** (`sendInput`), and revises its plan |
+| supervisor resets a crashed actor to stable state | the falsify-and-redirect loop: a wrong brief → stand down, `/compact` (reset to stable), re-brief. And **the daemons already do it literally**: padi adopt-or-recycles its kaval; the binder drains and re-provisions padi |
+| hierarchy — everything is an actor | coordinator → worker terminals → split terminals (codex debates); padi → kaval beneath them |
+
+This is not an analogy to adopt — it is a description of what shipped. The
+consequence for the Board: a campaign is not a *list* of lanes, it is a
+**supervision graph of terminal-actors**, and most of its edges are already
+recorded: `parentId` is a field of terminal creation (splits carry their
+parent today), and a terminal created through the kolu MCP knows which
+session asked for it.<Footnote>The remaining edge — "which terminal *drives*
+which" when input arrives over a CLI rather than the MCP — is not recorded
+today. The graph renders what is observed and nothing more; an unattributed
+lane simply hangs off the repo root. Observation can grow (input provenance
+is knowable at the MCP face), but the Board never guesses.</Footnote>
+
+## The Board — a third right-panel tab, shaped like the graph
+
+The right panel today has two tabs (`inspector` | `code`). The Board is the
+third: the repo's supervision graph, live.
 
 export const Chip = ({bg, fg, children}) => (
   <span style={{background:bg, color:fg, borderRadius:"4px", padding:"0 5px",
@@ -63,176 +82,177 @@ export const Dot = ({c}) => (
   <span style={{width:"7px", height:"7px", borderRadius:"50%", background:c,
     display:"inline-block", flexShrink:0}}></span>
 );
-export const Lane = ({dot, name, note, pr, prBg, prFg, ci, sub}) => (
-  <div style={{border:"1px solid #e5e1d8", borderRadius:"8px", padding:"6px 8px",
-    display:"flex", flexDirection:"column", gap:"3px", background:"#fff"}}>
+export const GNode = ({depth, dot, name, chips, sub}) => (
+  <div style={{paddingLeft:`${depth*16}px`, display:"flex", flexDirection:"column", gap:"1px"}}>
     <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
+      {depth > 0 && <span style={{color:"#c9c4b8", fontSize:"10px"}}>└─</span>}
       <Dot c={dot} />
-      <span style={{fontWeight:600, fontSize:"11.5px", color:"#1a1c20",
-        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{name}</span>
-      <span style={{marginLeft:"auto", display:"flex", gap:"4px"}}>
-        {note && <Chip bg="#eef1e9" fg="#5a6b4f">▤ {note}</Chip>}
-        <Chip bg={prBg} fg={prFg}>{pr}</Chip>
-        {ci && <Chip bg="#eef" fg="#3949ab">{ci}</Chip>}
-      </span>
+      <span style={{fontWeight:600, fontSize:"11.5px", color:"#1a1c20"}}>{name}</span>
+      <span style={{marginLeft:"auto", display:"flex", gap:"4px"}}>{chips}</span>
     </div>
-    <div style={{fontSize:"10px", color:"#8a8f98", paddingLeft:"13px"}}>{sub}</div>
+    <div style={{fontSize:"10px", color:"#8a8f98", paddingLeft:depth > 0 ? "34px" : "13px"}}>{sub}</div>
   </div>
 );
 
-export const BoardMock = () => (
-  <div style={{maxWidth:"360px", margin:"1rem auto", border:"1px solid #d8d4c9",
+export const GraphMock = () => (
+  <div style={{maxWidth:"370px", margin:"1rem auto", border:"1px solid #d8d4c9",
     borderRadius:"12px", overflow:"hidden", fontFamily:"ui-sans-serif,system-ui",
     boxShadow:"0 2px 14px rgba(0,0,0,.07)"}}>
     <div style={{display:"flex", borderBottom:"1px solid #e5e1d8", background:"#faf9f5",
       fontSize:"11px", fontWeight:600}}>
       <span style={{padding:"7px 12px", color:"#8a8f98"}}>Inspector</span>
       <span style={{padding:"7px 12px", color:"#8a8f98"}}>Code</span>
-      <span style={{padding:"7px 12px", color:"#1a1c20",
-        borderBottom:"2px solid #0b6478"}}>Board</span>
+      <span style={{padding:"7px 12px", color:"#1a1c20", borderBottom:"2px solid #0b6478"}}>Board</span>
     </div>
-    <div style={{padding:"8px", display:"flex", flexDirection:"column", gap:"6px",
-      background:"#f6f5f0"}}>
-      <div style={{display:"flex", gap:"6px", alignItems:"center", padding:"2px 2px",
-        fontSize:"10px", color:"#5b6470"}}>
-        <Dot c="#e0a030" /> 1 asking you
-        <Dot c="#3aa657" /> 2 working
-        <Dot c="#b0b0b0" /> 1 idle
+    <div style={{padding:"10px", display:"flex", flexDirection:"column", gap:"7px", background:"#f6f5f0"}}>
+      <div style={{display:"flex", gap:"8px", alignItems:"center", fontSize:"10px", color:"#5b6470"}}>
+        <Dot c="#e0a030" /> 1 asking you <Dot c="#3aa657" /> 3 working <Dot c="#b0b0b0" /> 1 idle
       </div>
-      <Lane dot="#e0a030" name="spawn-detection"
-        note="agent-spawn" pr="PR #1889 draft" prBg="#fdf3e7" prFg="#8a5200"
-        ci="CI 4/28" sub="claude · awaiting your answer — 12m" />
-      <Lane dot="#3aa657" name="philosophy-restore"
-        pr="no PR yet" prBg="#f0f0ee" prFg="#8a8f98"
-        sub="claude · working — grounding the old README" />
-      <Lane dot="#3aa657" name="RT-fable (coordinator)"
-        pr="atlas #1878" prBg="#e8f3ec" prFg="#1b7a3a"
-        sub="claude · working — the act door" />
-      <details style={{fontSize:"10px", color:"#8a8f98", padding:"2px"}}>
-        <summary style={{cursor:"pointer", letterSpacing:".2em",
-          textTransform:"uppercase", fontSize:"9px"}}>shipped · 14</summary>
+      <GNode depth={0} dot="#3aa657" name="RT-fable · coordinator"
+        chips={<Chip bg="#e8f3ec" fg="#1b7a3a">atlas #1878</Chip>}
+        sub="claude · working — the act door (supervisor)" />
+      <GNode depth={1} dot="#e0a030" name="spawn-detection"
+        chips={<><Chip bg="#eef1e9" fg="#5a6b4f">▤ agent-spawn</Chip><Chip bg="#fdf3e7" fg="#8a5200">PR draft</Chip></>}
+        sub="claude · awaiting your answer — 12m" />
+      <GNode depth={2} dot="#3aa657" name="codex split"
+        chips={<Chip bg="#f0f0ee" fg="#8a8f98">debate r2</Chip>}
+        sub="codex · working — parentId edge, observed" />
+      <GNode depth={1} dot="#3aa657" name="philosophy-restore"
+        chips={<Chip bg="#e8f3ec" fg="#1b7a3a">#1889 merged</Chip>}
+        sub="claude · idle — lane retiring to shipped" />
+      <GNode depth={0} dot="#b0b0b0" name="scratch"
+        chips={<Chip bg="#f0f0ee" fg="#8a8f98">no PR</Chip>}
+        sub="plain shell · unattributed — hangs off the repo root" />
+      <details style={{fontSize:"10px", color:"#8a8f98"}}>
+        <summary style={{cursor:"pointer", letterSpacing:".2em", textTransform:"uppercase", fontSize:"9px"}}>shipped · 15</summary>
       </details>
     </div>
   </div>
 );
 
-<BoardMock />
+<GraphMock />
 
 ### Scoping: whose board is this?
 
-The right panel is **per-terminal** — so what does *this terminal's* Board
-show? The same association the Code tab already uses: **the terminal's cwd
-names the repo, and the repo is the campaign.** cwd → repo root → every
-*worktree* of that repo → their terminals, branches, PRs, sensor states.
+The right panel is per-terminal, so the Board uses the association the Code
+tab already uses: **the terminal's cwd names the repo, and the repo is the
+campaign.** cwd → repo root → every worktree of that repo → their terminals,
+branches, PRs, sensor states, parent edges. Two same-repo terminals see the
+same board (a per-terminal *viewport* on repo-scoped content); a drishti
+terminal sees drishti's campaign — multi-project coordination with zero
+configuration; a repo-less terminal sees an honest empty tab. No campaign
+registry, no picker.
 
-- Two terminals in the same repo show the **same board** (as the Code tab
-  shows them the same files) — the panel is a per-terminal *viewport*, the
-  content is the repo's.
-- A terminal in a different repo (drishti) shows *that* repo's campaign —
-  multi-project coordination falls out with zero configuration, the
-  "one orchestrator, many projects" shape.
-- A terminal in no repo shows an empty tab, honestly.
+Every element is **already observed**: the lanes are terminals (cwd →
+worktree); the dots and sub-lines are padi's agent sensors; the PR/CI chips
+are the cwd → branch → PR derivation the server already does for terminal
+chrome; the ▤ chip is the branch ↔ note-slug convention; the tree edges are
+`parentId` + MCP creator attribution; *shipped* is merged-PRs-whose-branch-
+had-a-lane. **Nobody writes any of it, so none of it can go stale.**
 
-No campaign registry, no board picker — the cwd derivation again.
+## Knowledge: plain markdown, rendered by the product
 
-Everything in that mock is **already observed** by the running system, today:
+Notes become **plain GFM files** — no imports, no JSX, no build, no committed
+dist, no sync gate. The rich vocabulary survives as renderer capabilities in
+`@kolu/solid-markdown`, shipped once in the product:
 
-| Element | Source (existing) |
+| Today (MDX component) | Tomorrow (plain file + smarter renderer) |
 | --- | --- |
-| the lanes | kolu's terminals; each terminal's cwd names its worktree |
-| the colored dot | padi's agent sensors — working / asking-you / idle (the `padi-tui wait` buckets) |
-| the sub-line | the same sensors' detail (which agent, what state, how long) |
-| worktree → branch → PR chip | the cwd→branch derivation the README names, joined to the forge PR for that branch<Footnote>The server already derives branch/PR/CI status from a terminal's cwd for the terminal chrome — the Board reuses that machinery, it does not add a second poller.</Footnote> |
-| CI chip | the same PR's checks |
-| ▤ note chip | branch name ↔ note slug (the naming convention); links into the Code tab |
-| shipped | PRs whose branch had a lane, now merged — an archive nobody curates |
+| `<Callout>` (76 uses) | GitHub-native alerts: `> [!NOTE]` / `[!WARNING]` |
+| `<PrLink>` / `<Issue>` (90 uses) | a bare `#1234` — the renderer resolves it to a **live status pill** (draft/open/merged/closed, CI). Notes stop containing outcomes, so they cannot go stale |
+| `<Footnote>` (29) | GFM footnotes |
+| `<Svg>` (37) | an ordinary image link to a committed `.svg` |
+| `<Pill>` / `<D>` / `<Cite>` | inline conventions the renderer styles |
+| `<PhaseTree>` / `<Terminal>` / `<Roadmap>` | fenced blocks with a language tag the renderer upgrades — the mermaid pattern |
 
-**Nobody writes any of this.** The coordinator dispatching a new lane =
-creating a worktree and a terminal — which is what makes the lane *appear*.
-A PR merging is what flips its chip. An agent finishing is what turns its
-dot. The board cannot be stale because there is nothing to update.
+GitHub renders the same files acceptably (alerts and footnotes are
+GitHub-native), so "reviewable anywhere" *improves* — today's MDX shows as
+source on github.com. And any repo gets the whole experience by containing
+`.md` files, which drishti and odu already do. Zero setup, every repo, every
+host.
 
-## The note side: phases declared, status resolved
+**The write path**: git remains the store — durable, versioned, offline (the
+files-are-the-state doctrine). What dies is the *ceremony*: with no build
+artifacts, a note edit is a one-file diff, and kolu itself can be the editor
+(the act door; `scratch.write` is the wire precedent) committing to a branch
+or straight to master **per repo policy** — the format no longer forces a
+pipeline on anyone.
 
-A note keeps owning the **structure** — what the phases *are* — but stops
-hand-stamping outcomes. `PrLink` (and a small `PhasePill`) resolve the live
-PR state at render time in kolu's Code tab:
+## How UI prototypes live in notes
 
-export const PhaseMock = () => (
-  <div style={{maxWidth:"360px", margin:"1rem auto", padding:"10px 12px",
-    border:"1px solid #d8d4c9", borderRadius:"10px", background:"#fff",
-    fontFamily:"ui-sans-serif,system-ui", fontSize:"11.5px"}}>
-    <div style={{fontWeight:700, fontSize:"10px", letterSpacing:".22em",
-      textTransform:"uppercase", color:"#8a8f98", marginBottom:"6px"}}>
-      Phase tree — agent-spawn-first-class</div>
-    <div style={{display:"flex", flexDirection:"column", gap:"4px"}}>
-      <div>PR 1 · stop the data loss — <Chip bg="#e8f3ec" fg="#1b7a3a">#1880 merged</Chip></div>
-      <div>PR 1.5 · the last spawn seam — <Chip bg="#e8f3ec" fg="#1b7a3a">#1884 merged</Chip></div>
-      <div>PR 2 · detection — <Chip bg="#fdf3e7" fg="#8a5200">#1889 draft · CI running</Chip></div>
-      <div>PR 3 · the face verb — <Chip bg="#f0f0ee" fg="#8a8f98">no PR — waits on kolu-tui</Chip></div>
-    </div>
-    <div style={{marginTop:"6px", fontSize:"9.5px", color:"#8a8f98"}}>
-      pills are live — the note's text never contains an outcome</div>
-  </div>
-);
+This note's own mockups are JSX — which plain markdown forbids. The ladder,
+each rung a plain-file citizen:
 
-<PhaseMock />
+1. **ASCII sketches** in plain fences — structure and layout, terminal-native,
+   renders everywhere, zero tooling. The default for thinking.
+2. **SVG files** — the designed-mockup standard. Text, diffable, committed
+   beside the note, embedded as an ordinary image; agents author SVG fluently.
+   (The Atlas already leans on SVG diagrams — 37 uses.)
+3. **An `html` fence the renderer upgrades to a sandboxed live preview** — the
+   high-fidelity rung. The fence's source stays visible as code on GitHub;
+   in kolu it renders inside the **existing opaque-origin sandboxed preview
+   iframe** (the Code-tab preview machinery, already shipped and
+   e2e-hardened). Interactive prototypes with zero new infrastructure.
+4. **Screenshots** — for as-built states, small and compressed, the evidence
+   flow's conventions.
 
-The note and the board can no longer disagree, because they render **the same
-fact from the same source** — one is the plan's view of it, the other the
-fleet's.
+This note's mockups migrate to rung 3 verbatim — they are already plain
+HTML-with-inline-styles wearing JSX syntax.
 
 ## The flows
 
-**Dispatch.** The coordinator (the act door — unchanged) cuts
-`worktree = branch = lane`, creates a terminal in it, and briefs the agent.
-The lane appears on the Board by observation. Zero writes.
+**Dispatch.** The coordinator cuts `worktree = branch = lane`, creates a
+terminal (a child actor — the parent edge recorded at birth), briefs it. The
+lane appears on the graph by observation. Zero writes.
 
-**Attention.** An agent flips to *asking-you* → its dot turns amber and the
-who-needs-me strip counts it → the notify seam pings (desktop today; the
-pesu thread tomorrow — same seam, per the chat-native note). You click the
-lane → you are **in the terminal** (the depth kolu owns). Answer, step out.
+**Attention.** An agent flips to *asking-you* → amber dot, who-needs-me
+count, notify seam (desktop today, the pesu thread tomorrow). Click the lane
+→ you are in the terminal. Answer, step out.
 
-**Reading the plan.** Every design-bearing lane shows its ▤ note chip →
-Code tab opens the note → the note's phase pills show live outcomes. One
-click from "what is happening" to "why".
+**Reading the plan.** The lane's ▤ chip opens its note in the Code tab; the
+note's `#1234` pills show live outcomes. One click from *what* to *why*.
 
-**Shipping.** A PR merges (the human merges — unchanged). Its lane's chip
-flips to merged; the note's pill flips identically; the lane retires to
-*shipped* when its terminal closes. Nobody announces anything.
+**Shipping.** The human merges (unchanged). The chip flips because GitHub
+says so; the note's pill flips identically — same fact, two renderings; the
+lane retires to shipped when its terminal closes.
 
-**Chat.** pesu renders **this same board** into the thread on demand and
-pings on the attention flow — the "mirror of the coordinator" already
-specified in the chat-native note. It gains a data source instead of needing
-one invented.
+**Failure.** Let it crash: a falsified brief or a wedged agent doesn't get
+defensive programming — the supervisor (coordinator) stands the actor down,
+resets it to a stable state (`/compact`, or a fresh terminal), and re-briefs.
+The graph shows the reset for what it is: the same address, a new incarnation.
+
+**Chat.** pesu renders this same graph into the thread and pings on
+attention — the chat-native note's "mirror of the coordinator," now with its
+data source shipped rather than invented.
 
 **What stays conversational (deliberately off-board).** Gate rulings, CI
-venue arbitration, box leases — coordinator knowledge with no observable
-substrate. They live in the dialogue and in notes *as decisions*, not on the
+venue arbitration, box leases — supervisor knowledge with no observable
+substrate. They live in dialogue and in notes *as decisions*, never on the
 board *as state*. Putting them on a board is what created the scribe.
 
 ## What this deletes
 
-- `orchestrator-data.js` and the same-turn-update ritual
-- the static dashboard HTML skill asset
-- the board-freshness Stop hook (#1888) — enforcement of a duty that no
-  longer exists
-- hand-stamped statuses inside notes (and their drift)
-- terminal-UUID note links that die on re-key — the Board links notes
-  first-class
+- `orchestrator-data.js` and the same-turn update ritual
+- the static dashboard HTML skill asset, and the board-freshness Stop hook
+- **the entire per-repo Astro pipeline**: 196 MB node_modules, the lockfile,
+  the build, 6.9 MB committed dist, the `atlas-sync` CI gate
+- hand-stamped statuses in notes, and their drift
+- terminal-UUID note links that die on re-key
 
 ## Phases
 
 | Phase | Scope | Deletes |
 | --- | --- | --- |
-| **P1 — live pills** | `PrLink`/`PhasePill` resolve PR state at render time in the Code tab's note view (small; client + a cached forge lookup) | hand-stamped outcomes in notes |
-| **P2 — the Board tab** | a derived campaign collection on the server (terminals ⋈ worktree ⋈ branch ⋈ PR ⋈ CI ⋈ agent-sensor state — reusing the existing cwd-derivation machinery) + the right-panel tab rendering it | the dashboard file, its HTML, hook #1888 |
-| **P3 — the thread mirror** | pesu renders the Board + attention pings (the chat-native note's own plan, now with its data source shipped) | nothing — it completes the picture |
+| **P0 — the renderer learns three tricks** | live `#1234` pills, `[!NOTE]` alerts, footnotes, the fence upgrades (phase-tree, html-preview via the existing sandboxed iframe) — all in `@kolu/solid-markdown` | nothing yet; unlocks everything |
+| **P1 — notes go plain** | migrate the 104 notes MDX → GFM (mechanical for the 10-component vocabulary); delete the Astro pipeline; the `/atlas` skill shrinks to "write markdown here" | the 196 MB, the dist, the sync gate, the ceremony |
+| **P2 — the Board tab** | the derived campaign graph on the server (terminals ⋈ worktrees ⋈ branches ⋈ PRs ⋈ CI ⋈ sensors ⋈ parent edges, reusing the existing cwd-derivation machinery) + the right-panel tab | the dashboard file, its HTML, the freshness hook |
+| **P3 — the thread mirror** | pesu renders the graph + attention pings (the chat-native note's own plan) | nothing — it completes the picture |
 
 <Callout kind="warn" title="Philosophy check">
-  Every element must pass the two-principle test: **agent-agnostic** (the
-  Board watches terminals and forges — it wraps no agent, and a lane running
-  codex or opencode renders identically) and **auto-detected, zero setup**
-  (if a Board element needs someone to *write* state for it, it is designed
-  wrong — redesign it to observe, or move it to a note as a decision).
+  Two tests for every element. **Agent-agnostic**: the graph watches
+  terminals and forges — a lane running codex or opencode renders
+  identically, and a plain shell is a first-class node. **Auto-detected,
+  zero setup**: if any element needs someone to *write state* for it, it is
+  designed wrong — redesign it to observe, or move it to a note as a
+  decision.
 </Callout>
