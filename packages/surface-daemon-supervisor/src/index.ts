@@ -30,7 +30,10 @@ export {
   ENDPOINT_STATES,
   createEndpoint,
   isContractSkewError,
+  isSocketSquatterForeignError,
+  SocketSquatterForeignError,
 } from "./endpoint.ts";
+export { type SocketHolder, socketHolders } from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe
 // `/states` leaf, like `ENDPOINT_STATES` itself) and is re-exported here for
 // Node-side supervisor consumers.

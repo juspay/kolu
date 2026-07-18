@@ -33,6 +33,7 @@ import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
+import { type SocketHolder, socketHolders } from "./socketHolder.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
@@ -108,6 +109,13 @@ export class DaemonContractSkewError extends Error {
   readonly daemonVersion: string;
   /** The contract version this supervisor's build requires. */
   readonly requiredVersion: string;
+  /** The skewed daemon's own OS pid, as it self-reported over the handshake
+   *  (kaval's `system.version.pid`). ADDITIVE and optional. It rides HERE — not
+   *  only on a `DaemonConnection` — because the skew path THROWS before a
+   *  connection is ever built, and the gate-less-squatter recovery of an OLD,
+   *  skewed orphan (the 25494 case) still needs the daemon's self-reported pid as
+   *  its third identity attestation. */
+  readonly pid?: number;
   /** The message is DERIVED from the fields (parse-don't-validate — no
    *  consumer ever regexes the prose back apart); `subject` names the
    *  contract's flavor for a legible journal line ("pty-host", "padiSurface")
@@ -116,6 +124,8 @@ export class DaemonContractSkewError extends Error {
     subject: string;
     daemonVersion: string;
     requiredVersion: string;
+    /** The skewed daemon's self-reported OS pid, if the handshake carried one. */
+    pid?: number;
   }) {
     super(
       `${versions.subject} contract skew: daemon speaks ${versions.daemonVersion}, needs ${versions.requiredVersion}`,
@@ -124,6 +134,7 @@ export class DaemonContractSkewError extends Error {
     this.subject = versions.subject;
     this.daemonVersion = versions.daemonVersion;
     this.requiredVersion = versions.requiredVersion;
+    this.pid = versions.pid;
   }
 }
 
@@ -154,12 +165,60 @@ export function isContractSkewError(
   );
 }
 
+/** Thrown by the gate-less-squatter recovery when the process holding the
+ *  rendezvous socket does **not** speak kaval — a genuinely foreign process (or a
+ *  non-conforming speaker whose handshake failed schema validation, e.g. a version
+ *  response missing the required `pid` field). It is the ONE outcome of the
+ *  recovery that is a loud refusal rather than a recycle: we never SIGTERM a
+ *  process we could not prove is our own daemon, so we surface exactly who is
+ *  squatting (pid + command) and let the boot fail honestly. Brand-checked like
+ *  {@link isContractSkewError} so it narrows across realm boundaries. */
+export class SocketSquatterForeignError extends Error {
+  readonly isSocketSquatterForeign = true as const;
+  /** The rendezvous socket path a foreign process was found holding. */
+  readonly socketPath: string;
+  /** Every pid the OS reported holding the socket, each with a readable command
+   *  — named so an operator can identify (and deal with) the squatter by hand. */
+  readonly holders: readonly SocketHolder[];
+  constructor(socketPath: string, holders: readonly SocketHolder[]) {
+    const who = holders.length
+      ? holders.map((h) => `pid ${h.pid} (${h.command})`).join(", ")
+      : "an unidentifiable process";
+    super(
+      `rendezvous socket ${socketPath} is held by ${who}, which did not complete the kaval handshake — refusing to kill a process that is not a verified kaval daemon`,
+    );
+    this.name = "SocketSquatterForeignError";
+    this.socketPath = socketPath;
+    this.holders = holders;
+  }
+}
+
+/** True iff `err` is a {@link SocketSquatterForeignError}. Brand-checked (not
+ *  `instanceof`) so it holds across module-instance / realm boundaries. */
+export function isSocketSquatterForeignError(
+  err: unknown,
+): err is SocketSquatterForeignError {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { isSocketSquatterForeign?: unknown }).isSocketSquatterForeign ===
+      true
+  );
+}
+
 /** A live, handshaken connection to a daemon. The injected `connect` builds it;
  *  the endpoint holds it and tears it down. */
 export type DaemonConnection<C, I, M = undefined> = {
   client: C;
   identity: I;
   startedAt: number;
+  /** The daemon's own OS pid, as it self-reported over the handshake (kaval's
+   *  `system.version.pid`). ADDITIVE and optional: a soul whose handshake doesn't
+   *  carry a pid simply omits it. The gate-less-squatter recovery reads it as the
+   *  third identity attestation — the pid the daemon named over the very socket,
+   *  cross-checked against the OS's independent socket-holder lookup before any
+   *  SIGTERM. */
+  pid?: number;
   /** Drop the transport. */
   dispose(): void;
   /** Subscribe to the transport dropping (the daemon exited / the socket
@@ -452,6 +511,121 @@ export function createEndpoint<C, I, M = undefined>(
     emit(connectedStatus(next));
   };
 
+  // The gate-less-squatter recovery (SQUAT1). Run by `recoverOrSpawn` at exactly
+  // the boot points where NO live gate holder was found yet the endpoint is about
+  // to spawn — `ensure`'s else branch and `adoptSurvivor`'s no-survivor branch
+  // (hence, via converge and renew, every wedge path). It is DELIBERATELY not on
+  // the `recycle` path, which has already reaped its holder and freed the socket.
+  // When the rendezvous socket is ACCEPTING but no gate holder routed us here, a
+  // gate-less orphan holds it — the state that wedged kolu forever (`liveServingHolder`
+  // is gate-only, so recycle never targeted the orphan; the fresh spawn couldn't
+  // bind and handshaked the orphan into an endless `incompatible`).
+  //
+  // It identifies the holder over the OS (`socketHolders`), then proves what it is
+  // over the SAME handshake the adopt path trusts:
+  //   - COMPATIBLE (`adopted`)  → NOT recycled: the ordinary connect below adopts
+  //     it exactly as today, preserving its live PTYs. Recovery is a no-op — its
+  //     probe connection is dropped and the spawn proceeds to reconnect. (Only a
+  //     skew ever wedged; a compatible gate-less holder always worked.)
+  //   - SKEW (`skew`)           → the wedge (the 25494 case): a kaval we cannot
+  //     use. Verify identity (self-reported pid corroborated by the OS holder,
+  //     re-confirmed immediately before the signal) and RECYCLE it, so the spawn
+  //     below binds fresh.
+  //   - FOREIGN (`unreachable`) → the holder did not complete the kaval handshake
+  //     (a stranger, or a non-conforming speaker whose version response failed
+  //     schema validation — e.g. missing the required `pid`). NEVER killed: a loud
+  //     `SocketSquatterForeignError` naming the pid + command.
+  const recoverGatelessSquatter = async (): Promise<void> => {
+    if (!(await socketAccepting(spec.socketPath))) return; // free — the spawn binds
+
+    // Exclude OUR OWN process from the holder set: the supervisor spawns its daemon
+    // as a SEPARATE process (the survivable-spawn model), so a real squatter is
+    // never us — but an in-process serve (a test's in-process daemon) would be, and
+    // "recovering" it means SIGTERMing ourselves. Never a squatter, never a kill.
+    const holders = socketHolders(spec.socketPath).filter(
+      (h) => h.pid !== process.pid,
+    );
+    const [firstHolder] = holders;
+    if (firstHolder === undefined) {
+      // Accepting, yet the OS names no (external) holder: a race (it just closed), a
+      // lookup we could not complete, or our own in-process serve. Never guess a
+      // kill — let the ordinary spawn re-probe.
+      spec.log.warn(
+        { hostId: spec.hostId, socketPath: spec.socketPath },
+        "rendezvous socket is held but the OS names no external holder — skipping squatter recovery, will spawn",
+      );
+      return;
+    }
+
+    // Prove what the holder is, reusing the adopt path's three-way handshake
+    // verdict (the pid arg is log context only — the dial targets `spec.socketPath`).
+    const verdict = await connectSurvivor(firstHolder.pid, spec.connect);
+    if (verdict.kind === "adopted") {
+      // Compatible gate-less orphan — today's connect path adopts it (PTYs kept).
+      // Drop our probe; the spawn below re-dials and holds it. Not a wedge, not a kill.
+      verdict.conn.dispose();
+      spec.log.info(
+        {
+          hostId: spec.hostId,
+          socketPath: spec.socketPath,
+          pid: firstHolder.pid,
+        },
+        "gate-less holder speaks a compatible contract — leaving it for the connect path to adopt (PTYs preserved)",
+      );
+      return;
+    }
+    if (verdict.kind === "unreachable") {
+      // Did not complete the kaval handshake → foreign / non-conforming. Never kill.
+      throw new SocketSquatterForeignError(spec.socketPath, holders);
+    }
+
+    // `skew`: a kaval of this estate we cannot serve through — the wedge. The kill
+    // target is the daemon's OWN self-reported pid (attestation 3), which MUST be
+    // corroborated by the OS as a holder of THIS exact socket (attestation 2). A
+    // skew that carries no pid, or a pid the OS does not name, is not a verified
+    // kaval of this rendezvous — refuse rather than kill.
+    const reportedPid = verdict.err.pid;
+    if (
+      reportedPid === undefined ||
+      !holders.some((h) => h.pid === reportedPid)
+    ) {
+      throw new SocketSquatterForeignError(spec.socketPath, holders);
+    }
+
+    // Re-confirm the holder is UNCHANGED immediately before the kill (pid-reuse
+    // guard): the same pid must still hold this socket and it must still be
+    // accepting. A moved holder aborts — the spawn below re-probes the new state.
+    const still = socketHolders(spec.socketPath);
+    if (
+      !still.some((h) => h.pid === reportedPid) ||
+      !(await socketAccepting(spec.socketPath))
+    ) {
+      spec.log.warn(
+        { hostId: spec.hostId, socketPath: spec.socketPath, pid: reportedPid },
+        "gate-less squatter moved between identify and kill — aborting recycle, will spawn",
+      );
+      return;
+    }
+
+    spec.log.warn(
+      {
+        hostId: spec.hostId,
+        socketPath: spec.socketPath,
+        pid: reportedPid,
+        daemonVersion: verdict.err.daemonVersion,
+        requiredVersion: verdict.err.requiredVersion,
+      },
+      "recovered a gate-less skewed kaval squatter — verified by handshake (OS holder + self-reported pid agree) — recycling it",
+    );
+    // NOTE: the re-confirm→SIGTERM window inside `killLiveHolder` is IRREDUCIBLE —
+    // there is no atomic check-and-kill syscall — so it is a bounded, considered
+    // race, NOT an oversight. It is the SAME race `killLiveHolder` already lives
+    // with on a gate pid (see its liveness-probe→SIGTERM above), and strictly
+    // smaller here: three attestations (speaks-kaval + OS-holder + self-reported
+    // pid) agree before the signal, versus one gate pid there.
+    await killLiveHolder(reportedPid);
+  };
+
   // Spawn a fresh daemon, wait for its socket, run the injected handshake, and
   // hold the connection (wiring its mid-session close → `degraded`). Reports
   // `dead` before throwing on any failure (launch, socket-never-up, or a failed
@@ -535,6 +709,25 @@ export function createEndpoint<C, I, M = undefined>(
   // skew-recycle — call this, so the mechanism never drifts between them.
   const recycle = async (holder: number): Promise<void> => {
     await killLiveHolder(holder);
+    await spawnConnectHold();
+  };
+
+  // The no-gate-holder spawn: run the gate-less-squatter recovery FIRST, then spawn.
+  // Called ONLY where a boot policy found NO live gate holder yet is about to spawn
+  // — `ensure`'s else and `adoptSurvivor`'s no-survivor branch (so, via converge and
+  // renew, every wedge path) — never the `recycle` path, which has already reaped
+  // its holder (re-recovering there would just re-probe a socket we deliberately
+  // freed). The endpoint contract is "failures report `dead` before they throw" (the
+  // UI relies on it to leave `connecting`), so a foreign-squatter refusal flips to
+  // `dead` before rethrowing; `killLiveHolder` inside the recovery already does the
+  // same for a reap that times out.
+  const recoverOrSpawn = async (): Promise<void> => {
+    try {
+      await recoverGatelessSquatter();
+    } catch (err) {
+      emit({ state: "dead" });
+      throw err;
+    }
     await spawnConnectHold();
   };
 
@@ -725,8 +918,11 @@ export function createEndpoint<C, I, M = undefined>(
         );
       }
     }
-    // No live survivor anywhere — a fresh boot; spawn fresh at the PRIMARY.
-    await spawnConnectHold();
+    // No live survivor anywhere — a fresh boot; spawn fresh at the PRIMARY. But a
+    // gate-less squatter may still hold the primary socket (the wedge) even though
+    // no GATE holder was found, so recover it first (recycle a skew, refuse a
+    // foreign, leave a compatible for the connect below to adopt).
+    await recoverOrSpawn();
     return false;
   };
 
@@ -782,7 +978,9 @@ export function createEndpoint<C, I, M = undefined>(
       if (holder !== undefined) {
         await recycle(holder);
       } else {
-        await spawnConnectHold();
+        // No live GATE holder — but a gate-less squatter may still hold the socket
+        // (the wedge). Recover it before spawning (recycle a skew, refuse a foreign).
+        await recoverOrSpawn();
       }
     },
 

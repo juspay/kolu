@@ -101,6 +101,11 @@ export async function connectKaval(
       subject: "pty-host",
       daemonVersion: version.contractVersion,
       requiredVersion: PTY_HOST_CONTRACT_VERSION,
+      // The skewed daemon's OWN pid, so the gate-less-squatter recovery of an OLD
+      // orphan (the 25494 case, which throws HERE before a connection exists) has
+      // its third identity attestation. `pid` is a required `system.version` field
+      // (since #1301), so a validated `version` always carries it.
+      pid: version.pid,
     });
   }
   let closed = false;
@@ -111,6 +116,10 @@ export async function connectKaval(
     client,
     identity: version.identity,
     startedAt: version.startedAt,
+    // The daemon's self-reported OS pid — the third identity attestation the
+    // gate-less-squatter recovery cross-checks against the OS socket-holder lookup
+    // before recycling an orphan. A required `system.version` field (since #1301).
+    pid: version.pid,
     metadata: {
       contractVersion: version.contractVersion,
       lifetime: version.lifetime,
