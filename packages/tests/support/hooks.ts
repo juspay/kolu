@@ -203,7 +203,7 @@ process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 const fakeBinDir = mkSubDir("bin");
 const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
 const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode", "grok", "claude"]) {
+for (const name of ["codex", "opencode", "grok", "claude", "node"]) {
   const target = path.join(fakeBinDir, name);
   fs.copyFileSync(bashPath, target);
   fs.chmodSync(target, 0o755);
@@ -212,10 +212,14 @@ for (const name of ["codex", "opencode", "grok", "claude"]) {
 process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
-// The `claude` stub is the ROOT process for the command-rooted spawn repro
-// (`spawn_detection_steps.ts`) — a bash copy whose comm="claude", run as the
-// PTY's argv[0] with no shell, exactly as `kaval-tui create -- claude …` does.
+// The `claude` and `node` stubs are ROOT processes for the command-rooted spawn
+// repro (`spawn_detection_steps.ts`), run as the PTY's argv[0] with no shell,
+// exactly as `kaval-tui create -- <agent> …` does. `claude` (comm="claude")
+// backs the pid-path regression guard; `node` is the npm-shim's real comm — an
+// `opencode`-named binary execs it so comm="node" ≠ the agent name, forcing
+// detection through the seeded command hint (the two-lock path).
 process.env.KOLU_FAKE_CLAUDE_BIN = fakeBins.claude;
+process.env.KOLU_FAKE_NODE_BIN = fakeBins.node;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
