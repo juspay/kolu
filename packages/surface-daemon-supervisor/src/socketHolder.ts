@@ -27,10 +27,23 @@
  * only; an unsupported platform throws rather than silently returning "nobody
  * holds it" (which would degrade the recovery into an unconditional respawn over a
  * squatter it never identified) — the no-fallbacks rule at the OS boundary.
+ *
+ * **Async, and bounded.** The lookup is invoked from the daemon boot / recovery
+ * path, which runs on the same event loop that serves live terminals. So it uses
+ * async `fs.promises` for the `/proc` walk (never a synchronous full-tree scan that
+ * blocks every terminal's I/O), and darwin's `lsof` runs under a hard `timeout`
+ * (a wedged `lsof` on a contended mount must reject, never hang the loop forever).
  */
 
-import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, readlinkSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { readdir, readFile, readlink } from "node:fs/promises";
+import { promisify } from "node:util";
+
+const execFileP = promisify(execFile);
+
+/** Hard ceiling on the darwin `lsof` subprocess — a wedged `lsof` (contended mount,
+ *  slow box) must be killed and rejected, never left to hang the serving event loop. */
+const LSOF_TIMEOUT_MS = 5_000;
 
 /** A process the OS reports as holding a socket path — its pid and a human
  *  command label (for the foreign-holder error that must name the culprit). */
@@ -46,7 +59,7 @@ export interface SocketHolder {
  *  (empty if none — the socket is unbound / already gone). Never throws for a
  *  missing socket or an unreadable `/proc` entry; DOES throw on an unsupported
  *  platform (fail fast — see the module header). */
-export function socketHolders(socketPath: string): SocketHolder[] {
+export function socketHolders(socketPath: string): Promise<SocketHolder[]> {
   switch (process.platform) {
     case "linux":
       return linuxSocketHolders(socketPath);
@@ -64,10 +77,10 @@ export function socketHolders(socketPath: string): SocketHolder[] {
  *  the bound socket sets the `SO_ACCEPTCON` flag). Its Inode column then maps to
  *  the owning pid by scanning `/proc/<pid>/fd/*` for a symlink to `socket:[<inode>]`.
  *  Exact and singular — the empirically-grounded parse. */
-function linuxSocketHolders(socketPath: string): SocketHolder[] {
+async function linuxSocketHolders(socketPath: string): Promise<SocketHolder[]> {
   let raw: string;
   try {
-    raw = readFileSync("/proc/net/unix", "utf8");
+    raw = await readFile("/proc/net/unix", "utf8");
   } catch {
     return [];
   }
@@ -95,7 +108,7 @@ function linuxSocketHolders(socketPath: string): SocketHolder[] {
   const holders: SocketHolder[] = [];
   let pids: string[];
   try {
-    pids = readdirSync("/proc");
+    pids = await readdir("/proc");
   } catch {
     return [];
   }
@@ -103,19 +116,19 @@ function linuxSocketHolders(socketPath: string): SocketHolder[] {
     if (!/^\d+$/.test(pid)) continue;
     let fds: string[];
     try {
-      fds = readdirSync(`/proc/${pid}/fd`);
+      fds = await readdir(`/proc/${pid}/fd`);
     } catch {
       continue; // the process exited, or is not ours to inspect
     }
     for (const fd of fds) {
       let target: string;
       try {
-        target = readlinkSync(`/proc/${pid}/fd/${fd}`);
+        target = await readlink(`/proc/${pid}/fd/${fd}`);
       } catch {
         continue;
       }
       if (wanted.has(target)) {
-        holders.push({ pid: Number(pid), command: linuxCommand(pid) });
+        holders.push({ pid: Number(pid), command: await linuxCommand(pid) });
         break;
       }
     }
@@ -125,9 +138,9 @@ function linuxSocketHolders(socketPath: string): SocketHolder[] {
 
 /** A readable command for a linux pid: `/proc/<pid>/cmdline` (NUL-separated argv,
  *  joined with spaces), falling back to `/proc/<pid>/comm`, then `"?"`. */
-function linuxCommand(pid: string): string {
+async function linuxCommand(pid: string): Promise<string> {
   try {
-    const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8")
+    const argv = (await readFile(`/proc/${pid}/cmdline`, "utf8"))
       .split("\0")
       .filter((s) => s.length > 0);
     if (argv.length > 0) return argv.join(" ");
@@ -135,7 +148,7 @@ function linuxCommand(pid: string): string {
     // fall through
   }
   try {
-    return readFileSync(`/proc/${pid}/comm`, "utf8").trim() || "?";
+    return (await readFile(`/proc/${pid}/comm`, "utf8")).trim() || "?";
   } catch {
     return "?";
   }
@@ -148,20 +161,25 @@ function linuxCommand(pid: string): string {
  *  pids; the caller's handshake-reported pid selects the true listener from the
  *  set. Exits non-zero (and prints nothing) when no process holds the path, which
  *  we read as "no holders", not an error. */
-function darwinSocketHolders(socketPath: string): SocketHolder[] {
+async function darwinSocketHolders(
+  socketPath: string,
+): Promise<SocketHolder[]> {
   let out: string;
   try {
     // -w silence warnings, -n/-P skip name resolution (faster, and we match a
     // literal path), -F pcn machine-readable fields. The path is passed as a
-    // filter argument so lsof only reports fds against this exact socket.
-    out = execFileSync(
+    // filter argument so lsof only reports fds against this exact socket. Async +
+    // a hard `timeout` so a wedged lsof is SIGKILLed and rejected, never hanging
+    // the serving event loop.
+    ({ stdout: out } = await execFileP(
       "lsof",
       ["-w", "-n", "-P", "-F", "pcn", "--", socketPath],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
+      { encoding: "utf8", timeout: LSOF_TIMEOUT_MS },
+    ));
   } catch {
-    // Non-zero exit is lsof's normal "nothing matched" signal (or lsof absent);
-    // either way there is no holder we can name — return empty, don't throw.
+    // Non-zero exit is lsof's normal "nothing matched" signal (or lsof absent, or
+    // the timeout SIGKILL); either way there is no holder we can name — return
+    // empty, don't throw.
     return [];
   }
   // lsof -F emits records line-by-line: a `p<pid>` starts a process block, `c` is

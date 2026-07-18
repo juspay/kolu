@@ -53,16 +53,16 @@ describe.skipIf(!onLinux)("socketHolders (linux /proc)", () => {
     const socketPath = join(d, "held.sock");
     const pid = await spawnHolder(socketPath);
 
-    const holders = socketHolders(socketPath);
+    const holders = await socketHolders(socketPath);
     expect(holders.map((h) => h.pid)).toContain(pid);
     const holder = holders.find((h) => h.pid === pid);
     // The command label is read from /proc/<pid>/cmdline — a node invocation here.
     expect(holder?.command).toMatch(/node|-e/i);
   });
 
-  it("returns empty for a path nobody holds", () => {
+  it("returns empty for a path nobody holds", async () => {
     const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-    expect(socketHolders(join(d, "nobody.sock"))).toEqual([]);
+    expect(await socketHolders(join(d, "nobody.sock"))).toEqual([]);
   });
 
   it("finds a holder whose socket PATH CONTAINS A SPACE (parses the /proc path column, not a truncated split)", async () => {
@@ -73,19 +73,23 @@ describe.skipIf(!onLinux)("socketHolders (linux /proc)", () => {
     mkdirSync(spaced);
     const socketPath = join(spaced, "held.sock");
     const pid = await spawnHolder(socketPath);
-    expect(socketHolders(socketPath).map((h) => h.pid)).toContain(pid);
+    expect((await socketHolders(socketPath)).map((h) => h.pid)).toContain(pid);
   });
 
   it("stops naming the holder once it exits (no stale pid)", async () => {
     const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
     const socketPath = join(d, "held.sock");
     const pid = await spawnHolder(socketPath);
-    expect(socketHolders(socketPath).some((h) => h.pid === pid)).toBe(true);
+    expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
+      true,
+    );
 
     process.kill(pid, "SIGKILL");
     children.splice(children.indexOf(pid), 1);
     // Wait for the kernel to drop the socket binding.
     await new Promise((r) => setTimeout(r, 80));
-    expect(socketHolders(socketPath).some((h) => h.pid === pid)).toBe(false);
+    expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
+      false,
+    );
   });
 });

@@ -26,6 +26,7 @@ import {
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import { withTimeout } from "../withTimeout.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
@@ -78,29 +79,14 @@ const HANDSHAKE_READ_DEADLINE_MS = 10_000;
  *  `socket.destroy()` is not unhandled. Throws on the deadline; the CALLER destroys
  *  the socket (both `connectKaval` and the convergence probe already do, in their own
  *  catch, so error handling stays where each wants it). */
-async function readSystemVersionBounded(
+function readSystemVersionBounded(
   client: PtyHostClient,
 ): Promise<Awaited<ReturnType<PtyHostClient["surface"]["system"]["version"]>>> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      client.surface.system.version({}),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `handshake read exceeded ${HANDSHAKE_READ_DEADLINE_MS}ms deadline`,
-              ),
-            ),
-          HANDSHAKE_READ_DEADLINE_MS,
-        );
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
+  return withTimeout(
+    client.surface.system.version({}),
+    HANDSHAKE_READ_DEADLINE_MS,
+    `handshake read exceeded ${HANDSHAKE_READ_DEADLINE_MS}ms deadline`,
+  );
 }
 
 export async function connectKaval(

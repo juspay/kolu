@@ -391,6 +391,16 @@ function socketAccepting(socketPath: string): Promise<boolean> {
   );
 }
 
+/** The OS holders of `socketPath`, EXCLUDING the supervisor's own process. The
+ *  supervisor spawns its daemon as a SEPARATE process (the survivable-spawn model),
+ *  so its OWN pid holding the rendezvous is never a squatter — only an in-process
+ *  serve (a test's in-process daemon) would be — and must never be a kill target.
+ *  Single source for that self-exclusion safety invariant, so it can't drift across
+ *  the recovery's read sites. */
+async function externalHolders(socketPath: string): Promise<SocketHolder[]> {
+  return (await socketHolders(socketPath)).filter((h) => h.pid !== process.pid);
+}
+
 export function createEndpoint<C, I, M = undefined>(
   spec: EndpointSpec<C, I, M>,
 ): Endpoint<C, I, M> {
@@ -467,6 +477,23 @@ export function createEndpoint<C, I, M = undefined>(
       spec.log.error(
         { hostId: spec.hostId, err: String(err), status: reported.state },
         "daemon status subscriber failed",
+      );
+    }
+  };
+
+  // Run a caller-supplied best-effort location hook (`adoptHint.onAdopted`) at a
+  // fanout, GUARDED: a throw from the hook must not break the funnel — the adoption
+  // it accompanies has already succeeded (we hold a live connection), and the hook
+  // only records where the daemon lives, so its failure is logged, never propagated
+  // out of the boot (which — running AFTER `recoverGuarded`'s catch — would escape
+  // the "report `dead` before throwing" contract and strand the UI).
+  const runHook = (hook: (() => void) | undefined, name: string): void => {
+    try {
+      hook?.();
+    } catch (err) {
+      spec.log.error(
+        { hostId: spec.hostId, hook: name, err: String(err) },
+        "adoption location hook threw — the adoption succeeded; the hook's side effect did not",
       );
     }
   };
@@ -562,9 +589,7 @@ export function createEndpoint<C, I, M = undefined>(
     socketPath: string;
   }): Promise<"free"> => {
     if (!(await socketAccepting(rv.socketPath))) return "free";
-    const held = socketHolders(rv.socketPath).filter(
-      (h) => h.pid !== process.pid,
-    );
+    const held = await externalHolders(rv.socketPath);
     spec.log.error(
       {
         hostId: spec.hostId,
@@ -602,9 +627,13 @@ export function createEndpoint<C, I, M = undefined>(
   //                  reported `incompatible`; NEVER killed.
   //   - `recycled` → a SKEW under the RECYCLE policy (kaval): the verified orphan was
   //                  SIGTERM'd, so the caller spawns fresh.
-  //   plus, it THROWS `SocketSquatterForeignError` for a holder that did not complete
-  //   the (deadline-bounded) handshake — a stranger or a non-conforming speaker — and
-  //   NEVER kills it, regardless of policy.
+  //   A holder that never completes the handshake (a stranger, or a non-conforming
+  //   speaker) is NEVER killed; but because a single unreachable pass is NOT proof of
+  //   foreign (a slow/loaded legitimate kaval presents identically — the same verdict
+  //   `adoptAt` treats conservatively), it is NOT branded foreign on the first miss:
+  //   the re-decision loop retries it, and only a holder that stays unreachable across
+  //   EVERY attempt reaches the tail's `freeOrFailLoud`, which THROWS
+  //   `SocketSquatterForeignError` on a still-accepting socket.
   const recoverGatelessSquatter = async (
     rv: { gatePath: string; socketPath: string },
     connect: () => Promise<DaemonConnection<C, I, M>>,
@@ -622,7 +651,7 @@ export function createEndpoint<C, I, M = undefined>(
       // daemon as a SEPARATE process (the survivable-spawn model), so a real
       // squatter is never us — but an in-process serve (a test's in-process daemon)
       // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
-      const rawHolders = socketHolders(rv.socketPath);
+      const rawHolders = await socketHolders(rv.socketPath);
       const heldByUs = rawHolders.some((h) => h.pid === process.pid);
       const holders = rawHolders.filter((h) => h.pid !== process.pid);
       if (holders.length === 0) {
@@ -670,9 +699,24 @@ export function createEndpoint<C, I, M = undefined>(
         return "adopted";
       }
       if (verdict.kind === "unreachable") {
-        // Did not complete the (deadline-bounded) handshake → foreign / non-conforming.
-        // Never kill — regardless of policy.
-        throw new SocketSquatterForeignError(rv.socketPath, holders);
+        // A NON-skew, deadline-exhausted handshake failure is NOT proof of foreign —
+        // it is the very "alive but we cannot reach it RIGHT NOW" verdict `adoptAt`
+        // treats CONSERVATIVELY (a slow / heavily-loaded but legitimate kaval presents
+        // here identically to a stranger). So do NOT brand it foreign on the first
+        // miss: re-decide via the loop. Only a holder that stays unreachable across
+        // EVERY attempt reaches the tail's `freeOrFailLoud`, which fails LOUD on a
+        // still-accepting socket. This matches the gate-recorded path's disposition of
+        // the identical verdict, and lets the re-decision loop absorb a transient hiccup.
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: holderPids,
+            attempt,
+          },
+          "gate-less holder did not complete the handshake this pass (non-skew, not proven foreign) — re-deciding rather than branding it foreign",
+        );
+        continue;
       }
 
       // `skew`: a daemon of this estate we cannot serve through. What we do with it is
@@ -708,7 +752,22 @@ export function createEndpoint<C, I, M = undefined>(
       // this rendezvous — refuse rather than kill.
       const reportedPid = verdict.err.pid;
       if (reportedPid === undefined || !holderPids.includes(reportedPid)) {
-        throw new SocketSquatterForeignError(rv.socketPath, holders);
+        // The skew's self-reported pid is absent, or not (yet) among the OS holders —
+        // an identity we cannot corroborate THIS pass (a non-conforming speaker, or the
+        // OS lookup racing the handshake). Re-decide rather than kill or brand foreign
+        // on the first miss; a holder that stays uncorroborated across every attempt
+        // reaches the tail's fail-loud (still-accepting → foreign).
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            reportedPid,
+            holders: holderPids,
+            attempt,
+          },
+          "gate-less skew's self-reported pid is not OS-corroborated this pass — re-deciding rather than killing or branding foreign",
+        );
+        continue;
       }
 
       // Re-attest identity IMMEDIATELY before the kill, in the order the guarantee
@@ -737,9 +796,7 @@ export function createEndpoint<C, I, M = undefined>(
       }
       // OS corroboration AFTER the fresh handshake (F3 order): the just-attested pid
       // must still be a live holder of THIS socket right now.
-      const finalHolders = socketHolders(rv.socketPath).filter(
-        (h) => h.pid !== process.pid,
-      );
+      const finalHolders = await externalHolders(rv.socketPath);
       if (!finalHolders.some((h) => h.pid === reportedPid)) {
         spec.log.warn(
           { hostId: spec.hostId, socketPath: rv.socketPath, pid: reportedPid },
@@ -989,7 +1046,7 @@ export function createEndpoint<C, I, M = undefined>(
     // it never parses an error, only branches on the soul's typed skew marker.
     const outcome = await connectSurvivor([holder], connect);
     if (outcome.kind === "adopted") {
-      onAdopted?.();
+      runHook(onAdopted, "onAdopted");
       spec.log.info(
         {
           hostId: spec.hostId,
@@ -1105,16 +1162,21 @@ export function createEndpoint<C, I, M = undefined>(
     ): Promise<boolean | undefined> => {
       switch (outcome) {
         case "adopted":
-          onAdopted?.();
+          runHook(onAdopted, "onAdopted");
           return true;
         case "refused":
           return false;
         case "recycled":
           await spawnConnectHold();
           return false;
-        default:
-          return undefined; // "free" — nothing recovered here
+        case "free":
+          return undefined; // nothing recovered here — the caller falls through
       }
+      // Exhaustiveness fence (the file's `satisfies never` idiom): a new recovery
+      // outcome compile-fails here until it is handled, rather than silently
+      // falling through to "free".
+      outcome satisfies never;
+      return undefined;
     };
 
     const primary = await settle(
