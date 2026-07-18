@@ -118,6 +118,23 @@ export const BoardMock = () => (
 
 <BoardMock />
 
+### Scoping: whose board is this?
+
+The right panel is **per-terminal** — so what does *this terminal's* Board
+show? The same association the Code tab already uses: **the terminal's cwd
+names the repo, and the repo is the campaign.** cwd → repo root → every
+*worktree* of that repo → their terminals, branches, PRs, sensor states.
+
+- Two terminals in the same repo show the **same board** (as the Code tab
+  shows them the same files) — the panel is a per-terminal *viewport*, the
+  content is the repo's.
+- A terminal in a different repo (drishti) shows *that* repo's campaign —
+  multi-project coordination falls out with zero configuration, the
+  "one orchestrator, many projects" shape.
+- A terminal in no repo shows an empty tab, honestly.
+
+No campaign registry, no board picker — the cwd derivation again.
+
 Everything in that mock is **already observed** by the running system, today:
 
 | Element | Source (existing) |
