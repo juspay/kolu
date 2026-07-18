@@ -116,6 +116,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
     envVar: "AGENT_DRVS_JSON",
     drvNoun: "agent",
     fatalPrefix: "agent:",
+    localEnv: {},
     probe: async () => undefined,
   };
 
@@ -178,6 +179,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       }),
       drvNoun: "agent",
       fatalPrefix: "agent:",
+      localEnv: {},
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
@@ -193,6 +195,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "pulam",
       fatalPrefix: "pulam:",
+      localEnv: {},
       probe: async () => undefined,
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
@@ -210,6 +213,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "pulam",
       fatalPrefix: "pulam:",
+      localEnv: {},
       probe: async () => undefined,
     });
     expect(sshOpts()?.extraArgs).toBeUndefined();
@@ -227,6 +231,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       }),
       drvNoun: "widget",
       fatalPrefix: "widget:",
+      localEnv: {},
       probe: async () => undefined,
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
@@ -243,6 +248,11 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     fakeSession(client);
     const probe = vi.fn(async () => "ok");
 
+    // A distinctive composed env, so we can prove it reaches the connector verbatim
+    // through the forwarding seam (dialAgentOnce → sshConnector → buildAgentCommand →
+    // spawn) — a later optional/default regression at the one-shot API can't silently
+    // drop it (PR1.5 / #1872).
+    const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const dial = await dialAgentOnce({
       host: "nix@prod",
       binary: "agent",
@@ -250,12 +260,15 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "agent",
       fatalPrefix: "agent:",
+      localEnv,
       probe,
     });
 
     expect(h.sshConnector).toHaveBeenCalledWith(
       expect.objectContaining({ host: "nix@prod", binary: "agent" }),
     );
+    // The composed localEnv is forwarded verbatim to the connector.
+    expect(sshOpts().localEnv).toBe(localEnv);
     expect(probe).toHaveBeenCalledWith(client);
     expect(h.markConnected).toHaveBeenCalledTimes(1);
     expect(dial.client).toBe(client);
@@ -274,6 +287,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         agentDrvsJson: VALID_MAP,
         drvNoun: "agent",
         fatalPrefix: "agent:",
+        localEnv: {},
         probe: async () => {
           throw new Error("link dead");
         },
@@ -331,6 +345,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "pulam",
       fatalPrefix: "pulam:",
+      localEnv: {},
       probe: async () => {
         throw new Error("[AsyncIdQueue] Queue[1] was closed");
       },
@@ -377,6 +392,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "kaval",
       fatalPrefix: "kaval --stdio:",
+      localEnv: {},
       probe: async () => {
         throw new Error("[AsyncIdQueue] Queue[1] was closed");
       },
@@ -402,6 +418,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         agentDrvsJson: VALID_MAP,
         drvNoun: "agent",
         fatalPrefix: "agent:",
+        localEnv: {},
         probe: async () => {
           throw new Error("transport blip");
         },
@@ -422,6 +439,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
     agentDrvsJson: VALID_MAP,
     drvNoun: "agent",
     fatalPrefix: "agent:",
+    localEnv: {},
     probe: async () => "ok",
   };
 

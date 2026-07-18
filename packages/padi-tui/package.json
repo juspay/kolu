@@ -16,7 +16,8 @@
     "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "cleye": "^2.3.0",
-    "columnify": "^1.6.0"
+    "columnify": "^1.6.0",
+    "kolu-pty": "workspace:*"
   },
   "devDependencies": {
     "@types/columnify": "^1.5.4",

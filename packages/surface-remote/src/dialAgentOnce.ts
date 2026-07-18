@@ -141,6 +141,13 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
    *  the caller's concern (see the remote padi binding's `--state-root` call site). */
   extraArgs?: readonly string[];
+  /** The COMPLETE env for a localhost dial's direct `spawn` — REQUIRED (threaded to
+   *  `sshConnector` → `buildAgentCommand`). A localhost agent runs with EXACTLY this
+   *  env, never the caller's ambient `process.env`, so identity vars can't ride an
+   *  ambient inherit into a locally-hosted agent (#1872 / PR1.5). Unused on a real
+   *  remote (the ssh client inherits). The caller composes a clean env — kolu CLIs via
+   *  kolu-pty's `composeSpawnEnv`; surface-remote stays policy-free. */
+  localEnv: Record<string, string>;
   /** Structured diagnostic logger, forwarded to `MakeSessionOptions.log`. Omit
    *  and the session writes its `nix copy` progress / connection transitions /
    *  forwarded remote stderr to `process.stderr` (what a plain CLI wants). An
@@ -175,6 +182,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       host: opts.host,
       binary: opts.binary,
       extraArgs: opts.extraArgs,
+      localEnv: opts.localEnv,
       resolveDrvPath: () =>
         resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
     }),

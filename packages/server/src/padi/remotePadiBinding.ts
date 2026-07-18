@@ -46,6 +46,7 @@ import {
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
 import type { PadiConvergence } from "kolu-common/surface";
 import {
@@ -378,6 +379,10 @@ export function ensureRemotePadiBinding(
     host,
     binary: "padi",
     extraArgs,
+    // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the
+    // localEnv doc on buildAgentCommand. (Remote-padi operational overrides ride
+    // `extraArgs`/`--state-root`, not env — the twin of the local arm's `daemonEnv`.)
+    localEnv: composeSpawnEnv(process.env),
     // Reset-before-attempt, tag-on-fault: a fault classified on THIS dial stands
     // until the NEXT dial starts (whether that one succeeds, clearing it, or hits a
     // different fault, replacing it) — never a stale cause surviving a recovery.

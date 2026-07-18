@@ -78,6 +78,7 @@ describe("session diagnostics land in a receiver-sensitive structured logger", (
       connectOnce: sshConnector({
         host: "strictlog",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 1000,

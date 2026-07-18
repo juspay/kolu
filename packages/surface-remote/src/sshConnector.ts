@@ -84,6 +84,13 @@ export interface SshConnectorOptions {
    *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted for
    *  a real remote; verbatim for localhost. See `buildAgentCommand`. */
   extraArgs?: readonly string[];
+  /** The COMPLETE env for a localhost dial's direct `spawn` — REQUIRED (see
+   *  `buildAgentCommand`). Threaded straight through; on a real remote it is unused
+   *  (the ssh child inherits the caller's env). The caller composes a clean env (kolu
+   *  via kolu-pty's `composeSpawnEnv`); surface-remote stays policy-free. Required so
+   *  a localhost dial can never fall back to ambient full-inherit — the seam #1880
+   *  left and #1872 forbids. drishti and every kolu CLI plug in here. */
+  localEnv: Record<string, string>;
 }
 
 /** Build an ssh {@link Connector} for `(host, binary)`. Each `connectOnce` call
@@ -130,14 +137,19 @@ export function sshConnector<C extends AnyContractRouter>(
 
     // Transport is up: build the client and flip the loop to `connecting`.
     ctx.connecting();
-    const { command, args } = buildAgentCommand({
+    const { command, args, env } = buildAgentCommand({
       host: opts.host,
       agentPath: realisedAgentPath,
       binary: opts.binary,
       extraArgs: opts.extraArgs,
+      localEnv: opts.localEnv,
     });
     const child: ChildProcess = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
+      // `env` is the caller-composed localhost env, or `undefined` on the ssh arm
+      // (inherit — the local ssh client needs `SSH_AUTH_SOCK` / `~/.ssh`). A localhost
+      // spawn therefore NEVER inherits the caller's ambient env (#1872 / PR1.5).
+      env,
     });
 
     child.stderr?.setEncoding("utf-8");

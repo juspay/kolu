@@ -134,6 +134,14 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     connectOnce: sshConnector<typeof entry.contract>({
       host,
       binary: "fleet-top-agent",
+      // Policy-free: the consumer composes the localhost arm's spawn env, keeping only
+      // the keys that are SET (an empty HOME/PATH would misdirect lookups). kolu uses
+      // kolu-pty's `composeSpawnEnv`. Never the caller's ambient `process.env`; unused for ssh.
+      localEnv: Object.fromEntries(
+        (["HOME", "PATH"] as const)
+          .map((k): [string, string | undefined] => [k, process.env[k]])
+          .filter((e): e is [string, string] => e[1] !== undefined),
+      ),
       resolveDrvPath: () => Promise.resolve(agentDrv), // deferred per dial
     }),
   });
