@@ -138,7 +138,12 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                   <For each={groups()}>
                     {(group) => (
                       <div data-testid="repo-group" data-repo-name={group.key}>
-                        <div class="sticky top-0 z-10 bg-surface-1 pb-1.5">
+                        {/* NOT sticky. A pinned, opaque heading masks its own
+                            two-line rows as they scroll under it — the name line
+                            hides behind the heading while the subtitle peeks out,
+                            leaving an orphaned "Asleep · restores dormant" with no
+                            session above it. Let the heading scroll with its rows. */}
+                        <div class="pb-1.5">
                           <span
                             data-testid="repo-heading"
                             class="text-sm font-semibold text-fg truncate"
