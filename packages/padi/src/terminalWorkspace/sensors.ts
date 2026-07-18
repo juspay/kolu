@@ -384,30 +384,45 @@ function startAgentCommandSensor(
 
 // ── Agent detectors ───────────────────────────────────────────────────
 
+// What `foreground === root` MEANS — the single decision `commandRooted` was
+// added to encapsulate, in ONE place. `pid` is the ROOT pid (constant, from
+// spawn). Shell is idle when the foreground process group IS the shell itself
+// (or unknown): for a shell-rooted PTY that root is the shell, so
+// `foreground === root` means an idle prompt. But for a COMMAND-rooted PTY
+// (#1872) the root IS the agent, so `foreground === root` means the agent is
+// BUSY — the exact opposite. There is no shell to be idle at, so it is never
+// shell-idle. Both the snapshot/display path and the reconcile session-end-dedup
+// path read the answer from here, so they can never encode different answers.
+function isShellIdle(
+  foregroundPid: number | undefined,
+  pid: number,
+  commandRooted: boolean,
+): boolean {
+  return commandRooted
+    ? false
+    : foregroundPid === undefined || foregroundPid === pid;
+}
+
 function snapshotSignals(
   foreground: ForegroundSample,
   pid: number,
   cwd: string,
   currentAgent: string | null,
   commandRooted: boolean,
-): AgentTerminalState {
+): { state: AgentTerminalState; shellIdle: boolean } {
   const foregroundPid = foreground.foregroundPid;
-  // Shell is idle when the foreground process group IS the shell itself (or
-  // unknown). `pid` is the ROOT pid (constant, from spawn). For a shell-rooted
-  // PTY that root is the shell, so `foreground === root` means an idle prompt —
-  // null a stale command hint. But for a COMMAND-rooted PTY (#1872) the root IS
-  // the agent, so `foreground === root` means the agent is BUSY — the exact
-  // opposite. There is no shell to be idle at, so the hint must never be nulled
-  // on that basis.
-  const shellIdle = commandRooted
-    ? false
-    : foregroundPid === undefined || foregroundPid === pid;
+  const shellIdle = isShellIdle(foregroundPid, pid, commandRooted);
   const proc = foreground.process;
+  // Return the computed `shellIdle` alongside `state` so the reconcile path
+  // reads this one flip rather than re-deriving it from `state.foregroundPid`.
   return {
-    foregroundPid,
-    cwd,
-    readForegroundBasename: () => (proc ? path.basename(proc) : null),
-    lastAgentCommandName: shellIdle ? null : currentAgent,
+    state: {
+      foregroundPid,
+      cwd,
+      readForegroundBasename: () => (proc ? path.basename(proc) : null),
+      lastAgentCommandName: shellIdle ? null : currentAgent,
+    },
+    shellIdle,
   };
 }
 
@@ -564,7 +579,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     }
   }
   function reconcileInner() {
-    const state = snapshotSignals(
+    const { state, shellIdle } = snapshotSignals(
       currentForeground,
       pid,
       currentCwd,
@@ -596,14 +611,10 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
     // flavor flips — a defined-non-shell `unknown` giving way to a shell-idle `null` —
     // so a genuine quit after an ambiguous window still clears even though `current` is
-    // already null by then. `pid` is the ROOT pid (constant, from spawn), the same
-    // predicate `snapshotSignals` computes for `shellIdle` — including the #1872
-    // command-rooted flip: for a command-rooted PTY the root IS the agent, so
-    // `foreground === root` is BUSY (a defined non-shell foreground → keep-last
-    // `unknown`), never an idle-shell authoritative null.
-    const shellIdle = commandRooted
-      ? false
-      : state.foregroundPid === undefined || state.foregroundPid === pid;
+    // already null by then. `shellIdle` is the SAME boolean `snapshotSignals` already
+    // computed for this sample (read off its companion return, not re-derived) — so the
+    // dedup and the display path can never disagree, including the #1872 command-rooted
+    // flip where `foreground === root` is BUSY, never an idle-shell authoritative null.
     if (
       (current?.key ?? null) === nextKey &&
       (nextKey !== null || lastAbsenceShellIdle === shellIdle)
@@ -884,8 +895,14 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, commandRooted = false, signals, readScreenText, log } =
-    inputs;
+  const {
+    pid,
+    cwd,
+    commandRooted = false,
+    signals,
+    readScreenText,
+    log,
+  } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
