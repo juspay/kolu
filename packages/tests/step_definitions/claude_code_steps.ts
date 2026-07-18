@@ -23,7 +23,7 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
-const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
+export const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 /** Dynamic-workflow fixtures: a launched background task + its run journal. */
 const WORKFLOW_TASK_ID = "task-bg-0000";
 const WORKFLOW_RUN_ID = "wf-test-run-0000";
@@ -96,7 +96,7 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
 }
 
 /** Build a JSONL transcript with a specific final state. */
-function buildTranscript(state: MockState): string {
+export function buildTranscript(state: MockState): string {
   const userMsg = JSON.stringify({
     type: "user",
     uuid: "u1",

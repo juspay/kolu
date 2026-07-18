@@ -203,7 +203,7 @@ process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 const fakeBinDir = mkSubDir("bin");
 const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
 const fakeBins: Record<string, string> = {};
-for (const name of ["codex", "opencode", "grok"]) {
+for (const name of ["codex", "opencode", "grok", "claude"]) {
   const target = path.join(fakeBinDir, name);
   fs.copyFileSync(bashPath, target);
   fs.chmodSync(target, 0o755);
@@ -212,6 +212,10 @@ for (const name of ["codex", "opencode", "grok"]) {
 process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
+// The `claude` stub is the ROOT process for the command-rooted spawn repro
+// (`spawn_detection_steps.ts`) — a bash copy whose comm="claude", run as the
+// PTY's argv[0] with no shell, exactly as `kaval-tui create -- claude …` does.
+process.env.KOLU_FAKE_CLAUDE_BIN = fakeBins.claude;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -331,6 +335,16 @@ function kavalGate(): string {
   return withWorkerRuntimeDir(() =>
     path.join(path.dirname(padiKavalSocketPath(padiStateDir)), "kaval.pid"),
   );
+}
+
+/** THIS worker's kaval unix-socket path — the SAME daemon the server's pty-host
+ *  client dials and adopts terminals from. Mirrors `kavalGate()` (which only
+ *  swaps the socket's basename to `kaval.pid`), so an out-of-band `kaval-tui
+ *  create` from a step lands a PTY the server discovers via its inventory feed.
+ *  Pinned through `withWorkerRuntimeDir` because the harness process never sets
+ *  `XDG_RUNTIME_DIR` itself (only the server child gets it). */
+export function kavalSocketPath(): string {
+  return withWorkerRuntimeDir(() => padiKavalSocketPath(padiStateDir));
 }
 
 /** The pid holding THIS worker's padi gate right now (or undefined). A recycle-
