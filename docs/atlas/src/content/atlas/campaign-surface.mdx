@@ -113,6 +113,36 @@ today. The graph renders what is observed and nothing more; an unattributed
 lane simply hangs off the repo root. Observation can grow (input provenance
 is knowable at the MCP face), but the Board never guesses.</Footnote>
 
+### Implementation: what kolu builds vs what it observes
+
+The agent-agnostic principle draws the implementation line sharply: **kolu
+implements the actor substrate; the coordinator's brain is never product
+code.** The coordinator is whatever agent CLI runs in that terminal — its
+discipline (briefs, gates, rulings) is a prompt contract (the `/orchestrator`
+skill), swappable like any agent. kolu's job is to make the substrate real
+and observed:
+
+| Model concept | Implementing component | Status |
+| --- | --- | --- |
+| actor, address, mailbox | a kaval terminal: UUID + serialized input ("last one wins") | **shipped** |
+| create-an-actor (+ parent edge) | padi `lifecycle.create` with `parentId` | **shipped** |
+| creator attribution (who spawned whom via the act door) | record the calling session on MCP-created terminals — one server-side field | *small addition* |
+| observe: working / asking / idle, which agent | padi's agent sensors | **shipped** |
+| observe: branch → PR → CI per lane | the server's existing cwd-derivation for terminal chrome | **shipped — reused, not duplicated** |
+| the campaign graph | a **derived collection in kolu-server** joining the rows above, keyed by repo root — no new daemon, no new store, the same derive-don't-write shape as every other cell | *new, small* |
+| the Board tab | a client view subscribing to `campaign(repoOf(cwd))` — the third right-panel tab | *new* |
+| note rendering | `@kolu/solid-markdown` + standard marked extensions (alerts + footnotes **shipped**; add: live `#1234` pills via the server's forge access, directive syntax, the `html` fence → the existing sandboxed preview iframe) | *P0, small* |
+| durable knowledge | plain files in git — no new store, no schema | **shipped** (it's a filesystem) |
+| reset-to-stable (let it crash) | the agent CLI's own compaction / a fresh terminal | **shipped** — nothing to build |
+| the chat mirror | pesu: `postMessage` out, `sendInput` in — the chat-native note's bridge | *P3, per that note* |
+
+Read the Status column's shape: **most rows are shipped.** The feature is
+three small derived/rendering additions on an actor substrate kolu already
+is — which is exactly what the model-not-analogy claim predicts. What is
+*never* on the list: a coordinator engine, a workflow DSL, a state machine
+for campaigns — the brain stays an agent, the campaign state stays files
+and observation.
+
 ## The Board — a third right-panel tab, shaped like the graph
 
 The right panel today has two tabs (`inspector` | `code`). The Board is the
