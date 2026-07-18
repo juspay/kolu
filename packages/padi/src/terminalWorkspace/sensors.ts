@@ -389,11 +389,19 @@ function snapshotSignals(
   pid: number,
   cwd: string,
   currentAgent: string | null,
+  commandRooted: boolean,
 ): AgentTerminalState {
   const foregroundPid = foreground.foregroundPid;
   // Shell is idle when the foreground process group IS the shell itself (or
-  // unknown). `pid` is the shell's pid (constant, from spawn).
-  const shellIdle = foregroundPid === undefined || foregroundPid === pid;
+  // unknown). `pid` is the ROOT pid (constant, from spawn). For a shell-rooted
+  // PTY that root is the shell, so `foreground === root` means an idle prompt —
+  // null a stale command hint. But for a COMMAND-rooted PTY (#1872) the root IS
+  // the agent, so `foreground === root` means the agent is BUSY — the exact
+  // opposite. There is no shell to be idle at, so the hint must never be nulled
+  // on that basis.
+  const shellIdle = commandRooted
+    ? false
+    : foregroundPid === undefined || foregroundPid === pid;
   const proc = foreground.process;
   return {
     foregroundPid,
@@ -492,6 +500,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   readScreenText: ReadScreenText | undefined,
   emit: (o: TerminalEvent) => void,
   log: Logger,
+  commandRooted = false,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
   let current: {
@@ -560,6 +569,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       pid,
       currentCwd,
       agentState.currentAgent,
+      commandRooted,
     );
     if (!registeredForExternal && adapter.externalChanges?.isPresent(state)) {
       const activation = getActivation(adapter.kind);
@@ -586,10 +596,14 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
     // flavor flips — a defined-non-shell `unknown` giving way to a shell-idle `null` —
     // so a genuine quit after an ambiguous window still clears even though `current` is
-    // already null by then. `pid` is the shell's own pid (constant, from spawn), the
-    // same predicate `snapshotSignals` computes for `shellIdle`.
-    const shellIdle =
-      state.foregroundPid === undefined || state.foregroundPid === pid;
+    // already null by then. `pid` is the ROOT pid (constant, from spawn), the same
+    // predicate `snapshotSignals` computes for `shellIdle` — including the #1872
+    // command-rooted flip: for a command-rooted PTY the root IS the agent, so
+    // `foreground === root` is BUSY (a defined non-shell foreground → keep-last
+    // `unknown`), never an idle-shell authoritative null.
+    const shellIdle = commandRooted
+      ? false
+      : state.foregroundPid === undefined || state.foregroundPid === pid;
     if (
       (current?.key ?? null) === nextKey &&
       (nextKey !== null || lastAbsenceShellIdle === shellIdle)
@@ -848,6 +862,11 @@ export interface SensorInputs {
   pid: number;
   /** Spawn-time cwd — read once at start; later cwd changes flow via `signals.cwd`. */
   cwd: string;
+  /** True when the PTY's root process IS the spawned command, not a shell
+   *  (#1872). The agent detectors read it so `foreground === root` reads as a
+   *  busy command-rooted agent, not an idle shell prompt. Defaults false (a
+   *  shell-rooted PTY — a padi spawn, or an adopted entry that omits it). */
+  commandRooted?: boolean;
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
   log: Logger;
@@ -865,7 +884,8 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, signals, readScreenText, log } = inputs;
+  const { pid, cwd, commandRooted = false, signals, readScreenText, log } =
+    inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
@@ -925,6 +945,7 @@ export function startSensors(
       readScreenText,
       emit,
       log,
+      commandRooted,
     );
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);

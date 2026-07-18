@@ -46,7 +46,7 @@ const AGENT_INFO: AgentInfoShape = {
   startedAt: null,
 };
 
-function startHarness() {
+function startHarness(commandRooted: boolean) {
   const emits: TerminalEvent[] = [];
   const adapter: AgentAdapter<number, AgentInfoShape> = {
     kind: "opencode",
@@ -67,7 +67,8 @@ function startHarness() {
     foreground: inMemoryChannel<ForegroundSample>(),
   };
   // `currentAgent: "opencode"` models lock 1's argv seed already applied — so
-  // this test isolates lock 2 (the shellIdle gate) alone.
+  // this test isolates lock 2 (the shellIdle gate) alone. The trailing
+  // `commandRooted` flag is the fix: the root IS the agent, not a shell.
   const stop = startAgentSensor(
     adapter,
     { mirror: null, currentAgent: "opencode" },
@@ -78,6 +79,7 @@ function startHarness() {
     undefined,
     (o) => emits.push(o),
     log,
+    commandRooted,
   );
   return { emits, signals, stop };
 }
@@ -87,15 +89,26 @@ const lastAgent = (emits: TerminalEvent[]) =>
 
 describe("command-rooted agent detection (#1872 lock 2 — shellIdle discrimination)", () => {
   it("resolves a command-rooted shim agent whose root is in the foreground", async () => {
-    const h = startHarness();
+    const h = startHarness(true);
     // Foreground == the root pid: the agent is BUSY as the PTY root (basename
-    // "node"). RED before lock 2 — `shellIdle = foregroundPid === pid` is true,
-    // so the hint is nulled, matchesAgent fails, and the agent never resolves.
+    // "node"). Before lock 2 this was nulled as "shell idle"; with the
+    // commandRooted flag the hint survives, matchesAgent passes, agent resolves.
     h.signals.foreground.publish({ process: "node", foregroundPid: ROOT_PID });
     await flush();
     const agent = lastAgent(h.emits);
     expect(agent).toBeDefined();
     expect(agent?.agent).not.toBe(null);
+    h.stop();
+  });
+
+  it("a shell-rooted PTY still reads foreground==root as an idle prompt", async () => {
+    // Regression guard: for a real shell terminal (commandRooted=false) the SAME
+    // foreground==pid sample IS an idle prompt, so a stale hint must still be
+    // nulled and no agent resolves. Unchanged by the fix.
+    const h = startHarness(false);
+    h.signals.foreground.publish({ process: "node", foregroundPid: ROOT_PID });
+    await flush();
+    expect(lastAgent(h.emits)?.agent ?? null).toBe(null);
     h.stop();
   });
 });
