@@ -903,6 +903,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,
+          shellJoin: msg.shellJoin,
         }),
     );
     void bridgeStream(

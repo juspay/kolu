@@ -401,6 +401,11 @@ export interface PtyHost {
    *  gone. The synchronous read the `commandRun` source replays snapshot-first,
    *  mirroring {@link getProcess} for the `foreground` source. */
   getLastCommand(id: PtyId): string | undefined;
+  /** Quoting dialect of the current {@link getLastCommand}: `true` = the
+   *  command-rooted `shellJoin` seed (reparse with `shellSplit`), `false` = a raw
+   *  OSC 633;E line (reparse with `string-argv`). `false` when there is no command
+   *  yet. The `commandRun` snapshot carries it so a reparse is never guessed. */
+  getLastCommandShellJoin(id: PtyId): boolean;
   /** Current cwd, or `undefined` if gone. */
   getCwd(id: PtyId): string | undefined;
   /** Last OSC 0/2 title (empty string if none yet), or `undefined` if
@@ -469,9 +474,16 @@ interface Entry {
    *  retained so the `commandRun` source can replay it snapshot-first to a late
    *  subscriber — mirroring how `foreground` replays the current process. */
   lastCommand: string | undefined;
+  /** Quoting dialect of the CURRENT `lastCommand`: `true` when it is the
+   *  command-rooted SEED (`shellJoin(argv)` — reparse with `shellSplit`), `false`
+   *  when it is a raw OSC 633;E line (reparse with `string-argv`). A later 633
+   *  mark overwrites both the value and this flag, so the retained command's
+   *  dialect is always known — the `commandRun` snapshot carries it so a
+   *  reconnect/late subscriber reparses correctly regardless of which wrote last. */
+  lastCommandShellJoin: boolean;
   /** True when this PTY's root process IS the spawned command (no shell) — the
-   *  seed source for `lastCommand` + `title` at spawn, and the fact reported on
-   *  the inventory row so the sensors read `foreground === root` as busy. */
+   *  seed source for `lastCommand` at spawn, and the fact reported on the
+   *  inventory row so the sensors read `foreground === root` as busy. */
   commandRooted: boolean;
   foregroundChannel: Channel<ForegroundSample>;
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
@@ -682,6 +694,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       titleChannel: new Channel<string>(),
       commandRunChannel: new Channel<string>(),
       lastCommand: undefined,
+      lastCommandShellJoin: false,
       commandRooted: spawnOpts.commandRooted ?? false,
       foregroundChannel: new Channel<ForegroundSample>(),
       lastForegroundKey: undefined,
@@ -708,6 +721,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     if (entry.commandRooted) {
       const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
       entry.lastCommand = command;
+      entry.lastCommandShellJoin = true;
       entry.commandRunChannel.publish(command);
     }
 
@@ -758,8 +772,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
         // Retain the command BEFORE publishing so the synchronous
-        // `getLastCommand` is already current for anyone the publish wakes.
+        // `getLastCommand` is already current for anyone the publish wakes. A 633
+        // line is raw shell (string-argv), so it clears the shellJoin-seed dialect
+        // even if it overwrites a command-rooted PTY's seed (precedence).
         entry.lastCommand = command;
+        entry.lastCommandShellJoin = false;
         entry.commandRunChannel.publish(command);
         // The agent process forks AFTER this mark — re-sample foreground
         // across the settle window so detection sees the real foreground.
@@ -1183,6 +1200,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getForegroundPid,
     getProcess: (id) => entries.get(id)?.proc.process,
     getLastCommand: (id) => entries.get(id)?.lastCommand,
+    getLastCommandShellJoin: (id) =>
+      entries.get(id)?.lastCommandShellJoin ?? false,
     getCwd: (id) => entries.get(id)?.cwd,
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,

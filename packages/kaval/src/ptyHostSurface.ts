@@ -167,7 +167,12 @@ import { z } from "zod";
  *  so it MUST recycle). `commandRooted` is the former, and a bump would
  *  force-recycle a surviving kaval — killing its live PTYs — to buy a feature
  *  whose absence is the status quo. Same call the `lifetime` field made at 5.0:
- *  a cosmetic/graceful readout must never cost a terminal. */
+ *  a cosmetic/graceful readout must never cost a terminal.
+ *
+ *  #1872 also adds an OPTIONAL `shellJoin` to the `commandRun` frame (the retained
+ *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
+ *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
+ *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior. */
 export const PTY_HOST_CONTRACT_VERSION = "5.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
@@ -421,6 +426,13 @@ export const ptyHostSurface = defineSurface({
       outputSchema: z.object({
         command: z.string(),
         replayed: z.boolean(),
+        // #1872 (additive · optional, NO contract bump — see the version note):
+        // the command's quoting dialect. `true` = the command-rooted `shellJoin`
+        // seed (reparse with `shellSplit`); absent/`false` = a raw OSC 633;E line
+        // (reparse with `string-argv`). Carried per frame so the snapshot replay of
+        // a retained seed is reparsed correctly regardless of delivery timing; a
+        // survivor that omits it degrades to the raw reading (today's behavior).
+        shellJoin: z.boolean().optional(),
       }),
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */

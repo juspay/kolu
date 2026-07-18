@@ -87,6 +87,11 @@ interface AgentEngineState {
 export interface CommandRunSample {
   command: string;
   replayed: boolean;
+  /** The command's quoting dialect: `true` = the command-rooted `shellJoin` seed
+   *  (reparse with `shellSplit`), absent/`false` = a raw OSC 633;E line (reparse
+   *  with `string-argv`). Carried from the pty-host per frame, so the tokenizer is
+   *  a known fact rather than guessed from the string or the terminal. */
+  shellJoin?: boolean;
 }
 
 /** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
@@ -353,18 +358,13 @@ function startAgentCommandSensor(
   signals: SensorSignals,
   emit: (o: TerminalEvent) => void,
   log: Logger,
-  commandRooted: boolean,
 ): () => void {
   return signals.commandRun.consume({
-    onEvent: ({ command: raw, replayed }) => {
-      // Only kaval's `shellJoin` SEED is shellJoin-format; every live OSC 633 mark
-      // (including on a command-rooted PTY, should one ever emit them) is a raw
-      // shell line. The seed reaches a late-subscribing sensor as the REPLAYED
-      // snapshot (it is published synchronously at spawn, before any subscriber),
-      // while live marks arrive `replayed: false` — so `commandRooted && replayed`
-      // selects the seed's dialect PER EVENT, and every live mark stays raw
-      // (string-argv). No format is guessed from the string.
-      const normalized = parseAgentCommand(raw, commandRooted && replayed);
+    onEvent: ({ command: raw, replayed, shellJoin }) => {
+      // The pty-host tags each command's dialect: a command-rooted `shellJoin`
+      // seed (`shellJoin: true` → reparse with `shellSplit`) vs a raw OSC 633;E
+      // line (reparse with `string-argv`). Tokenize by that fact, never guessed.
+      const normalized = parseAgentCommand(raw, shellJoin ?? false);
       agentState.currentAgent = normalized
         ? agentNameFromCommand(normalized)
         : null;
@@ -940,7 +940,6 @@ export function startSensors(
     signals,
     emit,
     log,
-    commandRooted,
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
   // git sensor emits `GitInfo` to it and the PR sensor consumes it to re-resolve

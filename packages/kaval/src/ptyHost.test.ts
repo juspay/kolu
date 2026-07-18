@@ -341,6 +341,9 @@ describe("createPtyHost", () => {
     });
     await waitFor(() => host.getLastCommand(id) === "/bin/sh -c 'sleep 5'");
     expect(host.getLastCommand(id)).toBe("/bin/sh -c 'sleep 5'");
+    // The seed is shellJoin-format, so the commandRun snapshot reparses it with
+    // shellSplit — tagged so a reconnect never guesses the dialect.
+    expect(host.getLastCommandShellJoin(id)).toBe(true);
     host.kill(id);
     await host.exitPromise(id);
   });
@@ -381,6 +384,10 @@ describe("createPtyHost", () => {
     });
     await waitFor(() => host.getLastCommand(id) === "git status");
     expect(host.getLastCommand(id)).toBe("git status");
+    // The 633 mark is a RAW shell line, so the dialect flips off the shellJoin
+    // seed — the snapshot reparses this with string-argv, not shellSplit, even
+    // though the terminal is command-rooted.
+    expect(host.getLastCommandShellJoin(id)).toBe(false);
   });
 
   it("does NOT seed lastCommand for a shell-rooted PTY (regression guard)", async () => {
