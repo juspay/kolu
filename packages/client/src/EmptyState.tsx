@@ -115,7 +115,15 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
         "pt-5": !isDesktop(),
       }}
     >
-      <div class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto`}>
+      {/* The card is the ONE scroll container. The wrapper above owns the
+          overflow height but is `pointer-events-none` (so a double-click on the
+          bare canvas falls through to create-on-double-click) — which also means
+          the wheel can't drive its scroll. So cap the card to the wrapper and let
+          IT scroll: it's `pointer-events-auto`, so the wheel reaches it, and the
+          Restore button below stays reachable on a short viewport. */}
+      <div
+        class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto max-h-full overflow-y-auto`}
+      >
         {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}
         <Show when={showsWelcome()}>
           <div class="mb-5 pb-5 border-b border-edge">
@@ -134,7 +142,10 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                 class="mb-5 pb-5 border-b border-edge"
               >
                 <p class="text-sm font-medium text-fg mb-3">Restore session</p>
-                <div class="max-h-[55vh] overflow-y-auto space-y-4">
+                {/* No nested scroll here — the whole card scrolls as one unit.
+                    A second `overflow-y-auto` inside the card's scroll traps the
+                    wheel in this list and never lets the page reach the button. */}
+                <div class="space-y-4">
                   <For each={groups()}>
                     {(group) => (
                       <div data-testid="repo-group" data-repo-name={group.key}>
