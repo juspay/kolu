@@ -357,10 +357,14 @@ function startAgentCommandSensor(
 ): () => void {
   return signals.commandRun.consume({
     onEvent: ({ command: raw, replayed }) => {
-      // A command-rooted PTY's commandRun is kaval's `shellJoin` SEED (no shell →
-      // no raw 633 mark); a shell terminal's is a raw 633 command line — so the
-      // tokenizer is chosen by the fact, not sniffed from the string.
-      const normalized = parseAgentCommand(raw, commandRooted);
+      // Only kaval's `shellJoin` SEED is shellJoin-format; every live OSC 633 mark
+      // (including on a command-rooted PTY, should one ever emit them) is a raw
+      // shell line. The seed reaches a late-subscribing sensor as the REPLAYED
+      // snapshot (it is published synchronously at spawn, before any subscriber),
+      // while live marks arrive `replayed: false` — so `commandRooted && replayed`
+      // selects the seed's dialect PER EVENT, and every live mark stays raw
+      // (string-argv). No format is guessed from the string.
+      const normalized = parseAgentCommand(raw, commandRooted && replayed);
       agentState.currentAgent = normalized
         ? agentNameFromCommand(normalized)
         : null;
