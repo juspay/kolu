@@ -571,7 +571,10 @@ export function createEndpoint<C, I, M = undefined>(
         socketPath: rv.socketPath,
         holders: held.map((h) => h.pid),
       },
-      "rendezvous socket is still accepting but the OS names no attributable holder — failing loud rather than spawning onto an unidentifiable holder",
+      // The `holders` field carries whatever the OS now names — a set (a holder that
+      // reappeared after a flap) or empty (unidentifiable) — so the message doesn't
+      // assert which; either way an accepting socket is not proven free.
+      "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
     );
     throw new SocketSquatterForeignError(rv.socketPath, held);
   };
@@ -589,8 +592,10 @@ export function createEndpoint<C, I, M = undefined>(
   // It identifies the holder over the OS (`socketHolders`), then proves what it is
   // over the SAME handshake the adopt path trusts, returning a FOUR-way outcome the
   // caller acts on:
-  //   - `free`     → the socket is not accepting, or the OS names no external holder:
-  //                  nothing to recover (the caller spawns, or falls to a next rendezvous).
+  //   - `free`     → the socket is PROVEN not accepting (nothing holds it), or it is
+  //                  held only by our OWN process (an in-process serve): nothing to
+  //                  recover (the caller spawns, or falls to a next rendezvous). An
+  //                  accepting socket we cannot attribute is NOT `free` — it fails loud.
   //   - `adopted`  → a COMPATIBLE gate-less holder: its already-proven connection is
   //                  HELD directly (PTYs preserved), so the caller reconciles the session.
   //   - `refused`  → a SKEW under the REFUSE policy (padi #1313): left STANDING and
