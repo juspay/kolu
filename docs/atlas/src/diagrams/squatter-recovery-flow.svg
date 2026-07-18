@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 560" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+    <style>
+      .box  { fill:#f8fafc; stroke:#94a3b8; stroke-width:1.5; rx:8; }
+      .dec  { fill:#eff6ff; stroke:#3b82f6; stroke-width:1.5; }
+      .new  { fill:#ecfdf5; stroke:#10b981; stroke-width:2; }
+      .kill { fill:#fef2f2; stroke:#ef4444; stroke-width:2; }
+      .lbl  { fill:#0f172a; }
+      .mut  { fill:#475569; font-size:11px; }
+      .edge { stroke:#64748b; stroke-width:1.4; fill:none; marker-end:url(#arr); }
+      .elabel { fill:#334155; font-size:11px; }
+      @media (prefers-color-scheme: dark) {
+        .box { fill:#1e293b; stroke:#64748b; } .dec { fill:#1e293b; stroke:#60a5fa; }
+        .new { fill:#064e3b; stroke:#34d399; } .kill { fill:#4c1d1d; stroke:#f87171; }
+        .lbl { fill:#e2e8f0; } .mut { fill:#94a3b8; } .elabel { fill:#cbd5e1; }
+        svg { background:transparent; }
+      }
+    </style>
+  </defs>
+
+  <!-- entry -->
+  <rect class="box" x="360" y="14" width="220" height="40" rx="8"/>
+  <text class="lbl" x="470" y="33" text-anchor="middle">boot policy: ensure() /</text>
+  <text class="lbl" x="470" y="48" text-anchor="middle">adoptSurvivor()</text>
+
+  <!-- gate holder? -->
+  <rect class="dec" x="345" y="90" width="250" height="46" rx="8"/>
+  <text class="lbl" x="470" y="110" text-anchor="middle">liveServingHolder(gate):</text>
+  <text class="lbl" x="470" y="126" text-anchor="middle">gate names a live serving pid?</text>
+  <line class="edge" x1="470" y1="54" x2="470" y2="90"/>
+
+  <!-- yes: recycle by gate (unchanged) -->
+  <rect class="box" x="705" y="93" width="210" height="40" rx="8"/>
+  <text class="lbl" x="810" y="112" text-anchor="middle">recycle the gate holder</text>
+  <text class="mut" x="810" y="127" text-anchor="middle">killLiveHolder → spawn (today)</text>
+  <line class="edge" x1="595" y1="113" x2="705" y2="113"/>
+  <text class="elabel" x="648" y="106" text-anchor="middle">yes</text>
+
+  <!-- socket accepting? (NEW) -->
+  <rect class="dec" x="345" y="170" width="250" height="46" rx="8"/>
+  <text class="lbl" x="470" y="190" text-anchor="middle">socket ACCEPTING anyway?</text>
+  <text class="mut" x="470" y="206" text-anchor="middle">gate-less squatter check (NEW)</text>
+  <line class="edge" x1="470" y1="136" x2="470" y2="170"/>
+  <text class="elabel" x="440" y="156" text-anchor="middle">no gate holder</text>
+
+  <!-- no: spawn fresh (unchanged) -->
+  <rect class="box" x="705" y="173" width="210" height="40" rx="8"/>
+  <text class="lbl" x="810" y="192" text-anchor="middle">spawn fresh daemon</text>
+  <text class="mut" x="810" y="207" text-anchor="middle">no squatter — today's path</text>
+  <line class="edge" x1="595" y1="193" x2="705" y2="193"/>
+  <text class="elabel" x="650" y="186" text-anchor="middle">dead / absent</text>
+
+  <!-- OS lookup + handshake (NEW) -->
+  <rect class="new" x="325" y="250" width="290" height="58" rx="8"/>
+  <text class="lbl" x="470" y="271" text-anchor="middle" font-weight="600">IDENTIFY: socketHolderPid(path)</text>
+  <text class="lbl" x="470" y="288" text-anchor="middle" font-weight="600">VERIFY: kaval handshake on the socket</text>
+  <text class="mut" x="470" y="303" text-anchor="middle">OS: /proc/net/unix · lsof  +  system.version</text>
+  <line class="edge" x1="470" y1="216" x2="470" y2="250"/>
+  <text class="elabel" x="500" y="238" text-anchor="middle">yes — held</text>
+
+  <!-- foreign branch -->
+  <rect class="kill" x="655" y="252" width="260" height="54" rx="8"/>
+  <text class="lbl" x="785" y="273" text-anchor="middle" font-weight="600">FOREIGN → fail LOUD</text>
+  <text class="mut" x="785" y="289" text-anchor="middle">socket does not speak kaval:</text>
+  <text class="mut" x="785" y="302" text-anchor="middle">typed error names pid+command · NEVER kill</text>
+  <line class="edge" x1="615" y1="279" x2="655" y2="279"/>
+  <text class="elabel" x="635" y="272" text-anchor="middle">no</text>
+
+  <!-- dual-attest identity gate -->
+  <rect class="new" x="325" y="342" width="290" height="58" rx="8"/>
+  <text class="lbl" x="470" y="363" text-anchor="middle" font-weight="600">DUAL-ATTEST identity</text>
+  <text class="mut" x="470" y="379" text-anchor="middle">handshake self-reported pid == OS holder pid</text>
+  <text class="mut" x="470" y="393" text-anchor="middle">re-verify holder UNCHANGED right before kill</text>
+  <line class="edge" x1="470" y1="308" x2="470" y2="342"/>
+  <text class="elabel" x="530" y="330" text-anchor="middle">speaks kaval (any version)</text>
+
+  <!-- recycle verified orphan -->
+  <rect class="kill" x="330" y="434" width="280" height="46" rx="8"/>
+  <text class="lbl" x="470" y="454" text-anchor="middle" font-weight="600">RECYCLE the verified orphan</text>
+  <text class="mut" x="470" y="470" text-anchor="middle">SIGTERM · waitForPidGone (reused)</text>
+  <line class="edge" x1="470" y1="400" x2="470" y2="434"/>
+
+  <!-- spawn fresh at primary -->
+  <rect class="new" x="330" y="510" width="280" height="40" rx="8"/>
+  <text class="lbl" x="470" y="529" text-anchor="middle" font-weight="600">bind FRESH — durable</text>
+  <text class="mut" x="470" y="544" text-anchor="middle">holder gone → no later close() can unlink (F1)</text>
+  <line class="edge" x1="470" y1="480" x2="470" y2="510"/>
+
+  <!-- identity mismatch escape from dual-attest -->
+  <line class="edge" x1="615" y1="371" x2="700" y2="371" stroke-dasharray="4 3"/>
+  <text class="elabel" x="800" y="360" text-anchor="middle">mismatch / holder moved →</text>
+  <text class="elabel" x="800" y="375" text-anchor="middle">abort kill, fail loud</text>
+</svg>
