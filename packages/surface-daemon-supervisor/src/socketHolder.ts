@@ -72,16 +72,18 @@ function linuxSocketHolders(socketPath: string): SocketHolder[] {
     return [];
   }
   // Columns: Num RefCount Protocol Flags Type St Inode Path. The path is the LAST
-  // column and MAY contain spaces (a caller-supplied `--pty-host-socket` path), so
-  // split off the seven fixed whitespace-delimited fields and take the untouched
-  // remainder as the path — a plain `.split(/\s+/)[7]` would truncate `/tmp/my
-  // state/pty-host.sock` to `/tmp/my`. A row without a path (a connected peer) has
-  // no 8th group and is skipped. The path uniquely names the bound socket, so no
-  // flag disambiguation is needed.
-  const rowRe = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)\s+(.+)$/;
+  // column and MAY contain spaces — INTERNAL or TRAILING — (a caller-supplied
+  // `--pty-host-socket` path), so match the seven fixed whitespace-delimited fields
+  // and take the untouched remainder as the path: a plain `.split(/\s+/)[7]` would
+  // truncate `/tmp/my state/pty-host.sock`, and a `.trim()` would corrupt a path
+  // ending in a space. Leading structural whitespace is consumed by `^\s*` (NOT a
+  // trim, which would also eat the trailing path char); `(.+)$` keeps the rest
+  // verbatim. A row without a path (a connected peer) has no 8th group and is
+  // skipped. The path uniquely names the bound socket, so no flag disambiguation.
+  const rowRe = /^\s*\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)\s+(.+)$/;
   const inodes = new Set<string>();
   for (const line of raw.split("\n")) {
-    const m = rowRe.exec(line.trim());
+    const m = rowRe.exec(line);
     if (m === null) continue;
     const [, inode, path] = m;
     if (path !== socketPath) continue;

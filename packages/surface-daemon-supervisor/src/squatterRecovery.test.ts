@@ -226,6 +226,82 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
     expect(isHolderLive(holderPid)).toBe(true); // never killed
   });
 
+  const skew = (pid: number): DaemonContractSkewError =>
+    new DaemonContractSkewError({
+      subject: "pty-host",
+      daemonVersion: "5.0",
+      requiredVersion: "5.2",
+      pid,
+    });
+
+  it("F4 seq-1: a gate-less PRIMARY squatter is recovered BEFORE the legacy hint is consulted (not masked)", async () => {
+    const d = dir();
+    const primarySock = join(d, "primary.sock");
+    const hintSock = join(d, "hint.sock");
+    const primaryPid = await spawnSocketHolder(primarySock); // gate-less skew at primary
+    let hintDialed = false;
+    const endpoint = createEndpoint<string, Identity, Meta>({
+      hostId: "local",
+      gatePath: join(d, "primary.pid"), // gate-less
+      socketPath: primarySock,
+      driver: freshDaemon(primarySock),
+      connect: async () =>
+        isHolderLive(primaryPid)
+          ? Promise.reject(skew(primaryPid))
+          : compatibleConn(),
+      adoptHint: {
+        gatePath: join(d, "hint.pid"),
+        socketPath: hintSock,
+        connect: async () => {
+          hintDialed = true;
+          return compatibleConn();
+        },
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptConnectRetryMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    expect(isHolderLive(primaryPid)).toBe(false); // primary squatter recycled...
+    expect(hintDialed).toBe(false); // ...before the hint was ever consulted (not masked)
+    expect(adopted).toBe(false); // fresh spawn at the primary
+    expect(endpoint.current()?.client).toBe("FRESH");
+  });
+
+  it("F4 seq-2: a gate-less HINT holder is recovered, not abandoned (primary free)", async () => {
+    const d = dir();
+    const primarySock = join(d, "primary.sock"); // free — nothing holds it
+    const hintSock = join(d, "hint.sock");
+    const hintPid = await spawnSocketHolder(hintSock); // gate-less skew at the hint
+    const endpoint = createEndpoint<string, Identity, Meta>({
+      hostId: "local",
+      gatePath: join(d, "primary.pid"),
+      socketPath: primarySock,
+      driver: freshDaemon(primarySock),
+      connect: async () => compatibleConn(), // the fresh primary spawn
+      adoptHint: {
+        gatePath: join(d, "hint.pid"),
+        socketPath: hintSock,
+        connect: async () =>
+          isHolderLive(hintPid)
+            ? Promise.reject(skew(hintPid))
+            : compatibleConn(),
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptConnectRetryMs: 5,
+    });
+
+    await endpoint.adoptOrEnsure();
+    // The gate-less hint skew is RECYCLED (kaval policy) — not left abandoned; the
+    // follow-on spawn lands at the primary, converging the migration.
+    expect(isHolderLive(hintPid)).toBe(false);
+    expect(endpoint.current()?.client).toBe("FRESH");
+  });
+
   it("REFUSE policy (adoptOrSpawnOrRefuse / padi): a gate-less skew is left standing + incompatible, NEVER killed (#1313)", async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");

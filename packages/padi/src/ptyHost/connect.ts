@@ -70,11 +70,45 @@ export type KavalConnectionMetadata = {
  *  hang boot. Generous enough that a loaded-box kaval never trips it. */
 const HANDSHAKE_READ_DEADLINE_MS = 10_000;
 
+/** Read `system.version` off `client`, bounded by {@link HANDSHAKE_READ_DEADLINE_MS}:
+ *  a peer that accepts the unix connection but never answers oRPC (a foreign squatter,
+ *  a wedged daemon) would otherwise leave the read pending FOREVER and hang boot. The
+ *  deadline is a BAKED constant, never an override knob (fail-fast). `Promise.race`
+ *  attaches a handler to the version promise, so a late rejection after the caller's
+ *  `socket.destroy()` is not unhandled. Throws on the deadline; the CALLER destroys
+ *  the socket (both `connectKaval` and the convergence probe already do, in their own
+ *  catch, so error handling stays where each wants it). */
+export async function readSystemVersionBounded(
+  client: PtyHostClient,
+  /** INTERNAL TEST SEAM only — never wired to production: `connectKaval` and the
+   *  convergence probe always use the baked {@link HANDSHAKE_READ_DEADLINE_MS}. A
+   *  unit test passes a short value to exercise a silent-accept peer without a real
+   *  10s wait. This is the helper, not the production entry point, so the runtime
+   *  API carries no deadline override (fail-fast: no knobs). */
+  deadlineMs: number = HANDSHAKE_READ_DEADLINE_MS,
+): Promise<Awaited<ReturnType<PtyHostClient["surface"]["system"]["version"]>>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      client.surface.system.version({}),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(`handshake read exceeded ${deadlineMs}ms deadline`),
+            ),
+          deadlineMs,
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function connectKaval(
   socketPath: string,
-  /** Override the handshake-read deadline — tests pass a short value to exercise a
-   *  silent-accept holder without a real 10s wait; production omits it. */
-  handshakeDeadlineMs: number = HANDSHAKE_READ_DEADLINE_MS,
 ): Promise<KavalConnection> {
   const socket = await dialSocket(socketPath);
   const client = stdioLink<typeof ptyHostSurface.contract>({
@@ -85,36 +119,13 @@ export async function connectKaval(
   let version: Awaited<
     ReturnType<PtyHostClient["surface"]["system"]["version"]>
   >;
-  // The handshake read MUST be bounded: a process that accepts the unix connection
-  // but never answers oRPC (a foreign squatter, a wedged daemon) would otherwise
-  // leave `system.version` pending FOREVER, hanging boot — the gate-less-squatter
-  // recovery relies on this rejecting so such a holder is classified `unreachable`
-  // (→ foreign refusal) instead of wedging. `Promise.race` attaches a handler to the
-  // version promise, so a late rejection after `socket.destroy()` is not unhandled.
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    version = await Promise.race([
-      client.surface.system.version({}),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                `handshake read exceeded ${handshakeDeadlineMs}ms deadline`,
-              ),
-            ),
-          handshakeDeadlineMs,
-        );
-        timer.unref?.();
-      }),
-    ]);
+    version = await readSystemVersionBounded(client);
   } catch (err) {
     socket.destroy();
     throw new Error(
       `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
     );
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
   }
   if (
     !isContractVersionCompatible(
@@ -195,7 +206,10 @@ export async function probeKavalForConvergence(
     ReturnType<PtyHostClient["surface"]["system"]["version"]>
   >;
   try {
-    version = await client.surface.system.version({});
+    // Bounded like `connectKaval` (F2): converge probes BEFORE the recovery runs, so
+    // a silent-accept holder here would hang boot before `adoptOrEnsure` could reach
+    // the recovery's foreign refusal. The deadline turns it into a clean `null`.
+    version = await readSystemVersionBounded(client);
   } catch {
     socket.destroy();
     return null; // the daemon is there but did not answer the probe — treat as none.

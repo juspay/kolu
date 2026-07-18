@@ -14,13 +14,17 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@kolu/surface-daemon";
+import { dialSocket } from "@kolu/surface-daemon-supervisor";
+import { stdioLink } from "@kolu/surface/links/stdio";
 import {
+  type PtyHostClient,
   type PtyHostSocketListener,
   createInProcessPtyHost,
+  type ptyHostSurface,
   servePtyHostOverUnixSocket,
 } from "kaval";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { connectKaval } from "./connect.ts";
+import { connectKaval, readSystemVersionBounded } from "./connect.ts";
 
 const silentLog = {
   debug: () => {},
@@ -73,12 +77,13 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
   });
 });
 
-describe("connectKaval — the handshake read is bounded (F2)", () => {
+describe("readSystemVersionBounded — the handshake read is bounded (F2)", () => {
   it("rejects within the deadline when a peer accepts the socket but never answers system.version", async () => {
     // A foreign squatter (or wedged daemon) accepts the unix connection but sends
-    // no oRPC reply — without a deadline `system.version` would pend forever and
-    // hang boot, and the gate-less-squatter recovery would never reach its foreign
-    // refusal. A silent-accept net server reproduces exactly that.
+    // no oRPC reply — without a deadline the read would pend forever and hang boot,
+    // and the gate-less-squatter recovery would never reach its foreign refusal.
+    // Drives the internal bounded-read seam directly (production always uses the
+    // baked 10s deadline; `connectKaval` carries no override knob).
     const socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-silent-")),
       "pty-host.sock",
@@ -87,14 +92,20 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       // accept, then never respond
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    const socket = await dialSocket(socketPath);
+    const client = stdioLink<typeof ptyHostSurface.contract>({
+      read: socket,
+      write: socket,
+    }) as PtyHostClient;
     try {
       const start = Date.now();
-      await expect(connectKaval(socketPath, 150)).rejects.toThrow(
+      await expect(readSystemVersionBounded(client, 150)).rejects.toThrow(
         /handshake read exceeded 150ms/,
       );
       // Bounded — it rejected on the deadline, it did not hang.
       expect(Date.now() - start).toBeLessThan(3000);
     } finally {
+      socket.destroy();
       server.close();
     }
   });
