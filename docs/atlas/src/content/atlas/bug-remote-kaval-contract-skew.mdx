@@ -132,6 +132,18 @@ The three defects are one class each; the framework moves that kill the class:
   above are what stop the NEXT stale host from producing an opaque dead end.
 </Callout>
 
+## Phase tree (the full arc, final)
+
+| Phase | Outcome |
+| --- | --- |
+| **This note** — root cause + two-tier fix design | plan of record |
+| **<PrLink pr={1876} />** — the skew card: name it, show both versions, offer the working recovery | ✓ **shipped** |
+| **<PrLink pr={1881} />** — isolation-default (per-client private estates) | ✗ **abandoned** — orphaned every existing remote terminal on deploy |
+| **<PrLink pr={1883} />** — renew re-point + honest client toast | ✗ **closed, zero product code** — the product's `incompatible → renewDaemon` was already correct; every client-side toast shape was falsified by the gauntlet |
+| *one-time stray reap (25494)* | ✓ done — the field box converges via existing code |
+| **<PrLink pr={1887} />** — gate-less socket-squatter recovery (three-attestation identity) | ✓ **shipped** — kolu heals its own rendezvous; the *class* fix |
+| **issue #1885** — server-authored honest "didn't converge" toast | ○ filed, awaiting a lane |
+
 ## Field addendum — the recovery was correct but insufficient (RENEW1, <PrLink pr={1881} />)
 
 Deployed and driven against the real graveyard box, the renew recovery
