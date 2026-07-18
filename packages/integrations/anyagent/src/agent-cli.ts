@@ -257,9 +257,30 @@ export function agentNameFromCommand(command: string): string | null {
  * Parse a raw command line. Returns the normalized agent invocation
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
+ *
+ * TWO input formats reach here: an OSC 633;E mark is a user's raw shell command
+ * line (standard quoting, which `string-argv` tokenizes), while the #1872
+ * command-rooted SEED is `shellJoin(argv)` — single-quoted, including the `'\''`
+ * embedded-quote idiom `string-argv` cannot reassemble. So try `string-argv`
+ * first (the common/633 path, unchanged) and fall back to `shellSplit` —
+ * `shellJoin`'s exact inverse (reused, not a new tokenizer) — only when the first
+ * yields no known agent, so a `shellJoin`'d path or flag value carrying a literal
+ * single quote (`/home/o'connor/bin/claude`) still resolves. The fallback is
+ * gated on "no agent found", so it never changes a command `string-argv` already
+ * recognized (double-quoted 633 values keep their exact tokenization).
  */
 export function parseAgentCommand(raw: string): string | null {
-  const [head, ...args] = parseArgsStringToArgv(raw.trim());
+  const trimmed = raw.trim();
+  return (
+    normalizeAgentInvocation(parseArgsStringToArgv(trimmed)) ??
+    normalizeAgentInvocation(shellSplit(trimmed))
+  );
+}
+
+/** Normalize an already-tokenized argv to its agent invocation string, or `null`
+ *  if `argv[0]` isn't a known agent. Shared by both tokenizer attempts above. */
+function normalizeAgentInvocation(argv: string[]): string | null {
+  const [head, ...args] = argv;
   if (head === undefined) return null;
 
   const agent = basename(head);

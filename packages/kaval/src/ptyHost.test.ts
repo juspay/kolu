@@ -351,15 +351,18 @@ describe("createPtyHost", () => {
     // a seeded title would be erased by the foreground sensor's first sample, so we
     // deliberately don't seed one. The tile carries the foreground process name.
     host = createPtyHost({ log: silentLog });
+    // Use `/bin/sh` as argv[0] (a guaranteed-present binary, not a real agent
+    // executable that CI may lack / a dev machine would actually launch) — the
+    // seed is driven by `commandRooted`, not by argv[0] being a real agent.
     const { id } = host.spawn({
-      shell: "claude",
-      args: ["--model", "sonnet"],
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
       commandRooted: true,
       env: shellEnv,
       cwd: "/tmp",
     });
     // lastCommand is seeded; title is not.
-    await waitFor(() => host.getLastCommand(id) === "claude --model sonnet");
+    await waitFor(() => host.getLastCommand(id) === "/bin/sh -c 'sleep 5'");
     expect(host.getTitle(id)).toBe("");
     host.kill(id);
     await host.exitPromise(id);
