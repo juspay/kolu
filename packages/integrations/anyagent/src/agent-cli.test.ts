@@ -102,16 +102,28 @@ describe("parseAgentCommand", () => {
   it("round-trips a shellJoin'd command-rooted seed via shellJoinFormat", () => {
     expect(parseAgentCommand(shellJoin(["claude"]), true)).toBe("claude");
     expect(
-      parseAgentCommand(shellJoin(["/usr/local/bin/claude", "--model", "sonnet"]), true),
+      parseAgentCommand(
+        shellJoin(["/usr/local/bin/claude", "--model", "sonnet"]),
+        true,
+      ),
     ).toBe("claude --model sonnet");
     expect(
-      parseAgentCommand(shellJoin(["opencode", "--dangerously-skip-permissions"]), true),
+      parseAgentCommand(
+        shellJoin(["opencode", "--dangerously-skip-permissions"]),
+        true,
+      ),
     ).toBe("opencode --dangerously-skip-permissions");
     expect(
-      parseAgentCommand(shellJoin(["claude", "--settings", '{"ultracode": true}']), true),
+      parseAgentCommand(
+        shellJoin(["claude", "--settings", '{"ultracode": true}']),
+        true,
+      ),
     ).toBe(`claude --settings '{"ultracode": true}'`);
     expect(
-      parseAgentCommand(shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"]), true),
+      parseAgentCommand(
+        shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"]),
+        true,
+      ),
     ).toBe("claude --model sonnet");
     expect(
       parseAgentCommand(

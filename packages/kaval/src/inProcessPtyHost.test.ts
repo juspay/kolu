@@ -187,9 +187,9 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
     });
     const ac = new AbortController();
     const frame = await nextFrame(
-      (
-        await client.surface.commandRun.get({ id }, { signal: ac.signal })
-      )[Symbol.asyncIterator](),
+      (await client.surface.commandRun.get({ id }, { signal: ac.signal }))[
+        Symbol.asyncIterator
+      ](),
     );
     expect(frame.replayed).toBe(true);
     expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
