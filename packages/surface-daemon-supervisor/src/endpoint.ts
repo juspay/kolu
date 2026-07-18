@@ -551,7 +551,7 @@ export function createEndpoint<C, I, M = undefined>(
     emit(connectedStatus(next));
   };
 
-  // The gate-less-squatter recovery (SQUAT1). Run by `recoverOrSpawn` at exactly
+  // The gate-less-squatter recovery (SQUAT1). Run by `recoverGuarded` at exactly
   // the boot points where NO live gate holder was found yet the endpoint is about
   // to spawn — `ensure`'s else branch and `adoptSurvivor`'s no-survivor branch
   // (hence, via converge and renew, every wedge path). It is DELIBERATELY not on
@@ -617,6 +617,11 @@ export function createEndpoint<C, I, M = undefined>(
         // Compatible gate-less orphan → ADOPT the already-proven connection directly
         // (its PTYs preserved). Holding it reports `connected` and returns `adopted`,
         // so the caller RECONCILES the surviving session instead of parking it (F1).
+        // Record `rv` as the HELD rendezvous — exactly as `adoptAt` does for a
+        // gate-recorded survivor — so a later `ensure()` recycles the daemon we
+        // actually adopted (e.g. the legacy hint), never abandons it by operating on
+        // the primary (F4).
+        held = rv;
         spec.log.info(
           {
             hostId: spec.hostId,
@@ -724,27 +729,28 @@ export function createEndpoint<C, I, M = undefined>(
       await killLiveHolder(reportedPid);
       return "recycled";
     }
-    // The holder kept changing across every attempt — a pathological flap. Do NOT
-    // spawn onto a socket we know is unstable/held (that would just re-enter the
-    // wedge or bypass the foreign refusal, F5): if it is STILL held, fail LOUD with
-    // the holder evidence; only report `free` if a fresh observation proves it free.
-    if (await socketAccepting(rv.socketPath)) {
-      const stillHeld = socketHolders(rv.socketPath).filter(
-        (h) => h.pid !== process.pid,
-      );
-      if (stillHeld.length > 0) {
-        spec.log.error(
-          {
-            hostId: spec.hostId,
-            socketPath: rv.socketPath,
-            holders: stillHeld.map((h) => h.pid),
-          },
-          "gate-less squatter kept changing across every recovery attempt and STILL holds the socket — failing loud rather than spawning onto an unstable holder",
-        );
-        throw new SocketSquatterForeignError(rv.socketPath, stillHeld);
-      }
-    }
-    return "free"; // fresh observation: the socket is free — safe to spawn
+    // The holder kept changing across every attempt — a pathological flap. `free`
+    // (→ spawn) is only safe when we have PROVEN the socket free: an accepting
+    // probe that is FALSE. If the socket is still ACCEPTING we must NOT spawn onto
+    // it (that would re-enter the wedge or bypass the foreign refusal, F5) — fail
+    // LOUD, whether or not the OS could still name a holder (an accepting socket
+    // with an empty holder lookup is an unidentifiable/racing holder, NOT proof of
+    // freedom). Only a not-accepting probe returns `free`.
+    if (!(await socketAccepting(rv.socketPath))) return "free";
+    const stillHeld = socketHolders(rv.socketPath).filter(
+      (h) => h.pid !== process.pid,
+    );
+    spec.log.error(
+      {
+        hostId: spec.hostId,
+        socketPath: rv.socketPath,
+        holders: stillHeld.map((h) => h.pid),
+      },
+      "gate-less squatter kept changing across every recovery attempt and the socket is STILL accepting — failing loud rather than spawning onto an unstable/unidentifiable holder",
+    );
+    // `stillHeld` may be empty (an accepting socket the OS won't attribute); the
+    // error names "an unidentifiable process" in that case.
+    throw new SocketSquatterForeignError(rv.socketPath, stillHeld);
   };
 
   // Spawn a fresh daemon, wait for its socket, run the injected handshake, and
@@ -1010,9 +1016,9 @@ export function createEndpoint<C, I, M = undefined>(
   const adoptSurvivor = async (
     // The ONE policy value for a proven contract skew — recycle (kaval) or refuse
     // (padi). BOTH enactment sites derive from it: the gate-recorded `onSkew`
-    // handler below, and the gate-less `recoverOrSpawn(policy)` at the no-survivor
-    // spawn. One statement of the policy, so the two paths can't drift and the
-    // illegal cross-pairing (recycle-here + refuse-there) is unrepresentable.
+    // handler below, and the gate-less `recoverGuarded(rv, connect, policy)` at the
+    // no-gate-holder branches. One statement of the policy, so the two paths can't
+    // drift and the illegal cross-pairing (recycle-here + refuse-there) is unrepresentable.
     policy: GatelessSkewPolicy,
   ): Promise<boolean> => {
     // Derived from `policy`, so the gate-recorded skew disposition is the SAME

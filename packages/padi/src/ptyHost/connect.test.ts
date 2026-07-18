@@ -14,17 +14,13 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@kolu/surface-daemon";
-import { dialSocket } from "@kolu/surface-daemon-supervisor";
-import { stdioLink } from "@kolu/surface/links/stdio";
 import {
-  type PtyHostClient,
   type PtyHostSocketListener,
   createInProcessPtyHost,
-  type ptyHostSurface,
   servePtyHostOverUnixSocket,
 } from "kaval";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { connectKaval, readSystemVersionBounded } from "./connect.ts";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { connectKaval } from "./connect.ts";
 
 const silentLog = {
   debug: () => {},
@@ -77,13 +73,14 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
   });
 });
 
-describe("readSystemVersionBounded — the handshake read is bounded (F2)", () => {
-  it("rejects within the deadline when a peer accepts the socket but never answers system.version", async () => {
+describe("connectKaval — the handshake read is bounded (F2)", () => {
+  it("rejects on the baked deadline when a peer accepts the socket but never answers system.version", async () => {
     // A foreign squatter (or wedged daemon) accepts the unix connection but sends
     // no oRPC reply — without a deadline the read would pend forever and hang boot,
     // and the gate-less-squatter recovery would never reach its foreign refusal.
-    // Drives the internal bounded-read seam directly (production always uses the
-    // baked 10s deadline; `connectKaval` carries no override knob).
+    // `connectKaval` carries NO deadline override (fail-fast: no knobs), so this
+    // drives the single baked 10s policy under FAKE timers — production and this test
+    // run the same parameterless implementation, just with the clock advanced.
     const socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-silent-")),
       "pty-host.sock",
@@ -92,20 +89,20 @@ describe("readSystemVersionBounded — the handshake read is bounded (F2)", () =
       // accept, then never respond
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-    const socket = await dialSocket(socketPath);
-    const client = stdioLink<typeof ptyHostSurface.contract>({
-      read: socket,
-      write: socket,
-    }) as PtyHostClient;
+    // Fake ONLY setTimeout so the real dial + version-send still progress over IO;
+    // the deadline timer is the one thing under our control.
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const start = Date.now();
-      await expect(readSystemVersionBounded(client, 150)).rejects.toThrow(
-        /handshake read exceeded 150ms/,
+      const outcome = connectKaval(socketPath).then(
+        () => "resolved",
+        (e: unknown) => (e as Error).message,
       );
-      // Bounded — it rejected on the deadline, it did not hang.
-      expect(Date.now() - start).toBeLessThan(3000);
+      // Let the real dial complete and the deadline timer arm (setImmediate is not faked).
+      for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(outcome).resolves.toMatch(/handshake read exceeded 10000ms/);
     } finally {
-      socket.destroy();
+      vi.useRealTimers();
       server.close();
     }
   });

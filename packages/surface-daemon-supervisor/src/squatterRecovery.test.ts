@@ -302,6 +302,50 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
     expect(endpoint.current()?.client).toBe("FRESH");
   });
 
+  it("F4: a COMPATIBLE gate-less hint is adopted AND recorded as `held` — a later ensure() targets the hint, not the primary", async () => {
+    const d = dir();
+    const primarySock = join(d, "primary.sock"); // free
+    const hintSock = join(d, "hint.sock");
+    const hintPid = await spawnSocketHolder(hintSock); // gate-less holder at the hint
+    let hintSkews = false; // after adoption it becomes a skew for the ensure recycle
+    let onAdoptedCalled = false;
+    const endpoint = createEndpoint<string, Identity, Meta>({
+      hostId: "local",
+      gatePath: join(d, "primary.pid"),
+      socketPath: primarySock,
+      driver: freshDaemon(primarySock),
+      connect: async () => compatibleConn(), // the primary fresh spawn
+      adoptHint: {
+        gatePath: join(d, "hint.pid"),
+        socketPath: hintSock,
+        connect: async () =>
+          hintSkews && isHolderLive(hintPid)
+            ? Promise.reject(skew(hintPid))
+            : compatibleConn(),
+        onAdopted: () => {
+          onAdoptedCalled = true;
+        },
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptConnectRetryMs: 5,
+    });
+
+    // 1) adopt the compatible gate-less hint (primary is free).
+    const adopted = await endpoint.adoptOrEnsure();
+    expect(adopted).toBe(true);
+    expect(onAdoptedCalled).toBe(true);
+    expect(isHolderLive(hintPid)).toBe(true); // adopted, not killed
+
+    // 2) the hint holder is now a skew; ensure() must operate on the HELD hint and
+    //    recycle it — killing the hint child. If `held` had wrongly stayed the
+    //    primary, ensure would spawn at the free primary and ABANDON the hint daemon.
+    hintSkews = true;
+    await endpoint.ensure();
+    expect(isHolderLive(hintPid)).toBe(false);
+  });
+
   it("REFUSE policy (adoptOrSpawnOrRefuse / padi): a gate-less skew is left standing + incompatible, NEVER killed (#1313)", async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");

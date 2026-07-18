@@ -78,14 +78,8 @@ const HANDSHAKE_READ_DEADLINE_MS = 10_000;
  *  `socket.destroy()` is not unhandled. Throws on the deadline; the CALLER destroys
  *  the socket (both `connectKaval` and the convergence probe already do, in their own
  *  catch, so error handling stays where each wants it). */
-export async function readSystemVersionBounded(
+async function readSystemVersionBounded(
   client: PtyHostClient,
-  /** INTERNAL TEST SEAM only — never wired to production: `connectKaval` and the
-   *  convergence probe always use the baked {@link HANDSHAKE_READ_DEADLINE_MS}. A
-   *  unit test passes a short value to exercise a silent-accept peer without a real
-   *  10s wait. This is the helper, not the production entry point, so the runtime
-   *  API carries no deadline override (fail-fast: no knobs). */
-  deadlineMs: number = HANDSHAKE_READ_DEADLINE_MS,
 ): Promise<Awaited<ReturnType<PtyHostClient["surface"]["system"]["version"]>>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -95,9 +89,11 @@ export async function readSystemVersionBounded(
         timer = setTimeout(
           () =>
             reject(
-              new Error(`handshake read exceeded ${deadlineMs}ms deadline`),
+              new Error(
+                `handshake read exceeded ${HANDSHAKE_READ_DEADLINE_MS}ms deadline`,
+              ),
             ),
-          deadlineMs,
+          HANDSHAKE_READ_DEADLINE_MS,
         );
         timer.unref?.();
       }),
