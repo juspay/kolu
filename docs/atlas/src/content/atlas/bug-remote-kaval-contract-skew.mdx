@@ -170,6 +170,24 @@ idle until reboot or manual cleanup), and the binder emits a loud warning when
 it boots isolated and detects a live default-estate daemon it is leaving
 behind — never adopting it, never killing it.
 
+<Callout kind="warn" title="How the arc actually ended (final)">
+  **The isolation approach was abandoned entirely** (<PrLink pr={1881} />,
+  closed): deployed to production it orphaned every existing remote terminal —
+  the fix fragmented "the host's terminals" (one canonical estate, by design)
+  to dodge a pathological-box hazard. The follow-up renew work
+  (<PrLink pr={1883} />, closed) then established the product's original
+  `incompatible → renewDaemon` design **was already correct** — the lane
+  shipped zero product code, which was the honest outcome. The REAL bug was a
+  **gate-less orphaned kaval squatting the rendezvous socket** with no
+  in-product recovery — fixed at the right layer by <PrLink pr={1887} />
+  (merged): the supervisor identifies the holder of its own socket via three
+  attestations (speaks kaval · the OS names it as this socket's holder · it
+  self-reports the same pid), recycles it, and binds fresh — foreign
+  processes fail loud, never killed. The honest-toast idea survives as issue
+  #1885 (server-authored). Everything below this callout is the historical
+  design trail, kept for the record.
+</Callout>
+
 Seamless migration *done right* is a recorded follow-up, two candidate shapes:
 **(A)** an atomic default-estate migration-claim (one `acquirePidGate` in the
 default estate so exactly one client adopts, once, plus a persisted

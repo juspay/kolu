@@ -8,6 +8,7 @@ updated: 2026-07-17
 ---
 
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
 
 ## What happened
 
@@ -88,7 +89,7 @@ our A/B evidence.
 
 Four PRs, each independently shippable, ordered by harm:
 
-**PR 1 — stop the data loss** (`kaval-tui` + `kolu-pty` + `padi` +
+**PR 1 — stop the data loss** — **SHIPPED as <PrLink pr={1880} />** (`kaval-tui` + `kolu-pty` + `padi` +
 `surface-daemon-supervisor` + e2e harness + docs + skills). ONE shared
 allowlist (`SPAWN_ENV_ALLOWLIST` in kolu-pty, pinned as data) and
 compose-don't-forward at every seam that reaches an *agent*: kaval-tui's
@@ -100,7 +101,7 @@ harness server child. The corrected `kolu mcp` docstring and interim skill
 rules ride here too. Red-first pins: the #1872 leak assertion (shell AND
 command modes) + the allowlist/`daemonEnv` key sets as data.
 
-**PR 1.5 — close the last spawn seam** (`@kolu/surface-remote`, immediate
+**PR 1.5 — close the last spawn seam** — **SHIPPED as <PrLink pr={1884} /> (+ drishti#116)** (`@kolu/surface-remote`, immediate
 fast-follow). The remote connector's localhost arm spawns with full
 env-inherit — the one place the ssh boundary doesn't scrub. Defense-in-depth,
 not a present leak: with PR 1 landed, every path from a tainted daemon to an
@@ -110,7 +111,7 @@ type level so full-inherit is unspellable. Breaking surface-remote API — so
 it carries the drishti pair PR + odu verdict + `ref-surface-remote.mdx`,
 finalized against post-gauntlet HEAD.
 
-**PR 2 — stop the detection loss** (small; `kaval`).
+**PR 2 — stop the detection loss** — *not yet dispatched* (small; `kaval`).
 The remember-the-argv bookkeeping: seed `lastCommand` (and the initial title)
 from the spawn argv, publish it on the same channel the shell marker uses,
 with a precedence test (seed writes first, live shell marks win later). Pin:
@@ -119,7 +120,7 @@ deletes PR 1's "never `create -- <agent>`" skill rule for the *detection*
 reason; the terminal is still shell-less, so the Dock's richer shell
 affordances stay absent — which is fine for the raw CLI path.
 
-**PR 3 — the face verb** (rides the kolu-tui build-out, not before).
+**PR 3 — the face verb** — *waits on kolu-tui* (rides the kolu-tui build-out, not before).
 "Launch an agent" as a first-class operation on the tui face (create shell →
 type command → detection confirmed), matching what the mcp face already does
 by construction. The padi sensor discrimination ("is the root even a shell?")
