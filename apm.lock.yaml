@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-17T23:26:28.279758+00:00'
+generated_at: '2026-07-18T14:57:07.436717+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agents
@@ -31,6 +31,7 @@ dependencies:
   - .agents/skills/perfection-review/SKILL.md
   - .agents/skills/surface
   - .agents/skills/surface/SKILL.md
+  - .claude/hooks/agents/scripts/board-freshness.sh
   - .claude/skills/architecture-first-principles
   - .claude/skills/architecture-first-principles/SKILL.md
   - .claude/skills/be
@@ -55,6 +56,7 @@ dependencies:
   - .claude/skills/perfection-review/SKILL.md
   - .claude/skills/surface
   - .claude/skills/surface/SKILL.md
+  - .codex/hooks/agents/scripts/board-freshness.sh
   deployed_file_hashes:
     .agents/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .agents/skills/be-review/SKILL.md: sha256:9dc6c1d05ebe50c5b11896da0c7e47e16726631ac9136c30e9ffcb7fe24d7773
@@ -70,6 +72,7 @@ dependencies:
     .agents/skills/orchestrator/dashboard/index.js: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .agents/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
+    .claude/hooks/agents/scripts/board-freshness.sh: sha256:5f6e8779c3b46abf954ed158691e7fbecc0a158ca81bc224616f76729f78c409
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .claude/skills/be-review/SKILL.md: sha256:9dc6c1d05ebe50c5b11896da0c7e47e16726631ac9136c30e9ffcb7fe24d7773
     .claude/skills/be/SKILL.md: sha256:7c44d9f207d14396cd8548ae20b65902bbd1c51ac76f27c48a88263ba745273c
@@ -84,6 +87,7 @@ dependencies:
     .claude/skills/orchestrator/dashboard/index.js: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .claude/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
+    .codex/hooks/agents/scripts/board-freshness.sh: sha256:5f6e8779c3b46abf954ed158691e7fbecc0a158ca81bc224616f76729f78c409
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
@@ -1148,6 +1152,15 @@ deployments:
   content_hash: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
 - kind: project-relative
   target: claude
+  value: .claude/hooks/agents/scripts/board-freshness.sh
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:5f6e8779c3b46abf954ed158691e7fbecc0a158ca81bc224616f76729f78c409
+- kind: project-relative
+  target: claude
   value: .claude/rules/apm-sources.md
   runtime: null
   scope: project
@@ -2110,6 +2123,15 @@ deployments:
   - srid/agency
   active_owner: srid/agency
   content_hash: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
+- kind: project-relative
+  target: codex
+  value: .codex/hooks/agents/scripts/board-freshness.sh
+  runtime: null
+  scope: project
+  owners:
+  - ./agents
+  active_owner: ./agents
+  content_hash: sha256:5f6e8779c3b46abf954ed158691e7fbecc0a158ca81bc224616f76729f78c409
 - kind: uri
   target: mcp
   value: chrome-devtools

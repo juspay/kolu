@@ -6,6 +6,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": ".claude/hooks/agents/scripts/board-freshness.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
             "command": ".claude/hooks/agency/scripts/do-stop-guard.sh"
           }
         ]

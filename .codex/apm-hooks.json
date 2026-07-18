@@ -5,6 +5,16 @@
       "hooks": [
         {
           "type": "command",
+          "command": ".codex/hooks/agents/scripts/board-freshness.sh"
+        }
+      ],
+      "_apm_source": "agents"
+    },
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
           "command": ".codex/hooks/agency/scripts/do-stop-guard.sh"
         }
       ],
