@@ -110,12 +110,17 @@ describe("parseAgentCommand", () => {
     expect(
       parseAgentCommand(shellJoin(["claude", "--settings", '{"ultracode": true}'])),
     ).toBe(`claude --settings '{"ultracode": true}'`);
-    // And an agent binary at a path containing a literal single quote — where
-    // shellJoin emits the `'\''` idiom string-argv can't reassemble — still
-    // resolves, via the shellSplit fallback (no Dock invisibility).
+    // A literal single quote — in the agent PATH (no Dock invisibility) or in a
+    // stable FLAG VALUE (exact-command preserved) — makes shellJoin emit the
+    // `'\''` idiom, which routes the whole line through shellSplit.
     expect(
       parseAgentCommand(shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"])),
     ).toBe("claude --model sonnet");
+    expect(
+      parseAgentCommand(
+        shellJoin(["claude", "--append-system-prompt", "don't reveal secrets"]),
+      ),
+    ).toBe(`claude --append-system-prompt 'don'\\''t reveal secrets'`);
   });
 
   it("drops unknown flags (allowlist, not denylist)", () => {

@@ -258,23 +258,25 @@ export function agentNameFromCommand(command: string): string | null {
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
  *
- * TWO input formats reach here: an OSC 633;E mark is a user's raw shell command
- * line (standard quoting, which `string-argv` tokenizes), while the #1872
- * command-rooted SEED is `shellJoin(argv)` — single-quoted, including the `'\''`
- * embedded-quote idiom `string-argv` cannot reassemble. So try `string-argv`
- * first (the common/633 path, unchanged) and fall back to `shellSplit` —
- * `shellJoin`'s exact inverse (reused, not a new tokenizer) — only when the first
- * yields no known agent, so a `shellJoin`'d path or flag value carrying a literal
- * single quote (`/home/o'connor/bin/claude`) still resolves. The fallback is
- * gated on "no agent found", so it never changes a command `string-argv` already
- * recognized (double-quoted 633 values keep their exact tokenization).
+ * TWO input formats reach here, in two mutually-exclusive quoting dialects: an
+ * OSC 633;E mark is a user's raw shell command line (standard quoting — double
+ * quotes, `$`, backticks — which `string-argv` tokenizes), while the #1872
+ * command-rooted SEED is `shellJoin(argv)`, whose only construct `string-argv`
+ * cannot reassemble is the POSIX embedded-single-quote idiom `'\''`. That idiom
+ * is a DEFINITIVE marker: `shellJoin` emits it for any token carrying a literal
+ * single quote (`/home/o'connor/bin/claude`, `--append-system-prompt "don't"`),
+ * and it means exactly one thing (`shellSplit`, shellJoin's inverse, parses it
+ * correctly) whether it came from the seed or a user who typed it. So route by
+ * the idiom: its presence → `shellSplit`; its absence → `string-argv` (the
+ * common/633 path, unchanged — a raw line's double quotes keep their exact
+ * tokenization). Reuses `shellSplit`; adds no tokenizer.
  */
 export function parseAgentCommand(raw: string): string | null {
   const trimmed = raw.trim();
-  return (
-    normalizeAgentInvocation(parseArgsStringToArgv(trimmed)) ??
-    normalizeAgentInvocation(shellSplit(trimmed))
-  );
+  const argv = trimmed.includes("'\\''")
+    ? shellSplit(trimmed)
+    : parseArgsStringToArgv(trimmed);
+  return normalizeAgentInvocation(argv);
 }
 
 /** Normalize an already-tokenized argv to its agent invocation string, or `null`
