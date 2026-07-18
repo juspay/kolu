@@ -33,6 +33,7 @@ import * as path from "node:path";
 import { After, When } from "@cucumber/cucumber";
 import { connectPtyHost, type Connection } from "kaval-tui/src/connect.ts";
 import { buildCreateInput } from "kaval-tui/src/create.ts";
+import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import { kavalSocketPath } from "../support/hooks.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
@@ -122,7 +123,12 @@ When(
     const sessionFile = path.join(sessionsDir, `${pid}.json`);
     fs.writeFileSync(
       sessionFile,
-      JSON.stringify({ pid, sessionId: SESSION_ID, cwd, startedAt: Date.now() }),
+      JSON.stringify({
+        pid,
+        sessionId: SESSION_ID,
+        cwd,
+        startedAt: Date.now(),
+      }),
     );
     artifacts.push(() => {
       fs.rmSync(sessionFile, { force: true });
@@ -142,7 +148,7 @@ When(
     // The opencode session, resolvable by its directory. Detection still needs
     // matchesAgent(state, "opencode") to pass FIRST — and the shim's comm is
     // "node", so that hinges entirely on the seeded command hint.
-    writeOpenCodeFixture({ dbPath, cwd, state: state as never });
+    writeOpenCodeFixture({ dbPath, cwd, state: state as AgentLifecycleState });
     artifacts.push(() => {
       clearMockDatabase(dbPath);
       fs.rmSync(cwd, { recursive: true, force: true });
