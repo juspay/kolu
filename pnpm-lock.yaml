@@ -1998,6 +1998,9 @@ importers:
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
+      kaval-tui:
+        specifier: workspace:*
+        version: link:../kaval-tui
       kolu-common:
         specifier: workspace:*
         version: link:../common
