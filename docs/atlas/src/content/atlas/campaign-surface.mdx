@@ -58,6 +58,50 @@ kolu's campaign is already this, piece for piece:
 | supervisor resets a crashed actor to stable state | the falsify-and-redirect loop: a wrong brief → stand down, `/compact` (reset to stable), re-brief. And **the daemons already do it literally**: padi adopt-or-recycles its kaval; the binder drains and re-provisions padi |
 | hierarchy — everything is an actor | coordinator → worker terminals → split terminals (codex debates); padi → kaval beneath them |
 
+### Inside the coordinator: the receive loop
+
+The coordinator is not special machinery — it is **one more actor**, an agent
+in an ordinary kolu terminal, and its behavior is exactly the actor triad,
+observable in kolu's own development campaigns:
+
+**Its mailbox** is its conversation. Everything arrives as messages into one
+serialized stream — the human's directives, workers' reports, gate-workflow
+results — and is processed **one at a time, in order**. There is no other
+input path: a worker cannot interrupt a ruling in progress; two workers'
+escalations queue. (This is why chat integration is cheap: a thread bound to
+the coordinator is just more mailbox.)
+
+**Its private state** is the campaign: what is in flight, what each gate
+ruled, who holds which CI box, what must merge first. Some of it is durable —
+written into notes *as decisions* — and the rest is deliberately ephemeral
+conversation state, reset on compaction. No other actor can read it; workers
+know only what they are told in briefs.
+
+**On each message it does the triad**, nothing else:
+
+| Message arriving | create actors | send messages | decide next state |
+| --- | --- | --- | --- |
+| human: "dispatch X" | cut `worktree = branch = lane`, create the terminal | the brief (symptom + hypotheses-to-falsify, never mechanism-as-fact) | X is in flight, gate pending |
+| worker: gate request (a design file + pointer, blocking) | adversarial review swarm (its own short-lived actors) | the ruling: GO / deltas / redirect | the design is ratified — or the *coordinator's own premise* is falsified and its state revises |
+| worker: escalation ("the brief is wrong") | — | verify against the tree, then a corrected ruling | supervision runs **both ways**: a child's message can crash the parent's belief |
+| worker: CI red (report-before-rerun) | — | venue arbitration, rerun approval or stop | box leases update |
+| worker: merge-ready | — | relay to the human (the coordinator **never merges**) | the lane is done-pending-human |
+| human: "merged" / "close it" | — | stand-down to the worker | the lane retires |
+
+**As a supervisor it practices let-it-crash, not defensive repair.** A worker
+whose premise is falsified or whose context is corrupted is not patched in
+place — it is stood down, **reset to a stable state** (`/compact`, or a fresh
+terminal), and re-briefed. The reset is cheap because the durable state was
+never in the actor: it is in the files (the branch, the note, the PR).
+
+**And it is itself supervised.** Above the coordinator sits the human — the
+root of the tree, who merges every PR and can crash-and-redirect the
+coordinator's own plans (this note exists because of exactly such a message).
+Below the terminals runs the *other* supervision tree — binder → padi →
+kaval, adopt-or-recycle — so the full picture is two supervision hierarchies
+meeting at the terminal: one governing **work**, one governing **process
+lifetimes**, both actor-shaped.
+
 This is not an analogy to adopt — it is a description of what shipped. The
 consequence for the Board: a campaign is not a *list* of lanes, it is a
 **supervision graph of terminal-actors**, and most of its edges are already
