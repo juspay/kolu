@@ -920,17 +920,45 @@ export function createEndpoint<C, I, M = undefined>(
   // exactly as before. The no-survivor fresh spawn is always at the PRIMARY. Returns
   // whether a live survivor was ADOPTED.
   const adoptSurvivor = async (
-    onSkew: (
+    // The ONE policy value for a proven contract skew — recycle (kaval) or refuse
+    // (padi). BOTH enactment sites derive from it: the gate-recorded `onSkew`
+    // handler below, and the gate-less `recoverOrSpawn(policy)` at the no-survivor
+    // spawn. One statement of the policy, so the two paths can't drift and the
+    // illegal cross-pairing (recycle-here + refuse-there) is unrepresentable.
+    policy: GatelessSkewPolicy,
+  ): Promise<boolean> => {
+    // Derived from `policy`, so the gate-recorded skew disposition is the SAME
+    // recycle-vs-refuse choice the gate-less path takes — never a hand-synced twin.
+    // recycle (kaval): SIGTERM the skewed holder and spawn fresh. refuse (padi):
+    // leave it STANDING and report incompatible — #1313, never SIGTERM a running padi.
+    const onSkew = async (
       holder: number,
       err: DaemonContractSkewError,
-    ) => void | Promise<void>,
-    // The gate-LESS skew disposition — the SAME recycle-vs-refuse split `onSkew` makes
-    // for a gate-recorded skew, threaded to the no-survivor spawn so a gate-less
-    // squatter is handled under the caller's policy (kaval recycles; padi refuses —
-    // #1313, never SIGTERM a running padi). Kept consistent with `onSkew` by the two
-    // callers below.
-    gatelessSkew: GatelessSkewPolicy,
-  ): Promise<boolean> => {
+    ): Promise<void> => {
+      if (policy === "recycle") {
+        spec.log.warn(
+          { hostId: spec.hostId, pid: holder },
+          "live daemon survivor is a contract skew — recycling it",
+        );
+        await recycle(holder);
+      } else {
+        spec.log.error(
+          { hostId: spec.hostId, pid: holder },
+          "live padi survivor is a contract skew — REFUSING (never killing a " +
+            "running padi); leaving it up and reporting incompatible. Upgrade " +
+            "the binder or drain the daemon via its control core to converge.",
+        );
+        // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
+        // `degraded` made a contract skew indistinguishable on the wire from
+        // "unreachable" / "died mid-session", which is exactly the collapse
+        // this arm exists to kill.
+        emit({
+          state: "incompatible",
+          daemonVersion: err.daemonVersion,
+          requiredVersion: err.requiredVersion,
+        });
+      }
+    };
     emit({ state: "connecting" });
     const primaryHolder = await liveServingHolder(primaryRv);
     if (primaryHolder !== undefined) {
@@ -969,7 +997,7 @@ export function createEndpoint<C, I, M = undefined>(
     // no GATE holder was found, so recover it first under the caller's policy
     // (recycle a skew for kaval, refuse it for padi; a foreign holder is refused
     // loud either way; a compatible one is left for the connect below to adopt).
-    await recoverOrSpawn(gatelessSkew);
+    await recoverOrSpawn(policy);
     return false;
   };
 
@@ -1040,13 +1068,7 @@ export function createEndpoint<C, I, M = undefined>(
       // skewed survivor is recycled. A proven SKEW is RECYCLED here (kill, then spawn
       // fresh) — the deliberate OPPOSITE of `adoptOrSpawnOrRefuse`, and the only arm
       // that differs from it; everything else is the shared `adoptSurvivor` sequence.
-      return adoptSurvivor(async (holder) => {
-        spec.log.warn(
-          { hostId: spec.hostId, pid: holder },
-          "live daemon survivor is a contract skew — recycling it",
-        );
-        await recycle(holder);
-      }, "recycle");
+      return adoptSurvivor("recycle");
     },
 
     async adoptOrSpawnOrRefuse(): Promise<boolean> {
@@ -1061,23 +1083,7 @@ export function createEndpoint<C, I, M = undefined>(
       // resolves the skew (upgrade the binder, or drain the daemon through the frozen
       // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
       // the shared `adoptSurvivor` sequence.
-      return adoptSurvivor((holder, err) => {
-        spec.log.error(
-          { hostId: spec.hostId, pid: holder },
-          "live padi survivor is a contract skew — REFUSING (never killing a " +
-            "running padi); leaving it up and reporting incompatible. Upgrade " +
-            "the binder or drain the daemon via its control core to converge.",
-        );
-        // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
-        // `degraded` made a contract skew indistinguishable on the wire from
-        // "unreachable" / "died mid-session", which is exactly the collapse
-        // this arm exists to kill.
-        emit({
-          state: "incompatible",
-          daemonVersion: err.daemonVersion,
-          requiredVersion: err.requiredVersion,
-        });
-      }, "refuse");
+      return adoptSurvivor("refuse");
     },
   };
 }
