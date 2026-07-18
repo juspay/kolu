@@ -551,6 +551,31 @@ export function createEndpoint<C, I, M = undefined>(
     emit(connectedStatus(next));
   };
 
+  // Resolve an ACCEPTING-but-unattributable rendezvous to a SAFE outcome: `free`
+  // (→ the caller may spawn) ONLY when a fresh probe proves the socket NOT accepting
+  // (a holder that just closed); otherwise the socket is still accepting and we
+  // cannot name who holds it — NOT proof of freedom, so we fail LOUD rather than let
+  // the caller spawn onto it (F5). The error names "an unidentifiable process" when
+  // the OS still returns no holder.
+  const freeOrFailLoud = async (rv: {
+    gatePath: string;
+    socketPath: string;
+  }): Promise<"free"> => {
+    if (!(await socketAccepting(rv.socketPath))) return "free";
+    const held = socketHolders(rv.socketPath).filter(
+      (h) => h.pid !== process.pid,
+    );
+    spec.log.error(
+      {
+        hostId: spec.hostId,
+        socketPath: rv.socketPath,
+        holders: held.map((h) => h.pid),
+      },
+      "rendezvous socket is still accepting but the OS names no attributable holder — failing loud rather than spawning onto an unidentifiable holder",
+    );
+    throw new SocketSquatterForeignError(rv.socketPath, held);
+  };
+
   // The gate-less-squatter recovery (SQUAT1). Run by `recoverGuarded` at exactly
   // the boot points where NO live gate holder was found yet the endpoint is about
   // to spawn — `ensure`'s else branch and `adoptSurvivor`'s no-survivor branch
@@ -592,18 +617,24 @@ export function createEndpoint<C, I, M = undefined>(
       // daemon as a SEPARATE process (the survivable-spawn model), so a real
       // squatter is never us — but an in-process serve (a test's in-process daemon)
       // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
-      const holders = socketHolders(rv.socketPath).filter(
-        (h) => h.pid !== process.pid,
-      );
+      const rawHolders = socketHolders(rv.socketPath);
+      const heldByUs = rawHolders.some((h) => h.pid === process.pid);
+      const holders = rawHolders.filter((h) => h.pid !== process.pid);
       if (holders.length === 0) {
-        // Accepting, yet the OS names no (external) holder: a race (it just closed),
-        // a lookup we could not complete, or our own in-process serve. Never guess a
-        // kill — the caller re-probes (spawn / next rendezvous).
-        spec.log.warn(
-          { hostId: spec.hostId, socketPath: rv.socketPath },
-          "rendezvous socket is held but the OS names no external holder — nothing to recover",
-        );
-        return "free";
+        if (heldByUs) {
+          // The socket is held by OUR OWN process (an in-process serve) — never a
+          // squatter, never a kill. Safe to treat as free.
+          spec.log.warn(
+            { hostId: spec.hostId, socketPath: rv.socketPath },
+            "rendezvous socket is held by our own process — nothing to recover",
+          );
+          return "free";
+        }
+        // Accepting, yet the OS names NO holder at all: a race (it just closed) or a
+        // holder we cannot attribute. That is NOT proof of freedom — do not let the
+        // caller spawn onto it. Re-probe: only a not-accepting socket is `free`;
+        // still-accepting fails loud (F5). Never guess a kill.
+        return await freeOrFailLoud(rv);
       }
       const holderPids = holders.map((h) => h.pid);
 
@@ -730,27 +761,14 @@ export function createEndpoint<C, I, M = undefined>(
       return "recycled";
     }
     // The holder kept changing across every attempt — a pathological flap. `free`
-    // (→ spawn) is only safe when we have PROVEN the socket free: an accepting
-    // probe that is FALSE. If the socket is still ACCEPTING we must NOT spawn onto
-    // it (that would re-enter the wedge or bypass the foreign refusal, F5) — fail
-    // LOUD, whether or not the OS could still name a holder (an accepting socket
-    // with an empty holder lookup is an unidentifiable/racing holder, NOT proof of
-    // freedom). Only a not-accepting probe returns `free`.
-    if (!(await socketAccepting(rv.socketPath))) return "free";
-    const stillHeld = socketHolders(rv.socketPath).filter(
-      (h) => h.pid !== process.pid,
+    // (→ spawn) is only safe when a fresh probe PROVES the socket free; a still-
+    // accepting socket fails loud rather than spawning onto an unstable holder (F5) —
+    // the same rule the empty-holder branch uses, so both go through `freeOrFailLoud`.
+    spec.log.warn(
+      { hostId: spec.hostId, socketPath: rv.socketPath },
+      "gate-less squatter kept changing across every recovery attempt — resolving the socket safely",
     );
-    spec.log.error(
-      {
-        hostId: spec.hostId,
-        socketPath: rv.socketPath,
-        holders: stillHeld.map((h) => h.pid),
-      },
-      "gate-less squatter kept changing across every recovery attempt and the socket is STILL accepting — failing loud rather than spawning onto an unstable/unidentifiable holder",
-    );
-    // `stillHeld` may be empty (an accepting socket the OS won't attribute); the
-    // error names "an unidentifiable process" in that case.
-    throw new SocketSquatterForeignError(rv.socketPath, stillHeld);
+    return await freeOrFailLoud(rv);
   };
 
   // Spawn a fresh daemon, wait for its socket, run the injected handshake, and
