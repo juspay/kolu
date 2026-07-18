@@ -87,11 +87,22 @@ The arm fires **only** in the gate-less-squatter state and does three things:
 - **VERIFY IDENTITY by handshake** — dial the socket and run the existing kaval
   version exchange (the very handshake that already detects skew), then act on
   what it proves:
-  - **skewed** kaval → the wedge (the 25494 case): a kaval of this estate we
-    cannot serve through. **RECYCLE it** — SIGTERM the identified pid,
-    `waitForPidGone`, then bind fresh (the wait/ceiling machinery is
-    `killLiveHolder`'s, reused verbatim; the *only* new thing is the identity
-    source).
+  - **skewed** daemon → the wedge (the 25494 case): a daemon of this estate we
+    cannot serve through. Its disposition is the ONE thing that follows the boot
+    policy — the SAME recycle-vs-refuse split the endpoint already makes for a
+    *gate-recorded* skew:
+    - under the **kaval / always-recycle** policy → **RECYCLE it** — SIGTERM the
+      identified pid, `waitForPidGone`, then bind fresh (the wait/ceiling machinery
+      is `killLiveHolder`'s, reused verbatim; the *only* new thing is the identity
+      source).
+    - under the **padi binder / refuse** policy (`adoptOrSpawnOrRefuse`) → **leave
+      it standing and report `incompatible`, never SIGTERM it** — a client must not
+      kill a running padi even a skewed gate-less one ([#1313](https://github.com/juspay/kolu/pull/1313)).<Footnote>Caught
+      by the architecture-first-principles gate (C4 depends-on): the first cut
+      hardcoded skew→kill in the shared recovery, so a gate-less skewed *padi* would
+      have been SIGTERM'd under the very policy whose contract is "never kill a
+      running padi". The skew disposition now threads the caller's policy, exactly
+      as the gate-recorded path already did.</Footnote>
   - **compatible** kaval → **left for the ordinary connect to adopt**, exactly as
     today — its live PTYs are preserved, not killed. A compatible gate-less holder
     never wedged; recycling it would be a PTY-loss regression, so recovery is a
@@ -127,7 +138,7 @@ attestations that must agree before any signal is sent:
 | --- | --- | --- |
 | The socket speaks kaval | the version handshake succeeds (compatible **or** skewed) | it is our daemon, not a stranger |
 | A specific pid holds *this* socket | the OS socket-holder lookup | we know exactly whom to signal |
-| That pid is the one that answered | handshake **self-reports its pid**<Footnote>kaval's `system.version` returns `{ contractVersion, pid, startedAt, identity?, lifetime? }` — the daemon's own `process.pid`. `pid` is a **required** wire field, present since the first standalone kaval ([#1301](https://github.com/juspay/kolu/pull/1301)) — so it holds for *every* real orphan, including a 25494-era 5.0-contract skew. The recycle target is thus a pid the daemon named *over the very socket we are recycling*, cross-checked against the OS's independent view. No new wire field is added (the field already exists); what is added are two additive *exported-type* fields — see "Exported-API additions".</Footnote> | the process answering IS the process holding the socket |
+| That pid is the one that answered | handshake **self-reports its pid**<Footnote>kaval's `system.version` returns `{ contractVersion, pid, startedAt, identity?, lifetime? }` — the daemon's own `process.pid`. `pid` is a **required** wire field, present since the first standalone kaval ([#1301](https://github.com/juspay/kolu/pull/1301)) — so it holds for *every* real orphan, including a 25494-era 5.0-contract skew. The recycle target is thus a pid the daemon named *over the very socket we are recycling*, cross-checked against the OS's independent view. No new wire field is added (the field already exists); the added *exported-type* surface is an additive `pid?` on `DaemonContractSkewError` — see "Exported-API additions".</Footnote> | the process answering IS the process holding the socket |
 
 Only when all three agree — and are **re-confirmed unchanged immediately before the
 SIGTERM** — is the orphan recycled. Any disagreement (foreign process, pid the OS
@@ -155,11 +166,15 @@ already owns `killLiveHolder`, `waitForPidGone`, `spawnConnectHold`, and the
 gate read. It is a Node-only module (it already imports `gatePid` / `isHolderLive`
 and dials `node:net`), so a new sibling leaf is a clean fit:
 
-- **`socketHolder.ts`** — a new leaf next to `waitForPidGone.ts`: `socketHolderPid(socketPath)
-  → { pid, command } | undefined`, platform-dispatched (`/proc` on linux, `lsof` on
-  darwin), fail-fast on an unsupported platform. It hides a *bounded* OS-lookup
-  volatility — a **leaf**, not electricity (no transport / reconnect / persistence
-  lifecycle of its own), so it belongs in the package that uses it, not a new
+- **`socketHolder.ts`** — a new leaf next to `waitForPidGone.ts`: `socketHolders(socketPath)
+  → SocketHolder[]` (each `{ pid, command }`), platform-dispatched (`/proc` on linux, `lsof`
+  on darwin), fail-fast on an unsupported platform. It returns *every* pid the OS reports
+  holding the path — a **list**, not a single pid: linux's `/proc/net/unix` names the bound
+  listener exactly, but darwin's `lsof` can report the listener *plus* connected clients, so
+  the caller's handshake-reported pid selects the true listener from the set (the recovery
+  kills only a pid the OS corroborates AND the daemon named over the socket). It hides a
+  *bounded* OS-lookup volatility — a **leaf**, not electricity (no transport / reconnect /
+  persistence lifecycle of its own), so it belongs in the package that uses it, not a new
   `@kolu/*` receptacle.
 - **the recovery arm** — a private helper in `endpoint.ts`, run by `recoverOrSpawn`
   at exactly the boot points where **no live gate holder was found yet the endpoint
@@ -177,20 +192,27 @@ and dials `node:net`), so a new sibling leaf is a clean fit:
 
 ### Exported-API additions (named honestly for the consumer gates)
 
-Threading the daemon's self-reported pid (attestation 3) is **not** free of API surface:
-it adds two **additive** fields to `@kolu/surface-daemon-supervisor` exports —
+The recycle only ever fires on a **skew**, and a skew *throws* `DaemonContractSkewError`
+before a `DaemonConnection` is ever built — so the pid the kill cross-checks rides on the
+**error**, not the connection. The surface additions to `@kolu/surface-daemon-supervisor`
+are therefore:
 
-- `pid?: number` on the connect result (`DaemonConnection`) — populated by the soul's
-  `connect` from `system.version.pid`;
-- `pid?: number` on `DaemonContractSkewError` — so the pid rides even the skew path (the
-  25494 case throws before a `DaemonConnection` exists).
+- `pid?: number` on `DaemonContractSkewError` — the skewed daemon's self-reported pid, so
+  the gate-less-squatter recovery has its third identity attestation (**additive, optional**);
+- `SocketSquatterForeignError` / `isSocketSquatterForeignError` and `socketHolders` /
+  `SocketHolder` — genuinely new exports.
 
-Both are **additive and optional**, so no existing consumer breaks — but "additive" is a
-claim to *verify*, not assert: the drishti and odu **consumer greps** run against exactly
-these two symbols, and the verdict (expected: additive-optional, no consumer change) is
-recorded either way. `ref-surface-supervisor.mdx` is updated in the same PR. The one
-genuinely new *capability* is the OS socket-holder lookup; the pid threading is a small
-additive field on types that already carry the handshake's other facts.
+A `pid` on the *connection* (`DaemonConnection`) was **not** added: a compatible holder is
+adopted, never killed, so nothing would ever read it — a dead field is worse than none.<Footnote>Caught
+by the architecture-first-principles gate (C2 consumer-ergonomics): the first cut added `pid`
+to `DaemonConnection` too, but the recovery reads the pid only off the *skew error* (the kill
+path), and the adopt path disposes the connection without touching it — a field with zero
+readers and a doc comment that lied about who read it. Deleted.</Footnote> The `DaemonContractSkewError.pid`
+change is **additive-optional**, so no existing consumer breaks — verified, not asserted: the
+drishti and odu **consumer greps** found neither repo depends on
+`@kolu/surface-daemon-supervisor`, so the additive change has zero cross-repo impact.
+`ref-surface-supervisor.mdx` is updated in the same PR. The one genuinely new *capability* is
+the OS socket-holder lookup.
 
 ## Design philosophy
 

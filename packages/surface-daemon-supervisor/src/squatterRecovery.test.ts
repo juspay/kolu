@@ -101,13 +101,10 @@ function freshDaemon(socketPath: string): { spawn: () => Promise<void> } {
   };
 }
 
-const compatibleConn = (
-  pid: number,
-): DaemonConnection<string, Identity, Meta> => ({
+const compatibleConn = (): DaemonConnection<string, Identity, Meta> => ({
   client: "FRESH",
   identity: { staleKey: "fresh" },
   startedAt: 222,
-  pid,
   metadata: { contractVersion: "5.2" },
   dispose() {},
   onClose() {},
@@ -142,7 +139,7 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
             pid: holderPid, // the orphan names its own pid over the socket
           });
         }
-        return compatibleConn(9999);
+        return compatibleConn();
       },
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
@@ -230,6 +227,43 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
     expect(isHolderLive(holderPid)).toBe(true); // never killed
   });
 
+  it("REFUSE policy (adoptOrSpawnOrRefuse / padi): a gate-less skew is left standing + incompatible, NEVER killed (#1313)", async () => {
+    const d = dir();
+    const socketPath = join(d, "pty.sock");
+    const gatePath = join(d, "kaval.pid"); // gate-less
+    const holderPid = await spawnSocketHolder(socketPath);
+
+    const statuses: EndpointStatus<Identity, Meta>[] = [];
+    const endpoint = createEndpoint<string, Identity, Meta>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: freshDaemon(socketPath),
+      connect: async () => {
+        throw new DaemonContractSkewError({
+          subject: "padiSurface",
+          daemonVersion: "5.0",
+          requiredVersion: "5.2",
+          pid: holderPid,
+        });
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+      adoptConnectRetryMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrSpawnOrRefuse();
+    expect(adopted).toBe(false);
+    // A client NEVER SIGTERMs a running (padi) daemon, even a skewed gate-less one.
+    expect(isHolderLive(holderPid)).toBe(true);
+    // The proven skew is named, not collapsed to dead/degraded.
+    expect(statuses.map((s) => s.state)).toContain("incompatible");
+    const incompat = statuses.find((s) => s.state === "incompatible");
+    expect(incompat?.daemonVersion).toBe("5.0");
+    expect(incompat?.requiredVersion).toBe("5.2");
+  });
+
   it("Compatible gate-less holder is ADOPTED, not killed (no PTY-loss regression)", async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");
@@ -244,7 +278,7 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
       // The socket is already held by the compatible orphan, so the "spawn" is a
       // no-op that leaves the holder's socket up (as a real fail-to-bind exit does).
       driver: { spawn: async () => {} },
-      connect: async () => compatibleConn(holderPid),
+      connect: async () => compatibleConn(),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,

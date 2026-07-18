@@ -160,11 +160,25 @@ in acceptance, not assumed. The Linux <code>/proc</code> parse is already ground
 version exchange (the very handshake that already detects skew), then act on
 what it proves:
 <ul>
-<li><strong>skewed</strong> kaval → the wedge (the 25494 case): a kaval of this estate we
-cannot serve through. <strong>RECYCLE it</strong> — SIGTERM the identified pid,
-<code>waitForPidGone</code>, then bind fresh (the wait/ceiling machinery is
-<code>killLiveHolder</code>’s, reused verbatim; the <em>only</em> new thing is the identity
+<li><strong>skewed</strong> daemon → the wedge (the 25494 case): a daemon of this estate we
+cannot serve through. Its disposition is the ONE thing that follows the boot
+policy — the SAME recycle-vs-refuse split the endpoint already makes for a
+<em>gate-recorded</em> skew:
+<ul>
+<li>under the <strong>kaval / always-recycle</strong> policy → <strong>RECYCLE it</strong> — SIGTERM the
+identified pid, <code>waitForPidGone</code>, then bind fresh (the wait/ceiling machinery
+is <code>killLiveHolder</code>’s, reused verbatim; the <em>only</em> new thing is the identity
 source).</li>
+<li>under the <strong>padi binder / refuse</strong> policy (<code>adoptOrSpawnOrRefuse</code>) → <strong>leave
+it standing and report <code>incompatible</code>, never SIGTERM it</strong> — a client must not
+kill a running padi even a skewed gate-less one (<a href="https://github.com/juspay/kolu/pull/1313">#1313</a>).<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Caught
+by the architecture-first-principles gate (C4 depends-on): the first cut
+hardcoded skew→kill in the shared recovery, so a gate-less skewed <em>padi</em> would
+have been SIGTERM’d under the very policy whose contract is “never kill a
+running padi”. The skew disposition now threads the caller’s policy, exactly
+as the gate-recorded path already did.</span></span></span></li>
+</ul>
+</li>
 <li><strong>compatible</strong> kaval → <strong>left for the ordinary connect to adopt</strong>, exactly as
 today — its live PTYs are preserved, not killed. A compatible gate-less holder
 never wedged; recycling it would be a PTY-loss regression, so recovery is a
@@ -215,7 +229,7 @@ attestations that must agree before any signal is sent:</p>
 </tr>
 <tr>
 <td>That pid is the one that answered</td>
-<td>handshake <strong>self-reports its pid</strong><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>kaval’s <code>system.version</code> returns <code>{ contractVersion, pid, startedAt, identity?, lifetime? }</code> — the daemon’s own <code>process.pid</code>. <code>pid</code> is a <strong>required</strong> wire field, present since the first standalone kaval (<a href="https://github.com/juspay/kolu/pull/1301">#1301</a>) — so it holds for <em>every</em> real orphan, including a 25494-era 5.0-contract skew. The recycle target is thus a pid the daemon named <em>over the very socket we are recycling</em>, cross-checked against the OS’s independent view. No new wire field is added (the field already exists); what is added are two additive <em>exported-type</em> fields — see “Exported-API additions”.</span></span></span></td>
+<td>handshake <strong>self-reports its pid</strong><span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>kaval’s <code>system.version</code> returns <code>{ contractVersion, pid, startedAt, identity?, lifetime? }</code> — the daemon’s own <code>process.pid</code>. <code>pid</code> is a <strong>required</strong> wire field, present since the first standalone kaval (<a href="https://github.com/juspay/kolu/pull/1301">#1301</a>) — so it holds for <em>every</em> real orphan, including a 25494-era 5.0-contract skew. The recycle target is thus a pid the daemon named <em>over the very socket we are recycling</em>, cross-checked against the OS’s independent view. No new wire field is added (the field already exists); the added <em>exported-type</em> surface is an additive <code>pid?</code> on <code>DaemonContractSkewError</code> — see “Exported-API additions”.</span></span></span></td>
 <td>the process answering IS the process holding the socket</td>
 </tr>
 </tbody>
@@ -243,10 +257,14 @@ already owns <code>killLiveHolder</code>, <code>waitForPidGone</code>, <code>spa
 gate read. It is a Node-only module (it already imports <code>gatePid</code> / <code>isHolderLive</code>
 and dials <code>node:net</code>), so a new sibling leaf is a clean fit:</p>
 <ul>
-<li><strong><code>socketHolder.ts</code></strong> — a new leaf next to <code>waitForPidGone.ts</code>: <code>socketHolderPid(socketPath) → { pid, command } | undefined</code>, platform-dispatched (<code>/proc</code> on linux, <code>lsof</code> on
-darwin), fail-fast on an unsupported platform. It hides a <em>bounded</em> OS-lookup
-volatility — a <strong>leaf</strong>, not electricity (no transport / reconnect / persistence
-lifecycle of its own), so it belongs in the package that uses it, not a new
+<li><strong><code>socketHolder.ts</code></strong> — a new leaf next to <code>waitForPidGone.ts</code>: <code>socketHolders(socketPath) → SocketHolder[]</code> (each <code>{ pid, command }</code>), platform-dispatched (<code>/proc</code> on linux, <code>lsof</code>
+on darwin), fail-fast on an unsupported platform. It returns <em>every</em> pid the OS reports
+holding the path — a <strong>list</strong>, not a single pid: linux’s <code>/proc/net/unix</code> names the bound
+listener exactly, but darwin’s <code>lsof</code> can report the listener <em>plus</em> connected clients, so
+the caller’s handshake-reported pid selects the true listener from the set (the recovery
+kills only a pid the OS corroborates AND the daemon named over the socket). It hides a
+<em>bounded</em> OS-lookup volatility — a <strong>leaf</strong>, not electricity (no transport / reconnect /
+persistence lifecycle of its own), so it belongs in the package that uses it, not a new
 <code>@kolu/*</code> receptacle.</li>
 <li><strong>the recovery arm</strong> — a private helper in <code>endpoint.ts</code>, run by <code>recoverOrSpawn</code>
 at exactly the boot points where <strong>no live gate holder was found yet the endpoint
@@ -263,20 +281,27 @@ reuses the existing <code>connectSurvivor</code> three-way verdict (<code>adopte
 <code>unreachable</code>), so the handshake logic is not re-implemented.</li>
 </ul>
 <h3 id="exported-api-additions-named-honestly-for-the-consumer-gates">Exported-API additions (named honestly for the consumer gates)</h3>
-<p>Threading the daemon’s self-reported pid (attestation 3) is <strong>not</strong> free of API surface:
-it adds two <strong>additive</strong> fields to <code>@kolu/surface-daemon-supervisor</code> exports —</p>
+<p>The recycle only ever fires on a <strong>skew</strong>, and a skew <em>throws</em> <code>DaemonContractSkewError</code>
+before a <code>DaemonConnection</code> is ever built — so the pid the kill cross-checks rides on the
+<strong>error</strong>, not the connection. The surface additions to <code>@kolu/surface-daemon-supervisor</code>
+are therefore:</p>
 <ul>
-<li><code>pid?: number</code> on the connect result (<code>DaemonConnection</code>) — populated by the soul’s
-<code>connect</code> from <code>system.version.pid</code>;</li>
-<li><code>pid?: number</code> on <code>DaemonContractSkewError</code> — so the pid rides even the skew path (the
-25494 case throws before a <code>DaemonConnection</code> exists).</li>
+<li><code>pid?: number</code> on <code>DaemonContractSkewError</code> — the skewed daemon’s self-reported pid, so
+the gate-less-squatter recovery has its third identity attestation (<strong>additive, optional</strong>);</li>
+<li><code>SocketSquatterForeignError</code> / <code>isSocketSquatterForeignError</code> and <code>socketHolders</code> /
+<code>SocketHolder</code> — genuinely new exports.</li>
 </ul>
-<p>Both are <strong>additive and optional</strong>, so no existing consumer breaks — but “additive” is a
-claim to <em>verify</em>, not assert: the drishti and odu <strong>consumer greps</strong> run against exactly
-these two symbols, and the verdict (expected: additive-optional, no consumer change) is
-recorded either way. <code>ref-surface-supervisor.mdx</code> is updated in the same PR. The one
-genuinely new <em>capability</em> is the OS socket-holder lookup; the pid threading is a small
-additive field on types that already carry the handshake’s other facts.</p>
+<p>A <code>pid</code> on the <em>connection</em> (<code>DaemonConnection</code>) was <strong>not</strong> added: a compatible holder is
+adopted, never killed, so nothing would ever read it — a dead field is worse than none.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Caught
+by the architecture-first-principles gate (C2 consumer-ergonomics): the first cut added <code>pid</code>
+to <code>DaemonConnection</code> too, but the recovery reads the pid only off the <em>skew error</em> (the kill
+path), and the adopt path disposes the connection without touching it — a field with zero
+readers and a doc comment that lied about who read it. Deleted.</span></span></span> The <code>DaemonContractSkewError.pid</code>
+change is <strong>additive-optional</strong>, so no existing consumer breaks — verified, not asserted: the
+drishti and odu <strong>consumer greps</strong> found neither repo depends on
+<code>@kolu/surface-daemon-supervisor</code>, so the additive change has zero cross-repo impact.
+<code>ref-surface-supervisor.mdx</code> is updated in the same PR. The one genuinely new <em>capability</em> is
+the OS socket-holder lookup.</p>
 <h2 id="design-philosophy">Design philosophy</h2>
 <ul>
 <li><strong>Fail fast — no fallbacks.</strong> The foreign-holder arm and every identity

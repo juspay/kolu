@@ -116,10 +116,6 @@ export async function connectKaval(
     client,
     identity: version.identity,
     startedAt: version.startedAt,
-    // The daemon's self-reported OS pid — the third identity attestation the
-    // gate-less-squatter recovery cross-checks against the OS socket-holder lookup
-    // before recycling an orphan. A required `system.version` field (since #1301).
-    pid: version.pid,
     metadata: {
       contractVersion: version.contractVersion,
       lifetime: version.lifetime,
