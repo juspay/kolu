@@ -177,6 +177,14 @@ export interface PtySpawnOpts {
   shell: string;
   /** Arguments to the program (e.g. `--rcfile <wrapper>`). */
   args?: string[];
+  /** True when `shell` is not a shell but the ROOT COMMAND itself — a
+   *  `kaval-tui create -- <cmd>` PTY with the command as `argv[0]` and no shell
+   *  wrapping it. The host seeds {@link PtyHandle.getLastCommand} + the initial
+   *  title from the argv (a shell-less PTY never emits the OSC 633;E mark that
+   *  is otherwise `lastCommand`'s only writer), and reports the fact on the
+   *  inventory row so the workspace sensors read foreground==root as BUSY, not
+   *  as an idle shell prompt. Absent/false = shell-rooted, today's behavior. */
+  commandRooted?: boolean;
   /** Environment for the child — fully prepared by the caller. */
   env: Record<string, string>;
   /** Starting working directory. */

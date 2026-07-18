@@ -324,6 +324,76 @@ describe("createPtyHost", () => {
     await host.exitPromise(id);
   });
 
+  // ── R2: command-rooted PTYs (#1872 lock 1 — the argv is not discarded) ──
+
+  it("seeds lastCommand from the argv for a command-rooted PTY", async () => {
+    // A `kaval-tui create -- claude …` PTY has the agent as argv[0] and no
+    // shell, so it never emits the OSC 633;E mark that is lastCommand's only
+    // writer today. The daemon received the command line at spawn — it must not
+    // discard it. RED before lock 1 (getLastCommand stays undefined).
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      commandRooted: true,
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    await waitFor(() => host.getLastCommand(id) === "/bin/sh -c sleep 5");
+    expect(host.getLastCommand(id)).toBe("/bin/sh -c sleep 5");
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
+  it("replays the seeded command to a late commandRun subscriber", async () => {
+    // The seed publishes on the SAME retained commandRun source the 633;E
+    // handler uses, so a late/restarted padi sensor still learns the agent.
+    // RED before lock 1 (a shell-less PTY publishes nothing).
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      commandRooted: true,
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    expect(await firstEvent(host.subscribeCommandRun(id))).toBe(
+      "/bin/sh -c sleep 5",
+    );
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
+  it("a live 633;E mark overrides the command-rooted seed (precedence)", async () => {
+    // Seed writes first; a real shell command mark is the live last-writer.
+    // (A pin, green today: the 633;E handler already wins whatever was there.)
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf '\\033]633;E;git status\\033\\\\'; sleep 0.5"],
+      commandRooted: true,
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    await waitFor(() => host.getLastCommand(id) === "git status");
+    expect(host.getLastCommand(id)).toBe("git status");
+  });
+
+  it("does NOT seed lastCommand for a shell-rooted PTY (regression guard)", async () => {
+    // The default (shell) path is unchanged: lastCommand stays undefined until a
+    // real 633;E mark — seeding every spawn would mislabel every shell terminal.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 0.5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // A beat for any (erroneous) seed to land; the shell emits no 633;E here.
+    await new Promise((r) => setTimeout(r, 200));
+    expect(host.getLastCommand(id)).toBeUndefined();
+  });
+
   it("publishes title changes on OSC 0/2", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
