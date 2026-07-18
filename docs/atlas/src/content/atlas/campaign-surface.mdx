@@ -1,0 +1,221 @@
+---
+title: "The campaign surface — Atlas + live board as one kolu feature"
+description: "Unify the three coordination artifacts — Atlas notes, the orchestrator's hand-maintained dashboard, and the coming chat bot — into one observed surface: notes carry the plans and reasons (authored), a right-panel Board tab carries the live state (derived from what kolu already watches), and chat mirrors the same board. Nothing is hand-synced because status is never written, only observed."
+parents: [feature, chat-native-agents-and-kolu]
+status: proposed
+maturity: seedling
+updated: 2026-07-18
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+
+## Why: the scribe problem
+
+Running kolu's own development as a multi-agent campaign currently uses three
+disconnected artifacts:
+
+1. **Atlas notes** — the plans and reasons (this knowledge base). Correct as
+   authored, durable files.
+2. **The orchestrator dashboard** — a JSON file (`orchestrator-data.js`) the
+   coordinator agent *hand-writes after every event*, rendered by a static
+   HTML skill asset.
+3. **The chat bot** (pesu, per [kolu under any chat app](chat-native-agents-and-kolu.html)) —
+   planned to render a "who-needs-me board" into a thread.
+
+The dashboard violates kolu's own philosophy twice. The philosophy says the
+interface is **auto-detected, zero setup** — *"kolu builds its interface by
+observing what users already do… rather than requiring configuration"* — and
+that facts like *branch/PR/CI status derive from the terminal's current
+working directory*. The hand-written dashboard is configuration wearing a
+trench coat: it duplicates state the daemons already observe, so it drifts
+(the board goes stale, notes disagree with the board, links break when
+terminals re-key), and keeping it honest required a Stop hook whose only job
+is to nag the scribe. **The disease is that a derived view is hand-authored;
+every sync pain is a symptom.**
+
+The fix is the split the chat-native note already names: **observe flows out
+raw; act flows in through one door.** Applied fully:
+
+| Layer | Carries | Authored or observed |
+| --- | --- | --- |
+| **Atlas note** | the plan: phases, design, rationale, post-mortem | **authored** — deliberately, once |
+| **Board** | the state: which lane is where, right now | **observed** — derived at view time, written by no one |
+| **Chat thread** | the same board, socially | **mirrored** — rendered from the board, never a copy |
+
+The join needs no configuration because the campaign already follows one
+naming convention: **a lane's worktree = its branch = its PR**, and a
+design-bearing lane's branch names its note slug. A convention the
+coordinator already works by — exactly the shape of "recent repos track `cd`
+events": the system observes what the workflow already does.
+
+## The Board — a third right-panel tab
+
+The right panel today has two tabs: `inspector` and `code` (the wire schema
+literally says `activeTab: "inspector" | "code"`). The Board is the third —
+campaign state where the campaign runs, beside the terminals it describes.
+
+export const Chip = ({bg, fg, children}) => (
+  <span style={{background:bg, color:fg, borderRadius:"4px", padding:"0 5px",
+    fontSize:"9.5px", fontWeight:600, whiteSpace:"nowrap"}}>{children}</span>
+);
+export const Dot = ({c}) => (
+  <span style={{width:"7px", height:"7px", borderRadius:"50%", background:c,
+    display:"inline-block", flexShrink:0}}></span>
+);
+export const Lane = ({dot, name, note, pr, prBg, prFg, ci, sub}) => (
+  <div style={{border:"1px solid #e5e1d8", borderRadius:"8px", padding:"6px 8px",
+    display:"flex", flexDirection:"column", gap:"3px", background:"#fff"}}>
+    <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
+      <Dot c={dot} />
+      <span style={{fontWeight:600, fontSize:"11.5px", color:"#1a1c20",
+        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{name}</span>
+      <span style={{marginLeft:"auto", display:"flex", gap:"4px"}}>
+        {note && <Chip bg="#eef1e9" fg="#5a6b4f">▤ {note}</Chip>}
+        <Chip bg={prBg} fg={prFg}>{pr}</Chip>
+        {ci && <Chip bg="#eef" fg="#3949ab">{ci}</Chip>}
+      </span>
+    </div>
+    <div style={{fontSize:"10px", color:"#8a8f98", paddingLeft:"13px"}}>{sub}</div>
+  </div>
+);
+
+export const BoardMock = () => (
+  <div style={{maxWidth:"360px", margin:"1rem auto", border:"1px solid #d8d4c9",
+    borderRadius:"12px", overflow:"hidden", fontFamily:"ui-sans-serif,system-ui",
+    boxShadow:"0 2px 14px rgba(0,0,0,.07)"}}>
+    <div style={{display:"flex", borderBottom:"1px solid #e5e1d8", background:"#faf9f5",
+      fontSize:"11px", fontWeight:600}}>
+      <span style={{padding:"7px 12px", color:"#8a8f98"}}>Inspector</span>
+      <span style={{padding:"7px 12px", color:"#8a8f98"}}>Code</span>
+      <span style={{padding:"7px 12px", color:"#1a1c20",
+        borderBottom:"2px solid #0b6478"}}>Board</span>
+    </div>
+    <div style={{padding:"8px", display:"flex", flexDirection:"column", gap:"6px",
+      background:"#f6f5f0"}}>
+      <div style={{display:"flex", gap:"6px", alignItems:"center", padding:"2px 2px",
+        fontSize:"10px", color:"#5b6470"}}>
+        <Dot c="#e0a030" /> 1 asking you
+        <Dot c="#3aa657" /> 2 working
+        <Dot c="#b0b0b0" /> 1 idle
+      </div>
+      <Lane dot="#e0a030" name="spawn-detection"
+        note="agent-spawn" pr="PR #1889 draft" prBg="#fdf3e7" prFg="#8a5200"
+        ci="CI 4/28" sub="claude · awaiting your answer — 12m" />
+      <Lane dot="#3aa657" name="philosophy-restore"
+        pr="no PR yet" prBg="#f0f0ee" prFg="#8a8f98"
+        sub="claude · working — grounding the old README" />
+      <Lane dot="#3aa657" name="RT-fable (coordinator)"
+        pr="atlas #1878" prBg="#e8f3ec" prFg="#1b7a3a"
+        sub="claude · working — the act door" />
+      <details style={{fontSize:"10px", color:"#8a8f98", padding:"2px"}}>
+        <summary style={{cursor:"pointer", letterSpacing:".2em",
+          textTransform:"uppercase", fontSize:"9px"}}>shipped · 14</summary>
+      </details>
+    </div>
+  </div>
+);
+
+<BoardMock />
+
+Everything in that mock is **already observed** by the running system, today:
+
+| Element | Source (existing) |
+| --- | --- |
+| the lanes | kolu's terminals; each terminal's cwd names its worktree |
+| the colored dot | padi's agent sensors — working / asking-you / idle (the `padi-tui wait` buckets) |
+| the sub-line | the same sensors' detail (which agent, what state, how long) |
+| worktree → branch → PR chip | the cwd→branch derivation the README names, joined to the forge PR for that branch<Footnote>The server already derives branch/PR/CI status from a terminal's cwd for the terminal chrome — the Board reuses that machinery, it does not add a second poller.</Footnote> |
+| CI chip | the same PR's checks |
+| ▤ note chip | branch name ↔ note slug (the naming convention); links into the Code tab |
+| shipped | PRs whose branch had a lane, now merged — an archive nobody curates |
+
+**Nobody writes any of this.** The coordinator dispatching a new lane =
+creating a worktree and a terminal — which is what makes the lane *appear*.
+A PR merging is what flips its chip. An agent finishing is what turns its
+dot. The board cannot be stale because there is nothing to update.
+
+## The note side: phases declared, status resolved
+
+A note keeps owning the **structure** — what the phases *are* — but stops
+hand-stamping outcomes. `PrLink` (and a small `PhasePill`) resolve the live
+PR state at render time in kolu's Code tab:
+
+export const PhaseMock = () => (
+  <div style={{maxWidth:"360px", margin:"1rem auto", padding:"10px 12px",
+    border:"1px solid #d8d4c9", borderRadius:"10px", background:"#fff",
+    fontFamily:"ui-sans-serif,system-ui", fontSize:"11.5px"}}>
+    <div style={{fontWeight:700, fontSize:"10px", letterSpacing:".22em",
+      textTransform:"uppercase", color:"#8a8f98", marginBottom:"6px"}}>
+      Phase tree — agent-spawn-first-class</div>
+    <div style={{display:"flex", flexDirection:"column", gap:"4px"}}>
+      <div>PR 1 · stop the data loss — <Chip bg="#e8f3ec" fg="#1b7a3a">#1880 merged</Chip></div>
+      <div>PR 1.5 · the last spawn seam — <Chip bg="#e8f3ec" fg="#1b7a3a">#1884 merged</Chip></div>
+      <div>PR 2 · detection — <Chip bg="#fdf3e7" fg="#8a5200">#1889 draft · CI running</Chip></div>
+      <div>PR 3 · the face verb — <Chip bg="#f0f0ee" fg="#8a8f98">no PR — waits on kolu-tui</Chip></div>
+    </div>
+    <div style={{marginTop:"6px", fontSize:"9.5px", color:"#8a8f98"}}>
+      pills are live — the note's text never contains an outcome</div>
+  </div>
+);
+
+<PhaseMock />
+
+The note and the board can no longer disagree, because they render **the same
+fact from the same source** — one is the plan's view of it, the other the
+fleet's.
+
+## The flows
+
+**Dispatch.** The coordinator (the act door — unchanged) cuts
+`worktree = branch = lane`, creates a terminal in it, and briefs the agent.
+The lane appears on the Board by observation. Zero writes.
+
+**Attention.** An agent flips to *asking-you* → its dot turns amber and the
+who-needs-me strip counts it → the notify seam pings (desktop today; the
+pesu thread tomorrow — same seam, per the chat-native note). You click the
+lane → you are **in the terminal** (the depth kolu owns). Answer, step out.
+
+**Reading the plan.** Every design-bearing lane shows its ▤ note chip →
+Code tab opens the note → the note's phase pills show live outcomes. One
+click from "what is happening" to "why".
+
+**Shipping.** A PR merges (the human merges — unchanged). Its lane's chip
+flips to merged; the note's pill flips identically; the lane retires to
+*shipped* when its terminal closes. Nobody announces anything.
+
+**Chat.** pesu renders **this same board** into the thread on demand and
+pings on the attention flow — the "mirror of the coordinator" already
+specified in the chat-native note. It gains a data source instead of needing
+one invented.
+
+**What stays conversational (deliberately off-board).** Gate rulings, CI
+venue arbitration, box leases — coordinator knowledge with no observable
+substrate. They live in the dialogue and in notes *as decisions*, not on the
+board *as state*. Putting them on a board is what created the scribe.
+
+## What this deletes
+
+- `orchestrator-data.js` and the same-turn-update ritual
+- the static dashboard HTML skill asset
+- the board-freshness Stop hook (#1888) — enforcement of a duty that no
+  longer exists
+- hand-stamped statuses inside notes (and their drift)
+- terminal-UUID note links that die on re-key — the Board links notes
+  first-class
+
+## Phases
+
+| Phase | Scope | Deletes |
+| --- | --- | --- |
+| **P1 — live pills** | `PrLink`/`PhasePill` resolve PR state at render time in the Code tab's note view (small; client + a cached forge lookup) | hand-stamped outcomes in notes |
+| **P2 — the Board tab** | a derived campaign collection on the server (terminals ⋈ worktree ⋈ branch ⋈ PR ⋈ CI ⋈ agent-sensor state — reusing the existing cwd-derivation machinery) + the right-panel tab rendering it | the dashboard file, its HTML, hook #1888 |
+| **P3 — the thread mirror** | pesu renders the Board + attention pings (the chat-native note's own plan, now with its data source shipped) | nothing — it completes the picture |
+
+<Callout kind="warn" title="Philosophy check">
+  Every element must pass the two-principle test: **agent-agnostic** (the
+  Board watches terminals and forges — it wraps no agent, and a lane running
+  codex or opencode renders identically) and **auto-detected, zero setup**
+  (if a Board element needs someone to *write* state for it, it is designed
+  wrong — redesign it to observe, or move it to a note as a decision).
+</Callout>
