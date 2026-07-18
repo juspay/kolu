@@ -70,6 +70,7 @@ function failingSession() {
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
+      localEnv: {},
       resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
     }),
     reconnectDelayMs: 1000,
@@ -86,6 +87,7 @@ function unresolvableSession(onLine?: (line: string) => void) {
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
+      localEnv: {},
       resolveDrvPath: () =>
         Promise.reject(
           new Error(
@@ -117,6 +119,7 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
       connectOnce: sshConnector({
         host: "altscreen",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 1000,

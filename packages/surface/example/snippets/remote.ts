@@ -55,6 +55,14 @@ const session: Session<
   connectOnce: sshConnector<typeof base.contract>({
     host: "alice@bob.example", // any ssh target; "localhost" short-circuits
     binary: "my-agent", // exe name inside the realised closure
+    // Policy-free: YOU (the consumer) compose the localhost arm's spawn env, keeping only
+    // the keys that are SET (an empty HOME/PATH would misdirect lookups). kolu uses
+    // kolu-pty's `composeSpawnEnv`. Never the caller's ambient `process.env`; unused for ssh.
+    localEnv: Object.fromEntries(
+      (["HOME", "PATH"] as const)
+        .map((k): [string, string | undefined] => [k, process.env[k]])
+        .filter((e): e is [string, string] => e[1] !== undefined),
+    ),
     resolveDrvPath: () => resolveDrv("bob.example"), // deferred — see the caution
   }),
 });

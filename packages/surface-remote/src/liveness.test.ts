@@ -86,6 +86,7 @@ function buildSession(extra: Record<string, unknown> = {}) {
     connectOnce: sshConnector<SurfaceContract>({
       host: "testhost",
       binary: "agent",
+      localEnv: {},
       resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
     }),
     reconnectDelayMs: 50,

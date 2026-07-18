@@ -691,6 +691,9 @@ importers:
       kolu-mcp:
         specifier: workspace:*
         version: link:../kolu-mcp
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
       kolu-server:
         specifier: workspace:*
         version: link:../server
@@ -899,6 +902,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
     devDependencies:
       '@types/columnify':
         specifier: ^1.5.4

@@ -77,6 +77,7 @@ describe("makeSession identity republish (F1)", () => {
       connectOnce: sshConnector<SurfaceContract>({
         host: "testhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
       }),
       reconnectDelayMs: 50,
