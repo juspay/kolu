@@ -1,0 +1,471 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scrollback Backfill — Bounded Attach, Real Scrollback · the kolu Atlas</title><meta name="description" content="Attach paints instantly from a small snapshot; scrolling up backfills older history into the terminal's own scrollback via a pinned xterm-internals prepend — no pager, no view jump, up to the full 10k lines kaval holds."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/scrollback-backfill.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Scrollback Backfill — Bounded Attach, Real Scrollback · the kolu Atlas"><meta property="og:description" content="Attach paints instantly from a small snapshot; scrolling up backfills older history into the terminal's own scrollback via a pinned xterm-internals prepend — no pager, no view jump, up to the full 10k lines kaval holds."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/scrollback-backfill.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-12T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Scrollback Backfill — Bounded Attach, Real Scrollback · the kolu Atlas"><meta name="twitter:description" content="Attach paints instantly from a small snapshot; scrolling up backfills older history into the terminal's own scrollback via a pinned xterm-internals prepend — no pager, no view jump, up to the full 10k lines kaval holds."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim);counter-reset:kolu-footnote}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.fn[data-astro-cid-2yjzt2l5]{display:inline;position:relative}.fn-ref[data-astro-cid-2yjzt2l5]{font:inherit;cursor:pointer;vertical-align:super;color:var(--amber);font-size:.72em;line-height:1;font-family:var(--mono);counter-increment:kolu-footnote;background:0 0;border:0;border-radius:4px;margin:0 .05em;padding:.1em .2em;font-weight:650;display:inline-block}.fn-num[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote)}.fn-ref[data-astro-cid-2yjzt2l5]:hover,.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{color:var(--alert);background:var(--code-bg)}.fn-ref[data-astro-cid-2yjzt2l5]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}.fn[data-astro-cid-2yjzt2l5].is-pinned .fn-ref[data-astro-cid-2yjzt2l5]{color:var(--alert)}.fn-pop[data-astro-cid-2yjzt2l5]{z-index:40;transform:translateX(calc(-50% + var(--fn-x,0px)));text-align:left;white-space:normal;cursor:auto;width:max-content;max-width:min(23rem,88vw);color:var(--ink-dim);background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:.7rem .85rem;display:none;position:absolute;top:calc(100% + .45rem);left:50%;box-shadow:0 8px 28px #10182829,0 2px 6px #10182814}.fn-pop[data-astro-cid-2yjzt2l5].fn-pop-above{top:auto;bottom:calc(100% + .45rem)}.fn[data-astro-cid-2yjzt2l5]:hover>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5]:focus-within>.fn-pop[data-astro-cid-2yjzt2l5],.fn[data-astro-cid-2yjzt2l5].is-pinned>.fn-pop[data-astro-cid-2yjzt2l5]{display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]{font-family:var(--sans);font-size:.8rem;font-weight:400;line-height:1.5;display:block}.fn-pop-inner[data-astro-cid-2yjzt2l5]:before{content:counter(kolu-footnote);float:left;font-family:var(--mono);color:var(--amber);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;margin:.05rem .5rem .1rem 0;padding:0 .4em;font-size:.72rem;font-weight:700}.fn-pop-inner[data-astro-cid-2yjzt2l5] p{margin:0 0 .5rem}.cite[data-astro-cid-5pdjtcv2]{font-family:var(--mono);color:var(--ink);background:var(--code-bg);border:1px solid var(--rule);white-space:nowrap;border-radius:5px;padding:.04em .35em;font-size:.85em;text-decoration:none}.cite[data-astro-cid-5pdjtcv2]:hover{color:var(--amber);border-color:var(--amber)}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Scrollback Backfill — Bounded Attach, Real Scrollback</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>budding</span><span class="meta-sep">·</span><span>implemented</span><span class="meta-sep">·</span><time datetime="2026-07-12T00:00:00.000Z">JUL 12, 2026</time></div><p class="note-sub">Attach paints instantly from a small snapshot; scrolling up backfills older history into the terminal&#39;s own scrollback via a pinned xterm-internals prepend — no pager, no view jump, up to the full 10k lines kaval holds.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#user-facing-description" data-astro-cid-rda6bqd5>User-facing description</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#architecture-level-changes" data-astro-cid-rda6bqd5>Architecture-level changes</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#implementation-details" data-astro-cid-rda6bqd5>Implementation details</a></li></ul></nav></header><div class="prose"><p>Today a cross-host switch (or a page reload) pays for history up front: kaval
+serializes its <strong>whole</strong> 10,000-line mirror and the client writes it all back
+into xterm before the terminal is usable — the full-scrollback replay the
+<a href="padi.html#w9">W9 ship</a> pinned as the cost of active-host-only rendering. This
+note is the ratified direction that kills that cost without giving up history:
+<strong>attach with a bounded snapshot, then backfill older lines into the live
+terminal’s own scrollback as the user scrolls up.</strong> A green prototype grounds
+every claim here (6/6 tests, branch <code>xterm-prepend-spike</code>, commit
+<code>b3cfa37d1</code>). Shipped in <a href="https://github.com/juspay/kolu/pull/1783" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1783</a>.</p>
+<p>One decision from the prototype changed under implementation, recorded here for
+honesty: the plan sketched a <code>have</code>-from-bottom (recent-relative) history cursor,
+but that cannot keep the seam where backfill meets existing content correct —
+it compares the host’s produced-line count against the client’s received count,
+which differ by the in-flight delta lag, so live output appending mid-fetch would
+duplicate or skip rows at the seam. The shipped cursor is instead an <strong>absolute
+mirror-line index</strong>, seeded from the attach snapshot’s <code>topLine</code> and anchored on
+an eviction origin the host tracks off the mirror’s <code>onTrim</code>; a fetch then serves
+strictly <em>above</em> the client’s content regardless of in-flight output. A width
+change (reflow renumbers absolute rows) makes backfill <strong>deliberately halt</strong>
+until the next snapshot re-seeds — the loaded history reflows correctly, only
+further loading waits.</p>
+<p><strong>Follow-up — the foreign-reflow residual (deliberate, honest, rare).</strong> The halt
+comes in two shapes. A <em>local</em> width resize pauses the controller directly. A
+<em>foreign</em> width reflow — a second client resizing the <strong>shared</strong> mirror at a
+different width, this client’s own columns unchanged — is caught by a per-mirror
+<strong>reflow generation</strong> the host stamps on the snapshot and every fetch echoes:
+once it moves, the host serves a typed <code>stale</code> reply and the client halts rather
+than splice a renumbered band. That generation bumps <strong>only</strong> on a real width
+change and on a full RIS reset (which likewise renumbers the mirror); a
+height-only or same-dims resize renumbers nothing and must never halt backfill.
+The residual left in place is narrow and by design: after a genuine foreign-width
+reflow, <em>deeper</em> backfill stops until the next natural snapshot re-seeds. It is
+<strong>halt-not-corrupt and honest</strong> — the reply is typed, nothing is corrupted, and
+the user keeps their buffer <em>and every already-backfilled row</em>; only further
+loading waits. Its structural cure is a <strong>reflow-invariant (logical-line)
+cursor</strong> that keeps backfilling across a reflow — the named follow-up. A
+re-attach-on-<code>stale</code> bandaid was considered and <strong>rejected</strong>: it would repaint
+the screen and discard the backfilled history the user may be reading — trading a
+rare quiet halt for a rare visible loss — and the reflow-invariant cursor would
+delete it anyway.</p>
+
+<style>
+  .sb-board{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.1rem 1rem .9rem;margin:1.2rem 0}
+  .sb-lead{font:600 .68rem/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin:0 0 .9rem .1rem}
+  .sb-row{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .sb-cell{display:flex;flex-direction:column;gap:.55rem;align-items:center}
+  .sb-cap{font:600 .64rem/1.35 ui-sans-serif,system-ui;color:#8b929d;text-align:center;max-width:15rem}
+  .sb-cap b{color:#c7ccd6}
+  .sb-term{width:232px;border-radius:9px;border:1.5px solid #5b6470;background:#0e0e10;overflow:hidden;display:flex;font:11px/1.5 ui-monospace,monospace}
+  .sb-body{flex:1;padding:.5rem .6rem;min-height:118px}
+  .sb-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#aab0ba}
+  .sb-dim{color:#565d68}
+  .sb-new{color:#7fa8e8}
+  .sb-cur{color:#cfd3da}
+  .sb-track{width:7px;background:#141417;position:relative;flex:none}
+  .sb-thumb{position:absolute;left:1.5px;width:4px;border-radius:2px;background:#4b5563}
+  </style>
+<h2 id="user-facing-description">User-facing description</h2>
+<p>Switching to a host — or reloading the page — paints the terminal
+<strong>instantly</strong>. Only the recent screenful (roughly 500–1,000 lines) is sent from kaval to the browser;
+you’re typing into a live prompt while the 10,000 lines behind it stay on the
+host. The full-replay stall you pay today on every cross-host switch
+(<a href="padi.html#w9">the W9 cost</a>) disappears.</p>
+<p>Then scrolling up <strong>just works</strong>. As you approach the top of what’s loaded,
+kolu quietly fetches the next older chunk from the host and splices it into
+the terminal’s <strong>own</strong> scrollback — the same buffer, the same scrollbar, the
+same select/copy/search you already have. There is no separate history viewer
+and no pager: srid explicitly killed that shape.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>A separate
+copy-mode pager — the shape <a href="https://github.com/juspay/kolu/pull/1577" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1577</a> proposed for deep history —
+was rejected for this purpose: the user only cares about the <em>actual terminal
+scrollback</em>, not a second view with its own keys and its own scroll
+position.</span></span></span> The view never jumps while it happens: the lines you’re
+looking at stay exactly where they are, and the only tell is the scrollbar
+thumb shrinking as more history appears above you. Keep scrolling and it keeps
+filling, up to the full 10,000 lines kaval already holds.</p>
+<div class="sb-board"><div class="sb-lead">Attach, then scroll — the same terminal throughout</div><div class="sb-row"><div class="sb-cell"><div class="sb-term"><div class="sb-body"><div class="sb-line sb-dim">…lint · 0 warnings</div><div class="sb-line">$ just test</div><div class="sb-line sb-dim">PASS · 42 passed (6.1s)</div><div class="sb-line">$ git push</div><div class="sb-line sb-dim">→ origin master</div><div class="sb-line">$ <span class="sb-cur">▏</span></div></div><div class="sb-track"><div class="sb-thumb" style="bottom:3px;height:78%"></div></div></div><div class="sb-cap"><b>Attach — instant.</b> Only the recent screenful is sent from kaval; the prompt is live immediately.</div></div><div class="sb-cell"><div class="sb-term"><div class="sb-body"><div class="sb-line sb-new">$ nix build .#kolu</div><div class="sb-line sb-new">building 214 derivations…</div><div class="sb-line sb-new">copying 38 paths…</div><div class="sb-line sb-dim">…lint · 0 warnings</div><div class="sb-line">$ just test</div><div class="sb-line sb-dim">PASS · 42 passed (6.1s)</div></div><div class="sb-track"><div class="sb-thumb" style="top:14px;height:34%"></div></div></div><div class="sb-cap"><b>Scroll up — history streams in.</b> Older lines (blue) splice in above; the lines you were reading don’t move — only the thumb shrinks.</div></div></div></div>
+<p>The backfilled history is real terminal content, not a facsimile: colors
+survive, wrapped lines re-wrap correctly when you resize, wide characters
+land on the right cells — because the bytes are replayed through xterm’s own
+parser before they’re spliced in.</p>
+<h2 id="architecture-level-changes">Architecture-level changes</h2>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg viewBox="0 0 940 500" width="100%" role="img" aria-label="Two paths between kaval's 10,000-line RAM mirror and the browser's live xterm. The hot attach path: a bounded snapshot of roughly 500 to 1000 lines paints the terminal instantly, replacing the W9-era full 10k replay. The backfill loop: when the user scrolls near the top, the client fetches the next older raw chunk from a new kaval history read verb, replays it through a scratch headless terminal whose real parser handles wrapping, SGR, and wide characters, then the fail-loud scrollbackBackfill.ts leaf steals the scratch terminal's BufferLine objects, splices them into the top of the live buffer, shifts ydisp, ybase, and savedY by the inserted count, and fires two renderer pokes — the visible content never moves, the scrollbar thumb just shrinks. The whole reach into xterm privates is a pinned contract of roughly six symbols guarded by a tripwire test." style="max-width:940px;font:13px ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="sbArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
+    </marker>
+    <marker id="sbHot" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--good-stroke,#15803D)" />
+    </marker>
+    <marker id="sbCold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--struct-stroke,#0D32B2)" />
+    </marker>
+  </defs>
+
+  <!-- kaval boundary -->
+  <rect x="16" y="40" width="300" height="430" rx="12" fill="none" stroke="var(--ink-muted,#b6bcc6)" stroke-width="1.3" stroke-dasharray="5 5" />
+  <text x="28" y="60" font-size="10.5" font-weight="700" fill="var(--ink-muted,#8a8f98)" font-family="ui-monospace,'SF Mono',Menlo,monospace">kaval daemon (per PTY)</text>
+
+  <!-- browser boundary -->
+  <rect x="340" y="40" width="584" height="430" rx="12" fill="none" stroke="var(--ink-muted,#b6bcc6)" stroke-width="1.3" stroke-dasharray="5 5" />
+  <text x="352" y="60" font-size="10.5" font-weight="700" fill="var(--ink-muted,#8a8f98)" font-family="ui-monospace,'SF Mono',Menlo,monospace">browser client</text>
+
+  <!-- kaval: 10k RAM mirror -->
+  <rect x="44" y="84" width="244" height="96" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="166" y="110" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">headless xterm mirror</text>
+  <text x="166" y="128" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">10,000 lines · RAM</text>
+  <text x="166" y="144" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">DEFAULT_MIRROR_SCROLLBACK · ptyHost.ts:52</text>
+  <text x="166" y="164" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">unchanged by this plan</text>
+
+  <!-- browser: live xterm -->
+  <rect x="600" y="84" width="300" height="96" rx="8" fill="var(--good-fill,#eff6f0)" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
+  <text x="750" y="110" text-anchor="middle" font-weight="700" fill="var(--ink,#1a1d21)">live xterm</text>
+  <text x="750" y="128" text-anchor="middle" font-size="10.5" fill="var(--good-text,#166534)" font-family="ui-monospace,'SF Mono',Menlo,monospace">@xterm/xterm 6.1.0-beta.225 · WebGL</text>
+  <text x="750" y="144" text-anchor="middle" font-size="10" fill="var(--good-text,#166534)">client scrollback ≥ mirror + snapshot</text>
+  <text x="750" y="164" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--good-text,#166534)">baked invariant — asserted at startup</text>
+
+  <!-- HOT PATH: bounded attach snapshot -->
+  <path d="M288 120 L600 120" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#sbHot)" />
+  <text x="444" y="104" text-anchor="middle" font-size="11" font-weight="700" fill="var(--good-text,#166534)">attach: bounded snapshot · ~500–1000 lines</text>
+  <text x="444" y="138" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--good-text,#166534)">kills the W9 full-10k replay per switch</text>
+
+  <!-- TRIGGER: scroll near top -->
+  <path d="M690 180 L690 214 L150 214 L150 262" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#sbCold)" />
+  <text x="430" y="206" text-anchor="middle" font-size="10.5" font-style="italic" fill="var(--struct-sub,#4A5072)">user scrolls near top — ydisp &lt; ~2× rows → fetch next older chunk</text>
+
+  <!-- kaval: history read verb -->
+  <rect x="48" y="268" width="204" height="92" rx="8" fill="var(--surface,#EDF0FD)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" />
+  <text x="150" y="294" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)">history read verb</text>
+  <text x="150" y="312" text-anchor="middle" font-size="10" font-weight="600" fill="var(--struct-stroke,#0D32B2)">NEW — the one new wire surface</text>
+  <text x="150" y="330" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">older raw chunk from the mirror</text>
+
+  <!-- raw chunk arrow -->
+  <path d="M252 314 L312 314" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#sbCold)" />
+  <text x="282" y="302" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">raw chunk</text>
+
+  <!-- browser: scratch headless terminal -->
+  <rect x="312" y="268" width="236" height="92" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="430" y="294" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)">scratch headless terminal</text>
+  <text x="430" y="312" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">the real parser: wrap · SGR · wide chars</text>
+  <text x="430" y="328" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">replayed at the live terminal's cols</text>
+  <text x="430" y="346" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">9,000 lines → 38 ms</text>
+
+  <!-- stolen BufferLines arrow -->
+  <path d="M548 314 L620 314" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#sbCold)" />
+  <text x="584" y="294" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)">stolen</text>
+  <text x="584" y="306" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)">BufferLines</text>
+
+  <!-- browser: scrollbackBackfill.ts leaf -->
+  <rect x="620" y="240" width="284" height="160" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" />
+  <text x="762" y="264" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#1a1d21)" font-family="ui-monospace,'SF Mono',Menlo,monospace">scrollbackBackfill.ts</text>
+  <text x="762" y="282" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink,#1a1d21)">leaf beside xtermInternals.ts — but FAIL-LOUD</text>
+  <text x="762" y="302" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">lines.splice(0, 0, …stolen rows)</text>
+  <text x="762" y="318" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">ydisp · ybase · savedY += M</text>
+  <text x="762" y="334" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">_onScroll.fire(ydisp) · refresh(0, rows−1)</text>
+  <text x="762" y="354" text-anchor="middle" font-size="10" font-weight="600" fill="var(--ink,#1a1d21)">throws on missing headroom</text>
+  <text x="762" y="372" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">clearSelection() first · skipped on alt buffer</text>
+  <text x="762" y="388" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">11,394 rows spliced → 1.7 ms</text>
+
+  <!-- prepend-in-place arrow -->
+  <path d="M840 240 L840 186" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" marker-end="url(#sbCold)" />
+  <text x="830" y="210" text-anchor="end" font-size="10" font-weight="600" fill="var(--struct-stroke,#0D32B2)">prepend in place —</text>
+  <text x="830" y="226" text-anchor="end" font-size="9.5" font-style="italic" fill="var(--struct-sub,#4A5072)">view never moves, thumb shrinks</text>
+
+  <!-- contract footer (browser side) -->
+  <text x="632" y="432" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--ink,#1a1d21)">pinned internals contract — ~6 symbols, tripwire-tested</text>
+  <text x="632" y="448" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">an xterm bump that moves one symbol is red CI, not a corrupted terminal</text>
+
+  <!-- kaval footer -->
+  <text x="166" y="424" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">the 10 k RAM mirror is the horizon —</text>
+  <text x="166" y="440" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">#1577's memory goal stays open</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The hot path (green) and the backfill loop (blue). Attach sends a bounded snapshot from kaval&#39;s 10k RAM mirror. Scrolling near the top fetches the next older raw chunk over a new kaval read verb, replays it through a scratch headless terminal — the real parser, so wraps/SGR/wide chars are exact — then scrollbackBackfill.ts steals the scratch BufferLine objects, splices them into the top of the live buffer, shifts the registers by the inserted count, and fires two renderer pokes. No terminal emulator ships this: xterm.js upstream declined lazy scrollback twice (#948, #2060) and VS Code full-replays — kolu goes first, which is exactly why the reach into internals is a pinned, tripwire-tested contract.</figcaption></figure>
+<p>The moving parts, in the order a chunk travels:</p>
+<ol>
+<li><strong>kaval’s mirror stays exactly what it is</strong> — a headless xterm holding
+10,000 lines in RAM (<a href="https://github.com/juspay/kolu/blob/master/packages/kaval/src/ptyHost.ts#L52" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/kaval/src/ptyHost.ts:52</a>).
+Attach stops serializing all of it and sends a <strong>bounded snapshot</strong>
+(~500–1,000 lines). This plan deliberately does <em>not</em> touch the mirror’s
+memory footprint.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The heap-OOM problem <a href="https://github.com/juspay/kolu/pull/1577" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1577</a> set
+out to solve — 10,000-line RAM mirrors per PTY — is <strong>not</strong> addressed
+here: the mirror stays 10k in RAM, and that memory goal remains open.
+This note’s business is the attach cost and in-place scrollback,
+nothing else.</span></span></span></li>
+<li><strong>One new wire surface</strong>: a kaval <strong>history read verb</strong> that returns the
+next older raw chunk from the mirror, cursor-paged. That is the only
+addition to the wire — and it gets a second consumer in the same PR: a
+<code>kaval-tui history &lt;terminal&gt;</code> subcommand (ratified in-scope 2026-07-12),
+reading a terminal’s older output without attaching. Agent-orchestration
+workflows currently work around <code>snapshot</code>’s current-screen-only limit by
+passing report files; this closes that gap and doubles as incident
+forensics. Two consumers from day one also keeps the verb honest — it
+must serve a plain pager, not just the browser’s backfill loop.</li>
+<li><strong>A scratch headless terminal</strong> in the client replays the chunk at the
+live terminal’s column width. This is the trick that makes backfilled
+history <em>real</em>: the actual xterm parser computes wrapping, <code>isWrapped</code>
+continuations, SGR attributes, and wide-character cells — no hand-rolled
+VT interpretation anywhere. A resize (or maximize — the same event)
+<em>after</em> a backfill is the proven case: the spike’s reflow oracle shows
+prepended history re-wraps row-for-row identically to natively-written
+history. A resize landing <em>mid-backfill</em> gets an explicit guard: at splice
+time the module compares the live terminal’s columns against fetch-time —
+changed means <strong>discard</strong> the scratch result rather than splice stale-width
+lines. A <em>local</em> width change goes further and <strong>pauses</strong> the controller
+(the absolute cursor a reflow renumbered is no longer valid) until the next
+snapshot re-seeds it; the loaded history still reflows correctly, only
+further loading waits. (The original sketch re-replayed at the new width
+instead; that path was dropped for the simpler halt-not-corrupt pause —
+see the follow-up note near the top.)</li>
+<li><strong><code>scrollbackBackfill.ts</code> steals the result</strong>: the scratch terminal’s
+<code>BufferLine</code> objects are plain data, so the module splices them into the
+top of the live buffer’s <code>CircularList</code>, shifts <code>ydisp</code>/<code>ybase</code>/<code>savedY</code>
+by the inserted count <em>M</em>, and pokes the renderer exactly twice —
+<code>_onScroll.fire(ydisp)</code> and <code>refresh(0, rows−1)</code>. Because <code>ydisp</code> grew by
+the same <em>M</em> as the content above it, the scroll math means <strong>the visible
+content does not move</strong>; the thumb shrinks, and markers and decorations
+shift for free.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Code-read against 6.1.0-beta.225:
+<code>_onScroll.fire</code> cascades <code>selectionService.refresh</code> +
+<code>viewport.queueSync</code>, with no feedback loop (the diff is 0, a no-op);
+markers shift via <code>Buffer.addMarker</code>’s <code>onInsert</code> handler and the
+<code>DecorationService</code> listens to <code>onInsert</code> too. The <code>refresh</code> rebuilds the
+WebGL atlas from <code>ydisp..ydisp+rows</code> — content-identical, flicker-free.
+The one gap found: <code>SelectionService</code> listens only to <code>onTrim</code>, not
+<code>onInsert</code>, so an active selection’s rows would go stale by <em>M</em> — hence
+the MVP clears the selection before each prepend.</span></span></span></li>
+</ol>
+<p>Three boundary decisions, stated as verdicts:</p>
+<ul>
+<li>
+<p><strong>A leaf, not electricity — but a <em>fail-loud</em> leaf.</strong> It hides no transport,
+no reconnect, no persistence — a bounded algorithm over xterm’s buffer, so on
+its own it earned no package. It has since graduated into
+<a href="xterm-kit"><code>@kolu/xterm-kit</code></a> — not as electricity in its own right, but as
+one part of the accumulated xterm machinery that package owns — where it lives
+at <code>packages/xterm-kit/src/scrollbackBackfill.ts</code> (the <code>/backfill</code> entry, which
+constructs the <code>@xterm/xterm</code> scratch), a sibling of the pinned-internals door
+<a href="https://github.com/juspay/kolu/blob/master/packages/xterm-kit/src/internals.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/xterm-kit/src/internals.ts</a>. It inverts that sibling’s
+philosophy: <code>internals.ts</code> degrades to a no-op when a private symbol is
+missing, which is right for cosmetic reads — and <strong>wrong here</strong>, because
+a silent partial prepend corrupts a terminal. The prototype demonstrated
+the failure live: without the guard, a splice past <code>maxLength</code> silently
+trims the oldest rows while the register arithmetic still assumes they
+exist. Every missing symbol and every headroom shortfall <strong>throws</strong>.</p>
+</li>
+<li>
+<p><strong>The internals dependency is a pinned contract, not a hope.</strong> The whole
+reach into xterm privates is ~6 symbols:</p>
+<table>
+<thead>
+<tr>
+<th>pinned symbol</th>
+<th>role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>term._core</code></td>
+<td>the door into internals</td>
+</tr>
+<tr>
+<td><code>_core._bufferService._onScroll.fire</code></td>
+<td>renderer poke 1</td>
+</tr>
+<tr>
+<td><code>_core.buffers.normal</code></td>
+<td>the live normal buffer</td>
+</tr>
+<tr>
+<td><code>buffer.lines</code> — <code>CircularList</code>: <code>length</code> / <code>maxLength</code> / <code>get</code> / <code>splice</code> / <code>onInsert</code> / <code>onTrim</code></td>
+<td>line storage; the splice point</td>
+</tr>
+<tr>
+<td><code>buffer.ydisp</code> / <code>ybase</code> / <code>savedY</code> / <code>y</code></td>
+<td>the registers shifted by += <em>M</em></td>
+</tr>
+<tr>
+<td><code>IBufferLine.isWrapped</code> / <code>.translateToString</code></td>
+<td>wrap continuation + text oracle</td>
+</tr>
+</tbody>
+</table>
+<p>A <strong>contract-pin test</strong> (symbol existence + splice-fires-<code>onInsert</code>) is the
+tripwire: an xterm version bump that moves any symbol turns into <strong>red CI</strong>,
+not user-facing corruption. Churn risk is low — every pinned symbol is
+shape-identical between <code>@xterm/headless</code> 6.0.0 and the client’s
+exact-pinned <code>@xterm/xterm</code> 6.1.0-beta.225 (pnpm overrides, with webgl
+0.20.0-beta.224).</p>
+</li>
+<li>
+<p><strong>kolu goes first, knowingly.</strong> There is no prior art to copy: xterm.js
+upstream declined infinite/lazy scrollback twice, and VS Code restores
+terminals by serialize-plus-full-replay — precisely the cost this plan
+removes.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>xterm.js #948 and #2060 — “up the scrollback” was the
+official answer, and a VTE maintainer’s paging design was declined.
+VS Code’s persistent terminals do a full serialize + replay on restore,
+not lazy backfill.</span></span></span> Wanting what no emulator ships is <em>why</em> the
+internals reach exists — and why it’s fenced by the contract table above
+rather than scattered through the codebase.</p>
+</li>
+</ul>
+<h2 id="implementation-details">Implementation details</h2>
+<p><strong>One PR</strong>, five steps — the work threads existing seams (attach, the
+terminal module, kaval’s verbs) and nothing here can ship usefully alone:</p>
+<ol>
+<li><strong>The module</strong> — <code>scrollbackBackfill.ts</code> (shipped under
+<code>packages/client/src/terminal/</code>; later graduated verbatim into
+<code>packages/xterm-kit/src/</code> — see <a href="xterm-kit">xterm-kit</a>)
+exporting <code>prependScrollback(term, rawChunk, servedRows): PrependResult</code> — a
+discriminated <code>{ kind: &quot;inserted&quot;; rows } | { kind: &quot;skipped&quot; }</code>, so the
+caller can never conflate “consumed, inserted <em>M</em> rows” with “not consumed”
+(an alt-buffer or late-splice skip that must not advance the backfill
+cursor). Steps exactly as the prototype’s <code>prependHistory</code>, plus
+<code>term.clearSelection()</code> before the splice and a <code>skipped</code> when the alt buffer
+is active. Fail-loud throughout.</li>
+<li><strong>The scratch terminal</strong> — the shipped <code>defaultScratch</code> is an <strong>unopened</strong>
+<code>@xterm/xterm</code> <code>Terminal</code> (same version, so <code>BufferLine</code> internals match the
+live buffer’s; no renderer, no DOM — it just parses bytes into a buffer). Its
+one load-bearing assumption — an unopened <code>write()</code> parses into the buffer
+<em>and</em> fires its callback — is <strong>pinned by a contract test</strong> (the SHIPPED
+export, exercised directly), so a caret-range <code>@xterm/xterm</code> bump that defers
+pre-open parsing turns red in CI rather than into silent corruption. (No
+fallback to <code>@xterm/headless</code> shipped: promoting it to a client runtime dep
+would put a second parser in the bundle — weighed and declined.)</li>
+<li><strong>The wiring</strong> — attach sends the bounded snapshot; an <code>onScroll</code> handler
+fetches the next older chunk from kaval’s new history read verb whenever
+<code>ydisp</code> drops under <strong>~2× rows</strong>, prepends it, and stops when the mirror
+is exhausted.</li>
+<li><strong>The sizing invariant, baked</strong> — client scrollback ≥ kaval’s
+<code>DEFAULT_MIRROR_SCROLLBACK</code> (10,000,
+<a href="https://github.com/juspay/kolu/blob/master/packages/kaval/src/ptyHost.ts#L52" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/kaval/src/ptyHost.ts:52</a>) + snapshot size,
+<strong>asserted at startup</strong>; and the throw-on-overflow guard stays in the
+splice path. No knob, no clamp-and-continue: headroom is a build-time
+fact, so a violation is a crash, not a degrade.</li>
+<li><strong>The contract-pin tests, lifted from the spike</strong> into both packages —
+kaval (against <code>@xterm/headless</code>) and client (against <code>@xterm/xterm</code>) —
+so a pin bump that moves a pinned symbol fails CI loudly on both sides.</li>
+<li><strong><code>kaval-tui history &lt;terminal&gt;</code></strong> — the read verb’s second consumer, in
+this same PR: cursor-paged dump of a terminal’s older mirror contents to
+stdout (newest-first paging, a <code>--lines N</code> bound), no attach, no TTY
+taken. Ships with a smoke-level test against a real kaval.</li>
+</ol>
+<p><strong>Risks, ranked</strong> — each with the mitigation that ships in the same PR:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>risk</th>
+<th>mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Silent eviction on missing headroom</strong> — the one true corruption mode: splicing past <code>maxLength</code> silently trims the oldest rows while the register shift assumes they exist. Demonstrated live in the spike.</td>
+<td>Fully guarded: the fail-fast throw-on-overflow check + the baked sizing invariant (step 4) make the state unreachable.</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Private-symbol churn on an xterm upgrade.</td>
+<td>Low (every symbol stable across 6.0.0 → 6.1.0-beta.225; versions exact-pinned); the contract-pin tests convert any move into red CI.</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Scratch-replay fidelity edges — OSC-8 link ids dangle, addon-image placements are lost in backfilled rows.</td>
+<td>Cosmetic by construction; accepted (see the deliberately-not list).</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Browser-only behaviors unverified headlessly — the unopened-<code>Terminal</code> <code>write()</code>, one-frame scrollbar jitter, a prepend racing a pending write.</td>
+<td>The unopened <code>write()</code> is now <strong>pinned by a contract test against the shipped <code>defaultScratch</code></strong> (turns red on an <code>@xterm/xterm</code> bump that defers pre-open parsing); the remaining jitter/race edges are verified by eyeball + e2e.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Selection UX — an active selection is cleared by a prepend.</td>
+<td>Accepted for MVP; preserving it needs <code>_selectionService._model</code>, a later extension.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Deliberately not in scope:</strong></p>
+<ul>
+<li>No backfill while the <strong>alt buffer</strong> is active (full-screen apps have no
+scrollback to extend).</li>
+<li><strong>Selection is not preserved</strong> across a backfill — cleared in the MVP.</li>
+<li><strong>OSC-8 links render plain</strong> in backfilled rows.</li>
+<li><strong>No recreation of history at its original recorded widths</strong> — the replay
+wraps at the <em>current</em> cols, and the spike’s reflow oracle shows that’s
+exactly what native history does too.</li>
+<li><strong>No infinite or disk-backed scrollback</strong> — kaval’s 10k RAM mirror is the
+horizon of this plan.</li>
+</ul>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The prototype this plan stands on</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Branch <code>xterm-prepend-spike</code>, commit <code>b3cfa37d1</code>
+(<code>packages/kaval/src/xtermPrepend.spike.test.ts</code>) — <strong>6/6 vitest green</strong>
+against <code>@xterm/headless</code> in ~170 ms. The load-bearing proof is the
+<strong>reflow oracle</strong>: prepended history reflows <strong>row-for-row identical</strong> to
+natively-written history across shrink, grow, row-count change, and further
+writes — so backfilled scrollback is indistinguishable from scrollback that
+was always there. Also proven: storage coherence with appends still working
+and <code>onScroll</code> firing shifted; a scrolled-up viewport anchor staying put; SGR
+attributes surviving; the fail-fast overflow guard (and the corruption when
+it’s removed); and the contract-pin tripwire itself. Performance: a
+9,000-line scratch replay costs <strong>38 ms</strong>, and stealing + splicing +
+shifting 11,394 rows costs <strong>1.7 ms</strong> — a one-shot 10k backfill would be
+fine, so the incremental scroll-driven chunks are nowhere near a budget.</p></div></aside></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./padi.html" data-astro-cid-aziudkuj>padi — the per-host terminal-workspace daemon</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+<script>
+  (function () {
+    var fns = Array.prototype.slice.call(
+      document.querySelectorAll(".fn[data-fn]"),
+    );
+    if (!fns.length) return;
+
+    // Position an open popover: reset, measure, then pull it back inside the
+    // viewport horizontally and flip it above the marker if it overflows below.
+    function place(fn) {
+      var pop = fn.querySelector(".fn-pop");
+      if (!pop) return;
+      pop.style.setProperty("--fn-x", "0px");
+      pop.classList.remove("fn-pop-above");
+      var r = pop.getBoundingClientRect();
+      var pad = 8;
+      var dx = 0;
+      if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+      else if (r.left < pad) dx = pad - r.left;
+      if (dx) pop.style.setProperty("--fn-x", dx + "px");
+      if (r.bottom > window.innerHeight - pad) pop.classList.add("fn-pop-above");
+    }
+
+    function setPinned(fn, on) {
+      fn.classList.toggle("is-pinned", on);
+      var btn = fn.querySelector(".fn-ref");
+      if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+
+    function unpinAll(except) {
+      fns.forEach(function (fn) {
+        if (fn !== except) setPinned(fn, false);
+      });
+    }
+
+    fns.forEach(function (fn) {
+      var btn = fn.querySelector(".fn-ref");
+      if (!btn) return;
+      // Place on reveal so the CSS-shown popover lands in the right spot.
+      btn.addEventListener("pointerenter", function () {
+        place(fn);
+      });
+      btn.addEventListener("focus", function () {
+        place(fn);
+      });
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pin = !fn.classList.contains("is-pinned");
+        unpinAll(fn);
+        setPinned(fn, pin);
+        if (pin) place(fn);
+      });
+    });
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.closest || !t.closest(".fn[data-fn]")) unpinAll(null);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") unpinAll(null);
+    });
+    window.addEventListener("resize", function () {
+      fns.forEach(function (fn) {
+        if (fn.classList.contains("is-pinned")) place(fn);
+      });
+    });
+  })();
+</script></body></html>

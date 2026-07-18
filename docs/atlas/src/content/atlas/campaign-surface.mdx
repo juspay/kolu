@@ -82,15 +82,18 @@ export const Dot = ({c}) => (
   <span style={{width:"7px", height:"7px", borderRadius:"50%", background:c,
     display:"inline-block", flexShrink:0}}></span>
 );
-export const GNode = ({depth, dot, name, chips, sub}) => (
-  <div style={{paddingLeft:`${depth*16}px`, display:"flex", flexDirection:"column", gap:"1px"}}>
+export const GNode = (props) => (
+  <div style={{paddingLeft: props.pad, display:"flex", flexDirection:"column", gap:"1px"}}>
     <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
-      {depth > 0 && <span style={{color:"#c9c4b8", fontSize:"10px"}}>└─</span>}
-      <Dot c={dot} />
-      <span style={{fontWeight:600, fontSize:"11.5px", color:"#1a1c20"}}>{name}</span>
-      <span style={{marginLeft:"auto", display:"flex", gap:"4px"}}>{chips}</span>
+      <span style={{color:"#c9c4b8", fontSize:"10px"}}>{props.edge}</span>
+      <Dot c={props.dot} />
+      <span style={{fontWeight:600, fontSize:"11.5px", color:"#1a1c20"}}>{props.name}</span>
+      <span style={{marginLeft:"auto", display:"flex", gap:"4px"}}>
+        {props.note && <Chip bg="#eef1e9" fg="#5a6b4f">▤ {props.note}</Chip>}
+        {props.pr && <Chip bg={props.prBg} fg={props.prFg}>{props.pr}</Chip>}
+      </span>
     </div>
-    <div style={{fontSize:"10px", color:"#8a8f98", paddingLeft:depth > 0 ? "34px" : "13px"}}>{sub}</div>
+    <div style={{fontSize:"10px", color:"#8a8f98", paddingLeft:"34px"}}>{props.sub}</div>
   </div>
 );
 
@@ -108,20 +111,20 @@ export const GraphMock = () => (
       <div style={{display:"flex", gap:"8px", alignItems:"center", fontSize:"10px", color:"#5b6470"}}>
         <Dot c="#e0a030" /> 1 asking you <Dot c="#3aa657" /> 3 working <Dot c="#b0b0b0" /> 1 idle
       </div>
-      <GNode depth={0} dot="#3aa657" name="RT-fable · coordinator"
-        chips={<Chip bg="#e8f3ec" fg="#1b7a3a">atlas #1878</Chip>}
+      <GNode pad="0px" edge="" dot="#3aa657" name="RT-fable · coordinator"
+        pr="atlas #1878" prBg="#e8f3ec" prFg="#1b7a3a"
         sub="claude · working — the act door (supervisor)" />
-      <GNode depth={1} dot="#e0a030" name="spawn-detection"
-        chips={<span style={{display:"contents"}}><Chip bg="#eef1e9" fg="#5a6b4f">▤ agent-spawn</Chip><Chip bg="#fdf3e7" fg="#8a5200">PR draft</Chip></span>}
+      <GNode pad="16px" edge="└─" dot="#e0a030" name="spawn-detection"
+        note="agent-spawn" pr="PR draft" prBg="#fdf3e7" prFg="#8a5200"
         sub="claude · awaiting your answer — 12m" />
-      <GNode depth={2} dot="#3aa657" name="codex split"
-        chips={<Chip bg="#f0f0ee" fg="#8a8f98">debate r2</Chip>}
+      <GNode pad="32px" edge="└─" dot="#3aa657" name="codex split"
+        pr="debate r2" prBg="#f0f0ee" prFg="#8a8f98"
         sub="codex · working — parentId edge, observed" />
-      <GNode depth={1} dot="#3aa657" name="philosophy-restore"
-        chips={<Chip bg="#e8f3ec" fg="#1b7a3a">#1889 merged</Chip>}
+      <GNode pad="16px" edge="└─" dot="#3aa657" name="philosophy-restore"
+        pr="#1889 merged" prBg="#e8f3ec" prFg="#1b7a3a"
         sub="claude · idle — lane retiring to shipped" />
-      <GNode depth={0} dot="#b0b0b0" name="scratch"
-        chips={<Chip bg="#f0f0ee" fg="#8a8f98">no PR</Chip>}
+      <GNode pad="0px" edge="" dot="#b0b0b0" name="scratch"
+        pr="no PR" prBg="#f0f0ee" prFg="#8a8f98"
         sub="plain shell · unattributed — hangs off the repo root" />
       <details style={{fontSize:"10px", color:"#8a8f98"}}>
         <summary style={{cursor:"pointer", letterSpacing:".2em", textTransform:"uppercase", fontSize:"9px"}}>shipped · 15</summary>
