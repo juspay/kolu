@@ -85,11 +85,14 @@ session. It hits both bugs.</li>
 its own — the shell inherited the orchestrator’s variables too. First run
 <code>unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID</code>, then
 launch. (Shells restored by kaval itself after a restart are already clean.)</li>
-<li>These workaround notes in the skills get deleted the day the structural fix
-merges.</li>
+<li>The own-shell scrub (<code>unset CLAUDE_CODE_* …</code> before launching an agent in a
+hand-tainted <code>ssh</code>/<code>sudo -E</code> shell) is <strong>permanent hygiene, tied to no PR</strong> —
+its cause is upstream (agents classifying themselves from inherited env),
+not something any kolu change fixes. The other interim rules were deleted as
+their PRs shipped.</li>
 </ul>
 <h2 id="pr-phases">PR phases</h2>
-<p>Four PRs, each independently shippable, ordered by harm:</p>
+<p>Three PRs shipped, ordered by harm — and a fourth downgraded to optional sugar:</p>
 <p><strong>PR 1 — stop the data loss</strong> — <strong>SHIPPED as <a href="https://github.com/juspay/kolu/pull/1880" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1880</a></strong> (<code>kaval-tui</code> + <code>kolu-pty</code> + <code>padi</code> +
 <code>surface-daemon-supervisor</code> + e2e harness + docs + skills). ONE shared
 allowlist (<code>SPAWN_ENV_ALLOWLIST</code> in kolu-pty, pinned as data) and
@@ -129,13 +132,17 @@ kept green as the regression guard documenting the pid path. This PR
 deletes PR 1’s “never <code>create -- &lt;agent&gt;</code>” skill rule for the <em>detection</em>
 reason; the terminal is still shell-less, so the Dock’s richer shell
 affordances stay absent — which is fine for the raw CLI path.</p>
-<p><strong>PR 3 — the face verb</strong> — <em>waits on kolu-tui</em> (rides the kolu-tui build-out, not before).
-“Launch an agent” as a first-class operation on the tui face (create shell →
-type command → detection confirmed), matching what the mcp face already does
-by construction. The padi sensor discrimination (“is the root even a shell?”)
-is <strong>demand-gated into this PR only if</strong> command-rooted terminals become
-visible to workspace sensors by then — otherwise it stays unbuilt, recorded
-here.</p>
+<p><strong>PR 3 — the face verb</strong> — <strong>DOWNGRADED to optional ergonomics; not planned.</strong>
+The original argument was safety: make the hand-assembled launch impossible to
+express. That argument dissolved when PRs 1–2 fixed both bugs <em>at the
+substrate</em>, with regression pins: today <code>create -- claude</code> composes its
+environment and is detected in the Dock — the broken way is no longer broken.
+What a dedicated verb would still add is convenience only (returns after
+detection confirms instead of at spawn; a shell to drop back into when the
+agent exits; one step instead of two). If kolu-tui wants that sugar someday,
+it can add it — but “we fixed the bugs, so build the thing that would have
+prevented them” is backwards once the fixes are pinned. Issue #1872 closes
+with PR 2.</p>
 <aside class="callout callout-warn" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Grounding</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Shapes and file:line anchors from a 16-agent architecture + perfection
 review over the #1872 evidence (13 findings, 0 refuted). Each PR carries
 its own red-first pin; none depends on the others to merge.</p></div></aside></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>

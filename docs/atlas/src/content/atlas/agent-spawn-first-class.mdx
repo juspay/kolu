@@ -82,12 +82,15 @@ our A/B evidence.
   its own — the shell inherited the orchestrator's variables too. First run
   `unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID`, then
   launch. (Shells restored by kaval itself after a restart are already clean.)
-- These workaround notes in the skills get deleted the day the structural fix
-  merges.
+- The own-shell scrub (`unset CLAUDE_CODE_* …` before launching an agent in a
+  hand-tainted `ssh`/`sudo -E` shell) is **permanent hygiene, tied to no PR** —
+  its cause is upstream (agents classifying themselves from inherited env),
+  not something any kolu change fixes. The other interim rules were deleted as
+  their PRs shipped.
 
 ## PR phases
 
-Four PRs, each independently shippable, ordered by harm:
+Three PRs shipped, ordered by harm — and a fourth downgraded to optional sugar:
 
 **PR 1 — stop the data loss** — **SHIPPED as <PrLink pr={1880} />** (`kaval-tui` + `kolu-pty` + `padi` +
 `surface-daemon-supervisor` + e2e harness + docs + skills). ONE shared
@@ -131,13 +134,17 @@ deletes PR 1's "never `create -- <agent>`" skill rule for the *detection*
 reason; the terminal is still shell-less, so the Dock's richer shell
 affordances stay absent — which is fine for the raw CLI path.
 
-**PR 3 — the face verb** — *waits on kolu-tui* (rides the kolu-tui build-out, not before).
-"Launch an agent" as a first-class operation on the tui face (create shell →
-type command → detection confirmed), matching what the mcp face already does
-by construction. The padi sensor discrimination ("is the root even a shell?")
-is **demand-gated into this PR only if** command-rooted terminals become
-visible to workspace sensors by then — otherwise it stays unbuilt, recorded
-here.
+**PR 3 — the face verb** — **DOWNGRADED to optional ergonomics; not planned.**
+The original argument was safety: make the hand-assembled launch impossible to
+express. That argument dissolved when PRs 1–2 fixed both bugs *at the
+substrate*, with regression pins: today `create -- claude` composes its
+environment and is detected in the Dock — the broken way is no longer broken.
+What a dedicated verb would still add is convenience only (returns after
+detection confirms instead of at spawn; a shell to drop back into when the
+agent exits; one step instead of two). If kolu-tui wants that sugar someday,
+it can add it — but "we fixed the bugs, so build the thing that would have
+prevented them" is backwards once the fixes are pinned. Issue #1872 closes
+with PR 2.
 
 <Callout kind="warn" title="Grounding">
   Shapes and file:line anchors from a 16-agent architecture + perfection
