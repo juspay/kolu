@@ -156,14 +156,33 @@ against the path.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="
 in acceptance, not assumed. The Linux <code>/proc</code> parse is already grounded empirically
 (exact column layout + inode→pid mapping).</span></span></span></li>
 <li><strong>VERIFY IDENTITY by handshake</strong> — dial the socket and run the existing kaval
-version exchange (the very handshake that already detects skew). It answers
-<code>system.version</code> → it <strong>is</strong> an orphaned kaval of this estate, <em>at any contract
-version</em>. It does <strong>not</strong> speak kaval → a genuinely foreign process, and we
-<strong>fail loud</strong> (a typed error naming its pid + command) and <strong>never touch it</strong>.</li>
-<li><strong>RECYCLE the verified orphan</strong> — SIGTERM the identified pid, <code>waitForPidGone</code>,
-then bind fresh. The wait/ceiling machinery is <code>killLiveHolder</code>’s, reused
-verbatim; the <em>only</em> new thing is the identity source.</li>
+version exchange (the very handshake that already detects skew), then act on
+what it proves:
+<ul>
+<li><strong>skewed</strong> kaval → the wedge (the 25494 case): a kaval of this estate we
+cannot serve through. <strong>RECYCLE it</strong> — SIGTERM the identified pid,
+<code>waitForPidGone</code>, then bind fresh (the wait/ceiling machinery is
+<code>killLiveHolder</code>’s, reused verbatim; the <em>only</em> new thing is the identity
+source).</li>
+<li><strong>compatible</strong> kaval → <strong>left for the ordinary connect to adopt</strong>, exactly as
+today — its live PTYs are preserved, not killed. A compatible gate-less holder
+never wedged; recycling it would be a PTY-loss regression, so recovery is a
+no-op there.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>This is a build-time refinement of the approved design’s
+literal “recycle any verified orphan”: grounding showed that today a
+<em>compatible</em> gate-less holder is already connected-to (adopted) by the spawn
+path, so only the <em>skewed</em> holder ever wedged. Recycling a compatible orphan
+would kill PTYs that survive today — a regression the skew-only recycle avoids.
+The identity/safety model is unchanged; only the compatible-holder disposition
+is adopt-not-recycle.</span></span></span></li>
+<li>does <strong>not</strong> speak kaval → a genuinely foreign process (or a non-conforming
+speaker), and we <strong>fail loud</strong> (a typed <code>SocketSquatterForeignError</code> naming its
+pid + command) and <strong>never touch it</strong>.</li>
 </ul>
+</li>
+</ul>
+<p>We also never recover a socket held by <strong>our own process</strong>: the supervisor spawns
+its daemon as a separate process, so a holder equal to <code>process.pid</code> is never a
+real squatter — filtering it out is both correct and a self-kill guard.</p>
 <p>This makes the existing <code>incompatible → renewDaemon</code> flow <strong>self-heal</strong>: a fresh
 padi boots → socket held gate-less → handshake → old kaval → recycle → bind the
 new contract → converge. It is srid’s “stop the old kaval, start the new kaval”,
@@ -228,15 +247,19 @@ darwin), fail-fast on an unsupported platform. It hides a <em>bounded</em> OS-lo
 volatility — a <strong>leaf</strong>, not electricity (no transport / reconnect / persistence
 lifecycle of its own), so it belongs in the package that uses it, not a new
 <code>@kolu/*</code> receptacle.</li>
-<li><strong>the recovery arm</strong> — a private helper in <code>endpoint.ts</code>, placed at the <strong>top of
-<code>spawnConnectHold</code></strong> (before <code>driver.spawn</code>). Every fresh-spawn path funnels through
-<code>spawnConnectHold</code> — <code>ensure</code>’s always-recycle, <code>adoptSurvivor</code>’s no-survivor branch,
-<code>recycle</code>’s respawn, and therefore <code>converge</code> and the renew flow too — so one placement
-gives <strong>uniform coverage of all boot policies</strong>, with no wedge path routing around it.
-(After a recycle has already killed a gate holder the socket is free, so the check
-no-ops there; in the pure gate-less wedge it fires.) “Speaks kaval?” reuses the existing
-<code>connectSurvivor</code> three-way verdict (<code>adopted</code> / <code>skew</code> / <code>unreachable</code>), so the
-handshake logic is not re-implemented.</li>
+<li><strong>the recovery arm</strong> — a private helper in <code>endpoint.ts</code>, run by <code>recoverOrSpawn</code>
+at exactly the boot points where <strong>no live gate holder was found yet the endpoint
+is about to spawn</strong>: <code>ensure</code>’s else branch and <code>adoptSurvivor</code>’s no-survivor branch
+(hence, via <code>converge</code> and the renew flow, every wedge path). It is deliberately
+<strong>not</strong> on the <code>recycle</code> path — that has already reaped its holder and freed the
+socket, so re-probing there would only re-handshake a daemon we just replaced (and,
+against an in-process test daemon, mis-fire).<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The first cut placed the arm
+at the top of <code>spawnConnectHold</code> for “uniform coverage”, but <code>recycle</code> calls
+<code>spawnConnectHold</code> too — so the arm ran an extra handshake on every recycle. Scoping
+it to the no-gate-holder branches covers the same wedge paths (a wedge is <em>always</em> a
+no-gate-holder boot) without touching the recycle path.</span></span></span> “Speaks kaval?”
+reuses the existing <code>connectSurvivor</code> three-way verdict (<code>adopted</code> / <code>skew</code> /
+<code>unreachable</code>), so the handshake logic is not re-implemented.</li>
 </ul>
 <h3 id="exported-api-additions-named-honestly-for-the-consumer-gates">Exported-API additions (named honestly for the consumer gates)</h3>
 <p>Threading the daemon’s self-reported pid (attestation 3) is <strong>not</strong> free of API surface:
@@ -295,6 +318,12 @@ existing <code>system.version</code> field. The one genuinely new capability is 
 <td>a socket that accepts but whose <code>system.version</code> omits <code>pid</code> (fails schema)</td>
 <td>(falls through / opaque)</td>
 <td>classified <strong>foreign</strong> → <strong>not killed</strong>; loud typed error</td>
+</tr>
+<tr>
+<td><strong>Compatible holder</strong></td>
+<td>a gate-less holder that speaks a compatible contract</td>
+<td>(connected/adopted)</td>
+<td><strong>adopted, not killed</strong> — PTYs preserved (no regression)</td>
 </tr>
 <tr>
 <td><strong>Gate-present unchanged</strong></td>

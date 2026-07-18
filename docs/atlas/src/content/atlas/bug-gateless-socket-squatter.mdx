@@ -82,13 +82,30 @@ The arm fires **only** in the gate-less-squatter state and does three things:
   in acceptance, not assumed. The Linux `/proc` parse is already grounded empirically
   (exact column layout + inode→pid mapping).</Footnote>
 - **VERIFY IDENTITY by handshake** — dial the socket and run the existing kaval
-  version exchange (the very handshake that already detects skew). It answers
-  `system.version` → it **is** an orphaned kaval of this estate, *at any contract
-  version*. It does **not** speak kaval → a genuinely foreign process, and we
-  **fail loud** (a typed error naming its pid + command) and **never touch it**.
-- **RECYCLE the verified orphan** — SIGTERM the identified pid, `waitForPidGone`,
-  then bind fresh. The wait/ceiling machinery is `killLiveHolder`'s, reused
-  verbatim; the *only* new thing is the identity source.
+  version exchange (the very handshake that already detects skew), then act on
+  what it proves:
+  - **skewed** kaval → the wedge (the 25494 case): a kaval of this estate we
+    cannot serve through. **RECYCLE it** — SIGTERM the identified pid,
+    `waitForPidGone`, then bind fresh (the wait/ceiling machinery is
+    `killLiveHolder`'s, reused verbatim; the *only* new thing is the identity
+    source).
+  - **compatible** kaval → **left for the ordinary connect to adopt**, exactly as
+    today — its live PTYs are preserved, not killed. A compatible gate-less holder
+    never wedged; recycling it would be a PTY-loss regression, so recovery is a
+    no-op there.<Footnote>This is a build-time refinement of the approved design's
+    literal "recycle any verified orphan": grounding showed that today a
+    *compatible* gate-less holder is already connected-to (adopted) by the spawn
+    path, so only the *skewed* holder ever wedged. Recycling a compatible orphan
+    would kill PTYs that survive today — a regression the skew-only recycle avoids.
+    The identity/safety model is unchanged; only the compatible-holder disposition
+    is adopt-not-recycle.</Footnote>
+  - does **not** speak kaval → a genuinely foreign process (or a non-conforming
+    speaker), and we **fail loud** (a typed `SocketSquatterForeignError` naming its
+    pid + command) and **never touch it**.
+
+We also never recover a socket held by **our own process**: the supervisor spawns
+its daemon as a separate process, so a holder equal to `process.pid` is never a
+real squatter — filtering it out is both correct and a self-kill guard.
 
 This makes the existing `incompatible → renewDaemon` flow **self-heal**: a fresh
 padi boots → socket held gate-less → handshake → old kaval → recycle → bind the
@@ -141,15 +158,19 @@ and dials `node:net`), so a new sibling leaf is a clean fit:
   volatility — a **leaf**, not electricity (no transport / reconnect / persistence
   lifecycle of its own), so it belongs in the package that uses it, not a new
   `@kolu/*` receptacle.
-- **the recovery arm** — a private helper in `endpoint.ts`, placed at the **top of
-  `spawnConnectHold`** (before `driver.spawn`). Every fresh-spawn path funnels through
-  `spawnConnectHold` — `ensure`'s always-recycle, `adoptSurvivor`'s no-survivor branch,
-  `recycle`'s respawn, and therefore `converge` and the renew flow too — so one placement
-  gives **uniform coverage of all boot policies**, with no wedge path routing around it.
-  (After a recycle has already killed a gate holder the socket is free, so the check
-  no-ops there; in the pure gate-less wedge it fires.) "Speaks kaval?" reuses the existing
-  `connectSurvivor` three-way verdict (`adopted` / `skew` / `unreachable`), so the
-  handshake logic is not re-implemented.
+- **the recovery arm** — a private helper in `endpoint.ts`, run by `recoverOrSpawn`
+  at exactly the boot points where **no live gate holder was found yet the endpoint
+  is about to spawn**: `ensure`'s else branch and `adoptSurvivor`'s no-survivor branch
+  (hence, via `converge` and the renew flow, every wedge path). It is deliberately
+  **not** on the `recycle` path — that has already reaped its holder and freed the
+  socket, so re-probing there would only re-handshake a daemon we just replaced (and,
+  against an in-process test daemon, mis-fire).<Footnote>The first cut placed the arm
+  at the top of `spawnConnectHold` for "uniform coverage", but `recycle` calls
+  `spawnConnectHold` too — so the arm ran an extra handshake on every recycle. Scoping
+  it to the no-gate-holder branches covers the same wedge paths (a wedge is *always* a
+  no-gate-holder boot) without touching the recycle path.</Footnote> "Speaks kaval?"
+  reuses the existing `connectSurvivor` three-way verdict (`adopted` / `skew` /
+  `unreachable`), so the handshake logic is not re-implemented.
 
 ### Exported-API additions (named honestly for the consumer gates)
 
@@ -190,6 +211,7 @@ Each pin is **red on today's code** before the fix and green after.
 | **The squatter** | spawn a real kaval, **delete its gate file**, boot/recycle | wedged: fresh cannot bind; card loops | holder identified → handshaked → recycled; fresh binds; **durable** (old holder gone) |
 | **Foreign holder** | a plain non-kaval net server bound at the path | (falls through / opaque) | **not killed**; loud typed error naming pid + command |
 | **Pid-absent speaker** | a socket that accepts but whose `system.version` omits `pid` (fails schema) | (falls through / opaque) | classified **foreign** → **not killed**; loud typed error |
+| **Compatible holder** | a gate-less holder that speaks a compatible contract | (connected/adopted) | **adopted, not killed** — PTYs preserved (no regression) |
 | **Gate-present unchanged** | the existing killLiveHolder / adopt suites | green | green |
 | **Version-agnostic** | an OLD-contract kaval (handshake succeeds, version skews) | wedged (this IS 25494) | identified as kaval → recycled |
 
