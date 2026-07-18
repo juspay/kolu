@@ -57,6 +57,7 @@ function toWireEntry(e: PtyListEntry): PtyHostListEntry {
     lastActivity: e.lastActivity,
     title: e.title,
     foregroundProcess: e.foregroundProcess,
+    commandRooted: e.commandRooted,
   };
 }
 
@@ -181,9 +182,18 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           requirePty(input.id as PtyId);
           const sub = host.subscribeCommandRun(input.id, signal);
           const last = host.getLastCommand(input.id);
-          if (last !== undefined) yield { command: last, replayed: true };
+          // The snapshot carries the RETAINED command's dialect (it may be a
+          // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
+          // seed is published synchronously at spawn, before any subscriber, so it
+          // never arrives live) — hence `shellJoin: false` on the live frames.
+          if (last !== undefined)
+            yield {
+              command: last,
+              replayed: true,
+              shellJoin: host.getLastCommandShellJoin(input.id),
+            };
           for await (const command of sub) {
-            yield { command, replayed: false };
+            yield { command, replayed: false, shellJoin: false };
           }
         },
       },
@@ -274,6 +284,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               id,
               shell: program,
               args,
+              commandRooted: input.commandRooted,
               env: input.env,
               cwd: input.cwd,
               cols: input.cols,

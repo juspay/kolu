@@ -600,7 +600,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // from the surviving (replayed) taps. That re-observation must NOT bump recency
       // (the saved value is the truth) — the recency baseline is seeded from the saved
       // restore target, so a re-resolve of the SAME session matches it and is silent.
-      this.startSnapshotSensors(id, liveEntry.pid, liveEntry.cwd);
+      this.startSnapshotSensors(
+        id,
+        liveEntry.pid,
+        liveEntry.cwd,
+        liveEntry.commandRooted ?? false,
+      );
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
@@ -702,7 +707,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // `startSnapshotSensors`: a fresh spawn has no target (null baseline) so its
       // first agent bumps; a RESUMING wake's `exact` target makes the re-resolved
       // session match the baseline and stay silent — no `initialLive` flag needed.
-      this.startSnapshotSensors(id, res.pid, res.cwd);
+      // A padi spawn is always a shell terminal (the kolu face has no command
+      // param — #1872's protection), so the sensors read it shell-rooted.
+      this.startSnapshotSensors(id, res.pid, res.cwd, false);
     } catch (err) {
       this.killHalfWiredPty(
         id,
@@ -793,7 +800,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
    *  agent-detail / foreground firehose reaches NONE of disk, the authored
    *  collection, or (beyond a single snapshot publish) the wire. */
-  private startSnapshotSensors(id: TerminalId, pid: number, cwd: string): void {
+  private startSnapshotSensors(
+    id: TerminalId,
+    pid: number,
+    cwd: string,
+    commandRooted: boolean,
+  ): void {
     const abort = new AbortController();
     const { signal } = abort;
     const signals: SensorSignals = {
@@ -891,6 +903,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,
+          // The wire field is OPTIONAL for forward-compat (an additive frame field,
+          // no contract bump). A survivor kaval predating it emits no `shellJoin`
+          // AND no command-rooted seed (lock 1 ships with the field), so its
+          // commands are all raw — `false` is correct, never a revived defect. The
+          // skew default lives ONLY here at the wire boundary; the internal sample
+          // carries a definite dialect from this point on.
+          shellJoin: msg.shellJoin ?? false,
         }),
     );
     void bridgeStream(
@@ -908,6 +927,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       {
         pid,
         cwd,
+        commandRooted,
         signals,
         readScreenText: (tailLines) => readScreenTextFor(id, tailLines),
         log,

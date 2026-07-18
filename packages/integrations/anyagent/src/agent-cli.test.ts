@@ -1,6 +1,6 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
-import { shellSplit } from "@kolu/shell-quote";
+import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
@@ -91,6 +91,46 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("claude -h")).toBeNull();
     expect(parseAgentCommand("opencode --version")).toBeNull();
     expect(parseAgentCommand("opencode --help")).toBeNull();
+  });
+
+  // #1872 command-rooted seed: kaval seeds `lastCommand` as `shellJoin(argv)`, and
+  // this parser is its consumer — the caller passes `shellJoinFormat: true` (the
+  // terminal is command-rooted) so the exact inverse `shellSplit` round-trips ANY
+  // argv, including tokens a bare `argv.join(" ")` would word-split or that carry a
+  // literal single quote (the agent PATH → no Dock invisibility, or a stable FLAG
+  // VALUE → exact command preserved).
+  it("round-trips a shellJoin'd command-rooted seed via shellJoinFormat", () => {
+    expect(parseAgentCommand(shellJoin(["claude"]), true)).toBe("claude");
+    expect(
+      parseAgentCommand(
+        shellJoin(["/usr/local/bin/claude", "--model", "sonnet"]),
+        true,
+      ),
+    ).toBe("claude --model sonnet");
+    expect(
+      parseAgentCommand(
+        shellJoin(["opencode", "--dangerously-skip-permissions"]),
+        true,
+      ),
+    ).toBe("opencode --dangerously-skip-permissions");
+    expect(
+      parseAgentCommand(
+        shellJoin(["claude", "--settings", '{"ultracode": true}']),
+        true,
+      ),
+    ).toBe(`claude --settings '{"ultracode": true}'`);
+    expect(
+      parseAgentCommand(
+        shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"]),
+        true,
+      ),
+    ).toBe("claude --model sonnet");
+    expect(
+      parseAgentCommand(
+        shellJoin(["claude", "--append-system-prompt", "don't reveal secrets"]),
+        true,
+      ),
+    ).toBe(`claude --append-system-prompt 'don'\\''t reveal secrets'`);
   });
 
   it("drops unknown flags (allowlist, not denylist)", () => {

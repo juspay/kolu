@@ -155,6 +155,24 @@ import { z } from "zod";
  *  (new-client/old-daemon: a 5.2 client's union schema meets a 5.1 daemon's flat
  *  reply) is the usual `reported.minor < expected.minor` recycle every minor bump
  *  already forces, before any `getHistory` call runs. */
+/*  #1872 (spawn-detection): `commandRooted` — an OPTIONAL boolean added to BOTH
+ *  the spawn input and the inventory list entry — rides at 5.2 with NO bump. It
+ *  is a field-add, not a new emitted union variant, and its absence degrades to
+ *  EXACTLY today's reading in both skew directions: a survivor daemon that never
+ *  sets it, or a survivor server that strips it, simply reads every PTY as
+ *  shell-rooted — the pre-fix behavior, never a mis-parse. This is the negative
+ *  of the emitted-variant rule the recent worked examples teach: the #1865
+ *  orphan-4.1 fold-back (an optional field kept a survivor adopted) vs #1876's
+ *  incompatible-arm bump (a new emitted variant an old peer cannot discriminate,
+ *  so it MUST recycle). `commandRooted` is the former, and a bump would
+ *  force-recycle a surviving kaval — killing its live PTYs — to buy a feature
+ *  whose absence is the status quo. Same call the `lifetime` field made at 5.0:
+ *  a cosmetic/graceful readout must never cost a terminal.
+ *
+ *  #1872 also adds an OPTIONAL `shellJoin` to the `commandRun` frame (the retained
+ *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
+ *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
+ *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior. */
 export const PTY_HOST_CONTRACT_VERSION = "5.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
@@ -185,6 +203,13 @@ const TerminalSpawnInputSchema = z.object({
    *  arguments (e.g. `["--rcfile", "<rcDir>/bashrc-<id>"]`). The host spawns it
    *  verbatim; it neither chooses the shell nor appends flags. */
   argv: z.array(z.string()).min(1),
+  /** True when `argv[0]` is the ROOT COMMAND itself, not a shell — a
+   *  `kaval-tui create -- <cmd>` PTY (#1872). The host seeds `lastCommand` from
+   *  the argv (no shell means no OSC 633;E mark) and
+   *  reports the fact on the inventory row so the workspace sensors read
+   *  `foreground === root` as a busy agent, not an idle shell prompt. Optional
+   *  + absent = shell-rooted (today's reading) — see the contract-version note. */
+  commandRooted: z.boolean().optional(),
   /** The *resolved* working directory (the client applies its own
    *  `cwd || home || "/"` fallback — the host does not). */
   cwd: z.string(),
@@ -230,6 +255,11 @@ const TerminalListEntrySchema = z.object({
   // server wire-compatible with a 2.1 client.
   title: z.string().optional(),
   foregroundProcess: z.string().optional(),
+  // Added for #1872 (additive · optional, NO contract bump — see the version
+  // note): whether this PTY's root process IS the spawned command. The workspace
+  // sensors read it to decide if `foreground === root` is an idle shell prompt
+  // or a busy command-rooted agent. Absent = shell-rooted, today's reading.
+  commandRooted: z.boolean().optional(),
 });
 
 const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
@@ -396,6 +426,13 @@ export const ptyHostSurface = defineSurface({
       outputSchema: z.object({
         command: z.string(),
         replayed: z.boolean(),
+        // #1872 (additive · optional, NO contract bump — see the version note):
+        // the command's quoting dialect. `true` = the command-rooted `shellJoin`
+        // seed (reparse with `shellSplit`); absent/`false` = a raw OSC 633;E line
+        // (reparse with `string-argv`). Carried per frame so the snapshot replay of
+        // a retained seed is reparsed correctly regardless of delivery timing; a
+        // survivor that omits it degrades to the raw reading (today's behavior).
+        shellJoin: z.boolean().optional(),
       }),
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */

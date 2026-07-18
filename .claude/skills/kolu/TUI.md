@@ -198,19 +198,19 @@ returns, **`snapshot --viewport` and read** what's on screen before responding.
 
 ## Provisioning a worktree'd agent — `padi-tui create`
 
-> **Interim doctrine — agent-spawn-first-class (#1872).** Two footguns in the
-> raw-spawn path, each tagged with the PR that retires it. *These notes are
-> deleted the day their tagged PR lands — do not carry them past it.*
+> **Interim doctrine — agent-spawn-first-class (#1872).** One footgun left in the
+> raw-spawn path, tagged with the PR that retires it. *This note is deleted the
+> day its tagged PR lands — do not carry it past it.*
 >
-> - **Don't spawn an agent as the PTY *root*** — `kaval-tui create -- <agent>`
->   (claude/codex as argv[0], no shell). Its transcript is now safe (PR1 composes
->   a clean env — the caller's `CLAUDE_CODE_*` identity vars no longer leak in),
->   but a shell-less PTY emits no OSC markers, so kolu never learns an agent is
->   running: the Dock shows bare terminal activity, `padi-tui wait --until` can't
->   read agent state, and `lastCommand` stays unset. Want a Dock-visible,
->   state-tracked agent: create a **shell** and launch the agent *from* it, or use
->   `padi-tui create` / the MCP `lifecycle_create`. *Delete when PR2 (kaval seeds
->   `lastCommand`/title from the spawn argv) ships.*
+> As of PR2 a command-rooted agent (`kaval-tui create -- <agent>`, the agent as
+> argv[0] with no shell) is **Dock-visible and state-tracked**: kaval seeds
+> `lastCommand`/title from the argv, and the sensors read its root-in-foreground
+> as busy — so `padi-tui wait --until` works against it and a shim CLI (comm ≠ its
+> name) is recognized by the command it was launched with. It still lacks a
+> shell's richer affordances (rc hooks, in-place `cd`), so `padi-tui create` / the
+> MCP `lifecycle_create` remain the fuller path — but **detection is no longer a
+> reason to avoid the raw root spawn.**
+>
 > - **A fresh `kaval-tui create` shell is clean — but your OWN shell is not.**
 >   PR1 makes every `kaval-tui create` env a clean canonical base, so typing
 >   `claude` into a create'd shell is safe with no scrub. The residual trap is

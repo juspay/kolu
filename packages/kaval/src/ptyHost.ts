@@ -26,6 +26,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { shellJoin } from "@kolu/shell-quote";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import {
@@ -148,7 +149,8 @@ export type ScreenExtent =
  * `dispose()` — termination flows through {@link PtyHost.kill}.
  */
 export interface PtyHandle {
-  /** OS process ID of the spawned shell. */
+  /** OS process ID of the PTY's root process — the shell for a shell-rooted PTY,
+   *  the command itself for a command-rooted one (`commandRooted`). */
   readonly pid: number;
   /** Current working directory (from OSC 7), seeded to the spawn cwd. */
   readonly cwd: string;
@@ -177,6 +179,14 @@ export interface PtySpawnOpts {
   shell: string;
   /** Arguments to the program (e.g. `--rcfile <wrapper>`). */
   args?: string[];
+  /** True when `shell` is not a shell but the ROOT COMMAND itself — a
+   *  `kaval-tui create -- <cmd>` PTY with the command as `argv[0]` and no shell
+   *  wrapping it. The host seeds {@link PtyHost.getLastCommand} from the argv (a
+   *  shell-less PTY never emits the OSC 633;E mark that is otherwise
+   *  `lastCommand`'s only writer), and reports the fact on the inventory row so
+   *  the workspace sensors read foreground==root as BUSY, not as an idle shell
+   *  prompt. Absent/false = shell-rooted, today's behavior. */
+  commandRooted?: boolean;
   /** Environment for the child — fully prepared by the caller. */
   env: Record<string, string>;
   /** Starting working directory. */
@@ -305,6 +315,12 @@ export interface PtyListEntry {
   title: string;
   /** The PTY's current foreground process name (the running command). */
   foregroundProcess: string;
+  /** True when the PTY's root process IS the spawned command, not a shell —
+   *  a `kaval-tui create -- <cmd>` PTY. The workspace sensors read this to
+   *  decide whether `foreground === root` means an idle shell prompt (a shell
+   *  root) or a busy agent (a command root). Absent/false on the wire = a
+   *  shell-rooted PTY, today's reading. */
+  commandRooted: boolean;
 }
 
 /** Construction options for {@link createPtyHost}. */
@@ -385,6 +401,11 @@ export interface PtyHost {
    *  gone. The synchronous read the `commandRun` source replays snapshot-first,
    *  mirroring {@link getProcess} for the `foreground` source. */
   getLastCommand(id: PtyId): string | undefined;
+  /** Quoting dialect of the current {@link getLastCommand}: `true` = the
+   *  command-rooted `shellJoin` seed (reparse with `shellSplit`), `false` = a raw
+   *  OSC 633;E line (reparse with `string-argv`). `false` when there is no command
+   *  yet. The `commandRun` snapshot carries it so a reparse is never guessed. */
+  getLastCommandShellJoin(id: PtyId): boolean;
   /** Current cwd, or `undefined` if gone. */
   getCwd(id: PtyId): string | undefined;
   /** Last OSC 0/2 title (empty string if none yet), or `undefined` if
@@ -453,6 +474,17 @@ interface Entry {
    *  retained so the `commandRun` source can replay it snapshot-first to a late
    *  subscriber — mirroring how `foreground` replays the current process. */
   lastCommand: string | undefined;
+  /** Quoting dialect of the CURRENT `lastCommand`: `true` when it is the
+   *  command-rooted SEED (`shellJoin(argv)` — reparse with `shellSplit`), `false`
+   *  when it is a raw OSC 633;E line (reparse with `string-argv`). A later 633
+   *  mark overwrites both the value and this flag, so the retained command's
+   *  dialect is always known — the `commandRun` snapshot carries it so a
+   *  reconnect/late subscriber reparses correctly regardless of which wrote last. */
+  lastCommandShellJoin: boolean;
+  /** True when this PTY's root process IS the spawned command (no shell) — the
+   *  seed source for `lastCommand` at spawn, and the fact reported on the
+   *  inventory row so the sensors read `foreground === root` as busy. */
+  commandRooted: boolean;
   foregroundChannel: Channel<ForegroundSample>;
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
    *  a steady foreground doesn't spam the channel across burst samples. */
@@ -530,6 +562,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       lastActivity: entry.lastActivity,
       title: entry.title,
       foregroundProcess: entry.proc.process,
+      commandRooted: entry.commandRooted,
     };
   }
 
@@ -661,6 +694,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       titleChannel: new Channel<string>(),
       commandRunChannel: new Channel<string>(),
       lastCommand: undefined,
+      lastCommandShellJoin: false,
+      commandRooted: spawnOpts.commandRooted ?? false,
       foregroundChannel: new Channel<ForegroundSample>(),
       lastForegroundKey: undefined,
       lastForegroundSampleAt: 0,
@@ -668,6 +703,27 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       onDispose: spawnOpts.onDispose,
     };
     entries.set(id, entry);
+
+    // Lock 1 (#1872) — seed `lastCommand` from the spawn argv for a command-rooted
+    // PTY. Such a PTY has the agent as `argv[0]` and no shell, so it never emits
+    // the OSC 633;E mark that is `lastCommand`'s only other writer — the daemon HAS
+    // the command line and must not discard it. Written on the SAME `lastCommand`
+    // field + channel the 633;E handler uses (so the sync getter and the stream
+    // never disagree), and it is only a SEED — a later live 633;E mark (if a shell
+    // ever runs inside) is the temporal last-writer and overwrites it. `shellJoin`
+    // (the repo's POSIX-quote source of truth, the same helper kaval-tui/padi-tui
+    // rebuild a command line with), NOT a bare `join(" ")`, so a stable flag whose
+    // value carries spaces (`--settings '{"x": 1}'`) survives `parseAgentCommand`'s
+    // tokenizer instead of word-splitting. (We deliberately do NOT seed the title:
+    // the title tap is live-only — no snapshot-first replay — so a seeded title is
+    // erased by the foreground sensor's first sample; the tile carries the agent's
+    // foreground process name instead, and the Dock reads state from the command.)
+    if (entry.commandRooted) {
+      const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
+      entry.lastCommand = command;
+      entry.lastCommandShellJoin = true;
+      entry.commandRunChannel.publish(command);
+    }
 
     // Dispose the anchor's live `onTrim` subscription on teardown. The anchor
     // keeps a single indirection internally (a RIS swap replaces its handle in
@@ -716,8 +772,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
         // Retain the command BEFORE publishing so the synchronous
-        // `getLastCommand` is already current for anyone the publish wakes.
+        // `getLastCommand` is already current for anyone the publish wakes. A 633
+        // line is raw shell (string-argv), so it clears the shellJoin-seed dialect
+        // even if it overwrites a command-rooted PTY's seed (precedence).
         entry.lastCommand = command;
+        entry.lastCommandShellJoin = false;
         entry.commandRunChannel.publish(command);
         // The agent process forks AFTER this mark — re-sample foreground
         // across the settle window so detection sees the real foreground.
@@ -1141,6 +1200,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getForegroundPid,
     getProcess: (id) => entries.get(id)?.proc.process,
     getLastCommand: (id) => entries.get(id)?.lastCommand,
+    getLastCommandShellJoin: (id) =>
+      entries.get(id)?.lastCommandShellJoin ?? false,
     getCwd: (id) => entries.get(id)?.cwd,
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,

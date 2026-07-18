@@ -82,6 +82,15 @@ const ALLOWED_EXTERNAL = [
   // /solid or /backfill change (browser-only, never reached from here) must not fire
   // kaval's PTY-costing currency nudge. The walk STOPS at it.
   "@kolu/xterm-kit",
+  // @kolu/shell-quote is the POSIX-quote source of truth (shellJoin/shellSplit/
+  // shellQuoteArg) — a stable, zero-dependency leaf, NOT a hashed root, by the same
+  // reasoning as the spine: kaval seeds a command-rooted PTY's `lastCommand` with
+  // `shellJoin` (#1872), and the seed's DIALECT is carried on the `commandRun` frame's
+  // `shellJoin` field, which lives in `ptyHostSurface` (kaval) and IS hashed via
+  // PTY_HOST_CONTRACT_VERSION. So a wire-relevant quoting change rides the contract
+  // bump, while a browser-irrelevant leaf change must not fire kaval's PTY-costing
+  // currency nudge. The walk STOPS at it.
+  "@kolu/shell-quote",
 ];
 
 const isAllowed = (spec: string): boolean =>

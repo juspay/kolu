@@ -77,7 +77,7 @@ holds the session — differs.
 
     <rect x="10" y="30" width="150" height="60" rx="10" class="ax-d-box"></rect>
     <text x="85" y="56" text-anchor="middle" class="ax-d-label2">foreground</text>
-    <text x="85" y="76" text-anchor="middle" class="ax-d-sub">pid of the shell</text>
+    <text x="85" y="76" text-anchor="middle" class="ax-d-sub">process id</text>
 
     <path d="M160,60 H186" class="ax-d-flow" marker-end="url(#ad-arrow)"></path>
 
@@ -102,9 +102,16 @@ holds the session — differs.
 kolu asks each terminal for its foreground process id (`tcgetpgrp`, POSIX — Linux
 and macOS alike), matches it against the known agents, and reads that agent's
 session from disk — tailing a JSONL transcript, or querying a SQLite database and
-watching its write-ahead log. No `/proc` scraping and no argv inspection. Adding a
-new agent is one small adapter and one line of registration; nothing server-wide
-changes.
+watching its write-ahead log. In a normal shell terminal that's enough: the shell
+prints a marker naming each command as it runs, and the agent's process becomes
+the foreground. When an agent is launched **as the terminal's root process** — no
+shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print
+that marker, so kolu instead **remembers the exact command the terminal was
+spawned with** and uses it as the recognition hint (and reads that root's
+foreground as busy, since the agent *is* the root). kolu never scrapes a running
+process's argv from `/proc`; it uses only the shell's marks and the command it was
+handed at spawn. Adding a new agent is one small adapter and one line of
+registration; nothing server-wide changes.
 
 <Aside type="note" title="Some states can't come from the transcript alone">
   A "waiting on you" prompt (a multiple-choice question, a permission gate) often

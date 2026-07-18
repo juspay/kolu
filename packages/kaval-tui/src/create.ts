@@ -157,13 +157,15 @@ function composeCreateInput(opts: {
   env: Record<string, string>;
   command?: readonly string[];
 }): PtyHostSpawnInput {
-  const argv =
-    opts.command && opts.command.length > 0
-      ? [...opts.command]
-      : [opts.shell || DEFAULT_SPAWN_SHELL];
+  const command = opts.command && opts.command.length > 0 ? opts.command : null;
+  const commandRooted = command !== null;
+  const argv = command ? [...command] : [opts.shell || DEFAULT_SPAWN_SHELL];
   return {
     id: opts.id,
     argv,
+    // #1872: a `create -- <cmd>` PTY has the command as its root and no shell —
+    // tell the host so it seeds the command + reads foreground==root as busy.
+    commandRooted,
     cwd: opts.cwd,
     env: { ...opts.env, KAVAL_TERMINAL_ID: opts.id },
     initFiles: [],

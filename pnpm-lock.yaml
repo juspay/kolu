@@ -581,6 +581,9 @@ importers:
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1998,6 +2001,9 @@ importers:
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
+      kaval-tui:
+        specifier: workspace:*
+        version: link:../kaval-tui
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -4354,7 +4360,7 @@ packages:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
   node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
+    resolution: {tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
     version: 1.1.0
 
   node-releases@2.0.37:

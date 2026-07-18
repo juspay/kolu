@@ -172,6 +172,32 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
     await client.surface.terminal.kill({ id });
   });
 
+  it("a command-rooted spawn's commandRun snapshot carries the shellJoin dialect (#1872)", async () => {
+    // Emitter-exhaustive pin: every SEED frame the surface serves carries
+    // `shellJoin: true`, so the "a seed frame without a dialect flag" half-state
+    // is test-unspellable even though the wire field is optional-for-forward-compat.
+    // A late subscriber (padi adopts post-spawn) thus reparses the seed with
+    // shellSplit, never string-argv. A shell terminal's 633 marks carry
+    // `shellJoin: false` (the raw-line dialect) — covered by the replay test above.
+    const client = makeClient();
+    const { id } = await client.surface.terminal.spawn({
+      ...spawnInput(makeCwd()),
+      argv: ["/bin/sh", "-c", "sleep 5"],
+      commandRooted: true,
+    });
+    const ac = new AbortController();
+    const frame = await nextFrame(
+      (await client.surface.commandRun.get({ id }, { signal: ac.signal }))[
+        Symbol.asyncIterator
+      ](),
+    );
+    expect(frame.replayed).toBe(true);
+    expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
+    expect(frame.shellJoin).toBe(true);
+    ac.abort();
+    await client.surface.terminal.kill({ id });
+  });
+
   it("terminalAttach yields a typed `overflow` frame when a slow subscriber is dropped", {
     timeout: 20000,
   }, async () => {
