@@ -29,6 +29,7 @@ describe("buildCreateInput", () => {
     expect(input).toEqual({
       id: "abc",
       argv: ["/bin/zsh"],
+      commandRooted: false,
       cwd: "/work",
       env: {
         SHELL: "/bin/zsh",
@@ -60,6 +61,9 @@ describe("buildCreateInput", () => {
     });
     // argv IS the command — the shell is not consulted when one is passed.
     expect(input.argv).toEqual(["htop", "-d", "5"]);
+    // #1872: a command-rooted spawn is flagged so the host seeds it + the
+    // sensors read foreground==root as busy.
+    expect(input.commandRooted).toBe(true);
   });
 
   it("ignores an empty command (no positional) and uses $SHELL", () => {
