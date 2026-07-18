@@ -1095,17 +1095,32 @@ export function createEndpoint<C, I, M = undefined>(
     // (return true so converge reconciles); a skew is recycled (kaval) / refused
     // (padi); a foreign holder fails loud. Only when the primary is genuinely FREE do
     // we consider the hint.
-    const primaryRecovery = await recoverGuarded(
-      primaryRv,
-      spec.connect,
-      policy,
+    // Map a gate-less recovery outcome to `adoptSurvivor`'s boolean, or `undefined`
+    // when the rendezvous was FREE (nothing recovered → fall through / spawn). One
+    // interpretation of the four-way outcome, so the primary and hint dispatch can't
+    // drift.
+    const settle = async (
+      outcome: "free" | "refused" | "adopted" | "recycled",
+      onAdopted?: () => void,
+    ): Promise<boolean | undefined> => {
+      switch (outcome) {
+        case "adopted":
+          onAdopted?.();
+          return true;
+        case "refused":
+          return false;
+        case "recycled":
+          await spawnConnectHold();
+          return false;
+        default:
+          return undefined; // "free" — nothing recovered here
+      }
+    };
+
+    const primary = await settle(
+      await recoverGuarded(primaryRv, spec.connect, policy),
     );
-    if (primaryRecovery === "adopted") return true;
-    if (primaryRecovery === "refused") return false;
-    if (primaryRecovery === "recycled") {
-      await spawnConnectHold();
-      return false;
-    }
+    if (primary !== undefined) return primary;
 
     // PRIMARY is free. On a W2.2 upgrade the pre-W2.2 kaval may still be alive at the
     // adopt-HINT (legacy port) rendezvous the digest primary does not name.
@@ -1127,22 +1142,13 @@ export function createEndpoint<C, I, M = undefined>(
       }
       // Hint has no live GATE holder — but a gate-less legacy daemon may still hold
       // the hint socket (F4 seq 2): recover it with the HINT's own dialer so it is
-      // not abandoned. On adopt, record the hint as the live location; on recycle,
-      // the follow-on spawn lands at the PRIMARY, converging the migration.
-      const hintRecovery = await recoverGuarded(
-        hintRv,
-        spec.adoptHint.connect,
-        policy,
+      // not abandoned. On adopt, record the hint as the live location (`onAdopted`);
+      // on recycle, the follow-on spawn lands at the PRIMARY, converging the migration.
+      const hint = await settle(
+        await recoverGuarded(hintRv, spec.adoptHint.connect, policy),
+        spec.adoptHint.onAdopted,
       );
-      if (hintRecovery === "adopted") {
-        spec.adoptHint.onAdopted?.();
-        return true;
-      }
-      if (hintRecovery === "refused") return false;
-      if (hintRecovery === "recycled") {
-        await spawnConnectHold();
-        return false;
-      }
+      if (hint !== undefined) return hint;
     }
     // Nothing live anywhere — a fresh boot; spawn fresh at the PRIMARY.
     await spawnConnectHold();

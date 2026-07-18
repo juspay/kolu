@@ -167,12 +167,16 @@ function darwinSocketHolders(socketPath: string): SocketHolder[] {
   // lsof -F emits records line-by-line: a `p<pid>` starts a process block, `c` is
   // its command, and each `f<fd>`/`n<name>` describes one of its fds. Attribute a
   // holder when a block has an `n` equal to the socket path.
+  // De-dup as we accumulate: one process can hold the path on multiple fds, so
+  // `flush` skips a pid already recorded rather than a second post-pass.
   const holders: SocketHolder[] = [];
+  const seen = new Set<number>();
   let curPid: number | undefined;
   let curCmd = "?";
   let matched = false;
   const flush = (): void => {
-    if (curPid !== undefined && matched) {
+    if (curPid !== undefined && matched && !seen.has(curPid)) {
+      seen.add(curPid);
       holders.push({ pid: curPid, command: curCmd });
     }
   };
@@ -191,13 +195,5 @@ function darwinSocketHolders(socketPath: string): SocketHolder[] {
     }
   }
   flush();
-  // De-dup: one process can hold the path on multiple fds.
-  const seen = new Set<number>();
-  const unique: SocketHolder[] = [];
-  for (const h of holders) {
-    if (seen.has(h.pid)) continue;
-    seen.add(h.pid);
-    unique.push(h);
-  }
-  return unique;
+  return holders;
 }
