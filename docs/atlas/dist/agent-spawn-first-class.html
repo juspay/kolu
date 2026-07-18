@@ -110,11 +110,22 @@ downstream PTYs/kaval are composed). Makes the localhost env REQUIRED at the
 type level so full-inherit is unspellable. Breaking surface-remote API — so
 it carries the drishti pair PR + odu verdict + <code>ref-surface-remote.mdx</code>,
 finalized against post-gauntlet HEAD.</p>
-<p><strong>PR 2 — stop the detection loss</strong> — <em>not yet dispatched</em> (small; <code>kaval</code>).
-The remember-the-argv bookkeeping: seed <code>lastCommand</code> (and the initial title)
-from the spawn argv, publish it on the same channel the shell marker uses,
-with a precedence test (seed writes first, live shell marks win later). Pin:
-a command-rooted terminal’s <code>lastCommand</code> equals its argv at birth. This PR
+<p><strong>PR 2 — stop the detection loss</strong> — <strong>SHIPPED as <a href="https://github.com/juspay/kolu/pull/1890" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1890</a></strong>
+(<code>kaval</code> + <code>padi</code> + e2e + skills). <strong>The premise was corrected reproduce-first,
+before any fix code</strong>: a command-rooted <em>claude</em> turned out to be detected
+already (its adapter resolves by pid + session file, independent of both
+locks) — the field’s three invisible claudes were Bug B, which PR 1 fixed. The
+locks bite the <strong>command-hint path only</strong>: codex/opencode/grok, whose kernel
+process name is the node shim, not the agent — 3 of 4 supported agents when
+command-rooted. So PR 2 is honestly the <strong>shim hint-agent + bookkeeping</strong> fix:
+seed <code>lastCommand</code> (and the title) from the spawn argv on the same channel the
+shell marker uses (seed first, live marks win), and — demand-pulled from PR 3,
+its gate condition being empirically live — the padi sensor’s <code>shellIdle</code>
+discrimination via one optional <code>commandRooted</code> boolean, kaval → padi
+server-side only. No <code>ptyHostSurface</code> contract bump (optional additive fields;
+absence degrades to today’s reading both skew directions). Reds: an npm-shim
+<code>opencode</code> spawned command-rooted, invisible → visible; a <code>claude</code> scenario
+kept green as the regression guard documenting the pid path. This PR
 deletes PR 1’s “never <code>create -- &lt;agent&gt;</code>” skill rule for the <em>detection</em>
 reason; the terminal is still shell-less, so the Dock’s richer shell
 affordances stay absent — which is fine for the raw CLI path.</p>

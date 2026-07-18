@@ -111,11 +111,22 @@ type level so full-inherit is unspellable. Breaking surface-remote API — so
 it carries the drishti pair PR + odu verdict + `ref-surface-remote.mdx`,
 finalized against post-gauntlet HEAD.
 
-**PR 2 — stop the detection loss** — *not yet dispatched* (small; `kaval`).
-The remember-the-argv bookkeeping: seed `lastCommand` (and the initial title)
-from the spawn argv, publish it on the same channel the shell marker uses,
-with a precedence test (seed writes first, live shell marks win later). Pin:
-a command-rooted terminal's `lastCommand` equals its argv at birth. This PR
+**PR 2 — stop the detection loss** — **SHIPPED as <PrLink pr={1890} />**
+(`kaval` + `padi` + e2e + skills). **The premise was corrected reproduce-first,
+before any fix code**: a command-rooted *claude* turned out to be detected
+already (its adapter resolves by pid + session file, independent of both
+locks) — the field's three invisible claudes were Bug B, which PR 1 fixed. The
+locks bite the **command-hint path only**: codex/opencode/grok, whose kernel
+process name is the node shim, not the agent — 3 of 4 supported agents when
+command-rooted. So PR 2 is honestly the **shim hint-agent + bookkeeping** fix:
+seed `lastCommand` (and the title) from the spawn argv on the same channel the
+shell marker uses (seed first, live marks win), and — demand-pulled from PR 3,
+its gate condition being empirically live — the padi sensor's `shellIdle`
+discrimination via one optional `commandRooted` boolean, kaval → padi
+server-side only. No `ptyHostSurface` contract bump (optional additive fields;
+absence degrades to today's reading both skew directions). Reds: an npm-shim
+`opencode` spawned command-rooted, invisible → visible; a `claude` scenario
+kept green as the regression guard documenting the pid path. This PR
 deletes PR 1's "never `create -- <agent>`" skill rule for the *detection*
 reason; the terminal is still shell-less, so the Dock's richer shell
 affordances stay absent — which is fine for the raw CLI path.
