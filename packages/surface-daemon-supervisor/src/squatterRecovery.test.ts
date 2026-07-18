@@ -119,10 +119,10 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
     const holderPid = await spawnSocketHolder(socketPath);
     expect(isHolderLive(holderPid)).toBe(true);
 
-    // The injected handshake: the FIRST dial (recovery probing the orphan) skews
-    // and self-reports the holder's real pid (attestation 3); the SECOND (the fresh
-    // spawn) is compatible.
-    let calls = 0;
+    // The injected handshake models reality by the holder's LIVENESS: while the
+    // skewed orphan is alive it skews on EVERY dial (the identify AND the fresh
+    // re-attestation immediately before the kill, self-reporting its real pid);
+    // once it's SIGTERM'd, the fresh spawn's dial is compatible.
     const statuses: EndpointStatus<Identity, Meta>[] = [];
     const endpoint = createEndpoint<string, Identity, Meta>({
       hostId: "local",
@@ -130,8 +130,7 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
       socketPath,
       driver: freshDaemon(socketPath),
       connect: async () => {
-        calls += 1;
-        if (calls === 1) {
+        if (isHolderLive(holderPid)) {
           throw new DaemonContractSkewError({
             subject: "pty-host",
             daemonVersion: "5.0",
@@ -262,6 +261,38 @@ describe("SQUAT1 — gate-less socket-squatter recovery", () => {
     const incompat = statuses.find((s) => s.state === "incompatible");
     expect(incompat?.daemonVersion).toBe("5.0");
     expect(incompat?.requiredVersion).toBe("5.2");
+  });
+
+  it("adoptOrEnsure REPORTS adopted (true) for a compatible gate-less holder — so converge reconciles, not parks (F1)", async () => {
+    const d = dir();
+    const socketPath = join(d, "pty.sock");
+    const gatePath = join(d, "kaval.pid"); // gate-less
+    const holderPid = await spawnSocketHolder(socketPath);
+
+    const statuses: EndpointStatus<Identity, Meta>[] = [];
+    const endpoint = createEndpoint<string, Identity, Meta>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      // Never spawns — the recovery adopts the proven connection directly.
+      driver: {
+        spawn: async () => {
+          throw new Error(
+            "should not spawn: compatible holder is adopted in place",
+          );
+        },
+      },
+      connect: async () => compatibleConn(),
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    expect(adopted).toBe(true); // NOT a blind false → converge reconciles the session
+    expect(isHolderLive(holderPid)).toBe(true); // never killed
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
+    expect(endpoint.current()?.client).toBe("FRESH");
   });
 
   it("Compatible gate-less holder is ADOPTED, not killed (no PTY-loss regression)", async () => {

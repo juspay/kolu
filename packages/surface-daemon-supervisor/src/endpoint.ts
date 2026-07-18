@@ -194,15 +194,32 @@ export class SocketSquatterForeignError extends Error {
 }
 
 /** True iff `err` is a {@link SocketSquatterForeignError}. Brand-checked (not
- *  `instanceof`) so it holds across module-instance / realm boundaries. */
+ *  `instanceof`) so it holds across module-instance / realm boundaries — and, like
+ *  {@link isContractSkewError}, it attests EVERY field its narrowed type promises
+ *  (`socketPath`, and `holders` as `{ pid, command }` records), so a foreign
+ *  brand-carrier without the payload cannot narrow to a type whose fields a
+ *  consumer would then dereference. */
 export function isSocketSquatterForeignError(
   err: unknown,
 ): err is SocketSquatterForeignError {
+  const e = err as {
+    isSocketSquatterForeign?: unknown;
+    socketPath?: unknown;
+    holders?: unknown;
+  };
   return (
     typeof err === "object" &&
     err !== null &&
-    (err as { isSocketSquatterForeign?: unknown }).isSocketSquatterForeign ===
-      true
+    e.isSocketSquatterForeign === true &&
+    typeof e.socketPath === "string" &&
+    Array.isArray(e.holders) &&
+    e.holders.every(
+      (h) =>
+        typeof h === "object" &&
+        h !== null &&
+        Number.isInteger((h as { pid?: unknown }).pid) &&
+        typeof (h as { command?: unknown }).command === "string",
+    )
   );
 }
 
@@ -381,6 +398,10 @@ export function createEndpoint<C, I, M = undefined>(
   const socketPollMs = spec.socketPollMs ?? 50;
   const adoptConnectAttempts = spec.adoptConnectAttempts ?? 3;
   const adoptConnectRetryMs = spec.adoptConnectRetryMs ?? 100;
+  // How many times the gate-less-squatter recovery re-reads the holder + re-runs the
+  // handshake when the holder CHANGES between identify and kill. A bounded backstop
+  // on a flapping holder; a stable holder is decided on the first pass.
+  const RECOVERY_DECISION_ATTEMPTS = 3;
   let conn: DaemonConnection<C, I, M> | undefined;
 
   // A rendezvous (gate + socket) the endpoint can probe or hold a daemon at. The
@@ -394,6 +415,17 @@ export function createEndpoint<C, I, M = undefined>(
   // rendezvous (the legacy port daemon, when adopted off the hint) and spawns fresh
   // at the primary — so a recycle always CONVERGES the keying off the hint.
   let held = primaryRv;
+
+  // The `connect` that dials a given rendezvous: `spec.connect` for the primary,
+  // `spec.adoptHint.connect` for the legacy-port hint. So a recovery/recycle at the
+  // HELD rendezvous (which may be the adopted hint) handshakes it with the RIGHT
+  // dialer, not always the primary's.
+  const connectFor = (rv: {
+    socketPath: string;
+  }): (() => Promise<DaemonConnection<C, I, M>>) =>
+    rv.socketPath === spec.socketPath
+      ? spec.connect
+      : (spec.adoptHint?.connect ?? spec.connect);
 
   // The emit-guard flag: true only while `holdRestarting` is running a
   // supervised restart's inner sequence. See `emit` for what it coerces.
@@ -496,7 +528,14 @@ export function createEndpoint<C, I, M = undefined>(
   // daemon reports `connected` identically to a fresh one and neither path
   // re-implements the close→degrade wiring.
   const holdConnection = (next: DaemonConnection<C, I, M>): void => {
+    // Dispose any predecessor we're replacing so its transport doesn't leak (a
+    // repeated adopt of a gate-less compatible survivor would otherwise leave one
+    // client socket + server peer per call). We set `conn = next` FIRST so the
+    // predecessor's guarded `onClose` sees `conn !== previous` and can't demote the
+    // fresh `connected`; then dispose it.
+    const previous = conn;
     conn = next;
+    if (previous !== undefined && previous !== next) previous.dispose();
     next.onClose(() => {
       // Only the CURRENT connection's close demotes us — a stale close from a
       // disposed predecessor must not stomp a fresh `connected`.
@@ -537,124 +576,151 @@ export function createEndpoint<C, I, M = undefined>(
   //     schema validation — e.g. missing the required `pid`). NEVER killed: a loud
   //     `SocketSquatterForeignError` naming the pid + command.
   const recoverGatelessSquatter = async (
+    rv: { gatePath: string; socketPath: string },
+    connect: () => Promise<DaemonConnection<C, I, M>>,
     skewPolicy: GatelessSkewPolicy,
-  ): Promise<"spawn" | "refused"> => {
-    if (!(await socketAccepting(spec.socketPath))) return "spawn"; // free — spawn binds
+  ): Promise<"spawn" | "refused" | "adopted"> => {
+    // Bounded re-decision loop: a holder can CHANGE between our identify and our
+    // kill (it exits; the pid is reused; a fresh daemon binds). Rather than trust a
+    // stale snapshot, each pass re-reads the OS holders and re-runs the handshake,
+    // and the kill only fires when a FRESH handshake still attests the same skewed
+    // daemon. A holder that keeps flapping past the cap falls through to a plain
+    // spawn (which re-probes) — never an unbounded spin, never a kill on stale data.
+    for (let attempt = 1; attempt <= RECOVERY_DECISION_ATTEMPTS; attempt++) {
+      if (!(await socketAccepting(rv.socketPath))) return "spawn"; // free — spawn binds
 
-    // Exclude OUR OWN process from the holder set: the supervisor spawns its daemon
-    // as a SEPARATE process (the survivable-spawn model), so a real squatter is
-    // never us — but an in-process serve (a test's in-process daemon) would be, and
-    // "recovering" it means SIGTERMing ourselves. Never a squatter, never a kill.
-    const holders = socketHolders(spec.socketPath).filter(
-      (h) => h.pid !== process.pid,
-    );
-    const [firstHolder] = holders;
-    if (firstHolder === undefined) {
-      // Accepting, yet the OS names no (external) holder: a race (it just closed), a
-      // lookup we could not complete, or our own in-process serve. Never guess a
-      // kill — let the ordinary spawn re-probe.
-      spec.log.warn(
-        { hostId: spec.hostId, socketPath: spec.socketPath },
-        "rendezvous socket is held but the OS names no external holder — skipping squatter recovery, will spawn",
+      // Exclude OUR OWN process from the holder set: the supervisor spawns its
+      // daemon as a SEPARATE process (the survivable-spawn model), so a real
+      // squatter is never us — but an in-process serve (a test's in-process daemon)
+      // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
+      const holders = socketHolders(rv.socketPath).filter(
+        (h) => h.pid !== process.pid,
       );
-      return "spawn";
-    }
+      if (holders.length === 0) {
+        // Accepting, yet the OS names no (external) holder: a race (it just closed),
+        // a lookup we could not complete, or our own in-process serve. Never guess a
+        // kill — let the ordinary spawn re-probe.
+        spec.log.warn(
+          { hostId: spec.hostId, socketPath: rv.socketPath },
+          "rendezvous socket is held but the OS names no external holder — skipping squatter recovery, will spawn",
+        );
+        return "spawn";
+      }
+      const holderPids = holders.map((h) => h.pid);
 
-    // Prove what the holder is, reusing the adopt path's three-way handshake
-    // verdict (the pid arg is log context only — the dial targets `spec.socketPath`).
-    const verdict = await connectSurvivor(firstHolder.pid, spec.connect);
-    if (verdict.kind === "adopted") {
-      // Compatible gate-less orphan — today's connect path adopts it (PTYs kept).
-      // Drop our probe; the spawn below re-dials and holds it. Not a wedge, not a kill.
-      verdict.conn.dispose();
-      spec.log.info(
-        {
-          hostId: spec.hostId,
-          socketPath: spec.socketPath,
-          pid: firstHolder.pid,
-        },
-        "gate-less holder speaks a compatible contract — leaving it for the connect path to adopt (PTYs preserved)",
-      );
-      return "spawn";
-    }
-    if (verdict.kind === "unreachable") {
-      // Did not complete the daemon handshake → foreign / non-conforming. Never
-      // kill — regardless of policy.
-      throw new SocketSquatterForeignError(spec.socketPath, holders);
-    }
+      // Prove what the holder is, reusing the adopt path's three-way handshake
+      // verdict (the dial targets `rv.socketPath`; the pid arg is log context only,
+      // and on darwin `holders` may include connected clients, so we log the SET,
+      // never labelling one member "the daemon" until a skew self-reports its pid).
+      const verdict = await connectSurvivor(holderPids[0] ?? -1, connect);
 
-    // `skew`: a daemon of this estate we cannot serve through. What we do with it is
-    // the ONE policy that differs by boot mode — the SAME split `adoptSurvivor`'s
-    // `onSkew` makes for a GATE-recorded skew, applied here to a gate-less one:
-    if (skewPolicy === "refuse") {
-      // The padi binder policy (#1313): a client NEVER SIGTERMs a running padi, even
-      // a skewed gate-less one — a second binder must not kill the daemon that owns
-      // the real PTYs. Leave it STANDING and report the proven skew (SK4); the
-      // operator upgrades the binder or drains the daemon through its control core.
-      spec.log.error(
-        {
-          hostId: spec.hostId,
-          socketPath: spec.socketPath,
-          pid: firstHolder.pid,
+      if (verdict.kind === "adopted") {
+        // Compatible gate-less orphan → ADOPT the already-proven connection directly
+        // (its PTYs preserved), rather than dispose it and re-handshake a second
+        // time. Holding it here reports `connected` and returns `adopted`, so the
+        // caller RECONCILES the surviving session instead of parking it (F1).
+        spec.log.info(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: holderPids,
+          },
+          "gate-less holder speaks a compatible contract — adopting it (PTYs preserved)",
+        );
+        holdConnection(verdict.conn);
+        return "adopted";
+      }
+      if (verdict.kind === "unreachable") {
+        // Did not complete the (deadline-bounded) handshake → foreign / non-conforming.
+        // Never kill — regardless of policy.
+        throw new SocketSquatterForeignError(rv.socketPath, holders);
+      }
+
+      // `skew`: a daemon of this estate we cannot serve through. What we do with it is
+      // the ONE policy that differs by boot mode — the SAME split `adoptSurvivor`'s
+      // `onSkew` makes for a GATE-recorded skew, applied here to a gate-less one:
+      if (skewPolicy === "refuse") {
+        // The padi binder policy (#1313): a client NEVER SIGTERMs a running padi, even
+        // a skewed gate-less one — a second binder must not kill the daemon that owns
+        // the real PTYs. Leave it STANDING and report the proven skew (SK4).
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: holderPids,
+            daemonVersion: verdict.err.daemonVersion,
+            requiredVersion: verdict.err.requiredVersion,
+          },
+          "gate-less survivor is a contract skew under a REFUSE policy — leaving it " +
+            "standing (never killing a running daemon), reporting incompatible",
+        );
+        emit({
+          state: "incompatible",
           daemonVersion: verdict.err.daemonVersion,
           requiredVersion: verdict.err.requiredVersion,
-        },
-        "gate-less survivor is a contract skew under a REFUSE policy — leaving it " +
-          "standing (never killing a running daemon), reporting incompatible",
+        });
+        return "refused";
+      }
+
+      // `recycle` policy (kaval / always-recycle): the wedge (the 25494 case). The kill
+      // target is the daemon's OWN self-reported pid (attestation 3), which MUST be
+      // corroborated by the OS as a holder of THIS exact socket (attestation 2). A skew
+      // that carries no pid, or a pid the OS does not name, is not a verified daemon of
+      // this rendezvous — refuse rather than kill.
+      const reportedPid = verdict.err.pid;
+      if (reportedPid === undefined || !holderPids.includes(reportedPid)) {
+        throw new SocketSquatterForeignError(rv.socketPath, holders);
+      }
+
+      // Re-attest identity by a FRESH complete handshake IMMEDIATELY before the kill
+      // (F3): the holder must STILL be a skew reporting the SAME pid, and that pid
+      // must still be an OS holder of this socket. If ANY of that changed — the
+      // daemon exited, the pid was reused, it became compatible or foreign — do NOT
+      // kill: loop to re-decide against the fresh snapshot. This shrinks the trusted
+      // window to the tiny interval between this attestation and the SIGTERM.
+      const stillHolders = socketHolders(rv.socketPath).filter(
+        (h) => h.pid !== process.pid,
       );
-      emit({
-        state: "incompatible",
-        daemonVersion: verdict.err.daemonVersion,
-        requiredVersion: verdict.err.requiredVersion,
-      });
-      return "refused";
-    }
+      const reverify = stillHolders.some((h) => h.pid === reportedPid)
+        ? await connectSurvivor(reportedPid, connect)
+        : undefined;
+      if (
+        reverify === undefined ||
+        reverify.kind !== "skew" ||
+        reverify.err.pid !== reportedPid
+      ) {
+        spec.log.warn(
+          { hostId: spec.hostId, socketPath: rv.socketPath, pid: reportedPid },
+          "gate-less squatter changed between identify and kill — re-deciding against the fresh snapshot",
+        );
+        continue; // re-decide on the next pass (or spawn if the cap is hit)
+      }
 
-    // `recycle` policy (kaval / always-recycle): the wedge (the 25494 case). The kill
-    // target is the daemon's OWN self-reported pid (attestation 3), which MUST be
-    // corroborated by the OS as a holder of THIS exact socket (attestation 2). A skew
-    // that carries no pid, or a pid the OS does not name, is not a verified daemon of
-    // this rendezvous — refuse rather than kill.
-    const reportedPid = verdict.err.pid;
-    if (
-      reportedPid === undefined ||
-      !holders.some((h) => h.pid === reportedPid)
-    ) {
-      throw new SocketSquatterForeignError(spec.socketPath, holders);
-    }
-
-    // Re-confirm the holder is UNCHANGED immediately before the kill (pid-reuse
-    // guard): the same pid must still hold this socket and it must still be
-    // accepting. A moved holder aborts — the spawn below re-probes the new state.
-    const still = socketHolders(spec.socketPath);
-    if (
-      !still.some((h) => h.pid === reportedPid) ||
-      !(await socketAccepting(spec.socketPath))
-    ) {
       spec.log.warn(
-        { hostId: spec.hostId, socketPath: spec.socketPath, pid: reportedPid },
-        "gate-less squatter moved between identify and kill — aborting recycle, will spawn",
+        {
+          hostId: spec.hostId,
+          socketPath: rv.socketPath,
+          pid: reportedPid,
+          daemonVersion: reverify.err.daemonVersion,
+          requiredVersion: reverify.err.requiredVersion,
+        },
+        "recovered a gate-less skewed daemon squatter — re-attested by a fresh handshake (still a skew, same self-reported pid, OS-corroborated) — recycling it",
       );
+      // NOTE: only the tiny window between this final attestation and the SIGTERM
+      // inside `killLiveHolder` is IRREDUCIBLE — there is no atomic check-and-kill
+      // syscall — so it is a bounded, considered race, NOT an oversight. It is the
+      // SAME race `killLiveHolder` already lives with on a gate pid, now guarded by a
+      // fresh FULL handshake (speaks-kaval + self-reported pid + OS-holder), not just
+      // a pid+accepting check.
+      await killLiveHolder(reportedPid);
       return "spawn";
     }
-
+    // Holder kept changing across every attempt — pathological flap. Fall to a plain
+    // spawn, which re-probes the socket and handshakes whatever is there.
     spec.log.warn(
-      {
-        hostId: spec.hostId,
-        socketPath: spec.socketPath,
-        pid: reportedPid,
-        daemonVersion: verdict.err.daemonVersion,
-        requiredVersion: verdict.err.requiredVersion,
-      },
-      "recovered a gate-less skewed daemon squatter — verified by handshake (OS holder + self-reported pid agree) — recycling it",
+      { hostId: spec.hostId, socketPath: rv.socketPath },
+      "gate-less squatter kept changing across recovery attempts — falling through to spawn",
     );
-    // NOTE: the re-confirm→SIGTERM window inside `killLiveHolder` is IRREDUCIBLE —
-    // there is no atomic check-and-kill syscall — so it is a bounded, considered
-    // race, NOT an oversight. It is the SAME race `killLiveHolder` already lives
-    // with on a gate pid (see its liveness-probe→SIGTERM above), and strictly
-    // smaller here: three attestations (speaks-kaval + OS-holder + self-reported
-    // pid) agree before the signal, versus one gate pid there.
-    await killLiveHolder(reportedPid);
     return "spawn";
   };
 
@@ -759,16 +825,29 @@ export function createEndpoint<C, I, M = undefined>(
   // padi) leaves it standing and reports incompatible, NEVER killing a running daemon
   // (#1313). A `refused` recovery does NOT spawn — the standing daemon is the outcome.
   const recoverOrSpawn = async (
+    rv: { gatePath: string; socketPath: string },
+    connect: () => Promise<DaemonConnection<C, I, M>>,
     skewPolicy: GatelessSkewPolicy,
-  ): Promise<void> => {
-    let outcome: "spawn" | "refused";
+  ): Promise<boolean> => {
+    let outcome: "spawn" | "refused" | "adopted";
     try {
-      outcome = await recoverGatelessSquatter(skewPolicy);
+      outcome = await recoverGatelessSquatter(rv, connect, skewPolicy);
     } catch (err) {
-      emit({ state: "dead" });
+      // The recovery reports its OWN terminal `dead` where it owns one
+      // (`killLiveHolder`'s reap-timeout), so only flip to `dead` here when it has
+      // NOT already — otherwise a reap-timeout would surface two `dead` transitions
+      // for one failure (F10). A foreign-squatter refusal has no prior `dead`, so it
+      // gets one here.
+      if (lastReported !== "dead") emit({ state: "dead" });
       throw err;
     }
+    // `adopted` — the recovery is already holding a live compatible survivor: report
+    // adopted so the caller reconciles its session. `refused` — a skewed daemon left
+    // standing (padi #1313): do NOT spawn, not adopted. `spawn` — recycle done or the
+    // socket is free: spawn fresh.
+    if (outcome === "adopted") return true;
     if (outcome === "spawn") await spawnConnectHold();
+    return false;
   };
 
   // The outcome of trying to connect to a live survivor for adoption (F4) — a
@@ -992,13 +1071,13 @@ export function createEndpoint<C, I, M = undefined>(
         );
       }
     }
-    // No live survivor anywhere — a fresh boot; spawn fresh at the PRIMARY. But a
-    // gate-less squatter may still hold the primary socket (the wedge) even though
-    // no GATE holder was found, so recover it first under the caller's policy
-    // (recycle a skew for kaval, refuse it for padi; a foreign holder is refused
-    // loud either way; a compatible one is left for the connect below to adopt).
-    await recoverOrSpawn(policy);
-    return false;
+    // No live GATE survivor at the primary — but a gate-less squatter may still hold
+    // the primary socket (the wedge) even though no GATE holder was found, so recover
+    // it under the caller's policy (recycle a skew for kaval, refuse it for padi; a
+    // foreign holder is refused loud either way). A COMPATIBLE gate-less holder is
+    // ADOPTED in place — so return the recovery's real adopted result (not a blind
+    // `false`, which would tell `converge` to park a session whose PTYs are live).
+    return recoverOrSpawn(primaryRv, spec.connect, policy);
   };
 
   return {
@@ -1053,10 +1132,12 @@ export function createEndpoint<C, I, M = undefined>(
       if (holder !== undefined) {
         await recycle(holder);
       } else {
-        // No live GATE holder — but a gate-less squatter may still hold the socket
-        // (the wedge). Recover it before spawning; `ensure` is always-recycle, so a
-        // gate-less skew is RECYCLED (a foreign holder is still refused loud).
-        await recoverOrSpawn("recycle");
+        // No live GATE holder — but a gate-less squatter may still hold the HELD
+        // socket (the wedge). Recover it (at the held rendezvous, with its matching
+        // dialer) before spawning; `ensure` is always-recycle, so a gate-less skew is
+        // RECYCLED (a foreign holder is still refused loud). The adopted-boolean is
+        // moot for `ensure` (void).
+        await recoverOrSpawn(held, connectFor(held), "recycle");
       }
     },
 

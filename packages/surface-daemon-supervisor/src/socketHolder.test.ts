@@ -6,7 +6,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -63,6 +63,17 @@ describe.skipIf(!onLinux)("socketHolders (linux /proc)", () => {
   it("returns empty for a path nobody holds", () => {
     const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
     expect(socketHolders(join(d, "nobody.sock"))).toEqual([]);
+  });
+
+  it("finds a holder whose socket PATH CONTAINS A SPACE (parses the /proc path column, not a truncated split)", async () => {
+    // A caller-supplied `--pty-host-socket` path may contain spaces; the /proc/net/unix
+    // parse must take the whole trailing path column, not `split(/\s+/)[7]`.
+    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+    const spaced = join(d, "with space");
+    mkdirSync(spaced);
+    const socketPath = join(spaced, "held.sock");
+    const pid = await spawnHolder(socketPath);
+    expect(socketHolders(socketPath).map((h) => h.pid)).toContain(pid);
   });
 
   it("stops naming the holder once it exits (no stale pid)", async () => {

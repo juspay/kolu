@@ -71,16 +71,20 @@ function linuxSocketHolders(socketPath: string): SocketHolder[] {
   } catch {
     return [];
   }
-  // Columns: Num RefCount Protocol Flags Type St Inode Path. Path is the 8th
-  // field (index 7). A kaval socket path carries no whitespace, so a plain split
-  // is safe; a row without a path (a connected peer) has < 8 fields and is skipped.
-  // The path uniquely names the bound socket, so no flag disambiguation is needed.
+  // Columns: Num RefCount Protocol Flags Type St Inode Path. The path is the LAST
+  // column and MAY contain spaces (a caller-supplied `--pty-host-socket` path), so
+  // split off the seven fixed whitespace-delimited fields and take the untouched
+  // remainder as the path — a plain `.split(/\s+/)[7]` would truncate `/tmp/my
+  // state/pty-host.sock` to `/tmp/my`. A row without a path (a connected peer) has
+  // no 8th group and is skipped. The path uniquely names the bound socket, so no
+  // flag disambiguation is needed.
+  const rowRe = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)\s+(.+)$/;
   const inodes = new Set<string>();
   for (const line of raw.split("\n")) {
-    const f = line.trim().split(/\s+/);
-    if (f.length < 8) continue;
-    if (f[7] !== socketPath) continue;
-    const inode = f[6];
+    const m = rowRe.exec(line.trim());
+    if (m === null) continue;
+    const [, inode, path] = m;
+    if (path !== socketPath) continue;
     if (inode) inodes.add(inode);
   }
   if (inodes.size === 0) return [];

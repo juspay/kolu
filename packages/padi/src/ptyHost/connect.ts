@@ -64,8 +64,17 @@ export type KavalConnectionMetadata = {
  *  survivor. The first two are possibly-transient and must not cost a survivor
  *  its live PTYs, so they stay plain errors the endpoint retries. (`ensure`'s
  *  fresh-boot path turns any of the three into `dead` regardless.) */
+/** Deadline for the `system.version` handshake READ — the socket is already
+ *  connected, so a healthy kaval answers in milliseconds; a peer that accepts but
+ *  never replies (a foreign squatter, a wedged daemon) must reject here rather than
+ *  hang boot. Generous enough that a loaded-box kaval never trips it. */
+const HANDSHAKE_READ_DEADLINE_MS = 10_000;
+
 export async function connectKaval(
   socketPath: string,
+  /** Override the handshake-read deadline — tests pass a short value to exercise a
+   *  silent-accept holder without a real 10s wait; production omits it. */
+  handshakeDeadlineMs: number = HANDSHAKE_READ_DEADLINE_MS,
 ): Promise<KavalConnection> {
   const socket = await dialSocket(socketPath);
   const client = stdioLink<typeof ptyHostSurface.contract>({
@@ -76,13 +85,36 @@ export async function connectKaval(
   let version: Awaited<
     ReturnType<PtyHostClient["surface"]["system"]["version"]>
   >;
+  // The handshake read MUST be bounded: a process that accepts the unix connection
+  // but never answers oRPC (a foreign squatter, a wedged daemon) would otherwise
+  // leave `system.version` pending FOREVER, hanging boot — the gate-less-squatter
+  // recovery relies on this rejecting so such a holder is classified `unreachable`
+  // (→ foreign refusal) instead of wedging. `Promise.race` attaches a handler to the
+  // version promise, so a late rejection after `socket.destroy()` is not unhandled.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    version = await client.surface.system.version({});
+    version = await Promise.race([
+      client.surface.system.version({}),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `handshake read exceeded ${handshakeDeadlineMs}ms deadline`,
+              ),
+            ),
+          handshakeDeadlineMs,
+        );
+        timer.unref?.();
+      }),
+    ]);
   } catch (err) {
     socket.destroy();
     throw new Error(
       `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
     );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
   if (
     !isContractVersionCompatible(
