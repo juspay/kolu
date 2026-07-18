@@ -903,7 +903,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,
-          shellJoin: msg.shellJoin,
+          // The wire field is OPTIONAL for forward-compat (an additive frame field,
+          // no contract bump). A survivor kaval predating it emits no `shellJoin`
+          // AND no command-rooted seed (lock 1 ships with the field), so its
+          // commands are all raw — `false` is correct, never a revived defect. The
+          // skew default lives ONLY here at the wire boundary; the internal sample
+          // carries a definite dialect from this point on.
+          shellJoin: msg.shellJoin ?? false,
         }),
     );
     void bridgeStream(

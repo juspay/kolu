@@ -88,10 +88,12 @@ export interface CommandRunSample {
   command: string;
   replayed: boolean;
   /** The command's quoting dialect: `true` = the command-rooted `shellJoin` seed
-   *  (reparse with `shellSplit`), absent/`false` = a raw OSC 633;E line (reparse
-   *  with `string-argv`). Carried from the pty-host per frame, so the tokenizer is
-   *  a known fact rather than guessed from the string or the terminal. */
-  shellJoin?: boolean;
+   *  (reparse with `shellSplit`), `false` = a raw OSC 633;E line (reparse with
+   *  `string-argv`). REQUIRED — a host hands the producer a definite dialect (the
+   *  optional-on-the-wire skew default is resolved once at the pty-host bridge),
+   *  so the tokenizer is never guessed from the string, the terminal, or a
+   *  fallback in the parsing path. */
+  shellJoin: boolean;
 }
 
 /** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
@@ -363,8 +365,9 @@ function startAgentCommandSensor(
     onEvent: ({ command: raw, replayed, shellJoin }) => {
       // The pty-host tags each command's dialect: a command-rooted `shellJoin`
       // seed (`shellJoin: true` → reparse with `shellSplit`) vs a raw OSC 633;E
-      // line (reparse with `string-argv`). Tokenize by that fact, never guessed.
-      const normalized = parseAgentCommand(raw, shellJoin ?? false);
+      // line (reparse with `string-argv`). Tokenize by that fact — no fallback in
+      // the parsing path; `shellJoin` is a required field on the sample.
+      const normalized = parseAgentCommand(raw, shellJoin);
       agentState.currentAgent = normalized
         ? agentNameFromCommand(normalized)
         : null;
