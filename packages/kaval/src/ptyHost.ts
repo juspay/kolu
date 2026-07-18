@@ -313,6 +313,12 @@ export interface PtyListEntry {
   title: string;
   /** The PTY's current foreground process name (the running command). */
   foregroundProcess: string;
+  /** True when the PTY's root process IS the spawned command, not a shell —
+   *  a `kaval-tui create -- <cmd>` PTY. The workspace sensors read this to
+   *  decide whether `foreground === root` means an idle shell prompt (a shell
+   *  root) or a busy agent (a command root). Absent/false on the wire = a
+   *  shell-rooted PTY, today's reading. */
+  commandRooted: boolean;
 }
 
 /** Construction options for {@link createPtyHost}. */
@@ -461,6 +467,10 @@ interface Entry {
    *  retained so the `commandRun` source can replay it snapshot-first to a late
    *  subscriber — mirroring how `foreground` replays the current process. */
   lastCommand: string | undefined;
+  /** True when this PTY's root process IS the spawned command (no shell) — the
+   *  seed source for `lastCommand` + `title` at spawn, and the fact reported on
+   *  the inventory row so the sensors read `foreground === root` as busy. */
+  commandRooted: boolean;
   foregroundChannel: Channel<ForegroundSample>;
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
    *  a steady foreground doesn't spam the channel across burst samples. */
@@ -538,6 +548,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       lastActivity: entry.lastActivity,
       title: entry.title,
       foregroundProcess: entry.proc.process,
+      commandRooted: entry.commandRooted,
     };
   }
 
@@ -669,6 +680,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       titleChannel: new Channel<string>(),
       commandRunChannel: new Channel<string>(),
       lastCommand: undefined,
+      commandRooted: spawnOpts.commandRooted ?? false,
       foregroundChannel: new Channel<ForegroundSample>(),
       lastForegroundKey: undefined,
       lastForegroundSampleAt: 0,
@@ -676,6 +688,22 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       onDispose: spawnOpts.onDispose,
     };
     entries.set(id, entry);
+
+    // Lock 1 (#1872) — seed `lastCommand` + the initial title from the spawn
+    // argv for a command-rooted PTY. Such a PTY has the agent as `argv[0]` and
+    // no shell, so it never emits the OSC 633;E mark that is `lastCommand`'s
+    // only other writer, nor an OSC 2 title — the daemon HAS the command line
+    // and must not discard it. Written on the SAME `lastCommand` field + channel
+    // the 633;E handler uses, so the sync getter and stream never disagree; and
+    // it is only a SEED — a later live 633;E / OSC 2 mark (if a shell ever runs
+    // inside) is the temporal last-writer and overwrites it.
+    if (entry.commandRooted) {
+      const command = [spawnOpts.shell, ...(spawnOpts.args ?? [])].join(" ");
+      entry.lastCommand = command;
+      entry.title = command;
+      entry.commandRunChannel.publish(command);
+      entry.titleChannel.publish(command);
+    }
 
     // Dispose the anchor's live `onTrim` subscription on teardown. The anchor
     // keeps a single indirection internally (a RIS swap replaces its handle in

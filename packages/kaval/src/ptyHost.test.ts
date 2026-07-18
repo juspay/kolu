@@ -345,10 +345,12 @@ describe("createPtyHost", () => {
     await host.exitPromise(id);
   });
 
-  it("replays the seeded command to a late commandRun subscriber", async () => {
-    // The seed publishes on the SAME retained commandRun source the 633;E
-    // handler uses, so a late/restarted padi sensor still learns the agent.
-    // RED before lock 1 (a shell-less PTY publishes nothing).
+  it("seeds the initial title from the argv for a command-rooted PTY", async () => {
+    // Lock 1 seeds the title too, so a shell-less PTY's tile carries the command
+    // it is running before any OSC 2 title (which it never sends). RED before the
+    // fix (title stays empty). The `getLastCommand` seed above is replayed to a
+    // late padi sensor by the surface's snapshot-first commandRun source
+    // (inProcessPtyHost), the same retention the 633;E path already relies on.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -357,9 +359,8 @@ describe("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    expect(await firstEvent(host.subscribeCommandRun(id))).toBe(
-      "/bin/sh -c sleep 5",
-    );
+    await waitFor(() => host.getTitle(id) === "/bin/sh -c sleep 5");
+    expect(host.getTitle(id)).toBe("/bin/sh -c sleep 5");
     host.kill(id);
     await host.exitPromise(id);
   });

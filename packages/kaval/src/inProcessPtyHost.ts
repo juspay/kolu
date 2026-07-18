@@ -57,6 +57,7 @@ function toWireEntry(e: PtyListEntry): PtyHostListEntry {
     lastActivity: e.lastActivity,
     title: e.title,
     foregroundProcess: e.foregroundProcess,
+    commandRooted: e.commandRooted,
   };
 }
 
@@ -274,6 +275,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               id,
               shell: program,
               args,
+              commandRooted: input.commandRooted,
               env: input.env,
               cwd: input.cwd,
               cols: input.cols,
