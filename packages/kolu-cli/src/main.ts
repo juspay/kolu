@@ -1,13 +1,18 @@
 /**
- * kolu — the product binary's entry point (kolu-cli PR1,
+ * kolu — the product binary's entry point (the kolu-cli plan,
  * docs/atlas/src/content/atlas/kolu-cli.mdx). The composition root: dispatch
- * first, then load ONLY the arm the user asked for. The web boot is a dynamic
- * import so a reserved face (`kolu tui` / `kolu mcp`) fails fast without ever
- * touching the server's module graph.
+ * first, then load ONLY the arm the user asked for. Each face's boot is a
+ * dynamic import, so `kolu mcp` never touches the web server's module graph
+ * and a reserved face (`kolu tui`) fails fast without loading anything.
  */
 
-import { koluWebFlagsOrExit } from "./cli.ts";
+import { koluFaceOrExit } from "./cli.ts";
 
-const flags = koluWebFlagsOrExit();
-const { bootKoluWeb } = await import("kolu-server");
-await bootKoluWeb(flags);
+const face = koluFaceOrExit();
+if (face.face === "mcp") {
+  const { runKoluMcp } = await import("./mcp.ts");
+  await runKoluMcp({ host: face.host });
+} else {
+  const { bootKoluWeb } = await import("kolu-server");
+  await bootKoluWeb(face.flags);
+}

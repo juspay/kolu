@@ -10,7 +10,15 @@ on:
     paths:
       - "website/**"
       - "docs/atlas/dist/**"
+      # Every out-of-tree file website/default.nix copies into the site's
+      # build sandbox must be listed here, or changing it silently skips the
+      # deploy. Drift-pinned: website/test/pages-deploy-paths.test.mjs parses
+      # default.nix's ${../...} interpolations and asserts each has an entry.
       - "packages/client/favicon.svg"
+      - "packages/kaval/logo.svg"
+      - "packages/padi/logo.svg"
+      - "packages/server/package.json"
+      - "scripts/fence-langs.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

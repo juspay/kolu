@@ -45,6 +45,10 @@ export interface BuildAppRouterDeps {
    *  cleared, since a refuse holds degraded without auto-reconnecting. Throws for an
    *  unknown host. */
   reconnectHost: (host: HostKey) => void;
+  /** Update & restart a host's daemon stack (the contract-skew recovery, SK5):
+   *  forwards to that host's `padiSession.renew()` — the binder-owned drain →
+   *  re-dial → re-realise pipeline. Throws for an unknown host. */
+  renewHostDaemon: (host: HostKey) => Promise<void>;
 }
 
 /** Assemble the full host router from the surface router + the raw RPCs.
@@ -107,6 +111,13 @@ export function buildAppRouter(deps: BuildAppRouterDeps) {
       reconnect: t.hosts.reconnect.handler(async ({ input }) => {
         log.info({ host: input.host }, "host reconnect requested");
         deps.reconnectHost(input.host);
+      }),
+      renewDaemon: t.hosts.renewDaemon.handler(async ({ input }) => {
+        log.info(
+          { host: input.host },
+          "host daemon renew requested — draining that host's padi to re-realise the current closure",
+        );
+        await deps.renewHostDaemon(input.host);
       }),
     },
   });

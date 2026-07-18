@@ -1,0 +1,153 @@
+---
+title: MCP
+description: "Connect your coding agent to kolu over MCP — create, drive, and observe terminals from Claude Code, Codex, or any MCP host: send prompts, wait for a turn to end, read the screen, and see which terminals need you."
+order: 92
+section: Command Line
+koluHero:
+  eyebrow: "drive kolu from your coding agent · alpha"
+  headline: |
+    {MCP}: drive kolu
+    from your agent.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+<Aside type="caution" title="alpha">
+  `kolu mcp` is an early preview. The tool set and wiring **may change**; the
+  driving pattern — create, prompt, wait, read — is stable.
+</Aside>
+
+`kolu mcp` connects your **coding agent** — Claude Code, Codex, or any
+[MCP](https://modelcontextprotocol.io) host — to your running kolu. Once it's
+wired, the agent can do from code exactly what you do by hand on the canvas:
+**open a terminal, type a task into it, wait for the reply, read the screen, and
+see which terminals need you.** That's what turns one agent into a driver of
+many — a coordinator spawning and steering a fleet of worker agents, each in its
+own terminal, while you sit one layer up.
+
+It runs as a small `kolu mcp` process your agent starts over stdio. Nothing new
+to install if you already run kolu; no browser involved.
+
+## Connect it to your agent
+
+<Steps>
+
+1. Make sure the `kolu` binary is on your PATH — if you installed kolu with the
+   home-manager module, it already is (the module puts `kolu` on PATH by
+   default). Then register the server with your agent:
+
+   ```sh
+   # Claude Code
+   claude mcp add kolu -- kolu mcp
+   ```
+
+   No kolu install? Run it straight from the flake instead — same server, one
+   command:
+
+   ```sh
+   claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
+   ```
+
+2. Prefer a config file? Add an `.mcp.json` entry — any MCP host that reads that
+   file will pick it up:
+
+   ```json
+   {
+     "mcpServers": {
+       "kolu": { "command": "kolu", "args": ["mcp"] }
+     }
+   }
+   ```
+
+3. Drive a kolu on **another machine** by adding `--host` — it reaches the remote
+   over ssh, nothing to install there first:
+
+   ```sh
+   claude mcp add kolu-prod -- kolu mcp --host nix@prod
+   ```
+
+</Steps>
+
+## Drive a terminal
+
+Driving another agent is a short loop of discrete, observable moves — the same
+rhythm whether you do it by hand or your agent does it in code:
+
+<Steps>
+
+1. **Create** a terminal for the work (optionally as a split of another, or in a
+   fresh worktree) and keep the `id` it returns.
+2. **Send** the prompt text into it.
+3. **Wait** for the output to settle, then send **Enter** as its own step — text
+   and the submit key are always two separate calls, so a same-breath Enter can't
+   race the paste.
+4. **Wait** for the agent's turn to end, then **read** the screen to see what it
+   said.
+5. Send the next prompt, and repeat — or **kill** the terminal when the work is
+   done.
+
+</Steps>
+
+<Aside type="note" title="Text and Enter are separate steps">
+  Every `send-text` is followed by a settle wait and then a separate `Enter`.
+  Combining the two in one call is a deliberate error — observing the terminal
+  settle *before* submitting is what makes driving reliable.
+</Aside>
+
+## What your agent can do
+
+The tools and live views below are what `kolu mcp` gives the agent. The name in
+the first column is what appears in your MCP host.
+
+### Create and drive terminals
+
+| Tool | What it does |
+| --- | --- |
+| `lifecycle_create` | Open a new terminal — a command, a working directory, a split of another terminal — and return its `id`. |
+| `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
+| `lifecycle_kill` | Close one terminal by `id`. |
+
+### Wait for the right moment
+
+| Tool | What it does |
+| --- | --- |
+| `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
+| `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
+
+### Read the screen and the code
+
+| Tool | What it does |
+| --- | --- |
+| `screen_text` | Read a terminal's rendered screen as text; ask for just the last N lines. |
+| `screen_history` | Read the older scrollback above the current screen. |
+| `git_getStatus` · `git_getDiff` | The git status and diff for a terminal's repo. |
+| `fs_listAll` · `fs_readFile` | List and read files in a terminal's project. |
+
+### Watch the whole workspace (live views)
+
+| Live view | What it shows |
+| --- | --- |
+| `terminals` | The live roster of your terminals — what's open, what each is running, and each agent's state. |
+| `urgency` | Which terminals need attention **now** — the ones waiting on a human or an answer. |
+| `daemonStatus` · `status` · `identity` | Whether kolu's background service is live, up to date, and hasn't restarted underneath the agent. |
+
+These update live — an agent subscribed to `urgency` is notified the moment a
+worker terminal starts waiting on it.
+
+## What an agent can't touch
+
+`kolu mcp` exposes a **deliberate, reviewed allowlist**. Reads and terminal
+control are in — creating, driving, killing, and observing terminals. Out, by
+design: administering the background service, changing session policy, or
+rearranging your canvas. Anything not on the list is simply unreachable, and
+widening it is a reviewed change, never a runtime toggle. So handing an agent
+your kolu lets it do the work in your terminals without handing it the keys to
+the whole workspace.
+
+<CardGrid>
+  <LinkCard title="Agent Fleets" href="/agent-fleets" description="one coordinator agent driving many workers — the pattern kolu's own development runs on" />
+  <LinkCard title="Quickstart" href="/quickstart" description="install kolu and open your first terminal" />
+</CardGrid>

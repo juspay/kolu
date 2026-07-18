@@ -33,8 +33,9 @@ import {
   toKavalPresence,
 } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
-import { kavalStale } from "./kavalCurrency";
+import { type KavalAttention, kavalAttention } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
+import UpdateKavalButton from "./UpdateKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
@@ -129,13 +130,15 @@ const KavalInfoDialog: Component<{
     const p = presence();
     return p.kind === "connected" ? p : undefined;
   };
-  const pending = (): boolean =>
-    kavalStale(
-      expectedKaval()?.staleKey,
-      props.status?.identity?.staleKey,
-      props.status?.state,
-      props.live,
-    );
+  // The ONE attention derivation (SK5) — the same joined verdict the host-chip
+  // pip/tooltip and the canvas skew card read, so the surfaces can't disagree.
+  const attention = (): KavalAttention =>
+    kavalAttention(expectedKaval()?.staleKey, props.status, props.live);
+  const pending = (): boolean => attention().kind === "stale";
+  const incompatible = () => {
+    const a = attention();
+    return a.kind === "incompatible" ? a : undefined;
+  };
   // Opening a daemon icon switches the canvas to that host first, so these
   // active-host readouts keep the same information surface as master.
   const convergePending = (): boolean =>
@@ -253,6 +256,23 @@ const KavalInfoDialog: Component<{
         </DetailRow>
       </div>
 
+      {/* Contract axis (SK5): the proven skew — down-toned, both versions from
+          the TYPED status fields, mutually exclusive with the currency banner
+          below by construction (a skewed kaval is never connected). */}
+      <Show when={incompatible()}>
+        {(skew) => (
+          <div
+            class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs leading-relaxed"
+            data-testid="kaval-incompatible-banner"
+          >
+            <p class="font-medium text-danger">Incompatible — needs update</p>
+            <p class="mt-1 font-mono text-[11px] text-fg-3">
+              kaval speaks {skew().daemonVersion} · kolu needs{" "}
+              {skew().requiredVersion}
+            </p>
+          </div>
+        )}
+      </Show>
       <Show when={pending()}>
         <div class="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed">
           <p class="font-medium text-warning">Newer Kaval build available</p>
@@ -276,24 +296,45 @@ const KavalInfoDialog: Component<{
         </div>
       </Show>
 
-      <div class="space-y-2">
-        <RestartKavalButton
-          status={props.status}
-          tone="neutral"
-          onConfirm={() => {
-            props.onOpenChange(false);
-            void restartDaemon();
-          }}
-        />
-        <p class="text-[11px] leading-relaxed text-fg-3">
-          Captures the session first, then offers restore on the fresh daemon.
-        </p>
-        <Show when={convergePending()}>
+      {/* The action slot — a total function of the attention axis (SK5, D1):
+          a proven skew offers ONLY the renew (a restart provably respawns the
+          same incompatible binary, on local and remote hosts alike); every
+          other state keeps the session-preserving Restart. */}
+      <Show
+        when={incompatible()}
+        fallback={
+          <div class="space-y-2">
+            <RestartKavalButton
+              status={props.status}
+              tone="neutral"
+              onConfirm={() => {
+                props.onOpenChange(false);
+                void restartDaemon();
+              }}
+            />
+            <p class="text-[11px] leading-relaxed text-fg-3">
+              Captures the session first, then offers restore on the fresh
+              daemon.
+            </p>
+            <Show when={convergePending()}>
+              <p class="text-[11px] leading-relaxed text-fg-3">
+                Restart converges kaval to the padi address.
+              </p>
+            </Show>
+          </div>
+        }
+      >
+        <div class="space-y-2">
+          <UpdateKavalButton
+            tone="neutral"
+            onConfirm={() => props.onOpenChange(false)}
+          />
           <p class="text-[11px] leading-relaxed text-fg-3">
-            Restart converges kaval to the padi address.
+            Drains the host daemon, re-provisions the current build, and starts
+            a correct-version kaval — this host’s terminals restart.
           </p>
-        </Show>
-      </div>
+        </div>
+      </Show>
 
       <RunningDaemonsSection
         noun="kaval"

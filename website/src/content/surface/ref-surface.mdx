@@ -42,6 +42,19 @@ The `Surface<S>` value carries `surface.contract` (the typed oRPC router that
 replaces a hand-written `oc.router`), `surface.descriptors`, and `surface.spec`.
 Read member types back with `SurfaceTypes<typeof surface.spec>`.
 
+A procedure may declare its **error union** — `{ <verb>: { input?, output?,
+errors?: { <CODE>: { data?, message?, status? } } } }` (oRPC contract-level
+typed errors). A declared error crosses every hop `defined: true` with its
+`data` intact — through a `SurfaceMap`'s keyed proxy and
+`mirrorRemoteSurface`'s forwarders included — and the bound client face's
+rejection carries the union, so a caller narrows with
+`isDefinedError`/`safe` — re-exported from `@kolu/surface/solid`, so the
+narrowing happens through the same receptacle that declares the union
+(never a direct `@orpc/client` import) — to a typed `{ code, data }`
+instead of parsing message prose. An **undeclared** plain throw still arrives as
+`INTERNAL_SERVER_ERROR`: that is the fail-fast crash-loudly channel,
+deliberately untouched — declare exactly the failures a caller can act on.
+
 Every surface also carries three framework-reserved procedures,
 `surface.system.live`, `surface.system.identity`, and `surface.system.clockNow`,
 all injected by `defineSurface` and auto-answered by the server — no app declares
@@ -131,7 +144,7 @@ Dependency shapes, per member:
 - `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. A `connect(cell, { signal })` async source-republish receives an abort signal and MAY return a `Disposer`; it is an owned source of the runtime (its rejection reaches `done`, `close()` aborts + disposes it).
 - `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
 - `streams: { <k>: { source } }` — or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
-- `procedures: { <ns>: { <verb>: async ({ input, ctx, signal }) => … } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single.
+- `procedures: { <ns>: { <verb>: async ({ input, ctx, signal, errors }) => … } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single. A procedure that declares `errors` receives the typed per-code constructors on `errors` — `throw errors.SOME_CODE({ message?, data })` mints the declared error with its data schema-validated.
 
 Stores and channels:
 
@@ -390,6 +403,27 @@ application error that must **not** retry.
 | `SURFACE_STDIO_TRANSPORT_CLOSED` / `SURFACE_TRANSPORT_RETIRED` | the permanently-dead transport codes |
 | `deadTransportError(code, message)` | mint a non-retriable dead-transport `ORPCError` |
 | `isDeadTransportError(err)` | recognize those dead-transport codes — the recognition twin of `deadTransportError` |
+
+### The bounded-wait scaffold (`@kolu/surface/wait`)
+
+The client-side "block until a condition lands on a stream" discipline, shared
+by every consumer that hand-rolled it before (kaval-tui's output-idle wait,
+padi-tui's agent-state wait, the kolu MCP face's composite `wait_*` tools).
+Zero imports — a stream-consumption leaf beside `first-frame`.
+
+| Export | Purpose |
+| --- | --- |
+| `WaitOutcome<Met>` | the one outcome union — `met` (payload spread flat; `Met` must not carry its own `kind`) · `gone` · `timeout` · `interrupted` · `closed` |
+| `runWait(opts, watchers)` | own the race: chain the caller's signal, arm the timeout, first-writer-wins `settle`, resolve the `interrupted`/`closed` fallback |
+| `WaitCtx<Met>` | what watchers receive — `settle` · `signal` (chain every subscription) · `elapsedMs()` · `recordUpstreamError` |
+| `waitOutcomeJson(id, outcome, metJson)` | serialize an outcome to the driver-facing JSON frame — owns the four terminal arms (`timeout`/`gone`/`interrupted`/`closed`) once; the per-face `met` shape is the injected `metJson` callback |
+| `MAX_TIMER_MS` / `isValidTimerMs` | the `setTimeout` 32-bit-ceiling range rule every timeout/idle window flows through |
+
+A watcher that **rejects** is a bug, not an outcome: the rejection propagates
+out of `runWait` verbatim — `closed` is reserved for the link settling without
+an outcome. The condition *watchers* stay in each consumer (they bind that
+consumer's surface contract); only the outcome union and the race lifecycle
+live here.
 
 ### `pollOnChange` (`@kolu/surface/poll-on-change`) — the client pulse-then-requery core
 

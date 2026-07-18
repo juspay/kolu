@@ -89,6 +89,7 @@ describe("reconnect bridge loop", () => {
       connectOnce: sshConnector<typeof contract>({
         host: "testhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 50,
@@ -145,6 +146,7 @@ describe("reconnect bridge loop", () => {
       connectOnce: sshConnector<typeof contract>({
         host: "destroyhost",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       // Long backoff so the second next() is genuinely parked, not racing a fast

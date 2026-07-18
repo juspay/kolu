@@ -3,8 +3,8 @@ name: orchestrator
 description: >-
   Running memory of the coordination rules for an orchestrator agent driving
   implementing agents on kolu terminals — authorization boundaries, the
-  kaval-tui dispatch protocol, verification discipline, and how to communicate
-  with the human. Load whenever coordinating a multi-agent campaign
+  dispatch protocol (MCP-first via the kolu skill, with its TUI fallback),
+  verification discipline, and how to communicate with the human. Load whenever coordinating a multi-agent campaign
   (dispatching briefs to agents in kolu PTYs, tracking their PRs, verifying
   their claims), or when acting as the coordinator in a padi/surface-style
   campaign. Triggers on "orchestrate the agents", "coordinate the campaign",
@@ -25,7 +25,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 
 ## Dispatch
 
-- Drive kolu terminals through the kolu skill's messaging loop; submission is its own keystroke; never interrupt a working agent.
+- Drive kolu terminals through **the [/kolu](../kolu/SKILL.md) skill's messaging loop** — the single source of truth for the driving protocol (MCP-first, its CLI fallback). The coordinator inherits whichever transport /kolu selects; never restate the loop or hardcode `kaval-tui`/`padi-tui` verbs here. Submission is its own Enter send after an observed settle; never interrupt a working agent.
 - Payloads must survive the shell unmangled; large briefs ride in a file with a short pointer.
 - Every brief carries a unique report-back token.
 - An implementing agent runs /be by default: the dispatch prompt leads with
@@ -41,6 +41,7 @@ Coordination rules for a supervising agent driving implementing agents. Hard-won
 - Briefs make LOADING the kolu skill for reports part of the brief itself — never a hand-transcribed protocol, never a parenthetical "two-step send" reminder: neither survives an implementer's long-context run, and a finished report once sat unsent on the input line until the human noticed. The skill's submit loop is the contract: each report submits with its own Enter keystroke and is snapshot-verified as landed.
 - Every brief routes every question — interview questions included — to the coordinator's terminal via the kolu skill, blocking on the reply. An interactive question dialog opened in the agent's own PTY is a brief defect: it sits unanswered unless someone happens to look — two /be interviews once sat blocked in their own terminals until the human noticed. Prescribing the route is NOT enough — the brief must NAME-BAN the AskUserQuestion tool (and any own-PTY question dialog) for the agent explicitly: an agent running /be reaches for AskUserQuestion by reflex during its interview because that IS /be's interview step, and a brief that only says "route questions to me" loses to the tool being right there. State it as: AskUserQuestion is banned for you; every question, /be interview included, is a file + one-line pointer to the coordinator, blocking on reply. AND the ban rides the `/goal` line too, not only the brief: a brief is read once and loses to a long context, but the goal is the persistent artifact the harness re-surfaces — the recorded failure is an agent whose brief carried the verbatim ban opening a midnight dialog at the human anyway, hours into its run.
 - A brief that authorizes dev-server or evidence work quotes the recorded-PIDs-only teardown rule verbatim: teardown kills only the exact PIDs recorded at spawn; pattern kills are banned; strays are reported, never hunted. The skill's own ban did not survive contact — an agent hand-rolled an equivalent `ps|grep` and killed production.
+- **Interim (agent-spawn-first-class, #1872) — spawn implementing agents through a shell-rooted, kolu-owned path, never command-rooted.** Provision with `padi-tui create [--worktree …] -- <agent>` (or the MCP `lifecycle_create`), NOT `kaval-tui create -- <agent>`: a command-rooted agent (argv[0] = claude/codex, no shell) is transcript-safe as of PR1 but Dock-invisible and state-untracked until PR2, so the coordinator's own `padi-tui wait`/dashboard can't read its agent state. And before launching any agent from the **coordinator's own shell** (not a fresh kaval/kolu terminal, which PR1 keeps clean), `unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID` — the coordinator session's identity vars would otherwise ride in and cost the spawned agent its transcript. *Delete the Dock/state caveat when PR2 ships; the own-shell scrub when PR3's face verb lands. Full detail: [/kolu TUI.md](../kolu/TUI.md) → interim doctrine.*
 
 ## Dashboard
 

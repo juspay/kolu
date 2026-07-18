@@ -213,7 +213,7 @@ The fleet — **with** controls, so the fleet verbs exist, typed:
 const fleet = buildHostRegistry<HostSession<AgentContract>, WsRpcHandler>({
   initialHosts: cfg.hosts,
   buildEntry: (host) => {
-    const session = makeSession({ connectOnce: sshConnector<AgentContract>({ host, binary: "drishti-agent" }) });
+    const session = makeSession({ connectOnce: sshConnector<AgentContract>({ host, binary: "drishti-agent", localEnv }) });
     return { session, handler: agentHandler(session) };
   },
   controls: { reconnect: (s) => s.reconnect(), recheck: (s) => s.recheck() },

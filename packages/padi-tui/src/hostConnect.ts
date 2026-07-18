@@ -33,6 +33,7 @@
 import { assertPadiSurfaceCompatible, scopePadiSurface } from "@kolu/padi/dial";
 import type { PadiDaemonContract } from "@kolu/padi/surface";
 import { dialAgentOnce } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import type { Connection } from "./connect.ts";
 
 /** The per-system `{ system → padi .drv }` map env var, baked onto the padi-tui
@@ -49,6 +50,8 @@ const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
 export async function connectPadiTuiViaHost(host: string): Promise<Connection> {
   const dial = await dialAgentOnce<PadiDaemonContract>({
     host,
+    // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the localEnv doc on buildAgentCommand.
+    localEnv: composeSpawnEnv(process.env),
     // `${agentPath}/bin/padi`, run as `padi --stdio`. The connector appends
     // `--stdio` itself, so it is NEVER added here (F2 in remotePadiBinding).
     binary: "padi",

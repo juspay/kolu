@@ -33,7 +33,12 @@ import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
 import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
-import { channelLive, liveDownState, liveWarming } from "./daemonPresentation";
+import {
+  channelLive,
+  type DaemonDownState,
+  liveDownState,
+  liveWarming,
+} from "./daemonPresentation";
 import { isPendingTimedOut } from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
 
@@ -43,6 +48,7 @@ import { announceReattach } from "./reattachAnnounce";
 export {
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
+  type DaemonDownState,
   type DaemonTone,
   formatUptime,
   kavalDot,
@@ -269,11 +275,12 @@ export function daemonStatusPendingTimedOut(): boolean {
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`
- *  (never came up) or `degraded` (died mid-session), or `undefined` when it's
- *  up (or still loading, so a brief load never flashes the degraded surface).
- *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
+ *  (never came up), `degraded` (died mid-session), or `incompatible` (a PROVEN
+ *  contract skew, carrying both versions — SK4), or `undefined` when it's up
+ *  (or still loading, so a brief load never flashes the degraded surface).
+ *  Drives the DegradedCanvas gate AND its `down` prop, so the down-sub-union
  *  is named in one place rather than re-derived by an inline ternary. */
-export function downState(): "dead" | "degraded" | undefined {
+export function downState(): DaemonDownState | undefined {
   // FLOORED on `daemonChannelLive` — the ws transport AND the ACTIVE entry's own
   // connection, for WHICHEVER host is active (local or remote, no special case: a local
   // `daemon.restart` drain drops the LOCAL_HOST entry out of `connected` exactly as a
@@ -284,8 +291,9 @@ export function downState(): "dead" | "degraded" | undefined {
   // WARMING arm win the canvas precedence over a drop: without this floor a stale
   // re-served `degraded` would light DegradedCanvas (which beats warming) instead of the
   // honest "coming up" surface. The down-sub-union is whichever states the presentation
-  // table marks `down` (today exactly `dead`/`degraded`).
-  return liveDownState(localDaemonStatus()?.state, daemonChannelLive());
+  // table marks `down` (today `dead`/`degraded`/`incompatible` — the last carrying
+  // its typed version pair through to the skew card).
+  return liveDownState(localDaemonStatus(), daemonChannelLive());
 }
 
 /** True while the local daemon is transiently coming up (its state warming, via

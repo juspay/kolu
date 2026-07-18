@@ -3,7 +3,7 @@
  *  update detail rides each host-chip Kaval tooltip and {@link KavalInfoDialog}.
  *  Session-preserving Restart-kaval lives in that dialog (`RestartKavalButton`).
  *
- *  The derivation ({@link kavalStale}) is a read-site join of two raw facts —
+ *  The derivation ({@link kavalAttention}) is a read-site join of two raw facts —
  *  `expected` (padi's `status.expectedKaval`) and `reported` (the connected
  *  daemon's `daemonStatus.identity`) — never stored, never folded into the
  *  client-vs-server `≠ srv` signal (which stays the commit comparison). */

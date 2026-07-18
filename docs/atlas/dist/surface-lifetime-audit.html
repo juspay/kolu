@@ -40,10 +40,13 @@ follow-up, demand-gated on a field sighting post-STDIO1.</li>
 <li><strong><code>makeSession</code> promises a hold “for the parent’s lifetime” but binds to
 nothing</strong> (weakened-confirmed): an abandoned, undestroyed session respawns
 ssh children forever, and its non-unref’d reconnect timer pins the event
-loop — the seed’s shape plus process churn. Disposition: <strong>follow-up</strong> —
-minimum honest fix is <code>unref()</code> on the arm/probe timers (an abandoned
-session then can’t immortalize its host process); the fuller parent-binding
-(boundToPid-style auto-destroy) waits for a real consumer bite.</li>
+loop — the seed’s shape plus process churn. Disposition: <strong>fixed</strong> by the
+per-timer census in <a href="session-timer-unref.html">session-timer-unref</a> —
+<code>unref()</code> on the backoff/watchdog/probe timers (an abandoned session can no
+longer immortalize its host process), with the admit-handshake timeout
+deliberately kept ref’d (it settles a caller-awaited <code>pin()</code>); the fuller
+parent-binding (boundToPid-style auto-destroy) still waits for a real
+consumer bite.</li>
 </ul>
 <h2 id="the-pattern-the-minors-share">The pattern the minors share</h2>
 <p>Ten minor findings, one shape: <strong>the framework mints a disposer and documents
@@ -117,7 +120,7 @@ the 17 non-framework-owned seams it touches, and each fix flips rows from
 homework to owned — with the tenure harness as the move that flips whole
 columns. The refuter discipline mattered: two over-claimed variants died in
 verification, and the one stale finding (kaval) was caught by checking the
-sweep’s tree against merged master before reporting.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+sweep’s tree against merged master before reporting.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./session-timer-unref.html" data-astro-cid-aziudkuj>Session timers must not immortalize the host process</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
 <script>
   (function () {
     var fns = Array.prototype.slice.call(

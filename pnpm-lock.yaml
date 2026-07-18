@@ -186,6 +186,9 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
     devDependencies:
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
       '@tailwindcss/vite':
         specifier: ^4.1.0
         version: 4.2.2(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
@@ -648,6 +651,9 @@ importers:
       kaval:
         specifier: workspace:*
         version: link:../kaval
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
     devDependencies:
       '@types/columnify':
         specifier: ^1.5.4
@@ -667,9 +673,27 @@ importers:
 
   packages/kolu-cli:
     dependencies:
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
+      '@kolu/surface-remote':
+        specifier: workspace:*
+        version: link:../surface-remote
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
       kolu-server:
         specifier: workspace:*
         version: link:../server
@@ -677,6 +701,9 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -686,6 +713,40 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/kolu-mcp:
+    dependencies:
+      '@kolu/padi':
+        specifier: workspace:*
+        version: link:../padi
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/surface-mcp':
+        specifier: workspace:*
+        version: link:../surface-mcp
+      '@kolu/terminal-protocol':
+        specifier: workspace:*
+        version: link:../terminal-protocol
+      '@kolu/terminal-vocab':
+        specifier: workspace:*
+        version: link:../terminal-vocab
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -841,6 +902,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
     devDependencies:
       '@types/columnify':
         specifier: ^1.5.4
@@ -1444,6 +1508,9 @@ importers:
 
   packages/surface-remote:
     dependencies:
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -1469,6 +1536,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -4284,7 +4354,7 @@ packages:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
   node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
-    resolution: {tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
+    resolution: {gitHosted: true, tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
     version: 1.1.0
 
   node-releases@2.0.37:

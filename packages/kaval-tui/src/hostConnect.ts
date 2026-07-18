@@ -24,6 +24,7 @@
  * never leak into the kaval daemon closure (the staleKey allow-list).
  */
 import { dialAgentOnce } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import type { ptyHostSurface } from "kaval";
 import type { Connection } from "./connect.ts";
 
@@ -41,6 +42,8 @@ const KAVAL_AGENT_DRVS_ENV = "KAVAL_AGENT_DRVS_JSON";
 export function connectPtyHostViaHost(host: string): Promise<Connection> {
   return dialAgentOnce<PtyHostContract>({
     host,
+    // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the localEnv doc on buildAgentCommand.
+    localEnv: composeSpawnEnv(process.env),
     // `${agentPath}/bin/kaval`, run as `kaval --stdio`.
     binary: "kaval",
     envVar: KAVAL_AGENT_DRVS_ENV,

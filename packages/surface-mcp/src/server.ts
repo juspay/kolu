@@ -17,6 +17,7 @@
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  */
 
+import { isDeadTransportError } from "@kolu/surface/client";
 import {
   firstFrameOfCollectionItem,
   firstFrameOrThrow,
@@ -169,32 +170,73 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // bridge case's factory may open a socket each time). On a read/tool
   // failure (which a transport drop manifests as) we reset it so the NEXT
   // call re-dials a fresh connection rather than reusing a dead socket.
-  let sharedConn: {
-    client: SurfaceClientCallable;
-    dispose: () => void;
-  } | null = null;
-  const getClient = async (): Promise<SurfaceClientCallable> => {
-    if (sharedConn === null) sharedConn = await dial();
-    return sharedConn.client;
+  type OwnedConn = { client: SurfaceClientCallable; dispose: () => void };
+  let sharedConn: OwnedConn | null = null;
+  // Latched by teardown so a dial that RESOLVES after `close()` disposes its
+  // socket instead of publishing an orphan nobody will ever tear down (the
+  // adapter's promise: dispose every connection it opens).
+  let closed = false;
+  // The IN-FLIGHT dial, memoized so two concurrent `getClient()` calls (a
+  // long-blocking wait tool beside a read — the kolu-mcp case) share ONE dial
+  // instead of each racing `sharedConn === null` across the await and opening
+  // (then leaking) a second socket. Cleared once the dial settles.
+  let dialing: Promise<OwnedConn> | null = null;
+  const getConn = async (): Promise<OwnedConn> => {
+    if (sharedConn !== null) return sharedConn;
+    if (dialing === null) {
+      dialing = dial().then(
+        (conn) => {
+          dialing = null;
+          // Teardown happened while this dial was in flight — dispose the just-
+          // opened socket rather than storing it (disposeSharedConn already ran
+          // and saw `sharedConn === null`). Reject so a caller mid-`getConn`
+          // fails loud instead of running against a socket about to close.
+          if (closed) {
+            conn.dispose();
+            throw new Error("surface-mcp: server closed during dial");
+          }
+          sharedConn = conn;
+          return conn;
+        },
+        (err) => {
+          dialing = null;
+          throw err;
+        },
+      );
+    }
+    return dialing;
   };
-  const resetSharedConn = (): void => {
+  // Drop a connection ONLY if it is still the current shared one — a concurrent
+  // failure must never dispose a fresh successor another call already redialed.
+  const resetSharedConn = (conn: OwnedConn): void => {
+    if (sharedConn !== conn) return;
+    sharedConn = null;
+    conn.dispose();
+  };
+  // Teardown: latch `closed` (so a still-pending dial disposes its own result —
+  // see getConn), then dispose whatever connection is current (identity-agnostic
+  // — the server is closing, so there is no successor to protect).
+  const disposeSharedConn = (): void => {
+    closed = true;
     const conn = sharedConn;
     sharedConn = null;
     conn?.dispose();
   };
-  // The failure-reset policy in one place: any shared-connection use that
-  // throws (a transport drop manifests as a thrown call) drops the connection
-  // so the NEXT call re-dials a fresh one rather than reusing a dead socket.
-  // Every read/tool path goes through here, so the policy can't be omitted at a
-  // new call site.
+  // The failure-reset policy in one place. Reset ONLY on a recognized TRANSPORT
+  // death — an application error (a bad tool arg, an unknown key, a wrong
+  // terminal id) must NOT tear down the shared socket, because a concurrent
+  // in-flight tool (a blocking wait_* holding this same connection for its whole
+  // duration) would lose its live subscription mid-call. A real transport drop
+  // still resets so the next call re-dials rather than reusing a dead socket;
+  // the identity guard above keeps that reset from nuking a successor.
   const withClient = async <R>(
     fn: (client: SurfaceClientCallable) => Promise<R>,
   ): Promise<R> => {
-    const client = await getClient();
+    const conn = await getConn();
     try {
-      return await fn(client);
+      return await fn(conn.client);
     } catch (e) {
-      resetSharedConn();
+      if (isDeadTransportError(e)) resetSharedConn(conn);
       throw e;
     }
   };
@@ -293,7 +335,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     try {
       const exposed = toolByName.get(name);
       if (exposed !== undefined) {
-        return withClient(async (client) => {
+        // `await`, not a bare `return`: a returned promise's REJECTION does not
+        // route through this try/catch, so a failing procedure call (e.g. the
+        // transport down mid-call) would surface as a protocol-level -32603
+        // instead of the `isError` tool result the contract promises.
+        return await withClient(async (client) => {
           const proc = client.surface[exposed.ns]?.[exposed.verb];
           if (proc === undefined) {
             return fail(
@@ -321,7 +367,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         const rawInput = unwrapArgs(entry.wrapped, args);
         const parsed =
           tool.input !== undefined ? tool.input.parse(rawInput) : rawInput;
-        return withClient(async (client) => {
+        // `await` for the same reason as the exposed-procedure branch above: a
+        // rejecting handler must land in `failFrom`, never escape as -32603.
+        return await withClient(async (client) => {
           const out = await tool.handler(parsed, client, extra.signal);
           return ok(out);
         });
@@ -413,12 +461,12 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 
   const close = async (): Promise<void> => {
     pusher.stop();
-    resetSharedConn();
+    disposeSharedConn();
     await server.close();
   };
   server.onclose = () => {
     pusher.stop();
-    resetSharedConn();
+    disposeSharedConn();
   };
 
   return { server, close };

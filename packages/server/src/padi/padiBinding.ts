@@ -72,6 +72,7 @@ import {
   createEndpoint,
   type DaemonDriver,
   daemonBuild,
+  isDownEndpointState,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
@@ -82,6 +83,7 @@ import {
   makeSession,
   type Session,
 } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -121,19 +123,23 @@ import { asPadiSession, type PadiSession } from "./padiSession.ts";
  *                              `LOG_LEVEL` crosses the boundary.
  *   - `NODE_OPTIONS` (scrubbed) + `KOLU_DIAG_DIR` — as kaval's driver forwards.
  *
- * The nix-shell env WHITELIST rides padi's CLI flag (`--allow-nix-shell-with-env-
- * whitelist`, see `resolvePadiLaunch`); the whitelisted VARS themselves need no
- * explicit forwarding here — a whitelist only applies under a nix shell, which is
- * always the dev/e2e (`fromSource`) path, and the survivable-spawn driver layers
- * the child env OVER the full parent env on that path (systemd/prod runs off-nix).
+ * The base is the shared `SPAWN_ENV_ALLOWLIST` (composed from kolu-server's own env):
+ * HOME/USER/SHELL/PATH + the login-session capability vars. This is LOAD-BEARING since
+ * #1872 — the survivable-spawn driver's detached branch passes `cfg.env` ALONE (no parent
+ * env layered) unless `inheritParentEnv`, and we set `inheritParentEnv` ONLY for an actual
+ * from-source padi (`!KOLU_PADI_BIN`). So the macOS-launchd and bare non-systemd PRODUCTION
+ * path (a built binary, `inheritParentEnv` false) gets `cfg.env` alone. Without the composed
+ * base padi would spawn with no HOME, and kaval's own `daemonEnv` mines HOME from *padi's*
+ * env — so the loss would cascade into kaval and every PTY. The twin of kaval's
+ * `localDriver.daemonEnv`; its exact key set is pinned in `padiBinding.test.ts`. (The
+ * from-source dev/e2e path additionally layers the parent env via `inheritParentEnv`, so the
+ * nix-shell whitelisted vars still ride there.)
  */
 export function daemonEnv(
   resolvedStateRoot: string,
   verbose: boolean,
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (process.env.XDG_RUNTIME_DIR)
-    env.XDG_RUNTIME_DIR = process.env.XDG_RUNTIME_DIR;
+  const env: Record<string, string> = composeSpawnEnv(process.env);
   if (process.env.KOLU_STATE_DIR)
     env.KOLU_STATE_DIR = process.env.KOLU_STATE_DIR;
   // Pin padi's state-root explicitly so the digest (socket + kaval) is stable and
@@ -169,8 +175,33 @@ export function daemonEnv(
     env.KAVAL_BUILD_ID = process.env.KAVAL_BUILD_ID;
   if (process.env.KAVAL_COMMIT_HASH)
     env.KAVAL_COMMIT_HASH = process.env.KAVAL_COMMIT_HASH;
+  // Agent-detection dir/db OVERRIDES that padi's sensors read from their own env (via
+  // the `@kolu/integrations-*` agent packages — codex/claude-code/grok/opencode) to
+  // LOCATE agent session state. Unset in production, where they default to `~/.codex`,
+  // `~/.claude`, … — set by the e2e harness to point detection at its fixtures. They
+  // used to reach padi INCIDENTALLY via the survivable-spawn driver's old
+  // full-parent-env layering; now the detached branch passes `cfg.env` alone unless
+  // from-source (#1872), so they must be forwarded EXPLICITLY (forward-if-set, like
+  // KOLU_DIAG_DIR). Without this, agent detection silently breaks on any built,
+  // forced-detached deployment (the e2e nix-build lane, and any bare/pu prod box that
+  // relocates the agent dirs). NOT the #1872 identity class — these are dir paths.
+  for (const key of AGENT_DIR_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
   return env;
 }
+
+/** The agent-detection dir/db override env keys padi's sensors read (see `daemonEnv`).
+ *  Exported so `padiBinding.test.ts` can pin that the server→padi hop forwards them. */
+export const AGENT_DIR_ENV_KEYS = [
+  "KOLU_CLAUDE_SESSIONS_DIR",
+  "KOLU_CLAUDE_PROJECTS_DIR",
+  "KOLU_CODEX_DIR",
+  "KOLU_CODEX_DB",
+  "KOLU_GROK_DIR",
+  "KOLU_OPENCODE_DB",
+] as const;
 
 /** Resolve how to launch padi: the built wrapper in production (`KOLU_PADI_BIN`),
  *  or the from-source `node --import <tsx> packages/padi/src/bin.ts` shape in
@@ -237,7 +268,10 @@ export function resolvePadiLaunch(
  *  non-systemd box** (a `pu` box, a bare container): there `KOLU_PADI_BIN` is
  *  baked so the driver would try `systemd-run --user`, but with no user session
  *  that fails — set `KOLU_PADI_SPAWN=detached` to spawn detached instead. A real
- *  systemd host (kolu under `kolu.service`) needs neither. */
+ *  systemd host (kolu under `kolu.service`) needs neither. `inheritParentEnv` is a
+ *  SEPARATE decision (env, not launch mode): set only for an actual from-source padi
+ *  (`!KOLU_PADI_BIN`) — a bare-box built padi forced detached leaves it false and
+ *  gets `cfg.env` alone, so no ambient identity var leaks in (#1872). */
 export function localPadiDriver(
   stateRoot: string,
   socketPath: string,
@@ -253,14 +287,21 @@ export function localPadiDriver(
     spawnVersion,
     legacyKavalSocket,
   );
-  const fromSource =
+  const forceDetached =
     !process.env.KOLU_PADI_BIN || process.env.KOLU_PADI_SPAWN === "detached";
   return survivableSpawnDriver({
     binPath,
     args,
     env: daemonEnv(stateRoot, verbose),
     unitPrefix: "padi",
-    fromSource,
+    // Force the detached branch for a from-source padi OR a built one a box forces
+    // detached; inherit the parent (nix-shell) env ONLY for an ACTUAL from-source padi
+    // (`!KOLU_PADI_BIN`) — a built forced-detached padi carries its own wrapper env and
+    // must not inherit ours (#1872). The union makes an env-inherit-on-normal-launch
+    // unspellable.
+    fromSource: forceDetached
+      ? { inheritParentEnv: !process.env.KOLU_PADI_BIN }
+      : false,
     // P0: the local padi daemon's RAW stderr (native errors / crash stacks pino can't see) →
     // its crash-catcher on the DETACHED (non-systemd) branch; its pino stream rides `padi.log`
     // via the daemon entrypoint's multistream (no flag). Under systemd, stderr → journald.
@@ -472,11 +513,18 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     connect: () => connectPadi(socketPath),
     log,
     onStatus: (_hostId, status) => {
-      // A degraded/dead close ends the current dial → resolve its `closed` so the
-      // session loop reconnects. connecting/connected/restarting are transient warmth
-      // the loop's own state covers; the binder's health rides the re-serve `connection`
-      // cell, so there is nothing to publish to daemonStatus.
-      if (status.state === "degraded" || status.state === "dead") {
+      // A down/terminal close ends the current dial → resolve its `closed` so
+      // the session loop reconnects. connecting/connected/restarting are
+      // transient warmth the loop's own state covers; the binder's health
+      // rides the re-serve `connection` cell, so there is nothing to publish to
+      // daemonStatus. The `incompatible` arm (SK4 — the refuse-policy verdict a
+      // skewed padi survivor now reports instead of `degraded`) is covered
+      // because the states' HOME classification (`ENDPOINT_STATE_DOWN` in
+      // `@kolu/surface-daemon-supervisor`) marks it down — missing it there
+      // would strand `closed` unresolved and stop the session loop reconciling,
+      // which is exactly why the classification is total at the home rather
+      // than hand-spelled per consumer.
+      if (isDownEndpointState(status.state)) {
         const resolve = currentClosed;
         currentClosed = null;
         // `Endpoint`'s in-process daemon link died with NO child process — a
@@ -602,12 +650,9 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     initialConnection: "connecting",
     reconnectDelayMs: opts.reconnectDelayMs,
     label: PADI_HOST_ID,
-    onLog: (line, severity) =>
-      (severity === "error"
-        ? log.error
-        : severity === "debug"
-          ? log.debug
-          : log.info)({ line }, "local padi session"),
+    // The session dispatches severity internally on the receiver (SK1) — no
+    // consumer-side method extraction (the unbound-`this` pino crash class).
+    log,
   });
 
   // NB: this builds the session but does NOT dial — the loop warms on the first `pin()`.

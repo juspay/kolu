@@ -41,6 +41,7 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
+import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
@@ -64,6 +65,7 @@ import {
   vi,
 } from "vitest";
 import {
+  AGENT_DIR_ENV_KEYS,
   daemonEnv,
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -249,6 +251,7 @@ async function bootReServedPadi(stateRoot: string): Promise<{
     addHost: async () => {},
     removeHost: async () => {},
     reconnectHost: () => {},
+    renewHostDaemon: async () => {},
   });
   // `directLink` internally; drive the assembled router in-process and walk it
   // structurally (`surface.padi.<member>`).
@@ -819,6 +822,57 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
   it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
     vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
+  });
+
+  it("is EXACTLY every allowlist key + every padi-operational input — no dropped base key, no leaked ambient key (#1872 2a parity)", () => {
+    // The supervisor's detached spawn branch passes `cfg.env` ALONE (macOS launchd,
+    // bare non-systemd) — so daemonEnv MUST carry the login-session base, or padi
+    // launches HOME-less and kaval's own daemonEnv (which mines HOME from padi's env)
+    // cascades the loss into every PTY. Twin of localDriver.daemonEnv. Seed EVERY
+    // allowlist key + every optional operational input, assert the WHOLE object.
+    const saved = { ...process.env };
+    try {
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      const expected: Record<string, string> = {};
+      for (const k of SPAWN_ENV_ALLOWLIST) {
+        process.env[k] = `val-${k}`;
+        expected[k] = `val-${k}`;
+      }
+      // padi-operational inputs (NODE_OPTIONS scrubbed — a value with no dev flags):
+      process.env.KOLU_STATE_DIR = "/state";
+      process.env.KOLU_KAVAL_SPAWN = "detached";
+      process.env.LOG_LEVEL = "warn";
+      process.env.NODE_OPTIONS = "--max-old-space-size=4096";
+      process.env.KOLU_DIAG_DIR = "/diag";
+      process.env.KAVAL_BUILD_ID = "bid";
+      process.env.KAVAL_COMMIT_HASH = "hash";
+      process.env[DAEMON_BIND_PID_ENV] = "4321";
+      // Agent-detection dir overrides padi's sensors read — MUST be forwarded, or
+      // detection silently breaks on a built forced-detached deployment (the exact
+      // e2e regression). Seed + expect each.
+      for (const k of AGENT_DIR_ENV_KEYS) {
+        process.env[k] = `dir-${k}`;
+        expected[k] = `dir-${k}`;
+      }
+      // ambient identity/secret in the server's own env — must NOT reach padi:
+      process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+      Object.assign(expected, {
+        KOLU_STATE_DIR: "/state",
+        KOLU_PADI_STATE_DIR: "/state/root", // always stamped from the arg
+        KOLU_KAVAL_SPAWN: "detached",
+        LOG_LEVEL: "warn",
+        NODE_OPTIONS: "--max-old-space-size=4096",
+        KOLU_DIAG_DIR: "/diag",
+        KAVAL_BUILD_ID: "bid",
+        KAVAL_COMMIT_HASH: "hash",
+        [DAEMON_BIND_PID_ENV]: "4321",
+      });
+
+      expect(daemonEnv("/state/root", false)).toEqual(expected);
+    } finally {
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
   });
 });
 

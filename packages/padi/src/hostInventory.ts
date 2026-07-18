@@ -27,6 +27,7 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
+import { withTimeout } from "./withTimeout.ts";
 import {
   discoverKavalDaemons,
   type KavalDaemon,
@@ -131,16 +132,6 @@ export function assemblePadiInventory(
 /** How long a single kaval status probe (connect + version + list) may take before it
  *  folds to the empty probe — a slow/wedged daemon must never stall the sampler. */
 const PROBE_TIMEOUT_MS = 1500;
-
-/** Race a promise against a timeout — the loser rejects, and the caller's `catch`
- *  folds it to the empty probe. */
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("kaval probe timed out")), ms);
-  });
-  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
-}
 
 /**
  * Best-effort READ-ONLY status probe of one kaval socket: dial it, read

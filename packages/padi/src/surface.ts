@@ -93,6 +93,7 @@ import {
   DEFAULT_PADI_PROCESS_MEMORY,
   CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
+  KavalSkewVersionsSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -204,8 +205,32 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  fail-fast rule rejects. Its consequence is the graceful padi-ONLY drain every
  *  code-change deploy already pays (a newer binder drains the straddling 3.x padi —
  *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
- *  padi-surface bump does not touch the kaval contract. */
-export const PADI_SURFACE_VERSION = "4.0";
+ *  padi-surface bump does not touch the kaval contract.
+ *
+ *  4.1 (additive · minor): `daemonStatus` gains the `incompatible` arm — a NEW
+ *  EMITTED VARIANT carrying `daemonVersion`/`requiredVersion` (SK4, the
+ *  contract-skew-as-a-state fix). The version is an honest statement of the wire
+ *  SHAPE: 3.1 stayed minor only because it had "no emitted variant"; here there
+ *  IS one, so the minor bump is REQUIRED (the mirror of #1865, which folded an
+ *  orphan 4.1 bump BACK because nothing emitted had changed — the two together
+ *  teach the rule). Why a minor suffices — both skew directions converge before
+ *  an unparseable frame is ever consumed: a NEWER binder (expects 4.1) against
+ *  an old 4.0 padi fails `isContractVersionCompatible`'s minor rule (reported
+ *  minor must be ≥ expected), so the binder drains-and-replaces the padi before
+ *  consuming its surface; an OLDER 4.0 binder against a new 4.1 padi is
+ *  version-compatible but BUILD-mismatched, so the build axis
+ *  drains-and-replaces padi first — the old client schema (no `incompatible`
+ *  arm) never sits against a padi that could emit it. (Two honest caveats on
+ *  that second leg: the build drain is FENCED once per binder boot, and
+ *  off-nix both build ids are "" so the axis is silent — in those windows an
+ *  old binder rides a new padi version-compatibly, and IF that host's kaval
+ *  then skews, the emitted `incompatible` frame fails the old client's
+ *  discriminated-union parse LOUDLY — fail-fast, never mis-read as another
+ *  state. That narrow edge is inherent to any additive minor; the common
+ *  nix-run path converges the binder before it can occur.) That is
+ *  the answer to "who reports the skew of the skew-reporter": the existing
+ *  convergence machinery, before the new arm can reach an old parser. */
+export const PADI_SURFACE_VERSION = "4.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -858,7 +883,20 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
        *  that is the separate `control.drain` upgrade path. Takes no input,
        *  resolves once the fresh kaval is connected (or rejects, session safe on
        *  disk to retry/restore). */
-      recycleKaval: {},
+      recycleKaval: {
+        // The DECLARED error union (SK6): a proven contract skew is the one
+        // failure this procedure can translate — versions ride as TYPED data
+        // (the client narrows with `isDefinedError`; nothing re-parses prose),
+        // shaped by the ONE skew-payload spelling (`KavalSkewVersionsSchema`,
+        // shared with the `incompatible` status arm). An undeclared throw
+        // still crosses as INTERNAL_SERVER_ERROR — the fail-fast channel for
+        // genuinely unexpected failures.
+        errors: {
+          KAVAL_CONTRACT_SKEW: {
+            data: KavalSkewVersionsSchema,
+          },
+        },
+      },
     },
     /** Terminal chrome — the client-owned per-terminal UI record. */
     chrome: {

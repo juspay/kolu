@@ -24,6 +24,7 @@
  * (as mini-ci's dialer does) — it does NOT reuse this `{ client, dispose }`.
  */
 
+import type { Logger } from "@kolu/log";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
@@ -140,12 +141,20 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
    *  the caller's concern (see the remote padi binding's `--state-root` call site). */
   extraArgs?: readonly string[];
-  /** Diagnostic-line sink, forwarded to `HostSessionOptions.onLog`. Omit and the
-   *  session writes its `nix copy` progress / connection transitions / forwarded
-   *  remote stderr to `process.stderr` (what a plain CLI wants). An alt-screen
-   *  consumer (an OpenTUI board) passes its own sink so these never corrupt the
-   *  rendered screen — the lines stay in the session state for failure reads. */
-  onLog?: (line: string) => void;
+  /** The COMPLETE env for a localhost dial's direct `spawn` — REQUIRED (threaded to
+   *  `sshConnector` → `buildAgentCommand`). A localhost agent runs with EXACTLY this
+   *  env, never the caller's ambient `process.env`, so identity vars can't ride an
+   *  ambient inherit into a locally-hosted agent (#1872 / PR1.5). Unused on a real
+   *  remote (the ssh client inherits). The caller composes a clean env — kolu CLIs via
+   *  kolu-pty's `composeSpawnEnv`; surface-remote stays policy-free. */
+  localEnv: Record<string, string>;
+  /** Structured diagnostic logger, forwarded to `MakeSessionOptions.log`. Omit
+   *  and the session writes its `nix copy` progress / connection transitions /
+   *  forwarded remote stderr to `process.stderr` (what a plain CLI wants). An
+   *  alt-screen consumer (an OpenTUI board) passes its own logger so these
+   *  never corrupt the rendered screen — the lines stay in the session state
+   *  for failure reads. */
+  log?: Logger;
 }
 
 /** Dial an agent on `host` over ssh, one-shot. Provisions the daemon's closure,
@@ -173,6 +182,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       host: opts.host,
       binary: opts.binary,
       extraArgs: opts.extraArgs,
+      localEnv: opts.localEnv,
       resolveDrvPath: () =>
         resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
     }),
@@ -180,7 +190,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // before the transport is up — so this session opens at "probing" (the arch probe +
     // warm check), advancing to "copying"/"building" only when a real cold copy runs.
     initialConnection: "probing",
-    onLog: opts.onLog,
+    log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
     // every `HostSession` line carried), so an alt-screen consumer's log filtering
     // and the failure-read tail are unchanged.
@@ -231,9 +241,11 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     return block.trim() || undefined;
   };
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
-  // failure anywhere in pin/probe must destroy the session itself — otherwise
-  // its ref-counted reconnect loop/watchdog timer leaks for any caller that
-  // catches the rejection (the CLI exits, but this dialer is also used by tests).
+  // failure anywhere in pin/probe must destroy the session itself. The session's
+  // timers no longer pin the process (they are unref'd — docs/atlas
+  // session-timer-unref), but an undestroyed session in a HELD process (tests,
+  // a server embedding this dialer) would keep redialing/spawning ssh children
+  // for as long as that process lives — the leak this destroy still prevents.
   try {
     // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE
     // the connect watchdog arms, so a cold copy doesn't time it out) and spawns

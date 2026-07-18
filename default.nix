@@ -99,6 +99,7 @@ let
       ./packages/kaval
       ./packages/kaval-tui
       ./packages/kolu-cli
+      ./packages/kolu-mcp
       ./packages/padi
       ./packages/padi-tui
       ./packages/server
@@ -245,7 +246,12 @@ let
       (pkgs.lib.fileset.unions [
         (pkgs.lib.fileset.difference
           (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/padi/src)
-          ./packages/padi/src/dial.ts)
+          (pkgs.lib.fileset.unions [
+            ./packages/padi/src/dial.ts
+            # `watch.ts` rides the dial kit (client-side watch/wait helpers the
+            # MCP face + padi-tui share) — client-only for the same reason.
+            ./packages/padi/src/watch.ts
+          ]))
         ./packages/padi/package.json
       ])
       # kaval — but ONLY its LIBRARY surface (what padi embeds in-process from

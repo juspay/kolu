@@ -29,6 +29,7 @@ import type {
   ConnectPhase,
   EntryFailedCause,
 } from "kolu-common/surfacesWithPadi";
+import type { DaemonDownState } from "./daemonPresentation";
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state, the warming label, and the host-failure cause travel WITH
@@ -38,7 +39,10 @@ import type {
  *  host whose kaval daemon died). */
 export type CanvasMode =
   | { kind: "connecting" }
-  | { kind: "down"; state: "dead" | "degraded" }
+  // `down` carries the payload-bearing verdict (SK4): dead/degraded render the
+  // restartable DegradedCanvas; `incompatible` renders the skew card with both
+  // versions and the renew action — the affordance is a total function of it.
+  | { kind: "down"; down: DaemonDownState }
   | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
   // NO presentation string: the warming surface's copy is derived at RENDER (ConnectCanvas —
   // the connection-cell phase via the ONE copy authority, or the kaval-restart label from the
@@ -119,7 +123,7 @@ export type CanvasFacts =
       /** The active entry is `connected` — the ONLY arm on which the kaval-derived
        *  facts below are trustworthy (a connected channel can still refresh them). */
       entry: "connected";
-      down: "dead" | "degraded" | undefined;
+      down: DaemonDownState | undefined;
       warming: boolean;
       daemonState: DaemonState | undefined;
       terminalCount: number;
@@ -170,7 +174,7 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       const bindingUp = facts.connectPhase !== undefined;
       if (bindingUp) {
         return facts.pendingTimedOut && facts.isLocalHost
-          ? { kind: "down", state: "dead" }
+          ? { kind: "down", down: { state: "dead" } }
           : // No copy baked here — `ConnectCanvas` narrates off the connection cell (its
             // phase → the ONE copy authority), so the mode carries only `daemonState`.
             { kind: "warming", daemonState: undefined };
@@ -182,7 +186,7 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       // empty workspace first.
       if (facts.isLoading || facts.daemonPending) {
         return facts.pendingTimedOut && facts.isLocalHost
-          ? { kind: "down", state: "dead" }
+          ? { kind: "down", down: { state: "dead" } }
           : { kind: "connecting" };
       }
       // The entry-specific surface for a still-pre-connected host. `warming` shows the
@@ -201,13 +205,13 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       // value (#1034), bounded by the local connect ceiling (#1713).
       if (facts.isLoading || facts.daemonPending) {
         return facts.pendingTimedOut && facts.isLocalHost
-          ? { kind: "down", state: "dead" }
+          ? { kind: "down", down: { state: "dead" } }
           : { kind: "connecting" };
       }
       // `down` and `warming` arrive ALREADY floored on channel liveness at their source
       // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches these
       // arms over a dead channel.
-      if (facts.down) return { kind: "down", state: facts.down };
+      if (facts.down) return { kind: "down", down: facts.down };
       if (facts.warming)
         return { kind: "warming", daemonState: facts.daemonState };
       // Terminals on screen → show them. Otherwise "no terminals" is unconfirmable over a

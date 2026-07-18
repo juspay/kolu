@@ -15,6 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { silentLogger } from "./loggerStubs.testutil";
 import type { ClosedInfo, ConnectContext, Connection } from "./session";
 import { makeSession } from "./session";
 import type { SshProv } from "./sshConnector";
@@ -68,7 +69,7 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      onLog: () => {},
+      log: silentLogger,
     });
     const phases: string[] = [];
     session.onState((s) => phases.push(s.phase));
@@ -102,7 +103,7 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      onLog: () => {},
+      log: silentLogger,
     });
     const phases: string[] = [];
     session.onState((s) => phases.push(s.phase));
@@ -140,7 +141,7 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      onLog: () => {},
+      log: silentLogger,
     });
     const latest = () => {
       let s!: {
@@ -183,7 +184,7 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       initialConnection: "probing",
       liveness: false,
       reconnectDelayMs: 10,
-      onLog: () => {},
+      log: silentLogger,
     });
     const snap = () => {
       let s!: {

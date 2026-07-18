@@ -13,8 +13,13 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
+import type { ClientPromiseResult } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import type {
+  AnyContractRouter,
+  ContractRouterClient,
+  ErrorFromErrorMap,
+} from "@orpc/contract";
 import {
   type Accessor,
   createMemo,
@@ -35,6 +40,7 @@ import type {
   CollectionVerbsOf,
   EventSpec,
   ProcedureSpec,
+  ProcedureSpecErrors,
   StreamSpec,
   Surface,
   SurfaceSpec,
@@ -331,6 +337,25 @@ export interface BoundProcedureOptions {
   signal?: AbortSignal;
 }
 
+/** The bound face's REJECTION type (SK6): the spec's declared error union —
+ *  `ORPCError<code, data>` per declared code, plus `ThrowableError` for the
+ *  undeclared crash-loudly channel — carried as `ClientPromiseResult`'s
+ *  phantom, exactly oRPC's own contract-client shape. A caller feeds the call
+ *  to `safe(...)` / narrows with `isDefinedError` to read `{ code, data }`
+ *  typed; a spec with no `errors` resolves the plain `ThrowableError` phantom
+ *  (via define.ts's shared {@link ProcedureSpecErrors} extractor) and the
+ *  face reads as an ordinary `Promise`, so existing callers are untouched. */
+type BoundProcedureError<S> = ErrorFromErrorMap<ProcedureSpecErrors<S>>;
+
+// The narrowing VERBS for that declared union (SK6), re-exported so a consumer
+// reads a typed rejection through the SAME receptacle that declares and types
+// it: `const { error } = await safe(client.procedures.ns.verb(...))` then
+// `isDefinedError(error)` narrows to the declared `{ code, data }`. Without
+// this, every app-side read of a declared error imports the transport vendor
+// (`@orpc/client`) past the surface boundary — exactly the volatility this
+// package exists to encapsulate.
+export { isDefinedError, safe } from "@orpc/client";
+
 /** A bound imperative procedure — a declaration-typed callable at
  *  `client.procedures.<ns>.<verb>(input, options?)`. It IS the underlying oRPC
  *  procedure call at the wire path `surface.<ns>.<verb>`, re-exposed off the
@@ -361,15 +386,21 @@ export type BoundProcedure<
   ? (
       input: z.input<In>,
       options?: BoundProcedureOptions,
-    ) => Promise<z.output<Out>>
+    ) => ClientPromiseResult<z.output<Out>, BoundProcedureError<S>>
   : S extends { input: infer In extends ZodType }
-    ? (input: z.input<In>, options?: BoundProcedureOptions) => Promise<void>
+    ? (
+        input: z.input<In>,
+        options?: BoundProcedureOptions,
+      ) => ClientPromiseResult<void, BoundProcedureError<S>>
     : S extends { output: infer Out extends ZodType }
       ? (
           input?: undefined,
           options?: BoundProcedureOptions,
-        ) => Promise<z.output<Out>>
-      : (input?: undefined, options?: BoundProcedureOptions) => Promise<void>;
+        ) => ClientPromiseResult<z.output<Out>, BoundProcedureError<S>>
+      : (
+          input?: undefined,
+          options?: BoundProcedureOptions,
+        ) => ClientPromiseResult<void, BoundProcedureError<S>>;
 
 type BoundProceduresFor<S extends SurfaceSpec> = {
   [NS in keyof S["procedures"] & string]: {

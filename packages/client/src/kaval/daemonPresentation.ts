@@ -10,8 +10,12 @@
  *  on its own, which is what lets `kavalDot`'s transport-liveness floor be pinned by
  *  a unit test without standing up a socket. */
 
-import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
-import { match } from "ts-pattern";
+import type {
+  DaemonState,
+  DaemonStatus,
+  KavalSkewVersions,
+} from "@kolu/padi/surface";
+import { match, P } from "ts-pattern";
 import type { WsStatus } from "../rpc/rpc";
 import { compactDelta } from "../time/duration";
 
@@ -31,7 +35,19 @@ export type DaemonTone = "ok" | "warming" | "down";
  *  `DaemonStatusSchema`. */
 export const DAEMON_STATE_PRESENTATION: Record<
   DaemonState,
-  { tone: DaemonTone; label: string; canvasLabel: string; down: boolean }
+  {
+    tone: DaemonTone;
+    label: string;
+    canvasLabel: string;
+    down: boolean;
+    /** Which recovery VERB a down state gets: `restart` (a plain restart can
+     *  fix it — dead/degraded) or `renew` (only a closure change can —
+     *  `incompatible`'s "Update & restart kaval"). Declared in the SAME row
+     *  that declares tone and downness, so a future down state must pick its
+     *  verb here rather than silently inheriting Restart at a consumer
+     *  (see {@link offerRestartVerb}). Absent on the not-down states. */
+    recovery?: "restart" | "renew";
+  }
 > = {
   connecting: {
     tone: "warming",
@@ -56,12 +72,26 @@ export const DAEMON_STATE_PRESENTATION: Record<
     label: "stopped (session preserved)",
     canvasLabel: "Stopped",
     down: true,
+    recovery: "restart",
   },
   dead: {
     tone: "down",
     label: "not running",
     canvasLabel: "Not running",
     down: true,
+    recovery: "restart",
+  },
+  // The PROVEN contract skew (SK4): terminal like `dead`, but a DIFFERENT
+  // verdict — a restart provably cannot fix it (the arm's only producer is a
+  // respawn that already skewed), so the canvas/dialog render the skew card
+  // with both versions and the ONE recovery that changes the closure
+  // (`hosts.renewDaemon`), never a Restart verb.
+  incompatible: {
+    tone: "down",
+    label: "incompatible — needs update",
+    canvasLabel: "Incompatible",
+    down: true,
+    recovery: "renew",
   },
 };
 
@@ -176,21 +206,73 @@ export function liveWarming(
   return live && isWarming(state);
 }
 
-/** The daemon's down sub-state ("dead"/"degraded"), FLOORED on transport
- *  liveness — the down twin of {@link liveWarming}. "The daemon is down" is a claim
- *  the dead channel can't confirm, so when `live` is false this reads `undefined`
- *  ("unknown"), never a stale "dead"/"degraded" that would paint DegradedCanvas over
- *  a link we can't see through. The post-grace transport overlay owns the disconnect
- *  messaging instead; a known down-state may only refine the canvas WITHIN a live
- *  link. (Unknown ≠ down — same distinction `DAEMON_UNKNOWN_DOT` draws for the dot.) */
+/** The daemon's down verdict as the canvas consumes it — a payload-bearing sum
+ *  (SK4): `dead`/`degraded` carry nothing extra; `incompatible` carries BOTH
+ *  contract versions off the typed wire arm ({@link KavalSkewVersions}, the
+ *  ONE skew-payload spelling), so the skew card renders them structurally
+ *  (never re-parsed from prose). */
+export type DaemonDownState =
+  | { state: "dead" | "degraded" }
+  | ({ state: "incompatible" } & KavalSkewVersions);
+
+/** The daemon's down sub-state, FLOORED on transport liveness — the down twin of
+ *  {@link liveWarming}. "The daemon is down" is a claim the dead channel can't
+ *  confirm, so when `live` is false this reads `undefined` ("unknown"), never a
+ *  stale down verdict that would paint DegradedCanvas over a link we can't see
+ *  through. The post-grace transport overlay owns the disconnect messaging
+ *  instead; a known down-state may only refine the canvas WITHIN a live link.
+ *  (Unknown ≠ down — same distinction `DAEMON_UNKNOWN_DOT` draws for the dot.)
+ *  Takes the FULL status (not just the state) because the `incompatible` arm's
+ *  versions ride the same wire value — the down union is derived from the
+ *  presentation table's `down` flag, so a future down state is covered here by
+ *  construction. */
 export function liveDownState(
-  state: DaemonState | undefined,
+  status: DaemonStatus | undefined,
   live: boolean,
-): "dead" | "degraded" | undefined {
-  if (!live || !state) return undefined;
-  return DAEMON_STATE_PRESENTATION[state].down
-    ? (state as "dead" | "degraded")
-    : undefined;
+): DaemonDownState | undefined {
+  if (!live || !status) return undefined;
+  // Exhaustive `match` over the WHOLE wire union — no `.state as "dead" |
+  // "degraded"` cast: `.exhaustive()` makes a new `DaemonState` member a
+  // compile error here until it picks an arm, so a future down state can never
+  // slip through mislabelled as `dead`/`degraded` and render the Restart verb
+  // against a daemon a restart can't fix (the exact class SK4 made
+  // unspellable — never re-open it via a cast). The up arms map to `undefined`
+  // ("not down"); their `down: false` in DAEMON_STATE_PRESENTATION is pinned
+  // equal to this by daemonPresentation.test.ts, so the two agree by test.
+  return match(status)
+    .with(
+      { state: P.union("connecting", "connected", "restarting") },
+      () => undefined,
+    )
+    .with({ state: P.union("dead", "degraded") }, (s) => ({ state: s.state }))
+    .with({ state: "incompatible" }, (s) => ({
+      state: "incompatible" as const,
+      daemonVersion: s.daemonVersion,
+      requiredVersion: s.requiredVersion,
+    }))
+    .exhaustive();
+}
+
+/** Whether a surface may OFFER the "Restart kaval" verb (D5c/SK4): never while
+ *  warming (a restart is already in flight / booting — the verb would be a
+ *  no-op) and, for a down state, only when its presentation row declares
+ *  `recovery: "restart"` — a PROVEN skew (`incompatible`) declares `renew`
+ *  instead (a restart provably respawns the same incompatible binary; the skew
+ *  card's "Update & restart kaval" is the recovery there). Read off
+ *  {@link DAEMON_STATE_PRESENTATION} — not an open negative check against one
+ *  state literal — so a future down state must declare its verb in the same
+ *  row that declares its tone and downness, never silently inheriting Restart.
+ *  The palette reads this so the affordance stays a total function of the
+ *  state sum, testable without the wire. */
+export function offerRestartVerb(
+  warming: boolean,
+  down: DaemonDownState | undefined,
+): boolean {
+  return (
+    !warming &&
+    (down === undefined ||
+      DAEMON_STATE_PRESENTATION[down.state].recovery === "restart")
+  );
 }
 
 // ── The active-entry leg: the SECOND floor on the (host-scoped) kaval daemonStatus ──
@@ -274,7 +356,16 @@ export type KavalPresence =
       lifetime: DaemonLifetimeView | undefined;
     }
   | { kind: "warming" }
-  | { kind: "down"; state: "dead" | "degraded" };
+  | { kind: "down"; state: "dead" | "degraded" }
+  /** The PROVEN contract skew (SK4) — its own arm, never folded into `down`
+   *  (a restart can fix `down`; nothing but a closure change fixes this) and
+   *  never allowed to fall through to a lying `warming` pulse. PAYLOAD-LESS:
+   *  the versions are rendered by the two deliberate skew surfaces — the
+   *  canvas card ({@link DaemonDownState}) and the attention chip/banner
+   *  (`KavalAttention`) — and the presence's one consumer (the dialog)
+   *  extracts only `connected`, so carrying a third copy here would be a
+   *  projection nobody reads. */
+  | { kind: "incompatible" };
 
 /** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
  *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
@@ -289,6 +380,12 @@ export function toKavalPresence(
   if (!live || status === undefined) return { kind: "warming" };
   if (status.state === "dead" || status.state === "degraded")
     return { kind: "down", state: status.state };
+  if (status.state === "incompatible") {
+    // The proven skew must NEVER read as a warming pulse — it is a terminal
+    // verdict. Payload-less: the versions ride the two surfaces that render
+    // them (`liveDownState`'s canvas card, `kavalAttention`'s chip/banner).
+    return { kind: "incompatible" };
+  }
   if (status.state !== "connected") return { kind: "warming" }; // connecting | restarting
   if (status.identity === undefined) return { kind: "warming" }; // pre-identity survivor
   return {
