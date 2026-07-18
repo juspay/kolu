@@ -1,0 +1,61 @@
+---
+title: Philosophy
+description: "The two principles that shape what kolu is and isn't: agent-agnostic (the terminal is the universal interface, no model wrapped, no CLI locked in) and auto-detected, zero setup (the UI is built by observing what you already do, not by a preferences pane)."
+order: 5
+section: Foundations
+koluHero:
+  eyebrow: philosophy
+  headline: What {kolu} is — and isn't.
+---
+
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+Two principles shape what kolu is and isn't. Neither is a setting you switch on —
+they're the decisions the rest of the product follows from, and the reason kolu
+looks different from the agent command centers it sits beside.
+
+## Agent-agnostic
+
+The terminal is the universal interface. Kolu doesn't wrap a specific model or
+lock you into one CLI — `claude`, `opencode`, or whatever ships next week all
+work the same way, because they're just programs you run in a shell. There's no
+agent registry to update, no adapter to write, no vendor lock-in.
+
+Any new agent CLI picks up first-class features automatically: run it once in any
+kolu terminal and the next time you create a worktree, it appears in the
+sub-palette as a launch option — no configuration, no per-agent code. And you can
+always drop to a plain shell without leaving the app.
+
+The trade kolu makes here is deliberate. Wrapping a single model behind a bespoke
+chat UI buys a tighter, more branded experience — at the cost of betting the
+product on one vendor and re-implementing the wrapper every time the field moves.
+Kolu takes the other side of that bet: the terminal already speaks to every agent,
+so kolu treats terminals as the thesis, not the substrate.
+
+## Auto-detected, zero setup
+
+Kolu populates its UI by watching what you already do — the repos you `cd` into,
+the agents you run, the sessions you save — not by asking you to configure it.
+Recent repos track `cd` events, branch / PR / CI status derive from the terminal's
+working directory, Claude Code state is read from the foreground pid, and recent
+agent CLIs come from preexec command marks emitted by kolu's shell integration.
+
+If kolu knows something, it's because the shell already told it. That's the point
+of the principle: the surface grows with your workflow, not with a preferences
+pane. There's no onboarding form that goes stale, no per-repo config to keep in
+sync — the observations are the configuration, and they're always current because
+they're read live from what your terminals are actually doing.
+
+## Where this shows up
+
+These aren't abstract commitments — they're visible in almost every surface. The
+detection that reads agent state from disk, the palette that offers a new CLI
+after one run, the dock rows that fill themselves from each terminal's cwd: all of
+it is these two principles made concrete.
+
+<CardGrid>
+  <LinkCard title="Agent Detection" href="/agent-detection" description="how kolu reads live agent state from each session on disk — agent-agnostic and zero-setup in one surface" />
+  <LinkCard title="Core Concepts" href="/concepts" description="the vocabulary these principles produce: canvas, dock, worktrees, auto-detection" />
+  <LinkCard title="Architecture" href="/architecture" description="the daemon stack that lets terminals and their agents outlive the browser tab" />
+</CardGrid>

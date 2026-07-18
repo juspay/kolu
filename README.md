@@ -6,7 +6,7 @@
 
 kolu is a terminal app built for scale: real `xterm.js` tiles on an infinite 2D canvas, with a dock that never loses one — for `claude`, `codex`, `opencode`, or anything you run in a shell, especially many at once.
 
-Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. Two principles shape it:
+Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. Two principles shape it — the [**Philosophy**](https://kolu.dev/philosophy) page has the full story:
 
 - **Agent-agnostic.** No agent registry, no adapter, no vendor lock-in. Run any agent CLI once in a terminal and it picks up first-class features automatically.
 - **Auto-detected, zero setup.** kolu populates its UI by watching what you already do — the repos you `cd` into, the agents you run, the sessions you save — not by asking you to configure it.
