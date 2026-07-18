@@ -157,10 +157,9 @@ function composeCreateInput(opts: {
   env: Record<string, string>;
   command?: readonly string[];
 }): PtyHostSpawnInput {
-  const commandRooted = (opts.command?.length ?? 0) > 0;
-  const argv = commandRooted
-    ? [...(opts.command as readonly string[])]
-    : [opts.shell || DEFAULT_SPAWN_SHELL];
+  const command = opts.command && opts.command.length > 0 ? opts.command : null;
+  const commandRooted = command !== null;
+  const argv = command ? [...command] : [opts.shell || DEFAULT_SPAWN_SHELL];
   return {
     id: opts.id,
     argv,
