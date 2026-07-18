@@ -339,8 +339,8 @@ describe("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getLastCommand(id) === "/bin/sh -c sleep 5");
-    expect(host.getLastCommand(id)).toBe("/bin/sh -c sleep 5");
+    await waitFor(() => host.getLastCommand(id) === "/bin/sh -c 'sleep 5'");
+    expect(host.getLastCommand(id)).toBe("/bin/sh -c 'sleep 5'");
     host.kill(id);
     await host.exitPromise(id);
   });
@@ -359,8 +359,8 @@ describe("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getTitle(id) === "/bin/sh -c sleep 5");
-    expect(host.getTitle(id)).toBe("/bin/sh -c sleep 5");
+    await waitFor(() => host.getTitle(id) === "/bin/sh -c 'sleep 5'");
+    expect(host.getTitle(id)).toBe("/bin/sh -c 'sleep 5'");
     host.kill(id);
     await host.exitPromise(id);
   });

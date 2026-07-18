@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@kolu/heap-diag": "workspace:*",
+    "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",

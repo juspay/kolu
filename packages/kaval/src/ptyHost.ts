@@ -26,6 +26,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { shellJoin } from "@kolu/shell-quote";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import {
@@ -698,7 +699,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // it is only a SEED — a later live 633;E / OSC 2 mark (if a shell ever runs
     // inside) is the temporal last-writer and overwrites it.
     if (entry.commandRooted) {
-      const command = [spawnOpts.shell, ...(spawnOpts.args ?? [])].join(" ");
+      // `shellJoin` (the repo's POSIX-quote source of truth — the same helper
+      // kaval-tui/padi-tui rebuild a command line with), NOT a bare `join(" ")`:
+      // a stable flag whose value carries spaces/quotes (`--settings '{"x":1}'`)
+      // would otherwise re-split when `parseAgentCommand` tokenizes the seed.
+      const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
       entry.lastCommand = command;
       entry.title = command;
       entry.commandRunChannel.publish(command);
