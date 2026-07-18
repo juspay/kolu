@@ -258,22 +258,23 @@ export function agentNameFromCommand(command: string): string | null {
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
  *
- * TWO input formats reach here, in two mutually-exclusive quoting dialects: an
- * OSC 633;E mark is a user's raw shell command line (standard quoting — double
- * quotes, `$`, backticks — which `string-argv` tokenizes), while the #1872
- * command-rooted SEED is `shellJoin(argv)`, whose only construct `string-argv`
- * cannot reassemble is the POSIX embedded-single-quote idiom `'\''`. That idiom
- * is a DEFINITIVE marker: `shellJoin` emits it for any token carrying a literal
- * single quote (`/home/o'connor/bin/claude`, `--append-system-prompt "don't"`),
- * and it means exactly one thing (`shellSplit`, shellJoin's inverse, parses it
- * correctly) whether it came from the seed or a user who typed it. So route by
- * the idiom: its presence → `shellSplit`; its absence → `string-argv` (the
- * common/633 path, unchanged — a raw line's double quotes keep their exact
- * tokenization). Reuses `shellSplit`; adds no tokenizer.
+ * TWO input formats reach here, in two different quoting dialects, and the CALLER
+ * knows which — so it says so rather than the string being sniffed (a raw line
+ * can mix both dialects, so no string-shape heuristic is reliable). An OSC 633;E
+ * mark is a user's raw shell command line (standard quoting — double quotes, `$`,
+ * backticks — which `string-argv` tokenizes); the #1872 command-rooted SEED is
+ * `shellJoin(argv)`, whose exact inverse is `shellSplit`. A command-rooted PTY has
+ * no shell, so it emits ONLY the seed (never a 633 line) and a shell terminal
+ * emits ONLY 633 marks — so a terminal's `commandRooted` flag perfectly selects
+ * the tokenizer. Pass `shellJoinFormat: true` for a command-rooted seed. Reuses
+ * `shellSplit`; adds no tokenizer.
  */
-export function parseAgentCommand(raw: string): string | null {
+export function parseAgentCommand(
+  raw: string,
+  shellJoinFormat = false,
+): string | null {
   const trimmed = raw.trim();
-  const argv = trimmed.includes("'\\''")
+  const argv = shellJoinFormat
     ? shellSplit(trimmed)
     : parseArgsStringToArgv(trimmed);
   return normalizeAgentInvocation(argv);

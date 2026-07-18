@@ -353,10 +353,14 @@ function startAgentCommandSensor(
   signals: SensorSignals,
   emit: (o: TerminalEvent) => void,
   log: Logger,
+  commandRooted: boolean,
 ): () => void {
   return signals.commandRun.consume({
     onEvent: ({ command: raw, replayed }) => {
-      const normalized = parseAgentCommand(raw);
+      // A command-rooted PTY's commandRun is kaval's `shellJoin` SEED (no shell →
+      // no raw 633 mark); a shell terminal's is a raw 633 command line — so the
+      // tokenizer is chosen by the fact, not sniffed from the string.
+      const normalized = parseAgentCommand(raw, commandRooted);
       agentState.currentAgent = normalized
         ? agentNameFromCommand(normalized)
         : null;
@@ -932,6 +936,7 @@ export function startSensors(
     signals,
     emit,
     log,
+    commandRooted,
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
   // git sensor emits `GitInfo` to it and the PR sensor consumes it to re-resolve

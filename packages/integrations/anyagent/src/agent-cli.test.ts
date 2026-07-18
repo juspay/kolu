@@ -94,31 +94,29 @@ describe("parseAgentCommand", () => {
   });
 
   // #1872 command-rooted seed: kaval seeds `lastCommand` as `shellJoin(argv)`, and
-  // this parser is its consumer. Pin that a `shellJoin`ed realistic spawn round-trips
-  // — the agent is recognized and a spaced/JSON flag value is preserved (the exact
-  // case a bare `argv.join(" ")` would word-split).
-  it("recognizes a shellJoin'd command-rooted spawn and preserves flag values", () => {
-    expect(parseAgentCommand(shellJoin(["claude"]))).toBe("claude");
+  // this parser is its consumer — the caller passes `shellJoinFormat: true` (the
+  // terminal is command-rooted) so the exact inverse `shellSplit` round-trips ANY
+  // argv, including tokens a bare `argv.join(" ")` would word-split or that carry a
+  // literal single quote (the agent PATH → no Dock invisibility, or a stable FLAG
+  // VALUE → exact command preserved).
+  it("round-trips a shellJoin'd command-rooted seed via shellJoinFormat", () => {
+    expect(parseAgentCommand(shellJoin(["claude"]), true)).toBe("claude");
     expect(
-      parseAgentCommand(shellJoin(["/usr/local/bin/claude", "--model", "sonnet"])),
+      parseAgentCommand(shellJoin(["/usr/local/bin/claude", "--model", "sonnet"]), true),
     ).toBe("claude --model sonnet");
     expect(
-      parseAgentCommand(shellJoin(["opencode", "--dangerously-skip-permissions"])),
+      parseAgentCommand(shellJoin(["opencode", "--dangerously-skip-permissions"]), true),
     ).toBe("opencode --dangerously-skip-permissions");
-    // A stable flag whose value carries spaces/JSON survives the shellJoin round-trip
-    // (the exact case a bare `argv.join(" ")` would word-split).
     expect(
-      parseAgentCommand(shellJoin(["claude", "--settings", '{"ultracode": true}'])),
+      parseAgentCommand(shellJoin(["claude", "--settings", '{"ultracode": true}']), true),
     ).toBe(`claude --settings '{"ultracode": true}'`);
-    // A literal single quote — in the agent PATH (no Dock invisibility) or in a
-    // stable FLAG VALUE (exact-command preserved) — makes shellJoin emit the
-    // `'\''` idiom, which routes the whole line through shellSplit.
     expect(
-      parseAgentCommand(shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"])),
+      parseAgentCommand(shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"]), true),
     ).toBe("claude --model sonnet");
     expect(
       parseAgentCommand(
         shellJoin(["claude", "--append-system-prompt", "don't reveal secrets"]),
+        true,
       ),
     ).toBe(`claude --append-system-prompt 'don'\\''t reveal secrets'`);
   });
