@@ -515,7 +515,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   readScreenText: ReadScreenText | undefined,
   emit: (o: TerminalEvent) => void,
   log: Logger,
-  commandRooted = false,
+  commandRooted: boolean,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
   let current: {
@@ -875,9 +875,11 @@ export interface SensorInputs {
   cwd: string;
   /** True when the PTY's root process IS the spawned command, not a shell
    *  (#1872). The agent detectors read it so `foreground === root` reads as a
-   *  busy command-rooted agent, not an idle shell prompt. Defaults false (a
-   *  shell-rooted PTY — a padi spawn, or an adopted entry that omits it). */
-  commandRooted?: boolean;
+   *  busy command-rooted agent, not an idle shell prompt. Required: the host
+   *  resolves "absent = shell-rooted" once at the wire-read boundary (a padi
+   *  spawn, or an adopted entry that omits it), so a concrete boolean always
+   *  reaches here. */
+  commandRooted: boolean;
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
   log: Logger;
@@ -895,14 +897,7 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const {
-    pid,
-    cwd,
-    commandRooted = false,
-    signals,
-    readScreenText,
-    log,
-  } = inputs;
+  const { pid, cwd, commandRooted, signals, readScreenText, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
