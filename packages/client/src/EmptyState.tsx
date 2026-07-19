@@ -93,14 +93,19 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
 
   const resumeCount = () => (resumeAgents() ? resumableIds().length : 0);
 
-  // Lifted to component scope so the scrolling session list and the pinned
-  // action bar — now separate flex children of the card — can both read them.
+  // Lifted to component scope: the restore list (scroll region) and the pinned
+  // action bar are now separate flex children of the card, so these derivations
+  // are read outside a single render-prop — the list reads groups/subCount, the
+  // footer reads hasAnyAgent. Memo the two that do real work per read (groups
+  // sorts; subCount filters and is read 3× per render); hasAnyAgent is a trivial
+  // single-consumer length check over the resumableIds memo.
   const groups = createMemo(() => {
     const session = props.savedSession;
     return session ? groupSavedTerminals(session.terminals) : [];
   });
-  const subCount = () =>
-    props.savedSession?.terminals.filter((t) => t.parentId).length ?? 0;
+  const subCount = createMemo(
+    () => props.savedSession?.terminals.filter((t) => t.parentId).length ?? 0,
+  );
   const hasAnyAgent = () => resumableIds().length > 0;
 
   const handleRestore = () => {
@@ -116,10 +121,13 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
     // through to the canvas-container's double-click-to-create gesture (the
     // container guards on `target === currentTarget`). The card itself is
     // `pointer-events-auto`, so its buttons/toggles stay clickable and a
-    // double-click on the card never reaches the create handler.
+    // double-click on the card never reaches the create handler. No overflow
+    // here — the `max-h-full` card can never exceed the wrapper, so the card
+    // owns the scroll (and a scroll on this `pointer-events-none` layer would
+    // be wheel-dead anyway).
     <div
       data-testid="empty-state"
-      class="flex h-full items-start justify-center overflow-y-auto px-5 pb-6 pointer-events-none"
+      class="flex h-full items-start justify-center px-5 pb-6 pointer-events-none"
       classList={{
         "pt-20": isDesktop(),
         "pt-5": !isDesktop(),
@@ -136,15 +144,16 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
           list shrinks to zero and the footer would otherwise be clipped — the
           card scroll still lets the user reach it. */}
       <div
-        class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto flex flex-col max-h-full overflow-y-auto`}
+        class={`${chrome.class} scrollbar-subtle p-5 max-w-md w-full pointer-events-auto flex flex-col max-h-full overflow-y-auto`}
       >
         {/* The scroll region — the welcome header, the session list, and (on
             touch) the create button + shortcut list. `flex-1 min-h-0
             overflow-y-auto` absorbs all the overflow so the footer below stays
             pinned. `min-h-0` is load-bearing: without it a flex child won't
-            shrink below its content and the scroll never engages. `-mr-2 pr-2`
-            insets the scrollbar off the card's rounded edge. */}
-        <div class="flex-1 min-h-0 overflow-y-auto -mr-2 pr-2">
+            shrink below its content and the scroll never engages. `scrollbar-subtle`
+            is the app's thin themed scrollbar; `-mr-2 pr-2` insets it off the
+            card's rounded edge. */}
+        <div class="scrollbar-subtle flex-1 min-h-0 overflow-y-auto -mr-2 pr-2">
           {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}
           <Show when={showsWelcome()}>
             <div class="mb-5 pb-5 border-b border-edge">
