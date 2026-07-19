@@ -35,12 +35,23 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const koluTip = (): string =>
     joinTip(
       `kolu ${props.status}${daemonLive() ? "" : " (watchdog reconnecting)"}`,
-      pwa.server()?.version ? `server v${pwa.server()?.version}` : undefined,
-      pwa.server()?.commit ? `server ${pwa.server()?.commit}` : undefined,
+      // Server version/commit + the client-build-vs-server verdict are connected-era facts
+      // off the ws (#1793) — gate on `daemonLive()`, so the always-reachable tooltip stops
+      // asserting a definite "server v9.9" / "build differs/matches" over a dead transport.
+      // (`serverRssBytes()`, the client commit, and the client heap are already floored / are
+      // local build constants.)
+      daemonLive() && pwa.server()?.version
+        ? `server v${pwa.server()?.version}`
+        : undefined,
+      daemonLive() && pwa.server()?.commit
+        ? `server ${pwa.server()?.commit}`
+        : undefined,
       `server RSS ${mbText(serverRssBytes())}`,
-      stale()
-        ? "client build differs from server"
-        : "client build matches server",
+      daemonLive()
+        ? stale()
+          ? "client build differs from server"
+          : "client build matches server"
+        : undefined,
       pwa.clientCommit ? `client ${pwa.clientCommit}` : undefined,
       `client heap ${mbText(clientHeapUsedBytes())}`,
     );

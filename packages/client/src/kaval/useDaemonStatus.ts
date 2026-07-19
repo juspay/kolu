@@ -289,14 +289,19 @@ export function daemonStatusPendingTimedOut(): boolean {
 }
 
 /** The ACTIVE host's kaval presence — the ONE named fold of `localDaemonStatus()` +
- *  `daemonChannelLive()` into the client's honest {@link KavalPresence} sum. Both the
- *  KavalInfoDialog action slot (folded once at its `HostDaemonChips` call site) and the
- *  command palette's Restart-kaval gate read THIS, so "the active host's kaval presence"
- *  is computed by ONE path — the two surfaces can't disagree by construction, not by a
- *  comment's assertion. The missing sibling of `downState`/`daemonWarming`/`daemonConnected`,
- *  which already fold the same `(status, channel-live)` pair for the active host. Module-
- *  lifetime memo like `localDaemonStatus` / `sharedDaemonTransportLive`, so the fold happens
- *  once and stays reactive. A reactive accessor; read it inside a tracking scope. */
+ *  `daemonChannelLive()` into the client's honest {@link KavalPresence} sum, read by the
+ *  command palette's Restart-kaval gate. It is a sibling of `downState`/`daemonWarming`/
+ *  `daemonConnected`, which already fold the same `(status, channel-live)` pair for the
+ *  active host, and a module-lifetime memo like `localDaemonStatus` / `sharedDaemonTransportLive`
+ *  so the fold happens once and stays reactive.
+ *
+ *  NOTE the KavalInfoDialog does NOT read this — it is PER-HOST (its `presence` prop is folded
+ *  at the `HostDaemonChips` call site as `toKavalPresence(kaval.daemon(), kaval.live())` for the
+ *  clicked host, which the opener switches the canvas to). What the palette and the dialog SHARE
+ *  is the {@link offerRestartVerb} fold — the affordance is a total function of whichever
+ *  presence each surface holds — not one memoized value; for the active host the two presences
+ *  coincide (same fold, same inputs), so the Restart verb can't disagree between them.
+ *  A reactive accessor; read it inside a tracking scope. */
 export const activeKavalPresence = createRoot(() =>
   createMemo(
     (): KavalPresence =>
@@ -369,9 +374,16 @@ export function daemonWarming(): boolean {
  *  restore, so the client must NOT react to them with `chrome.setParent(...)`
  *  writes. Only a real user-close happens while this is true. */
 export function daemonConnected(): boolean {
-  return (
-    !daemonStatusPending() && !daemonWarming() && downState() === undefined
-  );
+  // A POSITIVE, total authority gate (#1793 affordance/authority axis): connected iff the
+  // channel is LIVE and the daemon's own state is `connected`. The old negative-space form
+  // (`!pending && !warming && downState()===undefined`) had the exact bug this PR removed
+  // from `offerRestartVerb`: over a DEAD channel `daemonWarming()` and `downState()` are both
+  // liveness-floored to false/undefined, so the conjunction returned `true` — asserting the
+  // client is lifecycle authority (`useActiveReconcile` may then issue reconcile writes) over
+  // a channel it can't reach. Flooring on `daemonChannelLive()` closes it by construction; a
+  // pre-identity `connected` still counts (authority doesn't need identity, only liveness +
+  // a connected state).
+  return daemonChannelLive() && localDaemonStatus()?.state === "connected";
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is

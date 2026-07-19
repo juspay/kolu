@@ -12,12 +12,20 @@
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
+import { daemonTransportLive } from "../kaval/useDaemonStatus";
 
 /** True when this browser's build provably differs from the server's. Reads the
  *  surface-app model — must be called under `<SurfaceAppProvider>`. Gate the chip
- *  on this: `<Show when={clientStale()}><StaleBadge /></Show>`. */
+ *  on this: `<Show when={clientStale()}><StaleBadge /></Show>`.
+ *
+ *  FLOORED on `daemonTransportLive()` (#1793): the "differs from server" verdict compares
+ *  the client build to the SERVER's build, which rides the ws that a dead/half-open
+ *  transport freezes stale. Over a dead transport we can't confirm the comparison, so this
+ *  reads `false` — no "≠ srv" badge and no reload affordance asserted off a retained server
+ *  build. Every consumer (both mobile chromes, the Kolu dialog badge, the rail) inherits the
+ *  floor by construction. */
 export const clientStale = (): boolean =>
-  useSurfaceApp<KoluBuildInfo>().stale();
+  daemonTransportLive() && useSurfaceApp<KoluBuildInfo>().stale();
 
 /** The compact `≠ srv` warning chip — kolu's own chrome. */
 export const StaleBadge: Component = () => (
