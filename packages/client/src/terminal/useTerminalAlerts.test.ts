@@ -501,4 +501,34 @@ describe("useTerminalAlerts — #1177 awaiting_user chime", () => {
 
     expect(fired).not.toHaveBeenCalled(); // no phantom — the gate was already seen
   });
+
+  it("codex-F2b: a live gate SEEN with alerts OFF latches — enabling alerts + look-away does NOT phantom-chime", async () => {
+    // The eyes channel is independent of the alert pref: a gate seen while actively
+    // watching with alerts OFF is still SEEN, so it must latch — or turning alerts on
+    // and looking away lets a scrape-jitter flap-back chime a gate the user already
+    // saw (the off→on toggle codex flagged in round 3). Latching must NOT depend on
+    // `alertForTerminal` having been called.
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    onTestFinished(() => focus.mockRestore());
+
+    h.activityAlerts = false; // alerts OFF
+    const { setStore, setIds, setActiveId } = harness();
+    setActiveId(T("a1")); // actively watching a1
+    setStore({ a1: meta("thinking") });
+    setIds([T("a1")]);
+    await tick();
+
+    setStore("a1", meta("awaiting_user")); // gate seen while watched + alerts off → latched by eyes
+    await tick();
+    expect(fired).not.toHaveBeenCalled();
+
+    setStore("a1", meta("waiting")); // scrape jitter
+    await tick();
+    h.activityAlerts = true; // the user turns alerts on…
+    setActiveId(T("a2")); // …and looks away
+    setStore("a1", meta("awaiting_user")); // gate flaps back
+    await tick();
+
+    expect(fired).not.toHaveBeenCalled(); // no phantom — the gate was already seen (eyes)
+  });
 });

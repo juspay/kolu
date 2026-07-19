@@ -152,6 +152,14 @@ export function useTerminalAlerts(deps: {
     state !== undefined &&
     agentBucket(state as AgentInfo["state"]) === "awaiting";
 
+  // Whether the user is actively watching THIS exact terminal — its tile is the
+  // active one AND kolu has focus. This is the one predicate behind both the
+  // external-alert suppression (`alertForTerminal`) and the "eyes" latch channel
+  // (`advanceAlertEpisode`): a live gate the user is looking right at counts as
+  // seen — independent of the alert pref, since their eyes work with sound off.
+  const isWatching = (id: TerminalId): boolean =>
+    id === deps.activeId() && document.hasFocus();
+
   function advanceAlertEpisode(
     id: TerminalId,
     prev: string | undefined,
@@ -176,27 +184,28 @@ export function useTerminalAlerts(deps: {
     if (!classEntry && !escalation) return;
     // At most ONE chime per episode: the latch collapses flap/settle jitter.
     if (chimed.has(id)) return;
-    if (activityAlerts()) {
-      // Latch when the user has been MADE AWARE of this notify state — through
-      // one of two channels:
-      //   • `delivered` — an external alert (sound / OS notification / dock
-      //     unread) actually fired, i.e. the terminal is backgrounded or kolu is
-      //     unfocused; or
-      //   • `nextAwaiting` — the candidate is a LIVE gate the user is looking
-      //     right at (active tile + focused, so the external alert was suppressed
-      //     but their eyes are the channel). Latching it stops a scrape-jitter
-      //     flap (`awaiting_user → waiting → awaiting_user`) from re-chiming a
-      //     gate they already saw once they look away.
-      // A mere `waiting` finish seen while actively watched is NOT latched: a
-      // genuine gate arriving after the user looks away is new, actionable info
-      // and must still chime (the #1177 class — a delivery-only rule swallowed
-      // it). So a `waiting` finish latches on delivery; an `awaiting_user` gate
-      // latches on delivery OR on being watched. The episode RESET stays
-      // unconditional. In the common background case delivery always succeeds, so
-      // flap/settle dedup is unchanged.
-      const delivered = alertForTerminal(id, nextAwaiting);
-      if (delivered || nextAwaiting) chimed.add(id);
-    }
+    // Latch when the user has been MADE AWARE of this notify state — through
+    // either channel, and the EYES channel is independent of the alert pref:
+    //   • `delivered` — an external alert (sound / OS notification / dock unread)
+    //     actually fired: alerts on AND the tile is backgrounded or kolu
+    //     unfocused; or
+    //   • `nextAwaiting && watching` — the user is looking right at a LIVE gate
+    //     (active tile + focused + `awaiting_user`). Their eyes are the channel
+    //     whether or not sound is on, so a later scrape-jitter flap must not
+    //     re-chime a gate they already saw — even across an alerts-off→on toggle.
+    // A `waiting` finish seen while watched is NOT latched (the #1177 class): a
+    // genuine gate arriving after the user looks away is new, actionable info and
+    // must still chime. So a `waiting` finish latches only on external delivery;
+    // an `awaiting_user` gate latches on delivery OR on being watched. The
+    // episode RESET stays unconditional; in the common background case delivery
+    // always succeeds, so flap/settle dedup is unchanged. `alertForTerminal` is
+    // called only when alerts are on (it self-gates delivery) — the eyes latch
+    // needs no alert.
+    const watching = isWatching(id);
+    const delivered = activityAlerts()
+      ? alertForTerminal(id, nextAwaiting)
+      : false;
+    if (delivered || (nextAwaiting && watching)) chimed.add(id);
   }
 
   /** Surface a terminal's alert, returning whether anything actually reached the
@@ -217,7 +226,9 @@ export function useTerminalAlerts(deps: {
     // The finished terminal lives on the host that is active right now (this
     // module watches the active host's terminals). Stamp that host onto the
     // notification so a click after a host-switch returns to the right padi.
-    const deliver = isBackground || !document.hasFocus();
+    // `!isWatching(id)` is exactly `isBackground || !document.hasFocus()` — the
+    // one predicate, shared with the episode's eyes-latch channel.
+    const deliver = !isWatching(id);
     if (deliver)
       fireActivityAlert(
         deps.getSubject(id),
