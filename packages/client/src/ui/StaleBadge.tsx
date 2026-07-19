@@ -24,8 +24,14 @@ import { daemonTransportLive } from "../kaval/useDaemonStatus";
  *  reads `false` — no "≠ srv" badge and no reload affordance asserted off a retained server
  *  build. Every consumer (both mobile chromes, the Kolu dialog badge, the rail) inherits the
  *  floor by construction. */
-export const clientStale = (): boolean =>
-  daemonTransportLive() && useSurfaceApp<KoluBuildInfo>().stale();
+export const clientStale = (): boolean => {
+  // Read the surface-app model FIRST (unconditionally), so its "must be used within
+  // <SurfaceAppProvider>" fail-fast throw always fires — do NOT let `daemonTransportLive()`
+  // short-circuit past it (the `&&` order would skip the provider check exactly in the
+  // disconnected state, flipping fail-fast to fail-silent). THEN floor the verdict.
+  const stale = useSurfaceApp<KoluBuildInfo>().stale();
+  return daemonTransportLive() && stale;
+};
 
 /** The compact `≠ srv` warning chip — kolu's own chrome. */
 export const StaleBadge: Component = () => (
