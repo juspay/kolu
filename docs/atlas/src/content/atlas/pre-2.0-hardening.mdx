@@ -1,0 +1,52 @@
+---
+title: "Pre-2.0 hardening — the shortlist"
+description: "The bug/reliability work worth landing before the 2.0 tag, triaged by one rule: 2.0's story is agent-face + self-healing daemons + honest UI, so fix what undermines that. Features and render polish defer past the tag."
+parents: [analysis, roadmap]
+status: proposed
+maturity: seedling
+updated: 2026-07-19
+---
+
+import Callout from "../../components/Callout.astro";
+import Issue from "../../components/Issue.astro";
+
+Triage rule: **fix what undermines the 2.0 story** (the agent face,
+self-healing daemons, honest UI). Defer features and render polish past the
+tag.
+
+## Tier 1 — block the tag
+
+| Issue | Why it blocks |
+| --- | --- |
+| <Issue n={1334} /> + <Issue n={1375} /> | **prod-safety.** An agent `/be` run disrupted production `kolu.service`; a local `vitest` forked 30+ daemons and OOM-reaped prod kaval. Running kolu's dev *on* kolu can kill prod — the only *dangerous* class here. |
+| <Issue n={1681} /> | re-served surface goes stale across a padi drain→respawn (gray chip until reload) — the staleness-across-rebind class, still live; contradicts "self-healing / honest UI". |
+| <Issue n={1859} /> | stdio-codec zombie connection — the reader never stops on decode failure. Silent-hang landmine in the wire layer. |
+| <Issue n={1754} /> | claude-code live state can lie (stuck "thinking"). A lying dock guts the observe-out UX. |
+| <Issue n={1177} /> | `awaiting_user` doesn't chime (bucketed with `waiting`). If 2.0 sells "agents that ping you," this must work — the product twin of the attention-flow class-kill. |
+
+## Tier 2 — land if time
+
+<Issue n={1658} /> back up state JSON on start (best value-per-effort) ·
+<Issue n={1680} /> Codex fs.watch dies on darwin-remote → state freezes ·
+<Issue n={1076} /> terminal frozen (raw mode) after a TUI child exits ·
+<Issue n={1666} /> + <Issue n={1667} /> worktree-remove strands a terminal /
+departing terminals focus a dead id · <Issue n={1875} /> makeSession pin()
+backoff race.
+
+## Tier 3 — close the recurrence (bit us this campaign)
+
+<Issue n={1706} /> + <Issue n={1693} /> `ai::apm` regens from a stale commit;
+add the `ci::apm-sync` lane · <Issue n={1707} /> large pastes to a Claude TUI
+don't reliably submit.
+
+## Deferred past 2.0
+
+Features (<Issue n={1240} /> multi-forge, <Issue n={1218} /> web push,
+<Issue n={1295} /> tiling) · render polish (<Issue n={1305} /> /
+<Issue n={1306} /> tile artifacts) · the campaign-surface build-out
+(P0–P3, its own note).
+
+<Callout kind="accent" title="One-thing cut">
+  If only one lands: **the <Issue n={1334} />/<Issue n={1375} /> isolation
+  pair.** Everything else degrades UX; that one can eat your prod instance.
+</Callout>
