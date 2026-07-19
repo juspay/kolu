@@ -166,17 +166,18 @@ export function useTerminalAlerts(deps: {
       chimed.delete(id);
       return;
     }
+    const nextAwaiting = isAwaiting(next);
     // A candidate to chime is either ENTRY into the notify class (the existing
     // `thinking/waiting → notify` rule) OR an ESCALATION into the awaiting bucket
     // (a live gate) from a non-awaiting state — the latter is what lets a gate
     // landing over an already-`waiting` row chime (#1177).
     const classEntry = !notifies(prev);
-    const escalation = isAwaiting(next) && !isAwaiting(prev);
+    const escalation = nextAwaiting && !isAwaiting(prev);
     if (!classEntry && !escalation) return;
     // At most ONE chime per episode: the latch collapses flap/settle jitter.
     if (chimed.has(id)) return;
     chimed.add(id);
-    if (activityAlerts()) alertForTerminal(id, isAwaiting(next));
+    if (activityAlerts()) alertForTerminal(id, nextAwaiting);
   }
 
   function alertForTerminal(id: TerminalId, awaiting: boolean) {
