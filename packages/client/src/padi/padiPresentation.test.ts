@@ -26,22 +26,16 @@ describe("padiBoundHostSegment — the Padi chip names WHERE padi is, and reads 
 describe("toPadiPresence — P4: connected ⇒ identity present, by construction", () => {
   it("a genuinely connected, identified padi over a live transport reads `connected` with its identity", () => {
     expect(
-      toPadiPresence(
-        "connected",
-        true,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("connected", true, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toEqual({
       kind: "connected",
       identity: {
         buildCommit: "deadbeef",
         surfaceVersion: "1.1",
-        convergence: null,
         lifetime: { kind: "forever" },
       },
     });
@@ -55,7 +49,7 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     // unrepresentable: there is no `{ kind: "connected", identity: undefined }`. `undefined`
     // here is the identity CELL not having yielded its first frame yet — a distinct state
     // from "padi declared no commit" (see the next test).
-    const presence = toPadiPresence("connected", true, undefined, null);
+    const presence = toPadiPresence("connected", true, undefined);
     expect(presence.kind).toBe("warming");
     expect(presence).not.toMatchObject({ kind: "connected" });
   });
@@ -64,18 +58,16 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     // The identity cell HAS arrived (padi is the writer, and it declared `commit: null`
     // for its own dev/off-nix build) — this is legitimately `connected`, distinct in TYPE
     // (a present object with a null field) from the pending case (`identity === undefined`).
-    const presence = toPadiPresence(
-      "connected",
-      true,
-      { commit: null, surfaceVersion: "1.1", lifetime: { kind: "forever" } },
-      null,
-    );
+    const presence = toPadiPresence("connected", true, {
+      commit: null,
+      surfaceVersion: "1.1",
+      lifetime: { kind: "forever" },
+    });
     expect(presence).toEqual({
       kind: "connected",
       identity: {
         buildCommit: null,
         surfaceVersion: "1.1",
-        convergence: null,
         lifetime: { kind: "forever" },
       },
     });
@@ -85,51 +77,36 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     // The reproduced live bug: an AbortError drain burst kills the ws; the retained
     // (stale) `connected` link + last-known build commit must not be shown as confirmed.
     expect(
-      toPadiPresence(
-        "connected",
-        false,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("connected", false, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toEqual({ kind: "unknown" });
     // Reconnect (transport live again, facts unchanged) — identity is confirmed again.
     expect(
-      toPadiPresence(
-        "connected",
-        true,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("connected", true, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toMatchObject({ kind: "connected" });
   });
 
   it("pre-first-value (link undefined) ⇒ unknown; `connecting` ⇒ warming; `degraded` ⇒ down — each its own honest kind, never `connected`", () => {
     // No link value yet ⇒ `unknown` (grey), same as a dead channel — not `warming`.
-    expect(toPadiPresence(undefined, true, undefined, null)).toEqual({
+    expect(toPadiPresence(undefined, true, undefined)).toEqual({
       kind: "unknown",
     });
-    expect(toPadiPresence("connecting", true, undefined, null)).toEqual({
+    expect(toPadiPresence("connecting", true, undefined)).toEqual({
       kind: "warming",
     });
     expect(
-      toPadiPresence(
-        "degraded",
-        true,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("degraded", true, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toEqual({
       kind: "down",
     });
@@ -142,7 +119,6 @@ describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE 
     identity: {
       buildCommit: "c",
       surfaceVersion: "1.1",
-      convergence: null,
       lifetime: undefined,
     },
   };
@@ -176,12 +152,10 @@ describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE 
   });
 
   it("#1793: a not-live padi projects to grey 'unknown' — never green/connected off a stale link", () => {
-    const dead = toPadiPresence(
-      "connected",
-      false,
-      { commit: "c", surfaceVersion: "1.1" },
-      null,
-    );
+    const dead = toPadiPresence("connected", false, {
+      commit: "c",
+      surfaceVersion: "1.1",
+    });
     expect(dead).toEqual({ kind: "unknown" });
     expect(padiPresencePresentation(dead).dot).toBe(DAEMON_UNKNOWN_DOT);
     expect(padiPresencePresentation(dead).label).toBe("unknown");
@@ -193,9 +167,9 @@ describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE 
     expect(padiLinkAttr({ kind: "down" })).toBe("degraded");
     // A live-but-pre-identity `connected` link folds to `warming` → reads "connecting"
     // (aligned with the dialog), never a premature "connected".
-    expect(
-      padiLinkAttr(toPadiPresence("connected", true, undefined, null)),
-    ).toBe("connecting");
+    expect(padiLinkAttr(toPadiPresence("connected", true, undefined))).toBe(
+      "connecting",
+    );
     expect(padiLinkAttr({ kind: "warming" })).toBe("connecting");
   });
 });

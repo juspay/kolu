@@ -108,7 +108,6 @@ describe("#1793 dialogs must not leak connected-era facts over a dead channel", 
       STALE_PADI_LINK,
       false,
       STALE_PADI_IDENTITY,
-      null,
     );
     const text = mountBodyText(() => (
       <PadiInfoDialog

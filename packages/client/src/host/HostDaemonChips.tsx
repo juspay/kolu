@@ -40,7 +40,6 @@ import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import { type KavalAttention, kavalAttention } from "../kaval/kavalCurrency";
 import { restartInFlight } from "../kaval/useDaemonRestart";
 import {
-  DAEMON_STATE_PRESENTATION,
   daemonTransportLive,
   formatUptime,
   type PadiEntry,
@@ -64,7 +63,6 @@ import {
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
-import { boundPadiConvergence } from "../ui/useDaemonInventory";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { hostLabel, sameHost, statusTitle } from "./hostChipTone";
 
@@ -264,12 +262,7 @@ const PadiSubChip: Component<{
   // link (a degraded-but-live link no longer leaks a stale "contract v9.9"), and the raw
   // stale `identity` cell is never read for the version at all.
   const presence = createMemo(() =>
-    toPadiPresence(
-      padi.link(),
-      padi.live(),
-      identity.value(),
-      boundPadiConvergence(),
-    ),
+    toPadiPresence(padi.link(), padi.live(), identity.value()),
   );
   const padiVersion = (): string | undefined => {
     const p = presence();
@@ -359,13 +352,10 @@ const KavalSubChip: Component<{
     const p = presence();
     return p.kind === "connected" ? p.contractVersion : undefined;
   };
-  const kavalStateText = (): string => {
-    if (!kaval.live()) return DAEMON_UNKNOWN_LABEL;
-    const state = kaval.daemon()?.state;
-    return state
-      ? DAEMON_STATE_PRESENTATION[state].label
-      : DAEMON_UNKNOWN_LABEL;
-  };
+  // The status word off the ONE presence projection (not a second hand-rolled
+  // live/state/unknown ladder) — so the rail tooltip and the dialog pill can't drift.
+  const kavalStateText = (): string =>
+    kavalPresencePresentation(presence()).label;
   const kavalUptimeText = (): string | undefined => {
     if (!kaval.live() || kaval.daemon()?.state !== "connected")
       return undefined;
@@ -453,12 +443,7 @@ const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
   // subscription — the static path has no other identity consumer to share with), so the
   // mark's dot + attribute inherit the same one liveness floor as the interactive path.
   const presence = createMemo(() =>
-    toPadiPresence(
-      padi.link(),
-      padi.live(),
-      identity.value(),
-      boundPadiConvergence(),
-    ),
+    toPadiPresence(padi.link(), padi.live(), identity.value()),
   );
   return (
     <span class={identityMarkStaticClass}>

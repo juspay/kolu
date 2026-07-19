@@ -9,7 +9,7 @@
  *  `daemonPresentation` so the padi and kaval dots can't drift on what
  *  "ok/warming/down/unknown" looks like. */
 
-import type { PadiConvergence, PadiLink } from "kolu-common/surface";
+import type { PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 import {
   DAEMON_UNKNOWN_DOT,
@@ -46,7 +46,6 @@ export const PADI_LINK_PRESENTATION: Record<
 export type PadiIdentityView = {
   buildCommit: string | null;
   surfaceVersion: string;
-  convergence: PadiConvergence | null;
   /** padi's lifetime policy (`forever` in production; `boundToPid` under a
    *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
    *  seeds it; `undefined` for a survivor padi predating the wire field, which the
@@ -99,7 +98,6 @@ export function toPadiPresence(
         lifetime?: DaemonLifetimeView;
       }
     | undefined,
-  convergence: PadiConvergence | null,
 ): PadiPresence {
   // A dead/half-open channel or pre-first-value can't confirm ANY state → `unknown`.
   if (!live || link === undefined) return { kind: "unknown" };
@@ -115,7 +113,6 @@ export function toPadiPresence(
     identity: {
       buildCommit: identity.commit,
       surfaceVersion: identity.surfaceVersion,
-      convergence,
       lifetime: identity.lifetime,
     },
   };
@@ -138,42 +135,38 @@ export function padiPresencePresentation(presence: PadiPresence): {
   label: string;
   textClass: string;
 } {
-  return match(presence)
-    .with({ kind: "unknown" }, () => ({
+  const link = presenceLink(presence);
+  if (link === "unknown")
+    return {
       dot: DAEMON_UNKNOWN_DOT,
       label: DAEMON_UNKNOWN_LABEL,
       textClass: "text-fg-3",
-    }))
-    .with({ kind: "connected" }, () => ({
-      dot: toneDot[PADI_LINK_PRESENTATION.connected.tone],
-      label: PADI_LINK_PRESENTATION.connected.label,
-      textClass: "text-fg",
-    }))
-    .with({ kind: "warming" }, () => ({
-      dot: toneDot[PADI_LINK_PRESENTATION.connecting.tone],
-      label: PADI_LINK_PRESENTATION.connecting.label,
-      textClass: "text-fg",
-    }))
-    .with({ kind: "down" }, () => ({
-      dot: toneDot[PADI_LINK_PRESENTATION.degraded.tone],
-      label: PADI_LINK_PRESENTATION.degraded.label,
-      textClass: "text-fg",
-    }))
+    };
+  return {
+    dot: toneDot[PADI_LINK_PRESENTATION[link].tone],
+    label: PADI_LINK_PRESENTATION[link].label,
+    textClass: "text-fg",
+  };
+}
+
+/** The `PadiLink` a presence renders AS (its dot tone, label, and `data-padi-link` attr
+ *  all derive from this), or `"unknown"` for a dead/half-open channel. The ONE
+ *  presence→link fold — {@link padiPresencePresentation} and {@link padiLinkAttr} both read
+ *  it. A live-but-pre-identity `connected` link folds to `warming` → `"connecting"` (never
+ *  a premature `"connected"`), aligning the dot, label, and rail attribute. */
+export function presenceLink(presence: PadiPresence): PadiLink | "unknown" {
+  return match(presence)
+    .with({ kind: "unknown" }, () => "unknown" as const)
+    .with({ kind: "connected" }, () => "connected" as const)
+    .with({ kind: "warming" }, () => "connecting" as const)
+    .with({ kind: "down" }, () => "degraded" as const)
     .exhaustive();
 }
 
-/** The padi rail mark's `data-padi-link` attribute, projected from {@link PadiPresence}.
- *  `connected`/`unknown` name themselves; `warming` reads `connecting` and `down` reads
- *  `degraded`, so the rail attribute stays aligned with the dialog — a live-but-pre-
- *  identity `connected` link reads `connecting` (its presence is `warming`), never a
- *  premature `connected`. */
+/** The padi rail mark's `data-padi-link` attribute — {@link presenceLink} as the
+ *  machine-readable twin of the dot tone that e2e selectors key on. */
 export function padiLinkAttr(presence: PadiPresence): string {
-  return match(presence)
-    .with({ kind: "connected" }, () => "connected")
-    .with({ kind: "warming" }, () => "connecting")
-    .with({ kind: "down" }, () => "degraded")
-    .with({ kind: "unknown" }, () => "unknown")
-    .exhaustive();
+  return presenceLink(presence);
 }
 
 /** The Padi host-chip REMOTE-HOST segment — names WHERE padi is and reads as

@@ -426,50 +426,43 @@ export function kavalPresencePresentation(presence: KavalPresence): {
   label: string;
   textClass: string;
 } {
-  return match(presence)
-    .with({ kind: "unknown" }, () => ({
+  const state = presenceState(presence);
+  if (state === "unknown")
+    return {
       dot: DAEMON_UNKNOWN_DOT,
       label: DAEMON_UNKNOWN_LABEL,
       textClass: "text-fg-3",
-    }))
-    .with({ kind: "connected" }, () => ({
-      dot: toneDot[DAEMON_STATE_PRESENTATION.connected.tone],
-      label: DAEMON_STATE_PRESENTATION.connected.label,
-      textClass: "text-fg",
-    }))
-    .with({ kind: "warming" }, (p) => ({
-      dot: toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
-      label: DAEMON_STATE_PRESENTATION[p.state].label,
-      textClass: "text-fg",
-    }))
-    .with({ kind: "down" }, (p) => ({
-      dot: toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
-      label: DAEMON_STATE_PRESENTATION[p.state].label,
-      textClass: "text-fg",
-    }))
-    .with({ kind: "incompatible" }, () => ({
-      dot: toneDot[DAEMON_STATE_PRESENTATION.incompatible.tone],
-      label: DAEMON_STATE_PRESENTATION.incompatible.label,
-      textClass: "text-fg",
-    }))
+    };
+  return {
+    dot: toneDot[DAEMON_STATE_PRESENTATION[state].tone],
+    label: DAEMON_STATE_PRESENTATION[state].label,
+    textClass: "text-fg",
+  };
+}
+
+/** The concrete `DaemonState` a presence renders AS (its dot tone, label, and
+ *  `data-daemon-state` attr all derive from this), or `"unknown"` for a dead/half-open
+ *  channel. The ONE presence→state fold — {@link kavalPresencePresentation} and
+ *  {@link daemonStateAttr} both read it, so the dot/label/attr can't drift on which arm
+ *  maps to which state. A pre-identity `connected` reads `"connected"` (the `warming` arm
+ *  carries `state: "connected"`), so the machine-readable attr stays behavior-identical to
+ *  the retired raw `(state, live)` one. */
+export function presenceState(
+  presence: KavalPresence,
+): DaemonState | "unknown" {
+  return match(presence)
+    .with({ kind: "unknown" }, () => "unknown" as const)
+    .with({ kind: "connected" }, () => "connected" as const)
+    .with({ kind: "warming" }, (p) => p.state)
+    .with({ kind: "down" }, (p) => p.state)
+    .with({ kind: "incompatible" }, () => "incompatible" as const)
     .exhaustive();
 }
 
-/** The kaval rail mark's `data-daemon-state` attribute, projected from
- *  {@link KavalPresence} — the machine-readable twin of the dot tone that e2e selectors
- *  key on. `connected`/`incompatible`/`unknown` name themselves; `warming`/`down` expose
- *  the arm's fine `DaemonState` so `connecting`/`restarting`/`dead`/`degraded` stay
- *  distinguishable. Behavior-identical to the retired raw `(state, live)` attribute: a
- *  pre-identity `connected` still reads `connected` (the `warming` arm carries
- *  `state: "connected"`). */
+/** The kaval rail mark's `data-daemon-state` attribute — {@link presenceState} as the
+ *  machine-readable twin of the dot tone that e2e selectors key on. */
 export function daemonStateAttr(presence: KavalPresence): string {
-  return match(presence)
-    .with({ kind: "connected" }, () => "connected")
-    .with({ kind: "warming" }, (p) => p.state)
-    .with({ kind: "down" }, (p) => p.state)
-    .with({ kind: "incompatible" }, () => "incompatible")
-    .with({ kind: "unknown" }, () => "unknown")
-    .exhaustive();
+  return presenceState(presence);
 }
 
 /** Humanize a daemon's serialized lifetime for the Kaval/Padi dialog rows —
