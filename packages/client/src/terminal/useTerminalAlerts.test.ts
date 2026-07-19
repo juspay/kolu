@@ -373,7 +373,6 @@ describe("useTerminalAlerts — #1177 awaiting_user chime", () => {
     await tick();
 
     expect(fired).toHaveBeenCalledTimes(2); // fires — latch was reset unconditionally
-    h.activityAlerts = true;
   });
 
   it("C2: an id removed then re-added at waiting is not swallowed by a ghost latch", async () => {
