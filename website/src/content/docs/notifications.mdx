@@ -30,19 +30,24 @@ isn't blocked drops to idle instead). The vocabulary of states is
 
 - The **app-icon badge** counts awaiting agents — and it counts them across
   **every connected machine**, not just the one on screen.
-- A backgrounded tab gets a **native OS notification** when an agent finishes or
-  starts waiting. (If they don't appear, see
+- A backgrounded tab gets a **native OS notification** when an agent finishes,
+  starts waiting, or **stops to ask you something** — a live question or
+  permission prompt reads *needs your input* rather than *finished*, and reaches
+  you even when the agent was already sitting in its post-turn lull. (If they
+  don't appear, see
   [Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).)
 - **Clicking the notification** brings kolu forward, and when the agent is on
   another machine it **switches to that host and focuses the exact terminal** —
   one action, no hunting.
 
-<Aside type="note" title="It fires once, on a real transition">
-  kolu tracks each terminal by its own identity, so only an agent that genuinely
-  *enters* the waiting state notifies you. Switching hosts, or opening and
-  closing terminals, reorders the list but never manufactures a phantom "just
-  started waiting" alert — a parked review prompt won't ding again every time you
-  return to its machine.
+<Aside type="note" title="It fires once per attention episode">
+  kolu tracks each terminal by its own identity and chimes once when it first
+  needs you — when it finishes or starts waiting, *or* when a live question lands
+  over an agent that was already waiting — then stays quiet until the agent goes
+  back to work. Switching hosts, or opening and closing terminals, reorders the
+  list but never manufactures a phantom alert, and a brief flicker between states
+  as a prompt settles won't ding twice — a parked review prompt won't ding again
+  every time you return to its machine.
 </Aside>
 
 ## Across machines
