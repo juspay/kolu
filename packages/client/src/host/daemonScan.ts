@@ -56,8 +56,7 @@ export type DaemonScan =
  *  stand on the entry's own kind. */
 export function daemonScanCause(
   entry: PadiEntry,
-  bindLive: boolean,
-  framePresent: boolean,
+  { bindLive, framePresent }: { bindLive: boolean; framePresent: boolean },
 ): DaemonScan {
   return match(entry)
     .with({ kind: "connected" }, () => {

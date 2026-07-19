@@ -13,12 +13,22 @@ const entry = (e: { kind: string; failure?: unknown }): PadiEntry =>
 
 describe("daemonScanCause — total fold over the host's entry state × frame presence (#1793)", () => {
   it("connected + live bind + a real frame ⇒ live; live bind without a frame ⇒ no-frame (not 'too old')", () => {
-    expect(daemonScanCause(entry({ kind: "connected" }), true, true)).toEqual({
+    expect(
+      daemonScanCause(entry({ kind: "connected" }), {
+        bindLive: true,
+        framePresent: true,
+      }),
+    ).toEqual({
       kind: "live",
     });
     // A LIVE bind that simply hasn't reported a frame is honestly `no-frame` (old padi or
     // first frame pending) — never the guessed "too old".
-    expect(daemonScanCause(entry({ kind: "connected" }), true, false)).toEqual({
+    expect(
+      daemonScanCause(entry({ kind: "connected" }), {
+        bindLive: true,
+        framePresent: false,
+      }),
+    ).toEqual({
       kind: "no-frame",
     });
   });
@@ -27,13 +37,23 @@ describe("daemonScanCause — total fold over the host's entry state × frame pr
     // bindLive=false on a `connected` entry means the transport dropped, so even a stale
     // frame must NOT read as live — and its honest cause is reconnecting, not "too old"
     // (the #1793 thesis: name the real reason, never guess).
-    expect(daemonScanCause(entry({ kind: "connected" }), false, true)).toEqual({
+    expect(
+      daemonScanCause(entry({ kind: "connected" }), {
+        bindLive: false,
+        framePresent: true,
+      }),
+    ).toEqual({
       kind: "connecting",
     });
   });
 
   it("warming ⇒ connecting (the one genuinely transient cause)", () => {
-    expect(daemonScanCause(entry({ kind: "warming" }), false, false)).toEqual({
+    expect(
+      daemonScanCause(entry({ kind: "warming" }), {
+        bindLive: false,
+        framePresent: false,
+      }),
+    ).toEqual({
       kind: "connecting",
     });
   });
@@ -47,15 +67,17 @@ describe("daemonScanCause — total fold over the host's entry state × frame pr
           kind: "failed",
           failure: { cause: "unconverged", reason: "x" },
         }),
-        false,
-        false,
+        { bindLive: false, framePresent: false },
       ),
     ).toEqual({ kind: "failed", cause: "unconverged" });
   });
 
   it("not-a-member ⇒ no-host", () => {
     expect(
-      daemonScanCause(entry({ kind: "not-a-member" }), false, false),
+      daemonScanCause(entry({ kind: "not-a-member" }), {
+        bindLive: false,
+        framePresent: false,
+      }),
     ).toEqual({
       kind: "no-host",
     });

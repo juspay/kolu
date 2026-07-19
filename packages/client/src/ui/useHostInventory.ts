@@ -64,11 +64,10 @@ export function boundHostPadis(): RunningPadi[] {
  *     just-connected bind's seeded-empty `{ kavals: [], padis: [] }` would read as a
  *     definite "No running daemons" (#1034). */
 export function boundHostScan(): DaemonScan {
-  return daemonScanCause(
-    padiMap.entry(activeHost()).state(),
-    daemonChannelLive(),
-    boundHostPadis().some((p) => p.active),
-  );
+  return daemonScanCause(padiMap.entry(activeHost()).state(), {
+    bindLive: daemonChannelLive(),
+    framePresent: boundHostPadis().some((p) => p.active),
+  });
 }
 
 /** Whether the bound host's inventory is a TRUSTWORTHY live reading the dialog may render
