@@ -18,33 +18,53 @@ tag.
 
 | Issue | Why it blocks |
 | --- | --- |
-| <Issue n={1334} /> + <Issue n={1375} /> | **prod-safety.** An agent `/be` run disrupted production `kolu.service`; a local `vitest` forked 30+ daemons and OOM-reaped prod kaval. Running kolu's dev *on* kolu can kill prod — the only *dangerous* class here. |
-| <Issue n={1681} /> | re-served surface goes stale across a padi drain→respawn (gray chip until reload) — the staleness-across-rebind class, still live; contradicts "self-healing / honest UI". |
+| <Issue n={1334} /> + <Issue n={1375} /> | **prod-safety.** An agent `/be` run disrupted production `kolu.service`; a local `vitest` forked 30+ daemons and OOM-reaped prod kaval. Running kolu's dev *on* kolu can kill prod — the only *dangerous* class here. A tooling-level guard (PR #1338, a `prod-guard` justfile recipe) was already tried and closed unmerged — the fix must live in the product. <Issue n={706} /> is the same class (full prevention needs a VM/container — that leg stays deferred). |
 | <Issue n={1859} /> | stdio-codec zombie connection — the reader never stops on decode failure. Silent-hang landmine in the wire layer. |
 | <Issue n={1754} /> | claude-code live state can lie (stuck "thinking"). A lying dock guts the observe-out UX. |
 | <Issue n={1177} /> | `awaiting_user` doesn't chime (bucketed with `waiting`). If 2.0 sells "agents that ping you," this must work — the product twin of the attention-flow class-kill. |
+| <Issue n={1763} /> | boot wedge — a fresh load intermittently sticks at "Connecting to local…"; cause unconfirmed, so this one is *diagnose-first*. May share the boot-window family #1687 fixed. |
+
+## Verify & close — the fix likely already shipped
+
+| Issue | Status |
+| --- | --- |
+| <Issue n={1681} /> | **was Tier 1; isn't anymore.** PR #1687 (merged 2026-07-05) reproduced the real mechanism — a boot-window per-key `get` threw, killing the chip's subscription non-retriably — and fixed it. No recurrence since. Verify in the field, close; the spellability residual is <Issue n={1688} /> (deferred with reasoning). |
+| <Issue n={901} /> | kaval's survivor architecture *is* this feature (PTYs live in kaval; kolu-server redeploys don't touch them). Verify, close. |
+| #1793 | closed during this audit — fixed by merged #1892 (presence-only dialogs). |
 
 ## Tier 2 — land if time
 
-<Issue n={1658} /> back up state JSON on start (best value-per-effort) ·
-<Issue n={1680} /> Codex fs.watch dies on darwin-remote → state freezes ·
-<Issue n={1076} /> terminal frozen (raw mode) after a TUI child exits ·
-<Issue n={1666} /> + <Issue n={1667} /> worktree-remove strands a terminal /
-departing terminals focus a dead id · <Issue n={1875} /> makeSession pin()
-backoff race.
+<Issue n={1658} /> back up state JSON on start (best value-per-effort; a prior
+PR, #1662, closed unmerged against the pre-W2.3 state layout — restart it) ·
+<Issue n={1667} /> departing terminals focus a dead id — **fix PR #1677 is
+already open; review and land** · <Issue n={1666} /> worktree-remove strands
+a terminal · <Issue n={1680} /> Codex fs.watch dies on darwin-remote → state
+freezes · <Issue n={1076} /> terminal frozen (raw mode) after a TUI child
+exits · <Issue n={1875} /> makeSession pin() backoff race ·
+<Issue n={1701} /> remote bind: `BASE_BRANCH_NOT_FOUND` for a ref that exists
+(branch-mode Code tab dead over remote padi) · <Issue n={1715} /> per-key
+channel can alias the `:keys` channel — same silent-landmine family as
+#1859 · <Issue n={1668} /> file deleted before first frame shows "Loading…"
+forever · <Issue n={1492} /> waking a sleeping terminal doesn't resume a
+`nix run …#agent` agent.
 
 ## Tier 3 — close the recurrence (bit us this campaign)
 
 <Issue n={1706} /> + <Issue n={1693} /> `ai::apm` regens from a stale commit;
 add the `ci::apm-sync` lane · <Issue n={1707} /> large pastes to a Claude TUI
-don't reliably submit.
+don't reliably submit · <Issue n={1885} /> server-authored honest kaval-renew
+toast · <Issue n={1339} /> opaque 30s timeout when the socket gate dir isn't
+`0700` · <Issue n={1679} /> + <Issue n={1695} /> the two remote-padi test
+flakes.
 
 ## Deferred past 2.0
 
 Features (<Issue n={1240} /> multi-forge, <Issue n={1218} /> web push,
 <Issue n={1295} /> tiling) · render polish (<Issue n={1305} /> /
-<Issue n={1306} /> tile artifacts) · the campaign-surface build-out
-(P0–P3, its own note).
+<Issue n={1306} /> tile artifacts) · hardening ledgers with no current victim
+(<Issue n={1688} /> unspellable held-open get, <Issue n={1863} /> one-hop
+audit follow-ups) · <Issue n={706} /> full agent containment (needs
+VM/container) · the campaign-surface build-out (P0–P3, its own note).
 
 <Callout kind="accent" title="One-thing cut">
   If only one lands: **the <Issue n={1334} />/<Issue n={1375} /> isolation
