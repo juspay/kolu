@@ -33,6 +33,7 @@ import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import {
   channelLive,
+  DAEMON_UNKNOWN_LABEL,
   daemonStateAttr,
   type KavalPresence,
   kavalPresencePresentation,
@@ -295,7 +296,7 @@ const PadiSubChip: Component<{
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
     return joinTip(
-      `padi ${padi.live() ? statusTitle(padi.entry()) : "unknown"}`,
+      `padi ${padi.live() ? statusTitle(padi.entry()) : DAEMON_UNKNOWN_LABEL}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
         : padiVersion()
@@ -361,9 +362,11 @@ const KavalSubChip: Component<{
     return p.kind === "connected" ? p.contractVersion : undefined;
   };
   const kavalStateText = (): string => {
-    if (!kaval.live()) return "unknown";
+    if (!kaval.live()) return DAEMON_UNKNOWN_LABEL;
     const state = kaval.daemon()?.state;
-    return state ? DAEMON_STATE_PRESENTATION[state].label : "unknown";
+    return state
+      ? DAEMON_STATE_PRESENTATION[state].label
+      : DAEMON_UNKNOWN_LABEL;
   };
   const kavalUptimeText = (): string | undefined => {
     if (!kaval.live() || kaval.daemon()?.state !== "connected")

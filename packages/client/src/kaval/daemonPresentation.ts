@@ -111,6 +111,14 @@ export const toneDot: Record<DaemonTone, string> = {
  *  definite verdict. */
 export const DAEMON_UNKNOWN_DOT = "bg-fg-3/50";
 
+/** The status WORD shown whenever a daemon's liveness is unknown — the label twin of
+ *  {@link DAEMON_UNKNOWN_DOT}, so the dot and the word for "we can't confirm this daemon"
+ *  live together in one place. Read by the kaval/padi presence projections AND the two
+ *  host-chip tooltips ({@link kavalPresencePresentation}, `padiPresencePresentation`, and
+ *  the rail's `kavalStateText`/`padiTip`), so a copy change ("unknown" → "offline"/"—")
+ *  is one edit, not four. */
+export const DAEMON_UNKNOWN_LABEL = "unknown";
+
 /** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
  *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
  *  `clockNow() - startedAt`) and the kaval dialog (`Date.now() - startedAt`)
@@ -421,7 +429,7 @@ export function kavalPresencePresentation(presence: KavalPresence): {
   return match(presence)
     .with({ kind: "unknown" }, () => ({
       dot: DAEMON_UNKNOWN_DOT,
-      label: "unknown",
+      label: DAEMON_UNKNOWN_LABEL,
       textClass: "text-fg-3",
     }))
     .with({ kind: "connected" }, () => ({

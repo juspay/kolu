@@ -13,6 +13,7 @@ import type { PadiConvergence, PadiLink } from "kolu-common/surface";
 import { match } from "ts-pattern";
 import {
   DAEMON_UNKNOWN_DOT,
+  DAEMON_UNKNOWN_LABEL,
   type DaemonLifetimeView,
   type DaemonTone,
   toneDot,
@@ -140,7 +141,7 @@ export function padiPresencePresentation(presence: PadiPresence): {
   return match(presence)
     .with({ kind: "unknown" }, () => ({
       dot: DAEMON_UNKNOWN_DOT,
-      label: "unknown",
+      label: DAEMON_UNKNOWN_LABEL,
       textClass: "text-fg-3",
     }))
     .with({ kind: "connected" }, () => ({
