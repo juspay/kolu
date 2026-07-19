@@ -40,13 +40,6 @@ export const DAEMON_STATE_PRESENTATION: Record<
     label: string;
     canvasLabel: string;
     down: boolean;
-    /** Which recovery VERB a down state gets: `restart` (a plain restart can
-     *  fix it — dead/degraded) or `renew` (only a closure change can —
-     *  `incompatible`'s "Update & restart kaval"). Declared in the SAME row
-     *  that declares tone and downness, so a future down state must pick its
-     *  verb here rather than silently inheriting Restart at a consumer
-     *  (see {@link offerRestartVerb}). Absent on the not-down states. */
-    recovery?: "restart" | "renew";
   }
 > = {
   connecting: {
@@ -72,14 +65,12 @@ export const DAEMON_STATE_PRESENTATION: Record<
     label: "stopped (session preserved)",
     canvasLabel: "Stopped",
     down: true,
-    recovery: "restart",
   },
   dead: {
     tone: "down",
     label: "not running",
     canvasLabel: "Not running",
     down: true,
-    recovery: "restart",
   },
   // The PROVEN contract skew (SK4): terminal like `dead`, but a DIFFERENT
   // verdict — a restart provably cannot fix it (the arm's only producer is a
@@ -91,7 +82,6 @@ export const DAEMON_STATE_PRESENTATION: Record<
     label: "incompatible — needs update",
     canvasLabel: "Incompatible",
     down: true,
-    recovery: "renew",
   },
 };
 
@@ -254,9 +244,10 @@ export function liveDownState(
  *  - `warming` (already coming up / a restart in flight) → **false** (the verb would be a no-op).
  *  - `incompatible` (PROVEN skew) → **false**: a restart provably respawns the same
  *    incompatible binary; the skew card's "Update & restart kaval" is the recovery there.
- *  - `down` (dead/degraded) → its presentation row's `recovery` verb, read off
- *    {@link DAEMON_STATE_PRESENTATION} (never an open literal check), so a future down state
- *    must declare its verb in the row that declares its tone and downness.
+ *  - `down` (dead/degraded) → **true**: every state the `down` arm can hold is
+ *    restart-recoverable BY CONSTRUCTION — the one down state a restart can't fix
+ *    (`incompatible`) is routed to its OWN arm above, so the restart-vs-renew split lives
+ *    solely in {@link toKavalPresence}'s arm routing, not duplicated in a per-row verb.
  *  - `connected` (live, running) → **true** (recycle the running daemon).
  *
  *  Both the KavalInfoDialog action slot AND the command palette read THIS one fold, so the
@@ -265,10 +256,7 @@ export function liveDownState(
 export function offerRestartVerb(presence: KavalPresence): boolean {
   return match(presence)
     .with({ kind: "connected" }, () => true)
-    .with(
-      { kind: "down" },
-      (p) => DAEMON_STATE_PRESENTATION[p.state].recovery === "restart",
-    )
+    .with({ kind: "down" }, () => true)
     .with({ kind: "incompatible" }, () => false)
     .with({ kind: "warming" }, () => false)
     .with({ kind: "unknown" }, () => false)
