@@ -25,7 +25,8 @@
  */
 
 import type { DaemonStatus, PadiIdentity } from "@kolu/padi/surface";
-import type { PadiLink } from "kolu-common/surface";
+import { type ControlPlane, SurfaceAppProvider } from "@kolu/surface-app/solid";
+import type { KoluBuildInfo, PadiLink } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import { toKavalPresence } from "../kaval/daemonPresentation";
@@ -33,6 +34,7 @@ import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import { kavalAttention } from "../kaval/kavalCurrency";
 import PadiInfoDialog from "../padi/PadiInfoDialog";
 import { toPadiPresence } from "../padi/padiPresentation";
+import KoluInfoDialog from "../ui/KoluInfoDialog";
 import RunningDaemonsSection from "../ui/RunningDaemonsSection";
 import { HOST_DOWN_COPY } from "./hostDownCopy";
 
@@ -67,6 +69,25 @@ const STALE_KAVAL: DaemonStatus = {
   socketPath: KAVAL_SOCKET,
   identity: { staleKey: "zest-kaval", navigableCommit: "7deb397" },
   lifetime: { kind: "forever" },
+};
+
+// ── KoluInfoDialog's server facts (version + commit) ride `pwa.server()` — the
+//    connected-era facts a dead browser↔kolu-server transport freezes stale. ──
+const KOLU_VERSION = "9.9.9";
+const KOLU_SERVER_COMMIT = "5e2feed";
+const KOLU_BROWSER_COMMIT = "c11e17c";
+
+/** A control plane whose `buildInfo` cell yields a fixed server version + commit —
+ *  the fake the `SurfaceAppProvider` reads so `pwa.server()` carries a stale-but-
+ *  truthy build (mirrors the surface-app provider suite's `fakeControlPlane`). */
+const koluControlPlane: ControlPlane<KoluBuildInfo> = {
+  cells: {
+    buildInfo: {
+      use: () => ({
+        value: () => ({ commit: KOLU_SERVER_COMMIT, version: KOLU_VERSION }),
+      }),
+    },
+  },
 };
 
 const PADI_CONTRACT = "9.9";
@@ -126,6 +147,36 @@ describe("#1793 dialogs must not leak connected-era facts over a dead channel", 
     // No enabled Restart verb, and no "captures the session" promise, over a dead channel.
     expect(text).not.toContain("Restart kaval");
     expect(text.toLowerCase()).not.toContain("captures the session");
+  });
+
+  it("KoluInfoDialog: server version + commit are gated by `live=false`, so neither leaks", () => {
+    // The sibling of the Kaval/Padi leak, per-site: the Kolu dialog's server version
+    // and commit are connected-era facts off `pwa.server()`. With `live=false` the
+    // single folded `liveServer()` gate withholds BOTH, so no version chip and no
+    // server SHA survive — while the BROWSER commit (a local build constant, ungated)
+    // still renders. Guards against a 4th server fact re-opening #1793 per-site.
+    const text = mountBodyText(() => (
+      <SurfaceAppProvider
+        controlPlane={koluControlPlane}
+        clientCommit={KOLU_BROWSER_COMMIT}
+      >
+        <KoluInfoDialog
+          open={true}
+          onOpenChange={() => {}}
+          status="closed"
+          live={false}
+          dotClass="bg-danger"
+          triggerRef={() => undefined}
+        />
+      </SurfaceAppProvider>
+    ));
+
+    // The dead transport is honestly reflected, and the local browser commit stays.
+    expect(text).toContain("disconnected");
+    expect(text).toContain(KOLU_BROWSER_COMMIT);
+    // …but NO connected-era server fact survives.
+    expect(text).not.toContain(`v${KOLU_VERSION}`);
+    expect(text).not.toContain(KOLU_SERVER_COMMIT);
   });
 
   it("PadiInfoDialog: a stale link+identity folded with live=false leaks NO contract badge", () => {
