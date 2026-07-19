@@ -39,8 +39,10 @@ import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,
   type DaemonDownState,
+  type KavalPresence,
   liveDownState,
   liveWarming,
+  toKavalPresence,
 } from "./daemonPresentation";
 import { isPendingTimedOut } from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
@@ -285,6 +287,22 @@ export function daemonStatusPendingTimedOut(): boolean {
     LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
   );
 }
+
+/** The ACTIVE host's kaval presence — the ONE named fold of `localDaemonStatus()` +
+ *  `daemonChannelLive()` into the client's honest {@link KavalPresence} sum. Both the
+ *  KavalInfoDialog action slot (folded once at its `HostDaemonChips` call site) and the
+ *  command palette's Restart-kaval gate read THIS, so "the active host's kaval presence"
+ *  is computed by ONE path — the two surfaces can't disagree by construction, not by a
+ *  comment's assertion. The missing sibling of `downState`/`daemonWarming`/`daemonConnected`,
+ *  which already fold the same `(status, channel-live)` pair for the active host. Module-
+ *  lifetime memo like `localDaemonStatus` / `sharedDaemonTransportLive`, so the fold happens
+ *  once and stays reactive. A reactive accessor; read it inside a tracking scope. */
+export const activeKavalPresence = createRoot(() =>
+  createMemo(
+    (): KavalPresence =>
+      toKavalPresence(localDaemonStatus(), daemonChannelLive()),
+  ),
+);
 
 /** The single projection of "is the daemon down, and which kind" — `dead`
  *  (never came up), `degraded` (died mid-session), or `incompatible` (a PROVEN

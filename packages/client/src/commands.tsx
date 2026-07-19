@@ -29,8 +29,8 @@ import {
 } from "./input/actions";
 import type { HostKey } from "kolu-common/hostKey";
 import { restartDaemon } from "./kaval/useDaemonRestart";
-import { offerRestartVerb, toKavalPresence } from "./kaval/daemonPresentation";
-import { daemonChannelLive, localDaemonStatus } from "./kaval/useDaemonStatus";
+import { offerRestartVerb } from "./kaval/daemonPresentation";
+import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
@@ -513,14 +513,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         // PROVEN contract skew (`incompatible` — a restart respawns the same binary;
         // the skew card's "Update & restart kaval" is the recovery), AND over an
         // `unknown`/dead channel (#1793 affordance axis — the palette must not offer
-        // an action the channel can't carry out). Folding `localDaemonStatus()` with
-        // `daemonChannelLive()` gives the same presence the dialog uses, so the two
-        // surfaces can't disagree. (The button's `restartInFlight()` additionally
+        // an action the channel can't carry out). Reads `activeKavalPresence()` — the
+        // ONE named fold the dialog's action slot also reads — so the two surfaces
+        // can't disagree by construction. (The button's `restartInFlight()` additionally
         // folds a local-click signal the palette has no access to; the server's
         // restart coalescer backstops the click-but-not-yet-warming race.)
-        ...(offerRestartVerb(
-          toKavalPresence(localDaemonStatus(), daemonChannelLive()),
-        )
+        ...(offerRestartVerb(activeKavalPresence())
           ? [
               {
                 kind: "action" as const,
