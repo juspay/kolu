@@ -48,7 +48,7 @@ const fired = vi.mocked(fireActivityAlert);
  *  `createRoot`; a signal/store write made after mount flushes on the next tick). */
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-type AgentState = "thinking" | "awaiting_user";
+type AgentState = "thinking" | "waiting" | "awaiting_user";
 const meta = (state: AgentState): TerminalMetadata =>
   ({ state: "active", agent: { state } }) as unknown as TerminalMetadata;
 /** A live terminal with NO detected agent — a plain shell, or an agent not yet
@@ -176,5 +176,102 @@ describe("useTerminalAlerts — agent-state transition diff", () => {
     await tick();
 
     expect(fired).not.toHaveBeenCalled();
+  });
+});
+
+// Reproduction pins for #1177 — "awaiting_user doesn't always chime". `waiting`
+// and `awaiting_user` share one alert class (`alertClass` → "notify"), and
+// `checkAgentFinished` fires only on ENTRY into that class (`notifies(prev)`
+// false). So a real human gate landing over an ALREADY-`waiting` row
+// (`waiting → awaiting_user`) is an intra-class move: the dock pip lights (it
+// reads `agent.state` directly) but the sound/OS notification is swallowed.
+// Intermittency is timing — whether the ~1s scrape catches the prompt before or
+// after the JSONL settles the prior turn to `waiting`.
+//
+// Per #1690 the inherited root-cause is a HYPOTHESIS to reproduce, not a fact to
+// extend: the RED pin below drives the exact transition through the live effect
+// and shows the alert is empirically swallowed today. The three GREEN controls
+// fence what the eventual fix must NOT break — today's `thinking → awaiting_user`
+// chime, no double-fire on a `waiting` row that merely churns, and no re-fire on
+// an `awaiting_user → waiting → awaiting_user` flap inside the scrape-settle
+// window (the trap the naive "`prev !== 'awaiting_user'`" shape would fall into).
+describe("useTerminalAlerts — #1177 awaiting_user chime", () => {
+  // RED: a genuine human gate (AskUserQuestion / permission prompt) that lands
+  // over an already-`waiting` row must chime. `it.fails` PINS the bug — the body
+  // asserts the CORRECT behavior (fires once) and currently throws because the
+  // shared-class entry gate suppresses it; flip `it.fails` → `it` when the fix
+  // lands. `a1` is `waiting` at mount (a first sighting, so no chime for the
+  // pre-existing state), then the prompt promotes it.
+  it.fails("RED: fires on waiting → awaiting_user (a gate over an already-waiting row)", async () => {
+    const { setStore, setIds } = harness();
+    setStore({ a1: meta("waiting") });
+    setIds([T("a1")]);
+    await tick(); // mount: first sighting of `a1` at `waiting`, no chime
+
+    setStore("a1", meta("awaiting_user")); // the human gate lands
+    await tick();
+
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(fired.mock.calls[0]?.[1]).toBe(T("a1"));
+  });
+
+  it("GREEN control: fires on thinking → awaiting_user (today's chime, must not regress)", async () => {
+    const { setStore, setIds } = harness();
+    setStore({ a1: meta("thinking") });
+    setIds([T("a1")]);
+    await tick();
+
+    setStore("a1", meta("awaiting_user"));
+    await tick();
+
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(fired.mock.calls[0]?.[1]).toBe(T("a1"));
+  });
+
+  it("GREEN control: a waiting row does NOT re-fire when the effect re-runs for a sibling", async () => {
+    // `a1` enters `waiting` (a legitimate turn-end chime, once). A SIBLING's
+    // later transition re-runs the whole diff effect while `a1` stays `waiting` —
+    // `a1` must not chime a second time. Pins that `waiting`-only churn (an effect
+    // re-run with no real change for that row) never double-fires.
+    const { setStore, setIds } = harness();
+    setStore({ a1: meta("thinking"), a2: meta("thinking") });
+    setIds([T("a1"), T("a2")]);
+    await tick();
+
+    setStore("a1", meta("waiting")); // a1 turn-end: one chime
+    await tick();
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(fired.mock.calls[0]?.[1]).toBe(T("a1"));
+
+    setStore("a2", meta("awaiting_user")); // sibling transition re-runs the effect
+    await tick();
+
+    // a2 chimed; a1 (still `waiting`) did NOT re-fire.
+    expect(fired).toHaveBeenCalledTimes(2);
+    expect(fired.mock.calls[1]?.[1]).toBe(T("a2"));
+  });
+
+  it("GREEN control: an awaiting_user → waiting → awaiting_user flap chimes exactly ONCE", async () => {
+    // The scrape-settle race: after a genuine `thinking → awaiting_user` chime,
+    // the ~1s poll can briefly read the prior turn's `waiting` and then flap back
+    // to `awaiting_user` as the JSONL settles. That re-entry must NOT re-chime.
+    // This passes today (both flap legs are intra-class) and is the control the
+    // naive "`prev !== 'awaiting_user'`" fix would BREAK — pinning that the fix
+    // needs a flap-debounce, not a bare per-state entry rule.
+    const { setStore, setIds } = harness();
+    setStore({ a1: meta("thinking") });
+    setIds([T("a1")]);
+    await tick();
+
+    setStore("a1", meta("awaiting_user")); // genuine gate: one chime
+    await tick();
+    expect(fired).toHaveBeenCalledTimes(1);
+
+    setStore("a1", meta("waiting")); // scrape briefly settles to the prior turn
+    await tick();
+    setStore("a1", meta("awaiting_user")); // …then flaps back
+    await tick();
+
+    expect(fired).toHaveBeenCalledTimes(1); // still ONE — no flap re-chime
   });
 });
