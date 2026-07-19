@@ -48,10 +48,14 @@ const hostSub = createRoot(() =>
   padiMap.useEntry(activeHost).cells.processMemory.use(),
 );
 
-/** The kolu-server process's RSS in bytes, or `null` before the first server
- *  yield (it's always a real number once a sample lands — the server measures
- *  itself). */
+/** The kolu-server process's RSS in bytes, or `null` before the first server yield —
+ *  FLOORED on transport liveness the same way {@link displayRss} floors the per-process
+ *  readings (#1793): when the ws delivering the figure is dead or silently half-open the
+ *  retained RSS is STALE, so it reads `null` rather than a frozen MB. Flooring HERE, at
+ *  the one reader, closes the KoluInfoDialog memory row AND every other consumer at once —
+ *  the reader is the knowing endpoint. */
 export function serverRssBytes(): number | null {
+  if (!daemonTransportLive()) return null;
   return sub.value()?.serverRssBytes ?? null;
 }
 

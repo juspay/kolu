@@ -2,7 +2,10 @@ import type { PadiLink } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { DAEMON_UNKNOWN_DOT, toneDot } from "../kaval/daemonPresentation";
 import {
+  dotForPadiPresence,
+  labelForPadiPresence,
   PADI_LINK_PRESENTATION,
+  type PadiPresence,
   padiBoundHostSegment,
   padiDot,
   toPadiPresence,
@@ -126,7 +129,7 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
         },
         null,
       ),
-    ).toEqual({ kind: "warming" });
+    ).toEqual({ kind: "unknown" });
     // Reconnect (transport live again, facts unchanged) — identity is confirmed again.
     expect(
       toPadiPresence(
@@ -142,9 +145,10 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     ).toMatchObject({ kind: "connected" });
   });
 
-  it("pre-first-value (link undefined), `connecting`, and `degraded` each read their own honest kind — never `connected`", () => {
+  it("pre-first-value (link undefined) ⇒ unknown; `connecting` ⇒ warming; `degraded` ⇒ down — each its own honest kind, never `connected`", () => {
+    // No link value yet ⇒ `unknown` (grey), same as a dead channel — not `warming`.
     expect(toPadiPresence(undefined, true, undefined, null)).toEqual({
-      kind: "warming",
+      kind: "unknown",
     });
     expect(toPadiPresence("connecting", true, undefined, null)).toEqual({
       kind: "warming",
@@ -163,5 +167,49 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     ).toEqual({
       kind: "down",
     });
+  });
+});
+
+describe("dotForPadiPresence / labelForPadiPresence — the dialog's dot+word, projected from presence (no raw link/live)", () => {
+  const connected: PadiPresence = {
+    kind: "connected",
+    identity: {
+      buildCommit: "c",
+      surfaceVersion: "1.1",
+      convergence: null,
+      lifetime: undefined,
+    },
+  };
+
+  it("dot: unknown is grey; connected/warming/down reuse the link tones", () => {
+    expect(dotForPadiPresence({ kind: "unknown" })).toBe(DAEMON_UNKNOWN_DOT);
+    expect(dotForPadiPresence(connected)).toBe(toneDot.ok);
+    expect(dotForPadiPresence({ kind: "warming" })).toBe(toneDot.warming);
+    expect(dotForPadiPresence({ kind: "down" })).toBe(toneDot.down);
+  });
+
+  it("label: unknown reads 'unknown'; the others read the PADI_LINK_PRESENTATION word", () => {
+    expect(labelForPadiPresence({ kind: "unknown" })).toBe("unknown");
+    expect(labelForPadiPresence(connected)).toBe(
+      PADI_LINK_PRESENTATION.connected.label,
+    );
+    expect(labelForPadiPresence({ kind: "warming" })).toBe(
+      PADI_LINK_PRESENTATION.connecting.label,
+    );
+    expect(labelForPadiPresence({ kind: "down" })).toBe(
+      PADI_LINK_PRESENTATION.degraded.label,
+    );
+  });
+
+  it("#1793: a not-live padi projects to grey 'unknown' — never green/connected off a stale link", () => {
+    const dead = toPadiPresence(
+      "connected",
+      false,
+      { commit: "c", surfaceVersion: "1.1" },
+      null,
+    );
+    expect(dead).toEqual({ kind: "unknown" });
+    expect(dotForPadiPresence(dead)).toBe(DAEMON_UNKNOWN_DOT);
+    expect(labelForPadiPresence(dead)).toBe("unknown");
   });
 });

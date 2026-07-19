@@ -31,8 +31,10 @@ import type {
 import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
+import { channelLive, toKavalPresence } from "../kaval/daemonPresentation";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import { type KavalAttention, kavalAttention } from "../kaval/kavalCurrency";
+import { restartInFlight } from "../kaval/useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
   daemonTransportLive,
@@ -40,9 +42,8 @@ import {
   kavalDot,
   reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
-import { channelLive } from "../kaval/daemonPresentation";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
-import { padiDot } from "../padi/padiPresentation";
+import { padiDot, toPadiPresence } from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
 import {
   dualDaemonSlotClass,
@@ -54,6 +55,7 @@ import {
 import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
+import { boundPadiConvergence } from "../ui/useDaemonInventory";
 import { activeHost, padiMap, setActiveHost } from "../wire";
 import { hostLabel, sameHost, statusTitle } from "./hostChipTone";
 
@@ -254,8 +256,11 @@ const PadiSubChip: Component<{
   const padi = useHostPadi(props.host);
   // Per-host identity (version for the tip).
   const identity = padiMap.entry(props.host).cells.identity.use();
+  // Floor the surface version AT THE READER on `padi.live()` (#1793): the per-host
+  // `identity` cell freezes stale over a dead link, so an unfloored version would leak
+  // "contract v9.9" into the chip tooltip. Undefined when not live → the tip omits it.
   const padiVersion = (): string | undefined =>
-    identity.value()?.surfaceVersion;
+    padi.live() ? identity.value()?.surfaceVersion : undefined;
   const padiStartedAt = (): number | null => {
     const raw = identity.value()?.startedAt;
     if (raw === undefined) return null;
@@ -308,9 +313,12 @@ const PadiSubChip: Component<{
         <PadiInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          link={padi.link()}
-          live={padi.live()}
-          identity={identity.value()}
+          presence={toPadiPresence(
+            padi.link(),
+            padi.live(),
+            identity.value(),
+            boundPadiConvergence(),
+          )}
           startedAt={padiStartedAt()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
@@ -331,8 +339,12 @@ const KavalSubChip: Component<{
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
   const padiStatus = padiMap.entry(props.host).cells.status.use();
+  // Floor the contract version AT THE READER on `kaval.live()` (#1793): the raw
+  // `daemon()` freezes stale over a dead channel, so an unfloored version would leak
+  // "contract v5.2" into the chip tooltip (`kavalTip`) exactly as the dialog badge did.
+  // Undefined when not live → the tip omits the contract line, like the other readers.
   const kavalVersion = (): string | undefined =>
-    kaval.daemon()?.contractVersion;
+    kaval.live() ? kaval.daemon()?.contractVersion : undefined;
   const kavalStateText = (): string => {
     if (!kaval.live()) return "unknown";
     const state = kaval.daemon()?.state;
@@ -407,8 +419,9 @@ const KavalSubChip: Component<{
         <KavalInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          status={kaval.daemon()}
-          live={kaval.live()}
+          presence={toKavalPresence(kaval.daemon(), kaval.live())}
+          attention={attention()}
+          restartInFlight={restartInFlight(kaval.daemon())}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />

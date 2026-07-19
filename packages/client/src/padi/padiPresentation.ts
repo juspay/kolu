@@ -10,6 +10,7 @@
  *  "ok/warming/down/unknown" looks like. */
 
 import type { PadiConvergence, PadiLink } from "kolu-common/surface";
+import { match } from "ts-pattern";
 import {
   DAEMON_UNKNOWN_DOT,
   type DaemonLifetimeView,
@@ -75,13 +76,19 @@ export type PadiIdentityView = {
  *  `padiLink`/the identity cell's raw value etc. directly. */
 export type PadiPresence =
   | { kind: "connected"; identity: PadiIdentityView }
+  /** A LIVE link coming up — `connecting`, or `connected` before its identity cell has
+   *  arrived. Warms (pulses), never green, never a fact. */
   | { kind: "warming" }
+  /** No trustworthy state at all — a dead/half-open channel (not live) or pre-first-value.
+   *  Grey "unknown", distinct from `warming` (the {@link dotForKavalPresence} `unknown`
+   *  twin): a dead channel must not paint a warming pulse implying "coming up" (#1793). */
+  | { kind: "unknown" }
   | { kind: "down" };
 
 /** Project the raw wire facts into the client's own honest {@link PadiPresence} — the
  *  ONE place "connected" is decided. Floored on `live` (the browser↔kolu-server ws
  *  liveness) exactly like {@link padiDot}: a dead/half-open channel can't confirm ANY
- *  state, so it folds to `warming` (never a stale "connected" claim over a value the
+ *  state, so it folds to `unknown` (never a stale "connected" claim over a value the
  *  dead channel can no longer refresh).
  *
  *  `identity` is the ACTIVE host's per-host `identity` cell value (`padiMap.useEntry
@@ -105,11 +112,14 @@ export function toPadiPresence(
     | undefined,
   convergence: PadiConvergence | null,
 ): PadiPresence {
-  if (!live || link === undefined || link === "connecting")
-    return { kind: "warming" };
+  // A dead/half-open channel or pre-first-value can't confirm ANY state → `unknown`.
+  if (!live || link === undefined) return { kind: "unknown" };
+  // A LIVE link still coming up.
+  if (link === "connecting") return { kind: "warming" };
   if (link === "degraded") return { kind: "down" };
   // link === "connected": the identity cell PENDING (not yet arrived) is a genuinely
-  // unknown state, never a synthesized "connected with no commit" — fold to warming.
+  // unknown-identity state, never a synthesized "connected with no commit" — fold to
+  // warming (LIVE, coming up), not `unknown`.
   if (identity === undefined) return { kind: "warming" };
   return {
     kind: "connected",
@@ -120,6 +130,39 @@ export function toPadiPresence(
       lifetime: identity.lifetime,
     },
   };
+}
+
+/** The padi status DOT's tone class, projected from {@link PadiPresence} — the
+ *  presence-sourced sibling of {@link padiDot} (which the RAIL still calls with the raw
+ *  `(link, live)` pair). The dialog has no raw `link`/`live` any more, so its dot reads
+ *  THIS. `unknown` is grey; `connected`/`warming`/`down` reuse {@link PADI_LINK_PRESENTATION}'s
+ *  tone so the dot can't drift from the word. */
+export function dotForPadiPresence(presence: PadiPresence): string {
+  return match(presence)
+    .with({ kind: "unknown" }, () => DAEMON_UNKNOWN_DOT)
+    .with(
+      { kind: "connected" },
+      () => toneDot[PADI_LINK_PRESENTATION.connected.tone],
+    )
+    .with(
+      { kind: "warming" },
+      () => toneDot[PADI_LINK_PRESENTATION.connecting.tone],
+    )
+    .with({ kind: "down" }, () => toneDot[PADI_LINK_PRESENTATION.degraded.tone])
+    .exhaustive();
+}
+
+/** The padi status WORD, projected from {@link PadiPresence} — the dialog's status label.
+ *  `unknown` reads the "connecting…" pending word's absence honestly as "unknown"; the
+ *  other arms read {@link PADI_LINK_PRESENTATION}'s label so a `warming` still reads
+ *  "connecting…" and a `down` reads "disconnected". */
+export function labelForPadiPresence(presence: PadiPresence): string {
+  return match(presence)
+    .with({ kind: "unknown" }, () => "unknown")
+    .with({ kind: "connected" }, () => PADI_LINK_PRESENTATION.connected.label)
+    .with({ kind: "warming" }, () => PADI_LINK_PRESENTATION.connecting.label)
+    .with({ kind: "down" }, () => PADI_LINK_PRESENTATION.degraded.label)
+    .exhaustive();
 }
 
 /** The Padi host-chip REMOTE-HOST segment — names WHERE padi is and reads as

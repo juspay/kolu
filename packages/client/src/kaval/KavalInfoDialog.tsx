@@ -9,11 +9,10 @@
  *  `boundHostKavals()`/`localScanKavals()` ride `useHostInventory`/`useDaemonInventory`
  *  per that same table. */
 
-import type { DaemonStatus } from "@kolu/padi/surface";
 import { isCleanRef } from "@kolu/surface-app";
 import type { RunningKaval } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { createMemo, Show } from "solid-js";
+import { Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
@@ -25,23 +24,21 @@ import { daemonScanBoundHost, localScanKavals } from "../ui/useDaemonInventory";
 import {
   boundHostInventoryLive,
   boundHostKavals,
+  boundHostScan,
 } from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import {
+  dotForKavalPresence,
   formatLifetime,
   type KavalPresence,
-  toKavalPresence,
+  labelForKavalPresence,
 } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
-import { type KavalAttention, kavalAttention } from "./kavalCurrency";
+import type { KavalAttention } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
 import UpdateKavalButton from "./UpdateKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
-import {
-  DAEMON_STATE_PRESENTATION,
-  formatUptime,
-  kavalDot,
-} from "./useDaemonStatus";
+import { formatUptime } from "./useDaemonStatus";
 
 export const KAVAL_LOGO_URL = new URL(
   "../../../kaval/logo.svg",
@@ -110,38 +107,42 @@ const RunningKavalRow: Component<{ kaval: RunningKaval }> = (props) => (
 const KavalInfoDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  status: DaemonStatus | undefined;
+  /** THIS host's daemon presence — the dialog's SOLE daemon input. There is no raw
+   *  `status` prop: a connected-era fact (contractVersion, socketPath, build commit,
+   *  uptime, lifetime) can only be read off `presence`'s `connected` arm, which
+   *  `toKavalPresence` (folded at the CALL SITE on this host's channel liveness) yields
+   *  only over a live link. "render a fact while not live" is therefore a type error
+   *  (#1793), not a review catch. */
+  presence: KavalPresence;
+  /** The joined attention verdict (SK5) — folded at the call site (already floored on
+   *  liveness), so the update/skew banners can't be painted over a dead channel either. */
+  attention: KavalAttention;
+  /** Whether a kaval restart is in flight — gates the Restart button. Computed at the
+   *  call site (`restartInFlight`), so the dialog needs no raw status for it. */
+  restartInFlight: boolean;
   triggerRef: () => HTMLElement | undefined;
   /** Host this panel describes — shown under the title so the anchor is obvious. */
   hostLabel: string;
-  /** Channel liveness for THIS host's status (not necessarily the canvas active host). */
-  live: boolean;
 }> = (props) => {
   const clockNow = getClockNow();
-  // Floored on props.live (this host's channel), not the canvas active host's
-  // daemonChannelLive — so a panel opened on an inactive host still paints that
-  // host honestly without switching the canvas.
-  const presence = createMemo<KavalPresence>(() =>
-    toKavalPresence(props.status, props.live),
-  );
   const connected = ():
     | Extract<KavalPresence, { kind: "connected" }>
     | undefined => {
-    const p = presence();
+    const p = props.presence;
     return p.kind === "connected" ? p : undefined;
   };
-  // The ONE attention derivation (SK5) — the same joined verdict the host-chip
-  // pip/tooltip and the canvas skew card read, so the surfaces can't disagree.
-  const attention = (): KavalAttention =>
-    kavalAttention(expectedKaval()?.staleKey, props.status, props.live);
-  const pending = (): boolean => attention().kind === "stale";
+  const pending = (): boolean => props.attention.kind === "stale";
   const incompatible = () => {
-    const a = attention();
+    const a = props.attention;
     return a.kind === "incompatible" ? a : undefined;
   };
   // Opening a daemon icon switches the canvas to that host first, so these
-  // active-host readouts keep the same information surface as master.
+  // active-host readouts keep the same information surface as master. Floored on
+  // `boundHostInventoryLive()` (#1793): a dead/drained inventory cell freezes its rows
+  // stale, so an unfloored read would show a converge nudge over a channel that can no
+  // longer confirm it — the same class the presence fold closes for the fact rows.
   const convergePending = (): boolean =>
+    boundHostInventoryLive() &&
     boundHostKavals().some((k) => k.held.active && k.held.atLegacyAddress);
 
   return (
@@ -154,7 +155,9 @@ const KavalInfoDialog: Component<{
       contextLabel={props.hostLabel}
       triggerRef={props.triggerRef}
       version={
-        <Show when={props.status?.contractVersion}>
+        // The contract badge is a connected-era FACT — read off the `connected` arm only,
+        // so a stale-but-truthy version can't paint over a dead channel (#1793).
+        <Show when={connected()?.contractVersion}>
           {(v) => <VersionChip>contract v{v()}</VersionChip>}
         </Show>
       }
@@ -173,35 +176,27 @@ const KavalInfoDialog: Component<{
             </div>
           )}
         </Show>
-        <Show
-          when={props.status}
-          fallback={<span class="text-xs text-fg-3">status unavailable</span>}
-        >
-          {(s) => (
-            <div class="flex min-w-0 items-center gap-2">
-              <span
-                class={`inline-block h-2 w-2 rounded-full ${kavalDot(s().state, props.live)}`}
-              />
-              <Show
-                when={props.live}
-                fallback={
-                  <span class="text-xs font-medium text-fg-3">unknown</span>
-                }
-              >
-                <span class="text-xs font-medium text-fg">
-                  {DAEMON_STATE_PRESENTATION[s().state].label}
-                </span>
-              </Show>
-              <Show when={props.live && s().startedAt}>
-                {(t) => (
-                  <span class="truncate text-[11px] tabular-nums text-fg-3">
-                    up {formatUptime(clockNow() - t())}
-                  </span>
-                )}
-              </Show>
-            </div>
-          )}
-        </Show>
+        {/* Dot + word are projected from `presence` ({@link dotForKavalPresence}/
+            {@link labelForKavalPresence}) — there is no raw `state`/`live` here. `unknown`
+            (dead/half-open channel or no value) reads grey + "unknown"; uptime shows only
+            for a confirmed `connected` kaval (its `startedAt`), never off a stale value. */}
+        <div class="flex min-w-0 items-center gap-2">
+          <span
+            class={`inline-block h-2 w-2 rounded-full ${dotForKavalPresence(props.presence)}`}
+          />
+          <span
+            class={`text-xs font-medium ${props.presence.kind === "unknown" ? "text-fg-3" : "text-fg"}`}
+          >
+            {labelForKavalPresence(props.presence)}
+          </span>
+          <Show when={connected()?.startedAt}>
+            {(t) => (
+              <span class="truncate text-[11px] tabular-nums text-fg-3">
+                up {formatUptime(clockNow() - t())}
+              </span>
+            )}
+          </Show>
+        </div>
       </div>
 
       <div class="space-y-1">
@@ -218,16 +213,18 @@ const KavalInfoDialog: Component<{
               the ssh host, so its socketPath is a path THERE (not locally meaningful);
               name the host instead, matching PadiInfoDialog. The real remote path stays in
               the title for diagnostics. */}
+          {/* The socket path is a connected-era FACT — read off the `connected` arm only,
+              so a stale path can't leak over a dead channel (#1793). */}
           <Show
             when={daemonScanBoundHost()}
             fallback={
-              <span title={props.status?.socketPath}>
-                {props.status?.socketPath ?? "unavailable"}
+              <span title={connected()?.socketPath}>
+                {connected()?.socketPath ?? "unavailable"}
               </span>
             }
           >
             {(host) => (
-              <span title={props.status?.socketPath}>ssh · {host()}</span>
+              <span title={connected()?.socketPath}>ssh · {host()}</span>
             )}
           </Show>
         </DetailRow>
@@ -278,7 +275,10 @@ const KavalInfoDialog: Component<{
           <p class="font-medium text-warning">Newer Kaval build available</p>
           <p class="mt-1 flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-fg-3">
             <span>running</span>
-            <Commit sha={props.status?.identity?.navigableCommit} />
+            {/* The running build is a connected-era fact — a stale kaval that is UPDATE-
+                pending is still `connected` (live) in the fold, so this reads the confirmed
+                identity, never a raw stale commit over a dead channel (#1793). */}
+            <Commit sha={connected()?.identity.navigableCommit} />
             <span>expected</span>
             <Commit sha={expectedKaval()?.navigableCommit} />
           </p>
@@ -305,7 +305,7 @@ const KavalInfoDialog: Component<{
         fallback={
           <div class="space-y-2">
             <RestartKavalButton
-              status={props.status}
+              inFlight={props.restartInFlight}
               tone="neutral"
               onConfirm={() => {
                 props.onOpenChange(false);
@@ -340,7 +340,7 @@ const KavalInfoDialog: Component<{
         noun="kaval"
         testidPrefix="kaval"
         boundHost={daemonScanBoundHost()}
-        live={boundHostInventoryLive()}
+        scan={boundHostScan()}
         boundHostRows={boundHostKavals()}
         localScanRows={localScanKavals()}
         renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}

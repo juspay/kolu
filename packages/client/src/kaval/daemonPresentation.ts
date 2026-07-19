@@ -339,11 +339,23 @@ export type KavalIdentity = NonNullable<DaemonStatus["identity"]>;
  *  survivor predating the field reports none), so this is the non-null shape. */
 export type DaemonLifetimeView = NonNullable<DaemonStatus["lifetime"]>;
 
-/** The kaval dialog/rail's own honest presence sum — see the module section header.
- *  `down`'s `state` mirrors {@link DAEMON_STATE_PRESENTATION}'s down bucket
- *  (`dead`/`degraded`); `warming` covers EVERY case that is not a confirmed, identified
- *  connection: pre-first-value, a dead/half-open channel, `connecting`/`restarting`, and
- *  a `connected` wire status whose `identity` has not (yet) arrived. */
+/** The kaval dialog's own honest presence sum — the dialog's SOLE daemon input (there is
+ *  no `props.status` at the render site any more, so a connected-era fact can only be read
+ *  off the `connected` arm; "render a fact while not live" is a type error, #1793). Two
+ *  orthogonal facets travel together, deliberately:
+ *
+ *  - `kind` is the FACT-GATE — the only arm carrying the connected-era facts
+ *    (contractVersion, socketPath, identity, startedAt, lifetime) is `connected`, reached
+ *    only over a live link with an arrived identity. Every other arm carries NO fact.
+ *  - `state` (on `warming`/`down`) is the PRESENTATION facet — the fine `DaemonState` the
+ *    dot tone and the status word derive from ({@link dotForKavalPresence}/
+ *    {@link labelForKavalPresence}), so a live `restarting` still reads "restarting…" and
+ *    a live pre-identity `connected` still reads "running", losslessly. `state` is coarse
+ *    liveness, NOT a fact — it can never spell a socket path or a contract version.
+ *
+ *  `unknown` (dead/half-open channel or pre-first-value) is DISTINCT from `warming`
+ *  (a LIVE link coming up): the dot must read grey "unknown", never a warming pulse that
+ *  implies "coming up" over a dead channel. */
 export type KavalPresence =
   | {
       kind: "connected";
@@ -355,7 +367,14 @@ export type KavalPresence =
        *  test/smoke run). `undefined` for a survivor predating the wire field. */
       lifetime: DaemonLifetimeView | undefined;
     }
-  | { kind: "warming" }
+  /** A LIVE link coming up: `connecting`/`restarting`, or a `connected` wire status whose
+   *  `identity` has not (yet) arrived (`state: "connected"` → still reads "running", but no
+   *  facts are trustworthy yet). */
+  | { kind: "warming"; state: "connecting" | "restarting" | "connected" }
+  /** No trustworthy state at all — a dead/half-open channel (not live) or pre-first-value.
+   *  Grey "unknown", never a definite verdict painted off a value the dead channel can no
+   *  longer confirm (the #1568 floor). */
+  | { kind: "unknown" }
   | { kind: "down"; state: "dead" | "degraded" }
   /** The PROVEN contract skew (SK4) — its own arm, never folded into `down`
    *  (a restart can fix `down`; nothing but a closure change fixes this) and
@@ -371,13 +390,13 @@ export type KavalPresence =
  *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
  *  Floored on `live` exactly like {@link kavalDot}/{@link liveWarming}/
  *  {@link liveDownState}: a dead/half-open channel can't confirm ANY state, so it folds
- *  to `warming` (never a stale "connected" claim over a value the dead channel can no
+ *  to `unknown` (never a stale "connected" claim over a value the dead channel can no
  *  longer refresh). */
 export function toKavalPresence(
   status: DaemonStatus | undefined,
   live: boolean,
 ): KavalPresence {
-  if (!live || status === undefined) return { kind: "warming" };
+  if (!live || status === undefined) return { kind: "unknown" };
   if (status.state === "dead" || status.state === "degraded")
     return { kind: "down", state: status.state };
   if (status.state === "incompatible") {
@@ -386,8 +405,10 @@ export function toKavalPresence(
     // them (`liveDownState`'s canvas card, `kavalAttention`'s chip/banner).
     return { kind: "incompatible" };
   }
-  if (status.state !== "connected") return { kind: "warming" }; // connecting | restarting
-  if (status.identity === undefined) return { kind: "warming" }; // pre-identity survivor
+  if (status.state !== "connected")
+    return { kind: "warming", state: status.state }; // connecting | restarting
+  if (status.identity === undefined)
+    return { kind: "warming", state: "connected" }; // pre-identity survivor
   return {
     kind: "connected",
     identity: status.identity,
@@ -396,6 +417,53 @@ export function toKavalPresence(
     socketPath: status.socketPath,
     lifetime: status.lifetime,
   };
+}
+
+/** The kaval status DOT's tone class, projected from {@link KavalPresence} — the
+ *  presence-sourced sibling of {@link kavalDot} (which the RAIL still calls with the raw
+ *  `(state, live)` pair). The dialog has no raw `state`/`live` any more, so its dot reads
+ *  THIS. `unknown` is grey; every other arm reuses {@link DAEMON_STATE_PRESENTATION}'s tone
+ *  off the arm's `state`, so the dot can never drift from the label. */
+export function dotForKavalPresence(presence: KavalPresence): string {
+  return match(presence)
+    .with({ kind: "unknown" }, () => DAEMON_UNKNOWN_DOT)
+    .with(
+      { kind: "connected" },
+      () => toneDot[DAEMON_STATE_PRESENTATION.connected.tone],
+    )
+    .with(
+      { kind: "warming" },
+      (p) => toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
+    )
+    .with(
+      { kind: "down" },
+      (p) => toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
+    )
+    .with(
+      { kind: "incompatible" },
+      () => toneDot[DAEMON_STATE_PRESENTATION.incompatible.tone],
+    )
+    .exhaustive();
+}
+
+/** The kaval status WORD, projected from {@link KavalPresence} — the dialog's status label.
+ *  `unknown` reads "unknown" (a dead channel / no value); every other arm reads
+ *  {@link DAEMON_STATE_PRESENTATION}'s label off the arm's `state`, so a live `restarting`
+ *  still reads "restarting…" and a live pre-identity `connected` still reads "running". */
+export function labelForKavalPresence(presence: KavalPresence): string {
+  return match(presence)
+    .with({ kind: "unknown" }, () => "unknown")
+    .with(
+      { kind: "connected" },
+      () => DAEMON_STATE_PRESENTATION.connected.label,
+    )
+    .with({ kind: "warming" }, (p) => DAEMON_STATE_PRESENTATION[p.state].label)
+    .with({ kind: "down" }, (p) => DAEMON_STATE_PRESENTATION[p.state].label)
+    .with(
+      { kind: "incompatible" },
+      () => DAEMON_STATE_PRESENTATION.incompatible.label,
+    )
+    .exhaustive();
 }
 
 /** Humanize a daemon's serialized lifetime for the Kaval/Padi dialog rows —

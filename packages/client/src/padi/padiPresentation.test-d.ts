@@ -66,5 +66,11 @@ void missingBuildCommit;
 // "connected but unknown" by `kind`, never by an absent-vs-present field.
 const warming: PadiPresence = { kind: "warming" };
 void warming;
+const unknown: PadiPresence = { kind: "unknown" };
+void unknown;
 const down: PadiPresence = { kind: "down" };
 void down;
+
+// @ts-expect-error — `unknown` carries NO payload: a connected-era fact cannot ride it.
+const unknownWithFact: PadiPresence = { kind: "unknown", identity: {} };
+void unknownWithFact;

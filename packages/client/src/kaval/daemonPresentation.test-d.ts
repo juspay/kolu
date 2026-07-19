@@ -45,7 +45,17 @@ void missingIdentity;
 // The non-connected arms carry no identity at all — legal, and distinct from
 // "connected but unknown" (the whole point: a render site can tell the two apart by
 // `kind`, never by an absent-vs-present field on the SAME kind).
-const warming: KavalPresence = { kind: "warming" };
+const warming: KavalPresence = { kind: "warming", state: "connecting" };
 void warming;
+const unknown: KavalPresence = { kind: "unknown" };
+void unknown;
 const down: KavalPresence = { kind: "down", state: "dead" };
 void down;
+
+// `unknown` carries NO payload: a connected-era fact cannot ride it.
+const unknownWithFact: KavalPresence = {
+  kind: "unknown",
+  // @ts-expect-error — contractVersion is not a member of the payload-less `unknown` arm.
+  contractVersion: "5.2",
+};
+void unknownWithFact;

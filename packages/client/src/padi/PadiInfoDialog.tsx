@@ -37,14 +37,9 @@
  *  `padiLink`/convergence through `padiMap`), not a permanent design choice — flagged in
  *  each hook's own module comment, out of this fix's file scope (client-only). */
 
-import type { PadiIdentity } from "@kolu/padi/surface";
-import type {
-  PadiConvergence,
-  PadiLink,
-  RunningPadi,
-} from "kolu-common/surface";
+import type { PadiConvergence, RunningPadi } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { createMemo, Show } from "solid-js";
+import { Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { formatLifetime } from "../kaval/daemonPresentation";
 import { formatUptime } from "../kaval/useDaemonStatus";
@@ -62,13 +57,13 @@ import {
   activePadi,
   boundHostInventoryLive,
   boundHostPadis,
+  boundHostScan,
 } from "../ui/useHostInventory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import {
-  PADI_LINK_PRESENTATION,
+  dotForPadiPresence,
+  labelForPadiPresence,
   type PadiPresence,
-  padiDot,
-  toPadiPresence,
 } from "./padiPresentation";
 
 /** A "—" for an honestly-unknown value. */
@@ -156,35 +151,32 @@ const ConvergenceBanner: Component<{ conv: PadiConvergence }> = (props) => {
 const PadiInfoDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  link: PadiLink | undefined;
+  /** THIS host's padi presence — the dialog's SOLE link/identity input. There is no raw
+   *  `link`/`identity` prop: a connected-era fact (surfaceVersion, build commit, lifetime)
+   *  can only be read off `presence`'s `connected` arm, folded at the CALL SITE on this
+   *  host's liveness. "render a fact while not live" is a type error (#1793). */
+  presence: PadiPresence;
   triggerRef: () => HTMLElement | undefined;
   /** Host this panel describes — shown under the title so the anchor is obvious. */
   hostLabel: string;
-  /** Channel liveness for THIS host (not necessarily the canvas active host). */
-  live: boolean;
-  /** Padi identity for THIS host, undefined until that host's identity cell lands. */
-  identity: PadiIdentity | undefined;
-  /** THIS host's padi boot time after reprojecting onto the browser clock. */
+  /** THIS host's padi boot time after reprojecting onto the browser clock. Gated behind
+   *  `connected()` below, so a stale boot time never paints an uptime over a dead link. */
   startedAt: number | null;
 }> = (props) => {
   const clockNow = getClockNow();
-  // Presence floors on props.live and props.identity for THIS host. Opening a
-  // daemon icon switches the canvas to that host first, so the active-host
-  // detail sections below keep the same information surface as master.
-  const presence = createMemo<PadiPresence>(() =>
-    toPadiPresence(
-      props.link,
-      props.live,
-      props.identity,
-      boundPadiConvergence(),
-    ),
-  );
   const connected = ():
     | Extract<PadiPresence, { kind: "connected" }>
     | undefined => {
-    const p = presence();
+    const p = props.presence;
     return p.kind === "connected" ? p : undefined;
   };
+  // The bound padi's socket, FLOORED on the bound-host scan liveness (#1793): a dead ssh
+  // link / drain window freezes the re-served inventory cell stale, so an unfloored
+  // `activePadi()?.socket` would leak a socket path over a channel that can no longer
+  // confirm it — the same class the presence fold closes for the fact rows, in the scan
+  // source Padi's socket row happens to read from.
+  const boundSocket = (): string | undefined =>
+    boundHostInventoryLive() ? activePadi()?.socket : undefined;
   return (
     <InfoDialogShell
       open={props.open}
@@ -220,29 +212,18 @@ const PadiInfoDialog: Component<{
           )}
         </Show>
         <div class="flex min-w-0 items-center gap-2">
-          <span
-            class={`inline-block h-2 w-2 rounded-full ${padiDot(props.link, props.live)}`}
-          />
-          {/* The connection label is derived from `presence()` (P4): `connected` is
+          {/* Dot + word projected from `presence` ({@link dotForPadiPresence}/
+              {@link labelForPadiPresence}) — no raw `link`/`live` at the render site.
+              `unknown` (dead channel / no value) reads grey + "unknown"; `connected` is
               reached ONLY once identity is confirmed (never a bare wire `"connected"`
-              beside an unconfirmed dash); `warming`/`down` read the SAME honest
-              "connecting…"/"disconnected" wording the Padi status table already
-              uses — never the retired ad hoc "unknown" string. */}
-          <span class="text-xs font-medium text-fg">
-            {match(presence())
-              .with(
-                { kind: "connected" },
-                () => PADI_LINK_PRESENTATION.connected.label,
-              )
-              .with(
-                { kind: "warming" },
-                () => PADI_LINK_PRESENTATION.connecting.label,
-              )
-              .with(
-                { kind: "down" },
-                () => PADI_LINK_PRESENTATION.degraded.label,
-              )
-              .exhaustive()}
+              beside an unconfirmed dash). */}
+          <span
+            class={`inline-block h-2 w-2 rounded-full ${dotForPadiPresence(props.presence)}`}
+          />
+          <span
+            class={`text-xs font-medium ${props.presence.kind === "unknown" ? "text-fg-3" : "text-fg"}`}
+          >
+            {labelForPadiPresence(props.presence)}
           </span>
           {/* Uptime, mirroring the Kaval dialog: `now − startedAt`, shown only for a
               CONFIRMED-connected padi with a known boot time — otherwise the retained
@@ -277,8 +258,8 @@ const PadiInfoDialog: Component<{
           <Show
             when={daemonScanBoundHost()}
             fallback={
-              <span title={activePadi()?.socket}>
-                {activePadi()?.socket ?? "unavailable"}
+              <span title={boundSocket()}>
+                {boundSocket() ?? "unavailable"}
               </span>
             }
           >
@@ -309,7 +290,7 @@ const PadiInfoDialog: Component<{
         noun="padi"
         testidPrefix="padi"
         boundHost={daemonScanBoundHost()}
-        live={boundHostInventoryLive()}
+        scan={boundHostScan()}
         boundHostRows={boundHostPadis()}
         localScanRows={localScanPadis()}
         renderRow={(padi) => <RunningPadiRow padi={padi} />}
