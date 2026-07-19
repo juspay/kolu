@@ -48,10 +48,14 @@ const hostSub = createRoot(() =>
   padiMap.useEntry(activeHost).cells.processMemory.use(),
 );
 
-/** The kolu-server process's RSS in bytes, or `null` before the first server
- *  yield (it's always a real number once a sample lands — the server measures
- *  itself). */
+/** The kolu-server process's RSS in bytes, or `null` before the first server yield —
+ *  FLOORED on transport liveness the same way {@link displayRss} floors the per-process
+ *  readings (#1793): when the ws delivering the figure is dead or silently half-open the
+ *  retained RSS is STALE, so it reads `null` rather than a frozen MB. Flooring HERE, at
+ *  the one reader, closes the KoluInfoDialog memory row AND every other consumer at once —
+ *  the reader is the knowing endpoint. */
 export function serverRssBytes(): number | null {
+  if (!daemonTransportLive()) return null;
   return sub.value()?.serverRssBytes ?? null;
 }
 
@@ -76,11 +80,20 @@ function displayRss(
  *  {@link displayRss}). padi measures itself, so it is `ok` whenever that host's
  *  `identity`/`processMemory` cells have a live padi to read; `null`/`error`
  *  surface a down/unreadable padi honestly. Rides {@link hostSub} — re-keys when
- *  the active host switches (W4 "the switch"). */
+ *  the active host switches (W4 "the switch").
+ *
+ *  Floored on `daemonChannelLive()` (ws ∧ the active entry's own connection), the SAME
+ *  entry leg {@link kavalMemoryDisplay} folds and the Padi dialog's presence gate uses
+ *  (#1793): when the active REMOTE entry's ssh link fails/(re)establishes while the
+ *  browser transport stays live, the re-served per-host `processMemory` cell FREEZES at
+ *  its last value — so an unfloored read would show a stale RSS figure beside an
+ *  "unknown"/"disconnected" padi. The entry floor hides it, keeping the memory row and the
+ *  status pill from drifting. */
 export function padiMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
+  if (!daemonChannelLive()) return null;
   return displayRss(hostSub.value()?.padi);
 }
 

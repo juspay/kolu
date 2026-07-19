@@ -30,7 +30,7 @@ import {
 import type { HostKey } from "kolu-common/hostKey";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { offerRestartVerb } from "./kaval/daemonPresentation";
-import { daemonWarming, downState } from "./kaval/useDaemonStatus";
+import { activeKavalPresence } from "./kaval/useDaemonStatus";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
@@ -507,18 +507,18 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         // kaval rail dialog and the degraded canvas are the primary,
         // state-contextual surfaces; this is the keyboard/search path (the
         // palette flattens leaves, so typing "restart"/"kaval" finds it).
-        // Hidden while the daemon is already warming (a restart in flight or
-        // booting) so the palette never offers what would be a no-op.
-        // Intentionally gates on the weaker `daemonWarming()` — not the button's
-        // `restartInFlight()`, which also folds in the local-click signal the
-        // palette has no access to. So in the click-but-not-yet-warming window a
-        // palette-then-button double-fire isn't caught here; the server's
-        // restart coalescer is the backstop for that race. ALSO omitted on a
-        // PROVEN contract skew (SK4): a restart provably respawns the same
-        // incompatible binary, so the palette must not offer the dead-end verb
-        // the skew card exists to replace (its recovery is "Update & restart
-        // kaval", offered state-contextually on the card/dialog).
-        ...(offerRestartVerb(daemonWarming(), downState())
+        // Offered as a TOTAL FUNCTION of the active kaval's presence sum
+        // ({@link offerRestartVerb}, the same fold the dialog action slot reads):
+        // hidden while `warming` (a restart in flight / booting — a no-op), on a
+        // PROVEN contract skew (`incompatible` — a restart respawns the same binary;
+        // the skew card's "Update & restart kaval" is the recovery), AND over an
+        // `unknown`/dead channel (#1793 affordance axis — the palette must not offer
+        // an action the channel can't carry out). Reads `activeKavalPresence()` — the
+        // ONE named fold the dialog's action slot also reads — so the two surfaces
+        // can't disagree by construction. (The button's `restartInFlight()` additionally
+        // folds a local-click signal the palette has no access to; the server's
+        // restart coalescer backstops the click-but-not-yet-warming race.)
+        ...(offerRestartVerb(activeKavalPresence())
           ? [
               {
                 kind: "action" as const,

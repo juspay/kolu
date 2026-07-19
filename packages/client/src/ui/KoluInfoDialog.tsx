@@ -33,6 +33,13 @@ const KoluInfoDialog: Component<{
 }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const server = () => pwa.server();
+  // The connected-era-fact gate, folded ONCE (#1793): server version + commit are
+  // facts off `pwa.server()` that only hold over a LIVE transport, so read every
+  // server-fact site through `liveServer()` rather than re-AND-ing `props.live` at
+  // each one. A dead/half-open link yields `undefined` here, so no site can assert a
+  // definite "v5.2"/SHA beside a "disconnected" status pill. (Uptime below reads a
+  // DIFFERENT accessor, `serverStartedAt()`, and keeps its own gate.)
+  const liveServer = () => (props.live ? server() : undefined);
   const clockNow = getClockNow();
 
   return (
@@ -44,7 +51,8 @@ const KoluInfoDialog: Component<{
       name="Kolu"
       triggerRef={props.triggerRef}
       version={
-        <Show when={server()?.version}>
+        // A connected-era fact — read through the folded `liveServer()` gate (#1793).
+        <Show when={liveServer()?.version}>
           {(v) => <VersionChip>v{v()}</VersionChip>}
         </Show>
       }
@@ -79,7 +87,11 @@ const KoluInfoDialog: Component<{
 
       <div class="space-y-1">
         <DetailRow label="server commit">
-          <Commit sha={server()?.commit} />
+          {/* The server commit is a connected-era fact — read through the folded
+              `liveServer()` gate (#1793), so a dead transport reads an honest "—" rather
+              than a stale SHA. The BROWSER commit below is a local build constant (not
+              delivered over the transport), so it stays ungated. */}
+          <Commit sha={liveServer()?.commit} />
         </DetailRow>
         <DetailRow label="browser commit">
           <Commit sha={pwa.clientCommit} />

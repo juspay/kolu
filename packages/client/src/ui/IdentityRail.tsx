@@ -32,15 +32,26 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   let triggerEl!: HTMLButtonElement;
   const stale = clientStale;
 
+  // The server build (version + commit), floored on liveness ONCE (#1793) — read every
+  // server-fact site through this rather than re-AND-ing `daemonLive()` at each one, matching
+  // the sibling KoluInfoDialog's `liveServer` fold. Over a dead transport the always-reachable
+  // tooltip stops asserting a definite "server v9.9" off a retained build the channel can't
+  // confirm. (`serverRssBytes()` is already floored; the client commit/heap are local.)
+  const liveServer = () => (daemonLive() ? pwa.server() : undefined);
   const koluTip = (): string =>
     joinTip(
       `kolu ${props.status}${daemonLive() ? "" : " (watchdog reconnecting)"}`,
-      pwa.server()?.version ? `server v${pwa.server()?.version}` : undefined,
-      pwa.server()?.commit ? `server ${pwa.server()?.commit}` : undefined,
+      liveServer()?.version ? `server v${liveServer()?.version}` : undefined,
+      liveServer()?.commit ? `server ${liveServer()?.commit}` : undefined,
       `server RSS ${mbText(serverRssBytes())}`,
-      stale()
-        ? "client build differs from server"
-        : "client build matches server",
+      // The build-vs-server verdict: `stale()` already floors to `false` off a dead transport
+      // (StaleBadge), but the outer `daemonLive()` gate distinguishes "unknown" (undefined)
+      // from a definite "matches" — so a dead channel asserts NEITHER.
+      daemonLive()
+        ? stale()
+          ? "client build differs from server"
+          : "client build matches server"
+        : undefined,
       pwa.clientCommit ? `client ${pwa.clientCommit}` : undefined,
       `client heap ${mbText(clientHeapUsedBytes())}`,
     );

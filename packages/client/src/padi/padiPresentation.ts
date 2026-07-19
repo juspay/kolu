@@ -2,16 +2,18 @@
  *  `padiLink` → tone/label table the host-chip dot and the Padi dialog read.
  *
  *  Mirrors kaval's `daemonPresentation`: the padi status dot is the padiLink sibling
- *  of {@link kavalDot}, floored on transport liveness the same way (a dead
+ *  of {@link kavalPresencePresentation}, floored on transport liveness the same way (a dead
  *  browser↔kolu-server ws leaves the retained `padiLink` STALE, so the dot reads the
  *  grey "unknown" tone rather than a definite verdict painted off a value the dead
  *  channel can no longer confirm). Reuses `toneDot` + `DAEMON_UNKNOWN_DOT` from
  *  `daemonPresentation` so the padi and kaval dots can't drift on what
  *  "ok/warming/down/unknown" looks like. */
 
-import type { PadiConvergence, PadiLink } from "kolu-common/surface";
+import type { PadiLink } from "kolu-common/surface";
+import { match } from "ts-pattern";
 import {
   DAEMON_UNKNOWN_DOT,
+  DAEMON_UNKNOWN_LABEL,
   type DaemonLifetimeView,
   type DaemonTone,
   toneDot,
@@ -31,19 +33,6 @@ export const PADI_LINK_PRESENTATION: Record<
   degraded: { tone: "down", label: "disconnected" },
 };
 
-/** The `padi` status dot's tone class, FLOORED on transport liveness — the
- *  `padiLink` sibling of {@link kavalDot}. `link` is kolu-server's binding-to-padi
- *  state off koluSurface's `padiLink` cell; `live` is the watchdog-backed liveness
- *  of the ws that delivers it. When `live` is false (transport dead / silently
- *  half-open) the retained link value is STALE — the channel that would refresh it
- *  is gone — so the dot reads the grey "unknown" tone, NEVER a definite verdict off
- *  a value the dead channel can't confirm. A known link can only REFINE the tone
- *  WITHIN a live link; it can never claim a verdict over a dead one. */
-export function padiDot(link: PadiLink | undefined, live: boolean): string {
-  if (!live || !link) return DAEMON_UNKNOWN_DOT;
-  return toneDot[PADI_LINK_PRESENTATION[link].tone];
-}
-
 /** padi's honest identity, once known — the fields the Padi dialog shows for a
  *  `connected` bind (build commit, contract/surface version, standing convergence
  *  anomaly). `buildCommit` is MANDATORY here — but nullable: a `null` is padi's OWN
@@ -57,7 +46,6 @@ export function padiDot(link: PadiLink | undefined, live: boolean): string {
 export type PadiIdentityView = {
   buildCommit: string | null;
   surfaceVersion: string;
-  convergence: PadiConvergence | null;
   /** padi's lifetime policy (`forever` in production; `boundToPid` under a
    *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
    *  seeds it; `undefined` for a survivor padi predating the wire field, which the
@@ -75,13 +63,20 @@ export type PadiIdentityView = {
  *  `padiLink`/the identity cell's raw value etc. directly. */
 export type PadiPresence =
   | { kind: "connected"; identity: PadiIdentityView }
+  /** A LIVE link coming up — `connecting`, or `connected` before its identity cell has
+   *  arrived. Warms (pulses), never green, never a fact. */
   | { kind: "warming" }
+  /** No trustworthy state at all — a dead/half-open channel (not live) or pre-first-value.
+   *  Grey "unknown", distinct from `warming` (the {@link kavalPresencePresentation} `unknown`
+   *  twin): a dead channel must not paint a warming pulse implying "coming up" (#1793). */
+  | { kind: "unknown" }
   | { kind: "down" };
 
 /** Project the raw wire facts into the client's own honest {@link PadiPresence} — the
  *  ONE place "connected" is decided. Floored on `live` (the browser↔kolu-server ws
- *  liveness) exactly like {@link padiDot}: a dead/half-open channel can't confirm ANY
- *  state, so it folds to `warming` (never a stale "connected" claim over a value the
+ *  liveness) exactly like the dot it feeds ({@link padiPresencePresentation}): a dead/half-open
+ *  channel can't confirm ANY state, so it folds to `unknown` (never a stale "connected"
+ *  claim over a value the
  *  dead channel can no longer refresh).
  *
  *  `identity` is the ACTIVE host's per-host `identity` cell value (`padiMap.useEntry
@@ -103,23 +98,75 @@ export function toPadiPresence(
         lifetime?: DaemonLifetimeView;
       }
     | undefined,
-  convergence: PadiConvergence | null,
 ): PadiPresence {
-  if (!live || link === undefined || link === "connecting")
-    return { kind: "warming" };
-  if (link === "degraded") return { kind: "down" };
-  // link === "connected": the identity cell PENDING (not yet arrived) is a genuinely
-  // unknown state, never a synthesized "connected with no commit" — fold to warming.
-  if (identity === undefined) return { kind: "warming" };
+  // A dead/half-open channel or pre-first-value can't confirm ANY state → `unknown`.
+  if (!live || link === undefined) return { kind: "unknown" };
+  return match(link)
+    .with("connecting", () => ({ kind: "warming" }) as const) // a LIVE link still coming up
+    .with("degraded", () => ({ kind: "down" }) as const)
+    .with("connected", () =>
+      // The identity cell PENDING (not yet arrived) is a genuinely unknown-identity
+      // state, never a synthesized "connected with no commit" — fold to warming
+      // (LIVE, coming up), not `unknown`.
+      identity === undefined
+        ? ({ kind: "warming" } as const)
+        : ({
+            kind: "connected",
+            identity: {
+              buildCommit: identity.commit,
+              surfaceVersion: identity.surfaceVersion,
+              lifetime: identity.lifetime,
+            },
+          } as const),
+    )
+    .exhaustive();
+}
+
+/** The presentation of a padi {@link PadiPresence} — its dot tone, its status word, AND
+ *  the label's text tone, as ONE value from ONE `match` (the padi twin of
+ *  {@link kavalPresencePresentation}). "The presentation of a presence" is a single
+ *  concept: a new presence arm updates all three facets here at once, never in parallel
+ *  exhaustive matches kept arm-aligned by hand. Both the dialog (a single memo, reading
+ *  `.dot`/`.label`/`.textClass`) and the rail mark (reading `.dot`) share it, so the
+ *  `!live → unknown` floor — folded into {@link toPadiPresence} — reaches every surface.
+ *  `unknown` is grey + `text-fg-3`; the other arms reuse {@link PADI_LINK_PRESENTATION}'s
+ *  tone/label so a `warming` reads "connecting…" and a `down` reads "disconnected". NOTE a
+ *  live-but-pre-identity `connected` link folds to `warming`, so it reads the warming pulse
+ *  + "connecting…" (aligned with the rail attribute and the dialog), never a premature
+ *  green. */
+export function padiPresencePresentation(presence: PadiPresence): {
+  dot: string;
+  label: string;
+  textClass: string;
+} {
+  const link = presenceLink(presence);
+  if (link === "unknown")
+    return {
+      dot: DAEMON_UNKNOWN_DOT,
+      label: DAEMON_UNKNOWN_LABEL,
+      textClass: "text-fg-3",
+    };
   return {
-    kind: "connected",
-    identity: {
-      buildCommit: identity.commit,
-      surfaceVersion: identity.surfaceVersion,
-      convergence,
-      lifetime: identity.lifetime,
-    },
+    dot: toneDot[PADI_LINK_PRESENTATION[link].tone],
+    label: PADI_LINK_PRESENTATION[link].label,
+    textClass: "text-fg",
   };
+}
+
+/** The `PadiLink` a presence renders AS (its dot tone, label, and `data-padi-link` attr
+ *  all derive from this), or `"unknown"` for a dead/half-open channel. The ONE
+ *  presence→link fold — {@link padiPresencePresentation} and the padi rail mark's
+ *  `data-padi-link` attr (the machine-readable twin of the dot tone that e2e selectors key
+ *  on) both read it. A live-but-pre-identity `connected` link folds to `warming` →
+ *  `"connecting"` (never a premature `"connected"`), aligning the dot, label, and rail
+ *  attribute. */
+export function presenceLink(presence: PadiPresence): PadiLink | "unknown" {
+  return match(presence)
+    .with({ kind: "unknown" }, () => "unknown" as const)
+    .with({ kind: "connected" }, () => "connected" as const)
+    .with({ kind: "warming" }, () => "connecting" as const)
+    .with({ kind: "down" }, () => "degraded" as const)
+    .exhaustive();
 }
 
 /** The Padi host-chip REMOTE-HOST segment — names WHERE padi is and reads as

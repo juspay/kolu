@@ -1,44 +1,13 @@
-import type { PadiLink } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { DAEMON_UNKNOWN_DOT, toneDot } from "../kaval/daemonPresentation";
 import {
   PADI_LINK_PRESENTATION,
+  type PadiPresence,
   padiBoundHostSegment,
-  padiDot,
+  padiPresencePresentation,
+  presenceLink,
   toPadiPresence,
 } from "./padiPresentation";
-
-describe("padiDot — the padi dot's tone is FLOORED on transport liveness (the padiLink sibling of kavalDot)", () => {
-  it("paints the padiLink tone only when the transport is LIVE", () => {
-    // A connected link over a live transport → its 'ok' tone; a transient link →
-    // warming; a dropped link → down.
-    expect(padiDot("connected", true)).toBe(toneDot.ok);
-    expect(padiDot("connected", true)).not.toBe(DAEMON_UNKNOWN_DOT);
-    expect(padiDot("connecting", true)).toBe(toneDot.warming);
-    expect(padiDot("degraded", true)).toBe(toneDot.down);
-  });
-
-  it("FLOORS to the unknown grey when the transport is NOT live — never bg-ok over a dead/half-open channel", () => {
-    // A dead ws leaves the retained padiLink stale; painting bg-ok off it would be a
-    // definite 'connected' the dead channel can't confirm. Floored: grey (unknown),
-    // for EVERY link state.
-    for (const link of Object.keys(PADI_LINK_PRESENTATION) as PadiLink[]) {
-      expect(padiDot(link, false)).toBe(DAEMON_UNKNOWN_DOT);
-    }
-    expect(padiDot("connected", false)).not.toBe(toneDot.ok);
-  });
-
-  it("is the unknown grey for a pre-first-yield link, live or not", () => {
-    expect(padiDot(undefined, true)).toBe(DAEMON_UNKNOWN_DOT);
-    expect(padiDot(undefined, false)).toBe(DAEMON_UNKNOWN_DOT);
-  });
-
-  it("a degraded padi is the down (red) tone, never a fake green", () => {
-    // The honest signal: a dropped padi shows an unhealthy pip, not a green light.
-    expect(padiDot("degraded", true)).toBe(toneDot.down);
-    expect(padiDot("degraded", true)).not.toBe(toneDot.ok);
-  });
-});
 
 describe("padiBoundHostSegment — the Padi chip names WHERE padi is, and reads as remote", () => {
   it("renders the ssh host segment when bound to a REMOTE host", () => {
@@ -57,22 +26,16 @@ describe("padiBoundHostSegment — the Padi chip names WHERE padi is, and reads 
 describe("toPadiPresence — P4: connected ⇒ identity present, by construction", () => {
   it("a genuinely connected, identified padi over a live transport reads `connected` with its identity", () => {
     expect(
-      toPadiPresence(
-        "connected",
-        true,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("connected", true, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toEqual({
       kind: "connected",
       identity: {
         buildCommit: "deadbeef",
         surfaceVersion: "1.1",
-        convergence: null,
         lifetime: { kind: "forever" },
       },
     });
@@ -86,7 +49,7 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     // unrepresentable: there is no `{ kind: "connected", identity: undefined }`. `undefined`
     // here is the identity CELL not having yielded its first frame yet — a distinct state
     // from "padi declared no commit" (see the next test).
-    const presence = toPadiPresence("connected", true, undefined, null);
+    const presence = toPadiPresence("connected", true, undefined);
     expect(presence.kind).toBe("warming");
     expect(presence).not.toMatchObject({ kind: "connected" });
   });
@@ -95,18 +58,16 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     // The identity cell HAS arrived (padi is the writer, and it declared `commit: null`
     // for its own dev/off-nix build) — this is legitimately `connected`, distinct in TYPE
     // (a present object with a null field) from the pending case (`identity === undefined`).
-    const presence = toPadiPresence(
-      "connected",
-      true,
-      { commit: null, surfaceVersion: "1.1", lifetime: { kind: "forever" } },
-      null,
-    );
+    const presence = toPadiPresence("connected", true, {
+      commit: null,
+      surfaceVersion: "1.1",
+      lifetime: { kind: "forever" },
+    });
     expect(presence).toEqual({
       kind: "connected",
       identity: {
         buildCommit: null,
         surfaceVersion: "1.1",
-        convergence: null,
         lifetime: { kind: "forever" },
       },
     });
@@ -116,52 +77,99 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
     // The reproduced live bug: an AbortError drain burst kills the ws; the retained
     // (stale) `connected` link + last-known build commit must not be shown as confirmed.
     expect(
-      toPadiPresence(
-        "connected",
-        false,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
-    ).toEqual({ kind: "warming" });
+      toPadiPresence("connected", false, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
+    ).toEqual({ kind: "unknown" });
     // Reconnect (transport live again, facts unchanged) — identity is confirmed again.
     expect(
-      toPadiPresence(
-        "connected",
-        true,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("connected", true, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toMatchObject({ kind: "connected" });
   });
 
-  it("pre-first-value (link undefined), `connecting`, and `degraded` each read their own honest kind — never `connected`", () => {
-    expect(toPadiPresence(undefined, true, undefined, null)).toEqual({
-      kind: "warming",
+  it("pre-first-value (link undefined) ⇒ unknown; `connecting` ⇒ warming; `degraded` ⇒ down — each its own honest kind, never `connected`", () => {
+    // No link value yet ⇒ `unknown` (grey), same as a dead channel — not `warming`.
+    expect(toPadiPresence(undefined, true, undefined)).toEqual({
+      kind: "unknown",
     });
-    expect(toPadiPresence("connecting", true, undefined, null)).toEqual({
+    expect(toPadiPresence("connecting", true, undefined)).toEqual({
       kind: "warming",
     });
     expect(
-      toPadiPresence(
-        "degraded",
-        true,
-        {
-          commit: "deadbeef",
-          surfaceVersion: "1.1",
-          lifetime: { kind: "forever" },
-        },
-        null,
-      ),
+      toPadiPresence("degraded", true, {
+        commit: "deadbeef",
+        surfaceVersion: "1.1",
+        lifetime: { kind: "forever" },
+      }),
     ).toEqual({
       kind: "down",
     });
+  });
+});
+
+describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE match over presence (no raw link/live)", () => {
+  const connected: PadiPresence = {
+    kind: "connected",
+    identity: {
+      buildCommit: "c",
+      surfaceVersion: "1.1",
+      lifetime: undefined,
+    },
+  };
+
+  it("dot: unknown is grey; connected/warming/down reuse the link tones", () => {
+    expect(padiPresencePresentation({ kind: "unknown" }).dot).toBe(
+      DAEMON_UNKNOWN_DOT,
+    );
+    expect(padiPresencePresentation(connected).dot).toBe(toneDot.ok);
+    expect(padiPresencePresentation({ kind: "warming" }).dot).toBe(
+      toneDot.warming,
+    );
+    expect(padiPresencePresentation({ kind: "down" }).dot).toBe(toneDot.down);
+  });
+
+  it("label + text tone: unknown reads 'unknown'/text-fg-3; the others read the PADI_LINK_PRESENTATION word/text-fg", () => {
+    expect(padiPresencePresentation({ kind: "unknown" }).label).toBe("unknown");
+    expect(padiPresencePresentation({ kind: "unknown" }).textClass).toBe(
+      "text-fg-3",
+    );
+    expect(padiPresencePresentation(connected).label).toBe(
+      PADI_LINK_PRESENTATION.connected.label,
+    );
+    expect(padiPresencePresentation(connected).textClass).toBe("text-fg");
+    expect(padiPresencePresentation({ kind: "warming" }).label).toBe(
+      PADI_LINK_PRESENTATION.connecting.label,
+    );
+    expect(padiPresencePresentation({ kind: "down" }).label).toBe(
+      PADI_LINK_PRESENTATION.degraded.label,
+    );
+  });
+
+  it("#1793: a not-live padi projects to grey 'unknown' — never green/connected off a stale link", () => {
+    const dead = toPadiPresence("connected", false, {
+      commit: "c",
+      surfaceVersion: "1.1",
+    });
+    expect(dead).toEqual({ kind: "unknown" });
+    expect(padiPresencePresentation(dead).dot).toBe(DAEMON_UNKNOWN_DOT);
+    expect(padiPresencePresentation(dead).label).toBe("unknown");
+  });
+
+  it("presenceLink: the rail mark's data-padi-link — connected/unknown name themselves, warming reads 'connecting', down reads 'degraded'", () => {
+    expect(presenceLink(connected)).toBe("connected");
+    expect(presenceLink({ kind: "unknown" })).toBe("unknown");
+    expect(presenceLink({ kind: "down" })).toBe("degraded");
+    // A live-but-pre-identity `connected` link folds to `warming` → reads "connecting"
+    // (aligned with the dialog), never a premature "connected".
+    expect(presenceLink(toPadiPresence("connected", true, undefined))).toBe(
+      "connecting",
+    );
+    expect(presenceLink({ kind: "warming" })).toBe("connecting");
   });
 });

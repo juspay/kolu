@@ -11,7 +11,7 @@
  * empty-canvas-lie fix).
  *
  * The PURE presentation (tables + projections — `DAEMON_STATE_PRESENTATION`,
- * `kavalDot`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
+ * `kavalPresencePresentation`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
  * side-effect-free `./daemonPresentation`, re-exported here so existing call
  * sites are unchanged. This module owns only the wire-coupled bits: the
  * accessors/windows over that retained per-host subscription.
@@ -25,7 +25,10 @@ import {
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
-import type { PadiEntryFailure } from "kolu-common/surfacesWithPadi";
+import type {
+  ConnectionInfo,
+  PadiEntryFailure,
+} from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
@@ -36,8 +39,10 @@ import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,
   type DaemonDownState,
+  type KavalPresence,
   liveDownState,
   liveWarming,
+  toKavalPresence,
 } from "./daemonPresentation";
 import { isPendingTimedOut } from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
@@ -51,7 +56,6 @@ export {
   type DaemonDownState,
   type DaemonTone,
   formatUptime,
-  kavalDot,
   liveDownState,
   liveWarming,
   serverDot,
@@ -76,7 +80,7 @@ const sharedDaemonTransportLive = createSharedRoot(() =>
  *  — `app.health().live` (kolu serves its own surface with no mirror/`liveWhen`
  *  cell, so this is exactly the half-open-aware socket liveness, default-on via
  *  `connectSurfaces`). The kaval rail floors its dot AND its uptime on THIS (see
- *  {@link kavalDot}): when the link is dead or silently half-open, the retained
+ *  {@link kavalPresencePresentation}): when the link is dead or silently half-open, the retained
  *  daemon state is STALE — the channel that would refresh it is gone — so the
  *  column must read "unknown", never a definite "running" + an uptime climbing off
  *  the local clock. A reactive accessor (a shared memo); read it inside a tracking
@@ -99,6 +103,15 @@ function activeEntryConnected(): boolean {
   return padiMap.entry(activeHost()).state().kind === "connected";
 }
 
+/** The padi map's entry-state type — the discriminated `(connected | warming | failed |
+ *  not-a-member)` value `padiMap.entry(host).state()` returns. The CANONICAL spelling: the
+ *  `Conn` parameter is pinned to {@link ConnectionInfo} (`padiHostMap`'s
+ *  `connection: ConnectionInfoSchema`, what `.state()` actually carries — not the `unknown`
+ *  default), and daemonScan.ts / HostDaemonChips.tsx import THIS rather than re-spelling
+ *  `EntryState<PadiEntryFailure>` inline. Lives here beside {@link activeEntryState}, the
+ *  reader that already owns the padi map's typing. */
+export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
+
 /** The ACTIVE host entry's FULL connection state — the typed discriminant
  *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
  *  {@link PadiEntryFailure} value. `canvasModeResolver` keys its facts on this
@@ -108,7 +121,7 @@ function activeEntryConnected(): boolean {
  *  `server.ts` — must NOT be judged against the LOCAL 30s connect ceiling; only a
  *  PROVEN-`failed` entry earns the honest down/dead verdict early). A reactive
  *  accessor; read it inside a tracking scope. */
-export function activeEntryState(): EntryState<PadiEntryFailure> {
+export function activeEntryState(): PadiEntry {
   return padiMap.entry(activeHost()).state();
 }
 
@@ -209,14 +222,15 @@ export const localDaemonStatus = createRoot(() =>
 // slot in the SAME tick (no ambient Solid owner to hold a listener), so the underlying
 // subscription tears down a microtask later, before the first real (network) value can
 // land. Every reader then sees a permanently-`undefined` value FOREVER — the exact "padi
-// status unknown" symptom (`PadiInfoDialog`'s status row gates on `props.link`, which
-// never arrives). Wrapped in an app-lifetime `createRoot` (the `sub`/hostInventory idiom
+// status unknown" symptom (`PadiInfoDialog`'s status pill derives from the presence fold
+// off this `padiLink`, so a never-arriving link leaves it permanently "unknown"). Wrapped
+// in an app-lifetime `createRoot` (the `sub`/hostInventory idiom
 // above) so the subscription survives for the session.
 const padiLinkSub = createRoot(() => app.cells.padiLink.use());
 
 /** kolu-server's live binding-to-padi state, or `undefined` before the first server
  *  yield. DISPLAY-ONLY now (the Identity Rail's Padi chip, `padiPresentation.ts`'s
- *  `padiDot`/`PADI_LINK_PRESENTATION`): kolu-server's OWN binding to its local padi is a
+ *  `padiPresencePresentation`/`PADI_LINK_PRESENTATION`): kolu-server's OWN binding to its local padi is a
  *  host-independent fact the rail always shows, regardless of which host tab is active.
  *  It no longer feeds the down/warming canvas fold — that fold floors UNIFORMLY on
  *  {@link daemonChannelLive} for every host, local included (W4 daemon-rail unification;
@@ -273,6 +287,27 @@ export function daemonStatusPendingTimedOut(): boolean {
     LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
   );
 }
+
+/** The ACTIVE host's kaval presence — the ONE named fold of `localDaemonStatus()` +
+ *  `daemonChannelLive()` into the client's honest {@link KavalPresence} sum, read by the
+ *  command palette's Restart-kaval gate. It is a sibling of `downState`/`daemonWarming`/
+ *  `daemonConnected`, which already fold the same `(status, channel-live)` pair for the
+ *  active host, and a module-lifetime memo like `localDaemonStatus` / `sharedDaemonTransportLive`
+ *  so the fold happens once and stays reactive.
+ *
+ *  NOTE the KavalInfoDialog does NOT read this — it is PER-HOST (its `presence` prop is folded
+ *  at the `HostDaemonChips` call site as `toKavalPresence(kaval.daemon(), kaval.live())` for the
+ *  clicked host, which the opener switches the canvas to). What the palette and the dialog SHARE
+ *  is the {@link offerRestartVerb} fold — the affordance is a total function of whichever
+ *  presence each surface holds — not one memoized value; for the active host the two presences
+ *  coincide (same fold, same inputs), so the Restart verb can't disagree between them.
+ *  A reactive accessor; read it inside a tracking scope. */
+export const activeKavalPresence = createRoot(() =>
+  createMemo(
+    (): KavalPresence =>
+      toKavalPresence(localDaemonStatus(), daemonChannelLive()),
+  ),
+);
 
 /** The single projection of "is the daemon down, and which kind" — `dead`
  *  (never came up), `degraded` (died mid-session), or `incompatible` (a PROVEN
@@ -339,9 +374,16 @@ export function daemonWarming(): boolean {
  *  restore, so the client must NOT react to them with `chrome.setParent(...)`
  *  writes. Only a real user-close happens while this is true. */
 export function daemonConnected(): boolean {
-  return (
-    !daemonStatusPending() && !daemonWarming() && downState() === undefined
-  );
+  // A POSITIVE, total authority gate (#1793 affordance/authority axis): connected iff the
+  // channel is LIVE and the daemon's own state is `connected`. The old negative-space form
+  // (`!pending && !warming && downState()===undefined`) had the exact bug this PR removed
+  // from `offerRestartVerb`: over a DEAD channel `daemonWarming()` and `downState()` are both
+  // liveness-floored to false/undefined, so the conjunction returned `true` — asserting the
+  // client is lifecycle authority (`useActiveReconcile` may then issue reconcile writes) over
+  // a channel it can't reach. Flooring on `daemonChannelLive()` closes it by construction; a
+  // pre-identity `connected` still counts (authority doesn't need identity, only liveness +
+  // a connected state).
+  return daemonChannelLive() && localDaemonStatus()?.state === "connected";
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is

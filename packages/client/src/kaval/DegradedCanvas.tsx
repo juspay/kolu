@@ -27,7 +27,7 @@ import { WarningIcon } from "../ui/Icons";
 import type { DaemonDownState } from "./daemonPresentation";
 import RestartKavalButton from "./RestartKavalButton";
 import UpdateKavalButton from "./UpdateKavalButton";
-import { restartDaemon } from "./useDaemonRestart";
+import { restartDaemon, restartInFlight } from "./useDaemonRestart";
 import { localDaemonStatus } from "./useDaemonStatus";
 
 /** The restartable down card — `dead` (never came up) / `degraded` (died
@@ -68,7 +68,7 @@ const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
       }
       action={
         <RestartKavalButton
-          status={localDaemonStatus()}
+          inFlight={restartInFlight(localDaemonStatus())}
           tone="danger"
           onConfirm={() => void restartDaemon()}
         />
