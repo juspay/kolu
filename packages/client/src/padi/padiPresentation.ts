@@ -2,7 +2,7 @@
  *  `padiLink` → tone/label table the host-chip dot and the Padi dialog read.
  *
  *  Mirrors kaval's `daemonPresentation`: the padi status dot is the padiLink sibling
- *  of {@link kavalDot}, floored on transport liveness the same way (a dead
+ *  of {@link dotForKavalPresence}, floored on transport liveness the same way (a dead
  *  browser↔kolu-server ws leaves the retained `padiLink` STALE, so the dot reads the
  *  grey "unknown" tone rather than a definite verdict painted off a value the dead
  *  channel can no longer confirm). Reuses `toneDot` + `DAEMON_UNKNOWN_DOT` from
@@ -31,19 +31,6 @@ export const PADI_LINK_PRESENTATION: Record<
   connected: { tone: "ok", label: "connected" },
   degraded: { tone: "down", label: "disconnected" },
 };
-
-/** The `padi` status dot's tone class, FLOORED on transport liveness — the
- *  `padiLink` sibling of {@link kavalDot}. `link` is kolu-server's binding-to-padi
- *  state off koluSurface's `padiLink` cell; `live` is the watchdog-backed liveness
- *  of the ws that delivers it. When `live` is false (transport dead / silently
- *  half-open) the retained link value is STALE — the channel that would refresh it
- *  is gone — so the dot reads the grey "unknown" tone, NEVER a definite verdict off
- *  a value the dead channel can't confirm. A known link can only REFINE the tone
- *  WITHIN a live link; it can never claim a verdict over a dead one. */
-export function padiDot(link: PadiLink | undefined, live: boolean): string {
-  if (!live || !link) return DAEMON_UNKNOWN_DOT;
-  return toneDot[PADI_LINK_PRESENTATION[link].tone];
-}
 
 /** padi's honest identity, once known — the fields the Padi dialog shows for a
  *  `connected` bind (build commit, contract/surface version, standing convergence
@@ -87,8 +74,9 @@ export type PadiPresence =
 
 /** Project the raw wire facts into the client's own honest {@link PadiPresence} — the
  *  ONE place "connected" is decided. Floored on `live` (the browser↔kolu-server ws
- *  liveness) exactly like {@link padiDot}: a dead/half-open channel can't confirm ANY
- *  state, so it folds to `unknown` (never a stale "connected" claim over a value the
+ *  liveness) exactly like the dot it feeds ({@link dotForPadiPresence}): a dead/half-open
+ *  channel can't confirm ANY state, so it folds to `unknown` (never a stale "connected"
+ *  claim over a value the
  *  dead channel can no longer refresh).
  *
  *  `identity` is the ACTIVE host's per-host `identity` cell value (`padiMap.useEntry
@@ -132,11 +120,13 @@ export function toPadiPresence(
   };
 }
 
-/** The padi status DOT's tone class, projected from {@link PadiPresence} — the
- *  presence-sourced sibling of {@link padiDot} (which the RAIL still calls with the raw
- *  `(link, live)` pair). The dialog has no raw `link`/`live` any more, so its dot reads
- *  THIS. `unknown` is grey; `connected`/`warming`/`down` reuse {@link PADI_LINK_PRESENTATION}'s
- *  tone so the dot can't drift from the word. */
+/** The padi status DOT's tone class, projected from {@link PadiPresence} — the ONE
+ *  padi-dot projection now that BOTH the dialog and the rail mark read it (the raw
+ *  `(link, live)` `padiDot` is retired; the `!live → unknown` floor lives inside
+ *  {@link toPadiPresence} instead). `unknown` is grey; `connected`/`warming`/`down` reuse
+ *  {@link PADI_LINK_PRESENTATION}'s tone so the dot can't drift from the word. NOTE this
+ *  moves a live-but-pre-identity `connected` link from green to the warming pulse (its
+ *  presence folds to `warming`), aligning the rail with the dialog. */
 export function dotForPadiPresence(presence: PadiPresence): string {
   return match(presence)
     .with({ kind: "unknown" }, () => DAEMON_UNKNOWN_DOT)
@@ -162,6 +152,20 @@ export function labelForPadiPresence(presence: PadiPresence): string {
     .with({ kind: "connected" }, () => PADI_LINK_PRESENTATION.connected.label)
     .with({ kind: "warming" }, () => PADI_LINK_PRESENTATION.connecting.label)
     .with({ kind: "down" }, () => PADI_LINK_PRESENTATION.degraded.label)
+    .exhaustive();
+}
+
+/** The padi rail mark's `data-padi-link` attribute, projected from {@link PadiPresence}.
+ *  `connected`/`unknown` name themselves; `warming` reads `connecting` and `down` reads
+ *  `degraded`, so the rail attribute stays aligned with the dialog — a live-but-pre-
+ *  identity `connected` link reads `connecting` (its presence is `warming`), never a
+ *  premature `connected`. */
+export function padiLinkAttr(presence: PadiPresence): string {
+  return match(presence)
+    .with({ kind: "connected" }, () => "connected")
+    .with({ kind: "warming" }, () => "connecting")
+    .with({ kind: "down" }, () => "degraded")
+    .with({ kind: "unknown" }, () => "unknown")
     .exhaustive();
 }
 

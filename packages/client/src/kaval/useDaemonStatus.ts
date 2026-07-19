@@ -11,7 +11,7 @@
  * empty-canvas-lie fix).
  *
  * The PURE presentation (tables + projections — `DAEMON_STATE_PRESENTATION`,
- * `kavalDot`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
+ * `dotForKavalPresence`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
  * side-effect-free `./daemonPresentation`, re-exported here so existing call
  * sites are unchanged. This module owns only the wire-coupled bits: the
  * accessors/windows over that retained per-host subscription.
@@ -51,7 +51,6 @@ export {
   type DaemonDownState,
   type DaemonTone,
   formatUptime,
-  kavalDot,
   liveDownState,
   liveWarming,
   serverDot,
@@ -76,7 +75,7 @@ const sharedDaemonTransportLive = createSharedRoot(() =>
  *  — `app.health().live` (kolu serves its own surface with no mirror/`liveWhen`
  *  cell, so this is exactly the half-open-aware socket liveness, default-on via
  *  `connectSurfaces`). The kaval rail floors its dot AND its uptime on THIS (see
- *  {@link kavalDot}): when the link is dead or silently half-open, the retained
+ *  {@link dotForKavalPresence}): when the link is dead or silently half-open, the retained
  *  daemon state is STALE — the channel that would refresh it is gone — so the
  *  column must read "unknown", never a definite "running" + an uptime climbing off
  *  the local clock. A reactive accessor (a shared memo); read it inside a tracking
@@ -216,7 +215,7 @@ const padiLinkSub = createRoot(() => app.cells.padiLink.use());
 
 /** kolu-server's live binding-to-padi state, or `undefined` before the first server
  *  yield. DISPLAY-ONLY now (the Identity Rail's Padi chip, `padiPresentation.ts`'s
- *  `padiDot`/`PADI_LINK_PRESENTATION`): kolu-server's OWN binding to its local padi is a
+ *  `dotForPadiPresence`/`PADI_LINK_PRESENTATION`): kolu-server's OWN binding to its local padi is a
  *  host-independent fact the rail always shows, regardless of which host tab is active.
  *  It no longer feeds the down/warming canvas fold — that fold floors UNIFORMLY on
  *  {@link daemonChannelLive} for every host, local included (W4 daemon-rail unification;

@@ -7,8 +7,8 @@
  *  wire-coupled subscription + accessors) re-exports the slice of this presentation
  *  API that existing call sites reach through it (the rail, the dialog, App.tsx's
  *  canvas), so those importers are unchanged — but the presentation is now testable
- *  on its own, which is what lets `kavalDot`'s transport-liveness floor be pinned by
- *  a unit test without standing up a socket. */
+ *  on its own, which is what lets `toKavalPresence`'s transport-liveness floor be pinned
+ *  by a unit test without standing up a socket. */
 
 import type {
   DaemonState,
@@ -105,29 +105,11 @@ export const toneDot: Record<DaemonTone, string> = {
 };
 
 /** The grey "we don't know" tone — used before the first daemon-status yield AND
- *  whenever the transport delivering that status is not live (see {@link kavalDot}).
- *  Distinct from `down` (`bg-danger`, "the daemon is dead"): grey means "unknown",
- *  not "dead", so a dead link never masquerades as a definite verdict. */
+ *  whenever the transport delivering that status is not live (see
+ *  {@link dotForKavalPresence}). Distinct from `down` (`bg-danger`, "the daemon is
+ *  dead"): grey means "unknown", not "dead", so a dead link never masquerades as a
+ *  definite verdict. */
 export const DAEMON_UNKNOWN_DOT = "bg-fg-3/50";
-
-/** The `kaval` status dot's tone class, FLOORED on transport liveness — the
- *  client-side sibling of `<HostStatusPip>`'s green-floored-on-`health().live`.
- *
- *  `live` is the watchdog-backed liveness of the ws that delivers `daemonStatus`.
- *  When it is `false` (transport down, or silently half-open) the retained daemon
- *  state is STALE — the channel that would refresh it is dead — so the dot reads the
- *  grey "unknown" tone, NEVER a definite `bg-ok` "running" painted off a value the
- *  dead channel can no longer confirm (the #1568 green-dot class, relocated to the
- *  rail). A known state can only REFINE the tone WITHIN a live link; it can never
- *  claim a verdict over a dead one. Mirrors the pre-first-yield grey: unknown is
- *  unknown whether the cause is "no frame yet" or "the link died". */
-export function kavalDot(
-  state: DaemonState | undefined,
-  live: boolean,
-): string {
-  if (!live || !state) return DAEMON_UNKNOWN_DOT;
-  return toneDot[DAEMON_STATE_PRESENTATION[state].tone];
-}
 
 /** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
  *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
@@ -159,7 +141,7 @@ const wsTone: Record<WsStatus, DaemonTone> = {
 const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 
 /** The `srv`/mobile **server-connection** dot's tone, FLOORED on the watchdog-backed
- *  transport `live` — the connection-dot sibling of {@link kavalDot}, and the
+ *  transport `live` — the connection-dot sibling of {@link dotForKavalPresence}, and the
  *  canonical #1568 "paint the connection dot from the FACT, not a narrower signal."
  *
  *  `status` is the open/close-only oRPC lifecycle (`WsStatus`), which is half-open
@@ -187,7 +169,7 @@ function isWarming(state: DaemonState | undefined): boolean {
   return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
 }
 
-/** {@link isWarming}, FLOORED on transport liveness — the same floor `kavalDot`
+/** {@link isWarming}, FLOORED on transport liveness — the same floor `toKavalPresence`
  *  applies to the dot. A daemon-state claim ("the daemon is coming up") only holds
  *  over a LIVE link: when `live` is false (transport dead / silently half-open) the
  *  retained state is stale, so a known "warming" state may only REFINE the verdict
@@ -303,7 +285,7 @@ export function offerRestartVerb(
  *  ACTIVE host's daemon state floors on THIS, not `transportLive` alone, so a dead/warming
  *  entry — local (a padi drain) or remote (an ssh flap) alike — reads "unknown", never a
  *  green "running" over a frozen re-served status. Pure so the leg is pinnable without a
- *  socket, like {@link kavalDot}. */
+ *  socket, like {@link dotForKavalPresence}. */
 export function channelLive(
   transportLive: boolean,
   entryConnected: boolean,
@@ -388,8 +370,9 @@ export type KavalPresence =
 
 /** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
  *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
- *  Floored on `live` exactly like {@link kavalDot}/{@link liveWarming}/
- *  {@link liveDownState}: a dead/half-open channel can't confirm ANY state, so it folds
+ *  Floored on `live` exactly like {@link liveWarming}/{@link liveDownState} (and the
+ *  dot it feeds, {@link dotForKavalPresence}): a dead/half-open channel can't confirm ANY
+ *  state, so it folds
  *  to `unknown` (never a stale "connected" claim over a value the dead channel can no
  *  longer refresh). */
 export function toKavalPresence(
@@ -419,11 +402,12 @@ export function toKavalPresence(
   };
 }
 
-/** The kaval status DOT's tone class, projected from {@link KavalPresence} — the
- *  presence-sourced sibling of {@link kavalDot} (which the RAIL still calls with the raw
- *  `(state, live)` pair). The dialog has no raw `state`/`live` any more, so its dot reads
- *  THIS. `unknown` is grey; every other arm reuses {@link DAEMON_STATE_PRESENTATION}'s tone
- *  off the arm's `state`, so the dot can never drift from the label. */
+/** The kaval status DOT's tone class, projected from {@link KavalPresence} — the ONE
+ *  kaval-dot projection now that BOTH the dialog and the rail mark read it (the raw
+ *  `(state, live)` `kavalDot` is retired; the `!live → unknown` floor lives inside
+ *  {@link toKavalPresence} instead). `unknown` is grey; every other arm reuses
+ *  {@link DAEMON_STATE_PRESENTATION}'s tone off the arm's `state`, so the dot can never
+ *  drift from the label. */
 export function dotForKavalPresence(presence: KavalPresence): string {
   return match(presence)
     .with({ kind: "unknown" }, () => DAEMON_UNKNOWN_DOT)
@@ -463,6 +447,23 @@ export function labelForKavalPresence(presence: KavalPresence): string {
       { kind: "incompatible" },
       () => DAEMON_STATE_PRESENTATION.incompatible.label,
     )
+    .exhaustive();
+}
+
+/** The kaval rail mark's `data-daemon-state` attribute, projected from
+ *  {@link KavalPresence} — the machine-readable twin of the dot tone that e2e selectors
+ *  key on. `connected`/`incompatible`/`unknown` name themselves; `warming`/`down` expose
+ *  the arm's fine `DaemonState` so `connecting`/`restarting`/`dead`/`degraded` stay
+ *  distinguishable. Behavior-identical to the retired raw `(state, live)` attribute: a
+ *  pre-identity `connected` still reads `connected` (the `warming` arm carries
+ *  `state: "connected"`). */
+export function daemonStateAttr(presence: KavalPresence): string {
+  return match(presence)
+    .with({ kind: "connected" }, () => "connected")
+    .with({ kind: "warming" }, (p) => p.state)
+    .with({ kind: "down" }, (p) => p.state)
+    .with({ kind: "incompatible" }, () => "incompatible")
+    .with({ kind: "unknown" }, () => "unknown")
     .exhaustive();
 }
 

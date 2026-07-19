@@ -31,7 +31,13 @@ import type {
 import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
-import { channelLive, toKavalPresence } from "../kaval/daemonPresentation";
+import {
+  channelLive,
+  daemonStateAttr,
+  dotForKavalPresence,
+  type KavalPresence,
+  toKavalPresence,
+} from "../kaval/daemonPresentation";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
 import { type KavalAttention, kavalAttention } from "../kaval/kavalCurrency";
 import { restartInFlight } from "../kaval/useDaemonRestart";
@@ -39,11 +45,15 @@ import {
   DAEMON_STATE_PRESENTATION,
   daemonTransportLive,
   formatUptime,
-  kavalDot,
   reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
-import { padiDot, toPadiPresence } from "../padi/padiPresentation";
+import {
+  dotForPadiPresence,
+  type PadiPresence,
+  padiLinkAttr,
+  toPadiPresence,
+} from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
 import {
   dualDaemonSlotClass,
@@ -157,31 +167,28 @@ function formatProcessMemoryText(m: ProcessRss | undefined): string {
     .exhaustive();
 }
 
-/** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-
- *  constructed {@link useHostPadi} reader from its parent rather than opening its
- *  own: the static path and the interactive sub-chip each build the reader once
- *  and hand it in, so a single mark never re-derives (and, for Kaval, never
- *  double-subscribes) the same host's status. The static path wraps this bare in
- *  a span; the interactive path wraps this SAME mark in the dialog-owning
+/** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-folded
+ *  {@link PadiPresence} from its parent (the interactive sub-chip and the static mark each
+ *  build it once and hand it in), so the dot tone AND the `data-padi-link` attribute both
+ *  project from the ONE presence — the `!live → unknown` floor is inherited by
+ *  construction, spelled in neither the dialog nor the rail. The static path wraps this
+ *  bare in a span; the interactive path wraps this SAME mark in the dialog-owning
  *  button. */
-const PadiMark: Component<{ padi: ReturnType<typeof useHostPadi> }> = (
-  props,
-) => (
+const PadiMark: Component<{ presence: PadiPresence }> = (props) => (
   <IdentityMark logoSrc={PADI_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
-      data-padi-link={props.padi.link() ?? "unknown"}
-      class={padiDot(props.padi.link(), props.padi.live())}
+      data-padi-link={padiLinkAttr(props.presence)}
+      class={dotForPadiPresence(props.presence)}
     />
   </IdentityMark>
 );
 
-/** Presentational Kaval mark — logo + status dot for a host, derived from a
- *  parent-supplied {@link useHostKaval} reader. Same one-derivation-two-
- *  placements shape as {@link PadiMark}; taking the reader as a prop is what
- *  keeps a single interactive mark from opening TWO `daemonStatus` subscriptions
- *  for the same host (the sub-chip already holds one). */
+/** Presentational Kaval mark — logo + status dot for a host, projected from a
+ *  parent-supplied {@link KavalPresence}. Same one-fold-two-placements shape as
+ *  {@link PadiMark}: the dot tone and the `data-daemon-state` attribute both read the ONE
+ *  presence, so the `!live → unknown` floor is inherited by construction. */
 const KavalMark: Component<{
-  kaval: ReturnType<typeof useHostKaval>;
+  presence: KavalPresence;
   /** This host's kaval needs attention (see {@link kavalAttention}) — surfaces
    *  it at a glance as a corner pip in the OPPOSITE corner from the state dot,
    *  toned per AXIS: amber for the currency nudge ("newer build available"),
@@ -192,12 +199,8 @@ const KavalMark: Component<{
 }> = (props) => (
   <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
-      data-daemon-state={
-        props.kaval.live()
-          ? (props.kaval.daemon()?.state ?? "unknown")
-          : "unknown"
-      }
-      class={kavalDot(props.kaval.daemon()?.state, props.kaval.live())}
+      data-daemon-state={daemonStateAttr(props.presence)}
+      class={dotForKavalPresence(props.presence)}
     />
     <Show
       when={props.attention === "stale" || props.attention === "incompatible"}
@@ -318,7 +321,7 @@ const PadiSubChip: Component<{
           aria-label={padiTip()}
           aria-expanded={open()}
         >
-          <PadiMark padi={padi} />
+          <PadiMark presence={presence()} />
         </button>
       </Tip>
       <Show when={open()}>
@@ -424,7 +427,7 @@ const KavalSubChip: Component<{
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
-          <KavalMark kaval={kaval} attention={attention().kind} />
+          <KavalMark presence={presence()} attention={attention().kind} />
         </button>
       </Tip>
       <Show when={open()}>
@@ -444,18 +447,33 @@ const KavalSubChip: Component<{
 
 const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
   const padi = useHostPadi(props.host);
+  const identity = padiMap.entry(props.host).cells.identity.use();
+  // Build this host's presence from the read-only reader (its OWN single identity
+  // subscription — the static path has no other identity consumer to share with), so the
+  // mark's dot + attribute inherit the same one liveness floor as the interactive path.
+  const presence = createMemo(() =>
+    toPadiPresence(
+      padi.link(),
+      padi.live(),
+      identity.value(),
+      boundPadiConvergence(),
+    ),
+  );
   return (
     <span class={identityMarkStaticClass}>
-      <PadiMark padi={padi} />
+      <PadiMark presence={presence()} />
     </span>
   );
 };
 
 const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
   const kaval = useHostKaval(props.host);
+  const presence = createMemo(() =>
+    toKavalPresence(kaval.daemon(), kaval.live()),
+  );
   return (
     <span class={identityMarkStaticClass}>
-      <KavalMark kaval={kaval} />
+      <KavalMark presence={presence()} />
     </span>
   );
 };
