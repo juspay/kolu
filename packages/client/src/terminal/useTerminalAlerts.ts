@@ -157,8 +157,8 @@ export function useTerminalAlerts(deps: {
     prev: string | undefined,
     next: string | undefined,
   ) {
-    // Episode BOOKKEEPING runs unconditionally; only the emission is gated on
-    // the pref. Skipping the reset while alerts are off would freeze the latch —
+    // The episode RESET runs unconditionally (the latch SET is delivery-gated
+    // below). Skipping the reset while alerts are off would freeze the latch —
     // then a genuine gate after re-enable is swallowed by stale memory (the very
     // #1177 symptom, reintroduced through the toggle).
     if (!notifies(next)) {
@@ -176,11 +176,23 @@ export function useTerminalAlerts(deps: {
     if (!classEntry && !escalation) return;
     // At most ONE chime per episode: the latch collapses flap/settle jitter.
     if (chimed.has(id)) return;
-    chimed.add(id);
-    if (activityAlerts()) alertForTerminal(id, nextAwaiting);
+    // Latch on actual DELIVERY, not on the decision to chime. If the emission is
+    // suppressed — the pref is off, OR the user is actively watching this very
+    // terminal (active + focused, see `alertForTerminal`) — nothing reached the
+    // user, so marking the episode chimed would swallow a genuine later
+    // escalation once they look away (the #1177 class, reintroduced through the
+    // visibility gate). The episode RESET above stays unconditional; only this
+    // set tracks emission, so a suppressed candidate leaves the latch open for
+    // the real gate. In the common background case delivery always succeeds, so
+    // flap/settle dedup is unchanged.
+    if (activityAlerts() && alertForTerminal(id, nextAwaiting)) chimed.add(id);
   }
 
-  function alertForTerminal(id: TerminalId, awaiting: boolean) {
+  /** Surface a terminal's alert, returning whether anything actually reached the
+   *  user (sound / OS notification / dock unread) — `false` when suppressed
+   *  because the user is actively watching this very terminal. The caller latches
+   *  the episode only on a `true` return. */
+  function alertForTerminal(id: TerminalId, awaiting: boolean): boolean {
     const isBackground = id !== deps.activeId();
     if (isBackground) deps.markUnread(id);
     // Alert unless the user is *actively watching this very terminal* — i.e.
@@ -194,13 +206,15 @@ export function useTerminalAlerts(deps: {
     // The finished terminal lives on the host that is active right now (this
     // module watches the active host's terminals). Stamp that host onto the
     // notification so a click after a host-switch returns to the right padi.
-    if (isBackground || !document.hasFocus())
+    const deliver = isBackground || !document.hasFocus();
+    if (deliver)
       fireActivityAlert(
         deps.getSubject(id),
         id,
         encodeHostKey(activeHost()),
         awaiting,
       );
+    return deliver;
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {

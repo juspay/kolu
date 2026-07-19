@@ -58,10 +58,14 @@ const shell = (): TerminalMetadata =>
 
 /** Stand up the hook over a reactive terminal list + a `createStore`-backed
  *  metadata map (mirroring the app's fine-grained per-key metadata reactivity), and
- *  return the levers a test drives. `activeId` is null so every terminal is a
- *  background alert (no `document.hasFocus()` dependence). */
+ *  return the levers a test drives. `activeId` defaults to null so every terminal is
+ *  a background alert (delivery always succeeds, no `document.hasFocus()` dependence);
+ *  `setActiveId` lets a test make a terminal the actively-watched one to exercise the
+ *  visibility-suppression gate. */
 function harness() {
   const [ids, setIds] = createSignal<TerminalId[]>([]);
+  const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
+  const markUnread = vi.fn();
   const [store, setStore] = createStore<
     Record<string, TerminalMetadata | undefined>
   >({});
@@ -71,11 +75,11 @@ function harness() {
   const priorSimulate = window.__koluSimulateAlert;
   const dispose = createRoot((d) => {
     useTerminalAlerts({
-      activeId: () => null,
+      activeId,
       activate: vi.fn(),
       getMetadata: (id) => store[id],
       getSubject: () => ({ title: "t", description: "d" }),
-      markUnread: vi.fn(),
+      markUnread,
       terminalIds: ids,
     });
     return d;
@@ -86,7 +90,7 @@ function harness() {
     dispose();
     window.__koluSimulateAlert = priorSimulate;
   });
-  return { setIds, setStore };
+  return { setIds, setStore, setActiveId, markUnread };
 }
 
 beforeEach(() => {
@@ -434,5 +438,38 @@ describe("useTerminalAlerts — #1177 awaiting_user chime", () => {
 
     expect(fired).toHaveBeenCalledTimes(2); // fires exactly once on host B
     expect(fired.mock.calls[1]?.[1]).toBe(T("a1"));
+  });
+
+  it("codex-F1: a finish SUPPRESSED because the user is watching does NOT latch — a gate after they look away still chimes", async () => {
+    // The visibility gate mirrors the pref gate: if the user is actively watching a
+    // terminal (it's the active tile AND kolu is focused), a `thinking → waiting`
+    // finish is deliberately NOT chimed. But it must ALSO not latch the episode — or
+    // a genuine `waiting → awaiting_user` gate that lands AFTER the user looks away is
+    // swallowed (the #1177 class, via the visibility gate rather than the class rule).
+    // The latch tracks actual DELIVERY, not the decision to chime.
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    onTestFinished(() => focus.mockRestore());
+
+    const { setStore, setIds, setActiveId, markUnread } = harness();
+    setActiveId(T("a1")); // a1 is the actively-watched terminal (active + focused)
+    setStore({ a1: meta("thinking") });
+    setIds([T("a1")]);
+    await tick();
+
+    setStore("a1", meta("waiting")); // finishes while watched → suppressed, unlatched
+    await tick();
+    expect(fired).not.toHaveBeenCalled();
+    expect(markUnread).not.toHaveBeenCalled(); // active tile is never marked unread
+
+    setActiveId(T("a2")); // the user looks away → a1 is now a background terminal
+    setStore("a1", meta("awaiting_user")); // a real gate lands over the waiting row
+    await tick();
+
+    // The gate is NOT swallowed by a phantom latch: it chimes exactly once, with the
+    // needs-input copy, and marks the now-background terminal unread.
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(fired.mock.calls[0]?.[1]).toBe(T("a1"));
+    expect(fired.mock.calls[0]?.[3]).toBe(true);
+    expect(markUnread).toHaveBeenCalledWith(T("a1"));
   });
 });
