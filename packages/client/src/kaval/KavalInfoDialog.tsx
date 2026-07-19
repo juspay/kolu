@@ -31,6 +31,7 @@ import {
   formatLifetime,
   type KavalPresence,
   kavalPresencePresentation,
+  offerRestartVerb,
 } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
 import type { KavalAttention } from "./kavalCurrency";
@@ -300,32 +301,38 @@ const KavalInfoDialog: Component<{
         </div>
       </Show>
 
-      {/* The action slot — a total function of the attention axis (SK5, D1):
-          a proven skew offers ONLY the renew (a restart provably respawns the
-          same incompatible binary, on local and remote hosts alike); every
-          other state keeps the session-preserving Restart. */}
+      {/* The action slot — a total function of the presence sum (SK5, D1, #1793): a proven
+          skew offers ONLY the renew (a restart provably respawns the same incompatible
+          binary). Otherwise the session-preserving Restart is offered ONLY when
+          {@link offerRestartVerb} allows it — a live-confirmed `connected`/`down` — never on
+          `unknown` (a dead channel can't carry out the action) or `warming` (already coming
+          up). Both the enabled button AND its "captures the session" promise sit inside the
+          same gate, so on a dead channel NEITHER renders — the affordance is floored exactly
+          like the facts. */}
       <Show
         when={incompatible()}
         fallback={
-          <div class="space-y-2">
-            <RestartKavalButton
-              inFlight={props.restartInFlight}
-              tone="neutral"
-              onConfirm={() => {
-                props.onOpenChange(false);
-                void restartDaemon();
-              }}
-            />
-            <p class="text-[11px] leading-relaxed text-fg-3">
-              Captures the session first, then offers restore on the fresh
-              daemon.
-            </p>
-            <Show when={convergePending()}>
+          <Show when={offerRestartVerb(props.presence)}>
+            <div class="space-y-2">
+              <RestartKavalButton
+                inFlight={props.restartInFlight}
+                tone="neutral"
+                onConfirm={() => {
+                  props.onOpenChange(false);
+                  void restartDaemon();
+                }}
+              />
               <p class="text-[11px] leading-relaxed text-fg-3">
-                Restart converges kaval to the padi address.
+                Captures the session first, then offers restore on the fresh
+                daemon.
               </p>
-            </Show>
-          </div>
+              <Show when={convergePending()}>
+                <p class="text-[11px] leading-relaxed text-fg-3">
+                  Restart converges kaval to the padi address.
+                </p>
+              </Show>
+            </div>
+          </Show>
         }
       >
         <div class="space-y-2">

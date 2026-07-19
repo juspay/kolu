@@ -44,7 +44,10 @@ const KoluInfoDialog: Component<{
       name="Kolu"
       triggerRef={props.triggerRef}
       version={
-        <Show when={server()?.version}>
+        // The server version is a connected-era fact off `pwa.server()` — gate on
+        // `props.live` like the uptime row below (#1793), so a dead/half-open transport
+        // never asserts a definite "v5.2" beside a "disconnected" status pill.
+        <Show when={props.live && server()?.version}>
           {(v) => <VersionChip>v{v()}</VersionChip>}
         </Show>
       }
@@ -79,7 +82,11 @@ const KoluInfoDialog: Component<{
 
       <div class="space-y-1">
         <DetailRow label="server commit">
-          <Commit sha={server()?.commit} />
+          {/* The server commit is a connected-era fact — gate on `props.live` (#1793), so a
+              dead transport reads an honest "—" rather than a stale SHA. The BROWSER commit
+              below is a local build constant (not delivered over the transport), so it stays
+              ungated. */}
+          <Commit sha={props.live ? server()?.commit : undefined} />
         </DetailRow>
         <DetailRow label="browser commit">
           <Commit sha={pwa.clientCommit} />

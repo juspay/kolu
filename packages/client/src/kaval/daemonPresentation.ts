@@ -243,26 +243,36 @@ export function liveDownState(
     .exhaustive();
 }
 
-/** Whether a surface may OFFER the "Restart kaval" verb (D5c/SK4): never while
- *  warming (a restart is already in flight / booting — the verb would be a
- *  no-op) and, for a down state, only when its presentation row declares
- *  `recovery: "restart"` — a PROVEN skew (`incompatible`) declares `renew`
- *  instead (a restart provably respawns the same incompatible binary; the skew
- *  card's "Update & restart kaval" is the recovery there). Read off
- *  {@link DAEMON_STATE_PRESENTATION} — not an open negative check against one
- *  state literal — so a future down state must declare its verb in the same
- *  row that declares its tone and downness, never silently inheriting Restart.
- *  The palette reads this so the affordance stays a total function of the
- *  state sum, testable without the wire. */
-export function offerRestartVerb(
-  warming: boolean,
-  down: DaemonDownState | undefined,
-): boolean {
-  return (
-    !warming &&
-    (down === undefined ||
-      DAEMON_STATE_PRESENTATION[down.state].recovery === "restart")
-  );
+/** Whether a surface may OFFER an ENABLED "Restart kaval" verb — a TOTAL FUNCTION of the
+ *  {@link KavalPresence} sum, so the AFFORDANCE axis is floored the same way the FACT axis
+ *  is (#1793): an action a dead channel can't carry out must not be offered.
+ *
+ *  - `unknown` (dead/half-open channel, no confirmed state) → **false**: you cannot restart
+ *    a daemon you cannot even reach. This is the axis the presence-only fact fix left open —
+ *    the old `(warming, down)` shape collapsed a dead channel to `(false, undefined)` and
+ *    returned `true`, offering the verb over a channel that can't run it.
+ *  - `warming` (already coming up / a restart in flight) → **false** (the verb would be a no-op).
+ *  - `incompatible` (PROVEN skew) → **false**: a restart provably respawns the same
+ *    incompatible binary; the skew card's "Update & restart kaval" is the recovery there.
+ *  - `down` (dead/degraded) → its presentation row's `recovery` verb, read off
+ *    {@link DAEMON_STATE_PRESENTATION} (never an open literal check), so a future down state
+ *    must declare its verb in the row that declares its tone and downness.
+ *  - `connected` (live, running) → **true** (recycle the running daemon).
+ *
+ *  Both the KavalInfoDialog action slot AND the command palette read THIS one fold, so the
+ *  affordance stays a total function of the presence sum — testable without the wire, and
+ *  offered only over a live-confirmed state, mirroring the DegradedCanvas. */
+export function offerRestartVerb(presence: KavalPresence): boolean {
+  return match(presence)
+    .with({ kind: "connected" }, () => true)
+    .with(
+      { kind: "down" },
+      (p) => DAEMON_STATE_PRESENTATION[p.state].recovery === "restart",
+    )
+    .with({ kind: "incompatible" }, () => false)
+    .with({ kind: "warming" }, () => false)
+    .with({ kind: "unknown" }, () => false)
+    .exhaustive();
 }
 
 // ── The active-entry leg: the SECOND floor on the (host-scoped) kaval daemonStatus ──

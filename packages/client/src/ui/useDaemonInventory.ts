@@ -62,6 +62,14 @@ const sub = createRoot(() => app.cells.daemonInventory.use());
  *  runs on is NOT the bound host — so the dialogs show its `localScan` as a separate
  *  "this machine, not the bound host" group beside the bound host's own list. */
 export function daemonScanBoundHost(): string | null {
+  // FLOORED at the reader on `daemonTransportLive()` (#1793), mirroring
+  // {@link boundPadiConvergence}: this rides the `daemonInventory` cell over the browser↔
+  // kolu-server ws, which RETAINS its last binding across a transport drop. Over a dead
+  // transport the retained "bound to <host>" is STALE, so the reader reads `null` — and its
+  // three consumers (the dialog "bound to ssh · <host>" line, the socket row's `ssh · <host>`,
+  // and the "Padi daemons on <host>" heading) all inherit the floor by construction, never
+  // asserting a live ssh binding a dead channel can no longer confirm.
+  if (!daemonTransportLive()) return null;
   const binding = sub.value()?.binding;
   return binding?.kind === "remote" ? binding.host : null;
 }

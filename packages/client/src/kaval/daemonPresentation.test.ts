@@ -426,21 +426,25 @@ describe("presenceState — the rail mark's data-daemon-state, projected from pr
   });
 });
 
-describe("offerRestartVerb — the palette's Restart gate is a total function of the state sum (D5c)", () => {
-  it("offered when idle/down-but-restartable; withheld while warming", () => {
-    expect(offerRestartVerb(false, undefined)).toBe(true);
-    expect(offerRestartVerb(false, { state: "dead" })).toBe(true);
-    expect(offerRestartVerb(false, { state: "degraded" })).toBe(true);
-    expect(offerRestartVerb(true, undefined)).toBe(false);
+describe("offerRestartVerb — the Restart affordance is a total function of the PRESENCE sum, floored on liveness (D5c, #1793)", () => {
+  const connected = toKavalPresence(minimalConnected(), true);
+
+  it("offered on a live-confirmed connected/down; withheld while warming", () => {
+    expect(offerRestartVerb(connected)).toBe(true);
+    expect(offerRestartVerb({ kind: "down", state: "dead" })).toBe(true);
+    expect(offerRestartVerb({ kind: "down", state: "degraded" })).toBe(true);
+    expect(offerRestartVerb({ kind: "warming", state: "connecting" })).toBe(
+      false,
+    );
   });
 
-  it("withheld against a PROVEN skew — the palette never offers the dead-end restart the skew card replaces", () => {
-    expect(
-      offerRestartVerb(false, {
-        state: "incompatible",
-        daemonVersion: "5.0",
-        requiredVersion: "5.2",
-      }),
-    ).toBe(false);
+  it("#1793 (affordance axis): NEVER offered over an `unknown` (dead/half-open) channel — an action the channel can't carry out", () => {
+    // The axis the presence-only FACT fix left open: the old `(warming, down)` shape
+    // collapsed a dead channel to `(false, undefined)` and returned `true`.
+    expect(offerRestartVerb({ kind: "unknown" })).toBe(false);
+  });
+
+  it("withheld against a PROVEN skew — never the dead-end restart the skew card replaces", () => {
+    expect(offerRestartVerb({ kind: "incompatible" })).toBe(false);
   });
 });
