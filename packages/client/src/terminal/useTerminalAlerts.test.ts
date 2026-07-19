@@ -472,4 +472,33 @@ describe("useTerminalAlerts — #1177 awaiting_user chime", () => {
     expect(fired.mock.calls[0]?.[3]).toBe(true);
     expect(markUnread).toHaveBeenCalledWith(T("a1"));
   });
+
+  it("codex-F2: a live gate SEEN while actively watched latches — a later settle-flap does NOT phantom-chime", async () => {
+    // The mirror of codex-F1: when the suppressed candidate is itself a live gate
+    // (`awaiting_user`), the actively-watching user has ALREADY SEEN it — their eyes
+    // are the channel. So it must latch even though no external alert fired, or a
+    // scrape-jitter flap (`awaiting_user → waiting → awaiting_user`) after they look
+    // away re-chimes a gate they already saw. (A `waiting` finish seen while watched
+    // still does NOT latch — that asymmetry is codex-F1 above.)
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    onTestFinished(() => focus.mockRestore());
+
+    const { setStore, setIds, setActiveId } = harness();
+    setActiveId(T("a1")); // a1 is the actively-watched terminal
+    setStore({ a1: meta("thinking") });
+    setIds([T("a1")]);
+    await tick();
+
+    setStore("a1", meta("awaiting_user")); // gate lands while watched → seen, no alert…
+    await tick();
+    expect(fired).not.toHaveBeenCalled(); // …but latched (their eyes saw it)
+
+    setStore("a1", meta("waiting")); // scrape jitter drops to the prior turn
+    await tick();
+    setActiveId(T("a2")); // the user looks away
+    setStore("a1", meta("awaiting_user")); // …and the gate flaps back
+    await tick();
+
+    expect(fired).not.toHaveBeenCalled(); // no phantom — the gate was already seen
+  });
 });

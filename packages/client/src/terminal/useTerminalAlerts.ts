@@ -176,16 +176,27 @@ export function useTerminalAlerts(deps: {
     if (!classEntry && !escalation) return;
     // At most ONE chime per episode: the latch collapses flap/settle jitter.
     if (chimed.has(id)) return;
-    // Latch on actual DELIVERY, not on the decision to chime. If the emission is
-    // suppressed — the pref is off, OR the user is actively watching this very
-    // terminal (active + focused, see `alertForTerminal`) — nothing reached the
-    // user, so marking the episode chimed would swallow a genuine later
-    // escalation once they look away (the #1177 class, reintroduced through the
-    // visibility gate). The episode RESET above stays unconditional; only this
-    // set tracks emission, so a suppressed candidate leaves the latch open for
-    // the real gate. In the common background case delivery always succeeds, so
-    // flap/settle dedup is unchanged.
-    if (activityAlerts() && alertForTerminal(id, nextAwaiting)) chimed.add(id);
+    if (activityAlerts()) {
+      // Latch when the user has been MADE AWARE of this notify state — through
+      // one of two channels:
+      //   • `delivered` — an external alert (sound / OS notification / dock
+      //     unread) actually fired, i.e. the terminal is backgrounded or kolu is
+      //     unfocused; or
+      //   • `nextAwaiting` — the candidate is a LIVE gate the user is looking
+      //     right at (active tile + focused, so the external alert was suppressed
+      //     but their eyes are the channel). Latching it stops a scrape-jitter
+      //     flap (`awaiting_user → waiting → awaiting_user`) from re-chiming a
+      //     gate they already saw once they look away.
+      // A mere `waiting` finish seen while actively watched is NOT latched: a
+      // genuine gate arriving after the user looks away is new, actionable info
+      // and must still chime (the #1177 class — a delivery-only rule swallowed
+      // it). So a `waiting` finish latches on delivery; an `awaiting_user` gate
+      // latches on delivery OR on being watched. The episode RESET stays
+      // unconditional. In the common background case delivery always succeeds, so
+      // flap/settle dedup is unchanged.
+      const delivered = alertForTerminal(id, nextAwaiting);
+      if (delivered || nextAwaiting) chimed.add(id);
+    }
   }
 
   /** Surface a terminal's alert, returning whether anything actually reached the
