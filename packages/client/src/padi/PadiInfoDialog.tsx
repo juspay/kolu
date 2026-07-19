@@ -27,7 +27,7 @@
  *  | `clientHeapUsedBytes()`                          | host-INDEPENDENT by design — THIS browser tab's JS heap, not a daemon fact at all |
  *  | `padiLinkState()` (padi chip/dialog status)      | host-INDEPENDENT **today**, not by design — describes the LEGACY single-bind `padiSession`, hardcoded to the LOCAL default under always-map (`server/src/index.ts`); no per-host `padiLink` wire member exists yet (padi/server gap, out of this fix's scope) |
  *  | `boundPadiConvergence()`, `daemonScanBoundHost()`  | host-INDEPENDENT **today**, not by design — same `padiSession`-hardcoded-local gap |
- *  | `props.identity` (build commit, surfaceVersion)    | host-scoped (W4 "the switch") — supplied by the clicked host chip from `padiMap.entry(host).cells.identity`, padi's own per-host hello twin |
+ *  | `props.presence` (build commit, surfaceVersion, …) | host-scoped (W4 "the switch") — `toPadiPresence(padi.link(), padi.live(), identity.value(), …)` folded AT THE CALL SITE off the clicked host's `padiMap.entry(host).cells.identity` (padi's own per-host hello twin); the dialog reads facts ONLY off its `connected` arm |
  *  | `props.startedAt`                                  | host-scoped (W4 "the switch") — same `identity` cell, reprojected by the clicked host chip via `padiMap.entry(host).clock.toLocal` (padi's boot epoch is on padi's OWN clock) |
  *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` VALUE | host-scoped (W4 "the switch") — `padiMap.useEntry(activeHost).cells.processMemory` (padi's OWN per-host RSS pair), not koluSurface's host-independent fold any more |
  *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` GATE  | host-scoped — floored on `daemonTransportLive()`/`daemonChannelLive()` (kaval's) |
@@ -42,7 +42,7 @@ import type { Component } from "solid-js";
 import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { formatLifetime } from "../kaval/daemonPresentation";
-import { formatUptime } from "../kaval/useDaemonStatus";
+import { daemonTransportLive, formatUptime } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import Commit from "../ui/Commit";
 import InfoDialogShell, { DetailRow, VersionChip } from "../ui/InfoDialog";
@@ -296,6 +296,7 @@ const PadiInfoDialog: Component<{
         scan={boundHostScan()}
         boundHostRows={boundHostPadis()}
         localScanRows={localScanPadis()}
+        localScanLive={daemonTransportLive()}
         renderRow={(padi) => <RunningPadiRow padi={padi} />}
       />
     </InfoDialogShell>

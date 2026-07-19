@@ -28,6 +28,11 @@ export default function RunningDaemonsSection<T>(props: {
   boundHostRows: readonly T[];
   /** THIS machine's discovered daemon rows (shown only under a remote binding). */
   localScanRows: readonly T[];
+  /** Whether the local scan is a LIVE reading (#1793): the local scan rides the
+   *  `daemonInventory` cell over the browser↔kolu-server ws, which RETAINS its rows across a
+   *  transport drop. A non-live reading reads "unavailable", never the retained sockets/PIDs
+   *  as current, and never a silent zero (#1034). */
+  localScanLive: boolean;
   /** The per-daemon row renderer — each dialog passes its own. */
   renderRow: (row: T) => JSX.Element;
 }): JSX.Element {
@@ -100,19 +105,32 @@ export default function RunningDaemonsSection<T>(props: {
               is that host's. These are daemons discovered on THIS machine (a
               leak diagnostic), not the bound host's.
             </p>
+            {/* Honest degradation (#1034 + #1793): only a LIVE transport is trusted to say
+                "none" for the local scan. A dead ws freezes the retained rows, so read
+                "unavailable" rather than exposing stale sockets/PIDs as current. */}
             <Show
-              when={props.localScanRows.length > 0}
+              when={props.localScanLive}
               fallback={
                 <p class="text-[11px] leading-relaxed text-fg-3">
-                  No running {props.noun} daemons discovered on this machine.
+                  Local scan unavailable — the connection to kolu-server
+                  dropped.
                 </p>
               }
             >
-              <ul class="space-y-1.5">
-                <For each={props.localScanRows}>
-                  {(row) => props.renderRow(row)}
-                </For>
-              </ul>
+              <Show
+                when={props.localScanRows.length > 0}
+                fallback={
+                  <p class="text-[11px] leading-relaxed text-fg-3">
+                    No running {props.noun} daemons discovered on this machine.
+                  </p>
+                }
+              >
+                <ul class="space-y-1.5">
+                  <For each={props.localScanRows}>
+                    {(row) => props.renderRow(row)}
+                  </For>
+                </ul>
+              </Show>
             </Show>
           </div>
         )}

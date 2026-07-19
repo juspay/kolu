@@ -32,6 +32,7 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import { createRoot } from "solid-js";
+import { daemonTransportLive } from "../kaval/useDaemonStatus";
 import { app } from "../wire";
 
 // HOST-SCOPING: every reader below rides koluSurface's `daemonInventory` cell, which
@@ -86,7 +87,16 @@ export function localScanPadis(): RunningPadi[] {
  *  it to show a degraded bind as a visible banner (running vs expected build, the reason) —
  *  the whole point of the dialog: nothing swallowed behind the scenes. Remote arm only; the
  *  local arm's `convergence()` reports `null` today (see `ensurePadiBinding` in
- *  `padiBinding.ts`). */
+ *  `padiBinding.ts`).
+ *
+ *  FLOORED at the reader on `daemonTransportLive()` (#1793): this rides the `daemonInventory`
+ *  cell, delivered over the browser↔kolu-server ws, which RETAINS its last value across a
+ *  transport drop. Over a dead transport the retained anomaly is STALE — the channel that
+ *  would clear it is gone — so the reader reads `null` (no banner) rather than a frozen
+ *  running/expected-build banner beside an "unknown" padi. A live transport with a genuinely
+ *  degraded/failed REMOTE bind still reports its anomaly honestly (that IS the banner's job);
+ *  the floor withholds only a value the dead channel can no longer confirm. */
 export function boundPadiConvergence(): PadiConvergence | null {
+  if (!daemonTransportLive()) return null;
   return sub.value()?.boundPadi?.convergence ?? null;
 }

@@ -2,10 +2,10 @@
  *
  *  See `PadiInfoDialog.tsx`'s header for the shared HOST-SCOPING CLASSIFICATION TABLE
  *  (every per-host field either re-keys on `activeHost` or is host-independent with a
- *  reason). This dialog's own fields are ALL host-scoped: `props.status` rides
- *  `localDaemonStatus()` (the active host's RETAINED per-host
- *  `activeScope().wire.daemonStatus`, W9),
- *  `daemonChannelLive()` reads `padiMap.entry(activeHost())` directly, and
+ *  reason). This dialog's own fields are ALL host-scoped: `props.presence` is
+ *  `toKavalPresence(kaval.daemon(), kaval.live())` folded AT THE CALL SITE
+ *  (`HostDaemonChips`) over the active host's RETAINED per-host `daemonStatus` (W9) and
+ *  its channel liveness (`daemonChannelLive()`, `padiMap.entry(activeHost())`), and
  *  `boundHostKavals()`/`localScanKavals()` ride `useHostInventory`/`useDaemonInventory`
  *  per that same table. */
 
@@ -37,7 +37,7 @@ import type { KavalAttention } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
 import UpdateKavalButton from "./UpdateKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
-import { formatUptime } from "./useDaemonStatus";
+import { daemonTransportLive, formatUptime } from "./useDaemonStatus";
 
 export const KAVAL_LOGO_URL = new URL(
   "../../../kaval/logo.svg",
@@ -347,6 +347,7 @@ const KavalInfoDialog: Component<{
         scan={boundHostScan()}
         boundHostRows={boundHostKavals()}
         localScanRows={localScanKavals()}
+        localScanLive={daemonTransportLive()}
         renderRow={(kaval) => <RunningKavalRow kaval={kaval} />}
       />
 

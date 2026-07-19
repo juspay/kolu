@@ -137,11 +137,34 @@ describe("#1793 dialogs must not leak connected-era facts over a dead channel", 
         scan={{ kind: "failed", cause: "cross-supervisor" }}
         boundHostRows={[]}
         localScanRows={[]}
+        localScanLive={true}
         renderRow={() => null}
       />
     ));
 
     expect(text).toContain(HOST_DOWN_COPY["cross-supervisor"].title);
     expect(text.toLowerCase()).not.toContain("is connecting");
+  });
+
+  it("RunningDaemonsSection: a not-live LOCAL scan reads 'unavailable', never its retained rows (codex F3)", () => {
+    // Under a remote binding the local-machine scan rides the browser↔kolu-server ws, which
+    // retains its rows across a transport drop. With localScanLive=false the block must read
+    // "unavailable" — never expose the stale socket/PID as current, never a silent zero.
+    const STALE_LOCAL_SOCKET = "/run/user/1000/padi-stale/padi.sock";
+    const text = mountBodyText(() => (
+      <RunningDaemonsSection
+        noun="padi"
+        testidPrefix="padi"
+        boundHost="zest"
+        scan={{ kind: "no-frame" }}
+        boundHostRows={[]}
+        localScanRows={[STALE_LOCAL_SOCKET]}
+        localScanLive={false}
+        renderRow={(row) => <span>{row}</span>}
+      />
+    ));
+
+    expect(text.toLowerCase()).toContain("unavailable");
+    expect(text).not.toContain(STALE_LOCAL_SOCKET);
   });
 });
