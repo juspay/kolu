@@ -24,10 +24,7 @@ import {
 import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
-import type {
-  PadiEntryFailure,
-  SkewVersionPair,
-} from "kolu-common/surfacesWithPadi";
+import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
@@ -46,6 +43,7 @@ import {
   DAEMON_STATE_PRESENTATION,
   daemonTransportLive,
   formatUptime,
+  type PadiEntry,
   reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
@@ -105,11 +103,11 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
  *  static and interactive marks. */
 function useHostPadi(host: HostKey): {
   live: () => boolean;
-  entry: () => EntryState<PadiEntryFailure>;
+  entry: () => PadiEntry;
   link: () => PadiLink | undefined;
 } {
   const live = daemonTransportLive;
-  const entry = (): EntryState<PadiEntryFailure> => padiMap.entry(host).state();
+  const entry = (): PadiEntry => padiMap.entry(host).state();
   const link = (): PadiLink | undefined =>
     live() ? entryAsPadiLink(entry()) : undefined;
   return { live, entry, link };

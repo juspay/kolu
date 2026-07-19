@@ -25,7 +25,10 @@ import {
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { PadiLink } from "kolu-common/surface";
-import type { PadiEntryFailure } from "kolu-common/surfacesWithPadi";
+import type {
+  ConnectionInfo,
+  PadiEntryFailure,
+} from "kolu-common/surfacesWithPadi";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
@@ -98,6 +101,15 @@ function activeEntryConnected(): boolean {
   return padiMap.entry(activeHost()).state().kind === "connected";
 }
 
+/** The padi map's entry-state type — the discriminated `(connected | warming | failed |
+ *  not-a-member)` value `padiMap.entry(host).state()` returns. The CANONICAL spelling: the
+ *  `Conn` parameter is pinned to {@link ConnectionInfo} (`padiHostMap`'s
+ *  `connection: ConnectionInfoSchema`, what `.state()` actually carries — not the `unknown`
+ *  default), and daemonScan.ts / HostDaemonChips.tsx import THIS rather than re-spelling
+ *  `EntryState<PadiEntryFailure>` inline. Lives here beside {@link activeEntryState}, the
+ *  reader that already owns the padi map's typing. */
+export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
+
 /** The ACTIVE host entry's FULL connection state — the typed discriminant
  *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
  *  {@link PadiEntryFailure} value. `canvasModeResolver` keys its facts on this
@@ -107,7 +119,7 @@ function activeEntryConnected(): boolean {
  *  `server.ts` — must NOT be judged against the LOCAL 30s connect ceiling; only a
  *  PROVEN-`failed` entry earns the honest down/dead verdict early). A reactive
  *  accessor; read it inside a tracking scope. */
-export function activeEntryState(): EntryState<PadiEntryFailure> {
+export function activeEntryState(): PadiEntry {
   return padiMap.entry(activeHost()).state();
 }
 

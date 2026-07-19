@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  daemonScanCause,
-  type PadiEntry,
-  scanUnavailableText,
-} from "./daemonScan";
+import type { PadiEntry } from "../kaval/useDaemonStatus";
+import { daemonScanCause, scanUnavailableText } from "./daemonScan";
 import { HOST_DOWN_COPY } from "./hostDownCopy";
 
 /** A typed entry fixture — cast so the tests don't over-specify surface-map's internal

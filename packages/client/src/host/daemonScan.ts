@@ -11,18 +11,10 @@
  *  {@link HOST_DOWN_COPY} titles the Skew-UX host-down card shows, never a parallel
  *  hand-rolled string (the repo's "reuse the existing source of truth" rule). */
 
-import type { EntryState } from "@kolu/surface-map";
-import type {
-  ConnectionInfo,
-  EntryFailedCause,
-  PadiEntryFailure,
-} from "kolu-common/surfacesWithPadi";
+import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import { match } from "ts-pattern";
+import type { PadiEntry } from "../kaval/useDaemonStatus";
 import { HOST_DOWN_COPY } from "./hostDownCopy";
-
-/** The active host's typed padi entry state — the discriminated `(connected | warming |
- *  failed | not-a-member)` value `padiMap.entry(host).state()` returns. */
-export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
 
 /** Why the bound host's daemon scan is (not) a trustworthy live reading. `live` → the
  *  section renders its rows; every other arm is an honest "unavailable" cause, so the
