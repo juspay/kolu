@@ -103,6 +103,31 @@ describe("#1793 dialogs must not leak connected-era facts over a dead channel", 
     expect(text).not.toContain(KAVAL_SOCKET);
   });
 
+  it("KavalInfoDialog: offers NO 'Restart kaval' AFFORDANCE (nor its promise copy) over a dead channel", () => {
+    // The OTHER axis of #1793: the fix made stale FACTS unspellable while not-live, but the
+    // Restart *affordance* was still offered on an `unknown` presence — an action a dead
+    // channel can't carry out. Affordances are a total function of the presence sum (SK5):
+    // an enabled Restart is offered ONLY on a live-confirmed state (connected|down), never
+    // on `unknown`. RED before the affordance fix — the button + its copy both rendered.
+    const presence = toKavalPresence(STALE_KAVAL, false);
+    const attention = kavalAttention(undefined, STALE_KAVAL, false);
+    const text = mountBodyText(() => (
+      <KavalInfoDialog
+        open={true}
+        onOpenChange={() => {}}
+        presence={presence}
+        attention={attention}
+        restartInFlight={false}
+        triggerRef={() => undefined}
+        hostLabel="zest"
+      />
+    ));
+
+    // No enabled Restart verb, and no "captures the session" promise, over a dead channel.
+    expect(text).not.toContain("Restart kaval");
+    expect(text.toLowerCase()).not.toContain("captures the session");
+  });
+
   it("PadiInfoDialog: a stale link+identity folded with live=false leaks NO contract badge", () => {
     const presence = toPadiPresence(
       STALE_PADI_LINK,
