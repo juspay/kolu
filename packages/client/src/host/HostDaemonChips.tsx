@@ -34,8 +34,8 @@ import { match, P } from "ts-pattern";
 import {
   channelLive,
   daemonStateAttr,
-  dotForKavalPresence,
   type KavalPresence,
+  kavalPresencePresentation,
   toKavalPresence,
 } from "../kaval/daemonPresentation";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
@@ -49,9 +49,9 @@ import {
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
 import {
-  dotForPadiPresence,
   type PadiPresence,
   padiLinkAttr,
+  padiPresencePresentation,
   toPadiPresence,
 } from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
@@ -178,7 +178,7 @@ const PadiMark: Component<{ presence: PadiPresence }> = (props) => (
   <IdentityMark logoSrc={PADI_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
       data-padi-link={padiLinkAttr(props.presence)}
-      class={dotForPadiPresence(props.presence)}
+      class={padiPresencePresentation(props.presence).dot}
     />
   </IdentityMark>
 );
@@ -200,7 +200,7 @@ const KavalMark: Component<{
   <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
       data-daemon-state={daemonStateAttr(props.presence)}
-      class={dotForKavalPresence(props.presence)}
+      class={kavalPresencePresentation(props.presence).dot}
     />
     <Show
       when={props.attention === "stale" || props.attention === "incompatible"}

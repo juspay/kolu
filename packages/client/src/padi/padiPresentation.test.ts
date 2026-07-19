@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DAEMON_UNKNOWN_DOT, toneDot } from "../kaval/daemonPresentation";
 import {
-  dotForPadiPresence,
-  labelForPadiPresence,
   PADI_LINK_PRESENTATION,
   type PadiPresence,
   padiBoundHostSegment,
   padiLinkAttr,
+  padiPresencePresentation,
   toPadiPresence,
 } from "./padiPresentation";
 
@@ -137,7 +136,7 @@ describe("toPadiPresence — P4: connected ⇒ identity present, by construction
   });
 });
 
-describe("dotForPadiPresence / labelForPadiPresence — the dialog's dot+word, projected from presence (no raw link/live)", () => {
+describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE match over presence (no raw link/live)", () => {
   const connected: PadiPresence = {
     kind: "connected",
     identity: {
@@ -149,21 +148,29 @@ describe("dotForPadiPresence / labelForPadiPresence — the dialog's dot+word, p
   };
 
   it("dot: unknown is grey; connected/warming/down reuse the link tones", () => {
-    expect(dotForPadiPresence({ kind: "unknown" })).toBe(DAEMON_UNKNOWN_DOT);
-    expect(dotForPadiPresence(connected)).toBe(toneDot.ok);
-    expect(dotForPadiPresence({ kind: "warming" })).toBe(toneDot.warming);
-    expect(dotForPadiPresence({ kind: "down" })).toBe(toneDot.down);
+    expect(padiPresencePresentation({ kind: "unknown" }).dot).toBe(
+      DAEMON_UNKNOWN_DOT,
+    );
+    expect(padiPresencePresentation(connected).dot).toBe(toneDot.ok);
+    expect(padiPresencePresentation({ kind: "warming" }).dot).toBe(
+      toneDot.warming,
+    );
+    expect(padiPresencePresentation({ kind: "down" }).dot).toBe(toneDot.down);
   });
 
-  it("label: unknown reads 'unknown'; the others read the PADI_LINK_PRESENTATION word", () => {
-    expect(labelForPadiPresence({ kind: "unknown" })).toBe("unknown");
-    expect(labelForPadiPresence(connected)).toBe(
+  it("label + text tone: unknown reads 'unknown'/text-fg-3; the others read the PADI_LINK_PRESENTATION word/text-fg", () => {
+    expect(padiPresencePresentation({ kind: "unknown" }).label).toBe("unknown");
+    expect(padiPresencePresentation({ kind: "unknown" }).textClass).toBe(
+      "text-fg-3",
+    );
+    expect(padiPresencePresentation(connected).label).toBe(
       PADI_LINK_PRESENTATION.connected.label,
     );
-    expect(labelForPadiPresence({ kind: "warming" })).toBe(
+    expect(padiPresencePresentation(connected).textClass).toBe("text-fg");
+    expect(padiPresencePresentation({ kind: "warming" }).label).toBe(
       PADI_LINK_PRESENTATION.connecting.label,
     );
-    expect(labelForPadiPresence({ kind: "down" })).toBe(
+    expect(padiPresencePresentation({ kind: "down" }).label).toBe(
       PADI_LINK_PRESENTATION.degraded.label,
     );
   });
@@ -176,8 +183,8 @@ describe("dotForPadiPresence / labelForPadiPresence — the dialog's dot+word, p
       null,
     );
     expect(dead).toEqual({ kind: "unknown" });
-    expect(dotForPadiPresence(dead)).toBe(DAEMON_UNKNOWN_DOT);
-    expect(labelForPadiPresence(dead)).toBe("unknown");
+    expect(padiPresencePresentation(dead).dot).toBe(DAEMON_UNKNOWN_DOT);
+    expect(padiPresencePresentation(dead).label).toBe("unknown");
   });
 
   it("padiLinkAttr: the rail mark's data-padi-link — connected/unknown name themselves, warming reads 'connecting', down reads 'degraded'", () => {

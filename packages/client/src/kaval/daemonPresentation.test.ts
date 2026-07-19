@@ -9,9 +9,8 @@ import {
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   daemonStateAttr,
-  dotForKavalPresence,
   formatLifetime,
-  labelForKavalPresence,
+  kavalPresencePresentation,
   liveDownState,
   liveWarming,
   offerRestartVerb,
@@ -136,22 +135,22 @@ describe("the active-entry leg — the SECOND floor on the host-scoped kaval dae
     // The concrete defect: server-published `connected` + live ws, but the active REMOTE
     // entry is not connected → the dot must be grey "unknown", never bg-ok "running". The
     // floor now rides `toKavalPresence` (folded on `channelLive`), read by the ONE
-    // `dotForKavalPresence` projection both the dialog and the rail mark share.
+    // `kavalPresencePresentation` projection both the dialog and the rail mark share.
     expect(
-      dotForKavalPresence(
+      kavalPresencePresentation(
         toKavalPresence(minimalConnected(), channelLive(true, false)),
-      ),
+      ).dot,
     ).toBe(DAEMON_UNKNOWN_DOT);
     expect(
-      dotForKavalPresence(
+      kavalPresencePresentation(
         toKavalPresence(minimalConnected(), channelLive(true, false)),
-      ),
+      ).dot,
     ).not.toBe(toneDot.ok);
     // Both legs live → the daemon state refines the tone as before.
     expect(
-      dotForKavalPresence(
+      kavalPresencePresentation(
         toKavalPresence(minimalConnected(), channelLive(true, true)),
-      ),
+      ).dot,
     ).toBe(toneDot.ok);
   });
 
@@ -300,55 +299,68 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
   });
 });
 
-describe("dotForKavalPresence / labelForKavalPresence — the dialog's dot+word, projected from presence (no raw state/live at the render site)", () => {
+describe("kavalPresencePresentation — the dialog's dot + word + text tone, ONE match over presence (no raw state/live at the render site)", () => {
   it("dot: unknown is grey, connected is ok, the fine transient/down state drives the tone", () => {
-    expect(dotForKavalPresence({ kind: "unknown" })).toBe(DAEMON_UNKNOWN_DOT);
+    expect(kavalPresencePresentation({ kind: "unknown" }).dot).toBe(
+      DAEMON_UNKNOWN_DOT,
+    );
     expect(
-      dotForKavalPresence({
+      kavalPresencePresentation({
         kind: "connected",
         identity: { staleKey: "k", navigableCommit: "c" },
         contractVersion: "5.2",
         startedAt: 1,
         socketPath: undefined,
         lifetime: undefined,
-      }),
+      }).dot,
     ).toBe(toneDot.ok);
-    expect(dotForKavalPresence({ kind: "warming", state: "restarting" })).toBe(
-      toneDot.warming,
-    );
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "restarting" }).dot,
+    ).toBe(toneDot.warming);
     // A LIVE pre-identity `connected` is up → green, even though facts aren't trustworthy.
-    expect(dotForKavalPresence({ kind: "warming", state: "connected" })).toBe(
-      toneDot.ok,
-    );
-    expect(dotForKavalPresence({ kind: "down", state: "dead" })).toBe(
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "connected" }).dot,
+    ).toBe(toneDot.ok);
+    expect(kavalPresencePresentation({ kind: "down", state: "dead" }).dot).toBe(
       toneDot.down,
     );
-    expect(dotForKavalPresence({ kind: "incompatible" })).toBe(toneDot.down);
+    expect(kavalPresencePresentation({ kind: "incompatible" }).dot).toBe(
+      toneDot.down,
+    );
   });
 
-  it("label: unknown reads 'unknown'; every other arm's fine state reads its own word (restarting… stays restarting…)", () => {
-    expect(labelForKavalPresence({ kind: "unknown" })).toBe("unknown");
+  it("label + text tone: unknown reads 'unknown'/text-fg-3; every other arm's fine state reads its own word/text-fg (restarting… stays restarting…)", () => {
+    expect(kavalPresencePresentation({ kind: "unknown" }).label).toBe(
+      "unknown",
+    );
+    expect(kavalPresencePresentation({ kind: "unknown" }).textClass).toBe(
+      "text-fg-3",
+    );
     expect(
-      labelForKavalPresence({ kind: "warming", state: "connecting" }),
+      kavalPresencePresentation({ kind: "warming", state: "connecting" }).label,
     ).toBe(DAEMON_STATE_PRESENTATION.connecting.label);
     expect(
-      labelForKavalPresence({ kind: "warming", state: "restarting" }),
+      kavalPresencePresentation({ kind: "warming", state: "restarting" }).label,
     ).toBe(DAEMON_STATE_PRESENTATION.restarting.label);
     // pre-identity connected still reads "running" (lossless vs the old raw-state label).
-    expect(labelForKavalPresence({ kind: "warming", state: "connected" })).toBe(
-      DAEMON_STATE_PRESENTATION.connected.label,
-    );
-    expect(labelForKavalPresence({ kind: "down", state: "degraded" })).toBe(
-      DAEMON_STATE_PRESENTATION.degraded.label,
-    );
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "connected" }).label,
+    ).toBe(DAEMON_STATE_PRESENTATION.connected.label);
+    expect(
+      kavalPresencePresentation({ kind: "down", state: "degraded" }).label,
+    ).toBe(DAEMON_STATE_PRESENTATION.degraded.label);
+    // A known arm reads the standard text tone, never the unknown grey.
+    expect(
+      kavalPresencePresentation({ kind: "down", state: "degraded" }).textClass,
+    ).toBe("text-fg");
   });
 
   it("#1793: a not-live channel projects to grey 'unknown' — never a green dot or a 'running' word painted off a stale value", () => {
     const stale = minimalConnected(); // truthy, connected-era
     const dead = toKavalPresence(stale, false); // …but the channel is dead
     expect(dead).toEqual({ kind: "unknown" });
-    expect(dotForKavalPresence(dead)).toBe(DAEMON_UNKNOWN_DOT);
-    expect(labelForKavalPresence(dead)).toBe("unknown");
+    expect(kavalPresencePresentation(dead).dot).toBe(DAEMON_UNKNOWN_DOT);
+    expect(kavalPresencePresentation(dead).label).toBe("unknown");
   });
 });
 
@@ -387,7 +399,9 @@ describe("the incompatible arm (SK4) — a proven skew is its own verdict, never
   it("the presentation row is a DOWN tone (red dot, down: true) — never the warming pulse the old fallthrough painted", () => {
     expect(DAEMON_STATE_PRESENTATION.incompatible.tone).toBe("down");
     expect(DAEMON_STATE_PRESENTATION.incompatible.down).toBe(true);
-    expect(dotForKavalPresence({ kind: "incompatible" })).toBe(toneDot.down);
+    expect(kavalPresencePresentation({ kind: "incompatible" }).dot).toBe(
+      toneDot.down,
+    );
   });
 });
 

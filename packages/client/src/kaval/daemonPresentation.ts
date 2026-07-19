@@ -106,7 +106,7 @@ export const toneDot: Record<DaemonTone, string> = {
 
 /** The grey "we don't know" tone — used before the first daemon-status yield AND
  *  whenever the transport delivering that status is not live (see
- *  {@link dotForKavalPresence}). Distinct from `down` (`bg-danger`, "the daemon is
+ *  {@link kavalPresencePresentation}). Distinct from `down` (`bg-danger`, "the daemon is
  *  dead"): grey means "unknown", not "dead", so a dead link never masquerades as a
  *  definite verdict. */
 export const DAEMON_UNKNOWN_DOT = "bg-fg-3/50";
@@ -141,7 +141,7 @@ const wsTone: Record<WsStatus, DaemonTone> = {
 const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 
 /** The `srv`/mobile **server-connection** dot's tone, FLOORED on the watchdog-backed
- *  transport `live` — the connection-dot sibling of {@link dotForKavalPresence}, and the
+ *  transport `live` — the connection-dot sibling of {@link kavalPresencePresentation}, and the
  *  canonical #1568 "paint the connection dot from the FACT, not a narrower signal."
  *
  *  `status` is the open/close-only oRPC lifecycle (`WsStatus`), which is half-open
@@ -285,7 +285,7 @@ export function offerRestartVerb(
  *  ACTIVE host's daemon state floors on THIS, not `transportLive` alone, so a dead/warming
  *  entry — local (a padi drain) or remote (an ssh flap) alike — reads "unknown", never a
  *  green "running" over a frozen re-served status. Pure so the leg is pinnable without a
- *  socket, like {@link dotForKavalPresence}. */
+ *  socket, like {@link kavalPresencePresentation}. */
 export function channelLive(
   transportLive: boolean,
   entryConnected: boolean,
@@ -330,8 +330,8 @@ export type DaemonLifetimeView = NonNullable<DaemonStatus["lifetime"]>;
  *    (contractVersion, socketPath, identity, startedAt, lifetime) is `connected`, reached
  *    only over a live link with an arrived identity. Every other arm carries NO fact.
  *  - `state` (on `warming`/`down`) is the PRESENTATION facet — the fine `DaemonState` the
- *    dot tone and the status word derive from ({@link dotForKavalPresence}/
- *    {@link labelForKavalPresence}), so a live `restarting` still reads "restarting…" and
+ *    dot tone and the status word derive from ({@link kavalPresencePresentation}),
+ *    so a live `restarting` still reads "restarting…" and
  *    a live pre-identity `connected` still reads "running", losslessly. `state` is coarse
  *    liveness, NOT a fact — it can never spell a socket path or a contract version.
  *
@@ -371,7 +371,7 @@ export type KavalPresence =
 /** Project a (possibly stale/absent) `DaemonStatus` + the channel's liveness into the
  *  client's own honest {@link KavalPresence} — the ONE place "connected" is decided.
  *  Floored on `live` exactly like {@link liveWarming}/{@link liveDownState} (and the
- *  dot it feeds, {@link dotForKavalPresence}): a dead/half-open channel can't confirm ANY
+ *  dot it feeds, {@link kavalPresencePresentation}): a dead/half-open channel can't confirm ANY
  *  state, so it folds
  *  to `unknown` (never a stale "connected" claim over a value the dead channel can no
  *  longer refresh). */
@@ -402,51 +402,48 @@ export function toKavalPresence(
   };
 }
 
-/** The kaval status DOT's tone class, projected from {@link KavalPresence} — the ONE
- *  kaval-dot projection now that BOTH the dialog and the rail mark read it (the raw
- *  `(state, live)` `kavalDot` is retired; the `!live → unknown` floor lives inside
- *  {@link toKavalPresence} instead). `unknown` is grey; every other arm reuses
- *  {@link DAEMON_STATE_PRESENTATION}'s tone off the arm's `state`, so the dot can never
- *  drift from the label. */
-export function dotForKavalPresence(presence: KavalPresence): string {
+/** The presentation of a kaval {@link KavalPresence} — its dot tone, its status word, AND
+ *  the label's text tone, as ONE value from ONE `match`. "The presentation of a presence"
+ *  is a single concept: a new presence arm updates all three facets here at once, never in
+ *  three parallel exhaustive matches kept arm-aligned by hand (this mirrors how
+ *  {@link DAEMON_STATE_PRESENTATION} keeps a state's tone + label in one row). Both BOTH
+ *  the dialog (a single memo, reading `.dot`/`.label`/`.textClass`) and the rail mark
+ *  (reading `.dot`) share it, so the `!live → unknown` floor — folded into
+ *  {@link toKavalPresence} — reaches every surface. `unknown` is grey + `text-fg-3`;
+ *  every other arm reuses {@link DAEMON_STATE_PRESENTATION}'s tone/label off the arm's
+ *  `state`, so a live `restarting` still reads "restarting…" and a live pre-identity
+ *  `connected` still reads "running". */
+export function kavalPresencePresentation(presence: KavalPresence): {
+  dot: string;
+  label: string;
+  textClass: string;
+} {
   return match(presence)
-    .with({ kind: "unknown" }, () => DAEMON_UNKNOWN_DOT)
-    .with(
-      { kind: "connected" },
-      () => toneDot[DAEMON_STATE_PRESENTATION.connected.tone],
-    )
-    .with(
-      { kind: "warming" },
-      (p) => toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
-    )
-    .with(
-      { kind: "down" },
-      (p) => toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
-    )
-    .with(
-      { kind: "incompatible" },
-      () => toneDot[DAEMON_STATE_PRESENTATION.incompatible.tone],
-    )
-    .exhaustive();
-}
-
-/** The kaval status WORD, projected from {@link KavalPresence} — the dialog's status label.
- *  `unknown` reads "unknown" (a dead channel / no value); every other arm reads
- *  {@link DAEMON_STATE_PRESENTATION}'s label off the arm's `state`, so a live `restarting`
- *  still reads "restarting…" and a live pre-identity `connected` still reads "running". */
-export function labelForKavalPresence(presence: KavalPresence): string {
-  return match(presence)
-    .with({ kind: "unknown" }, () => "unknown")
-    .with(
-      { kind: "connected" },
-      () => DAEMON_STATE_PRESENTATION.connected.label,
-    )
-    .with({ kind: "warming" }, (p) => DAEMON_STATE_PRESENTATION[p.state].label)
-    .with({ kind: "down" }, (p) => DAEMON_STATE_PRESENTATION[p.state].label)
-    .with(
-      { kind: "incompatible" },
-      () => DAEMON_STATE_PRESENTATION.incompatible.label,
-    )
+    .with({ kind: "unknown" }, () => ({
+      dot: DAEMON_UNKNOWN_DOT,
+      label: "unknown",
+      textClass: "text-fg-3",
+    }))
+    .with({ kind: "connected" }, () => ({
+      dot: toneDot[DAEMON_STATE_PRESENTATION.connected.tone],
+      label: DAEMON_STATE_PRESENTATION.connected.label,
+      textClass: "text-fg",
+    }))
+    .with({ kind: "warming" }, (p) => ({
+      dot: toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
+      label: DAEMON_STATE_PRESENTATION[p.state].label,
+      textClass: "text-fg",
+    }))
+    .with({ kind: "down" }, (p) => ({
+      dot: toneDot[DAEMON_STATE_PRESENTATION[p.state].tone],
+      label: DAEMON_STATE_PRESENTATION[p.state].label,
+      textClass: "text-fg",
+    }))
+    .with({ kind: "incompatible" }, () => ({
+      dot: toneDot[DAEMON_STATE_PRESENTATION.incompatible.tone],
+      label: DAEMON_STATE_PRESENTATION.incompatible.label,
+      textClass: "text-fg",
+    }))
     .exhaustive();
 }
 

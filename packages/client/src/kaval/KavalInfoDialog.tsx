@@ -12,7 +12,7 @@
 import { isCleanRef } from "@kolu/surface-app";
 import type { RunningKaval } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { getClockNow } from "../time/clock";
 import Commit, { REPO_URL } from "../ui/Commit";
@@ -28,10 +28,9 @@ import {
 } from "../ui/useHostInventory";
 import { kavalMemoryDisplay } from "../ui/useMemoryUsage";
 import {
-  dotForKavalPresence,
   formatLifetime,
   type KavalPresence,
-  labelForKavalPresence,
+  kavalPresencePresentation,
 } from "./daemonPresentation";
 import { expectedKaval } from "./KavalUpdateBadge";
 import type { KavalAttention } from "./kavalCurrency";
@@ -125,6 +124,12 @@ const KavalInfoDialog: Component<{
   hostLabel: string;
 }> = (props) => {
   const clockNow = getClockNow();
+  // The presence's dot + word + text tone, as ONE value from ONE match — a single memo
+  // read at the dot span, the label span, and its text-tone class (the SolidJS
+  // multi-consumer idiom), so the three facets can't drift.
+  const presentation = createMemo(() =>
+    kavalPresencePresentation(props.presence),
+  );
   const connected = ():
     | Extract<KavalPresence, { kind: "connected" }>
     | undefined => {
@@ -176,18 +181,17 @@ const KavalInfoDialog: Component<{
             </div>
           )}
         </Show>
-        {/* Dot + word are projected from `presence` ({@link dotForKavalPresence}/
-            {@link labelForKavalPresence}) — there is no raw `state`/`live` here. `unknown`
-            (dead/half-open channel or no value) reads grey + "unknown"; uptime shows only
-            for a confirmed `connected` kaval (its `startedAt`), never off a stale value. */}
+        {/* Dot + word + text tone are projected from `presence` (the ONE
+            {@link kavalPresencePresentation}) — there is no raw `state`/`live` here.
+            `unknown` (dead/half-open channel or no value) reads grey + "unknown"; uptime
+            shows only for a confirmed `connected` kaval (its `startedAt`), never off a
+            stale value. */}
         <div class="flex min-w-0 items-center gap-2">
           <span
-            class={`inline-block h-2 w-2 rounded-full ${dotForKavalPresence(props.presence)}`}
+            class={`inline-block h-2 w-2 rounded-full ${presentation().dot}`}
           />
-          <span
-            class={`text-xs font-medium ${props.presence.kind === "unknown" ? "text-fg-3" : "text-fg"}`}
-          >
-            {labelForKavalPresence(props.presence)}
+          <span class={`text-xs font-medium ${presentation().textClass}`}>
+            {presentation().label}
           </span>
           <Show when={connected()?.startedAt}>
             {(t) => (

@@ -39,7 +39,7 @@
 
 import type { PadiConvergence, RunningPadi } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { formatLifetime } from "../kaval/daemonPresentation";
 import { formatUptime } from "../kaval/useDaemonStatus";
@@ -61,9 +61,8 @@ import {
 } from "../ui/useHostInventory";
 import { padiMemoryDisplay } from "../ui/useMemoryUsage";
 import {
-  dotForPadiPresence,
-  labelForPadiPresence,
   type PadiPresence,
+  padiPresencePresentation,
 } from "./padiPresentation";
 
 /** A "—" for an honestly-unknown value. */
@@ -164,6 +163,12 @@ const PadiInfoDialog: Component<{
   startedAt: number | null;
 }> = (props) => {
   const clockNow = getClockNow();
+  // The presence's dot + word + text tone, as ONE value from ONE match — a single memo
+  // read at the dot span, the label span, and its text-tone class, so the three facets
+  // can't drift.
+  const presentation = createMemo(() =>
+    padiPresencePresentation(props.presence),
+  );
   const connected = ():
     | Extract<PadiPresence, { kind: "connected" }>
     | undefined => {
@@ -212,18 +217,16 @@ const PadiInfoDialog: Component<{
           )}
         </Show>
         <div class="flex min-w-0 items-center gap-2">
-          {/* Dot + word projected from `presence` ({@link dotForPadiPresence}/
-              {@link labelForPadiPresence}) — no raw `link`/`live` at the render site.
+          {/* Dot + word + text tone projected from `presence` (the ONE
+              {@link padiPresencePresentation}) — no raw `link`/`live` at the render site.
               `unknown` (dead channel / no value) reads grey + "unknown"; `connected` is
               reached ONLY once identity is confirmed (never a bare wire `"connected"`
               beside an unconfirmed dash). */}
           <span
-            class={`inline-block h-2 w-2 rounded-full ${dotForPadiPresence(props.presence)}`}
+            class={`inline-block h-2 w-2 rounded-full ${presentation().dot}`}
           />
-          <span
-            class={`text-xs font-medium ${props.presence.kind === "unknown" ? "text-fg-3" : "text-fg"}`}
-          >
-            {labelForPadiPresence(props.presence)}
+          <span class={`text-xs font-medium ${presentation().textClass}`}>
+            {presentation().label}
           </span>
           {/* Uptime, mirroring the Kaval dialog: `now − startedAt`, shown only for a
               CONFIRMED-connected padi with a known boot time — otherwise the retained
