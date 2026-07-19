@@ -56,9 +56,9 @@ export default function RunningDaemonsSection<T>(props: {
           </Show>
         </h3>
         {/* Honest degradation (#1034 + #1793): only a `live` scan is trusted to say "none".
-            Otherwise — bind connecting, a hard host `failed(cause)`, or a padi too old to
-            serve `hostInventory` — the fallback names the REAL cause off the discriminated
-            {@link DaemonScan} (never a silent zero, never a guessed "connecting"). */}
+            Otherwise — bind (re)connecting, a live padi that hasn't reported a scan, or a
+            hard host `failed(cause)` — the fallback names the REAL cause off the
+            discriminated {@link DaemonScan} (never a silent zero, never a guessed cause). */}
         {props.scan.kind === "live" ? (
           <Show
             when={props.boundHostRows.length > 0}

@@ -29,12 +29,15 @@ export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
  *  copy is a total function of WHY rather than a single guessed sentence. */
 export type DaemonScan =
   | { kind: "live" }
-  /** The bind is (re)establishing — genuinely transient, the one case the old copy
-   *  assumed for ALL not-live readings. */
+  /** The bind is (re)establishing — genuinely transient. Covers a `warming` entry AND a
+   *  `connected` entry whose bind is not live (the browser↔server transport dropped, so the
+   *  re-served reading is stale): both are "the link isn't live right now", NOT "too old". */
   | { kind: "connecting" }
-  /** Connected, but no real frame yet — a bind whose padi predates the `hostInventory`
-   *  member (or hasn't delivered its first frame), so it can't report the scan. */
-  | { kind: "too-old" }
+  /** Live bind, but no fresh scan frame — a `connected` entry over a LIVE bind that has not
+   *  reported an inventory frame: its padi predates the `hostInventory` member (never
+   *  reports) OR has not delivered its first frame yet. Honestly "hasn't reported", never a
+   *  guessed "too old" (the dead-transport case folds to `connecting`, not here). */
+  | { kind: "no-frame" }
   /** The host BINDING itself failed (ssh dial / handshake / contract fault), cause-typed
    *  — the arm the boolean could not express. Carries the {@link EntryFailedCause} so the
    *  copy names the real reason. */
@@ -45,21 +48,27 @@ export type DaemonScan =
 /** Fold the host's typed entry state (+ whether a real inventory frame has landed) into
  *  the honest {@link DaemonScan} cause. TOTAL over the four `EntryState` kinds via
  *  `.exhaustive()`, so a future entry kind can't silently fall through to a misleading
- *  "connecting". `bindLive` is the canonical bind-liveness fact (browser transport ∧ the
- *  active entry's own connection, `daemonChannelLive`) — it gates ONLY the `connected`
- *  arm's live-vs-too-old decision; the `failed`/`warming` causes stand on the entry's own
- *  kind, which is the honest reason even while the transport reconnects. */
+ *  reason. `bindLive` is the canonical bind-liveness fact (browser transport ∧ the active
+ *  entry's own connection, `daemonChannelLive`). It refines the `connected` arm into three
+ *  HONEST causes — never one guessed "too old": a dead bind is `connecting` (the transport
+ *  dropped, reading stale), a live bind with no frame is `no-frame` (old / first frame
+ *  pending), and only a live bind WITH a frame is `live`. The `failed`/`warming` causes
+ *  stand on the entry's own kind. */
 export function daemonScanCause(
   entry: PadiEntry,
   bindLive: boolean,
   framePresent: boolean,
 ): DaemonScan {
   return match(entry)
-    .with({ kind: "connected" }, () =>
-      bindLive && framePresent
-        ? ({ kind: "live" } as const)
-        : ({ kind: "too-old" } as const),
-    )
+    .with({ kind: "connected" }, () => {
+      // A `connected` entry whose bind is not live means the browser↔server transport
+      // dropped (connected ⟹ the entry leg is up, so `bindLive` tracks the transport) —
+      // the reading is stale and re-establishing, honestly `connecting`, NOT "too old".
+      if (!bindLive) return { kind: "connecting" } as const;
+      // Live bind, but no self-padi frame yet: old padi or first-frame pending.
+      if (!framePresent) return { kind: "no-frame" } as const;
+      return { kind: "live" } as const;
+    })
     .with({ kind: "warming" }, () => ({ kind: "connecting" }) as const)
     .with(
       { kind: "failed" },
@@ -82,9 +91,9 @@ export function scanUnavailableText(
       () => "Daemon scan unavailable — padi is connecting.",
     )
     .with(
-      { kind: "too-old" },
+      { kind: "no-frame" },
       () =>
-        "Daemon scan unavailable — the connected padi is too old to report it.",
+        "Daemon scan unavailable — the connected padi hasn't reported a scan yet.",
     )
     .with(
       { kind: "failed" },

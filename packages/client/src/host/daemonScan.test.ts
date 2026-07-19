@@ -12,20 +12,23 @@ const entry = (e: { kind: string; failure?: unknown }): PadiEntry =>
   e as unknown as PadiEntry;
 
 describe("daemonScanCause — total fold over the host's entry state × frame presence (#1793)", () => {
-  it("connected + a real frame ⇒ live; connected without a frame ⇒ too-old", () => {
+  it("connected + live bind + a real frame ⇒ live; live bind without a frame ⇒ no-frame (not 'too old')", () => {
     expect(daemonScanCause(entry({ kind: "connected" }), true, true)).toEqual({
       kind: "live",
     });
+    // A LIVE bind that simply hasn't reported a frame is honestly `no-frame` (old padi or
+    // first frame pending) — never the guessed "too old".
     expect(daemonScanCause(entry({ kind: "connected" }), true, false)).toEqual({
-      kind: "too-old",
+      kind: "no-frame",
     });
   });
 
-  it("a stale connected over a DEAD bind ⇒ too-old, never live (the bind-liveness floor)", () => {
-    // bindLive=false: the re-served inventory is frozen stale, so even a `connected`
-    // entry with a (stale) frame must NOT read as a live scan.
+  it("a stale connected over a DEAD bind ⇒ connecting (reconnecting), never live nor 'too old'", () => {
+    // bindLive=false on a `connected` entry means the transport dropped, so even a stale
+    // frame must NOT read as live — and its honest cause is reconnecting, not "too old"
+    // (the #1793 thesis: name the real reason, never guess).
     expect(daemonScanCause(entry({ kind: "connected" }), false, true)).toEqual({
-      kind: "too-old",
+      kind: "connecting",
     });
   });
 
@@ -60,9 +63,11 @@ describe("daemonScanCause — total fold over the host's entry state × frame pr
 });
 
 describe("scanUnavailableText — a total, plain-language reason per non-live cause (reuses HOST_DOWN_COPY titles)", () => {
-  it("names connecting / too-old honestly", () => {
+  it("names connecting / no-frame honestly (never a guessed 'too old')", () => {
     expect(scanUnavailableText({ kind: "connecting" })).toMatch(/connecting/i);
-    expect(scanUnavailableText({ kind: "too-old" })).toMatch(/too old/i);
+    expect(scanUnavailableText({ kind: "no-frame" })).toMatch(
+      /hasn't reported|has not reported|no scan/i,
+    );
   });
 
   it("#1793: a failed host's copy is the matching HOST_DOWN_COPY title, NOT 'connecting'", () => {
