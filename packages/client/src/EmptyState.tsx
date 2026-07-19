@@ -131,9 +131,12 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
           wheel-dead. The card is `pointer-events-auto`, so the scroll lives here.
           Only the middle region scrolls; the Restore action bar is a pinned
           FOOTER so the primary action never drops below the fold on a short
-          viewport. */}
+          viewport. The card keeps `overflow-y-auto` as a fallback: if the
+          viewport is shorter than the pinned footer's own height, the `flex-1`
+          list shrinks to zero and the footer would otherwise be clipped — the
+          card scroll still lets the user reach it. */}
       <div
-        class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto flex flex-col max-h-full overflow-hidden`}
+        class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto flex flex-col max-h-full overflow-y-auto`}
       >
         {/* The scroll region — the welcome header, the session list, and (on
             touch) the create button + shortcut list. `flex-1 min-h-0
@@ -149,7 +152,16 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             </div>
           </Show>
           <Show when={props.savedSession}>
-            <div data-testid="session-restore">
+            <div
+              data-testid="session-restore"
+              classList={{
+                // On touch layouts the create button / Get started list follow
+                // this block in the SAME scroll region — restore the gap +
+                // divider that separated them. On desktop the pinned footer's
+                // own `border-t` is the separator, so no divider here.
+                "mb-5 pb-5 border-b border-edge": !isDesktop(),
+              }}
+            >
               <p class="text-sm font-medium text-fg mb-3">Restore session</p>
               <div class="space-y-4">
                 <For each={groups()}>
