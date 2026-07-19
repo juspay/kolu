@@ -254,13 +254,25 @@ const PadiSubChip: Component<{
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const padi = useHostPadi(props.host);
-  // Per-host identity (version for the tip).
+  // Per-host identity (feeds the presence fold + the `startedAt` reader below).
   const identity = padiMap.entry(props.host).cells.identity.use();
-  // Floor the surface version AT THE READER on `padi.live()` (#1793): the per-host
-  // `identity` cell freezes stale over a dead link, so an unfloored version would leak
-  // "contract v9.9" into the chip tooltip. Undefined when not live → the tip omits it.
-  const padiVersion = (): string | undefined =>
-    padi.live() ? identity.value()?.surfaceVersion : undefined;
+  // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
+  // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
+  // construction: a version can surface only for a LIVE, identity-confirmed `connected`
+  // link (a degraded-but-live link no longer leaks a stale "contract v9.9"), and the raw
+  // stale `identity` cell is never read for the version at all.
+  const presence = createMemo(() =>
+    toPadiPresence(
+      padi.link(),
+      padi.live(),
+      identity.value(),
+      boundPadiConvergence(),
+    ),
+  );
+  const padiVersion = (): string | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p.identity.surfaceVersion : undefined;
+  };
   const padiStartedAt = (): number | null => {
     const raw = identity.value()?.startedAt;
     if (raw === undefined) return null;
@@ -313,12 +325,7 @@ const PadiSubChip: Component<{
         <PadiInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          presence={toPadiPresence(
-            padi.link(),
-            padi.live(),
-            identity.value(),
-            boundPadiConvergence(),
-          )}
+          presence={presence()}
           startedAt={padiStartedAt()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
@@ -339,12 +346,17 @@ const KavalSubChip: Component<{
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
   const padiStatus = padiMap.entry(props.host).cells.status.use();
-  // Floor the contract version AT THE READER on `kaval.live()` (#1793): the raw
-  // `daemon()` freezes stale over a dead channel, so an unfloored version would leak
-  // "contract v5.2" into the chip tooltip (`kavalTip`) exactly as the dialog badge did.
-  // Undefined when not live → the tip omits the contract line, like the other readers.
-  const kavalVersion = (): string | undefined =>
-    kaval.live() ? kaval.daemon()?.contractVersion : undefined;
+  // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
+  // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
+  // construction: a version can surface only for a LIVE, identity-confirmed `connected`
+  // daemon, and the raw stale `daemon()` is never read for the version at all.
+  const presence = createMemo(() =>
+    toKavalPresence(kaval.daemon(), kaval.live()),
+  );
+  const kavalVersion = (): string | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p.contractVersion : undefined;
+  };
   const kavalStateText = (): string => {
     if (!kaval.live()) return "unknown";
     const state = kaval.daemon()?.state;
@@ -419,7 +431,7 @@ const KavalSubChip: Component<{
         <KavalInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          presence={toKavalPresence(kaval.daemon(), kaval.live())}
+          presence={presence()}
           attention={attention()}
           restartInFlight={restartInFlight(kaval.daemon())}
           triggerRef={() => triggerEl}
