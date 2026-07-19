@@ -50,11 +50,18 @@ export function fireActivityAlert(
   subject: TerminalSubject,
   terminalId: TerminalId,
   host: string,
+  awaiting: boolean,
 ) {
   playSound();
   void notify.show({
     tag: `${host}/${terminalId}`,
-    title: `${subject.title} finished`,
+    // Honest copy: an `awaiting_user` gate is "needs your input", not "finished".
+    // #1177 deliberately widens the non-finished chimes (a gate over an already-
+    // `waiting` row now alerts), so the title must distinguish a live human gate
+    // from a plain turn-end.
+    title: awaiting
+      ? `${subject.title} needs your input`
+      : `${subject.title} finished`,
     body: subject.description,
     icon: "/favicon.svg",
     data: { kind: "terminal", host, terminalId },

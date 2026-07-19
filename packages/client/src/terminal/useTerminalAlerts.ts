@@ -4,6 +4,7 @@
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
   type AgentInfo,
+  agentBucket,
   alertClass,
   type TerminalId,
 } from "kolu-common/surface";
@@ -72,6 +73,26 @@ export function useTerminalAlerts(deps: {
   // one host's `awaiting_user` against the other's non-notify state and re-fire the
   // exact phantom this change removes. Gating on the host makes it impossible by
   // construction: after a switch every terminal is a first sighting on the new host.
+  // The attention-EPISODE latch (#1177): per-terminal "we already chimed for the
+  // current attention episode." An episode is a maximal run inside the notify
+  // class ({waiting, awaiting_user}); it ends only when the agent returns to a
+  // WORK state — NOT when it merely drops from `awaiting_user` to `waiting`. That
+  // work-state reset is the load-bearing discriminator: a genuinely new gate
+  // ALWAYS passes through a work state (the user re-engaged, the agent worked,
+  // then asked), whereas scrape/JSONL settle jitter (`awaiting_user → waiting →
+  // awaiting_user`, or `thinking → waiting → awaiting_user`) never does. So the
+  // latch lets a real gate over an already-`waiting` row chime once (the bug),
+  // while collapsing both jitter shapes to a single chime.
+  //
+  // It's a LEAF, not a volatility boundary: client-only alert bookkeeping over a
+  // bounded algorithm, no transport/persistence/reconnect — so it lives here
+  // beside the transition diff, never folded into the pure `agentProjection`
+  // vocabulary. Host-scoped exactly like that diff: cleared on a host change (so a
+  // latch can't cross to a session-imported id that lives on another host) and
+  // pruned to the tracked set each run (so a departed id can't leave a ghost latch
+  // that a same-host id reuse — drain/restore, sleep-wake re-seed — would inherit).
+  const chimed = new Set<TerminalId>();
+
   createEffect(
     on(
       () => ({
@@ -86,11 +107,27 @@ export function useTerminalAlerts(deps: {
         ),
       }),
       (curr, prev) => {
-        if (!prev || prev.host !== curr.host) return;
+        // A host change (and the first run) makes every terminal a fresh first
+        // sighting: drop all episode memory, the same reason the transition diff
+        // can't span hosts.
+        const sameHost = prev !== undefined && prev.host === curr.host;
+        if (!sameHost) chimed.clear();
         for (const [id, next] of curr.states) {
-          if (prev.states.has(id))
+          if (sameHost && prev.states.has(id)) {
             checkAgentFinished(id, prev.states.get(id), next);
+          } else if (isAwaiting(next)) {
+            // First sighting ALREADY in the awaiting bucket: pre-latch it, so a
+            // settle-flap around a first sighting (`awaiting_user → waiting →
+            // awaiting_user`) can't manufacture a phantom chime the old entry
+            // rule never produced. A first sighting at `waiting` is left
+            // UNLATCHED so a genuine gate landing over it still fires (#1177) —
+            // only the awaiting bucket pre-latches.
+            chimed.add(id);
+          }
         }
+        // Prune the latch to the tracked set (retain-intersection): an id that
+        // left `terminalIds()` must not leave a ghost latch behind.
+        for (const id of chimed) if (!curr.states.has(id)) chimed.delete(id);
       },
     ),
   );
@@ -105,20 +142,44 @@ export function useTerminalAlerts(deps: {
   const notifies = (state: string | undefined): boolean =>
     state !== undefined && alertClass(state as AgentInfo["state"]) === "notify";
 
+  // Whether a reactive-history state value is the `awaiting` paint bucket — a
+  // LIVE human gate (`awaiting_user`), as opposed to the post-turn `waiting`
+  // lull. Read through the fenced `agentBucket` fold (never a raw `awaiting_user`
+  // literal) so a future attention-flavored state — say `awaiting_permission` —
+  // must force a decision at the fence rather than silently skipping escalation.
+  // Undefined-safe like `notifies`.
+  const isAwaiting = (state: string | undefined): boolean =>
+    state !== undefined &&
+    agentBucket(state as AgentInfo["state"]) === "awaiting";
+
   function checkAgentFinished(
     id: TerminalId,
     prev: string | undefined,
     next: string | undefined,
   ) {
-    if (!activityAlerts()) return;
-    // Fire on ENTRY into the notify class (waiting or awaiting_user). Treating
-    // the two as one class means we don't double-alert when the agent flips
-    // between them in one session.
-    if (!notifies(next) || notifies(prev)) return;
-    alertForTerminal(id);
+    // Episode BOOKKEEPING runs unconditionally; only the emission is gated on
+    // the pref. Skipping the reset while alerts are off would freeze the latch —
+    // then a genuine gate after re-enable is swallowed by stale memory (the very
+    // #1177 symptom, reintroduced through the toggle).
+    if (!notifies(next)) {
+      // Work / no-agent ends the episode — the next notify entry is genuinely new.
+      chimed.delete(id);
+      return;
+    }
+    // A candidate to chime is either ENTRY into the notify class (the existing
+    // `thinking/waiting → notify` rule) OR an ESCALATION into the awaiting bucket
+    // (a live gate) from a non-awaiting state — the latter is what lets a gate
+    // landing over an already-`waiting` row chime (#1177).
+    const classEntry = !notifies(prev);
+    const escalation = isAwaiting(next) && !isAwaiting(prev);
+    if (!classEntry && !escalation) return;
+    // At most ONE chime per episode: the latch collapses flap/settle jitter.
+    if (chimed.has(id)) return;
+    chimed.add(id);
+    if (activityAlerts()) alertForTerminal(id, isAwaiting(next));
   }
 
-  function alertForTerminal(id: TerminalId) {
+  function alertForTerminal(id: TerminalId, awaiting: boolean) {
     const isBackground = id !== deps.activeId();
     if (isBackground) deps.markUnread(id);
     // Alert unless the user is *actively watching this very terminal* — i.e.
@@ -133,7 +194,12 @@ export function useTerminalAlerts(deps: {
     // module watches the active host's terminals). Stamp that host onto the
     // notification so a click after a host-switch returns to the right padi.
     if (isBackground || !document.hasFocus())
-      fireActivityAlert(deps.getSubject(id), id, encodeHostKey(activeHost()));
+      fireActivityAlert(
+        deps.getSubject(id),
+        id,
+        encodeHostKey(activeHost()),
+        awaiting,
+      );
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {
@@ -144,7 +210,10 @@ export function useTerminalAlerts(deps: {
         : deps.terminalIds().filter((id) => id !== deps.activeId());
     const pick = ids[Math.floor(Math.random() * ids.length)];
     if (pick === undefined) return;
-    alertForTerminal(pick);
+    alertForTerminal(
+      pick,
+      isAwaiting(activeArm(deps.getMetadata(pick))?.agent?.state),
+    );
   }
 
   // Expose for e2e test access (type from "kolu-common/test-hooks"). Installed
