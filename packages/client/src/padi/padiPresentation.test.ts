@@ -4,8 +4,8 @@ import {
   PADI_LINK_PRESENTATION,
   type PadiPresence,
   padiBoundHostSegment,
-  padiLinkAttr,
   padiPresencePresentation,
+  presenceLink,
   toPadiPresence,
 } from "./padiPresentation";
 
@@ -161,15 +161,15 @@ describe("padiPresencePresentation — the dialog's dot + word + text tone, ONE 
     expect(padiPresencePresentation(dead).label).toBe("unknown");
   });
 
-  it("padiLinkAttr: the rail mark's data-padi-link — connected/unknown name themselves, warming reads 'connecting', down reads 'degraded'", () => {
-    expect(padiLinkAttr(connected)).toBe("connected");
-    expect(padiLinkAttr({ kind: "unknown" })).toBe("unknown");
-    expect(padiLinkAttr({ kind: "down" })).toBe("degraded");
+  it("presenceLink: the rail mark's data-padi-link — connected/unknown name themselves, warming reads 'connecting', down reads 'degraded'", () => {
+    expect(presenceLink(connected)).toBe("connected");
+    expect(presenceLink({ kind: "unknown" })).toBe("unknown");
+    expect(presenceLink({ kind: "down" })).toBe("degraded");
     // A live-but-pre-identity `connected` link folds to `warming` → reads "connecting"
     // (aligned with the dialog), never a premature "connected".
-    expect(padiLinkAttr(toPadiPresence("connected", true, undefined))).toBe(
+    expect(presenceLink(toPadiPresence("connected", true, undefined))).toBe(
       "connecting",
     );
-    expect(padiLinkAttr({ kind: "warming" })).toBe("connecting");
+    expect(presenceLink({ kind: "warming" })).toBe("connecting");
   });
 });

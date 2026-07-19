@@ -31,9 +31,9 @@ import { match, P } from "ts-pattern";
 import {
   channelLive,
   DAEMON_UNKNOWN_LABEL,
-  daemonStateAttr,
   type KavalPresence,
   kavalPresencePresentation,
+  presenceState,
   toKavalPresence,
 } from "../kaval/daemonPresentation";
 import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
@@ -48,8 +48,8 @@ import {
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
 import {
   type PadiPresence,
-  padiLinkAttr,
   padiPresencePresentation,
+  presenceLink,
   toPadiPresence,
 } from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
@@ -174,7 +174,7 @@ function formatProcessMemoryText(m: ProcessRss | undefined): string {
 const PadiMark: Component<{ presence: PadiPresence }> = (props) => (
   <IdentityMark logoSrc={PADI_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
-      data-padi-link={padiLinkAttr(props.presence)}
+      data-padi-link={presenceLink(props.presence)}
       class={padiPresencePresentation(props.presence).dot}
     />
   </IdentityMark>
@@ -196,7 +196,7 @@ const KavalMark: Component<{
 }> = (props) => (
   <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
-      data-daemon-state={daemonStateAttr(props.presence)}
+      data-daemon-state={presenceState(props.presence)}
       class={kavalPresencePresentation(props.presence).dot}
     />
     <Show

@@ -101,21 +101,25 @@ export function toPadiPresence(
 ): PadiPresence {
   // A dead/half-open channel or pre-first-value can't confirm ANY state → `unknown`.
   if (!live || link === undefined) return { kind: "unknown" };
-  // A LIVE link still coming up.
-  if (link === "connecting") return { kind: "warming" };
-  if (link === "degraded") return { kind: "down" };
-  // link === "connected": the identity cell PENDING (not yet arrived) is a genuinely
-  // unknown-identity state, never a synthesized "connected with no commit" — fold to
-  // warming (LIVE, coming up), not `unknown`.
-  if (identity === undefined) return { kind: "warming" };
-  return {
-    kind: "connected",
-    identity: {
-      buildCommit: identity.commit,
-      surfaceVersion: identity.surfaceVersion,
-      lifetime: identity.lifetime,
-    },
-  };
+  return match(link)
+    .with("connecting", () => ({ kind: "warming" }) as const) // a LIVE link still coming up
+    .with("degraded", () => ({ kind: "down" }) as const)
+    .with("connected", () =>
+      // The identity cell PENDING (not yet arrived) is a genuinely unknown-identity
+      // state, never a synthesized "connected with no commit" — fold to warming
+      // (LIVE, coming up), not `unknown`.
+      identity === undefined
+        ? ({ kind: "warming" } as const)
+        : ({
+            kind: "connected",
+            identity: {
+              buildCommit: identity.commit,
+              surfaceVersion: identity.surfaceVersion,
+              lifetime: identity.lifetime,
+            },
+          } as const),
+    )
+    .exhaustive();
 }
 
 /** The presentation of a padi {@link PadiPresence} — its dot tone, its status word, AND
@@ -151,9 +155,11 @@ export function padiPresencePresentation(presence: PadiPresence): {
 
 /** The `PadiLink` a presence renders AS (its dot tone, label, and `data-padi-link` attr
  *  all derive from this), or `"unknown"` for a dead/half-open channel. The ONE
- *  presence→link fold — {@link padiPresencePresentation} and {@link padiLinkAttr} both read
- *  it. A live-but-pre-identity `connected` link folds to `warming` → `"connecting"` (never
- *  a premature `"connected"`), aligning the dot, label, and rail attribute. */
+ *  presence→link fold — {@link padiPresencePresentation} and the padi rail mark's
+ *  `data-padi-link` attr (the machine-readable twin of the dot tone that e2e selectors key
+ *  on) both read it. A live-but-pre-identity `connected` link folds to `warming` →
+ *  `"connecting"` (never a premature `"connected"`), aligning the dot, label, and rail
+ *  attribute. */
 export function presenceLink(presence: PadiPresence): PadiLink | "unknown" {
   return match(presence)
     .with({ kind: "unknown" }, () => "unknown" as const)
@@ -161,12 +167,6 @@ export function presenceLink(presence: PadiPresence): PadiLink | "unknown" {
     .with({ kind: "warming" }, () => "connecting" as const)
     .with({ kind: "down" }, () => "degraded" as const)
     .exhaustive();
-}
-
-/** The padi rail mark's `data-padi-link` attribute — {@link presenceLink} as the
- *  machine-readable twin of the dot tone that e2e selectors key on. */
-export function padiLinkAttr(presence: PadiPresence): string {
-  return presenceLink(presence);
 }
 
 /** The Padi host-chip REMOTE-HOST segment — names WHERE padi is and reads as

@@ -388,26 +388,34 @@ export function toKavalPresence(
   live: boolean,
 ): KavalPresence {
   if (!live || status === undefined) return { kind: "unknown" };
-  if (status.state === "dead" || status.state === "degraded")
-    return { kind: "down", state: status.state };
-  if (status.state === "incompatible") {
-    // The proven skew must NEVER read as a warming pulse — it is a terminal
-    // verdict. Payload-less: the versions ride the two surfaces that render
-    // them (`liveDownState`'s canvas card, `kavalAttention`'s chip/banner).
-    return { kind: "incompatible" };
-  }
-  if (status.state !== "connected")
-    return { kind: "warming", state: status.state }; // connecting | restarting
-  if (status.identity === undefined)
-    return { kind: "warming", state: "connected" }; // pre-identity survivor
-  return {
-    kind: "connected",
-    identity: status.identity,
-    contractVersion: status.contractVersion,
-    startedAt: status.startedAt,
-    socketPath: status.socketPath,
-    lifetime: status.lifetime,
-  };
+  return match(status)
+    .with(
+      { state: P.union("dead", "degraded") },
+      (s) => ({ kind: "down", state: s.state }) as const,
+    )
+    .with({ state: "incompatible" }, () => {
+      // The proven skew must NEVER read as a warming pulse — it is a terminal
+      // verdict. Payload-less: the versions ride the two surfaces that render
+      // them (`liveDownState`'s canvas card, `kavalAttention`'s chip/banner).
+      return { kind: "incompatible" } as const;
+    })
+    .with(
+      { state: P.union("connecting", "restarting") },
+      (s) => ({ kind: "warming", state: s.state }) as const, // connecting | restarting
+    )
+    .with({ state: "connected" }, (s) =>
+      s.identity === undefined
+        ? ({ kind: "warming", state: "connected" } as const) // pre-identity survivor
+        : ({
+            kind: "connected",
+            identity: s.identity,
+            contractVersion: s.contractVersion,
+            startedAt: s.startedAt,
+            socketPath: s.socketPath,
+            lifetime: s.lifetime,
+          } as const),
+    )
+    .exhaustive();
 }
 
 /** The presentation of a kaval {@link KavalPresence} — its dot tone, its status word, AND
@@ -442,9 +450,10 @@ export function kavalPresencePresentation(presence: KavalPresence): {
 
 /** The concrete `DaemonState` a presence renders AS (its dot tone, label, and
  *  `data-daemon-state` attr all derive from this), or `"unknown"` for a dead/half-open
- *  channel. The ONE presence→state fold — {@link kavalPresencePresentation} and
- *  {@link daemonStateAttr} both read it, so the dot/label/attr can't drift on which arm
- *  maps to which state. A pre-identity `connected` reads `"connected"` (the `warming` arm
+ *  channel. The ONE presence→state fold — {@link kavalPresencePresentation} and the kaval
+ *  rail mark's `data-daemon-state` attr (the machine-readable twin of the dot tone that
+ *  e2e selectors key on) both read it, so the dot/label/attr can't drift on which arm maps
+ *  to which state. A pre-identity `connected` reads `"connected"` (the `warming` arm
  *  carries `state: "connected"`), so the machine-readable attr stays behavior-identical to
  *  the retired raw `(state, live)` one. */
 export function presenceState(
@@ -457,12 +466,6 @@ export function presenceState(
     .with({ kind: "down" }, (p) => p.state)
     .with({ kind: "incompatible" }, () => "incompatible" as const)
     .exhaustive();
-}
-
-/** The kaval rail mark's `data-daemon-state` attribute — {@link presenceState} as the
- *  machine-readable twin of the dot tone that e2e selectors key on. */
-export function daemonStateAttr(presence: KavalPresence): string {
-  return presenceState(presence);
 }
 
 /** Humanize a daemon's serialized lifetime for the Kaval/Padi dialog rows —

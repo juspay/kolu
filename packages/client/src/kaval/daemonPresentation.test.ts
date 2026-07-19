@@ -8,12 +8,12 @@ import {
   channelLive,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
-  daemonStateAttr,
   formatLifetime,
   kavalPresencePresentation,
   liveDownState,
   liveWarming,
   offerRestartVerb,
+  presenceState,
   serverDot,
   toKavalPresence,
   toneDot,
@@ -405,24 +405,22 @@ describe("the incompatible arm (SK4) — a proven skew is its own verdict, never
   });
 });
 
-describe("daemonStateAttr — the rail mark's data-daemon-state, projected from presence (behavior-identical to the retired raw pair)", () => {
+describe("presenceState — the rail mark's data-daemon-state, projected from presence (behavior-identical to the retired raw pair)", () => {
   it("names each arm; warming/down expose the fine state; a dead channel reads 'unknown'", () => {
-    expect(daemonStateAttr(toKavalPresence(minimalConnected(), true))).toBe(
+    expect(presenceState(toKavalPresence(minimalConnected(), true))).toBe(
       "connected",
     );
-    expect(daemonStateAttr({ kind: "warming", state: "restarting" })).toBe(
+    expect(presenceState({ kind: "warming", state: "restarting" })).toBe(
       "restarting",
     );
     // A live pre-identity `connected` still reads "connected" (the warming arm carries it).
-    expect(daemonStateAttr({ kind: "warming", state: "connected" })).toBe(
+    expect(presenceState({ kind: "warming", state: "connected" })).toBe(
       "connected",
     );
-    expect(daemonStateAttr({ kind: "down", state: "degraded" })).toBe(
-      "degraded",
-    );
-    expect(daemonStateAttr({ kind: "incompatible" })).toBe("incompatible");
+    expect(presenceState({ kind: "down", state: "degraded" })).toBe("degraded");
+    expect(presenceState({ kind: "incompatible" })).toBe("incompatible");
     // A dead channel (or no value) reads "unknown", never a stale state.
-    expect(daemonStateAttr(toKavalPresence(minimalConnected(), false))).toBe(
+    expect(presenceState(toKavalPresence(minimalConnected(), false))).toBe(
       "unknown",
     );
   });
