@@ -134,6 +134,7 @@ and observed:
 | note rendering | `@kolu/solid-markdown` + standard marked extensions (alerts + footnotes **shipped**; add: live `#1234` pills via the server's forge access, directive syntax, the `html` fence → the existing sandboxed preview iframe) | *P0, small* |
 | durable knowledge | plain files in git — no new store, no schema | **shipped** (it's a filesystem) |
 | reset-to-stable (let it crash) | the agent CLI's own compaction / a fresh terminal | **shipped** — nothing to build |
+| **the attention flow — a blocking ask can't exist without a listener** | padi delivers `[kolu] worker <id> (<intent>) needs you` into the SUPERVISOR terminal's mailbox (the `parentId`/creator edge names it; kaval's serialized input is the transport), fired only when **agent-state is `awaiting`/`waiting` AND raw PTY output settled ≥ N s** (the conjunction — agent-idle alone false-fires on subagent/background churn). Only agent-terminal supervisors are notified, never a human shell. | *new, small — both signals shipped (`wait_agentState` + `wait_outputSettled`); the edge and the mailbox exist* |
 | the chat mirror | pesu: `postMessage` out, `sendInput` in — the chat-native note's bridge | *P3, per that note* |
 
 Read the Status column's shape: **most rows are shipped.** The feature is
@@ -142,6 +143,43 @@ is — which is exactly what the model-not-analogy claim predicts. What is
 *never* on the list: a coordinator engine, a workflow DSL, a state machine
 for campaigns — the brain stays an agent, the campaign state stays files
 and observation.
+
+### The attention flow, as its own class-kill
+
+The recurring failure this design must end: **a worker blocks on the
+coordinator, and the ask waits to be *discovered* rather than *delivered*.**
+Observe pulls the coordinator (a merge, a human message re-invoke it); a
+worker quietly entering "await coordinator" pushes nothing — so a gate request
+is the one event most likely to rot, and in practice it did, twice, overnight.
+
+Patches that add a *listener* (a watcher process, a Stop hook, a discipline)
+all fail the bar identically: the listener is a **separate, optional act**, so
+"dispatch a worker without arming its notification" stays spellable. P4's
+target is to make ask-without-listener unrepresentable — which happens only
+when the ask and the listener are **the same fact**.
+
+They already are, latent: the supervision edge (`parentId` / creator
+attribution) records exactly who should hear a worker's ask, and the mailbox
+(serialized terminal input — the coordinator's real inbox) is exactly how to
+deliver it. So the notification is not a thing you *attach*; it is what the
+edge *means*. A worker going blocked delivers into its supervisor's mailbox by
+construction — the supervisor is re-invoked like any message, no watcher, no
+poll, nothing to forget. **Dispatching a worker creates its notification path
+because the edge is the subscription** (P5: padi is the knowing endpoint for
+"who needs whom"; delivery rides the one door).
+
+The signal must be the **conjunction**, not agent-state alone: a coding
+agent's subagents and background tasks flap its detected state to idle while
+the terminal is still working. Fire only when *agent-state is `awaiting`/`waiting`* **and** *raw PTY output has settled* for a debounce window —
+both already shipped as `wait_agentState` and `wait_outputSettled`
+("terminal-activity idle", distinct from agent-state idle). Guard: notify only
+supervisors that are themselves agent terminals — never inject into a human's
+shell.
+
+*Interim, until this ships:* every dispatch carrying an "ask me" gate arms
+`wait --until idle:<ms>` (the same conjunction) as a background task in the
+same turn — the harness re-invokes the coordinator when it fires. The ask and
+its listener created together, never apart.
 
 ## The Board — a third right-panel tab, shaped like the graph
 
