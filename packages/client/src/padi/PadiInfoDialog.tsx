@@ -30,7 +30,7 @@
  *  | `props.presence` (build commit, surfaceVersion, …) | host-scoped (W4 "the switch") — `toPadiPresence(padi.link(), padi.live(), identity.value(), …)` folded AT THE CALL SITE off the clicked host's `padiMap.entry(host).cells.identity` (padi's own per-host hello twin); the dialog reads facts ONLY off its `connected` arm |
  *  | `props.startedAt`                                  | host-scoped (W4 "the switch") — same `identity` cell, reprojected by the clicked host chip via `padiMap.entry(host).clock.toLocal` (padi's boot epoch is on padi's OWN clock) |
  *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` VALUE | host-scoped (W4 "the switch") — `padiMap.useEntry(activeHost).cells.processMemory` (padi's OWN per-host RSS pair), not koluSurface's host-independent fold any more |
- *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` GATE  | host-scoped — floored on `daemonTransportLive()`/`daemonChannelLive()` (kaval's) |
+ *  | `padiMemoryDisplay()`, `kavalMemoryDisplay()` GATE  | host-scoped — BOTH floored on `daemonChannelLive()` (ws ∧ the active entry, #1793); kaval additionally gates on the daemon state being `connected` |
  *
  *  The remaining "host-independent today" rows (`padiLinkState()`, `boundPadiConvergence()`,
  *  `daemonScanBoundHost()`) are a real gap (padi/server must eventually serve a per-host
