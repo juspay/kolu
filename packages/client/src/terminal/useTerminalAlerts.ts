@@ -62,7 +62,7 @@ export function useTerminalAlerts(deps: {
   // keeps `undefined` from doing two jobs: a terminal we tracked last tick whose
   // agent state was undefined *then* is distinguished from a first sighting, so an
   // agent that appears and jumps straight into the notify class still fires
-  // (`checkAgentFinished` treats an undefined `prev` as non-notify).
+  // (`advanceAlertEpisode` treats an undefined `prev` as non-notify).
   //
   // Snapshot the ACTIVE HOST alongside the states and SKIP the whole diff on a host
   // change. `has(id)` alone assumes ids are disjoint across hosts, which holds for
@@ -114,7 +114,7 @@ export function useTerminalAlerts(deps: {
         if (!sameHost) chimed.clear();
         for (const [id, next] of curr.states) {
           if (sameHost && prev.states.has(id)) {
-            checkAgentFinished(id, prev.states.get(id), next);
+            advanceAlertEpisode(id, prev.states.get(id), next);
           } else if (isAwaiting(next)) {
             // First sighting ALREADY in the awaiting bucket: pre-latch it, so a
             // settle-flap around a first sighting (`awaiting_user → waiting →
@@ -152,7 +152,7 @@ export function useTerminalAlerts(deps: {
     state !== undefined &&
     agentBucket(state as AgentInfo["state"]) === "awaiting";
 
-  function checkAgentFinished(
+  function advanceAlertEpisode(
     id: TerminalId,
     prev: string | undefined,
     next: string | undefined,
