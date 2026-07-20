@@ -180,3 +180,68 @@ describe("backstop copy is fact-aware (#1900 R4)", () => {
     expect(backstop).toContain("daemon isn't running");
   });
 });
+
+/** #1900 (verdict-time stamping — the OTHER load-bearing half of the primary
+ *  fix, pinned so it can't be reverted while the boot-gate test stays green;
+ *  codex-debate F4). The contract: a terminal route stamps the entry consumed
+ *  ONLY when it RESOLVES (enact, or a disarming verdict via `disarmResolved` =
+ *  disarm+stamp), NEVER at parse; an immediate verdict stamps at parse; the enact
+ *  stamp lands AFTER enact returns (so a throwing enact stays retryable); and
+ *  supersession + traversal use the BARE `disarmInFlightRoute` (no stamp). Also
+ *  pins the external-request stamp reset (codex-debate F1). */
+describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
+  it("derives deferral from the terminalId fact, not a kind list", () => {
+    // Keyed off the SAME predicate `TerminalRoute = Extract<DeepLink,{terminalId}>`
+    // is built on, so a future terminal-targeting kind is covered automatically.
+    expect(routerSrc).toContain('const deferStamp = "terminalId" in link;');
+  });
+
+  it("navigate stamps ONLY the immediate verdicts (terminal routes defer)", () => {
+    const navStart = routerSrc.indexOf("function navigate(");
+    const navBody = routerSrc.slice(
+      navStart,
+      routerSrc.indexOf("function resolveRoute(", navStart),
+    );
+    // navigate's ONLY stamp is the one guarded by !deferStamp — a second,
+    // unconditional stamp (the pre-fix parse-time behaviour) would make this 2.
+    expect(navBody).toContain("if (!deferStamp) stampEntryRouted();");
+    expect((navBody.match(/stampEntryRouted\(\)/g) ?? []).length).toBe(1);
+  });
+
+  it("disarmResolved is disarm-plus-stamp, applied at every disarming verdict", () => {
+    // The helper body: disarm THEN stamp.
+    expect(routerSrc).toMatch(
+      /function disarmResolved\(\)[^}]*disarmInFlightRoute\(\);[^}]*stampEntryRouted\(\);/s,
+    );
+    // Four disarming verdicts resolve THIS entry and must stamp it: host-mismatch,
+    // list-error, gone, backstop-timeout. (Supersession + traversal are the bare
+    // sites below and deliberately excluded.)
+    const calls = routerSrc.match(/\bdisarmResolved\(\);/g) ?? [];
+    expect(calls.length).toBe(4);
+  });
+
+  it("stamps the ENACTED path only AFTER enact returns (retryable on throw)", () => {
+    expect(routerSrc).toMatch(
+      /enact\(route, resolved\.meta, resolved\.anchorMeta\);\s*stampEntryRouted\(\);/s,
+    );
+  });
+
+  it("supersession + traversal use the BARE disarmInFlightRoute (no stamp)", () => {
+    // The traversal gate disarms without stamping (the entry is already stamped);
+    // navigate's leading supersession disarms the OLD route without stamping the
+    // new command's entry. Both must be the bare form.
+    const hashchange = routerSrc.slice(routerSrc.indexOf('"hashchange"'));
+    expect(hashchange).toContain("disarmInFlightRoute();");
+    expect(hashchange).not.toContain("disarmResolved();");
+  });
+
+  it("an external request resets the entry stamp so a same-hash re-route is fresh (codex F1)", () => {
+    // navigateFromExternal clears any prior koluRouted stamp for ANY non-empty
+    // hash (not only a changed one), so a same-hash re-request is unstamped until
+    // it resolves — a mid-flight reload then re-routes instead of being skipped.
+    const ext = routerSrc.slice(
+      routerSrc.indexOf("function navigateFromExternal"),
+    );
+    expect(ext).toContain('if (hash) history.replaceState(null, "", hash);');
+  });
+});

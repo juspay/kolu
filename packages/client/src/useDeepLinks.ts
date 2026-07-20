@@ -382,13 +382,15 @@ export function useDeepLinks(): void {
     // (getMetadata is reactive), bounded by the 8s backstop.
     if (codeRouteAwaitingRepo(route, resolved.anchorMeta)) return;
     // The ONLY non-disarming clear: an ENACTED route's intent survives so
-    // cold-boot hydration keeps the reached view. Still stamp the entry consumed
-    // (so a reload doesn't re-enact a command already enacted) — but via a bare
-    // `setPending(null)` + `stampEntryRouted()`, never `disarmResolved`, which
-    // would clear the surviving intent (#1900 R1).
+    // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
+    // throwing enact can't leave the effect armed into a retry loop), then enact,
+    // then stamp the entry consumed — but ONLY after enact RETURNS. If a view seam
+    // in enact throws, the entry is left UNSTAMPED and retryable on reload, never
+    // durably stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
+    // `disarmResolved` here — that would clear the surviving intent.
     setPending(null);
-    stampEntryRouted();
     enact(route, resolved.meta, resolved.anchorMeta);
+    stampEntryRouted();
   });
 
   // Bounded backstop: if the wait never resolves, give up loudly rather than
@@ -438,9 +440,15 @@ export function useDeepLinks(): void {
    *  fires no `hashchange`, so route explicitly — always, which also keeps a
    *  repeated same-hash request re-routing. */
   function navigateFromExternal(hash: string): void {
-    if (hash && hash !== window.location.hash) {
-      history.replaceState(null, "", hash);
-    }
+    // An external request is a FRESH command (a preview-bridge re-click, a PWA
+    // launch) — even for the SAME hash already in the bar (`equals: false`
+    // re-route). Reset THIS entry's state before routing so the fresh terminal
+    // command is UNSTAMPED until it resolves: a same-hash re-request must not
+    // inherit the prior route's `koluRouted` stamp, or a mid-flight reload's boot
+    // gate would skip it (#1900 R1). Unconditional for any non-empty hash (not
+    // just a changed one) — `replaceState` keeps the hash durable, pushes no
+    // history entry, and fires no `hashchange`, so we route explicitly below.
+    if (hash) history.replaceState(null, "", hash);
     navigate(parseDeepLink(hash));
   }
 
