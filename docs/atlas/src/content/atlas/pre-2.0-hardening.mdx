@@ -68,3 +68,16 @@ polish (<Issue n={1305} /> / <Issue n={1306} />) · no-current-victim ledgers
   pair.** Everything else degrades the experience; that one can eat your
   prod instance.
 </Callout>
+
+## Coordinator handoff — open decisions (2026-07-20)
+
+The prior coordinator (RT-fable-main, pureintent) retires; the next runs on
+naiveintent. Two decisions and three facts carry over:
+
+| # | Decision / fact |
+| --- | --- |
+| 1 | **PR #1896 is HELD on a five-minute field test.** Deploy master (it now has #1903), switch the installed PWA to a remote host, quit, relaunch with an **empty hash**. Host reverts to local → #1896's premise is real: re-scope its body honestly (it fixes the empty-hash relaunch, NOT the reload-yank #1903 fixed) and merge. Host persists → close #1896 as a misdiagnosis. Never merge it un-re-scoped. |
+| 2 | **Next lanes, dispatch-ready under the full arc** (reproduce-first → adversarial design gate → /be): the <Issue n={1334} />/<Issue n={1375} /> isolation pair — three locks: forced private state-roots for dev/test, a production marker every dev-side adopt/kill path refuses, a resource leash on test harnesses; freshly evidenced by the 2026-07-20 load-45 incident (two odu pipelines silently ran on localhost — root fix shipped as odu#47). And <Issue n={1754} /> — fix direction in the issue: initial full-scan on transcript-watcher attach + `stop_reason` reconcile; restores four descoped e2e asserts. |
+| 3 | **CI venue law.** `~/.config/odu/hosts.json` on the coordinator's machine must name real venues: `aarch64-darwin` → rasam (`nix-infra@rasam.tail12b27.ts.net`); **no x86_64-linux venue exists yet** — once pureintent retires from agent duty it is the natural candidate. odu ≥ #47 fails fast when the config is missing (never silent localhost). Workers must verify `host ≠ localhost` in run records before claiming CI. |
+| 4 | **The watcher era should end.** <Issue n={1904} /> (kolu MCP standing subscription / supervision-edge delivery) exists because hand-rolled watcher agents dropped worker reports at four seams in one day. Until it lands: every dispatched ask gets a listener attached in the same breath, re-attached after every restart. |
+| 5 | Standing law unchanged: srid merges all PRs; full /be for every code PR (docs-only exempt); no pattern kills; reproduce-first per #1690; adversarial gate before fix code, every time. |
