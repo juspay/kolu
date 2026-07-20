@@ -319,7 +319,8 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     if (t === "--") break; // stop at explicit end-of-flags
     if (!t.startsWith("-")) continue; // drop positional
     const next = args[i + 1];
-    if (!allowed.has(t)) {
+    const arity = allowed.get(t);
+    if (arity === undefined) {
       // Unknown flag — skip it and its value (if present)
       if (next !== undefined && !next.startsWith("-")) i++;
       continue;
@@ -331,11 +332,7 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     // (`--dangerously-skip-permissions`) must not consume it — otherwise a
     // trailing prompt positional gets kept as a bogus value and leaks into the
     // MRU. See the per-flag arity in `STABLE_FLAGS`.
-    if (
-      allowed.get(t) === "value" &&
-      next !== undefined &&
-      !next.startsWith("-")
-    ) {
+    if (arity === "value" && next !== undefined && !next.startsWith("-")) {
       kept.push(next);
       i++;
     }
