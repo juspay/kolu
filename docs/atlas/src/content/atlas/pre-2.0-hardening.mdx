@@ -1,0 +1,83 @@
+---
+title: "Pre-2.0 hardening — the shortlist"
+description: "Ship-status board for the 2.0 tag: what can hurt the user, in their words, with a mark per item. ✅ done · 🔶 in flight · ⬜ not started."
+parents: [analysis, roadmap]
+status: proposed
+maturity: budding
+updated: 2026-07-20
+---
+
+import Callout from "../../components/Callout.astro";
+import Issue from "../../components/Issue.astro";
+
+One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not started.
+
+## 🔴 Red alert — blocks the tag
+
+| | Issue | What the user feels |
+| --- | --- | --- |
+| ⬜ | <Issue n={1334} /> + <Issue n={1375} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. |
+| ⬜ | <Issue n={1754} /> | The dock says **"thinking" forever** after the agent already finished. |
+| ✅ | <Issue n={1859} /> | ~~One corrupt message makes a connection play dead while it keeps listening~~ — "settled ⟹ stopped" holds by construction. (PR #1901) |
+| ✅ | <Issue n={1900} /> | ~~Refresh yanks you to another host with a lying toast~~ — boot honors the consumed stamp; the gone-verdict waits for an authoritative census. (PR #1903) |
+| ✅ | <Issue n={1177} /> | An agent that needs you **always chimes** now. (PR #1894) |
+| ✅ | <Issue n={1763} /> | "Connecting to local…" **can no longer spin forever** — a stuck boot names its failure and offers Reload. (PR #1898) |
+
+## 🟡 Yellow alert — land next
+
+| | Issue | What the user feels |
+| --- | --- | --- |
+| ⬜ | <Issue n={1658} /> | A bad write could **lose all your terminals and sessions** — back up state on start. |
+| ⬜ | <Issue n={1667} /> | Closing the last terminals can **focus a dead one**. Fix PR #1677 already open — land it. |
+| ⬜ | <Issue n={1666} /> | Removing a worktree **strands its running terminal**. |
+| ⬜ | <Issue n={1680} /> | On a remote mac, agent state **freezes silently** until restart. |
+| ⬜ | <Issue n={1076} /> | A terminal is left **frozen** (raw mode) after a TUI app exits. |
+| ⬜ | <Issue n={1875} /> | A reconnect race can **dial the same host twice**. |
+| ⬜ | <Issue n={1701} /> | Branch-mode Code tab is **dead over a remote host** ("base branch not found" for one that exists). |
+| ⬜ | <Issue n={1715} /> | A wire naming collision can **cross two channels' data** — silent landmine. |
+| ⬜ | <Issue n={1668} /> | A file deleted at the wrong moment shows **"Loading…" forever**. |
+| ⬜ | <Issue n={1492} /> | Waking a sleeping terminal **doesn't resume** a `nix run` agent. |
+
+## 🟢 Condition green — recurrence guards
+
+| | Issue | What it prevents |
+| --- | --- | --- |
+| ⬜ | <Issue n={1706} /> + <Issue n={1693} /> | Regenerated agent skills silently **regressing to a stale commit**. |
+| ⬜ | <Issue n={1707} /> | Big pastes to a Claude terminal **not submitting**. |
+| ⬜ | <Issue n={1885} /> | A renew toast that **lies about success**. |
+| ⬜ | <Issue n={1339} /> | An **opaque 30s hang** where a one-line refusal reason exists. |
+| ⬜ | <Issue n={1679} /> + <Issue n={1695} /> | The two remote-padi **test flakes**. |
+
+## Verify & close — fix already shipped, confirm it
+
+| | Issue | The fact |
+| --- | --- | --- |
+| ⬜ | <Issue n={1681} /> | Gray-chip fix merged 2026-07-05 (#1687), no recurrence since. Confirm, close. |
+| ⬜ | <Issue n={901} /> | Kaval survivors *are* this feature — redeploys don't kill PTYs. Confirm, close. |
+| ✅ | #1793 | Closed — presence-only dialogs (#1892). |
+
+## Deferred past 2.0
+
+Features (<Issue n={1240} />, <Issue n={1218} />, <Issue n={1295} />) · render
+polish (<Issue n={1305} /> / <Issue n={1306} />) · no-current-victim ledgers
+(<Issue n={1688} />, <Issue n={1863} />) · <Issue n={706} /> full containment
+(needs a VM) · the campaign-surface build-out.
+
+<Callout kind="accent" title="One-thing cut">
+  If only one lands: **the <Issue n={1334} />/<Issue n={1375} /> isolation
+  pair.** Everything else degrades the experience; that one can eat your
+  prod instance.
+</Callout>
+
+## Coordinator handoff — open decisions (2026-07-20)
+
+The prior coordinator (RT-fable-main, pureintent) retires; the next runs on
+naiveintent. Two decisions and three facts carry over:
+
+| # | Decision / fact |
+| --- | --- |
+| 1 | **PR #1896 is HELD on a five-minute field test.** Deploy master (it now has #1903), switch the installed PWA to a remote host, quit, relaunch with an **empty hash**. Host reverts to local → #1896's premise is real: re-scope its body honestly (it fixes the empty-hash relaunch, NOT the reload-yank #1903 fixed) and merge. Host persists → close #1896 as a misdiagnosis. Never merge it un-re-scoped. |
+| 2 | **Next lanes, dispatch-ready under the full arc** (reproduce-first → adversarial design gate → /be): the <Issue n={1334} />/<Issue n={1375} /> isolation pair — three locks: forced private state-roots for dev/test, a production marker every dev-side adopt/kill path refuses, a resource leash on test harnesses; freshly evidenced by the 2026-07-20 load-45 incident (two odu pipelines silently ran on localhost — root fix shipped as odu#47). And <Issue n={1754} /> — fix direction in the issue: initial full-scan on transcript-watcher attach + `stop_reason` reconcile; restores four descoped e2e asserts. |
+| 3 | **CI venue law.** `~/.config/odu/hosts.json` on the coordinator's machine must name real venues: `aarch64-darwin` → rasam (`nix-infra@rasam.tail12b27.ts.net`); **no x86_64-linux venue exists yet** — once pureintent retires from agent duty it is the natural candidate. odu ≥ #47 fails fast when the config is missing (never silent localhost). Workers must verify `host ≠ localhost` in run records before claiming CI. |
+| 4 | **The watcher era should end.** <Issue n={1904} /> (kolu MCP standing subscription / supervision-edge delivery) exists because hand-rolled watcher agents dropped worker reports at four seams in one day. Until it lands: every dispatched ask gets a listener attached in the same breath, re-attached after every restart. |
+| 5 | Standing law unchanged: srid merges all PRs; full /be for every code PR (docs-only exempt); no pattern kills; reproduce-first per #1690; adversarial gate before fix code, every time. |

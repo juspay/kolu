@@ -3,99 +3,147 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>orchestrator · board</title>
+<title>orchestrator · bridge</title>
 <style>
-  /* ── departure-board ops: full-mono, dark-first, signal colors ─────────── */
+  /* ── LCARS bridge ops — deliberately dark-only (the bridge has no light mode).
+     Same DOM contract as the old departure board: index.js renders into
+     #meta/#root with the identical class vocabulary; only the skin changed. ── */
   :root {
-    --bg:#0c0f14; --panel:#12161d; --panel2:#161b24; --ink:#dbe2ea; --dim:#77839a;
-    --hair:#232a36; --hair2:#2d3644;
-    --done:#2fbf71; --run:#f5a524; --wait:#7c8cf8; --block:#f25757; --q:#4a5568;
-    --glow-run:rgba(245,165,36,.45); --mast:#0a0d11;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg:#f6f3ec; --panel:#fffdf8; --panel2:#f2eee5; --ink:#23293a; --dim:#7a8296;
-      --hair:#e2dccd; --hair2:#d4cdba;
-      --done:#1e9e5a; --run:#c77d00; --wait:#5563d6; --block:#cc3f3f; --q:#a8afc0;
-      --glow-run:rgba(199,125,0,.30); --mast:#ece7db;
-    }
+    --bg:#000;
+    --ink:#f5e7d0;            /* warm off-white body text */
+    --dim:#8a7f9e;            /* muted violet-gray */
+    --orange:#ff9900;         /* LCARS prime */
+    --peach:#ffcc99;
+    --lilac:#cc99cc;
+    --peri:#9999cc;           /* periwinkle */
+    --gold:#ffcc66;
+    --alert:#dd4444;
+    --panel:#0a0a0f;
+    --done:var(--peri); --run:var(--orange); --wait:var(--peach);
+    --block:var(--alert); --q:#4a4560;
+    --glow-run:rgba(255,153,0,.45);
+    --lk-term:var(--gold); --lk-note:var(--lilac); --lk-ext:var(--dim); --lk-app:var(--peri);
+    --cond:"Antonio","Oswald","Bahnschrift SemiCondensed","Arial Narrow",
+           "Helvetica Neue",ui-sans-serif,sans-serif;
   }
   * { box-sizing:border-box; margin:0 }
-  html { scrollbar-width:thin }
+  html { scrollbar-width:thin; scrollbar-color:var(--q) var(--bg) }
   body {
     background:var(--bg); color:var(--ink);
-    font:13.5px/1.55 ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
-    padding:0 0 28px;
+    font:14px/1.5 var(--cond);
+    letter-spacing:.03em;
+    padding:0 14px 30px 26px;   /* left gutter clears the frame rail */
   }
   a { color:inherit; text-decoration:none }
 
-  /* masthead — scanline strip */
-  .mast {
-    position:sticky; top:0; z-index:2; padding:12px 16px 10px;
-    background:
-      repeating-linear-gradient(0deg, transparent 0 2px, rgba(127,127,127,.04) 2px 3px),
-      var(--mast);
-    border-bottom:1px solid var(--hair);
+  /* the LCARS frame rail: a fixed left spine of colored segments */
+  body::before {
+    content:""; position:fixed; top:0; left:0; bottom:0; width:14px; z-index:3;
+    background:linear-gradient(
+      to bottom,
+      var(--orange) 0 120px,   var(--bg) 120px 126px,
+      var(--lilac)  126px 260px, var(--bg) 260px 266px,
+      var(--peri)   266px 55%,   var(--bg) 55% calc(55% + 6px),
+      var(--peach)  calc(55% + 6px) 82%, var(--bg) 82% calc(82% + 6px),
+      var(--orange) calc(82% + 6px) 100%);
+    border-radius:0 7px 7px 0;
   }
-  .mast h1 { font-size:16px; font-weight:800; letter-spacing:.22em; text-transform:uppercase }
-  .mast h1 em { font-style:normal; color:var(--run) }
-  .meta { margin-top:4px; font-size:11.5px; color:var(--dim); letter-spacing:.04em;
-          display:flex; align-items:center; gap:7px; flex-wrap:wrap }
-  .live-dot { width:6px; height:6px; border-radius:50%; background:var(--done);
-              animation:blink 2.4s steps(1) infinite; flex:none }
-  @keyframes blink { 50% { opacity:.25 } }
+
+  /* ── masthead: the elbow ───────────────────────────────────────────────── */
+  .mast {
+    position:sticky; top:0; z-index:2; margin:0 -14px 6px -26px;
+    padding:14px 16px 12px 88px; background:var(--bg);
+  }
+  .mast::before {                       /* the elbow block */
+    content:""; position:absolute; left:0; top:0; bottom:10px; width:72px;
+    background:var(--orange); border-radius:0 0 0 40px;
+  }
+  .mast::after {                        /* the header bar running off the elbow */
+    content:""; position:absolute; left:76px; right:0; top:0; height:14px;
+    background:linear-gradient(to right,
+      var(--orange) 0 38%, var(--bg) 38% calc(38% + 6px),
+      var(--lilac) calc(38% + 6px) 62%, var(--bg) 62% calc(62% + 6px),
+      var(--peri) calc(62% + 6px) 100%);
+    border-radius:7px;
+  }
+  .mast h1 {
+    margin-top:16px; font-family:var(--cond); font-size:26px; font-weight:700;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--orange);
+  }
+  .mast h1 em { font-style:normal; color:var(--lilac) }
+  .meta {
+    margin-top:4px; font-size:12px; color:var(--dim); letter-spacing:.08em;
+    text-transform:uppercase; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .live-dot {
+    width:16px; height:8px; border-radius:4px; background:var(--gold);
+    animation:blink 2.4s steps(1) infinite; flex:none;
+  }
+  @keyframes blink { 50% { opacity:.2 } }
 
   section {
-    padding:0 12px; display:grid; gap:10px;
+    padding:0 2px; display:grid; gap:12px;
     grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));
   }
+  /* section header: an LCARS bar with a rounded cap, label riding its end */
   h2 {
-    font-size:11px; font-weight:700; letter-spacing:.28em; text-transform:uppercase;
-    color:var(--dim); margin:22px 4px 2px; display:flex; align-items:center; gap:8px;
+    font-size:15px; font-weight:700; letter-spacing:.3em; text-transform:uppercase;
+    color:var(--orange); margin:26px 2px 4px; display:flex; align-items:center; gap:10px;
   }
-  h2::after { content:""; flex:1; height:1px; background:var(--hair) }
+  h2::before {
+    content:""; width:46px; height:14px; border-radius:7px; background:var(--orange);
+    flex:none;
+  }
+  h2::after { content:""; flex:1; height:4px; border-radius:2px; background:var(--orange);
+              opacity:.35 }
 
-  /* ── lane card ───────────────────────────────────────────────────────── */
+  /* ── track card: a black panel hung off a status-colored pylon ─────────── */
   .card {
-    background:var(--panel); border:1px solid var(--hair); border-left-width:3px;
-    border-radius:8px; padding:12px 14px 14px;
+    position:relative; background:var(--panel); border-radius:14px 4px 4px 14px;
+    padding:12px 14px 14px 26px; overflow:hidden;
   }
-  .card.s-run   { border-left-color:var(--run) }
-  .card.s-done  { border-left-color:var(--done) }
-  .card.s-wait  { border-left-color:var(--wait) }
-  .card.s-block { border-left-color:var(--block) }
+  .card::before {                       /* the pylon: full-height rounded cap */
+    content:""; position:absolute; left:0; top:0; bottom:0; width:14px;
+    background:var(--q); border-radius:7px;
+  }
+  .card::after {                        /* top ledger line off the pylon */
+    content:""; position:absolute; left:18px; right:0; top:0; height:3px;
+    background:var(--q); opacity:.5; border-radius:2px;
+  }
+  .card.s-run::before,  .card.s-run::after   { background:var(--run) }
+  .card.s-done::before, .card.s-done::after  { background:var(--done) }
+  .card.s-wait::before, .card.s-wait::after  { background:var(--wait) }
+  .card.s-block::before,.card.s-block::after { background:var(--block) }
+  .card.s-block::before { animation:redalert 1s steps(2) infinite }
+  @keyframes redalert { 50% { opacity:.35 } }
   .boot .card { opacity:0; transform:translateY(6px); animation:rise .45s ease-out forwards }
   @keyframes rise { to { opacity:1; transform:none } }
 
-  .card-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap }
-  .lane-name { font-size:17px; font-weight:800; letter-spacing:.02em }
-  .lane-name a:hover { text-decoration:underline; text-underline-offset:3px }
-  .lane-sub { font-size:11px; color:var(--dim) }
-  .now { margin-left:auto; font-size:11.5px; font-weight:700; letter-spacing:.14em;
+  .card-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:4px }
+  .lane-name { font-size:19px; font-weight:700; letter-spacing:.06em; text-transform:uppercase }
+  .lane-name a:hover { color:var(--gold) }
+  .lane-sub { font-size:11px; color:var(--dim); letter-spacing:.1em }
+  .now { margin-left:auto; font-size:12px; font-weight:700; letter-spacing:.16em;
          text-transform:uppercase; white-space:nowrap }
   .now.s-run   { color:var(--run) }  .now.s-done { color:var(--done) }
   .now.s-wait  { color:var(--wait) } .now.s-block{ color:var(--block) }
   .now.s-q     { color:var(--dim) }
   .now .caret { animation:blink 1.2s steps(1) infinite }
 
-  /* ── the rail: stations joined by a hairline ─────────────────────────── */
-  .rail { display:flex; margin-top:10px }
+  /* ── the rail: stations as LCARS segments on a data track ──────────────── */
+  .rail { display:flex; margin-top:12px }
   .station { flex:1; min-width:0; position:relative; text-align:center; cursor:default }
-  .station::before {           /* the track segment */
-    content:""; position:absolute; top:6px; left:-50%; width:100%; height:2px;
-    background:var(--hair2);
+  .station::before {
+    content:""; position:absolute; top:6px; left:-50%; width:100%; height:3px;
+    border-radius:2px; background:var(--q); opacity:.55;
   }
   .station:first-child::before { display:none }
-  .station.p-done::before { background:var(--done) }
+  .station.p-done::before { background:var(--done); opacity:1 }
   .dot {
-    position:relative; z-index:1; display:inline-block; width:14px; height:14px;
-    border-radius:50%; border:2px solid var(--q); background:var(--panel);
+    position:relative; z-index:1; display:inline-block; width:22px; height:14px;
+    border-radius:7px; border:2px solid var(--q); background:var(--panel);
   }
   .station.p-done .dot  { border-color:var(--done); background:var(--done) }
-  .station.p-done .dot::after {
-    content:""; position:absolute; inset:0; margin:auto; width:4px; height:7px;
-    border:solid var(--panel); border-width:0 2px 2px 0; transform:translateY(-1px) rotate(45deg);
-  }
   .station.p-run .dot {
     border-color:var(--run); background:var(--run);
     animation:beacon 1.6s ease-out infinite;
@@ -106,82 +154,86 @@
     100% { box-shadow:0 0 0 0 transparent }
   }
   .station.p-wait .dot  { border-color:var(--wait); background:var(--wait) }
-  .station.p-block .dot { border-color:var(--block); background:var(--block) }
+  .station.p-block .dot { border-color:var(--block); background:var(--block);
+                          animation:redalert 1s steps(2) infinite }
   .slabel {
-    display:block; margin-top:5px; font-size:10px; letter-spacing:.06em;
+    display:block; margin-top:5px; font-size:10.5px; letter-spacing:.08em;
     text-transform:uppercase; color:var(--dim);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 2px;
   }
   .station.p-run .slabel   { color:var(--run); font-weight:700 }
   .station.p-wait .slabel  { color:var(--wait); font-weight:700 }
   .station.p-block .slabel { color:var(--block); font-weight:700 }
-  .station.p-done .slabel  { color:var(--ink); opacity:.55 }
-  a.station:hover .slabel { text-decoration:underline; text-underline-offset:2px }
+  .station.p-done .slabel  { color:var(--ink); opacity:.6 }
+  a.station:hover .slabel { color:var(--gold); opacity:1 }
 
-  /* ── nested live-lane detail: the active step, expanded in place ─────── */
+  /* nested live-lane detail */
   .station.has-lane .dot { outline:2px solid var(--glow-run); outline-offset:2px }
   .sub-lane {
-    margin-top:12px; padding:9px 12px 11px; border-radius:6px;
-    background:var(--panel2); border:1px dashed var(--hair2);
-    border-left:3px solid var(--run);
+    margin-top:14px; padding:9px 12px 11px 18px; border-radius:9px 3px 3px 9px;
+    background:#050508; position:relative; overflow:hidden;
+  }
+  .sub-lane::before {
+    content:""; position:absolute; left:0; top:0; bottom:0; width:8px;
+    border-radius:4px; background:var(--run);
   }
   .sub-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-bottom:2px }
-  .sub-title { font-size:12.5px; font-weight:800; letter-spacing:.06em; text-transform:uppercase }
-  a.sub-title:hover { text-decoration:underline; text-underline-offset:3px }
-  .rail-sub .dot { width:11px; height:11px }
+  .sub-title { font-size:13px; font-weight:700; letter-spacing:.12em; text-transform:uppercase }
+  a.sub-title:hover { color:var(--gold) }
+  .rail-sub .dot { width:16px; height:11px; border-radius:5px }
   .rail-sub .station::before { top:5px }
-  .rail-sub .slabel { font-size:9px }
+  .rail-sub .slabel { font-size:9.5px }
 
-  /* ── link badges: the icon tells the target class before the click ───── */
-  :root { --lk-term:#3fc6c0; --lk-note:#d9a441; --lk-ext:#8a93a8; --lk-app:#9d8cf5 }
-  @media (prefers-color-scheme: light) {
-    :root { --lk-term:#0e8a84; --lk-note:#9a6b0f; --lk-ext:#7a8296; --lk-app:#6a58c9 }
-  }
-  .lkicon { font-size:.85em; margin-right:3px; font-weight:800 }
+  /* link badges */
+  .lkicon { font-size:.85em; margin-right:3px; font-weight:700 }
   .lk-term .lkicon { color:var(--lk-term) } .lk-note .lkicon { color:var(--lk-note) }
   .lk-ext .lkicon  { color:var(--lk-ext) }  .lk-app .lkicon  { color:var(--lk-app) }
-  a.lk-term:hover, a.lk-note:hover, a.lk-ext:hover, a.lk-app:hover {
-    text-decoration:underline; text-underline-offset:3px }
+  a.lk-term:hover, a.lk-note:hover, a.lk-ext:hover, a.lk-app:hover { color:var(--gold) }
   .slabel .lkicon { font-size:1em; margin-right:2px }
 
-  /* ── queue / shipped pills ───────────────────────────────────────────── */
-  .pills { display:flex; flex-wrap:wrap; gap:6px }
+  /* ── queue / shipped: LCARS buttons — colored pill, black text ─────────── */
+  .pills { display:flex; flex-wrap:wrap; gap:7px }
   .pill {
-    display:inline-block; padding:4px 11px; border-radius:5px; font-size:12px;
-    border:1px solid var(--hair2); background:var(--panel);
+    display:inline-block; padding:5px 16px; border-radius:12px; font-size:12.5px;
+    font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    background:#141220; color:var(--dim);
   }
-  .pill.s-wait  { border-color:var(--wait);  color:var(--wait);  font-weight:700 }
-  .pill.s-block { border-color:var(--block); color:var(--block); font-weight:700 }
-  .pill.s-done  { border-color:transparent; color:var(--done); background:var(--panel2) }
-  .pill.s-q     { border-style:dashed; color:var(--dim) }
-  .empty { color:var(--dim); font-size:12px; padding:2px 4px }
+  .pill.s-wait  { background:var(--wait);  color:#000 }
+  .pill.s-block { background:var(--block); color:#000; animation:redalert 1s steps(2) infinite }
+  .pill.s-done  { background:var(--peri);  color:#000 }
+  .pill.s-q     { background:transparent; outline:1.5px dashed var(--q); color:var(--dim) }
+  .pill.s-wait .lkicon, .pill.s-block .lkicon, .pill.s-done .lkicon { color:#000 }
+  a.pill:hover { filter:brightness(1.18) }
+  .empty { color:var(--dim); font-size:12px; padding:2px 4px; letter-spacing:.1em;
+           text-transform:uppercase }
 
-  /* Full-width rows inside the section grid — placed AFTER the generic
-     h2/.pills/.empty definitions (biome noDescendingSpecificity); the
-     property sets don't overlap, so the cascade is unchanged. */
   section > h2 { grid-column:1 / -1 }
   section > .pills, section > .empty { grid-column:1 / -1 }
 
   details.shipped summary {
-    cursor:pointer; list-style:none; font-size:11px; font-weight:700;
-    letter-spacing:.28em; text-transform:uppercase; color:var(--dim);
-    margin:20px 16px 8px; display:flex; align-items:center; gap:8px;
+    cursor:pointer; list-style:none; font-size:15px; font-weight:700;
+    letter-spacing:.3em; text-transform:uppercase; color:var(--lilac);
+    margin:24px 2px 10px; display:flex; align-items:center; gap:10px;
   }
   details.shipped summary::-webkit-details-marker { display:none }
-  details.shipped summary::before { content:"▸" }
-  details.shipped[open] summary::before { content:"▾" }
-  details.shipped summary::after { content:""; flex:1; height:1px; background:var(--hair) }
-  details.shipped .pills { padding:0 16px }
+  details.shipped summary::before {
+    content:""; width:46px; height:14px; border-radius:7px; background:var(--lilac); flex:none;
+  }
+  details.shipped[open] summary::before { opacity:.55 }
+  details.shipped summary::after { content:""; flex:1; height:4px; border-radius:2px;
+                                   background:var(--lilac); opacity:.35 }
+  details.shipped .pills { padding:0 2px }
 
   .strip {
-    margin:22px 16px 0; padding-top:10px; border-top:1px dashed var(--hair2);
-    font-size:11px; color:var(--dim); line-height:1.7;
+    margin:26px 0 0; padding:8px 14px; border-radius:9px;
+    background:#0a0a0f; font-size:12px; color:var(--peach); line-height:1.7;
+    letter-spacing:.06em;
   }
 </style>
 </head>
 <body>
 <div class="mast">
-  <h1>ORCHESTRATOR <em>·</em> TASK FLOW</h1>
+  <h1>ORCHESTRATOR <em>·</em> BRIDGE</h1>
   <div class="meta" id="meta"><span class="live-dot"></span><span>loading orchestrator-data.js…</span></div>
   <div class="meta" style="margin-top:2px"><span style="color:var(--lk-term)">❯ terminal</span><span style="color:var(--lk-note)">▤ note/file</span><span style="color:var(--lk-ext)">↗ external</span></div>
 </div>
