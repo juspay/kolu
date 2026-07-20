@@ -119,9 +119,11 @@ export type DockMode = "rail" | "cards";
 /** Width in pixels for a given mode. Drives both the outer aside's
  *  inline `width` style and (in maximized posture) the dock's flex
  *  footprint as a left-panel sibling of the canvas. Reactive on
- *  `dockCardsWidth` for cards mode, so a drag reflows the aside live. */
-function dockWidth(mode: DockMode): number {
-  return mode === "rail" ? RAIL_WIDTH_PX : dockCardsWidth();
+ *  `dockCardsWidth` for the maximized cards sidebar, so a drag reflows
+ *  the aside live; the tiled cards float keeps its default width. */
+function dockWidth(mode: DockMode, maximized: boolean): number {
+  if (mode === "rail") return RAIL_WIDTH_PX;
+  return maximized ? dockCardsWidth() : CARDS_WIDTH_PX;
 }
 
 // Holding the platform modifier (Cmd on macOS, Ctrl elsewhere) reveals
@@ -235,7 +237,9 @@ const Dock: Component<{
         "relative shrink-0 h-full border-r border-edge":
           posture.mode() === "maximized",
       }}
-      style={{ width: `${dockWidth(dockMode())}px` }}
+      style={{
+        width: `${dockWidth(dockMode(), posture.mode() === "maximized")}px`,
+      }}
     >
       <RailOrCards
         mode={dockMode()}
