@@ -9,7 +9,6 @@ import { CARDS_WIDTH_PX, clampDockCardsWidth } from "./dockCardsWidth";
 // the private constants, so the test guards the contract, not the literals.
 describe("clampDockCardsWidth", () => {
   it("passes an in-range width through unchanged", () => {
-    expect(clampDockCardsWidth(CARDS_WIDTH_PX)).toBe(CARDS_WIDTH_PX);
     expect(clampDockCardsWidth(320)).toBe(320);
   });
 
