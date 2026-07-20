@@ -208,16 +208,47 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     expect((navBody.match(/stampEntryRouted\(\)/g) ?? []).length).toBe(1);
   });
 
-  it("disarmResolved is disarm-plus-stamp, applied at every disarming verdict", () => {
-    // The helper body: disarm THEN stamp.
+  it("disarmResolved's body is disarm THEN stamp", () => {
     expect(routerSrc).toMatch(
       /function disarmResolved\(\)[^}]*disarmInFlightRoute\(\);[^}]*stampEntryRouted\(\);/s,
     );
-    // Four disarming verdicts resolve THIS entry and must stamp it: host-mismatch,
-    // list-error, gone, backstop-timeout. (Supersession + traversal are the bare
-    // sites below and deliberately excluded.)
-    const calls = routerSrc.match(/\bdisarmResolved\(\);/g) ?? [];
-    expect(calls.length).toBe(4);
+  });
+
+  // Anchor each disarming verdict to its OWN branch — a location-insensitive
+  // global count would pass a two-site swap (e.g. leading supersession →
+  // disarmResolved while list-error → bare) that keeps the count at 4 yet stamps a
+  // fresh superseding command and un-stamps a fault verdict (codex-debate F4 r2).
+  const between = (start: string, end: string) => {
+    const i = routerSrc.indexOf(start);
+    const j = routerSrc.indexOf(end, i + 1);
+    expect(i, `start anchor missing: ${start}`).toBeGreaterThan(-1);
+    expect(j, `end anchor missing: ${end}`).toBeGreaterThan(i);
+    return routerSrc.slice(i, j);
+  };
+
+  it.each([
+    ["host-mismatch supersession", "!== route.host", "store.listSub.pending()"],
+    [
+      "list-stream fault",
+      "const listError = store.listSub.error()",
+      "const id = route.terminalId",
+    ],
+    [
+      "gone (post-authority)",
+      "if (!listIsAuthoritative()) return",
+      "no longer on",
+    ],
+    [
+      "backstop timeout",
+      "if (pending() !== route) return",
+      "Couldn't open that file",
+    ],
+  ])("the %s verdict stamps (disarmResolved in its own branch)", (_l, start, end) => {
+    expect(between(start, end)).toContain("disarmResolved();");
+  });
+
+  it("keeps exactly the four disarming verdicts stamping (extra guard)", () => {
+    expect((routerSrc.match(/\bdisarmResolved\(\);/g) ?? []).length).toBe(4);
   });
 
   it("stamps the ENACTED path only AFTER enact returns (retryable on throw)", () => {
@@ -226,10 +257,19 @@ describe("verdict-time stamping contract (#1900 R1 / codex F4)", () => {
     );
   });
 
-  it("supersession + traversal use the BARE disarmInFlightRoute (no stamp)", () => {
-    // The traversal gate disarms without stamping (the entry is already stamped);
-    // navigate's leading supersession disarms the OLD route without stamping the
-    // new command's entry. Both must be the bare form.
+  it("navigate's leading supersession is BARE (disarmInFlightRoute, never stamps)", () => {
+    // The new command's entry must stay unstamped through the leading disarm — its
+    // own terminal route stamps only at resolution. So navigate never disarmResolves.
+    const navStart = routerSrc.indexOf("function navigate(");
+    const navBody = routerSrc.slice(
+      navStart,
+      routerSrc.indexOf("function resolveRoute(", navStart),
+    );
+    expect(navBody).toContain("disarmInFlightRoute();");
+    expect(navBody).not.toContain("disarmResolved");
+  });
+
+  it("the traversal gate is BARE (already-stamped entry, no re-stamp)", () => {
     const hashchange = routerSrc.slice(routerSrc.indexOf('"hashchange"'));
     expect(hashchange).toContain("disarmInFlightRoute();");
     expect(hashchange).not.toContain("disarmResolved();");
