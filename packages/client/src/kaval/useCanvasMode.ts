@@ -4,18 +4,21 @@
  *  precedence is named once.
  *
  *  The pure decision (type + arm order + payloads) lives in the dependency-free
- *  `canvasModeResolver` so it stays unit-testable without mounting the
- *  daemon-status subscription; this module only gathers the live facts. It reads
- *  the ACTIVE entry's connection state (`padiMap.entry(activeHost()).state()`) to
- *  pick the discriminated {@link CanvasFacts} arm — the kaval-derived facts are
- *  gathered ONLY when the entry is `connected` (off any other host they'd be
- *  stale), which the discriminated union makes structural, not a convention.
+ *  `resolveCanvasMode`; this module gathers the live facts AND owns the boot
+ *  deadline (#1763): it reads the per-host episode anchor, feeds the ONE resolve an
+ *  `{ exceeded }` verdict, and writes the frame's tag back — all in one memo
+ *  evaluation (see `bootDeadline.ts`). It reads the ACTIVE entry's connection state
+ *  (`padiMap.entry(activeHost()).state()`) to pick the discriminated {@link CanvasFacts}
+ *  arm — the kaval-derived facts are gathered ONLY when the entry is `connected`
+ *  (off any other host they'd be stale), which the discriminated union makes
+ *  structural, not a convention.
  *
  *  Lives in `kaval/` beside `useDaemonStatus` (whose accessors it composes)
  *  and takes the session/terminal facts as injected accessors — mirroring
  *  `isWarming`/`refuseIfWarming` — so the module never imports `terminal/`
  *  (no kaval→terminal cycle). */
 
+import { encodeHostKey } from "kolu-common/hostKey";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import {
   type CanvasFacts,
@@ -23,12 +26,17 @@ import {
   resolveCanvasMode,
 } from "./canvasModeResolver";
 import { isConnectPhase } from "../host/connectCanvasCopy";
-import { connectionInfo } from "../wire";
+import { activeHost, connectionInfo, hostKeys } from "../wire";
+import {
+  bootDeadlineExceeded,
+  getMonotonicNow,
+  pruneBootAnchors,
+  recordBootFrame,
+} from "./bootDeadline";
 import {
   activeEntryState,
   daemonChannelLive,
   daemonStatusPending,
-  daemonStatusPendingTimedOut,
   daemonWarming,
   downState,
   isActiveHostLocal,
@@ -41,8 +49,8 @@ export type { CanvasMode } from "./canvasModeResolver";
  *  entry's connection state for the discriminant and the daemon accessors for
  *  the connected-arm facts; takes session-loading and terminal-count as injected
  *  accessors (a kaval module must not import `terminal/`). Gathers the live facts
- *  into the matching {@link CanvasFacts} arm and delegates the decision to the
- *  pure {@link resolveCanvasMode}. */
+ *  into the matching {@link CanvasFacts} arm, then runs the ONE boot-deadline-aware
+ *  resolve and folds the frame into the per-host anchor. */
 export function canvasMode(deps: {
   isLoading: () => boolean;
   terminalCount: () => number;
@@ -53,7 +61,6 @@ export function canvasMode(deps: {
   const liveness = {
     isLoading: deps.isLoading(),
     daemonPending: daemonStatusPending(),
-    pendingTimedOut: daemonStatusPendingTimedOut(),
     isLocalHost: isActiveHostLocal(),
   };
   // The ACTIVE host's OWN connection-cell phase — the SAME channel `ConnectCanvas`
@@ -103,5 +110,17 @@ export function canvasMode(deps: {
       };
       break;
   }
-  return resolveCanvasMode(facts);
+  // The #1763 boot deadline, in ONE memo evaluation (C1): prune departed hosts' anchors,
+  // read `exceeded` off the PRIOR frame's stored anchor, run the ONE resolve, then fold this
+  // frame's tag/kind back. `activeHost()` is always defined (even during the membership stall
+  // where `activeScope()` is undefined), so the anchor keyed on it fixes Hole A structurally.
+  // The monotonic tick makes this memo re-evaluate each second so a wedged overlay's elapsed
+  // crosses its ceiling (the same 1s cadence the deleted daemon ceiling rode).
+  const hostEnc = encodeHostKey(activeHost());
+  const nowMs = getMonotonicNow()();
+  pruneBootAnchors(hostKeys().map(encodeHostKey));
+  const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
+  const { mode, tag } = resolveCanvasMode(facts, { exceeded });
+  recordBootFrame(hostEnc, tag, mode.kind, nowMs);
+  return mode;
 }

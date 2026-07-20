@@ -142,50 +142,14 @@ describe("per-host wire subscriptions (padi W9 — instant host switch-back)", (
     });
   });
 
-  it("RETAINS the daemon pending-window anchor across switch-away, and re-anchors ONLY on a genuine re-add (the wedged-host ceiling still fires)", async () => {
-    // A distinct, monotonic `Date.now()` per call so each scope birth stamps a
-    // unique anchor — retention shows as an UNCHANGED value across a switch, a
-    // re-add as a NEW one, both deterministically.
-    let tick = 1_000;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => ++tick);
-    try {
-      await createRoot(async (dispose) => {
-        try {
-          switchTo(HOST_A);
-          void activeScope();
-          await flush();
-          const anchorA1 = activeScope()?.wire.daemonPendingAnchorMs;
-          expect(anchorA1).toBeTypeOf("number");
-
-          // Switch AWAY to B and BACK to A: A's scope is retained, so its anchor is
-          // NOT re-stamped — a switch-back does NOT restart the "kaval didn't start"
-          // clock (the sub isn't re-subscribing either). A per-switch re-anchor would
-          // let a repeatedly-revisited wedged host dodge the timeout forever.
-          switchTo(HOST_B);
-          void activeScope();
-          await flush();
-          switchTo(HOST_A);
-          void activeScope();
-          await flush();
-          expect(activeScope()?.wire.daemonPendingAnchorMs).toBe(anchorA1);
-
-          // A genuine re-add (A left membership, then came back) is a NEW pending run
-          // — a fresh anchor, so the re-added host gets its own full grace period.
-          removeHost(HOST_A);
-          void activeScope();
-          await flush();
-          switchTo(HOST_A);
-          void activeScope();
-          await flush();
-          expect(activeScope()?.wire.daemonPendingAnchorMs).not.toBe(anchorA1);
-        } finally {
-          dispose();
-        }
-      });
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
+  // NOTE (#1763): the per-host daemon pending-window anchor (`wire.daemonPendingAnchorMs`)
+  // that this block used to pin is GONE — the canvas boot ceiling no longer lives inside the
+  // per-host wire scope (it could only fire for the daemon leg, and only while `activeScope()`
+  // was defined). Its "revisited wedged host earns no fresh grace" property now rides the
+  // per-host episode anchor in `bootDeadline.ts` (retained across switch, pruned on membership
+  // exit), and the removal-race property it also pinned ("no active host ⇒ no spurious timeout")
+  // holds BY CONSTRUCTION there: the anchor keys off `activeHost()`, which is never undefined.
+  // Both are pinned in `bootDeadline.test.ts`, not here.
 
   it("DISPOSES a host's wire subs only when it leaves membership", async () => {
     await createRoot(async (dispose) => {
