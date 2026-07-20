@@ -326,13 +326,18 @@ const CanvasMinimap: Component<{
             const meta = createMemo(() => store.getMetadata(id));
             // Single accessor that yields all the per-tile data the
             // rectangle needs, or null when the tile isn't ready yet
-            // (no layout, or metadata still arriving). The `Show` below
-            // narrows once instead of forcing a non-null assertion on
-            // `getDisplayInfo` per field.
+            // (no layout, or either half of the record still arriving). The
+            // `Show` below narrows once instead of forcing a non-null assertion
+            // on `getDisplayInfo` per field. Gates on `meta()` PRESENCE too —
+            // the same both-present contract every other canvas consumer holds
+            // (via `pairDisplayRow`), so an info-present/meta-absent skew never
+            // renders a half-tile (a `none` presence + opaque-id tooltip). This
+            // reads the `meta` REFERENCE only (turnover), not its leaves, so
+            // agent/sleep leaf churn still leaves geometry untouched.
             const tile = createMemo(() => {
               const l = layout();
               const i = info();
-              if (!l || !i) return null;
+              if (!l || !i || !meta()) return null;
               const s = minimapScale();
               const p = toMinimap(l.x, l.y, s);
               return {
