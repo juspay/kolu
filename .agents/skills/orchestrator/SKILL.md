@@ -51,7 +51,10 @@ data file in the project. Grown practice, each line paid for:
 - **Split: skill assets + project data.** The shell and renderer are versioned
   skill assets — `dashboard/{index.html,index.js}` beside this file. The DATA is
   `$PWD/orchestrator-data.js` in the downstream project's root: `window.BOARD =
-  {…}` — a JSON payload in one assignment, git-untracked, the ONLY file a state
+  {…}` — a JSON payload in one assignment **followed by
+  `window.dispatchEvent(new Event("board-data"))`** (the renderer paints ONLY on
+  that event — a bare assignment loads fine and leaves the shell stuck on
+  "loading…" forever, the recorded failure). Git-untracked, the ONLY file a state
   change edits. Never stage it (a careless `git add` once swept the board into
   the docs branch — pathspec-stage around it). Open
   `<any skill copy>/dashboard/index.html` in the Code tab; every generated copy
