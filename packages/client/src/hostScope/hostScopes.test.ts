@@ -2,7 +2,8 @@
  *  load-bearing production wiring at `hostScopes.ts`: the per-host `scopedByEntry`
  *  owner is fed `wire.groundedActiveHost` (the per-tab active host GROUNDED against
  *  membership), NEVER the raw `wire.activeHost`. If that one 2nd-arg regressed back to
- *  the raw accessor, the BOOT WINDOW — active restored SYNC from sessionStorage a tick
+ *  the raw accessor, the BOOT WINDOW — active restored SYNC from the launch-selected
+ *  storage (sessionStorage for a tab, localStorage for an installed PWA) a tick
  *  before the async `entries` snapshot lands — would hand `scopedByEntry` an active key
  *  membership does not ground and trip its removal-race dev-warn (a boot false positive,
  *  the whole bug). This asserts the boot window reads as the no-selection inhabitant
@@ -69,8 +70,8 @@ describe("hostScopes grounding seam (juspay/kolu#1763)", () => {
     try {
       await createRoot(async (dispose) => {
         try {
-          // BOOT: active restored sync from sessionStorage (A) a tick before the
-          // `entries` snapshot lands. Grounded against empty membership → `null` →
+          // BOOT: active restored sync from the launch-selected storage (A) a tick before
+          // the `entries` snapshot lands. Grounded against empty membership → `null` →
           // the no-selection inhabitant. Handing the RAW `activeHost` (A) here would
           // trip `scopedByEntry`'s non-member removal-race warn — the #1763 bug.
           setDriveHost(HOST_A);

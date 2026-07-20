@@ -4,9 +4,11 @@ import { type HostKey, hostKeysInclude } from "kolu-common/hostKey";
  *  wire.ts's `groundedActiveHost` enacts (kept here, dependency-free, so it is
  *  unit-pinnable exactly like {@link hostReconcileTarget}).
  *
- *  `activeHost` is the per-tab persisted INTENT: restored SYNCHRONOUSLY from
- *  sessionStorage at boot, a tick before the async `padiMap.entries` membership
- *  snapshot lands (and it may name a host that has since left the pool). The per-host
+ *  `activeHost` is the per-tab persisted INTENT: restored SYNCHRONOUSLY at boot from the
+ *  launch-selected Web Storage backend (`sessionStorage` for a regular tab, `localStorage`
+ *  for an installed PWA — see `activeHostStorage`), a tick before the async
+ *  `padiMap.entries` membership snapshot lands (and it may name a host that has since left
+ *  the pool). The per-host
  *  SCOPE (`hostScope/hostScopes` → `scopedByEntry`) must never be handed an active key
  *  that membership does not ground: `scopedByEntry` reads a non-member active as the
  *  removal-race inhabitant (a dev warn + `undefined` world), which at BOOT is a false

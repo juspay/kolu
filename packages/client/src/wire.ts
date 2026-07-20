@@ -26,11 +26,7 @@
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { contract } from "kolu-common/contract";
-import {
-  decodeHostKey,
-  encodeHostKey,
-  hostKeysInclude,
-} from "kolu-common/hostKey";
+import { encodeHostKey, hostKeysInclude } from "kolu-common/hostKey";
 import {
   type ClientErrorPolicy,
   DEFAULT_PREFERENCES,
@@ -54,11 +50,11 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
+import { activeHostPref } from "./host/activeHostPref.ts";
 import { activeHostStorageForLaunch } from "./host/activeHostStorage.ts";
 import { groundActiveHost } from "./host/groundActive.ts";
-import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
-import { persistedPref } from "./persistedPref.ts";
+import { hostReconcileTarget } from "./host/hostReconcile.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
@@ -235,40 +231,23 @@ export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, {
     interpretClientError(p as ClientErrorPolicy, e, origin),
 });
 
-/** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Its
- *  storage backend is chosen ONCE at boot from the LAUNCH CONTEXT (`activeHostStorageForLaunch`,
- *  over surface-app's canonical `isInstalledFromEnv`): an installed / standalone PWA window
- *  uses `localStorage` so the host SURVIVES relaunch
- *  (a standalone window's every launch is a fresh browsing session, so `sessionStorage`
- *  would be empty and silently revert to LOCAL_HOST — PWA amnesia), while a regular tab
- *  keeps `sessionStorage` for per-tab isolation. This is a structural fact of the launch,
- *  not a knob (conventions.md fail-fast). Read ONCE synchronously at module init — the
+/** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. The pref
+ *  contract (key, default, canonical wire codec, corrupt-value warn) lives in
+ *  `activeHostPref`, shared with the boot-survival tests so they exercise the SAME pref;
+ *  only the STORAGE BACKEND is decided here, ONCE at boot, from the LAUNCH CONTEXT
+ *  (`activeHostStorageForLaunch`, over surface-app's canonical `isInstalledFromEnv`): an
+ *  installed / standalone PWA window uses `localStorage` so the host SURVIVES relaunch (a
+ *  standalone window's every launch is a fresh browsing session, so `sessionStorage` would
+ *  be empty and silently revert to LOCAL_HOST — PWA amnesia), while a regular tab keeps
+ *  `sessionStorage` for per-tab isolation. This is a structural fact of the launch, not a
+ *  knob (conventions.md fail-fast). Read ONCE synchronously at module init — the
  *  localStorage arm reads just as synchronously as the old sessionStorage read, so it does
  *  NOT change the boot ordering `groundActiveHost` guards (active restored a tick before
- *  the membership snapshot). The persisted value is the CANONICAL wire string
- *  (`encodeHostKey`/`decodeHostKey` — NOT the default `JSON.stringify`, which would write
- *  `{"kind":"local"}` instead of `"local"`), defaulting to the unremovable LOCAL default.
- *  Switching it re-keys every `useEntry(activeHost)` readout — the canvas live-switches,
- *  no reload. */
-export const [activeHost, setActiveHost] = persistedPref<HostKey>({
-  name: "kolu-active-host",
-  fallback: LOCAL_HOST,
-  parse: (raw) => decodeHostKey(raw),
-  serialize: encodeHostKey,
-  storage: activeHostStorageForLaunch({
-    local: localStorage,
-    session: sessionStorage,
-  }),
-  // Surface a corrupt/invalid stored host rather than silently collapsing to the local
-  // default — otherwise "the stored active host was garbage" reads identically to "this tab
-  // has always been local." Resetting to LOCAL_HOST is benign, so a warn is the right level
-  // (matches useDaemonStatus's reattachAnnouncedAt pref). caught-error-must-not-collapse.
-  onInvalid: (err, raw) =>
-    console.warn(
-      `[wire] stored active-host "${raw}" is invalid; resetting to the local default:`,
-      err,
-    ),
-});
+ *  the membership snapshot). Switching it re-keys every `useEntry(activeHost)` readout —
+ *  the canvas live-switches, no reload. */
+export const [activeHost, setActiveHost] = activeHostPref(
+  activeHostStorageForLaunch({ local: localStorage, session: sessionStorage }),
+);
 
 /** Convenience alias — the FULL combined link. `client.server.info(...)` /
  *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
