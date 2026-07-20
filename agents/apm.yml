@@ -25,7 +25,7 @@ compilation:
 # Skills here call into these shared packages:
 #   srid/agency             — /lowy /hickey /code-police /simplify /forge-pr /fact-check
 #   juspay/project-unknown  — /pu (ephemeral box for heavy work)
-#   juspay/odu              — /ci /odu-mcp
+#   juspay/odu              — /odu /odu-mcp
 #
 # A consuming project additionally supplies its OWN /atlas, /test, /dev-server,
 # and (optionally) /evidence skills — these are intentionally project-specific

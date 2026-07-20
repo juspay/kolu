@@ -1,5 +1,5 @@
 ---
-name: ci
+name: odu
 description: Reference for the `odu` runner — how to invoke a full pipeline, a single recipe, or a platform-pinned node, and how to attach to a live run, from a project whose CI odu runs. Trigger when the user asks to "run CI", "run the pipeline", "re-run a check", to run named lanes or recipes (e.g. "run fmt and nix", "just the e2e lane", bare selectors like `fmt`/`nix`/`e2e`), or names a recipe by `<recipe>@<platform>`. This skill — not a repo's local `just ci` / `just <recipe>` — is how an odu-run request is served.
 ---
 
@@ -28,6 +28,23 @@ process-compose, no separately-versioned socket client.
 > coordinator but gives you structured results and the fail-fast loop instead of
 > scraping terminal output. The `nix run … -- run` CLI below is the reference and
 > the fallback when no MCP server is wired.
+>
+> **Don't block on the full run — fail-fast is the point.** `wait_for_settle`
+> defaults to `fail_fast: true`: it returns the **instant the first node goes
+> red**, while the slow lanes (e2e, build) keep running. That early return *is*
+> your unblock signal — drill into the red node's log and start fixing at once;
+> never sit through the remaining lanes to "see the full status". The verdict is
+> explicitly partial when it trips: `fail_fast_tripped: true` with
+> `settled: false`, and `failed[]`/`errored[]` list only what's red **so far** —
+> a floor, not the final tally, so more lanes may still fail. Conversely
+> `passed: true` is the *only* trustworthy green — it comes solely from a fully
+> settled run with zero red; never infer success from a fail-fast return. The
+> coordinator does **not** stop when the tool returns: only your call did, so you
+> can `node_rerun` the fixed node against the still-live run (the pending slow
+> lanes keep it alive; `linger` covers the case where it already settled) and
+> `wait_for_settle` again to catch any reds that surfaced meanwhile — or
+> `run({supersede})` when the fix is a new commit. Don't pad `timeout_ms` and
+> wait: the loop is fail-fast → fix → re-wait, not one long block.
 >
 > **Logs are a resource, not a tool.** Don't look for a log-tail tool — there
 > isn't one. A node's output is the MCP **resource** `surface://collections/logs/{id}`
@@ -158,8 +175,12 @@ rerun later (retry a flake), self-reaping after an idle period or on `cancel`.
 ```
 
 Keys are Nix system tuples; values are anything ssh dials, or `localhost`
-(runs directly against the snapshot, no closure copy). Missing platforms
-silently drop from the fanout. `--host PLAT=ADDR` overrides per run.
+(runs directly against the snapshot, no closure copy). Platforms absent from
+an *existing* config silently drop from the fanout, but a run that resolves
+**zero** lanes — no file anywhere, no `--host`, no `--platform` — is
+**refused**, not defaulted to `localhost` (juspay/odu#46). `--host PLAT=ADDR`
+overrides per run; run on this machine on purpose with `--host PLAT=localhost`
+or a `"PLAT": "localhost"` entry.
 
 A lane host needs only **ssh + Nix + outbound https**: the runner ships as
 a Nix closure (`nix copy` → realise on the host), and the source arrives by
