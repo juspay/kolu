@@ -114,6 +114,43 @@ const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ],
 ]);
 
+/** Of the allowlisted `STABLE_FLAGS`, the ones that take a VALUE argument
+ *  (`--model sonnet`, `--config key=val`). Only these consume the token that
+ *  follows them; every other allowlisted flag is a boolean switch
+ *  (`--dangerously-skip-permissions`, `--yolo`, `--bare`, …) that must NOT.
+ *
+ *  This is an allowlist, matching `STABLE_FLAGS`: a flag absent here is treated
+ *  as boolean, so it can never swallow the token after it. That is what keeps a
+ *  trailing prompt positional out of the MRU — `claude
+ *  --dangerously-skip-permissions 'You are BOOT1…'` normalizes to
+ *  `claude --dangerously-skip-permissions`, dropping the prompt rather than
+ *  attaching it as a bogus value (juspay/kolu#452 regression). Global, not
+ *  per-agent: it is only ever consulted for a token already confirmed as that
+ *  agent's stable flag, and no flag name is value-taking for one agent and
+ *  boolean for another. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "--model",
+  "-m",
+  "--allowedTools",
+  "--disallowedTools",
+  "--permission-mode",
+  "--add-dir",
+  "--agent",
+  "--mcp-config",
+  "--append-system-prompt",
+  "--settings",
+  "--config",
+  "-c",
+  "--profile",
+  "-p",
+  "--sandbox",
+  "-s",
+  "--ask-for-approval",
+  "-a",
+  "--reasoning-effort",
+  "--effort",
+]);
+
 /** Basename of a path-like token (strips directory prefix). */
 function basename(s: string): string {
   const slash = s.lastIndexOf("/");
@@ -310,9 +347,12 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     }
     // Stable flag — keep verbatim
     kept.push(t);
-    // If the next token is a non-flag value (e.g. `--model sonnet`),
-    // attach it to the flag as-is.
-    if (next !== undefined && !next.startsWith("-")) {
+    // Attach the following token as this flag's value ONLY when the flag is
+    // known to take one (`--model sonnet`). A boolean switch
+    // (`--dangerously-skip-permissions`) must not consume it — otherwise a
+    // trailing prompt positional gets kept as a bogus value and leaks into the
+    // MRU. See `VALUE_FLAGS`.
+    if (VALUE_FLAGS.has(t) && next !== undefined && !next.startsWith("-")) {
       kept.push(next);
       i++;
     }
