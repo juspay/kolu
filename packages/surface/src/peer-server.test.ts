@@ -17,8 +17,8 @@ import { ClientPeer } from "@orpc/standard-server-peer";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
-import { encodeFrame } from "./links/stdio-codec";
 import { stdioLink } from "./links/stdio";
+import { encodeFrame } from "./links/stdio-codec";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
@@ -168,14 +168,11 @@ describe("serveOverStdio — settled-result contract", () => {
  * caught rejection, never a synchronous throw, so the serve stays pending. The
  * only reject-arm trigger reachable through the real serve path is a
  * SYNCHRONOUS `onFrame` throw, of which the documented `onFirstRequest` hook is
- * the one production lever. The zombie itself is real: with the serve settled,
- * a later genuine request still invokes the router handler.
- *
- * RED pin (`it.fails`): asserts the POST-fix invariant, so it fails today and
- * the fix flips it to `it`.
+ * the one production lever. The zombie itself is real: before the fix, with the
+ * serve settled, a later genuine request still invoked the router handler.
  */
 describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", () => {
-  it.fails("a serve settled {reason:'error'} closes the transport and stops reaching the router", async () => {
+  it("a serve settled {reason:'error'} closes the transport and stops reaching the router", async () => {
     const contract = {
       add: oc.input(z.object({ a: z.number() })).output(z.number()),
     };
@@ -222,12 +219,12 @@ describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", (
 
     await expect(serving).resolves.toMatchObject({ reason: "error" });
 
-    // Today (RED): duplex.destroyed === false — the zombie: dead by
-    // accounting, alive by socket.
+    // The transport is actually closed — no zombie (dead by accounting yet
+    // alive by socket).
     expect(duplex.destroyed).toBe(true);
 
-    // …and a later genuine request must NOT reach the router. Today (RED) it
-    // does: handlerCalls becomes 1 after the replayed frame is consumed.
+    // …and a later genuine request does NOT reach the router: the destroyed
+    // stream delivers no further 'data', so the handler is never invoked.
     duplex.write(`${encodeFrame(captured[0] as Uint8Array)}\n`);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(handlerCalls).toBe(0);

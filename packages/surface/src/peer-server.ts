@@ -161,7 +161,14 @@ export interface ServeOverStdioOptions<T extends Context> {
    *  *received and dispatched* (i.e. the first frame was successfully
    *  decoded — not necessarily after the handler returned). Useful for a
    *  client wrapper that wants to flip "connecting" → "connected" the
-   *  moment the link demonstrably works in both directions. */
+   *  moment the link demonstrably works in both directions.
+   *
+   *  It runs inside the codec's read loop, so a THROW from it is a fatal
+   *  read-loop fault (#1859): the codec destroys the transport and this serve
+   *  settles `{ reason: "error" }`. This hook is in fact the only
+   *  production-reachable trigger of that arm — a corrupt inbound frame does
+   *  not reach it (`peer.message` swallows a bad frame as a caught async
+   *  rejection, and base64 decoding is lenient). Keep it total. */
   onFirstRequest?: () => void;
 }
 

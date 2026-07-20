@@ -98,29 +98,28 @@ describe("framedSend", () => {
 });
 
 /**
- * The read half's lifecycle invariant (#1859): once `readFramedLines` SETTLES,
- * the reader must be STOPPED — no later frame dispatched, and on the
- * decode-failure reject the read stream destroyed. Today the reject arm only
- * calls `reject()`: it never detaches its `'data'` listener nor destroys the
- * stream, so the loop keeps decoding and dispatching frames the consumer's
- * promise already reported as "done" (on the override arm: a zombie
- * connection, bookkeeping dead / socket alive — issue #1859).
- *
- * RED pin (`it.fails`): asserts the POST-fix invariant, so it fails today and
- * the fix flips it to `it`.
+ * The read half's lifecycle invariant (#1859): SETTLED ⟹ STOPPED. Every way
+ * `readFramedLines` settles is CAUSED by the read stream terminating, so a
+ * settled read can never keep dispatching. The one path that isn't a stream
+ * termination by nature — a synchronous throw out of `onFrame` — settles via
+ * `read.destroy(err)`, which routes through the same `'error'` listener AND
+ * stops the stream. Before the fix that arm was a bare `reject()` that left the
+ * `'data'` listener attached and the stream flowing, so the loop kept decoding
+ * and dispatching frames the consumer's promise had already reported as "done"
+ * (on the override arm: a zombie connection, bookkeeping dead / socket alive).
  */
 describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
-  it.fails("on a decode-failure reject, dispatches NO later frame and destroys the read stream", async () => {
+  it("on a synchronous onFrame failure, dispatches NO later frame and destroys the read stream", async () => {
     const read = new PassThrough();
     const received: string[] = [];
     // `onFrame` throwing is the shape a synchronous frame-processing failure
-    // takes — it is the sole trigger of the codec's decode-failure reject
-    // arm (`decodeFrame`'s lenient `Buffer.from(…, "base64")` never throws;
-    // a real consumer throws from `onFrame`, e.g. `onFirstRequest`). All
-    // three lines ride in ONE chunk, so a reader that merely detached its
-    // listener on settle would still finish the in-progress `while` loop and
-    // leak the two valid frames: the invariant is the stronger "the loop
-    // STOPS and the stream is destroyed", not just "no future event".
+    // takes — it is the sole trigger of this arm (`decodeFrame`'s lenient
+    // `Buffer.from(…, "base64")` never throws; a real consumer throws from
+    // `onFrame`, e.g. a throwing `onFirstRequest`). All three lines ride in ONE
+    // chunk, so a reader that merely detached its listener on settle would
+    // still finish the in-progress `while` loop and leak the two valid frames:
+    // the invariant is the stronger "the loop STOPS and the stream is
+    // destroyed", not just "no future event".
     const settled = readFramedLines(read, (frame) => {
       const text = Buffer.from(frame).toString("utf-8");
       if (text === "POISON") {
@@ -136,8 +135,55 @@ describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
     await expect(settled).rejects.toMatchObject({
       code: "SURFACE_STDIO_FRAME_DECODE_FAILED",
     });
-    // Today (RED): received === ["valid-1", "valid-2"], read.destroyed === false.
     expect(received).toEqual([]);
     expect(read.destroyed).toBe(true);
+  });
+
+  it("stops FUTURE dispatch only — a frame BEFORE the poison in the same chunk still dispatches", async () => {
+    // The over-rotation guard (R2): "stop the reader" must not undo dispatch
+    // that already happened. `valid-0` precedes the poison in the SAME chunk;
+    // it is indistinguishable from a frame delivered in a prior chunk, so it
+    // MUST have dispatched. A fix that dropped the whole chunk would wrongly
+    // leave `received` empty here yet still pass the poison-first test above.
+    const read = new PassThrough();
+    const received: string[] = [];
+    const settled = readFramedLines(read, (frame) => {
+      const text = Buffer.from(frame).toString("utf-8");
+      if (text === "POISON") throw new Error("boom");
+      received.push(text);
+    });
+    read.write(
+      `${encodeFrame("valid-0")}\n${encodeFrame("POISON")}\n${encodeFrame(
+        "valid-1",
+      )}\n`,
+    );
+    await expect(settled).rejects.toMatchObject({
+      code: "SURFACE_STDIO_FRAME_DECODE_FAILED",
+    });
+    expect(received).toEqual(["valid-0"]);
+    expect(read.destroyed).toBe(true);
+  });
+
+  it("resolves when the stream is destroyed WITHOUT an error (the 'close' contract)", async () => {
+    // The docstring warns that peer-server's error-free `endServing()` teardown
+    // load-bears on resolve-on-`'close'` (a no-error `destroy()` emits neither
+    // `'end'` nor `'error'`). Pin it here, at the codec, where the refactor
+    // risk lives — not only in a peer-server test one layer up.
+    const read = new PassThrough();
+    const settled = readFramedLines(read, () => {});
+    read.destroy(); // no error: emits 'close', never 'error'
+    await expect(settled).resolves.toBeUndefined();
+  });
+
+  it("resolves and discards a buffered partial (newline-less) line on an error-free destroy", async () => {
+    const read = new PassThrough();
+    const received: string[] = [];
+    const settled = readFramedLines(read, (frame) =>
+      received.push(Buffer.from(frame).toString("utf-8")),
+    );
+    read.write(`${encodeFrame("a-frame-with-no-trailing-newline")}`); // stays buffered
+    read.destroy();
+    await expect(settled).resolves.toBeUndefined();
+    expect(received).toEqual([]); // the partial line is never dispatched
   });
 });
