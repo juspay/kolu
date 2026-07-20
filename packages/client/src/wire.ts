@@ -54,7 +54,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { activeHostStorage } from "./host/activeHostStorage.ts";
+import { activeHostStorageForLaunch } from "./host/activeHostStorage.ts";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
@@ -236,8 +236,9 @@ export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, {
 });
 
 /** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Its
- *  storage backend is chosen ONCE at boot from the LAUNCH CONTEXT (`activeHostStorage`):
- *  an installed / standalone PWA window uses `localStorage` so the host SURVIVES relaunch
+ *  storage backend is chosen ONCE at boot from the LAUNCH CONTEXT (`activeHostStorageForLaunch`,
+ *  over surface-app's canonical `isInstalledFromEnv`): an installed / standalone PWA window
+ *  uses `localStorage` so the host SURVIVES relaunch
  *  (a standalone window's every launch is a fresh browsing session, so `sessionStorage`
  *  would be empty and silently revert to LOCAL_HOST — PWA amnesia), while a regular tab
  *  keeps `sessionStorage` for per-tab isolation. This is a structural fact of the launch,
@@ -254,7 +255,7 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
   fallback: LOCAL_HOST,
   parse: (raw) => decodeHostKey(raw),
   serialize: encodeHostKey,
-  storage: activeHostStorage(window, {
+  storage: activeHostStorageForLaunch({
     local: localStorage,
     session: sessionStorage,
   }),

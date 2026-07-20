@@ -1,3 +1,4 @@
+import type { InstallEnv } from "@kolu/surface-app/solid";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -6,11 +7,7 @@ import {
 } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import { persistedPref } from "../persistedPref.ts";
-import {
-  activeHostStorage,
-  launchedStandalone,
-  type StandaloneSignals,
-} from "./activeHostStorage.ts";
+import { activeHostStorage } from "./activeHostStorage.ts";
 
 const zest: HostKey = { kind: "remote", target: "zest" };
 
@@ -34,74 +31,43 @@ function fakeStorage(seed?: Record<string, string>): Storage {
   };
 }
 
-/** Build the window slice `launchedStandalone` reads from two injected booleans —
- *  the standard `display-mode: standalone` media query and the legacy iOS
- *  `navigator.standalone` — so a unit pins the launch context without a real PWA. */
-function fakeWindow(opts: {
-  displayModeStandalone?: boolean;
-  iosStandalone?: boolean;
-}): StandaloneSignals {
-  return {
-    matchMedia: (query) => ({
-      matches:
-        query === "(display-mode: standalone)" &&
-        opts.displayModeStandalone === true,
-    }),
-    navigator: { standalone: opts.iosStandalone },
-  };
-}
+/** surface-app's canonical install fact, as a value. We test the backend PICK over an
+ *  injected env — the "is this installed?" decision itself (display-mode / iOS
+ *  `navigator.standalone`) is surface-app's `isInstalledFromEnv`, tested in its own
+ *  `install.test.ts`; we do not re-test it here. `isSecureContext` is irrelevant to the
+ *  pick (only the two standalone fields feed `isInstalledFromEnv`). */
+const installed: InstallEnv = {
+  isSecureContext: true,
+  displayModeStandalone: true,
+  navigatorStandalone: false,
+};
+const iosInstalled: InstallEnv = {
+  isSecureContext: true,
+  displayModeStandalone: false,
+  navigatorStandalone: true,
+};
+const tab: InstallEnv = {
+  isSecureContext: true,
+  displayModeStandalone: false,
+  navigatorStandalone: false,
+};
 
-/** `launchedStandalone` — the pure detector: is THIS window an installed / standalone
- *  surface (whose relaunch is the same "session" to the user) or a plain browser tab? */
-describe("launchedStandalone — the launch-context detector", () => {
-  it("standalone display-mode → true (Chromium / Android / desktop PWA)", () => {
-    expect(
-      launchedStandalone(fakeWindow({ displayModeStandalone: true })),
-    ).toBe(true);
-  });
-
-  it("legacy iOS navigator.standalone → true (Safari home-screen web app)", () => {
-    // iOS Safari never adopted the display-mode media query for home-screen apps;
-    // it exposes the non-standard `navigator.standalone` instead. Honor both.
-    expect(launchedStandalone(fakeWindow({ iosStandalone: true }))).toBe(true);
-  });
-
-  it("plain browser tab (neither signal) → false", () => {
-    expect(launchedStandalone(fakeWindow({}))).toBe(false);
-    expect(
-      launchedStandalone(
-        fakeWindow({ displayModeStandalone: false, iosStandalone: false }),
-      ),
-    ).toBe(false);
-  });
-});
-
-/** `activeHostStorage` — the storage-backend decision: standalone context → the
- *  survive-relaunch backend (localStorage), tab context → per-tab (sessionStorage). */
+/** `activeHostStorage` — the storage-backend decision: an installed launch context → the
+ *  survive-relaunch backend (localStorage), a regular tab → per-tab (sessionStorage). */
 describe("activeHostStorage — pick the backend from the launch context", () => {
   const local = fakeStorage();
   const session = fakeStorage();
 
-  it("standalone context selects localStorage (survives relaunch)", () => {
-    expect(
-      activeHostStorage(fakeWindow({ displayModeStandalone: true }), {
-        local,
-        session,
-      }),
-    ).toBe(local);
+  it("installed (display-mode standalone) selects localStorage (survives relaunch)", () => {
+    expect(activeHostStorage(installed, { local, session })).toBe(local);
   });
 
-  it("legacy iOS standalone context selects localStorage", () => {
-    expect(
-      activeHostStorage(fakeWindow({ iosStandalone: true }), {
-        local,
-        session,
-      }),
-    ).toBe(local);
+  it("installed (legacy iOS navigator.standalone) selects localStorage", () => {
+    expect(activeHostStorage(iosInstalled, { local, session })).toBe(local);
   });
 
   it("regular tab context selects sessionStorage (per-tab isolation)", () => {
-    expect(activeHostStorage(fakeWindow({}), { local, session })).toBe(session);
+    expect(activeHostStorage(tab, { local, session })).toBe(session);
   });
 });
 
@@ -110,15 +76,12 @@ describe("activeHostStorage — pick the backend from the launch context", () =>
  *  silently revert to LOCAL_HOST. This wires the real `persistedPref` over the backend
  *  `activeHostStorage` chooses, exactly as wire.ts does. */
 describe("active-host pref survives a standalone relaunch", () => {
-  it("standalone boot with empty sessionStorage + remembered localStorage → remembered host", () => {
+  it("installed boot with empty sessionStorage + remembered localStorage → remembered host", () => {
     // A prior standalone session left the encoded remote host in localStorage; the
     // relaunch handed the window a brand-new, empty sessionStorage.
     const local = fakeStorage({ "kolu-active-host": encodeHostKey(zest) });
     const session = fakeStorage();
-    const storage = activeHostStorage(
-      fakeWindow({ displayModeStandalone: true }),
-      { local, session },
-    );
+    const storage = activeHostStorage(installed, { local, session });
 
     const [activeHost] = persistedPref<HostKey>({
       name: "kolu-active-host",
@@ -137,7 +100,7 @@ describe("active-host pref survives a standalone relaunch", () => {
     // so starts at the local default — per-tab isolation is unchanged.
     const local = fakeStorage({ "kolu-active-host": encodeHostKey(zest) });
     const session = fakeStorage();
-    const storage = activeHostStorage(fakeWindow({}), { local, session });
+    const storage = activeHostStorage(tab, { local, session });
 
     const [activeHost] = persistedPref<HostKey>({
       name: "kolu-active-host",

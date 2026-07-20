@@ -10,31 +10,41 @@
  *  amnesia about which host the user was on, on every PWA launch. The server-side session
  *  restores the workspace, but not *which host* views it.
  *
- *  So the backend is chosen from the launch context, not baked in:
- *  - STANDALONE / installed PWA window → `localStorage` (survives relaunch);
+ *  So the backend is chosen from whether the window is INSTALLED (an installed / standalone
+ *  PWA surface, whose relaunch is the same "session" to the user), not baked in:
+ *  - INSTALLED / standalone → `localStorage` (survives relaunch);
  *  - regular browser TAB → `sessionStorage` (unchanged: per-tab isolation).
  *
- *  Pure over an injected window slice and injected backends, so the decision is
- *  unit-pinnable without a real installed PWA (see `activeHostStorage.test.ts`). */
+ *  "Installed?" is NOT re-derived here — it is `@kolu/surface-app`'s canonical fact
+ *  ({@link isInstalledFromEnv} over an {@link InstallEnv}), the same one `useSurfaceApp().isInstalled()`
+ *  reads reactively elsewhere in the client. The only genuinely-new logic in this module is
+ *  the INSTALLED→localStorage / tab→sessionStorage mapping. */
 
-// The legacy iOS-Safari standalone flag is a non-standard `Navigator` property the TS
-// DOM lib omits; declare it (matching how the codebase augments lib types for
-// showSaveFilePicker etc.) so the real `window.navigator` shares the `standalone`
-// property with StandaloneSignals below and stays assignable to it (TS weak-type
-// detection otherwise rejects an all-optional target with zero properties in common).
-declare global {
-  interface Navigator {
-    /** iOS Safari only: `true` when the page runs as a home-screen web app. */
-    readonly standalone?: boolean;
-  }
-}
+import { type InstallEnv, isInstalledFromEnv } from "@kolu/surface-app/solid";
 
-/** The minimal window surface {@link launchedStandalone} reads: the standard
- *  `display-mode` media query plus the legacy iOS `navigator.standalone`. A slice, not
- *  the whole `Window`, so a unit injects two booleans instead of stubbing a DOM. */
-export interface StandaloneSignals {
-  matchMedia: (query: string) => { matches: boolean };
-  navigator: { standalone?: boolean };
+/** Read the live browser install environment into surface-app's canonical {@link InstallEnv}.
+ *
+ *  This deliberately MIRRORS surface-app's own `readInstallEnv` rather than reusing it:
+ *  that reader is not exported, and exporting it would turn a client-local storage tweak
+ *  into a `@kolu/surface-app` public-API change — a drishti pair-PR + odu-impact verdict
+ *  (`.claude/rules/surface.md`) disproportionate to this fix. What "installed" MEANS still
+ *  stays single-owned: the DECISION delegates to the exported {@link isInstalledFromEnv};
+ *  only this thin DOM read lives here. It matches surface-app's THREE installed display-modes
+ *  (standalone / minimal-ui / fullscreen) and its inline-cast for the non-standard iOS
+ *  `navigator.standalone`, so the two "installed?" answers cannot diverge and no third
+ *  `declare global` Navigator copy is added. Reads globals directly (like surface-app); the
+ *  injectable, unit-pinnable seam is {@link activeHostStorage}, which takes the env as a value. */
+function readInstallEnv(): InstallEnv {
+  const displayModeStandalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: minimal-ui)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches;
+  return {
+    isSecureContext: window.isSecureContext,
+    displayModeStandalone,
+    navigatorStandalone:
+      (navigator as Navigator & { standalone?: boolean }).standalone === true,
+  };
 }
 
 /** The two web-storage backends, injected so tests pass synchronous in-memory fakes. */
@@ -43,30 +53,22 @@ export interface StorageBackends {
   session: Storage;
 }
 
-/** Is THIS window an installed / standalone surface (whose relaunch is the same
- *  "session" to the user) rather than a plain browser tab? Reads two ORTHOGONAL platform
- *  signals, because no single one covers every installed context:
- *  - `display-mode: standalone` — the standard signal (Chromium desktop PWAs, Android
- *    home-screen apps, installed PWAs generally);
- *  - `navigator.standalone === true` — the legacy iOS-Safari signal for a home-screen web
- *    app, which never adopted the media query.
- *  Either being true means "installed". No optional-chaining / try-catch guard: per the
- *  fail-fast rule, a window missing `matchMedia` is a broken platform to crash on, not to
- *  silently paper over. */
-export function launchedStandalone(win: StandaloneSignals): boolean {
-  return (
-    win.matchMedia("(display-mode: standalone)").matches ||
-    win.navigator.standalone === true
-  );
-}
-
-/** The storage-backend decision: standalone launch context → the survive-relaunch
- *  backend (`localStorage`), tab context → per-tab (`sessionStorage`). The ONE call site
- *  is `wire.ts`'s `activeHost` pref; kept beside `groundActiveHost` as a pure,
- *  dependency-light host helper. */
+/** The storage-backend decision: an INSTALLED / standalone launch context → the
+ *  survive-relaunch backend (`localStorage`), a regular tab → per-tab (`sessionStorage`).
+ *  Pure over an injected {@link InstallEnv} (surface-app's canonical install fact) and
+ *  injected backends, so the pick is unit-pinnable without a real PWA. */
 export function activeHostStorage(
-  win: StandaloneSignals,
+  env: InstallEnv,
   backends: StorageBackends,
 ): Storage {
-  return launchedStandalone(win) ? backends.local : backends.session;
+  return isInstalledFromEnv(env) ? backends.local : backends.session;
+}
+
+/** Boot-time convenience: read the LIVE install env and pick the backend. The one call
+ *  site is `wire.ts`'s `activeHost` pref, at module init — before the `<SurfaceAppProvider>`
+ *  owner exists, so the reactive `useSurfaceApp().isInstalled()` isn't reachable and a
+ *  synchronous read is required. Kept as a thin split from the pure {@link activeHostStorage}
+ *  so the decision stays testable with an injected env. */
+export function activeHostStorageForLaunch(backends: StorageBackends): Storage {
+  return activeHostStorage(readInstallEnv(), backends);
 }
