@@ -6,29 +6,10 @@ import {
 } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import { persistedPref } from "../persistedPref.ts";
+import { fakeStorage } from "../testing/fakeStorage.ts";
 import { activeHostStorage } from "./activeHostStorage.ts";
 
 const zest: HostKey = { kind: "remote", target: "zest" };
-
-/** A minimal synchronous in-memory `Storage` — enough for `makePersisted` to read
- *  and write, mirroring persistedPref.test.ts's fake. */
-function fakeStorage(seed?: Record<string, string>): Storage {
-  const m = new Map<string, string>(Object.entries(seed ?? {}));
-  return {
-    get length() {
-      return m.size;
-    },
-    clear: () => m.clear(),
-    getItem: (k) => m.get(k) ?? null,
-    key: (i) => [...m.keys()][i] ?? null,
-    removeItem: (k) => {
-      m.delete(k);
-    },
-    setItem: (k, v) => {
-      m.set(k, v);
-    },
-  };
-}
 
 /** `activeHostStorage` — the storage-backend decision: an installed launch context → the
  *  survive-relaunch backend (localStorage), a regular tab → per-tab (sessionStorage). We

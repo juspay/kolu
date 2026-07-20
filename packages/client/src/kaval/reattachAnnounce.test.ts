@@ -10,23 +10,8 @@
 import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
 import { describe, expect, it, vi } from "vitest";
 import { persistedPref } from "../persistedPref";
+import { fakeStorage } from "../testing/fakeStorage";
 import { announceReattach, reattachToAnnounce } from "./reattachAnnounce";
-
-/** A synchronous in-memory `Storage`, so the persistence-wiring tests below run
- *  the SAME `persistedPref` path the app uses (parse + write) without a DOM. */
-function fakeStorage(): Storage {
-  const m = new Map<string, string>();
-  return {
-    getItem: (k) => m.get(k) ?? null,
-    setItem: (k, v) => void m.set(k, v),
-    removeItem: (k) => void m.delete(k),
-    clear: () => m.clear(),
-    key: (i) => [...m.keys()][i] ?? null,
-    get length() {
-      return m.size;
-    },
-  };
-}
 
 /** The persisted high-water-mark signal exactly as `useDaemonStatus` builds it —
  *  same key, fallback, and `parse` — over an injected `storage`, so a future

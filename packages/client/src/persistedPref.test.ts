@@ -2,6 +2,7 @@ import type { HostKey } from "kolu-common/hostKey";
 import { createRoot } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { perHostPref, readWithFallback } from "./persistedPref";
+import { fakeStorage } from "./testing/fakeStorage";
 
 /** `readWithFallback` is the validation/fallback core every `persistedPref`
  *  call site runs on read. These tests pin the two latent bugs the migration
@@ -52,26 +53,6 @@ describe("readWithFallback", () => {
     expect(onInvalid).not.toHaveBeenCalled();
   });
 });
-
-/** A minimal synchronous in-memory `Storage` — enough for `makePersisted` to read
- *  and write, and for the eviction assertion to observe a removal. */
-function fakeStorage(): Storage {
-  const m = new Map<string, string>();
-  return {
-    get length() {
-      return m.size;
-    },
-    clear: () => m.clear(),
-    getItem: (k) => m.get(k) ?? null,
-    key: (i) => [...m.keys()][i] ?? null,
-    removeItem: (k) => {
-      m.delete(k);
-    },
-    setItem: (k, v) => {
-      m.set(k, v);
-    },
-  };
-}
 
 const LOCAL: HostKey = { kind: "local" };
 
