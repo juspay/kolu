@@ -33,10 +33,13 @@ import type { TerminalDisplayInfo } from "./terminalDisplay";
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
   /** The LIVE per-terminal record — read straight from `getMetadata(id)`, the
-   *  fine-grained store proxy. Every fast-changing fact on the title bar (pr,
-   *  agent, foreground, intent, git) reads off this, so the header tracks the
-   *  same leaf the dock does and can never lag it. `info` carries only the
-   *  slow display decorations (colors + identity key). */
+   *  fine-grained store proxy. Every live fact on the title bar (pr, agent,
+   *  foreground, intent, git) reads off this — crucially the fast-churning ones
+   *  (pr / agent / foreground) that the `displayInfos` snapshot could not keep
+   *  fresh (git / cwd DO invalidate that memo, so they were never stale there;
+   *  reading them live too just keeps one source of truth). So the header tracks
+   *  the same leaf the dock does and can never lag it. `info` carries only the
+   *  display decorations (colors + identity key). */
   meta: TerminalMetadata | undefined;
   /** True when this terminal has unseen agent activity. Drives the
    *  leading state pip's attention escalation exactly as the dock row

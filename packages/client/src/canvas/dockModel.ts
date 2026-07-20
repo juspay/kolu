@@ -214,8 +214,9 @@ export type DockModel = {
 
 /** Classify live agent metadata into the dock's agent-state PAINT buckets — the
  *  canvas tile aura, the minimap badge, the expanded-switcher columns. Pure —
- *  does not consider staleness. Callers that have a staleness signal should
- *  prefer `entryBucket()` so parked terminals route to the Idle column.
+ *  does not consider staleness. Callers that have a staleness signal route
+ *  parked terminals to the Idle column via `buildDockModel`'s `idleClassifier`
+ *  branch, which takes precedence over this paint bucket.
  *
  *  Defers the per-state PAINT decision to `agentPaintClass` in
  *  `@kolu/terminal-vocab/agentProjection`, so the closed agent-state set is
