@@ -12,9 +12,12 @@ import { PassThrough } from "node:stream";
 import { oc } from "@orpc/contract";
 import type { Router } from "@orpc/server";
 import { implement } from "@orpc/server";
-import { describe, expect, it } from "vitest";
+import type { StandardRequest } from "@orpc/standard-server";
+import { ClientPeer } from "@orpc/standard-server-peer";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
+import { encodeFrame } from "./links/stdio-codec";
 import { stdioLink } from "./links/stdio";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
@@ -147,5 +150,86 @@ describe("serveOverStdio — settled-result contract", () => {
     void client.add({ a: 2, b: 3 }).catch(() => {});
 
     await expect(serving).resolves.toEqual({ reason: "end" });
+  });
+});
+
+/**
+ * The #1859 zombie, one level up: when `serveOverStdio` settles
+ * `{ reason: "error" }` because the read loop hit a synchronous failure, the
+ * transport must actually be CLOSED — otherwise the socket stays alive while
+ * the server-side accounting believes the connection is over, and later frames
+ * keep reaching the (already closed) `ServerPeer`. This is the override-arm
+ * harm the issue names (`serveOverUnixSocket`'s per-connection serves over one
+ * shared `net.Socket`).
+ *
+ * Reproduction note (repo rule #1690 — the inherited diagnosis is a hypothesis
+ * until reproduced): a *corrupt inbound frame* does NOT reach this reject arm
+ * through `serveOverStdio` today — `peer.message()` swallows a bad frame as a
+ * caught rejection, never a synchronous throw, so the serve stays pending. The
+ * only reject-arm trigger reachable through the real serve path is a
+ * SYNCHRONOUS `onFrame` throw, of which the documented `onFirstRequest` hook is
+ * the one production lever. The zombie itself is real: with the serve settled,
+ * a later genuine request still invokes the router handler.
+ *
+ * RED pin (`it.fails`): asserts the POST-fix invariant, so it fails today and
+ * the fix flips it to `it`.
+ */
+describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", () => {
+  it.fails("a serve settled {reason:'error'} closes the transport and stops reaching the router", async () => {
+    const contract = {
+      add: oc.input(z.object({ a: z.number() })).output(z.number()),
+    };
+    const t = implement(contract);
+    let handlerCalls = 0;
+    const router = t.router({
+      add: t.add.handler(({ input }) => {
+        handlerCalls++;
+        return input.a;
+      }),
+    });
+
+    // Capture ONE genuine encoded request frame to replay AFTER the serve has
+    // settled — the decisive "did a later frame still reach the peer?" probe.
+    // A garbage frame can't witness this (peer.message swallows it with no
+    // router side effect); only a valid request invokes the handler.
+    const captured: Uint8Array[] = [];
+    const clientPeer = new ClientPeer((m) => {
+      captured.push(m as Uint8Array);
+    });
+    const request: StandardRequest = {
+      method: "POST",
+      url: new URL("http://orpc/add"),
+      headers: {},
+      body: { json: { a: 7 }, meta: [] },
+      signal: undefined,
+    };
+    void clientPeer.request(request).catch(() => {});
+    await vi.waitFor(() => expect(captured).toHaveLength(1));
+
+    // The unix-socket shape: ONE duplex is both read and write. `onFirstRequest`
+    // throwing is the reachable synchronous read-loop failure (see the note
+    // above) that drives readFramedLines' decode-failure reject arm.
+    const duplex = new PassThrough();
+    duplex.on("error", () => {}); // absorb the post-settle write on a destroyed stream
+    const serving = serveOverStdio({
+      router,
+      transport: { read: duplex, write: duplex },
+      onFirstRequest: () => {
+        throw new Error("synchronous read-loop failure");
+      },
+    });
+    duplex.write(`${encodeFrame("first")}\n`);
+
+    await expect(serving).resolves.toMatchObject({ reason: "error" });
+
+    // Today (RED): duplex.destroyed === false — the zombie: dead by
+    // accounting, alive by socket.
+    expect(duplex.destroyed).toBe(true);
+
+    // …and a later genuine request must NOT reach the router. Today (RED) it
+    // does: handlerCalls becomes 1 after the replayed frame is consumed.
+    duplex.write(`${encodeFrame(captured[0] as Uint8Array)}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(handlerCalls).toBe(0);
   });
 });

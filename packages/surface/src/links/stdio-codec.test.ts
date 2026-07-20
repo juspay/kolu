@@ -8,9 +8,14 @@
  * error is real and must still propagate.
  */
 
-import { Writable } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { framedSend, isBenignWriteError } from "./stdio-codec";
+import {
+  encodeFrame,
+  framedSend,
+  isBenignWriteError,
+  readFramedLines,
+} from "./stdio-codec";
 
 /** A Writable whose write callback fails with a chosen error code, the way a
  *  dead pipe (EPIPE) or a destroyed stream (ERR_STREAM_DESTROYED) does. It
@@ -89,5 +94,50 @@ describe("framedSend", () => {
     // The frame went out as one base64 line + newline (framing unchanged).
     expect(written.join("")).toMatch(/\n$/);
     expect(peerGone).toBe(0);
+  });
+});
+
+/**
+ * The read half's lifecycle invariant (#1859): once `readFramedLines` SETTLES,
+ * the reader must be STOPPED — no later frame dispatched, and on the
+ * decode-failure reject the read stream destroyed. Today the reject arm only
+ * calls `reject()`: it never detaches its `'data'` listener nor destroys the
+ * stream, so the loop keeps decoding and dispatching frames the consumer's
+ * promise already reported as "done" (on the override arm: a zombie
+ * connection, bookkeeping dead / socket alive — issue #1859).
+ *
+ * RED pin (`it.fails`): asserts the POST-fix invariant, so it fails today and
+ * the fix flips it to `it`.
+ */
+describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
+  it.fails("on a decode-failure reject, dispatches NO later frame and destroys the read stream", async () => {
+    const read = new PassThrough();
+    const received: string[] = [];
+    // `onFrame` throwing is the shape a synchronous frame-processing failure
+    // takes — it is the sole trigger of the codec's decode-failure reject
+    // arm (`decodeFrame`'s lenient `Buffer.from(…, "base64")` never throws;
+    // a real consumer throws from `onFrame`, e.g. `onFirstRequest`). All
+    // three lines ride in ONE chunk, so a reader that merely detached its
+    // listener on settle would still finish the in-progress `while` loop and
+    // leak the two valid frames: the invariant is the stronger "the loop
+    // STOPS and the stream is destroyed", not just "no future event".
+    const settled = readFramedLines(read, (frame) => {
+      const text = Buffer.from(frame).toString("utf-8");
+      if (text === "POISON") {
+        throw new Error("simulated synchronous frame-processing failure");
+      }
+      received.push(text);
+    });
+    read.write(
+      `${encodeFrame("POISON")}\n${encodeFrame("valid-1")}\n${encodeFrame(
+        "valid-2",
+      )}\n`,
+    );
+    await expect(settled).rejects.toMatchObject({
+      code: "SURFACE_STDIO_FRAME_DECODE_FAILED",
+    });
+    // Today (RED): received === ["valid-1", "valid-2"], read.destroyed === false.
+    expect(received).toEqual([]);
+    expect(read.destroyed).toBe(true);
   });
 });
