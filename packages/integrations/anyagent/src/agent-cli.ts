@@ -42,113 +42,92 @@ const EXIT_FLAGS: ReadonlySet<string> = new Set([
   "-h",
 ]);
 
+/** Whether a stable flag consumes the token that follows it as its value
+ *  (`--model sonnet` → `"value"`) or is a standalone boolean switch
+ *  (`--dangerously-skip-permissions` → `"boolean"`). Co-located with each
+ *  flag's membership below so arity and membership — two facets of the same
+ *  flag, introduced by the same event — cannot drift apart. */
+type FlagArity = "boolean" | "value";
+
 /** Per-agent allowlist of flags that define a meaningfully different
- *  invocation. Only these are preserved in the MRU form. The map's
- *  keys double as the set of known agent basenames — no separate
- *  KNOWN_AGENTS set to keep in sync.
+ *  invocation, each mapped to its arity. Only these are preserved in the MRU
+ *  form. The map's keys double as the set of known agent basenames — no
+ *  separate KNOWN_AGENTS set to keep in sync.
  *
- *  A flag not listed here is dropped silently — that is the safe
- *  default. To add support for a new stable flag, add it here. */
-const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+ *  A flag not listed here is dropped silently — that is the safe default. To
+ *  add support for a new stable flag, add it here with its arity: a `"value"`
+ *  flag consumes the following token (`--model sonnet`), a `"boolean"` switch
+ *  must NOT. Stating the arity is mandatory, which is what keeps a trailing
+ *  prompt positional out of the MRU — `claude --dangerously-skip-permissions
+ *  'You are BOOT1…'` normalizes to `claude --dangerously-skip-permissions`,
+ *  dropping the prompt rather than attaching it as a bogus value (the
+ *  living-clue / kolu#1895 leak fix). */
+const STABLE_FLAGS: ReadonlyMap<
+  string,
+  ReadonlyMap<string, FlagArity>
+> = new Map([
   [
     "claude",
-    new Set([
-      "--model",
-      "--dangerously-skip-permissions",
-      "--allowedTools",
-      "--disallowedTools",
-      "--permission-mode",
-      "--add-dir",
-      "--agent",
-      "--mcp-config",
-      "--strict-mcp-config",
-      "--append-system-prompt",
-      "--settings",
-      "--bare",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--dangerously-skip-permissions", "boolean"],
+      ["--allowedTools", "value"],
+      ["--disallowedTools", "value"],
+      ["--permission-mode", "value"],
+      ["--add-dir", "value"],
+      ["--agent", "value"],
+      ["--mcp-config", "value"],
+      ["--strict-mcp-config", "boolean"],
+      ["--append-system-prompt", "value"],
+      ["--settings", "value"],
+      ["--bare", "boolean"],
     ]),
   ],
   [
     "opencode",
-    new Set([
-      "--model",
-      "--dangerously-skip-permissions",
-      "--yolo",
-      "--agent",
-      "--pure",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--dangerously-skip-permissions", "boolean"],
+      ["--yolo", "boolean"],
+      ["--agent", "value"],
+      ["--pure", "boolean"],
     ]),
   ],
-  ["aider", new Set(["--model"])],
+  ["aider", new Map<string, FlagArity>([["--model", "value"]])],
   [
     "codex",
-    new Set([
-      "--model",
-      "--yolo",
-      "--config",
-      "-c",
-      "--profile",
-      "-p",
-      "--sandbox",
-      "-s",
-      "--ask-for-approval",
-      "-a",
-      "--full-auto",
-      "--oss",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--yolo", "boolean"],
+      ["--config", "value"],
+      ["-c", "value"],
+      ["--profile", "value"],
+      ["-p", "value"],
+      ["--sandbox", "value"],
+      ["-s", "value"],
+      ["--ask-for-approval", "value"],
+      ["-a", "value"],
+      ["--full-auto", "boolean"],
+      ["--oss", "boolean"],
     ]),
   ],
-  ["goose", new Set([])],
-  ["gemini", new Set([])],
-  ["cursor-agent", new Set([])],
+  ["goose", new Map<string, FlagArity>([])],
+  ["gemini", new Map<string, FlagArity>([])],
+  ["cursor-agent", new Map<string, FlagArity>([])],
   [
     "grok",
-    new Set([
-      "--model",
-      "-m",
-      "--always-approve",
-      "--permission-mode",
-      "--agent",
-      "--no-plan",
-      "--no-subagents",
-      "--reasoning-effort",
-      "--effort",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["-m", "value"],
+      ["--always-approve", "boolean"],
+      ["--permission-mode", "value"],
+      ["--agent", "value"],
+      ["--no-plan", "boolean"],
+      ["--no-subagents", "boolean"],
+      ["--reasoning-effort", "value"],
+      ["--effort", "value"],
     ]),
   ],
-]);
-
-/** Of the allowlisted `STABLE_FLAGS`, the ones that take a VALUE argument
- *  (`--model sonnet`, `--config key=val`). Only these consume the token that
- *  follows them; every other allowlisted flag is a boolean switch
- *  (`--dangerously-skip-permissions`, `--yolo`, `--bare`, …) that must NOT.
- *
- *  This is an allowlist, matching `STABLE_FLAGS`: a flag absent here is treated
- *  as boolean, so it can never swallow the token after it. That is what keeps a
- *  trailing prompt positional out of the MRU — `claude
- *  --dangerously-skip-permissions 'You are BOOT1…'` normalizes to
- *  `claude --dangerously-skip-permissions`, dropping the prompt rather than
- *  attaching it as a bogus value (juspay/kolu#452 regression). Global, not
- *  per-agent: it is only ever consulted for a token already confirmed as that
- *  agent's stable flag, and no flag name is value-taking for one agent and
- *  boolean for another. */
-const VALUE_FLAGS: ReadonlySet<string> = new Set([
-  "--model",
-  "-m",
-  "--allowedTools",
-  "--disallowedTools",
-  "--permission-mode",
-  "--add-dir",
-  "--agent",
-  "--mcp-config",
-  "--append-system-prompt",
-  "--settings",
-  "--config",
-  "-c",
-  "--profile",
-  "-p",
-  "--sandbox",
-  "-s",
-  "--ask-for-approval",
-  "-a",
-  "--reasoning-effort",
-  "--effort",
 ]);
 
 /** Basename of a path-like token (strips directory prefix). */
@@ -351,8 +330,12 @@ function normalizeAgentInvocation(argv: string[]): string | null {
     // known to take one (`--model sonnet`). A boolean switch
     // (`--dangerously-skip-permissions`) must not consume it — otherwise a
     // trailing prompt positional gets kept as a bogus value and leaks into the
-    // MRU. See `VALUE_FLAGS`.
-    if (VALUE_FLAGS.has(t) && next !== undefined && !next.startsWith("-")) {
+    // MRU. See the per-flag arity in `STABLE_FLAGS`.
+    if (
+      allowed.get(t) === "value" &&
+      next !== undefined &&
+      !next.startsWith("-")
+    ) {
       kept.push(next);
       i++;
     }
