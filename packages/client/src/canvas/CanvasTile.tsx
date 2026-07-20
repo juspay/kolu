@@ -294,14 +294,18 @@ const CanvasTile: Component<{
        *  drag activators only attach when tiled — a maximized tile shouldn't
        *  start a drag on grab. Double-click toggles maximize.
        *
-       *  Layout is `items-start` so window controls hug the top edge even
-       *  when the title block grows multi-row (branch + PR + agent rows).
-       *  Title actions are wrapped in a top-aligned cluster so split /
-       *  search / screenshot / maximize / close all sit on row 1, and the
-       *  identity rows stack below the name. */}
+       *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
+       *  `auto` for the action cluster. `items-start` hugs the actions to the
+       *  top edge. `renderTitle()` is spread across the grid via
+       *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
+       *  of row 1 (beside the actions) while its branch/PR row spans BOTH
+       *  columns of row 2 — flowing full-width *under* the top-aligned
+       *  actions instead of being boxed into the narrow left column. Without
+       *  the span, the branch/PR row truncated early with dead space beneath
+       *  a wide action cluster (agent status + theme + icons). */}
       <div
         data-testid="canvas-tile-titlebar"
-        class="flex items-start gap-2 px-3 py-1.5 shrink-0 select-none"
+        class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none"
         classList={{
           "cursor-grab active:cursor-grabbing": !isMaximized(),
         }}
@@ -328,8 +332,8 @@ const CanvasTile: Component<{
         }}
         {...(props.mode === "tiled" ? draggable.dragActivators : {})}
       >
-        <div class="flex-1 min-w-0">{props.renderTitle()}</div>
-        <div class="flex items-center gap-1 shrink-0">
+        <div class="contents">{props.renderTitle()}</div>
+        <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
           {props.renderTitleActions?.()}
           <button
             type="button"

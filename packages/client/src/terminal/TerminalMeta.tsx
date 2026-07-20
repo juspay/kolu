@@ -64,7 +64,7 @@ const TerminalMeta: Component<{
            *  separate agent row here. CWD is implicit (tooltip on the
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
-          <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+          <div class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             <NameSpan info={v().info} meta={v().meta} />
             <Show when={v().info.key.suffix}>
               {(suffix) => (
@@ -117,7 +117,7 @@ const TerminalMeta: Component<{
            *  Clicking always opens the intent editor — there is no
            *  separate glyph chip, so this slot is the canvas tile's
            *  sole intent affordance regardless of git state. */}
-          <div class="flex items-center gap-1.5 min-w-0 text-xs">
+          <div class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs">
             {/* Agent-state pip leading the branch/intent annotation —
              *  the same shape-distinct StatePip the dock row leads its
              *  annotation line with (spinning ring = working, dot =
@@ -154,7 +154,7 @@ const TerminalMeta: Component<{
                     ? "Edit terminal intent"
                     : "Set terminal intent"
                 }
-                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate min-w-0 cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                 style={{ color: v().info.annotationColor }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {

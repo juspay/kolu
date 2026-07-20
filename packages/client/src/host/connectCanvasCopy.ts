@@ -63,3 +63,11 @@ export function isConnectPhase(phase: string): phase is ConnectPhase {
     phase === "connecting"
   );
 }
+
+/** Is this the ACTIVELY-PROVISIONING phase pair — `nix copy` (`copying`) or the minutes-long
+ *  remote `building`? The single authority for "which phases are a cold provision" (vs the quick
+ *  `probing`/`connecting` handshake), so `bootDeadline`'s ceiling class and the stalled-leg
+ *  derivation read it here instead of re-spelling the `copying || building` literal pair. */
+export function isProvisioningPhase(phase: ConnectPhase | undefined): boolean {
+  return phase === "copying" || phase === "building";
+}
