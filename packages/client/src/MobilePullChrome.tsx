@@ -22,6 +22,7 @@ import { type Component, Show } from "solid-js";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
+import { pairDisplayRow } from "./terminal/terminalDisplay";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import {
   chromeDrawerOpen as chromeOpen,
@@ -58,13 +59,16 @@ const MobilePullChrome: Component<{
   // Pull-handle drag state. Not reactive — only the touch handlers read it.
   let pullStartY: number | null = null;
 
-  const activeInfo = () => {
+  // The active terminal's display row — the slow decorations paired with the
+  // live record, gated both-present through the shared `pairDisplayRow`. Reads
+  // `activeId()` once and gates once, so `TerminalMetaCompact` gets a coherent
+  // (info, meta) pair (no info-present/meta-absent skew) exactly as the desktop
+  // header does.
+  const activeRow = () => {
     const id = store.activeId();
-    return id !== null ? store.getDisplayInfo(id) : undefined;
-  };
-  const activeMeta = () => {
-    const id = store.activeId();
-    return id !== null ? store.getMetadata(id) : undefined;
+    return id !== null
+      ? pairDisplayRow(store.getDisplayInfo(id), store.getMetadata(id))
+      : null;
   };
 
   return (
@@ -105,12 +109,12 @@ const MobilePullChrome: Component<{
         <span class="w-16 h-2 rounded-full bg-fg-3/40" aria-hidden="true" />
         <div class="flex items-center gap-2 w-full">
           <Show
-            when={activeInfo()}
+            when={activeRow()}
             fallback={<span class="text-sm text-fg-2">kolu</span>}
           >
-            {(info) => (
+            {(row) => (
               <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
-                <TerminalMetaCompact info={info()} meta={activeMeta()} />
+                <TerminalMetaCompact info={row().info} meta={row().meta} />
               </div>
             )}
           </Show>

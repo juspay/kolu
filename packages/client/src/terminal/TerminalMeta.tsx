@@ -28,8 +28,7 @@ import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
-import type { TerminalDisplayInfo } from "./terminalDisplay";
-import { pairDisplayRow } from "./useTerminalStore";
+import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;

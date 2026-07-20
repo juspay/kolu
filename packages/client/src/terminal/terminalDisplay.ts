@@ -38,6 +38,25 @@ export type TerminalDisplayInfo = {
   key: TerminalKey;
 };
 
+/** The both-present gate for a terminal's display row: the slow `info`
+ *  decorations paired with the live `meta` record, or `null` until BOTH
+ *  arrive. This is the single source of truth for that pairing — the dock
+ *  factory (`createDockRowData`), the title-bar header, the mobile handle, and
+ *  `buildWorkspaceEntries` all gate through it, so no consumer re-spells the
+ *  `info && meta` check. Wrapped in a `createMemo` by the reactive consumers, it
+ *  recomputes only when either REFERENCE turns over (not on a per-leaf tick);
+ *  the fine-grained pr/agent/foreground reads happen at the leaf, off the live
+ *  `meta` proxy. Lives HERE, not in `useTerminalStore` — it is a pure
+ *  `(info, meta)` function that touches no store, so it belongs in the leaf
+ *  module every consumer already imports (a `dockModel` / `CanvasMinimap`
+ *  consumer must not invert its dependency up into the store to reach it). */
+export function pairDisplayRow(
+  info: TerminalDisplayInfo | undefined,
+  meta: TerminalMetadata | undefined,
+): { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
+  return info && meta ? { info, meta } : null;
+}
+
 /** Assign OKLCH colors via golden-angle hue spacing.
  *  All keys share one sequence so no two get the same color. */
 export function assignColors(keys: Iterable<string>): Map<string, string> {

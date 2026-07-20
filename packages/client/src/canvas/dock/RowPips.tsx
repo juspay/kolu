@@ -41,11 +41,11 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import {
   pairDisplayRow,
-  useTerminalStore,
-} from "../../terminal/useTerminalStore";
+  type TerminalDisplayInfo,
+} from "../../terminal/terminalDisplay";
+import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
 

@@ -12,7 +12,10 @@ import {
   type IdleBucket,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
+import {
+  pairDisplayRow,
+  type TerminalDisplayInfo,
+} from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
 /** Live-terminal source row before a presentation-specific order is applied.
@@ -38,10 +41,9 @@ export function buildWorkspaceEntries(
 ): DockSourceEntry[] {
   const entries: DockSourceEntry[] = [];
   for (const id of ids) {
-    const info = getDisplayInfo(id);
-    const meta = getMetadata(id);
-    if (!info || !meta) continue;
-    entries.push({ id, info, meta, layout: getLayout?.(id) });
+    const row = pairDisplayRow(getDisplayInfo(id), getMetadata(id));
+    if (!row) continue;
+    entries.push({ id, info: row.info, meta: row.meta, layout: getLayout?.(id) });
   }
   return entries;
 }
