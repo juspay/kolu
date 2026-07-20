@@ -240,10 +240,7 @@ export function useDeepLinks(): void {
       // mid-flight reload of a FRESH link — the entry would carry the stamp with
       // the command never enacted, so the boot gate skips it forever (re-pressing
       // Enter in the address bar is a reload too). #1900 R1.
-      const deferStamp =
-        link.kind === "terminal" ||
-        link.kind === "code" ||
-        link.kind === "inspector";
+      const deferStamp = "terminalId" in link;
       batch(() => {
         disarmInFlightRoute();
         match(link)
