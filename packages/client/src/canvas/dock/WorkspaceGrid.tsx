@@ -477,11 +477,11 @@ const WorkspaceCard: Component<{
   unread: boolean;
   onSelect: () => void;
 }> = (props) => {
-  const agent = () => activeArm(props.entry.info.meta)?.agent;
-  const pr = () => activePr(props.entry.info.meta);
+  const agent = () => activeArm(props.entry.meta)?.agent;
+  const pr = () => activePr(props.entry.meta);
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
-  const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
+  const lastActive = () => formatTimeAgo(props.entry.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
 
   return (
@@ -510,7 +510,7 @@ const WorkspaceCard: Component<{
         "--pill-border-radius": "calc(0.5rem + 2px)",
       }}
       onClick={() => props.onSelect()}
-      title={props.entry.info.meta.cwd}
+      title={props.entry.meta.cwd}
     >
       <Show when={props.active}>
         <span
@@ -579,7 +579,7 @@ const WorkspaceCard: Component<{
         >
           <IntentMarkdownInline
             markdown={annotationLine(
-              props.entry.info.meta.intent,
+              props.entry.meta.intent,
               props.entry.label,
             )}
           />
@@ -624,7 +624,7 @@ const WorkspaceCard: Component<{
               // real epoch: `formatTimeAgo` returns "" ONLY for `null`
               // (never-active), so a non-empty label means `lastActivityAt`
               // is a number here.
-              title={`Last agent activity: ${new Date(props.entry.info.meta.lastActivityAt as number).toLocaleString()}`}
+              title={`Last agent activity: ${new Date(props.entry.meta.lastActivityAt as number).toLocaleString()}`}
             >
               {label()}
             </span>
@@ -649,7 +649,7 @@ const WorkspaceCard: Component<{
        *  Shared <IntentBody> so every dock + switcher render site
        *  looks the same. */}
       <IntentBody
-        intent={props.entry.info.meta.intent}
+        intent={props.entry.meta.intent}
         testId="workspace-switcher-card-intent"
       />
     </button>

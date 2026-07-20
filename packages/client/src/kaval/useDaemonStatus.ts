@@ -34,7 +34,6 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { activeScope } from "../hostScope/hostScopes";
 import { persistedPref } from "../persistedPref";
-import { getClockNow } from "../time/clock";
 import { activeHost, app, padiMap } from "../wire";
 import {
   channelLive,
@@ -44,7 +43,6 @@ import {
   liveWarming,
   toKavalPresence,
 } from "./daemonPresentation";
-import { isPendingTimedOut } from "./pendingWindow";
 import { announceReattach } from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
@@ -115,22 +113,21 @@ export type PadiEntry = EntryState<PadiEntryFailure, ConnectionInfo>;
 /** The ACTIVE host entry's FULL connection state — the typed discriminant
  *  (`warming`/`connected`/`failed`/`not-a-member`) plus, on `failed`, the typed
  *  {@link PadiEntryFailure} value. `canvasModeResolver` keys its facts on this
- *  ONE read: the `failed` arm drives both the host-down card's cause-typed copy and
- *  the `pendingTimedOut` ceiling (a REMOTE host merely still `warming` — nix-copy +
- *  build, which projects to the `warming` entry status, see `@kolu/surface-map`'s
- *  `server.ts` — must NOT be judged against the LOCAL 30s connect ceiling; only a
- *  PROVEN-`failed` entry earns the honest down/dead verdict early). A reactive
- *  accessor; read it inside a tracking scope. */
+ *  ONE read: the `failed` arm drives the host-down card's cause-typed copy, while a
+ *  REMOTE host merely still `warming` (nix-copy + build, which projects to the `warming`
+ *  entry status, see `@kolu/surface-map`'s `server.ts`) accrues against the generous remote
+ *  boot-deadline cell — never the LOCAL 30s ceiling (see `bootDeadline.ts`'s ceiling table).
+ *  A reactive accessor; read it inside a tracking scope. */
 export function activeEntryState(): PadiEntry {
   return padiMap.entry(activeHost()).state();
 }
 
-/** True while the ACTIVE host is the unremovable LOCAL default — `canvasModeResolver`'s
- *  30s `pendingTimedOut` ceiling ({@link LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}) mirrors the
- *  LOCAL session's own connect watchdog, a local-stack fact. Applying that SAME ceiling to
- *  a REMOTE host would paint "kaval didn't start" over a normal remote-provisioning window
- *  (a fresh remote padi legitimately takes longer than 30s to come up — ssh dial + nix
- *  copy + build). A reactive accessor; read it inside a tracking scope. */
+/** True while the ACTIVE host is the unremovable LOCAL default — it selects the boot
+ *  deadline's ceiling CLASS (local = 30s, mirroring the LOCAL session's own connect watchdog;
+ *  a remote accrues against the generous provisioning/handshake cells instead, since a fresh
+ *  remote padi legitimately takes longer than 30s — ssh dial + nix copy + build) and routes
+ *  the daemon-leg escape (a hung LOCAL kaval → the byte-identical down/dead card). A reactive
+ *  accessor; read it inside a tracking scope. */
 export function isActiveHostLocal(): boolean {
   return activeHost().kind === "local";
 }
@@ -252,41 +249,13 @@ export function daemonStatusPending(): boolean {
   return localDaemonEntry()?.pending() ?? true;
 }
 
-/** Mirrors `makeSession`'s default `connectTimeoutMs` (`@kolu/surface-remote`'s
- *  session module) — the local padi session's own connect-watchdog ceiling. Kept
- *  as its own constant here (client and server are separate packages, and this is
- *  a "stop waiting, tell the truth" ceiling for the CANVAS, not a coordinated
- *  protocol deadline) rather than importing the session module; the two need only
- *  agree on the same order of magnitude. */
-const LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS = 30_000;
-
-/** True once the daemon-status stream's pending run — anchored ONCE per host in the
- *  RETAINED per-host scope ({@link createHostWire}'s `daemonPendingAnchorMs`) — has
- *  run longer than the local endpoint's own connect timeout ({@link
- *  LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS}). Feeds `resolveCanvasMode`'s `pendingTimedOut`
- *  fact: a padi endpoint that never comes up (a spawn/adopt failure — the #1713
- *  adopt-path sibling is one cause) would otherwise leave `daemonStatusPending()`
- *  true FOREVER, and the canvas would spin at "Connecting…" with no way out.
- *
- *  Reads the anchor from `activeScope().wire` so it tracks the SAME retained
- *  lifetime as the `daemonStatus` sub it bounds: the wait begins on a host's first
- *  activation and is NOT restarted on switch-back (the sub isn't re-subscribing
- *  either), so a repeatedly-revisited wedged host keeps its original deadline and
- *  the ceiling still fires — where a per-switch re-anchor would let it dodge the
- *  timeout forever. During the removal race (no active host to anchor against) it
- *  reads `false` — never a spurious timeout. Reactive (the shared 1s clock +
- *  `activeScope()`), so a consumer inside a tracking scope re-renders the instant
- *  the ceiling passes. */
-export function daemonStatusPendingTimedOut(): boolean {
-  const anchorMs = activeScope()?.wire.daemonPendingAnchorMs;
-  if (anchorMs === undefined) return false;
-  return isPendingTimedOut(
-    daemonStatusPending(),
-    anchorMs,
-    getClockNow()(),
-    LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
-  );
-}
+// The "stop waiting, tell the truth" canvas ceiling that used to live here
+// (`daemonStatusPendingTimedOut` + `LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS`, anchored on
+// `createHostWire`'s `daemonPendingAnchorMs`) is GONE (#1763). It could fire only for the
+// DAEMON leg and only while `activeScope()` was defined — so a hung membership or session leg
+// span the connect overlay forever. The single, outcome-based, per-host boot deadline that
+// replaces it lives in `bootDeadline.ts` (with the ceiling table + the exported
+// `LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS`), driven by `useCanvasMode`.
 
 /** The ACTIVE host's kaval presence — the ONE named fold of `localDaemonStatus()` +
  *  `daemonChannelLive()` into the client's honest {@link KavalPresence} sum, read by the
@@ -384,6 +353,45 @@ export function daemonConnected(): boolean {
   // pre-identity `connected` still counts (authority doesn't need identity, only liveness +
   // a connected state).
   return daemonChannelLive() && localDaemonStatus()?.state === "connected";
+}
+
+/** Whether the ACTIVE host's terminal LIST can be trusted as a COMPLETE census —
+ *  its membership has reconciled, not merely "a first frame arrived". The one
+ *  named fact two consumers gate on: `useDeepLinks`'s gone-verdict (a terminal
+ *  absent from a non-authoritative list is NOT-YET, never "gone" — #1900) and
+ *  `useActiveReconcile`'s promote-on-departure eviction (a departure seen while
+ *  the list isn't authoritative is the server's doing, not a user close).
+ *
+ *  Today it IS `daemonConnected()`, but the NAME states the meaning and this
+ *  docstring — not the callers — carries the ordering argument, so the honest
+ *  scope of the fact lives in one place:
+ *
+ *  - The daemon reports `connected` BEFORE boot adoption/reconcile runs
+ *    (`ptyHost/index.ts` maps the converge outcome to `adopted` only after the
+ *    endpoint is up; `reattach.ts` — "By the time adoption runs the endpoint has
+ *    already reported connected"; `daemonStatus.ts` folds the adopted count on
+ *    AFTER connect). So `connected` alone does NOT prove the list reconciled.
+ *  - What makes it authoritative on the MAIN paths anyway: at BOOT, padi's serve
+ *    socket starts listening only after `bootLocalEndpoint` (which adopts)
+ *    completes (`daemonMain.ts`), so a browser never observes a pre-adoption
+ *    `connected`; and on a SUPERVISED restart, `holdRestarting` masks
+ *    capture→reattach as one `restarting` (`surface-daemon-supervisor/restart.ts`),
+ *    so the client sees `connected` only once reattach finished.
+ *  - RESIDUAL (not covered here — needs a padi-side registry-reconciled marker,
+ *    tracked as follow-up #1902): a kaval that HUNG at a padi restart so `converge`
+ *    threw (its catch only logs — `ptyHost/index.ts`), then recovered, flips
+ *    `connected` before the 2s inventory-reconcile loop re-adopts; and
+ *    out-of-band (`kaval-tui`-created) terminals appear the same way. In those
+ *    windows this fact reads `true` over a still-stale list, so an absent id reads
+ *    authoritative-but-gone and the deep-link gone-verdict fires IMMEDIATELY — a
+ *    false gone the 8s backstop does NOT catch (the backstop bounds only the OTHER
+ *    case, where this fact stays `false` and the route waits). #1900's primary
+ *    boot-gate fix already removes the dominant trigger; closing this last window
+ *    honestly needs the #1902 marker.
+ *
+ *  A reactive accessor; read it inside a tracking scope. */
+export function listIsAuthoritative(): boolean {
+  return daemonConnected();
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is

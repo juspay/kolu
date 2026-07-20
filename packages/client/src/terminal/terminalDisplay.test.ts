@@ -85,6 +85,21 @@ describe("buildTerminalDisplayInfos", () => {
     expect(info?.subCount).toBe(0);
   });
 
+  it("does NOT carry the live terminal record (stale-snapshot class is unspellable)", () => {
+    // The display info rides the `displayInfos` memo, which only rebuilds on
+    // git / cwd / membership — NOT on pr / agent / foreground. Carrying `meta`
+    // here once let a consumer read those fast fields off a snapshot the memo
+    // never refreshed (the header lagged the dock on PR). This asserts the
+    // photocopy is gone for good: live facts must come from `getMetadata(id)`.
+    const info = buildTerminalDisplayInfos(
+      ["id-1"],
+      () => makeMeta({ git: makeGit() }),
+      () => [],
+    ).get("id-1");
+    expect(info).toBeDefined();
+    expect(info).not.toHaveProperty("meta");
+  });
+
   it("uses cwd basename for group, shortened cwd for label, on non-git terminals", () => {
     const result = buildTerminalDisplayInfos(
       ["id-1"],

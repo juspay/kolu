@@ -15,7 +15,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
-import { daemonConnected } from "../kaval/useDaemonStatus";
+import { listIsAuthoritative } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
@@ -33,7 +33,11 @@ export function useTerminals() {
   const store = useTerminalStore();
 
   const getSubject = (id: TerminalId) =>
-    terminalSubject(store.getDisplayInfo(id), store.terminalLabel(id));
+    terminalSubject(
+      store.getDisplayInfo(id),
+      store.getMetadata(id),
+      store.terminalLabel(id),
+    );
 
   const alerts = useTerminalAlerts({
     activeId: store.activeId,
@@ -116,10 +120,12 @@ export function useTerminals() {
     // must reset rather than evict the departed host's tiles (no wrong-host writes).
     activeHostKey,
     evictDeparted: crud.evictDeparted,
-    // Only react to a departure when the daemon is genuinely connected — during a
-    // supervised recycle/restart the drain empties the list and restore undoes it,
-    // so the client is not the lifecycle authority (see useActiveReconcile).
-    isDaemonConnected: daemonConnected,
+    // Only react to a departure when the terminal list is AUTHORITATIVE (a
+    // complete census) — during a supervised recycle/restart the drain empties the
+    // list and restore undoes it, so a departure isn't a user close and the client
+    // is not the lifecycle authority (see useActiveReconcile). The ONE named
+    // census fact `useDeepLinks`'s gone-verdict also gates on (#1900).
+    listIsAuthoritative,
   });
 
   // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)

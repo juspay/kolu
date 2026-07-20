@@ -1,5 +1,6 @@
-/** Activity alerts — audio + OS notification when an agent finishes in a
- *  terminal the user isn't actively watching. The on-canvas Dock surfaces the
+/** Activity alerts — audio + OS notification when an agent finishes, or stops
+ *  to ask you something (a live `awaiting_user` gate), in a terminal the user
+ *  isn't actively watching. The on-canvas Dock surfaces the
  *  same transition ambiently with full repo/branch context and a reply input, so
  *  the redundant in-app toast was retired — the channels left here cover the case
  *  the dock can't: the user isn't looking at that terminal (it's a background
@@ -29,7 +30,10 @@ function playSound() {
   });
 }
 
-/** Fire audio + an OS notification for a terminal that finished. The caller
+/** Fire audio + an OS notification for a terminal that needs the user — it
+ *  finished its turn, or it stopped on a live human gate. `awaiting` selects the
+ *  banner copy: `true` (an `awaiting_user` gate) reads "needs your input",
+ *  `false` (a plain turn-end) reads "finished". The caller
  *  (`alertForTerminal`) owns the *when* — it only calls this when the user isn't
  *  actively watching that terminal — so there is NO window-visibility gate here:
  *  the previous `document.hidden` check meant the banner only ever fired when
@@ -50,11 +54,18 @@ export function fireActivityAlert(
   subject: TerminalSubject,
   terminalId: TerminalId,
   host: string,
+  awaiting: boolean,
 ) {
   playSound();
   void notify.show({
     tag: `${host}/${terminalId}`,
-    title: `${subject.title} finished`,
+    // Honest copy: an `awaiting_user` gate is "needs your input", not "finished".
+    // #1177 deliberately widens the non-finished chimes (a gate over an already-
+    // `waiting` row now alerts), so the title must distinguish a live human gate
+    // from a plain turn-end.
+    title: awaiting
+      ? `${subject.title} needs your input`
+      : `${subject.title} finished`,
     body: subject.description,
     icon: "/favicon.svg",
     data: { kind: "terminal", host, terminalId },

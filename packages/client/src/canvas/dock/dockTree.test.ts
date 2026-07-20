@@ -1,4 +1,3 @@
-import { LOCAL_LOCATION } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
@@ -21,16 +20,6 @@ function makeGetInfo(
       repoColor: e.color,
       branchColor: e.color,
       annotationColor: e.color,
-      meta: {
-        state: "active",
-        cwd: "/tmp",
-        git: null,
-        location: LOCAL_LOCATION,
-        pr: { kind: "absent" },
-        agent: null,
-        foreground: null,
-        lastActivityAt: 0,
-      },
       subCount: 0,
       key: { group: e.group, label: e.label ?? "main" },
     };

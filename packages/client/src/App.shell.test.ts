@@ -25,6 +25,10 @@ const APP_SRC = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "App.tsx"),
   "utf8",
 );
+const RESOLVER_SRC = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "kaval/canvasModeResolver.ts"),
+  "utf8",
+);
 
 /** Reactive primitives the shell is allowed to hold. At the #1340 thin-shell
  *  baseline App.tsx holds exactly three: `closeConfirmTarget` (the one dialog
@@ -49,5 +53,46 @@ describe("App.tsx thin-shell invariant (#1340)", () => {
         /\bcreate(Signal|Memo|Effect|Store|Resource)\s*[(<]|\bmakePersisted\s*\(/g,
       ) ?? [];
     expect(matches.length).toBeLessThanOrEqual(REACTIVE_PRIMITIVE_BUDGET);
+  });
+});
+
+/** #1763 — the canvas `<Switch>` has NO fallback arm (see the comment above it in
+ *  App.tsx), so a `CanvasMode` kind with no `<Match>` renders BLANK. This is a
+ *  SOURCE-LEVEL tripwire (the App.shell idiom) rather than a whole-App render harness:
+ *  every kind the resolver's `CanvasMode` union can emit must be wired in App.tsx —
+ *  a new kind without a Match, or a deleted/miswired `boot-stalled` arm, fails HERE.
+ *  This is the seam the per-component render pins can't reach (codex-debate F2). */
+describe("App canvas <Switch> covers every CanvasMode kind (#1763 — no blank fallback)", () => {
+  // The `CanvasMode` union's `kind` literals, from the resolver's own type/returns.
+  const kinds = [
+    ...new Set(
+      [...RESOLVER_SRC.matchAll(/kind:\s*"([a-z-]+)"/g)].map((m) => m[1]),
+    ),
+  ];
+
+  it("finds the non-trivial kind set (guards the extraction itself)", () => {
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        "connecting",
+        "boot-stalled",
+        "workspace",
+        "empty",
+        "down",
+        "host-failed",
+        "warming",
+      ]),
+    );
+  });
+
+  it.each(kinds)("App wires a <Match>/narrowing for the %s kind", (kind) => {
+    // Every arm keys on `mode().kind === "X"` (direct) or a narrowing helper's
+    // `m.kind === "X"` (down/warming/host-failed/boot-stalled) — either way the
+    // kind literal appears in an equality against the mode. A missing kind = blank.
+    expect(APP_SRC).toContain(`=== "${kind}"`);
+  });
+
+  it("routes the boot-stalled kind specifically to <BootStalledCanvas>", () => {
+    expect(APP_SRC).toMatch(/bootStalledMode\(\)/);
+    expect(APP_SRC).toContain("<BootStalledCanvas");
   });
 });

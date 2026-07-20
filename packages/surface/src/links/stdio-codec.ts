@@ -56,8 +56,7 @@ export function decodeFrame(line: string): Uint8Array {
  *  response differs per consumer (the client closes its link; the server
  *  ends its serve loop), so each side owns that guard locally — see the
  *  `write.on("error", …)` handlers in `./stdio.ts` and `../peer-server.ts`.
- *  The read half splits the same way: `decodeFrame` is framing, the
- *  `read.on("error", …)` in `readFramedLines` is lifecycle. */
+ *  The read half's lifecycle split is documented on `readFramedLines`. */
 function writeFramedMessage(
   write: Writable,
   message: string | ArrayBufferLike | Uint8Array,
@@ -121,7 +120,30 @@ export function framedSend(
 
 /** Read line-delimited frames off `read` until the stream ends. Each
  *  non-empty line is base64-decoded and dispatched to `onFrame`. Returns
- *  a Promise that resolves on `'end'` OR `'close'` and rejects on `'error'`.
+ *  a Promise that resolves on `'end'` OR `'close'` and rejects on `'error'` or
+ *  a synchronous `onFrame` failure (see the SETTLED ⟹ STOPPED invariant below).
+ *
+ *  Invariant — SETTLED ⟹ STOPPED (#1859): the promise never settles while the
+ *  reader is still live. `'end'`/`'close'` resolve (the stream has already
+ *  terminated); every reject goes through `stopAndReject`, which destroys the
+ *  reader FIRST (Node sets `destroyed` synchronously) and only then rejects —
+ *  so "stopped" strictly precedes "settled". This holds for ANY `Readable` by
+ *  construction: it does NOT rely on `read.destroy(err)` echoing an `'error'`
+ *  back (a custom `_destroy` may swallow it and emit only `'close'`), nor on a
+ *  stream `'error'` implying the stream is gone (a `Readable` may emit
+ *  `'error'` while still open). The pre-#1859 zombie — a bare `reject()` that
+ *  left the `'data'` listener attached and the stream still flowing frames into
+ *  a consumer that already tore down — is unconstructible here.
+ *
+ *  Why the codec owns this response inline (vs. the write half's per-consumer
+ *  guard): a frame-processing failure here has ONE uniform response for every
+ *  consumer — stop the reader — so it belongs in the codec, whereas a dead
+ *  *write* stream's response differs per consumer (client closes its link,
+ *  server ends its serve loop) and stays in each caller's `write.on("error",
+ *  …)`. The rule is "uniform response ⇒ in the codec, per-consumer response ⇒
+ *  in the callback", not "framing in the codec, lifecycle in the callback" — do
+ *  not "fix" the reject sites below back to a bare reject on that misreading.
+ *
  *  The `'close'` edge is part of the declared contract, not an accident: a
  *  `destroy()` with no error emits neither `'end'` nor `'error'` — only
  *  `'close'` — so without it the promise would hang forever. Peer-server's
@@ -140,6 +162,15 @@ export async function readFramedLines(
   read.setEncoding("utf-8");
   let buffer = "";
   return new Promise<void>((resolve, reject) => {
+    // The one reject path (see the docstring's SETTLED ⟹ STOPPED invariant):
+    // destroy the reader, then reject. Idempotent — `destroy()` no-ops once
+    // destroyed and `reject` is first-settle-wins — so the frame-handler catch
+    // and a stream 'error' can both route here without double-stopping or
+    // double-settling.
+    const stopAndReject = (failure: unknown) => {
+      if (!read.destroyed) read.destroy();
+      reject(failure);
+    };
     read.on("data", (chunk: string) => {
       buffer += chunk;
       let nl = buffer.indexOf("\n");
@@ -151,17 +182,24 @@ export async function readFramedLines(
         try {
           onFrame(decodeFrame(line));
         } catch (err) {
-          reject(
-            new ORPCError("SURFACE_STDIO_FRAME_DECODE_FAILED", {
-              message: `Failed to base64-decode an inbound stdio frame. The peer on the other end likely wrote non-protocol bytes to its protocol channel (e.g. logged to stdout instead of stderr — see lesson #4). Underlying error: ${(err as Error).message}`,
+          // Stop the reader and settle. `return` abandons the rest of this
+          // in-flight chunk (frames dispatched BEFORE the throw are not undone).
+          // The message is TOTAL — it never dereferences the caught value (a
+          // handler may `throw null`, a non-Error, etc.); the original throw is
+          // carried on `cause`.
+          stopAndReject(
+            new ORPCError("SURFACE_STDIO_FRAME_HANDLER_FAILED", {
+              message:
+                "An inbound stdio frame handler (`onFrame`) threw synchronously; the reader has been stopped and its stream destroyed. See `cause` for the underlying throw.",
               cause: err,
             }),
           );
+          return;
         }
       }
     });
     read.on("end", resolve);
     read.on("close", resolve);
-    read.on("error", reject);
+    read.on("error", stopAndReject);
   });
 }

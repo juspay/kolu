@@ -1,23 +1,27 @@
 /** Pins the canvas-surface precedence the App shell delegates to
  *  `resolveCanvasMode` (#1340 thin-shell extraction; Skew-UX discriminated
- *  facts). The facts are keyed on the ACTIVE entry's connection state, and the
- *  arm ORDER is load-bearing correctness — the loading guard beats every arm; on
- *  the `connected` arm `down` and `warming` each beat `empty` so a dead/degraded
- *  or restarting kaval never masquerades as "you have no terminals" (#1034
- *  empty-canvas lie + restart-drain). Imports the pure resolver only, so the
- *  precedence is exercised without mounting the daemon-status subscription. */
+ *  facts), plus the #1763 boot-deadline escape. The facts are keyed on the ACTIVE
+ *  entry's connection state, and the arm ORDER is load-bearing correctness — the
+ *  loading guard beats every arm; on the `connected` arm `down` and `warming` each
+ *  beat `empty` so a dead/degraded or restarting kaval never masquerades as "you
+ *  have no terminals" (#1034 empty-canvas lie + restart-drain).
+ *
+ *  `resolveCanvasMode(facts, { exceeded })` returns `{ mode, tag }`: `mode` is the
+ *  surface to render, `tag` the boot-overlay classification the caller feeds to the
+ *  per-host deadline anchor. `mode(f)` / `mode(f, true)` and `tag(f)` below are thin
+ *  readers so the precedence and the escape are each pinned without repeating the
+ *  wrapper shape. */
 
 import type { DaemonState } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import { type CanvasFacts, resolveCanvasMode } from "./canvasModeResolver";
 
-/** The liveness facts every arm carries — daemon up, session loaded, not timed
- *  out, local host. Each factory below spreads these and adds its arm's own
- *  facts, so only the fact under test flips the outcome. */
+/** The liveness facts every arm carries — daemon up, session loaded, local host.
+ *  Each factory below spreads these and adds its arm's own facts, so only the fact
+ *  under test flips the outcome. */
 const liveness = {
   isLoading: false,
   daemonPending: false,
-  pendingTimedOut: false,
   isLocalHost: true,
 } as const;
 
@@ -39,11 +43,19 @@ function connected(
   };
 }
 
+/** The rendered surface for `facts`, with the boot deadline NOT exceeded (default) or
+ *  exceeded — the two readers every precedence/escape pin uses. */
+const mode = (facts: CanvasFacts, exceeded = false) =>
+  resolveCanvasMode(facts, { exceeded }).mode;
+/** The boot-overlay classification the caller feeds to the per-host anchor. */
+const tag = (facts: CanvasFacts) =>
+  resolveCanvasMode(facts, { exceeded: false }).tag;
+
 describe("resolveCanvasMode loading guard (#1340)", () => {
   it("connecting wins while the session is loading, ahead of any connected-arm fact", () => {
     // Without the guard these connected facts would resolve to `down`…
     expect(
-      resolveCanvasMode(
+      mode(
         connected({
           down: { state: "dead" as const },
           warming: true,
@@ -53,7 +65,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     ).toEqual({ kind: "down", down: { state: "dead" } });
     // …but with isLoading the guard fires first.
     expect(
-      resolveCanvasMode(
+      mode(
         connected({
           isLoading: true,
           down: { state: "dead" as const },
@@ -66,147 +78,118 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
   it("connecting wins while daemon status is still pending", () => {
     // The #1034 gate: pending must beat a not-yet-arrived down/empty so a dead
     // boot never flashes the normal empty workspace first.
+    expect(mode(connected({ daemonPending: true, terminalCount: 0 }))).toEqual({
+      kind: "connecting",
+    });
+  });
+
+  it("a still-pending daemon status escapes to down/dead once past the boot deadline — never an eternal spinner (#1713)", () => {
+    // A local padi that never comes up at boot leaves `daemonPending` true FOREVER.
+    // Past the deadline the DAEMON leg on a LOCAL host escapes to the byte-identical
+    // down/dead card (leg `daemon` + `isLocalHost`).
     expect(
-      resolveCanvasMode(connected({ daemonPending: true, terminalCount: 0 })),
+      mode(connected({ daemonPending: true, terminalCount: 0 }), true),
+    ).toEqual({ kind: "down", down: { state: "dead" } });
+    // The SAME facts before the deadline still hold the neutral connecting surface.
+    expect(
+      mode(connected({ daemonPending: true, terminalCount: 0 }), false),
     ).toEqual({ kind: "connecting" });
   });
 
-  it("a still-pending daemon status resolves to down/dead once past the connect timeout — never an eternal spinner", () => {
-    // The #1713 adopt-path sibling's canvas symptom: a local padi that never comes
-    // up at boot leaves `daemonPending` true FOREVER (no value ever published).
-    // Bounded by `pendingTimedOut`, the canvas resolves honestly to `down` (dead).
+  it("isLoading past the boot deadline escapes to boot-stalled(session) — the Hole B leg (migrated from the daemon-only ceiling)", () => {
+    // A connected host whose SESSION/list leg hung while the daemon delivered: past the
+    // deadline this is the honest boot-stalled(session) card, NOT down/dead (that is the
+    // daemon leg). Pre-#1763 this whole class had no escape at all.
     expect(
-      resolveCanvasMode(
-        connected({
-          daemonPending: true,
-          pendingTimedOut: true,
-          terminalCount: 0,
-        }),
-      ),
-    ).toEqual({ kind: "down", down: { state: "dead" } });
-    // The SAME facts before the timeout still hold the neutral connecting surface.
-    expect(
-      resolveCanvasMode(
-        connected({
-          daemonPending: true,
-          pendingTimedOut: false,
-          terminalCount: 0,
-        }),
-      ),
-    ).toEqual({ kind: "connecting" });
-  });
-
-  it("isLoading past the timeout also resolves to down/dead (the same bounded gate)", () => {
-    expect(
-      resolveCanvasMode(
-        connected({ isLoading: true, pendingTimedOut: true, terminalCount: 0 }),
-      ),
-    ).toEqual({ kind: "down", down: { state: "dead" } });
+      mode(connected({ isLoading: true, terminalCount: 0 }), true),
+    ).toEqual({ kind: "boot-stalled", leg: "session", phase: undefined });
   });
 
   it("a REMOTE binding coming up (connectPhase copying/building) resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
-    // srid's exact class: `copying`/`building` (nix-copy + build) legitimately outlasts
-    // the LOCAL connect watchdog, and the re-served daemon-status never yields until it
-    // CONNECTS — so `daemonPending` stays true the whole time. W6: the overlay routes on
-    // the ACTIVE host's OWN `connectPhase` (the SAME channel ConnectCanvas narrates off),
-    // so a provisioning phase resolves to `warming` regardless of the loading gate. Pre-W6
-    // this returned a mute `{ kind: "connecting" }` — indistinguishable from a hang.
+    // `copying`/`building` (nix-copy + build) legitimately outlasts the LOCAL connect ceiling
+    // and accrues against the generous remote-provisioning cell instead — so BEFORE its
+    // deadline it narrates warming, not an escape.
     expect(
-      resolveCanvasMode({
+      mode({
         ...liveness,
         entry: "warming",
         connectPhase: "copying",
         daemonPending: true,
-        pendingTimedOut: true,
         isLocalHost: false,
       }),
-    ).toEqual({
-      kind: "warming",
-      daemonState: undefined,
-    });
+    ).toEqual({ kind: "warming", daemonState: undefined });
   });
 
-  it("a LOCAL binding wedged past its connect ceiling still earns down/dead — the #1713 safety survives the connectPhase routing", () => {
-    // The overlay routes on `connectPhase`, but a LOCAL endpoint's own connect watchdog
-    // still earns the `pendingTimedOut` → down/dead verdict rather than a forever-
-    // narrating overlay (a remote's ssh + nix copy + build legitimately outlasts it).
+  it("a LOCAL binding wedged past its ceiling still escapes to down/dead — the #1713 safety survives the connectPhase routing (:176-180 bindingUp path)", () => {
+    // The overlay routes on `connectPhase`, but a LOCAL binding's own connect watchdog still
+    // earns the down/dead verdict past the deadline (leg `daemon` + local) rather than a
+    // forever-narrating overlay.
     expect(
-      resolveCanvasMode({
-        ...liveness,
-        entry: "warming",
-        connectPhase: "connecting",
-        daemonPending: true,
-        pendingTimedOut: true,
-        isLocalHost: true,
-      }),
+      mode(
+        {
+          ...liveness,
+          entry: "warming",
+          connectPhase: "connecting",
+          daemonPending: true,
+          isLocalHost: true,
+        },
+        true,
+      ),
     ).toEqual({ kind: "down", down: { state: "dead" } });
   });
 
   it("A' — a CONNECTED entry can NEVER show the connect overlay (the green-chip / Building-forever trap is unspellable)", () => {
-    // THE LIVE BUG (srid, deployed 5ec5347): EntryStatus `connected` (green chip) while the
-    // lagging/stale connection cell still read `building` routed the canvas to ConnectCanvas
-    // FOREVER — the connected arm's workspace path was structurally unreachable. A' removes
-    // `connectPhase` from the connected arm entirely, so a connected host with terminals
-    // resolves straight to the workspace; the contradiction is a TYPE error, not a runtime
-    // tie (pinned in `canvasModeResolver.test-d.ts`). The connect overlay routes off the cell
-    // ONLY while the entry itself is pre-connected (the warming/not-a-member arms below).
-    expect(resolveCanvasMode(connected({ terminalCount: 5 }))).toEqual({
+    // A' removes `connectPhase` from the connected arm entirely, so a connected host with
+    // terminals resolves straight to the workspace; the contradiction is a TYPE error
+    // (pinned in `canvasModeResolver.test-d.ts`).
+    expect(mode(connected({ terminalCount: 5 }))).toEqual({
       kind: "workspace",
     });
     // A connected-but-idle host still reaches `empty`, never a trapped overlay.
-    expect(resolveCanvasMode(connected({ terminalCount: 0 }))).toEqual({
-      kind: "empty",
-    });
-    // The cell flipped to `connected` but EntryStatus still says `warming` → the overlay does
-    // NOT show; the neutral warming surface does (its copy derived at render). `connectPhase`
-    // is typed `ConnectPhase`, so a `connected` cell phase is UNCONSTRUCTIBLE on this arm —
-    // `useCanvasMode` narrows it to `undefined` at the facts boundary, which is what the
-    // resolver sees (no overlay). The mode carries no string — just `daemonState: undefined`.
+    expect(mode(connected({ terminalCount: 0 }))).toEqual({ kind: "empty" });
+    // The cell flipped to `connected` but EntryStatus still says `warming` → the neutral
+    // warming surface shows (its copy derived at render), no overlay.
     expect(
-      resolveCanvasMode({
-        ...liveness,
-        entry: "warming",
-        connectPhase: undefined,
-      }),
+      mode({ ...liveness, entry: "warming", connectPhase: undefined }),
     ).toEqual({
       kind: "warming",
       daemonState: undefined,
     });
   });
 
-  it("a FAILED entry reaches host-failed even with daemonPending + past the ceiling — the loading gate never intercepts a failed host (step-5 fix)", () => {
-    // A failed host BINDING has no daemon-status coming (`daemonPending` stays true
-    // forever), so the loading gate must NOT strand it at connecting/down — it falls
-    // straight through to the cause-typed host-down card. Regression: a real
-    // cross-supervisor host rendered "Connecting…" / the kaval-dead card instead of
-    // "Another kolu owns this host" because the gate's `entry === "failed"` ceiling
-    // intercepted it before the `failed` arm (caught driving a live sincereintent).
+  it("a FAILED entry reaches host-failed even past the boot deadline — the loading gate never intercepts a failed host (step-5 fix)", () => {
+    // A failed host BINDING has no daemon-status coming, so the deadline must NOT strand it —
+    // it falls straight through to the cause-typed host-down card (and `failed` is `clear`,
+    // so `exceeded` can't escape it).
     expect(
-      resolveCanvasMode({
-        ...liveness,
-        entry: "failed",
-        cause: "cross-supervisor",
-        reason: "another kolu owns this host",
-        daemonPending: true,
-        pendingTimedOut: true,
-        isLocalHost: false,
-      }),
+      mode(
+        {
+          ...liveness,
+          entry: "failed",
+          cause: "cross-supervisor",
+          reason: "another kolu owns this host",
+          daemonPending: true,
+          isLocalHost: false,
+        },
+        true,
+      ),
     ).toEqual({
       kind: "host-failed",
       cause: "cross-supervisor",
       reason: "another kolu owns this host",
     });
-    // And a link-failed host binding likewise reaches its card, not the kaval-dead one.
     expect(
-      resolveCanvasMode({
-        ...liveness,
-        entry: "failed",
-        cause: "link-failed",
-        reason: "host unreachable",
-        daemonPending: true,
-        pendingTimedOut: true,
-        isLocalHost: false,
-      }),
+      mode(
+        {
+          ...liveness,
+          entry: "failed",
+          cause: "link-failed",
+          reason: "host unreachable",
+          daemonPending: true,
+          isLocalHost: false,
+        },
+        true,
+      ),
     ).toEqual({
       kind: "host-failed",
       cause: "link-failed",
@@ -218,11 +201,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
 describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
   it("a warming entry (host binding coming up) shows the warming surface with no kaval daemonState", () => {
     expect(
-      resolveCanvasMode({
-        ...liveness,
-        entry: "warming",
-        connectPhase: undefined,
-      }),
+      mode({ ...liveness, entry: "warming", connectPhase: undefined }),
     ).toEqual({
       kind: "warming",
       daemonState: undefined,
@@ -231,7 +210,7 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
 
   it("a failed entry resolves to host-failed carrying the typed cause + reason (never `down`, which is a dead KAVAL)", () => {
     expect(
-      resolveCanvasMode({
+      mode({
         ...liveness,
         entry: "failed",
         cause: "contract-skew-refused",
@@ -242,9 +221,8 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
       cause: "contract-skew-refused",
       reason: "remote padi contract skew",
     });
-    // cross-supervisor rides the SAME arm — it is a first-class cause, not `other`.
     expect(
-      resolveCanvasMode({
+      mode({
         ...liveness,
         entry: "failed",
         cause: "cross-supervisor",
@@ -255,11 +233,7 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
 
   it("a not-a-member entry (mid host-switch) holds the neutral connecting surface", () => {
     expect(
-      resolveCanvasMode({
-        ...liveness,
-        entry: "not-a-member",
-        connectPhase: undefined,
-      }),
+      mode({ ...liveness, entry: "not-a-member", connectPhase: undefined }),
     ).toEqual({
       kind: "connecting",
     });
@@ -269,12 +243,10 @@ describe("resolveCanvasMode entry-state arms (Skew-UX)", () => {
 describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
   it("down beats empty and carries its dead/degraded sub-state", () => {
     expect(
-      resolveCanvasMode(
-        connected({ down: { state: "dead" as const }, terminalCount: 0 }),
-      ),
+      mode(connected({ down: { state: "dead" as const }, terminalCount: 0 })),
     ).toEqual({ kind: "down", down: { state: "dead" } });
     expect(
-      resolveCanvasMode(
+      mode(
         connected({ down: { state: "degraded" as const }, terminalCount: 5 }),
       ),
     ).toEqual({ kind: "down", down: { state: "degraded" } });
@@ -282,90 +254,272 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
 
   it("down beats warming when both are set", () => {
     expect(
-      resolveCanvasMode(
-        connected({ down: { state: "degraded" as const }, warming: true }),
-      ),
+      mode(connected({ down: { state: "degraded" as const }, warming: true })),
     ).toEqual({ kind: "down", down: { state: "degraded" } });
   });
 
   it("warming beats empty and carries its daemonState payload (copy is derived at render)", () => {
     const daemonState: DaemonState = "restarting";
     expect(
-      resolveCanvasMode(
-        connected({
-          warming: true,
-          daemonState,
-          terminalCount: 0,
-        }),
-      ),
-    ).toEqual({
-      kind: "warming",
-      daemonState: "restarting",
-    });
+      mode(connected({ warming: true, daemonState, terminalCount: 0 })),
+    ).toEqual({ kind: "warming", daemonState: "restarting" });
   });
 
   it("warming preserves an undefined daemonState (pre-first-yield)", () => {
     expect(
-      resolveCanvasMode(connected({ warming: true, daemonState: undefined })),
+      mode(connected({ warming: true, daemonState: undefined })),
     ).toMatchObject({ kind: "warming", daemonState: undefined });
   });
 
   it("empty wins once up and idle with zero terminals", () => {
-    expect(resolveCanvasMode(connected({ terminalCount: 0 }))).toEqual({
-      kind: "empty",
-    });
+    expect(mode(connected({ terminalCount: 0 }))).toEqual({ kind: "empty" });
   });
 
   it("workspace is the ready default with terminals present", () => {
-    expect(resolveCanvasMode(connected({ terminalCount: 3 }))).toEqual({
+    expect(mode(connected({ terminalCount: 3 }))).toEqual({
       kind: "workspace",
     });
   });
 
   it("reload: records still awaited hold `connecting`, then workspace once they compose", () => {
-    // The restore-card-flash fix. On a browser reload the live terminals' records
-    // are in flight after the key list resolves — `terminalCount` is transiently 0
-    // while `recordsAwaited` is 7. `empty` here would flash the restore card; the
-    // census holds `connecting` above it instead.
-    expect(
-      resolveCanvasMode(connected({ terminalCount: 0, recordsAwaited: 7 })),
-    ).toEqual({ kind: "connecting" });
-    expect(
-      resolveCanvasMode(connected({ terminalCount: 7, recordsAwaited: 0 })),
-    ).toEqual({ kind: "workspace" });
+    expect(mode(connected({ terminalCount: 0, recordsAwaited: 7 }))).toEqual({
+      kind: "connecting",
+    });
+    expect(mode(connected({ terminalCount: 7, recordsAwaited: 0 }))).toEqual({
+      kind: "workspace",
+    });
   });
 
   it("reboot: records all settled (parked) with zero tiles resolves to `empty`/restore", () => {
-    // The case the card EXISTS for: a genuine reboot's records arrive PARKED, so
-    // they're fully settled (`recordsAwaited === 0`) yet contribute no tile
-    // (`terminalCount` 0). This falls THROUGH the reload arm to `empty`.
-    expect(
-      resolveCanvasMode(connected({ terminalCount: 0, recordsAwaited: 0 })),
-    ).toEqual({ kind: "empty" });
+    expect(mode(connected({ terminalCount: 0, recordsAwaited: 0 }))).toEqual({
+      kind: "empty",
+    });
   });
 
   it("floors `empty` on channel liveness — a dead channel never paints a stale 'no terminals'", () => {
-    // The #1568 SHAPE A class: "no terminals" is a claim a dead channel can't
-    // confirm, so over a not-live channel the canvas shows the neutral connecting
-    // surface (0 terminals) or the last-good workspace (terminals on screen) — never
-    // `empty` with its active Restore / new-terminal affordances.
+    expect(mode(connected({ channelLive: false, terminalCount: 0 }))).toEqual({
+      kind: "connecting",
+    });
+    expect(mode(connected({ channelLive: false, terminalCount: 3 }))).toEqual({
+      kind: "workspace",
+    });
+    expect(mode(connected({ channelLive: true, terminalCount: 0 }))).toEqual({
+      kind: "empty",
+    });
+  });
+});
+
+describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the leg map)", () => {
+  // Hole B — flipped RED (was `it.fails` pinning the no-escape hole).
+  it("Hole B — a CONNECTED host stuck on the session leg past the boot deadline escapes to boot-stalled(session)", () => {
     expect(
-      resolveCanvasMode(connected({ channelLive: false, terminalCount: 0 })),
-    ).toEqual({ kind: "connecting" });
+      mode(
+        connected({ isLoading: true, daemonPending: false, terminalCount: 0 }),
+        true,
+      ),
+    ).toEqual({ kind: "boot-stalled", leg: "session", phase: undefined });
+  });
+
+  // Hole A — flipped RED. Membership never grounded ⇒ not-a-member ⇒ escapes.
+  it("Hole A — a NOT-A-MEMBER active host past the boot deadline escapes to boot-stalled(membership)", () => {
     expect(
-      resolveCanvasMode(connected({ channelLive: false, terminalCount: 3 })),
-    ).toEqual({ kind: "workspace" });
-    // Sanity: the SAME facts over a LIVE channel still resolve to `empty`.
+      mode(
+        { ...liveness, entry: "not-a-member", connectPhase: undefined },
+        true,
+      ),
+    ).toEqual({ kind: "boot-stalled", leg: "membership", phase: undefined });
+  });
+
+  it("a hung REMOTE provisioning binding past its (generous) ceiling escapes to boot-stalled(provisioning) carrying the phase (C4 phase-render)", () => {
     expect(
-      resolveCanvasMode(connected({ channelLive: true, terminalCount: 0 })),
-    ).toEqual({ kind: "empty" });
+      mode(
+        {
+          ...liveness,
+          entry: "warming",
+          connectPhase: "building",
+          isLocalHost: false,
+        },
+        true,
+      ),
+    ).toEqual({ kind: "boot-stalled", leg: "provisioning", phase: "building" });
+  });
+
+  it("a hung REMOTE connected daemon leg escapes to boot-stalled(daemon) — only the LOCAL daemon leg takes down/dead", () => {
+    expect(
+      mode(
+        connected({
+          daemonPending: true,
+          isLocalHost: false,
+          terminalCount: 0,
+        }),
+        true,
+      ),
+    ).toEqual({ kind: "boot-stalled", leg: "daemon", phase: undefined });
+  });
+
+  it("C3(a) — a not-a-member entry that reaches the bindingUp warming return is still leg `membership`", () => {
+    // A not-a-member with a defined connectPhase reaches the `bindingUp` warming return in the
+    // shared block; its leg must stay `membership`, not `daemon`.
+    expect(
+      tag({ ...liveness, entry: "not-a-member", connectPhase: "connecting" }),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "membership",
+      ceiling: "local",
+      phase: "connecting",
+    });
+    expect(
+      mode(
+        { ...liveness, entry: "not-a-member", connectPhase: "connecting" },
+        true,
+      ),
+    ).toEqual({ kind: "boot-stalled", leg: "membership", phase: "connecting" });
+  });
+
+  it("C3(c) — a HUNG local kaval-restart drain (entry warming, local) escapes to down/dead", () => {
+    // A local daemon.restart drain drops the entry out of connected → it rides the warming arm
+    // (leg `daemon`, ceiling local). A hung one escapes to the byte-identical down/dead card.
+    expect(
+      mode({ ...liveness, entry: "warming", connectPhase: undefined }, true),
+    ).toEqual({ kind: "down", down: { state: "dead" } });
+  });
+});
+
+describe("resolveCanvasMode — #1763 R2 exclusions (retain overlays never escape)", () => {
+  it("a kaval-restart warming (connected arm, daemonState defined) is `retain` and does NOT escape past the deadline", () => {
+    const restart = connected({
+      warming: true,
+      daemonState: "restarting",
+      terminalCount: 0,
+    });
+    expect(tag(restart)).toEqual({ accrual: "retain" });
+    expect(mode(restart, true)).toEqual({
+      kind: "warming",
+      daemonState: "restarting",
+    });
+  });
+
+  it("a records-awaited connecting is `retain` and does NOT escape past the deadline", () => {
+    const records = connected({ terminalCount: 0, recordsAwaited: 7 });
+    expect(tag(records)).toEqual({ accrual: "retain" });
+    expect(mode(records, true)).toEqual({ kind: "connecting" });
+  });
+
+  it("a !channelLive connecting (mid-session transport drop — the transport overlay owns it) is `retain` and does NOT escape", () => {
+    const dropped = connected({ channelLive: false, terminalCount: 0 });
+    expect(tag(dropped)).toEqual({ accrual: "retain" });
+    expect(mode(dropped, true)).toEqual({ kind: "connecting" });
+  });
+
+  it("a settled workspace / empty / host-failed is `clear`", () => {
+    expect(tag(connected({ terminalCount: 3 }))).toEqual({ accrual: "clear" });
+    expect(tag(connected({ terminalCount: 0 }))).toEqual({ accrual: "clear" });
+    expect(
+      tag({
+        ...liveness,
+        entry: "failed",
+        cause: "link-failed",
+        reason: "x",
+      }),
+    ).toEqual({ accrual: "clear" });
+  });
+});
+
+describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)", () => {
+  // Every FINITE cell of the ceiling table, plus the leg each boot overlay declares.
+  it("local boot overlays accrue against the `local` cell", () => {
+    expect(
+      tag({ ...liveness, entry: "not-a-member", connectPhase: undefined }),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "membership",
+      ceiling: "local",
+    });
+    expect(
+      tag({ ...liveness, entry: "warming", connectPhase: undefined }),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "daemon",
+      ceiling: "local",
+    });
+    expect(tag(connected({ isLoading: true, terminalCount: 0 }))).toEqual({
+      accrual: "accrue",
+      leg: "session",
+      ceiling: "local",
+    });
+    expect(
+      tag(
+        connected({ daemonPending: true, isLoading: false, terminalCount: 0 }),
+      ),
+    ).toEqual({ accrual: "accrue", leg: "daemon", ceiling: "local" });
+  });
+
+  it("a remote provisioning binding (copying/building) accrues against `remote-provisioning` with leg `provisioning`", () => {
+    expect(
+      tag({
+        ...liveness,
+        entry: "warming",
+        connectPhase: "copying",
+        isLocalHost: false,
+      }),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "provisioning",
+      ceiling: "remote-provisioning",
+      phase: "copying",
+    });
+    expect(
+      tag({
+        ...liveness,
+        entry: "warming",
+        connectPhase: "building",
+        isLocalHost: false,
+      }),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "provisioning",
+      ceiling: "remote-provisioning",
+      phase: "building",
+    });
+  });
+
+  it("a remote handshake (probing/connecting/undefined) and a remote connected/not-a-member accrue against `remote-handshake`", () => {
+    for (const connectPhase of ["probing", "connecting", undefined] as const) {
+      expect(
+        tag({
+          ...liveness,
+          entry: "warming",
+          connectPhase,
+          isLocalHost: false,
+        }),
+      ).toMatchObject({ accrual: "accrue", ceiling: "remote-handshake" });
+    }
+    expect(
+      tag({
+        ...liveness,
+        entry: "not-a-member",
+        connectPhase: undefined,
+        isLocalHost: false,
+      }),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "membership",
+      ceiling: "remote-handshake",
+    });
+    expect(
+      tag(connected({ isLoading: true, isLocalHost: false, terminalCount: 0 })),
+    ).toEqual({
+      accrual: "accrue",
+      leg: "session",
+      ceiling: "remote-handshake",
+    });
   });
 });
 
 describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", () => {
   it("flows to the down mode WITH its typed version payload — the skew card renders both versions", () => {
     expect(
-      resolveCanvasMode(
+      mode(
         connected({
           down: {
             state: "incompatible" as const,
@@ -387,7 +541,7 @@ describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", ()
 
   it("beats warming and empty exactly like dead/degraded — a terminal verdict, not a transient", () => {
     expect(
-      resolveCanvasMode(
+      mode(
         connected({
           down: {
             state: "incompatible" as const,

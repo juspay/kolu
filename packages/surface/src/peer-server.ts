@@ -121,8 +121,11 @@ export interface StdioTransport {
  *  (`EPIPE`/`ERR_STREAM_DESTROYED` — the peer's read side vanished
  *  mid-push; the funnel below classifies it with the codec's
  *  `isBenignWriteError`). `"error"` is a genuinely abnormal death — a read
- *  error, a malformed-frame decode failure, or a non-benign write failure
- *  — with the cause in `error`. This classification applies on BOTH arms
+ *  error, a synchronous inbound frame-handler failure (e.g. a throwing
+ *  `onFirstRequest`; a malformed frame is NOT one — base64 decoding is lenient,
+ *  and an async `peer.message` parse failure is caught, logged, and skipped),
+ *  or a non-benign write failure — with the cause in `error`. This
+ *  classification applies on BOTH arms
  *  (default and explicit transport); the arms differ only in who owns the
  *  process lifetime afterwards.
  *
@@ -161,7 +164,14 @@ export interface ServeOverStdioOptions<T extends Context> {
    *  *received and dispatched* (i.e. the first frame was successfully
    *  decoded — not necessarily after the handler returned). Useful for a
    *  client wrapper that wants to flip "connecting" → "connected" the
-   *  moment the link demonstrably works in both directions. */
+   *  moment the link demonstrably works in both directions.
+   *
+   *  It runs inside the codec's read loop, so a synchronous THROW from it is a
+   *  fatal read-loop fault (see `readFramedLines`, #1859): the codec destroys
+   *  the transport and this serve settles `{ reason: "error" }`. Keep it total.
+   *  It must also be SYNCHRONOUS: an `async`/thenable-returning hook is rejected
+   *  at the call site, because its rejection would otherwise escape the loop as
+   *  an unhandled rejection rather than settling `{ reason: "error" }`. */
   onFirstRequest?: () => void;
 }
 
@@ -244,7 +254,22 @@ export function serveOverStdio<T extends Context>(
   const settled = readFramedLines(transport.read, (frame) => {
     if (!firstRequestSeen) {
       firstRequestSeen = true;
-      opts.onFirstRequest?.();
+      // `onFirstRequest` is declared `() => void` and documented synchronous,
+      // but TS's void-return compatibility lets an `async () => {…}` satisfy
+      // that type. An async hook's rejection would escape THIS synchronous read
+      // loop entirely — an unhandled rejection, the crash footgun this module
+      // eliminates on every other path — so a thenable return is thrown LOUDLY
+      // here, routing it through the same classified reject arm a sync throw
+      // takes (→ `{ reason: "error" }`) instead of silently escaping.
+      const firstRequestResult: unknown = opts.onFirstRequest?.();
+      if (
+        firstRequestResult != null &&
+        typeof (firstRequestResult as { then?: unknown }).then === "function"
+      ) {
+        throw new Error(
+          "onFirstRequest must be synchronous: it returned a thenable. An async onFirstRequest's rejection would escape the serve loop rather than settling { reason: 'error' }.",
+        );
+      }
     }
     // Mirror the client-side handling in `links/stdio.ts` — a malformed
     // frame (e.g. agent stdout corruption per lesson #4, or a flap on

@@ -60,13 +60,8 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   };
 }
 
-function makeInfo(
-  id: string,
-  overrides: Partial<ActiveTerminal> = {},
-): TerminalDisplayInfo {
-  const meta = makeMeta(overrides);
+function makeInfo(id: string, meta: ActiveTerminal): TerminalDisplayInfo {
   return {
-    meta,
     subCount: 0,
     repoColor: "oklch(0.75 0.14 20)",
     branchColor: "oklch(0.75 0.14 140)",
@@ -84,9 +79,11 @@ function source(
   overrides: Partial<ActiveTerminal> = {},
   layout?: TileLayout,
 ): DockSourceEntry {
+  const meta = makeMeta(overrides);
   return {
     id,
-    info: makeInfo(id, overrides),
+    info: makeInfo(id, meta),
+    meta,
     layout,
   };
 }
@@ -292,13 +289,7 @@ describe("buildDockModel", () => {
     // them back into the Awaiting bucket here.
     const seeded = entries.map((entry) =>
       entry.id === "t1" || entry.id === "t3"
-        ? {
-            ...entry,
-            info: {
-              ...entry.info,
-              meta: { ...entry.info.meta, lastActivityAt: 1 },
-            },
-          }
+        ? { ...entry, meta: { ...entry.meta, lastActivityAt: 1 } }
         : entry,
     );
     const m = modelFor(seeded, {
@@ -314,10 +305,10 @@ describe("buildDockModel", () => {
     expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
     expect(m.entries.find((e) => e.id === "t3")?.bucket).toBe("idle");
     // The agent metadata survives the bucket move — the render layer
-    // (`DockRow` / `DockListRow`) reads `info.meta.agent` to paint the
+    // (`DockRow` / `DockListRow`) reads the live `meta.agent` to paint the
     // agent state pip and subline on parked rows.
     expect(
-      activeArm(m.entries.find((e) => e.id === "t1")?.info.meta)?.agent?.state,
+      activeArm(m.entries.find((e) => e.id === "t1")?.meta)?.agent?.state,
     ).toBe("waiting");
   });
 

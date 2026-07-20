@@ -173,11 +173,12 @@ export function useActiveReconcile(deps: {
     parentId: TerminalId | null,
     topLevelBefore: TerminalId[],
   ) => void;
-  /** Whether the daemon is genuinely CONNECTED — i.e. the client is the lifecycle
-   *  authority. When it is NOT (a supervised recycle/restart/degraded), departures
-   *  are the server's doing (the drain empties the list) and are undone by restore,
-   *  so the reconcile SUPPRESSES its authoritative promote-on-departure writes. */
-  isDaemonConnected: () => boolean;
+  /** Whether the terminal list is a COMPLETE, authoritative census — i.e. the
+   *  client is the lifecycle authority. When it is NOT (a supervised
+   *  recycle/restart/degraded), departures are the server's doing (the drain empties
+   *  the list) and are undone by restore, so the reconcile SUPPRESSES its
+   *  authoritative promote-on-departure writes. */
+  listIsAuthoritative: () => boolean;
 }) {
   // A live snapshot of every listed terminal's parentId (ALL ids — top-level with
   // a `null` parent too, for byte-identical switch-target order), in key order — so
@@ -208,20 +209,20 @@ export function useActiveReconcile(deps: {
       const departed: TerminalId[] = [];
       for (const id of prev.keys()) if (!curr.has(id)) departed.push(id);
       if (departed.length === 0) return; // a parentId change with no departure
-      // SUPPRESS the eviction while the daemon is NOT connected (a supervised
-      // recycle/restart/degraded). Then a departure is the server's own doing — a
-      // `recycleKaval` holds `restarting` (published BEFORE the drain empties the
-      // list) and restore undoes it — and the client is not the lifecycle
-      // authority: promoting the split's subs here fires `chrome.setParent(sub,
-      // null)` against a daemon that no longer has them (the "Failed to set parent"
-      // toast), and a write that lands after park silently un-parents the parked
-      // sub so the split restores orphaned. Sampled, not tracked: `on` runs this
-      // callback untracked, so we read the current state without re-arming the
-      // effect on a connectivity flip — and `prev` still advances to `curr`, so a
-      // departure skipped here is never re-processed once reconnected. A real
-      // user-close only ever happens while connected, where the cleanup runs as
-      // before.
-      if (!deps.isDaemonConnected()) return;
+      // SUPPRESS the eviction while the list is NOT an authoritative census (a
+      // supervised recycle/restart/degraded). Then a departure is the server's own
+      // doing — a `recycleKaval` holds `restarting` (published BEFORE the drain
+      // empties the list) and restore undoes it — and the client is not the
+      // lifecycle authority: promoting the split's subs here fires
+      // `chrome.setParent(sub, null)` against a daemon that no longer has them (the
+      // "Failed to set parent" toast), and a write that lands after park silently
+      // un-parents the parked sub so the split restores orphaned. Sampled, not
+      // tracked: `on` runs this callback untracked, so we read the current state
+      // without re-arming the effect on an authority flip — and `prev` still
+      // advances to `curr`, so a departure skipped here is never re-processed once
+      // the list is authoritative again. A real user-close only ever happens while
+      // the list is a complete census, where the cleanup runs as before.
+      if (!deps.listIsAuthoritative()) return;
       // The pre-removal top-level order (still contains the departed ids), for
       // byte-identical switch-target selection.
       const topLevelBefore: TerminalId[] = [];

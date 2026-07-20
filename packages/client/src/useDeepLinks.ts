@@ -14,11 +14,15 @@
  *  gone target), not a fact it must mirror.
  *
  *  The cold-boot membership race (step 4b): a bookmark fires before the target
- *  host's terminal list has loaded, so a "gone" verdict at that instant would
+ *  host's terminal list has converged, so a "gone" verdict at that instant would
  *  toast every bookmark spuriously. We defer the verdict until the active host's
- *  terminal membership SETTLES (`listSub.pending()` false), bounded by a timeout —
- *  the same settle-then-verdict shape `CodeTab`'s `pendingOpen` effect uses for
- *  the file list, applied here to terminal membership. */
+ *  terminal membership both SETTLES (`listSub.pending()` false) and is a COMPLETE
+ *  census (`listIsAuthoritative()` — the route host's kaval reconciled, not merely
+ *  a first frame; #1900), bounded by a timeout — the same settle-then-verdict shape
+ *  `CodeTab`'s `pendingOpen` effect uses for the file list, applied here to
+ *  terminal membership. A RELOAD does not re-run this at all: the boot parse honors
+ *  the consumed-command stamp (like DL3's traversal gate), so session restore —
+ *  not a boot re-enact — restores the reached view across refreshes. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
@@ -35,6 +39,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { type DeepLink, type ParsedDeepLink, parseDeepLink } from "./deepLink";
 import { setDeepLinkFocusIntent } from "./deepLinkFocusIntent";
+import { listIsAuthoritative } from "./kaval/useDaemonStatus";
 import { openInCodeTab } from "./right-panel/openInCodeTab";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { openSettings } from "./settings/useSettingsOpen";
@@ -194,6 +199,23 @@ export function useDeepLinks(): void {
     });
   }
 
+  /** A terminal route's DISARMING resolution — a fault verdict (list error,
+   *  terminal gone, backstop timeout) or the user switching host away: disarm the
+   *  command + intent AND stamp THIS history entry consumed, so a later reload
+   *  does not re-enact a command that already resolved. This is the terminal-route
+   *  arm of the consumed-command stamp (#1900 R1): an IMMEDIATE verdict
+   *  (settings/host/invalid/none) stamps at parse in `navigate`, and an ENACTED
+   *  route stamps in the settle effect (keeping its focus intent) — a terminal
+   *  route in flight stays UNSTAMPED so a mid-flight reload of a fresh link
+   *  re-routes instead of dying stamped-but-un-enacted. NOT used by `navigate`'s
+   *  leading supersession or the traversal gate: those don't resolve THIS entry's
+   *  freshly-armed command (supersession's entry is the new command's; a traversal
+   *  lands on an already-stamped entry), so they use the bare `disarmInFlightRoute`. */
+  function disarmResolved(): void {
+    disarmInFlightRoute();
+    stampEntryRouted();
+  }
+
   /** Route a parsed link. Host/settings act immediately; a terminal target
    *  defers. `none` is silent (no route present); `invalid` toasts + stays home
    *  (never silently ignores a new link shape).
@@ -212,6 +234,13 @@ export function useDeepLinks(): void {
     // platforms). `untrack` severs that class at the one funnel all four
     // delivery paths share; the unit pin holds the spelling.
     untrack(() => {
+      // A terminal route DEFERS its consumed-command stamp to when it RESOLVES
+      // (enact / a disarming verdict); an IMMEDIATE verdict resolves synchronously
+      // here and stamps now. Stamping a terminal route at PARSE would kill a
+      // mid-flight reload of a FRESH link — the entry would carry the stamp with
+      // the command never enacted, so the boot gate skips it forever (re-pressing
+      // Enter in the address bar is a reload too). #1900 R1.
+      const deferStamp = "terminalId" in link;
       batch(() => {
         disarmInFlightRoute();
         match(link)
@@ -234,16 +263,17 @@ export function useDeepLinks(): void {
           )
           .exhaustive();
       });
-      // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's
-      // command handled, so a later back/forward traversal RESTORING it does
-      // not re-route (the `hashchange` gate below) — mouse-back must revert
-      // the URL silently, never teleport the view to an old link (DL3).
-      // Uniform for every verdict incl. `invalid` (traversing onto a bad-link
-      // entry must not re-toast) and `none` (harmless). A same-URL
-      // `replaceState` — the hash stays in the bar (durability), no entry is
-      // added, and a RELOAD still re-routes because the boot parse never
-      // reads this gate.
-      stampEntryRouted();
+      // COMMANDS ARE CONSUMED ONCE PER HISTORY ENTRY: mark this entry's command
+      // handled, so a later back/forward traversal RESTORING it does not re-route
+      // (the `hashchange` gate below) AND a RELOAD does not re-enact it (the boot
+      // gate) — the URL is a command channel, not a state mirror; mouse-back
+      // reverts the URL silently and a refresh lets session restore own the view
+      // (DL3 + #1900 R1). Uniform for every IMMEDIATE verdict incl. `invalid`
+      // (traversing/reloading a bad-link entry must not re-toast) and `none`
+      // (harmless). A terminal route stamps at RESOLUTION instead (`deferStamp`),
+      // so a mid-flight reload of a fresh link re-routes. A same-URL `replaceState`:
+      // the hash stays in the bar (durability), no entry is added.
+      if (!deferStamp) stampEntryRouted();
     });
   }
 
@@ -302,7 +332,12 @@ export function useDeepLinks(): void {
     // named spelling, so neither the enact, the backstop toast, nor a later
     // hydration can act on a route the user walked away from.
     if (encodeHostKey(activeHost()) !== route.host) {
-      disarmInFlightRoute();
+      // The user switched host AWAY from the route's host (a manual host-chip
+      // switch — `routeToTerminal` batches host+pending, so the switch always
+      // landed). A SUPERSESSION: disarm the command + intent AND stamp the entry
+      // consumed, so a reload of the stale link doesn't re-enact it and yank the
+      // tab back to a host the user walked away from (#1900 R1).
+      disarmResolved();
       return;
     }
     if (store.listSub.pending()) return; // membership not settled — wait
@@ -311,9 +346,9 @@ export function useDeepLinks(): void {
       // The list stream faulted — `pending()` is false but the value is stale
       // or absent, so we can't honestly say "gone". Fail the link loudly rather
       // than invent a gone-verdict from a broken subscription — and surface the
-      // real error, not a generic message. A FAULT VERDICT disarms the pair:
-      // a command declared failed must not steer a later hydration.
-      disarmInFlightRoute();
+      // real error, not a generic message. A FAULT VERDICT disarms the pair (and
+      // stamps): a command declared failed must not steer a later hydration.
+      disarmResolved();
       toast.error(
         `Couldn't load this host's terminals to resolve the link: ${listError.message}`,
       );
@@ -322,7 +357,16 @@ export function useDeepLinks(): void {
     const id = route.terminalId;
     const inList = (store.listSub() ?? []).some((t) => t.id === id);
     if (!inList) {
-      disarmInFlightRoute(); // fault verdict — disarm command + intent together
+      // A settled snapshot lacking the id is "gone" ONLY once the list is a
+      // COMPLETE census. `listIsAuthoritative()` is that fact (the route host's
+      // kaval reconciled — not merely a first frame). Until it holds, the id is
+      // merely NOT-YET-reconciled — a genuinely-fresh link resolved inside the
+      // boot [connect, inventory-reconciled] window (the class the boot gate still
+      // lets route) — so wait; the 8s backstop bounds it. This subscribes to the
+      // census fact ONLY on the absent path (Solid control-flow = subscription),
+      // never while present or pending. #1900 R2.
+      if (!listIsAuthoritative()) return;
+      disarmResolved(); // fault verdict — disarm + intent + stamp together
       // Name what the link pointed at (the host) — the host-gone path already
       // names its host via wire.ts's reconcile toast, so the two agree.
       toast.error(
@@ -337,10 +381,16 @@ export function useDeepLinks(): void {
     // "not a git repository"; the effect re-runs when the git fact lands
     // (getMetadata is reactive), bounded by the 8s backstop.
     if (codeRouteAwaitingRepo(route, resolved.anchorMeta)) return;
-    // Bare on purpose — the ONLY non-disarming clear: an ENACTED route's
-    // intent survives so cold-boot hydration keeps the reached view.
+    // The ONLY non-disarming clear: an ENACTED route's intent survives so
+    // cold-boot hydration keeps the reached view. Clear `pending` FIRST (so a
+    // throwing enact can't leave the effect armed into a retry loop), then enact,
+    // then stamp the entry consumed — but ONLY after enact RETURNS. If a view seam
+    // in enact throws, the entry is left UNSTAMPED and retryable on reload, never
+    // durably stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
+    // `disarmResolved` here — that would clear the surviving intent.
     setPending(null);
     enact(route, resolved.meta, resolved.anchorMeta);
+    stampEntryRouted();
   });
 
   // Bounded backstop: if the wait never resolves, give up loudly rather than
@@ -358,13 +408,21 @@ export function useDeepLinks(): void {
     if (!route) return;
     const timer = setTimeout(() => {
       if (pending() !== route) return;
-      disarmInFlightRoute(); // fault verdict — disarm command + intent together
+      disarmResolved(); // fault verdict — disarm + intent + stamp together
       // Same anchor + repo-readiness facts the settle gate reads, so the
       // message can't drift from the gate's own verdict.
       const resolved = resolveRoute(route);
       if (resolved && codeRouteAwaitingRepo(route, resolved.anchorMeta)) {
         toast.error(
           "Couldn't open that file — that terminal doesn't appear to be in a git repository.",
+        );
+      } else if (!listIsAuthoritative()) {
+        // The wait expired with the list still non-authoritative: the host's
+        // kaval never came up (or is wedged), so the membership never converged.
+        // Name THAT — the host WAS reached, its daemon isn't running — rather than
+        // a false "couldn't reach the host", mirroring the git hedge above (#1900 R4).
+        toast.error(
+          `Couldn't open that link — that host's daemon isn't running.`,
         );
       } else {
         toast.error("Couldn't reach the host for that link in time.");
@@ -382,9 +440,15 @@ export function useDeepLinks(): void {
    *  fires no `hashchange`, so route explicitly — always, which also keeps a
    *  repeated same-hash request re-routing. */
   function navigateFromExternal(hash: string): void {
-    if (hash && hash !== window.location.hash) {
-      history.replaceState(null, "", hash);
-    }
+    // An external request is a FRESH command (a preview-bridge re-click, a PWA
+    // launch) — even for the SAME hash already in the bar (`equals: false`
+    // re-route). Reset THIS entry's state before routing so the fresh terminal
+    // command is UNSTAMPED until it resolves: a same-hash re-request must not
+    // inherit the prior route's `koluRouted` stamp, or a mid-flight reload's boot
+    // gate would skip it (#1900 R1). Unconditional for any non-empty hash (not
+    // just a changed one) — `replaceState` keeps the hash durable, pushes no
+    // history entry, and fires no `hashchange`, so we route explicitly below.
+    if (hash) history.replaceState(null, "", hash);
     navigate(parseDeepLink(hash));
   }
 
@@ -429,9 +493,17 @@ export function useDeepLinks(): void {
       }
       navigateFromExternal(hash);
     });
-    // (a) boot parse — a bookmark opened cold (skipped if the launch consumer
-    // already handled this load's initial launch).
-    if (!launchHandled) navigate(parseDeepLink(window.location.hash));
+    // (a) boot parse — a bookmark opened cold. Skipped when the launch consumer
+    // already handled this load's launch, AND when THIS history entry's deep-link
+    // command was already consumed: the `koluRouted` stamp SURVIVES a reload in
+    // `history.state`, so a refresh restores a consumed entry — re-enacting it
+    // would `setActiveHost` the tab to the stale link's host (clobbering the
+    // persisted active host, any backend) and toast a false "gone", the reported
+    // #1900 bug. The boot arm now honors the SAME consumed-command stamp DL3's
+    // traversal gate reads; session restore owns view restoration across reloads.
+    // A FRESH bookmark / notification (no stamp) still routes. #1900 R1.
+    if (!launchHandled && !entryAlreadyRouted())
+      navigate(parseDeepLink(window.location.hash));
   });
 
   // (b) live in-app navigation — a `#/…` link clicked while kolu is open. The

@@ -12,12 +12,12 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
@@ -28,10 +28,19 @@ import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
-import type { TerminalDisplayInfo } from "./terminalDisplay";
+import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
+  /** The LIVE per-terminal record — read straight from `getMetadata(id)`, the
+   *  fine-grained store proxy. Every live fact on the title bar (pr, agent,
+   *  foreground, intent, git) reads off this — crucially the fast-churning ones
+   *  (pr / agent / foreground) that the `displayInfos` snapshot could not keep
+   *  fresh (git / cwd DO invalidate that memo, so they were never stale there;
+   *  reading them live too just keeps one source of truth). So the header tracks
+   *  the same leaf the dock does and can never lag it. `info` carries only the
+   *  display decorations (colors + identity key). */
+  meta: TerminalMetadata | undefined;
   /** True when this terminal has unseen agent activity. Drives the
    *  leading state pip's attention escalation exactly as the dock row
    *  does, so the title and the dock can't disagree on what's loud.
@@ -41,10 +50,10 @@ const TerminalMeta: Component<{
    *  `intentEditor.openTerminal(id)`. */
   onOpenIntent: () => void;
 }> = (props) => {
-  const i = () => props.info;
+  const view = createMemo(() => pairDisplayRow(props.info, props.meta));
   return (
-    <Show when={i()} fallback={<TerminalMetaSkeleton />}>
-      {(info) => (
+    <Show when={view()} fallback={<TerminalMetaSkeleton />}>
+      {(v) => (
         <>
           {/* Name row — `name suffix [worktree-icon] [fg-title] [progress]`.
            *  Sub-count lives on the title-bar split toggle (one source
@@ -55,9 +64,9 @@ const TerminalMeta: Component<{
            *  separate agent row here. CWD is implicit (tooltip on the
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
-          <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            <NameSpan info={info()} />
-            <Show when={info().key.suffix}>
+          <div class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            <NameSpan info={v().info} meta={v().meta} />
+            <Show when={v().info.key.suffix}>
               {(suffix) => (
                 <span
                   data-testid="terminal-meta-suffix"
@@ -68,14 +77,14 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            <Show when={info().meta.git?.isWorktree}>
+            <Show when={v().meta.git?.isWorktree}>
               <WorktreeBadge />
             </Show>
             {/* Foreground process title — OSC 2 string when present.
              *  Replaces what used to be the cwd slot; cwd is now a
              *  tooltip on the repo name. `flex-1` so it fills until
              *  the progress bar (when shown) eats its right edge. */}
-            <Show when={activeArm(info().meta)?.foreground}>
+            <Show when={activeArm(v().meta)?.foreground}>
               {(fg) => (
                 <span
                   data-testid="process-name"
@@ -86,12 +95,12 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            <Show when={agentWorkflow(activeArm(info().meta)?.agent)}>
+            <Show when={agentWorkflow(activeArm(v().meta)?.agent)}>
               {(wf) => (
                 <AgentWorkflowBadge name={wf().name} agents={wf().agents} />
               )}
             </Show>
-            <Show when={activeArm(info().meta)?.agent?.taskProgress}>
+            <Show when={activeArm(v().meta)?.agent?.taskProgress}>
               {(tp) => (
                 <AgentTaskProgress
                   completed={tp().completed}
@@ -108,7 +117,7 @@ const TerminalMeta: Component<{
            *  Clicking always opens the intent editor — there is no
            *  separate glyph chip, so this slot is the canvas tile's
            *  sole intent affordance regardless of git state. */}
-          <div class="flex items-center gap-1.5 min-w-0 text-xs">
+          <div class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs">
             {/* Agent-state pip leading the branch/intent annotation —
              *  the same shape-distinct StatePip the dock row leads its
              *  annotation line with (spinning ring = working, dot =
@@ -126,7 +135,7 @@ const TerminalMeta: Component<{
              *  (exactly as its agent-kind indicator vanishes when the
              *  session ends), leaving the dock's idle/parked triage
              *  states — which fold in recency/staleness — dock-only. */}
-            <Show when={activeArm(info().meta)?.agent}>
+            <Show when={activeArm(v().meta)?.agent}>
               {(agent) => (
                 <StatePip
                   variant={pipVariant(paintBucket(agent()))}
@@ -136,17 +145,17 @@ const TerminalMeta: Component<{
                 />
               )}
             </Show>
-            <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
+            <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
               <button
                 type="button"
                 data-testid="terminal-meta-branch"
                 aria-label={
-                  info().meta.intent
+                  v().meta.intent
                     ? "Edit terminal intent"
                     : "Set terminal intent"
                 }
-                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                style={{ color: info().annotationColor }}
+                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate min-w-0 cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                style={{ color: v().info.annotationColor }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -156,13 +165,13 @@ const TerminalMeta: Component<{
               >
                 <IntentMarkdownInline
                   markdown={annotationLine(
-                    info().meta.intent,
-                    info().meta.git?.branch ?? "—",
+                    v().meta.intent,
+                    v().meta.git?.branch ?? "—",
                   )}
                 />
               </button>
             </Tip>
-            <Show when={activeArm(info().meta)}>
+            <Show when={activeArm(v().meta)}>
               {(active) => (
                 <>
                   <Show when={prValue(active().pr)}>
@@ -213,33 +222,37 @@ const TerminalMeta: Component<{
  *  pull-handle opens. */
 export const TerminalMetaCompact: Component<{
   info: TerminalDisplayInfo | undefined;
+  /** The LIVE per-terminal record — see `TerminalMeta`. Every fast fact
+   *  (pr, agent, intent, git) reads off this, never off a display-info
+   *  snapshot. */
+  meta: TerminalMetadata | undefined;
 }> = (props) => {
-  const i = () => props.info;
+  const view = createMemo(() => pairDisplayRow(props.info, props.meta));
   return (
-    <Show when={i()} fallback={<TerminalMetaSkeleton />}>
-      {(info) => (
+    <Show when={view()} fallback={<TerminalMetaSkeleton />}>
+      {(v) => (
         <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-          <NameSpan info={info()} />
-          <Show when={info().meta.git?.isWorktree}>
+          <NameSpan info={v().info} meta={v().meta} />
+          <Show when={v().meta.git?.isWorktree}>
             <WorktreeBadge />
           </Show>
-          <Show when={info().meta.intent ?? info().meta.git?.branch}>
+          <Show when={v().meta.intent ?? v().meta.git?.branch}>
             <span
               data-testid="terminal-meta-branch"
               class="text-xs truncate min-w-0"
-              style={{ color: info().annotationColor }}
+              style={{ color: v().info.annotationColor }}
             >
               <IntentMarkdownInline
                 markdown={annotationLine(
-                  info().meta.intent,
-                  info().meta.git?.branch ?? "",
+                  v().meta.intent,
+                  v().meta.git?.branch ?? "",
                 )}
               />
             </span>
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle
            *  the enclosing Drawer.Trigger. */}
-          <Show when={activeArm(info().meta)}>
+          <Show when={activeArm(v().meta)}>
             {(active) => (
               <>
                 <Show when={prValue(active().pr)}>
@@ -269,7 +282,7 @@ export const TerminalMetaCompact: Component<{
               </>
             )}
           </Show>
-          <Show when={activeArm(info().meta)?.agent?.taskProgress}>
+          <Show when={activeArm(v().meta)?.agent?.taskProgress}>
             {(tp) => (
               <AgentTaskProgress
                 completed={tp().completed}
@@ -283,12 +296,15 @@ export const TerminalMetaCompact: Component<{
   );
 };
 
-const NameSpan: Component<{ info: TerminalDisplayInfo }> = (props) => (
+const NameSpan: Component<{
+  info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
+}> = (props) => (
   <span
     data-testid="terminal-meta-name"
     class="truncate shrink-0 max-w-[20ch]"
     style={{ color: props.info.repoColor }}
-    title={props.info.meta.cwd}
+    title={props.meta.cwd}
   >
     {props.info.key.group}
   </span>

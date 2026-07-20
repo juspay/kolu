@@ -41,7 +41,10 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import {
+  pairDisplayRow,
+  type TerminalDisplayInfo,
+} from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
@@ -55,12 +58,9 @@ export function createDockRowData(
   id: TerminalId,
 ): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
   const store = useTerminalStore();
-  return createMemo(() => {
-    const info = store.getDisplayInfo(id);
-    const meta = store.getMetadata(id);
-    if (!info || !meta) return null;
-    return { info, meta };
-  });
+  return createMemo(() =>
+    pairDisplayRow(store.getDisplayInfo(id), store.getMetadata(id)),
+  );
 }
 
 /** Inline PR pip — leading glyph on row line 2. Caller controls
