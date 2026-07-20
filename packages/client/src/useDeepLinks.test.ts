@@ -164,7 +164,7 @@ describe("gone-verdict waits for an authoritative list (#1900 secondary)", () =>
       join(here, "terminal/useTerminals.ts"),
       "utf8",
     );
-    expect(terminalsSrc).toContain("isDaemonConnected: listIsAuthoritative");
+    expect(terminalsSrc).toContain("listIsAuthoritative,");
   });
 });
 

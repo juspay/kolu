@@ -125,7 +125,7 @@ export function useTerminals() {
     // list and restore undoes it, so a departure isn't a user close and the client
     // is not the lifecycle authority (see useActiveReconcile). The ONE named
     // census fact `useDeepLinks`'s gone-verdict also gates on (#1900).
-    isDaemonConnected: listIsAuthoritative,
+    listIsAuthoritative,
   });
 
   // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)
