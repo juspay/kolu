@@ -397,12 +397,11 @@ const RepoSection: Component<{
      *  reclaimed the old `pl-6` row indent). */}
     <div
       data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-y border-edge/30`}
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-b border-edge/30`}
     >
       <span
         data-testid="dock-section-name"
-        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-        style={{ color: "var(--repo-color)" }}
+        class="dock-cards-section-name font-mono text-[0.6rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
         title={props.group.name}
       >
         {props.group.name}
