@@ -159,7 +159,7 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
 
   it("a FAILED entry reaches host-failed even past the boot deadline — the loading gate never intercepts a failed host (step-5 fix)", () => {
     // A failed host BINDING has no daemon-status coming, so the deadline must NOT strand it —
-    // it falls straight through to the cause-typed host-down card (and `failed` is `boot:false`,
+    // it falls straight through to the cause-typed host-down card (and `failed` is `clear`,
     // so `exceeded` can't escape it).
     expect(
       mode(
@@ -363,7 +363,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
     expect(
       tag({ ...liveness, entry: "not-a-member", connectPhase: "connecting" }),
     ).toEqual({
-      boot: true,
+      accrual: "accrue",
       leg: "membership",
       ceiling: "local",
     });
@@ -384,35 +384,35 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
   });
 });
 
-describe("resolveCanvasMode — #1763 R2 exclusions (boot:false overlays never escape)", () => {
-  it("a kaval-restart warming (connected arm, daemonState defined) is boot:false and does NOT escape past the deadline", () => {
+describe("resolveCanvasMode — #1763 R2 exclusions (retain overlays never escape)", () => {
+  it("a kaval-restart warming (connected arm, daemonState defined) is `retain` and does NOT escape past the deadline", () => {
     const restart = connected({
       warming: true,
       daemonState: "restarting",
       terminalCount: 0,
     });
-    expect(tag(restart)).toEqual({ boot: false });
+    expect(tag(restart)).toEqual({ accrual: "retain" });
     expect(mode(restart, true)).toEqual({
       kind: "warming",
       daemonState: "restarting",
     });
   });
 
-  it("a records-awaited connecting is boot:false and does NOT escape past the deadline", () => {
+  it("a records-awaited connecting is `retain` and does NOT escape past the deadline", () => {
     const records = connected({ terminalCount: 0, recordsAwaited: 7 });
-    expect(tag(records)).toEqual({ boot: false });
+    expect(tag(records)).toEqual({ accrual: "retain" });
     expect(mode(records, true)).toEqual({ kind: "connecting" });
   });
 
-  it("a !channelLive connecting (mid-session transport drop — the transport overlay owns it) is boot:false and does NOT escape", () => {
+  it("a !channelLive connecting (mid-session transport drop — the transport overlay owns it) is `retain` and does NOT escape", () => {
     const dropped = connected({ channelLive: false, terminalCount: 0 });
-    expect(tag(dropped)).toEqual({ boot: false });
+    expect(tag(dropped)).toEqual({ accrual: "retain" });
     expect(mode(dropped, true)).toEqual({ kind: "connecting" });
   });
 
-  it("a settled workspace / empty / host-failed is boot:false", () => {
-    expect(tag(connected({ terminalCount: 3 }))).toEqual({ boot: false });
-    expect(tag(connected({ terminalCount: 0 }))).toEqual({ boot: false });
+  it("a settled workspace / empty / host-failed is `clear`", () => {
+    expect(tag(connected({ terminalCount: 3 }))).toEqual({ accrual: "clear" });
+    expect(tag(connected({ terminalCount: 0 }))).toEqual({ accrual: "clear" });
     expect(
       tag({
         ...liveness,
@@ -420,7 +420,7 @@ describe("resolveCanvasMode — #1763 R2 exclusions (boot:false overlays never e
         cause: "link-failed",
         reason: "x",
       }),
-    ).toEqual({ boot: false });
+    ).toEqual({ accrual: "clear" });
   });
 });
 
@@ -430,19 +430,19 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
     expect(
       tag({ ...liveness, entry: "not-a-member", connectPhase: undefined }),
     ).toEqual({
-      boot: true,
+      accrual: "accrue",
       leg: "membership",
       ceiling: "local",
     });
     expect(
       tag({ ...liveness, entry: "warming", connectPhase: undefined }),
     ).toEqual({
-      boot: true,
+      accrual: "accrue",
       leg: "daemon",
       ceiling: "local",
     });
     expect(tag(connected({ isLoading: true, terminalCount: 0 }))).toEqual({
-      boot: true,
+      accrual: "accrue",
       leg: "session",
       ceiling: "local",
     });
@@ -450,7 +450,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       tag(
         connected({ daemonPending: true, isLoading: false, terminalCount: 0 }),
       ),
-    ).toEqual({ boot: true, leg: "daemon", ceiling: "local" });
+    ).toEqual({ accrual: "accrue", leg: "daemon", ceiling: "local" });
   });
 
   it("a remote provisioning binding (copying/building) accrues against `remote-provisioning` with leg `provisioning`", () => {
@@ -462,7 +462,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
         isLocalHost: false,
       }),
     ).toEqual({
-      boot: true,
+      accrual: "accrue",
       leg: "provisioning",
       ceiling: "remote-provisioning",
     });
@@ -474,7 +474,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
         isLocalHost: false,
       }),
     ).toEqual({
-      boot: true,
+      accrual: "accrue",
       leg: "provisioning",
       ceiling: "remote-provisioning",
     });
@@ -489,7 +489,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
           connectPhase,
           isLocalHost: false,
         }),
-      ).toMatchObject({ boot: true, ceiling: "remote-handshake" });
+      ).toMatchObject({ accrual: "accrue", ceiling: "remote-handshake" });
     }
     expect(
       tag({
@@ -498,10 +498,18 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
         connectPhase: undefined,
         isLocalHost: false,
       }),
-    ).toEqual({ boot: true, leg: "membership", ceiling: "remote-handshake" });
+    ).toEqual({
+      accrual: "accrue",
+      leg: "membership",
+      ceiling: "remote-handshake",
+    });
     expect(
       tag(connected({ isLoading: true, isLocalHost: false, terminalCount: 0 })),
-    ).toEqual({ boot: true, leg: "session", ceiling: "remote-handshake" });
+    ).toEqual({
+      accrual: "accrue",
+      leg: "session",
+      ceiling: "remote-handshake",
+    });
   });
 });
 

@@ -21,7 +21,7 @@
  *  SESSION leg span the overlay forever with no way out. The module's ONE exported
  *  function is now {@link resolveCanvasMode}`(facts, { exceeded })`: it computes the raw
  *  precedence, then — if the boot deadline is exceeded AND the raw surface is a BOOT
- *  overlay (`tag.boot`, declared at each return site, never guessed from `kind`) —
+ *  overlay (`tag.accrual === "accrue"`, declared at each return site, never guessed from `kind`) —
  *  escapes to an honest surface that names the stalled leg. `resolvePrecedence` is
  *  INTERNAL, so a caller can never render a mode that skipped the deadline. The caller
  *  (`useCanvasMode` + `bootDeadline.ts`) owns the per-host episode anchor and the
@@ -63,14 +63,22 @@ export type StalledLeg =
   | "daemon"
   | "unknown";
 
-/** Whether a resolved surface is a BOOT overlay, declared AT the resolver's return
- *  site (never inferred from `kind`): a `connecting`/`warming` frame can be a boot
- *  overlay (escapable) or a non-boot overlay the deadline must ignore — a kaval-restart
- *  warming, a mid-session records-awaited/`!channelLive` connecting (the transport
- *  overlay owns that). A future overlay return must DECLARE `boot` or fail to compile. */
+/** The per-frame anchor VERDICT, declared AT the resolver's return site (never inferred
+ *  from `kind`) — a 3-way discriminant the boot-deadline anchor switches on directly:
+ *   - `accrue`: a BOOT overlay (escapable) that the ceiling clock must accumulate against,
+ *     carrying its stalled `leg` + `ceiling` class.
+ *   - `retain`: a NON-boot overlay the deadline must IGNORE (no-op) — a kaval-restart
+ *     warming, a mid-session records-awaited / `!channelLive` connecting (the transport
+ *     overlay owns those) — so an overlay-flavored flap can't dodge the ceiling by settling.
+ *   - `clear`: a SETTLED surface (workspace / empty / down / host-failed) that releases the
+ *     anchor.
+ *  The resolver KNOWS which of the three it is at every return, so the verdict travels ON
+ *  the tag rather than being re-derived downstream from `kind`. A future overlay return must
+ *  DECLARE its `accrual` or fail to compile. */
 export type BootTag =
-  | { boot: false }
-  | { boot: true; leg: StalledLeg; ceiling: CeilingClass };
+  | { accrual: "clear" }
+  | { accrual: "retain" }
+  | { accrual: "accrue"; leg: StalledLeg; ceiling: CeilingClass };
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state, the warming label, and the host-failure cause travel WITH
@@ -100,7 +108,7 @@ export type CanvasMode =
 
 /** The precedence result: the winning surface plus its {@link BootTag}. The caller
  *  reads `.mode` to render and `.tag` to drive the per-host boot-deadline anchor
- *  (accrue while `tag.boot`, clear on a settled kind — see `bootDeadline.ts`). */
+ *  (a pure switch on `tag.accrual` — accrue / retain / clear — see `bootDeadline.ts`). */
 export interface Precedence {
   mode: CanvasMode;
   tag: BootTag;
@@ -184,7 +192,10 @@ export type CanvasFacts =
       channelLive: boolean;
     });
 
-const NOT_BOOT: BootTag = { boot: false };
+/** A settled surface — releases the per-host anchor. */
+const CLEAR: BootTag = { accrual: "clear" };
+/** A non-boot overlay the deadline must ignore — holds the anchor without accruing. */
+const RETAIN: BootTag = { accrual: "retain" };
 
 /** The ceiling class a NOT-YET-CONNECTED boot overlay accrues against: local (30s), a
  *  remote actively provisioning (copying/building — the minutes-scale cell), or a remote
@@ -197,11 +208,11 @@ function bindingCeiling(facts: NotYetConnectedFacts): CeilingClass {
 }
 
 /** The internal precedence partition — total over {@link CanvasFacts}, exclusive,
- *  order load-bearing (see the module header). Each `connecting`/`warming` return
- *  DECLARES its {@link BootTag}: `boot:true` (with leg + ceiling) for a real boot
- *  overlay, `boot:false` for a surface the deadline must never escape (kaval-restart
- *  warming; a mid-session records-awaited / `!channelLive` connecting the transport
- *  overlay owns). No timeout logic lives here — the escape is applied by
+ *  order load-bearing (see the module header). Each return DECLARES its {@link BootTag}
+ *  accrual verdict: `accrue` (with leg + ceiling) for a real boot overlay, `retain` for a
+ *  surface the deadline must never escape (kaval-restart warming; a mid-session
+ *  records-awaited / `!channelLive` connecting the transport overlay owns), `clear` for a
+ *  settled surface. No timeout logic lives here — the escape is applied by
  *  {@link resolveCanvasMode} off this tag. */
 function resolvePrecedence(facts: CanvasFacts): Precedence {
   // Switch on the ACTIVE entry's connection state FIRST (A' — the resolver's spine). The
@@ -218,7 +229,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
       // kaval). Not a boot overlay: it is already a terminal, escape-bearing surface.
       return {
         mode: { kind: "host-failed", cause: facts.cause, reason: facts.reason },
-        tag: NOT_BOOT,
+        tag: CLEAR,
       };
 
     case "warming":
@@ -235,7 +246,11 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
               facts.connectPhase === "building"
             ? "provisioning"
             : "daemon";
-      const tag: BootTag = { boot: true, leg, ceiling: bindingCeiling(facts) };
+      const tag: BootTag = {
+        accrual: "accrue",
+        leg,
+        ceiling: bindingCeiling(facts),
+      };
       // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is
       // coming up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase —
       // the SAME frame `ConnectCanvas` reads to narrate it, so routing and content never
@@ -270,7 +285,7 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
         return {
           mode: { kind: "connecting" },
           tag: {
-            boot: true,
+            accrual: "accrue",
             leg,
             ceiling: facts.isLocalHost ? "local" : "remote-handshake",
           },
@@ -279,29 +294,31 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
       // `down` and `warming` arrive ALREADY floored on channel liveness at their source
       // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches these
       // arms over a dead channel. Neither is a boot overlay: a real kaval death is its own
-      // terminal card, and a kaval-restart `warming` (channel live) is NOT a wedged boot.
+      // terminal card (a SETTLED surface → CLEAR), and a kaval-restart `warming` (channel live)
+      // is NOT a wedged boot — a non-boot overlay the deadline must ignore → RETAIN.
       if (facts.down)
-        return { mode: { kind: "down", down: facts.down }, tag: NOT_BOOT };
+        return { mode: { kind: "down", down: facts.down }, tag: CLEAR };
       if (facts.warming)
         return {
           mode: { kind: "warming", daemonState: facts.daemonState },
-          tag: NOT_BOOT,
+          tag: RETAIN,
         };
-      // Terminals on screen → show them. Otherwise "no terminals" is unconfirmable over a
-      // dead channel: show `empty` only when the CHANNEL is LIVE, else neutral connecting.
+      // Terminals on screen → show them (a settled surface → CLEAR). Otherwise "no terminals"
+      // is unconfirmable over a dead channel: show `empty` only when the CHANNEL is LIVE, else
+      // neutral connecting.
       if (facts.terminalCount > 0)
-        return { mode: { kind: "workspace" }, tag: NOT_BOOT };
+        return { mode: { kind: "workspace" }, tag: CLEAR };
       // Records still arriving after the key list resolved → hold `connecting` instead of
-      // flashing `empty`'s restore card. NOT a boot overlay: the workspace is imminent, so
-      // the deadline must not escape it (a genuine reboot's records arrive PARKED — awaited
-      // hits 0 with no live tile — and this falls through to `empty` as intended).
+      // flashing `empty`'s restore card. NOT a boot overlay: the workspace is imminent, so the
+      // deadline must not escape it (a genuine reboot's records arrive PARKED — awaited hits 0
+      // with no live tile — and this falls through to `empty` as intended) → RETAIN.
       if (facts.recordsAwaited > 0)
-        return { mode: { kind: "connecting" }, tag: NOT_BOOT };
-      // A dead-channel connecting is owned by the post-grace TRANSPORT overlay, not the boot
-      // deadline: NOT a boot overlay.
+        return { mode: { kind: "connecting" }, tag: RETAIN };
+      // `empty` is a settled surface → CLEAR. A dead-channel connecting is owned by the
+      // post-grace TRANSPORT overlay, not the boot deadline: a non-boot overlay → RETAIN.
       return facts.channelLive
-        ? { mode: { kind: "empty" }, tag: NOT_BOOT }
-        : { mode: { kind: "connecting" }, tag: NOT_BOOT };
+        ? { mode: { kind: "empty" }, tag: CLEAR }
+        : { mode: { kind: "connecting" }, tag: RETAIN };
     }
   }
 }
@@ -309,10 +326,10 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
 /** The honest escape surface for a boot overlay held past its ceiling (#1763). A hung
  *  LOCAL kaval leg reuses the byte-identical down/dead DegradedCanvas (#1713 preserved);
  *  every other stalled leg gets the boot-stalled card, which names the leg (its copy) +
- *  the phase (rendered beside it). Reachable only via a `boot:true` tag, so a kaval-restart
- *  warming (tagged `boot:false`) can never mislabel-escape into the daemon-dead cell. */
+ *  the phase (rendered beside it). Reachable only via an `accrue` tag, so a kaval-restart
+ *  warming (tagged `retain`) can never mislabel-escape into the daemon-dead cell. */
 function escapeSurface(
-  tag: Extract<BootTag, { boot: true }>,
+  tag: Extract<BootTag, { accrual: "accrue" }>,
   facts: CanvasFacts,
 ): CanvasMode {
   if (tag.leg === "daemon" && facts.isLocalHost) {
@@ -324,17 +341,17 @@ function escapeSurface(
 
 /** THE ONE exported resolver (#1763). Computes the raw precedence, then — off ONE
  *  resolve — escapes to {@link escapeSurface} iff the boot deadline is `exceeded` AND the
- *  raw surface is a boot overlay (`tag.boot`, declared at the return site). Returns both
- *  the `mode` to render and the `tag`, which the caller feeds to the per-host boot-deadline
- *  anchor (`bootDeadline.ts`): accrue while `tag.boot`, clear on a settled kind. The escape
- *  keeps the raw `tag` (still `boot:true`) so the escaped frame keeps accruing (stays
- *  escaped) until the hung leg finally delivers and the raw surface settles. */
+ *  raw surface is a boot overlay (`tag.accrual === "accrue"`, declared at the return site).
+ *  Returns both the `mode` to render and the `tag`, which the caller feeds to the per-host
+ *  boot-deadline anchor (`bootDeadline.ts`): a pure switch on `tag.accrual`. The escape keeps
+ *  the raw `tag` (still `accrue`) so the escaped frame keeps accruing (stays escaped) until
+ *  the hung leg finally delivers and the raw surface settles. */
 export function resolveCanvasMode(
   facts: CanvasFacts,
   deadline: { exceeded: boolean },
 ): Precedence {
   const raw = resolvePrecedence(facts);
-  if (deadline.exceeded && raw.tag.boot) {
+  if (deadline.exceeded && raw.tag.accrual === "accrue") {
     return { mode: escapeSurface(raw.tag, facts), tag: raw.tag };
   }
   return raw;

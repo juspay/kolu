@@ -21,7 +21,7 @@
  *  ── One resolve per frame, no reactive cycle (C1) ───────────────────────────────
  *  The `useCanvasMode` memo, in ONE evaluation: reads the stored anchor → computes `exceeded`
  *  from PRIOR accrual ({@link bootDeadlineExceeded}) → runs the ONE `resolveCanvasMode` →
- *  writes the frame's tag/kind back ({@link recordBootFrame}). `exceeded` is derived from the
+ *  writes the frame's tag back ({@link recordBootFrame}). `exceeded` is derived from the
  *  prior frame's stored class, so a ceiling-CLASS transition (build→handshake, remote→local)
  *  uses the old class for ≤1 tick (≤1s, self-correcting) — an accepted edge, only reachable
  *  after an escape was already showing.
@@ -33,7 +33,7 @@
  *  suspend sees the real elapsed on resume and may escape immediately to the honest
  *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest. */
 
-import type { BootTag, CanvasMode, CeilingClass } from "./canvasModeResolver";
+import type { BootTag, CeilingClass } from "./canvasModeResolver";
 
 /** The LOCAL connect ceiling — mirrors `makeSession`'s default `connectTimeoutMs`, the
  *  local padi session's own connect-watchdog ceiling (client and server are separate
@@ -73,36 +73,36 @@ export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
   return a !== undefined && nowMs - a.anchorMs > CEILING_MS[a.ceiling];
 }
 
-/** Step 3 (write): fold this frame's resolved tag + mode kind into the host's anchor (C2).
- *   - `tag.boot` → ACCRUE: (re)anchor on the FIRST boot frame of a class, and re-anchor on a
- *     class CHANGE (zero-credit); otherwise keep the running anchor. This includes the escaped
- *     down/boot-stalled frames (their raw tag stays `boot:true`), so an escape keeps accruing
- *     (stays escaped) until the hung leg delivers.
- *   - otherwise CLEAR only on a SETTLED non-overlay KIND (`workspace`/`empty`/`down`/
- *     `host-failed`); RETAIN (no-op) on a `boot:false` OVERLAY frame (kaval-restart warming, a
+/** Step 3 (write): fold this frame's resolved tag into the host's anchor (C2) — a pure switch
+ *  on the tag's 3-way `accrual` verdict, which the resolver already decided at its return site
+ *  (no `kind`-based re-derivation here).
+ *   - `accrue` → (re)anchor on the FIRST boot frame of a class, and re-anchor on a class CHANGE
+ *     (zero-credit); otherwise keep the running anchor. This includes the escaped down/
+ *     boot-stalled frames (their raw tag stays `accrue`), so an escape keeps accruing (stays
+ *     escaped) until the hung leg delivers.
+ *   - `clear` → release the anchor: a SETTLED surface (workspace/empty/down/host-failed).
+ *   - `retain` → no-op: a non-boot OVERLAY the deadline must ignore (kaval-restart warming, a
  *     records-awaited / `!channelLive` connecting) — so an overlay-flavored flap can't dodge the
- *     ceiling by momentarily settling. A boot LEG flapping delivered↔undelivered settles→clears
- *     each cycle and so never accrues — that is the hung-subscription TRIGGER class, out of scope. */
+ *     ceiling by momentarily settling. A boot LEG flapping delivered↔undelivered clears each
+ *     cycle and so never accrues — that is the hung-subscription TRIGGER class, out of scope. */
 export function recordBootFrame(
   hostEnc: string,
   tag: BootTag,
-  modeKind: CanvasMode["kind"],
   nowMs: number,
 ): void {
-  if (tag.boot) {
-    const a = anchors.get(hostEnc);
-    if (a === undefined || a.ceiling !== tag.ceiling) {
-      anchors.set(hostEnc, { anchorMs: nowMs, ceiling: tag.ceiling });
+  switch (tag.accrual) {
+    case "accrue": {
+      const a = anchors.get(hostEnc);
+      if (a === undefined || a.ceiling !== tag.ceiling) {
+        anchors.set(hostEnc, { anchorMs: nowMs, ceiling: tag.ceiling });
+      }
+      return;
     }
-    return;
-  }
-  if (
-    modeKind === "workspace" ||
-    modeKind === "empty" ||
-    modeKind === "down" ||
-    modeKind === "host-failed"
-  ) {
-    anchors.delete(hostEnc);
+    case "clear":
+      anchors.delete(hostEnc);
+      return;
+    case "retain":
+      return;
   }
 }
 

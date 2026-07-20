@@ -112,7 +112,7 @@ export function canvasMode(deps: {
   }
   // The #1763 boot deadline, in ONE memo evaluation (C1): prune departed hosts' anchors,
   // read `exceeded` off the PRIOR frame's stored anchor, run the ONE resolve, then fold this
-  // frame's tag/kind back. `activeHost()` is always defined (even during the membership stall
+  // frame's tag back. `activeHost()` is always defined (even during the membership stall
   // where `activeScope()` is undefined), so the anchor keyed on it fixes Hole A structurally.
   // The monotonic tick makes this memo re-evaluate each second so a wedged overlay's elapsed
   // crosses its ceiling (the same 1s cadence the deleted daemon ceiling rode).
@@ -121,6 +121,6 @@ export function canvasMode(deps: {
   pruneBootAnchors(hostKeys().map(encodeHostKey));
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
-  recordBootFrame(hostEnc, tag, mode.kind, nowMs);
+  recordBootFrame(hostEnc, tag, nowMs);
   return mode;
 }
