@@ -35,7 +35,7 @@ export function activeHostPref(
     // caught-error-must-not-collapse.
     onInvalid: (err, raw) =>
       console.warn(
-        `[wire] stored active-host "${raw}" is invalid; resetting to the local default:`,
+        `[activeHostPref] stored active-host "${raw}" is invalid; resetting to the local default:`,
         err,
       ),
   });
