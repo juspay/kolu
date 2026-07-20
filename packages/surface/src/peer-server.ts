@@ -165,10 +165,11 @@ export interface ServeOverStdioOptions<T extends Context> {
    *
    *  It runs inside the codec's read loop, so a THROW from it is a fatal
    *  read-loop fault (#1859): the codec destroys the transport and this serve
-   *  settles `{ reason: "error" }`. This hook is in fact the only
-   *  production-reachable trigger of that arm — a corrupt inbound frame does
-   *  not reach it (`peer.message` swallows a bad frame as a caught async
-   *  rejection, and base64 decoding is lenient). Keep it total. */
+   *  settles `{ reason: "error" }`. It is the only production-reachable trigger
+   *  of that arm we know of — a corrupt inbound frame does not reach it
+   *  (`peer.message` swallows a bad frame as a caught async rejection, and
+   *  base64 decoding is lenient, so `decodeFrame` never throws). Keep it
+   *  total. */
   onFirstRequest?: () => void;
 }
 
