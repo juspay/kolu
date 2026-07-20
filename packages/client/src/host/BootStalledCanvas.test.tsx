@@ -1,10 +1,17 @@
 // @vitest-environment happy-dom
-/** #1763 — the boot-stalled escape surface must render NON-BLANK (App.tsx's canvas
- *  `<Switch>` has no fallback, so an unwired/blank arm would show nothing). Renders
+/** #1763 — the boot-stalled escape surface renders NON-BLANK for every leg. Renders
  *  `BootStalledCanvas` through `solid-js/web`'s `render` (the `dialogLiveness.test.tsx`
  *  idiom) and asserts the leg's copy, the Reload recovery verb, and — for a remote host —
  *  the Switch-to-local escape hatch, all appear. `../wire` is mocked so the surface stack /
- *  socket never boots in the test. */
+ *  socket never boots in the test.
+ *
+ *  SCOPE (codex-debate F2): this is a COMPONENT render pin, not an App-`<Switch>` integration
+ *  test — it would stay green if App.tsx's `boot-stalled` `<Match>` were deleted. The two facts
+ *  that surface can't render blank are pinned elsewhere: `useCanvasMode.test.ts` proves the
+ *  `boot-stalled` MODE is produced, and this proves the component renders non-blank from it. The
+ *  one-line `<Match when={bootStalledMode()}>{(m) => <BootStalledCanvas .../>}</Match>` wiring
+ *  between them is deliberately NOT integration-tested here: rendering App.tsx drags the whole
+ *  live `wire` socket stack, disproportionate to a one-line reviewed arm. */
 
 import type { HostKey } from "kolu-common/hostKey";
 import { render } from "solid-js/web";
@@ -28,7 +35,7 @@ afterEach(() => {
   h.host = { kind: "local" };
 });
 
-describe("BootStalledCanvas renders non-blank (App Switch shell pin)", () => {
+describe("BootStalledCanvas renders non-blank (component render pin)", () => {
   it("a local session-leg stall shows its copy + a Reload verb, no Switch-to-local", () => {
     dispose = render(
       () => <BootStalledCanvas leg="session" phase={undefined} />,

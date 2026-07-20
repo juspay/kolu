@@ -7,7 +7,7 @@
  *  construction because the anchor keys off `activeHost()`, which is never undefined. */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import type { BootTag } from "./canvasModeResolver";
+import type { BootTag, CeilingClass, StalledLeg } from "./canvasModeResolver";
 import {
   bootDeadlineExceeded,
   CEILING_MS,
@@ -18,8 +18,13 @@ import {
 } from "./bootDeadline";
 
 const LOCAL_MS = LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS;
-const boot = (leg: string, ceiling: string): BootTag =>
-  ({ accrual: "accrue", leg, ceiling }) as BootTag;
+// Typed with the accrue variant's own field types (F4) — a leg/ceiling typo, or a future
+// union change, fails at compile time instead of being cast away.
+const boot = (leg: StalledLeg, ceiling: CeilingClass): BootTag => ({
+  accrual: "accrue",
+  leg,
+  ceiling,
+});
 /** A settled surface (workspace/empty/down/host-failed) — releases the anchor. */
 const cleared: BootTag = { accrual: "clear" };
 /** A non-boot overlay the deadline must ignore — holds the anchor without accruing. */

@@ -118,7 +118,14 @@ export function canvasMode(deps: {
   // crosses its ceiling (the same 1s cadence the deleted daemon ceiling rode).
   const hostEnc = encodeHostKey(activeHost());
   const nowMs = getMonotonicNow()();
-  pruneBootAnchors(hostKeys().map(encodeHostKey));
+  // Prune departed hosts' anchors ONLY once membership has snapshotted (non-empty). An EMPTY
+  // `hostKeys()` is the pre-snapshot warming window (`wire.ts`), NOT "every host left" —
+  // `LOCAL_HOST` is the unremovable seed, so a LOADED membership always contains it (the same
+  // `keys.length === 0` distinction `hostReconcileTarget` draws). Pruning on empty would delete
+  // the active host's OWN anchor every tick during the membership stall (Hole A), reset its
+  // elapsed to 0, and the ceiling could never fire — leaving "Connecting to local…" up forever.
+  const members = hostKeys();
+  if (members.length > 0) pruneBootAnchors(members.map(encodeHostKey));
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
   recordBootFrame(hostEnc, tag, nowMs);
