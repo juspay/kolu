@@ -31,10 +31,13 @@ import { type InstallEnv, isInstalledFromEnv } from "@kolu/surface-app/solid";
  *  stays single-owned: the DECISION delegates to the exported {@link isInstalledFromEnv};
  *  only this thin DOM read lives here. It matches surface-app's THREE installed display-modes
  *  (standalone / minimal-ui / fullscreen) and its inline-cast for the non-standard iOS
- *  `navigator.standalone`, so the two "installed?" answers cannot diverge and no third
- *  `declare global` Navigator copy is added. Reads globals directly (like surface-app); the
- *  install DECISION is {@link isInstalledFromEnv} (surface-app's kernel), and the
- *  injectable, unit-pinnable seam is {@link activeHostStorage}, which takes the verdict as a boolean. */
+ *  `navigator.standalone`, so the two "installed?" answers agree on the browser path — and no
+ *  third `declare global` Navigator copy is added. (It omits surface-app's `typeof window`
+ *  SSR guard: this reader is browser-only — `wire.ts` boots a websocket at module load and is
+ *  never server-rendered — so that arm never runs here.) Reads globals directly (like
+ *  surface-app); the install DECISION is {@link isInstalledFromEnv} (surface-app's kernel),
+ *  and the injectable, unit-pinnable seam is {@link activeHostStorage}, which takes the
+ *  verdict as a boolean. */
 function readInstallEnv(): InstallEnv {
   const displayModeStandalone =
     window.matchMedia("(display-mode: standalone)").matches ||
