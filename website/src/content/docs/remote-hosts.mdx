@@ -122,6 +122,13 @@ The host's chip dot tells you where it is:
   real output, and the clock. A **warm** reconnect (the closure is already on the host)
   skips straight to connected, with no build UI at all.
 
+  And if a connect **genuinely stalls** — the host list, your saved session, or the
+  machine's agent never arriving — the canvas stops narrating past a **finite deadline**
+  (a short one for your local machine; a generously longer one while a remote is still
+  copying or building, so a real cold connect is never cut short) and shows an honest
+  **stalled** card that **names what didn't arrive**, with a **Reload** to try again and —
+  on a remote machine — **Switch to local**. It never sits at "Connecting…" forever.
+
   The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
   the complete `nix copy` and build output, and the actual reason if a connect genuinely
   fails. Under systemd that's `journalctl` for your kolu service; padi also keeps its own
