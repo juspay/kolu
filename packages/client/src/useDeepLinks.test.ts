@@ -69,3 +69,56 @@ describe("navigate is a command — it runs untracked (the loop pin)", () => {
     expect(body).toContain("untrack(() => {");
   });
 });
+
+/** #1900 (PRIMARY — the reproduced cause): the BOOT parse re-enacts a stale,
+ *  already-consumed deep link on every reload.
+ *
+ *  kolu has NO state→URL sync, so the address bar keeps whatever deep link you
+ *  last navigated to (a notification click, a shared/bookmarked `#/t/local/<id>`)
+ *  even after you switch hosts. On reload, `useDeepLinks` re-parses
+ *  `location.hash` and re-enacts it — running `routeToTerminal` →
+ *  `setActiveHost(route.host)`, which yanks you to the stale host (overwriting the
+ *  persisted active host, ANY backend) where the local list then settles without
+ *  the id and the lying "no longer on that host" toast fires. Reproduced against a
+ *  real remote host (PR #1896 comment).
+ *
+ *  The `koluRouted` consumed-command stamp already exists and SURVIVES a reload in
+ *  `history.state` — DL3's traversal gate reads it for back/forward, but the boot
+ *  arm deliberately does NOT (today). The fix extends that ONE authority to the
+ *  boot arm: a reload of an already-consumed link does not re-enact (the restored
+ *  host stands; session restore owns view restoration across reloads), while a
+ *  FRESH bookmark/notification link (no stamp) still routes.
+ *
+ *  Two behaviors pinned: (1) a consumed (stamped) hash at boot does NOT re-enact
+ *  — no host switch, no toast; (2) a fresh unstamped hash still routes. Pinned at
+ *  the source (this effect world is un-mountable — the same reason the pins above
+ *  read `routerSrc`); a live-browser repro rides Phase C evidence. */
+describe("boot parse honors the consumed-command stamp (#1900 primary)", () => {
+  // Slice the onMount boot arm — from `onMount(` up to the boot parse's
+  // `parseDeepLink(window.location.hash)` — so this pins the BOOT arm
+  // specifically. `window.location.hash` appears ONLY in the boot parse (the
+  // launch/external path parses a handed-in `hash`), so the boundary is exact,
+  // and the slice excludes the `hashchange` gate below (which already reads the
+  // stamp).
+  const onMountStart = routerSrc.indexOf("onMount(");
+  const bootArm = routerSrc.slice(
+    onMountStart,
+    routerSrc.indexOf("parseDeepLink(window.location.hash)", onMountStart),
+  );
+
+  it.fails("gates the boot parse on the consumed stamp", () => {
+    // Today the boot parse is `if (!launchHandled) navigate(...)` — NO stamp
+    // check — so a reload re-enacts a consumed link (behavior 1 violated). After
+    // the fix the boot arm consults the SAME `entryAlreadyRouted()` authority the
+    // traversal gate uses. Flip `it.fails` → `it` when the guard lands.
+    expect(bootArm).toContain("entryAlreadyRouted()");
+  });
+
+  it("still routes a fresh cold entry (the fix guards boot routing, never removes it)", () => {
+    // Behavior 2: the fix ADDS a skip for consumed entries; it must not delete
+    // boot routing, or a fresh bookmark opened cold would never restore its view.
+    expect(routerSrc).toContain(
+      "navigate(parseDeepLink(window.location.hash))",
+    );
+  });
+});
