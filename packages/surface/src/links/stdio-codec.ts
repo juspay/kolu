@@ -179,14 +179,9 @@ export async function readFramedLines(
           // and merely detaching a listener would not stop it (the RED pin
           // feeds poison + valid frames in one chunk to catch exactly that);
           // future chunks cannot arrive on a destroyed stream.
-          // The `_FRAME_DECODE_FAILED` code is retained for continuity (it is
-          // package-internal, and the tests pin it); the message tells the real
-          // story so the code name doesn't mislead — the fault is a throwing
-          // frame handler, NOT base64 decoding (`decodeFrame` is lenient and
-          // never throws).
           read.destroy(
-            new ORPCError("SURFACE_STDIO_FRAME_DECODE_FAILED", {
-              message: `An inbound stdio frame handler (\`onFrame\`) threw synchronously, so the reader has been stopped and its stream destroyed. The fault is in the handler itself — most often a throwing \`onFirstRequest\` hook — not in base64 decoding (\`decodeFrame\` is lenient and never throws); the \`_FRAME_DECODE_FAILED\` code is kept for continuity. Underlying error: ${(err as Error).message}`,
+            new ORPCError("SURFACE_STDIO_FRAME_HANDLER_FAILED", {
+              message: `An inbound stdio frame handler (\`onFrame\`) threw synchronously, so the reader has been stopped and its stream destroyed. Underlying error: ${(err as Error).message}`,
               cause: err,
             }),
           );

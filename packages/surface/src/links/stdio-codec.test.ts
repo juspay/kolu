@@ -133,7 +133,7 @@ describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
       )}\n`,
     );
     await expect(settled).rejects.toMatchObject({
-      code: "SURFACE_STDIO_FRAME_DECODE_FAILED",
+      code: "SURFACE_STDIO_FRAME_HANDLER_FAILED",
     });
     expect(received).toEqual([]);
     expect(read.destroyed).toBe(true);
@@ -158,7 +158,7 @@ describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
       )}\n`,
     );
     await expect(settled).rejects.toMatchObject({
-      code: "SURFACE_STDIO_FRAME_DECODE_FAILED",
+      code: "SURFACE_STDIO_FRAME_HANDLER_FAILED",
     });
     expect(received).toEqual(["valid-0"]);
     expect(read.destroyed).toBe(true);
