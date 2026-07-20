@@ -27,14 +27,12 @@
  *  after an escape was already showing.
  *
  *  ── Monotonic clock ─────────────────────────────────────────────────────────────
- *  Elapsed rides a MONOTONIC source ({@link getMonotonicNow}, `performance.now`), not the
+ *  Elapsed rides a MONOTONIC source (`getMonotonicNow` in `time/clock.ts`, `performance.now`), not the
  *  wall clock — so an NTP step / clock change can't false-fire the ceiling. Residual: the page
  *  is frozen during OS suspend (no accrual WHILE suspended), but a boot overlay spanning a long
  *  suspend sees the real elapsed on resume and may escape immediately to the honest
  *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest. */
 
-import { type Accessor, createSignal } from "solid-js";
-import { createSharedRoot } from "../createSharedRoot";
 import type { BootTag, CanvasMode, CeilingClass } from "./canvasModeResolver";
 
 /** The LOCAL connect ceiling — mirrors `makeSession`'s default `connectTimeoutMs`, the
@@ -53,18 +51,6 @@ export const CEILING_MS: Record<CeilingClass, number> = {
   "remote-provisioning": 600_000,
   "remote-handshake": 120_000,
 };
-
-/** `performance.now()` that advances every second via ONE shared interval — the
- *  reactivity TICK (so a boot overlay's elapsed re-evaluates each second), while the VALUE
- *  is MONOTONIC so a wall-clock step can't false-fire the ceiling. Mirrors `getClockNow`'s
- *  shared-interval idiom (`createSharedRoot`), app-lifetime; the browser reclaims the timer
- *  on page close (the shared root's disposer is intentionally discarded — no `onCleanup`
- *  that would never run). */
-export const getMonotonicNow = createSharedRoot<Accessor<number>>(() => {
-  const [now, setNow] = createSignal(performance.now());
-  setInterval(() => setNow(performance.now()), 1_000);
-  return now;
-});
 
 interface Anchor {
   /** Monotonic ms when THIS ceiling-class episode began for this host. */

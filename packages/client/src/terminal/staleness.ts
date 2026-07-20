@@ -17,9 +17,7 @@
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
-import { type Accessor, createSignal } from "solid-js";
-import { createSharedRoot } from "../createSharedRoot";
-import { getClockNow } from "../time/clock";
+import { getClockNow, makeTickingClock } from "../time/clock";
 import { compactDelta } from "../time/duration";
 import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
 import { activityWindowThresholdMs } from "./activityWindowFilter";
@@ -43,22 +41,16 @@ export function isStale(
   return now - lastActivityAt > thresholdMs;
 }
 
-/** Lazily-initialized monotonic-ish ticker. One signal for the whole app —
+/** Lazily-initialized 60s wall-clock ticker. One signal for the whole app —
  *  re-evaluating staleness once a minute is sufficient (the threshold is
  *  measured in hours; a 60s ceiling on visual lag is invisible).
  *
- *  Shares the `createSharedRoot` singleton idiom with `useDockOrder` so
- *  the reactive owner is the app, not whichever component called us
- *  first. App-lifetime by that contract: the ticker runs for the whole
- *  session with no teardown (the shared root's disposer is discarded),
- *  so we do NOT register an `onCleanup` that would never run. */
+ *  Built off the shared `makeTickingClock` machinery in `time/clock.ts` (the same
+ *  receptacle `getClockNow` uses) — a 60s cadence over `Date.now`, app-lifetime with
+ *  no teardown, so the tick machinery lives in ONE place. */
 // HOST-SCOPING: host-INDEPENDENT by design — deliberately the LOCAL wall clock, not
 // a per-host one; `reprojectClock` handles host skew before the `isStale` comparison.
-const getNowTicker = createSharedRoot<Accessor<number>>(() => {
-  const [now, setNow] = createSignal(Date.now());
-  setInterval(() => setNow(Date.now()), TICK_MS);
-  return now;
-});
+const getNowTicker = makeTickingClock(Date.now, TICK_MS);
 
 /** Reactive stale check. Returns a function consumers call per terminal —
  *  invoking it inside a tracking context (JSX, `createMemo`) subscribes

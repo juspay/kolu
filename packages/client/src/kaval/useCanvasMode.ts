@@ -29,10 +29,10 @@ import { isConnectPhase } from "../host/connectCanvasCopy";
 import { activeHost, connectionInfo, hostKeys } from "../wire";
 import {
   bootDeadlineExceeded,
-  getMonotonicNow,
   pruneBootAnchors,
   recordBootFrame,
 } from "./bootDeadline";
+import { getMonotonicNow } from "../time/clock";
 import {
   activeEntryState,
   daemonChannelLive,
