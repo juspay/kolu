@@ -197,14 +197,25 @@ const CLEAR: BootTag = { accrual: "clear" };
 /** A non-boot overlay the deadline must ignore — holds the anchor without accruing. */
 const RETAIN: BootTag = { accrual: "retain" };
 
-/** The ceiling class a NOT-YET-CONNECTED boot overlay accrues against: local (30s), a
- *  remote actively provisioning (copying/building — the minutes-scale cell), or a remote
- *  handshake (probing/connecting/undefined — a shorter but still finite cell). */
-function bindingCeiling(facts: NotYetConnectedFacts): CeilingClass {
-  if (facts.isLocalHost) return "local";
-  return facts.connectPhase === "copying" || facts.connectPhase === "building"
+/** The ONE ceiling-class derivation — host-locality + connect phase → {@link CeilingClass}:
+ *  local (30s), a remote actively provisioning (copying/building — the minutes-scale cell), or
+ *  a remote handshake (probing/connecting/undefined — a shorter but still finite cell). Both the
+ *  not-yet-connected {@link bindingCeiling} and the connected-arm loading gate read it (the
+ *  connected fact has no connect phase → `undefined`), so the ceiling policy lives in one place. */
+function ceilingFor(
+  isLocalHost: boolean,
+  connectPhase: ConnectPhase | undefined,
+): CeilingClass {
+  if (isLocalHost) return "local";
+  return connectPhase === "copying" || connectPhase === "building"
     ? "remote-provisioning"
     : "remote-handshake";
+}
+
+/** The ceiling class a NOT-YET-CONNECTED boot overlay accrues against — delegates to
+ *  {@link ceilingFor} off the arm's own `connectPhase`. */
+function bindingCeiling(facts: NotYetConnectedFacts): CeilingClass {
+  return ceilingFor(facts.isLocalHost, facts.connectPhase);
 }
 
 /** The internal precedence partition — total over {@link CanvasFacts}, exclusive,
@@ -286,8 +297,9 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
           mode: { kind: "connecting" },
           tag: {
             accrual: "accrue",
+            // A connected fact carries no connect phase → the handshake/local cell.
             leg,
-            ceiling: facts.isLocalHost ? "local" : "remote-handshake",
+            ceiling: ceilingFor(facts.isLocalHost, undefined),
           },
         };
       }
