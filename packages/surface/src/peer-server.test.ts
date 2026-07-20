@@ -205,7 +205,7 @@ describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", (
 
     // The unix-socket shape: ONE duplex is both read and write. `onFirstRequest`
     // throwing is the reachable synchronous read-loop failure (see the note
-    // above) that drives readFramedLines' decode-failure reject arm.
+    // above) that drives readFramedLines' frame-handler-failure reject arm.
     const duplex = new PassThrough();
     duplex.on("error", () => {}); // absorb the post-settle write on a destroyed stream
     const serving = serveOverStdio({

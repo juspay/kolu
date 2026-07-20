@@ -121,8 +121,11 @@ export interface StdioTransport {
  *  (`EPIPE`/`ERR_STREAM_DESTROYED` — the peer's read side vanished
  *  mid-push; the funnel below classifies it with the codec's
  *  `isBenignWriteError`). `"error"` is a genuinely abnormal death — a read
- *  error, a malformed-frame decode failure, or a non-benign write failure
- *  — with the cause in `error`. This classification applies on BOTH arms
+ *  error, a synchronous inbound frame-handler failure (e.g. a throwing
+ *  `onFirstRequest`; a malformed frame is NOT one — base64 decoding is lenient,
+ *  and an async `peer.message` parse failure is caught, logged, and skipped),
+ *  or a non-benign write failure — with the cause in `error`. This
+ *  classification applies on BOTH arms
  *  (default and explicit transport); the arms differ only in who owns the
  *  process lifetime afterwards.
  *

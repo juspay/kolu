@@ -186,4 +186,69 @@ describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
     await expect(settled).resolves.toBeUndefined();
     expect(received).toEqual([]); // the partial line is never dispatched
   });
+
+  it("a handler that throws a NON-Error (throw null) still stops the reader — the catch must be total", async () => {
+    // The catch must not dereference the caught value: `throw null` (or any
+    // non-Error) would make `(err as Error).message` throw INSIDE the catch,
+    // before the reader is stopped — re-creating the exact zombie (promise
+    // pending, stream alive, listener attached). The message is carried on
+    // `cause`, so the arm never reads `.message` off an unknown throw.
+    const read = new PassThrough();
+    const received: string[] = [];
+    // A non-Error throw value, via a binding so the runtime `throw` is a plain
+    // `throw null` without tripping the static "throw only errors" lint.
+    const nonError: unknown = null;
+    const settled = readFramedLines(read, (frame) => {
+      if (Buffer.from(frame).toString("utf-8") === "POISON") {
+        throw nonError;
+      }
+      received.push(Buffer.from(frame).toString("utf-8"));
+    });
+    read.write(`${encodeFrame("POISON")}\n${encodeFrame("valid")}\n`);
+    await expect(settled).rejects.toMatchObject({
+      code: "SURFACE_STDIO_FRAME_HANDLER_FAILED",
+    });
+    expect(received).toEqual([]);
+    expect(read.destroyed).toBe(true);
+  });
+
+  it("rejects (never resolves) even when the stream's _destroy swallows the error", async () => {
+    // "Stopped ⟹ settled" must not depend on `destroy(err)` echoing an 'error'
+    // event: a Readable whose `_destroy` completes with `cb()` (no error) emits
+    // only 'close'. If the reject depended on the 'error' re-entry, a handler
+    // failure here would RESOLVE (misclassified clean end). The explicit reject
+    // after destroy makes it reject regardless of the stream impl.
+    const read = new PassThrough({
+      destroy(_err, cb) {
+        cb(); // swallow: complete cleanup with NO error → only 'close', no 'error'
+      },
+    });
+    const settled = readFramedLines(read, () => {
+      throw new Error("handler boom");
+    });
+    read.write(`${encodeFrame("anything")}\n`);
+    await expect(settled).rejects.toMatchObject({
+      code: "SURFACE_STDIO_FRAME_HANDLER_FAILED",
+    });
+    expect(read.destroyed).toBe(true);
+  });
+
+  it("an 'error' emitted while the stream stays open still stops the reader (no post-settle dispatch)", async () => {
+    // Node does not define every 'error' as termination — a Readable can emit
+    // 'error' while remaining open. The settle path must stop the reader itself,
+    // not assume the event already did, or a later frame leaks (the zombie
+    // again). Real transports autoDestroy on 'error'; this pins the general
+    // `Readable` contract the codec advertises.
+    const read = new PassThrough();
+    const received: string[] = [];
+    const settled = readFramedLines(read, (frame) =>
+      received.push(Buffer.from(frame).toString("utf-8")),
+    );
+    read.emit("error", new Error("open-stream error")); // manual: does NOT destroy
+    await expect(settled).rejects.toThrow(/open-stream error/);
+    expect(read.destroyed).toBe(true);
+    read.write(`${encodeFrame("after-settle")}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(received).toEqual([]);
+  });
 });

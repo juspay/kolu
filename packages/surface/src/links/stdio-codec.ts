@@ -122,24 +122,26 @@ export function framedSend(
  *  non-empty line is base64-decoded and dispatched to `onFrame`. Returns
  *  a Promise that resolves on `'end'` OR `'close'` and rejects on `'error'`.
  *
- *  Invariant — SETTLED ⟹ STOPPED (#1859): every way this promise settles is
- *  CAUSED by the read stream terminating, so a settled read can never keep
- *  dispatching. `'end'`/`'close'`/`'error'` are stream terminations by
- *  definition; the one path that isn't — a synchronous throw out of `onFrame`
- *  — settles by `read.destroy(err)`, which routes through the same `'error'`
- *  listener AND stops the stream. There is no bare `reject()` that could leave
- *  the reader alive (the pre-#1859 zombie: promise rejected, stream still
- *  flowing frames into a consumer that already tore down).
+ *  Invariant — SETTLED ⟹ STOPPED (#1859): the promise never settles while the
+ *  reader is still live. `'end'`/`'close'` resolve (the stream has already
+ *  terminated); every reject goes through `stopAndReject`, which destroys the
+ *  reader FIRST (Node sets `destroyed` synchronously) and only then rejects —
+ *  so "stopped" strictly precedes "settled". This holds for ANY `Readable` by
+ *  construction: it does NOT rely on `read.destroy(err)` echoing an `'error'`
+ *  back (a custom `_destroy` may swallow it and emit only `'close'`), nor on a
+ *  stream `'error'` implying the stream is gone (a `Readable` may emit
+ *  `'error'` while still open). The pre-#1859 zombie — a bare `reject()` that
+ *  left the `'data'` listener attached and the stream still flowing frames into
+ *  a consumer that already tore down — is unconstructible here.
  *
  *  Why the codec owns this response inline (vs. the write half's per-consumer
  *  guard): a frame-processing failure here has ONE uniform response for every
- *  consumer — stop the reader (`read.destroy(err)`) — so it belongs in the
- *  codec, whereas a dead *write* stream's response differs per consumer (client
- *  closes its link, server ends its serve loop) and stays in each caller's
- *  `write.on("error", …)`. The rule is "uniform response ⇒ in the codec,
- *  per-consumer response ⇒ in the callback", not "framing in the codec,
- *  lifecycle in the callback" — do not "fix" the catch below back to a bare
- *  reject on that misreading.
+ *  consumer — stop the reader — so it belongs in the codec, whereas a dead
+ *  *write* stream's response differs per consumer (client closes its link,
+ *  server ends its serve loop) and stays in each caller's `write.on("error",
+ *  …)`. The rule is "uniform response ⇒ in the codec, per-consumer response ⇒
+ *  in the callback", not "framing in the codec, lifecycle in the callback" — do
+ *  not "fix" the reject sites below back to a bare reject on that misreading.
  *
  *  The `'close'` edge is part of the declared contract, not an accident: a
  *  `destroy()` with no error emits neither `'end'` nor `'error'` — only
@@ -159,6 +161,17 @@ export async function readFramedLines(
   read.setEncoding("utf-8");
   let buffer = "";
   return new Promise<void>((resolve, reject) => {
+    // The one reject path, and the thing that makes SETTLED ⟹ STOPPED hold by
+    // construction (see the docstring): destroy the reader FIRST — Node marks it
+    // `destroyed` synchronously, so no later 'data' can fire — then reject. It
+    // does not depend on `destroy()` echoing an 'error' back into a listener.
+    // Idempotent: `destroy()` no-ops once destroyed and `reject` is
+    // first-settle-wins, so the frame-handler catch and a stream 'error' can
+    // both route here without double-stopping or double-settling.
+    const stopAndReject = (failure: unknown) => {
+      if (!read.destroyed) read.destroy();
+      reject(failure);
+    };
     read.on("data", (chunk: string) => {
       buffer += chunk;
       let nl = buffer.indexOf("\n");
@@ -170,13 +183,15 @@ export async function readFramedLines(
         try {
           onFrame(decodeFrame(line));
         } catch (err) {
-          // Destroy the stream WITH the error so settlement routes through the
-          // still-attached `read.on("error", reject)` below; `return` abandons
-          // the rest of this in-flight chunk. Why this preserves "settled ⟹
-          // stopped" is proved in the `readFramedLines` docstring above.
-          read.destroy(
+          // Stop the reader and settle. `return` abandons the rest of this
+          // in-flight chunk (frames dispatched BEFORE the throw are not undone).
+          // The message is TOTAL — it never dereferences the caught value (a
+          // handler may `throw null`, a non-Error, etc.); the original throw is
+          // carried on `cause`.
+          stopAndReject(
             new ORPCError("SURFACE_STDIO_FRAME_HANDLER_FAILED", {
-              message: `An inbound stdio frame handler (\`onFrame\`) threw synchronously, so the reader has been stopped and its stream destroyed. Underlying error: ${(err as Error).message}`,
+              message:
+                "An inbound stdio frame handler (`onFrame`) threw synchronously; the reader has been stopped and its stream destroyed. See `cause` for the underlying throw.",
               cause: err,
             }),
           );
@@ -186,6 +201,6 @@ export async function readFramedLines(
     });
     read.on("end", resolve);
     read.on("close", resolve);
-    read.on("error", reject);
+    read.on("error", stopAndReject);
   });
 }
