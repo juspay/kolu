@@ -1,6 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { sleepingArm } from "@kolu/padi/surface";
+import { sleepingArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
   type Component,
   createMemo,
@@ -60,6 +60,7 @@ const TILE_TRANSITION_PROPS =
  *  decoupled from staleness (`parked=false`) but is emphatically not active. */
 function tileTooltip(
   info: TerminalDisplayInfo,
+  meta: TerminalMetadata,
   presence: "sleeping" | "parked" | "agent" | "none",
 ): string {
   const { group, label, suffix } = info.key;
@@ -68,12 +69,12 @@ function tileTooltip(
   if (suffix) headParts.push(suffix);
   const head = headParts.join(" · ");
   const lines = [head];
-  const sleeping = sleepingArm(info.meta);
+  const sleeping = sleepingArm(meta);
   if (sleeping) {
     const ago = formatTimeAgo(sleeping.sleptAt);
     lines.push(ago ? `Asleep — ${ago}` : "Asleep");
   } else {
-    const ago = formatTimeAgo(info.meta.lastActivityAt);
+    const ago = formatTimeAgo(meta.lastActivityAt);
     if (ago)
       lines.push(
         presence === "parked" ? `Parked — last active ${ago}` : `Active ${ago}`,
@@ -319,6 +320,10 @@ const CanvasMinimap: Component<{
             // geometry memo and the badge-state memo. Without this both
             // walked the store's keyed map independently.
             const info = createMemo(() => store.getDisplayInfo(id));
+            // The LIVE record — presence/bucket read off this, not off the
+            // display-info snapshot, so the minimap badge tracks agent/sleep
+            // changes at the leaf (see `terminalDisplay.ts`).
+            const meta = createMemo(() => store.getMetadata(id));
             // Single accessor that yields all the per-tile data the
             // rectangle needs, or null when the tile isn't ready yet
             // (no layout, or metadata still arriving). The `Show` below
@@ -348,16 +353,16 @@ const CanvasMinimap: Component<{
             // tick doesn't invalidate the rectangle geometry — only the badge
             // surface re-runs. Memoized because the JSX reads it per tile per tick.
             const state = createMemo(() => {
-              const i = info();
-              if (!i)
+              const mt = meta();
+              if (!mt)
                 return { presence: "none" as const, bucket: "none" as const };
-              const bucket = metaBucket(i.meta);
+              const bucket = metaBucket(mt);
               // Sleeping FIRST (a deliberate dormant state, DECOUPLED from
               // staleness — never parked-ghosted, however long it slept); then
               // parked staleness; then agent presence; else none.
-              const presence = sleepingArm(i.meta)
+              const presence = sleepingArm(mt)
                 ? ("sleeping" as const)
-                : isParked(i.meta.lastActivityAt)
+                : isParked(mt.lastActivityAt)
                   ? ("parked" as const)
                   : bucket !== "none"
                     ? ("agent" as const)
@@ -371,7 +376,8 @@ const CanvasMinimap: Component<{
             // stays total).
             const tooltip = () => {
               const i = info();
-              return i ? tileTooltip(i, state().presence) : id;
+              const mt = meta();
+              return i && mt ? tileTooltip(i, mt, state().presence) : id;
             };
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.

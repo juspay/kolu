@@ -62,6 +62,10 @@ const MobilePullChrome: Component<{
     const id = store.activeId();
     return id !== null ? store.getDisplayInfo(id) : undefined;
   };
+  const activeMeta = () => {
+    const id = store.activeId();
+    return id !== null ? store.getMetadata(id) : undefined;
+  };
 
   return (
     <>
@@ -106,7 +110,7 @@ const MobilePullChrome: Component<{
           >
             {(info) => (
               <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
-                <TerminalMetaCompact info={info()} />
+                <TerminalMetaCompact info={info()} meta={activeMeta()} />
               </div>
             )}
           </Show>
