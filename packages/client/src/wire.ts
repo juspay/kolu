@@ -54,6 +54,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
+import { activeHostStorage } from "./host/activeHostStorage.ts";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
@@ -234,18 +235,29 @@ export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, {
     interpretClientError(p as ClientErrorPolicy, e, origin),
 });
 
-/** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
- *  `sessionStorage` (per-tab, never shared across tabs). The persisted value is the
- *  CANONICAL wire string (`encodeHostKey`/`decodeHostKey` — NOT the default
- *  `JSON.stringify`, which would write `{"kind":"local"}` instead of `"local"`),
- *  defaulting to the unremovable LOCAL default. Switching it re-keys every
- *  `useEntry(activeHost)` readout — the canvas live-switches, no reload. */
+/** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Its
+ *  storage backend is chosen ONCE at boot from the LAUNCH CONTEXT (`activeHostStorage`):
+ *  an installed / standalone PWA window uses `localStorage` so the host SURVIVES relaunch
+ *  (a standalone window's every launch is a fresh browsing session, so `sessionStorage`
+ *  would be empty and silently revert to LOCAL_HOST — PWA amnesia), while a regular tab
+ *  keeps `sessionStorage` for per-tab isolation. This is a structural fact of the launch,
+ *  not a knob (conventions.md fail-fast). Read ONCE synchronously at module init — the
+ *  localStorage arm reads just as synchronously as the old sessionStorage read, so it does
+ *  NOT change the boot ordering `groundActiveHost` guards (active restored a tick before
+ *  the membership snapshot). The persisted value is the CANONICAL wire string
+ *  (`encodeHostKey`/`decodeHostKey` — NOT the default `JSON.stringify`, which would write
+ *  `{"kind":"local"}` instead of `"local"`), defaulting to the unremovable LOCAL default.
+ *  Switching it re-keys every `useEntry(activeHost)` readout — the canvas live-switches,
+ *  no reload. */
 export const [activeHost, setActiveHost] = persistedPref<HostKey>({
   name: "kolu-active-host",
   fallback: LOCAL_HOST,
   parse: (raw) => decodeHostKey(raw),
   serialize: encodeHostKey,
-  storage: sessionStorage,
+  storage: activeHostStorage(window, {
+    local: localStorage,
+    session: sessionStorage,
+  }),
   // Surface a corrupt/invalid stored host rather than silently collapsing to the local
   // default — otherwise "the stored active host was garbage" reads identically to "this tab
   // has always been local." Resetting to LOCAL_HOST is benign, so a warn is the right level

@@ -144,6 +144,12 @@ for your input — so a host you're not looking at can tell you it needs you wit
 your switching to it first. An [installed PWA](/install-pwa) surfaces the same
 counts as an app-badge and notifications across all your hosts.
 
+An [installed PWA](/install-pwa) also **remembers which host you were on** across
+relaunches — a standalone window has no sibling browser tabs, so it persists the
+active host durably rather than starting fresh each launch. In a regular browser
+tab the choice stays **per-tab**: two tabs can view two hosts at once, and a brand
+new tab starts on your local machine.
+
 Switching back to a host you've already visited is instant: kolu keeps each visited
 host's state — its terminal list, saved sessions, activity, and the Code tab's reads
 (the open file's content, git status, and diff) — **warm in memory**, so a switch-back
