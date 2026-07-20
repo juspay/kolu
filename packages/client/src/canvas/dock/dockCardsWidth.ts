@@ -52,3 +52,10 @@ export { dockCardsWidth };
 export function setDockCardsWidth(px: number): void {
   setDockCardsWidthRaw(clampDockCardsWidth(px));
 }
+
+/** Return the cards width to its default — the double-click-to-reset target.
+ *  The default lives here (the `persistedPref` fallback), so 'reset' is named
+ *  by the module that owns it rather than reconstituted at the call site. */
+export function resetDockCardsWidth(): void {
+  setDockCardsWidthRaw(CARDS_WIDTH_PX);
+}

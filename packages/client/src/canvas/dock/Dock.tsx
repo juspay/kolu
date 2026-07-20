@@ -97,6 +97,7 @@ import { chipInitials } from "./chipInitials";
 import {
   CARDS_WIDTH_PX,
   dockCardsWidth,
+  resetDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
@@ -266,7 +267,7 @@ const Dock: Component<{
           class="absolute inset-y-0 right-0 z-40 w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors"
           title="Drag to resize · double-click to reset"
           onPointerDown={startDockResize}
-          onDblClick={() => setDockCardsWidth(CARDS_WIDTH_PX)}
+          onDblClick={resetDockCardsWidth}
         />
       </Show>
     </aside>
