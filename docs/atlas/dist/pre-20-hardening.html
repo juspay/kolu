@@ -34,8 +34,8 @@ tag.</p>
 </tr>
 <tr>
 <td><a href="https://github.com/juspay/kolu/issues/1763" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>#1763</a></td>
-<td>boot wedge — a fresh load intermittently sticks at “Connecting to local…” and terminal-create wedges. The <code>scopedByEntry</code> non-member warn was <strong>ruled out</strong> (benign per-boot transient); the live wedge did not reproduce across a fault-injection campaign.</td>
-<td><strong>Mechanism pinned (code-grounded, on the issue):</strong> the connect overlay is held by any of three loading legs but its only timeout escape is coupled to the daemon leg — a hung membership leg (no <code>activeScope()</code> ⇒ the anchor is never stamped) or a hung session/terminalKeys leg has <em>no escape at all</em>. Fix: one boot deadline anchored at app start, outside the per-host scope, escaping on <em>any</em> stuck leg — gated on the fault-injected repro in the issue’s §5.</td>
+<td><del>boot wedge — “Connecting to local…” forever when a boot leg hangs</del> <strong>SHIPPED — PR #1898 merged, issue closed.</strong> One boot deadline wraps the single exported resolver; boot overlays typed at their return sites; per-host monotonic anchor (covers the membership <em>and</em> session holes); every ceiling cell finite; honest per-leg escape copy.</td>
+<td>Done (fault-injected REDs → 3-refuter gate that REFUTED the first mechanism → delta re-gate → full /be). Residual: the hung-subscription <em>trigger</em> class stays open — but a hang now surfaces honestly.</td>
 </tr>
 </tbody>
 </table>
