@@ -43,7 +43,12 @@ export function buildWorkspaceEntries(
   for (const id of ids) {
     const row = pairDisplayRow(getDisplayInfo(id), getMetadata(id));
     if (!row) continue;
-    entries.push({ id, info: row.info, meta: row.meta, layout: getLayout?.(id) });
+    entries.push({
+      id,
+      info: row.info,
+      meta: row.meta,
+      layout: getLayout?.(id),
+    });
   }
   return entries;
 }
