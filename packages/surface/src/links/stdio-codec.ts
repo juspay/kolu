@@ -56,14 +56,7 @@ export function decodeFrame(line: string): Uint8Array {
  *  response differs per consumer (the client closes its link; the server
  *  ends its serve loop), so each side owns that guard locally — see the
  *  `write.on("error", …)` handlers in `./stdio.ts` and `../peer-server.ts`.
- *  The read half splits by the SAME principle but lands on the opposite side:
- *  a frame-processing failure in `readFramedLines` has ONE uniform response
- *  for every consumer — stop the reader (`read.destroy(err)`, #1859) — so the
- *  codec owns it inline; only the *write* failure's response is per-consumer
- *  and stays in the caller's `write.on("error", …)`. The rule is "uniform
- *  response ⇒ in the codec, per-consumer response ⇒ in the callback", not
- *  "framing in the codec, lifecycle in the callback" — do not "fix" the read
- *  catch back to a bare reject on that misreading. */
+ *  The read half's lifecycle split is documented on `readFramedLines`. */
 function writeFramedMessage(
   write: Writable,
   message: string | ArrayBufferLike | Uint8Array,
@@ -138,6 +131,16 @@ export function framedSend(
  *  the reader alive (the pre-#1859 zombie: promise rejected, stream still
  *  flowing frames into a consumer that already tore down).
  *
+ *  Why the codec owns this response inline (vs. the write half's per-consumer
+ *  guard): a frame-processing failure here has ONE uniform response for every
+ *  consumer — stop the reader (`read.destroy(err)`) — so it belongs in the
+ *  codec, whereas a dead *write* stream's response differs per consumer (client
+ *  closes its link, server ends its serve loop) and stays in each caller's
+ *  `write.on("error", …)`. The rule is "uniform response ⇒ in the codec,
+ *  per-consumer response ⇒ in the callback", not "framing in the codec,
+ *  lifecycle in the callback" — do not "fix" the catch below back to a bare
+ *  reject on that misreading.
+ *
  *  The `'close'` edge is part of the declared contract, not an accident: a
  *  `destroy()` with no error emits neither `'end'` nor `'error'` — only
  *  `'close'` — so without it the promise would hang forever. Peer-server's
@@ -167,18 +170,10 @@ export async function readFramedLines(
         try {
           onFrame(decodeFrame(line));
         } catch (err) {
-          // #1859: a synchronous frame-handler failure must STOP the reader,
-          // not merely settle the promise. Destroy the read stream WITH the
-          // wrapped error: Node emits a single 'error' into the still-attached
-          // `read.on("error", reject)` below, so settlement is CAUSED by stream
-          // termination — "settled ⟹ stopped" then holds by identity, with no
-          // second fact to keep in step. A destroyed stream emits no further
-          // 'data' (a Node guarantee), so no later frame can be dispatched, and
-          // the trailing 'close' is a no-op on the already-rejected promise.
-          // `return` abandons the REST of this chunk — the loop is mid-flight,
-          // and merely detaching a listener would not stop it (the RED pin
-          // feeds poison + valid frames in one chunk to catch exactly that);
-          // future chunks cannot arrive on a destroyed stream.
+          // Destroy the stream WITH the error so settlement routes through the
+          // still-attached `read.on("error", reject)` below; `return` abandons
+          // the rest of this in-flight chunk. Why this preserves "settled ⟹
+          // stopped" is proved in the `readFramedLines` docstring above.
           read.destroy(
             new ORPCError("SURFACE_STDIO_FRAME_HANDLER_FAILED", {
               message: `An inbound stdio frame handler (\`onFrame\`) threw synchronously, so the reader has been stopped and its stream destroyed. Underlying error: ${(err as Error).message}`,
