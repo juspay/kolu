@@ -5,7 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { StalledLeg } from "./canvasModeResolver";
-import { BOOT_STALLED_COPY, bootStalledCopy } from "./bootStalledCopy";
+import {
+  BOOT_STALLED_COPY,
+  bootStalledCopy,
+  bootStalledPhaseDetail,
+} from "./bootStalledCopy";
 
 const ALL_LEGS: StalledLeg[] = [
   "provisioning",
@@ -35,5 +39,21 @@ describe("bootStalledCopy", () => {
   it("each leg's title is distinct — no leg silently reuses another's card", () => {
     const titles = ALL_LEGS.map((leg) => bootStalledCopy(leg).title);
     expect(new Set(titles).size).toBe(titles.length);
+  });
+});
+
+describe("bootStalledPhaseDetail", () => {
+  it("names the two provisioning phases with distinct, non-empty detail lines", () => {
+    const copying = bootStalledPhaseDetail("copying");
+    const building = bootStalledPhaseDetail("building");
+    expect(copying).toBeTruthy();
+    expect(building).toBeTruthy();
+    expect(copying).not.toEqual(building);
+  });
+
+  it("has no detail for the handshake phases or the pre-frame gap", () => {
+    for (const phase of ["probing", "connecting", undefined] as const) {
+      expect(bootStalledPhaseDetail(phase)).toBeUndefined();
+    }
   });
 });

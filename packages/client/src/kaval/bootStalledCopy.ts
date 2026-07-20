@@ -13,6 +13,7 @@
  *  not "failed"), and the wedged-remote-provisioning copy names the phase (rendered beside
  *  this static body from `mode.phase`) rather than pretending a long build failed instantly. */
 
+import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import type { StalledLeg } from "./canvasModeResolver";
 
 /** A leg's card copy — a short title and a plain-language body. Both non-empty
@@ -72,4 +73,23 @@ export const BOOT_STALLED_COPY = {
  *  {@link BOOT_STALLED_COPY} by construction. */
 export function bootStalledCopy(leg: StalledLeg): BootStalledCopy {
   return BOOT_STALLED_COPY[leg];
+}
+
+/** The live provisioning-phase DETAIL line, rendered beside the static leg copy so a wedged
+ *  remote build names WHERE it is stuck rather than showing a bare title. Lives HERE (this is
+ *  the boot-stalled card's copy authority — the module doc's own claim) rather than inline in
+ *  `BootStalledCanvas`, so all of the card's plain-language copy has one home and one test.
+ *  Only the two provisioning phases narrate a detail; every other phase (and the pre-frame
+ *  `undefined`) has none — the leg copy already says enough. */
+export function bootStalledPhaseDetail(
+  phase: ConnectPhase | undefined,
+): string | undefined {
+  switch (phase) {
+    case "copying":
+      return "Still copying the recipe to the host…";
+    case "building":
+      return "Still building on the host…";
+    default:
+      return undefined;
+  }
 }

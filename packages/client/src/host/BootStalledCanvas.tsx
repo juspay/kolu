@@ -21,7 +21,10 @@
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
 import type { StalledLeg } from "../kaval/canvasModeResolver";
-import { bootStalledCopy } from "../kaval/bootStalledCopy";
+import {
+  bootStalledCopy,
+  bootStalledPhaseDetail,
+} from "../kaval/bootStalledCopy";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
@@ -34,13 +37,9 @@ const BootStalledCanvas: Component<{
 }> = (props) => {
   const copy = () => bootStalledCopy(props.leg);
   // Render the live provisioning phase beside the static copy (C4) — so a wedged remote build
-  // names WHERE it is stuck ("Still copying" / "Still building") rather than a bare title.
-  const detail = () =>
-    props.phase === "copying"
-      ? "Still copying the recipe to the host…"
-      : props.phase === "building"
-        ? "Still building on the host…"
-        : undefined;
+  // names WHERE it is stuck ("Still copying" / "Still building") rather than a bare title. The
+  // phase→detail wording lives in the copy authority (`bootStalledCopy.ts`), not inline here.
+  const detail = () => bootStalledPhaseDetail(props.phase);
   const actions = (): CanvasFailureAction[] => [
     // A fresh boot re-runs every leg's subscription from a clean context — the honest "try
     // again" for a hung boot (the app has no per-leg re-subscribe from here).
