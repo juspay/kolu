@@ -362,6 +362,54 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
   });
 });
 
+describe("resolveCanvasMode — #1763 boot-deadline escape (RED: the no-escape holes)", () => {
+  // #1763 diagnosis (BOOT1): the connect overlay ("Connecting to local…") is held open by
+  // ANY of three independent legs — membership (`entry: "not-a-member"` ⇒ `activeScope()`
+  // undefined), the session/list `isLoading` leg, or the daemon `daemonPending` leg — but the
+  // ONLY timeout escape (`pendingTimedOut` → down/dead) is fed exclusively by the DAEMON leg
+  // (`useDaemonStatus.daemonStatusPendingTimedOut`, tied to `daemonStatusPending()`). So a
+  // NON-daemon leg stuck past the boot deadline spins forever with no escape and no watchdog.
+  //
+  // The fix (DESIGN-1763, gated) gives the resolver a SINGLE boot-deadline fact — provisionally
+  // `bootTimedOut`, computed by watching the OUTCOME (overlay still up past one app-start anchor),
+  // so it covers every leg by construction — and escapes to an honest failure surface. These REDs
+  // pin the resolver CONTRACT: given the boot deadline exceeded, a stuck-loading state must NOT
+  // stay `connecting`. Cast because `CanvasFacts` has no `bootTimedOut` field TODAY — that ABSENCE
+  // is the defect. Phase C adds the field + consumes it, then drops the cast and flips `.fails`→`it`.
+  const pastBootDeadline = (f: CanvasFacts): CanvasFacts =>
+    ({ ...f, bootTimedOut: true }) as CanvasFacts;
+
+  it.fails("Hole B — a CONNECTED host stuck on the session/list leg past the boot deadline must escape (today `pendingTimedOut` is daemon-only, so it spins)", () => {
+    // daemon leg DELIVERED (`daemonPending: false`, so `pendingTimedOut` stays false — it is
+    // gated on `daemonStatusPending()`), but the session cell / terminalKeys stream never
+    // yielded and never errored ⇒ `isLoading: true`. Past the boot deadline this must leave
+    // the connect overlay; today it returns `connecting` forever.
+    const stuck = connected({
+      isLoading: true,
+      daemonPending: false,
+      pendingTimedOut: false,
+      terminalCount: 0,
+    });
+    expect(resolveCanvasMode(pastBootDeadline(stuck)).kind).not.toBe(
+      "connecting",
+    );
+  });
+
+  it.fails("Hole A — a NOT-A-MEMBER active host (membership never grounded) past the boot deadline must escape (today `activeScope()` is undefined so the anchor is never stamped, and the ceiling can never fire)", () => {
+    // The local-active boot where `entries` never snapshots local: `activeScope()` is
+    // undefined, so `daemonPendingAnchorMs` is never stamped and `daemonStatusPendingTimedOut()`
+    // returns false FOREVER — the escape valve sits downstream of the very thing that is stuck.
+    const stuck: CanvasFacts = {
+      ...liveness,
+      entry: "not-a-member",
+      connectPhase: undefined,
+    };
+    expect(resolveCanvasMode(pastBootDeadline(stuck)).kind).not.toBe(
+      "connecting",
+    );
+  });
+});
+
 describe("resolveCanvasMode — the incompatible (proven-skew) verdict, SK4", () => {
   it("flows to the down mode WITH its typed version payload — the skew card renders both versions", () => {
     expect(
