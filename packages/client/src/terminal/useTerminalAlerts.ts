@@ -4,6 +4,7 @@
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
   type AgentInfo,
+  agentBucket,
   alertClass,
   type TerminalId,
 } from "kolu-common/surface";
@@ -61,7 +62,7 @@ export function useTerminalAlerts(deps: {
   // keeps `undefined` from doing two jobs: a terminal we tracked last tick whose
   // agent state was undefined *then* is distinguished from a first sighting, so an
   // agent that appears and jumps straight into the notify class still fires
-  // (`checkAgentFinished` treats an undefined `prev` as non-notify).
+  // (`advanceAlertEpisode` treats an undefined `prev` as non-notify).
   //
   // Snapshot the ACTIVE HOST alongside the states and SKIP the whole diff on a host
   // change. `has(id)` alone assumes ids are disjoint across hosts, which holds for
@@ -72,6 +73,26 @@ export function useTerminalAlerts(deps: {
   // one host's `awaiting_user` against the other's non-notify state and re-fire the
   // exact phantom this change removes. Gating on the host makes it impossible by
   // construction: after a switch every terminal is a first sighting on the new host.
+  // The attention-EPISODE latch (#1177): per-terminal "we already chimed for the
+  // current attention episode." An episode is a maximal run inside the notify
+  // class ({waiting, awaiting_user}); it ends only when the agent returns to a
+  // WORK state — NOT when it merely drops from `awaiting_user` to `waiting`. That
+  // work-state reset is the load-bearing discriminator: a genuinely new gate
+  // ALWAYS passes through a work state (the user re-engaged, the agent worked,
+  // then asked), whereas scrape/JSONL settle jitter (`awaiting_user → waiting →
+  // awaiting_user`, or `thinking → waiting → awaiting_user`) never does. So the
+  // latch lets a real gate over an already-`waiting` row chime once (the bug),
+  // while collapsing both jitter shapes to a single chime.
+  //
+  // It's a LEAF, not a volatility boundary: client-only alert bookkeeping over a
+  // bounded algorithm, no transport/persistence/reconnect — so it lives here
+  // beside the transition diff, never folded into the pure `agentProjection`
+  // vocabulary. Host-scoped exactly like that diff: cleared on a host change (so a
+  // latch can't cross to a session-imported id that lives on another host) and
+  // pruned to the tracked set each run (so a departed id can't leave a ghost latch
+  // that a same-host id reuse — drain/restore, sleep-wake re-seed — would inherit).
+  const chimed = new Set<TerminalId>();
+
   createEffect(
     on(
       () => ({
@@ -86,11 +107,27 @@ export function useTerminalAlerts(deps: {
         ),
       }),
       (curr, prev) => {
-        if (!prev || prev.host !== curr.host) return;
+        // A host change (and the first run) makes every terminal a fresh first
+        // sighting: drop all episode memory, the same reason the transition diff
+        // can't span hosts.
+        const sameHost = prev !== undefined && prev.host === curr.host;
+        if (!sameHost) chimed.clear();
         for (const [id, next] of curr.states) {
-          if (prev.states.has(id))
-            checkAgentFinished(id, prev.states.get(id), next);
+          if (sameHost && prev.states.has(id)) {
+            advanceAlertEpisode(id, prev.states.get(id), next);
+          } else if (isAwaiting(next)) {
+            // First sighting ALREADY in the awaiting bucket: pre-latch it, so a
+            // settle-flap around a first sighting (`awaiting_user → waiting →
+            // awaiting_user`) can't manufacture a phantom chime the old entry
+            // rule never produced. A first sighting at `waiting` is left
+            // UNLATCHED so a genuine gate landing over it still fires (#1177) —
+            // only the awaiting bucket pre-latches.
+            chimed.add(id);
+          }
         }
+        // Prune the latch to the tracked set (retain-intersection): an id that
+        // left `terminalIds()` must not leave a ghost latch behind.
+        for (const id of chimed) if (!curr.states.has(id)) chimed.delete(id);
       },
     ),
   );
@@ -105,20 +142,77 @@ export function useTerminalAlerts(deps: {
   const notifies = (state: string | undefined): boolean =>
     state !== undefined && alertClass(state as AgentInfo["state"]) === "notify";
 
-  function checkAgentFinished(
+  // Whether a reactive-history state value is the `awaiting` paint bucket — a
+  // LIVE human gate (`awaiting_user`), as opposed to the post-turn `waiting`
+  // lull. Read through the fenced `agentBucket` fold (never a raw `awaiting_user`
+  // literal) so a future attention-flavored state — say `awaiting_permission` —
+  // must force a decision at the fence rather than silently skipping escalation.
+  // Undefined-safe like `notifies`.
+  const isAwaiting = (state: string | undefined): boolean =>
+    state !== undefined &&
+    agentBucket(state as AgentInfo["state"]) === "awaiting";
+
+  // Whether the user is actively watching THIS exact terminal — its tile is the
+  // active one AND kolu has focus. This is the one predicate behind both the
+  // external-alert suppression (`alertForTerminal`) and the "eyes" latch channel
+  // (`advanceAlertEpisode`): a live gate the user is looking right at counts as
+  // seen — independent of the alert pref, since their eyes work with sound off.
+  const isWatching = (id: TerminalId): boolean =>
+    id === deps.activeId() && document.hasFocus();
+
+  function advanceAlertEpisode(
     id: TerminalId,
     prev: string | undefined,
     next: string | undefined,
   ) {
-    if (!activityAlerts()) return;
-    // Fire on ENTRY into the notify class (waiting or awaiting_user). Treating
-    // the two as one class means we don't double-alert when the agent flips
-    // between them in one session.
-    if (!notifies(next) || notifies(prev)) return;
-    alertForTerminal(id);
+    // The episode RESET runs unconditionally (the latch SET is delivery-gated
+    // below). Skipping the reset while alerts are off would freeze the latch —
+    // then a genuine gate after re-enable is swallowed by stale memory (the very
+    // #1177 symptom, reintroduced through the toggle).
+    if (!notifies(next)) {
+      // Work / no-agent ends the episode — the next notify entry is genuinely new.
+      chimed.delete(id);
+      return;
+    }
+    const nextAwaiting = isAwaiting(next);
+    // A candidate to chime is either ENTRY into the notify class (the existing
+    // `thinking/waiting → notify` rule) OR an ESCALATION into the awaiting bucket
+    // (a live gate) from a non-awaiting state — the latter is what lets a gate
+    // landing over an already-`waiting` row chime (#1177).
+    const classEntry = !notifies(prev);
+    const escalation = nextAwaiting && !isAwaiting(prev);
+    if (!classEntry && !escalation) return;
+    // At most ONE chime per episode: the latch collapses flap/settle jitter.
+    if (chimed.has(id)) return;
+    // Latch when the user has been MADE AWARE of this notify state — through
+    // either channel, and the EYES channel is independent of the alert pref:
+    //   • `delivered` — an external alert (sound / OS notification / dock unread)
+    //     actually fired: alerts on AND the tile is backgrounded or kolu
+    //     unfocused; or
+    //   • `nextAwaiting && watching` — the user is looking right at a LIVE gate
+    //     (active tile + focused + `awaiting_user`). Their eyes are the channel
+    //     whether or not sound is on, so a later scrape-jitter flap must not
+    //     re-chime a gate they already saw — even across an alerts-off→on toggle.
+    // A `waiting` finish seen while watched is NOT latched (the #1177 class): a
+    // genuine gate arriving after the user looks away is new, actionable info and
+    // must still chime. So a `waiting` finish latches only on external delivery;
+    // an `awaiting_user` gate latches on delivery OR on being watched. The
+    // episode RESET stays unconditional; in the common background case delivery
+    // always succeeds, so flap/settle dedup is unchanged. `alertForTerminal` is
+    // called only when alerts are on (it self-gates delivery) — the eyes latch
+    // needs no alert.
+    const watching = isWatching(id);
+    const delivered = activityAlerts()
+      ? alertForTerminal(id, nextAwaiting)
+      : false;
+    if (delivered || (nextAwaiting && watching)) chimed.add(id);
   }
 
-  function alertForTerminal(id: TerminalId) {
+  /** Surface a terminal's alert, returning whether anything actually reached the
+   *  user (sound / OS notification / dock unread) — `false` when suppressed
+   *  because the user is actively watching this very terminal. The caller latches
+   *  the episode only on a `true` return. */
+  function alertForTerminal(id: TerminalId, awaiting: boolean): boolean {
     const isBackground = id !== deps.activeId();
     if (isBackground) deps.markUnread(id);
     // Alert unless the user is *actively watching this very terminal* — i.e.
@@ -132,8 +226,17 @@ export function useTerminalAlerts(deps: {
     // The finished terminal lives on the host that is active right now (this
     // module watches the active host's terminals). Stamp that host onto the
     // notification so a click after a host-switch returns to the right padi.
-    if (isBackground || !document.hasFocus())
-      fireActivityAlert(deps.getSubject(id), id, encodeHostKey(activeHost()));
+    // `!isWatching(id)` is exactly `isBackground || !document.hasFocus()` — the
+    // one predicate, shared with the episode's eyes-latch channel.
+    const deliver = !isWatching(id);
+    if (deliver)
+      fireActivityAlert(
+        deps.getSubject(id),
+        id,
+        encodeHostKey(activeHost()),
+        awaiting,
+      );
+    return deliver;
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {
@@ -144,7 +247,10 @@ export function useTerminalAlerts(deps: {
         : deps.terminalIds().filter((id) => id !== deps.activeId());
     const pick = ids[Math.floor(Math.random() * ids.length)];
     if (pick === undefined) return;
-    alertForTerminal(pick);
+    alertForTerminal(
+      pick,
+      isAwaiting(activeArm(deps.getMetadata(pick))?.agent?.state),
+    );
   }
 
   // Expose for e2e test access (type from "kolu-common/test-hooks"). Installed
