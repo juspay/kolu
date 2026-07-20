@@ -242,8 +242,8 @@ so a consumer reading `getDisplayInfo(id).meta.pr` off that snapshot saw a value
 frozen at the last `git` / `cwd` / membership change — the canvas tile title bar
 lagged the dock on PR resolution (the dock reads the live `getMetadata(id)`
 proxy; the header read the snapshot). This is the *reactively-correct* shape: a
-memo hands out only what it invalidates on. **Fixed** — `meta` is removed from
-`TerminalDisplayInfo` entirely, so every live fact (pr / agent / foreground /
+memo hands out only what it invalidates on. **Fixed** <PrLink pr={1897} /> —
+`meta` is removed from `TerminalDisplayInfo` entirely, so every live fact (pr / agent / foreground /
 intent / git) now reads from `getMetadata(id)` — the fine-grained store proxy —
 at each consumer's own leaf, and the header tracks the same leaf the dock does. A
 `terminalDisplay.test.ts` guard asserts the display info can never again carry a
