@@ -145,7 +145,7 @@ const TerminalMeta: Component<{
                     ? "Edit terminal intent"
                     : "Set terminal intent"
                 }
-                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate min-w-0 cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                 style={{ color: info().annotationColor }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
