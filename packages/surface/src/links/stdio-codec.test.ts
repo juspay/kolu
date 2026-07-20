@@ -98,16 +98,16 @@ describe("framedSend", () => {
 });
 
 /**
- * The read half's lifecycle invariant (#1859): SETTLED ⟹ STOPPED. The promise
- * never settles while the reader is still live. `'end'`/`'close'` resolve (the
- * stream has already terminated); every reject goes through `stopAndReject`,
- * which destroys the reader FIRST (Node sets `destroyed` synchronously) and only
- * then rejects — so "stopped" strictly precedes "settled", by construction, for
- * any `Readable`. Before the fix the frame-handler arm was a bare `reject()`
- * that left the `'data'` listener attached and the stream flowing, so the loop
- * kept decoding and dispatching frames the consumer's promise had already
- * reported as "done" (on the override arm: a zombie connection, bookkeeping
- * dead / socket alive).
+ * These pin the read half's SETTLED ⟹ STOPPED invariant (#1859) — a settled
+ * `readFramedLines` never keeps dispatching. The invariant and its
+ * `stopAndReject` construction are documented on `readFramedLines` itself; this
+ * suite pins the behavior: a synchronous `onFrame` failure stops the reader and
+ * dispatches no later frame, pre-poison frames in the same chunk still dispatch,
+ * an error-free `destroy()` resolves, and the reject paths hold even for a
+ * `_destroy` that swallows the error or an `'error'` emitted while the stream
+ * stays open. Before the fix the frame-handler arm was a bare `reject()` that
+ * left the reader live — the override-arm zombie (bookkeeping dead / socket
+ * alive).
  */
 describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
   it("on a synchronous onFrame failure, dispatches NO later frame and destroys the read stream", async () => {

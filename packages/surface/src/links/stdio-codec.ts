@@ -161,13 +161,11 @@ export async function readFramedLines(
   read.setEncoding("utf-8");
   let buffer = "";
   return new Promise<void>((resolve, reject) => {
-    // The one reject path, and the thing that makes SETTLED ⟹ STOPPED hold by
-    // construction (see the docstring): destroy the reader FIRST — Node marks it
-    // `destroyed` synchronously, so no later 'data' can fire — then reject. It
-    // does not depend on `destroy()` echoing an 'error' back into a listener.
-    // Idempotent: `destroy()` no-ops once destroyed and `reject` is
-    // first-settle-wins, so the frame-handler catch and a stream 'error' can
-    // both route here without double-stopping or double-settling.
+    // The one reject path (see the docstring's SETTLED ⟹ STOPPED invariant):
+    // destroy the reader, then reject. Idempotent — `destroy()` no-ops once
+    // destroyed and `reject` is first-settle-wins — so the frame-handler catch
+    // and a stream 'error' can both route here without double-stopping or
+    // double-settling.
     const stopAndReject = (failure: unknown) => {
       if (!read.destroyed) read.destroy();
       reject(failure);
