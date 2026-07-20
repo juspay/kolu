@@ -553,13 +553,27 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
-  /* Opaque tint (surface-2 is opaque) so rows scroll cleanly under
-   * the pinned header with no bleed-through. */
-  background: color-mix(
-    in oklch,
-    var(--repo-color) 16%,
-    var(--color-surface-2)
-  );
+  /* Neutral + opaque — matches the dock body (`bg-surface-1`) so the header
+   * reads as no band at all: the repo colour rides the name chip below and
+   * the section's left spine. Opaque so rows scroll cleanly under the pinned
+   * header with no bleed-through. */
+  background: var(--color-surface-1);
+}
+/* The repo name is a filled colour chip — a tag. The old treatment painted
+ * the name in the raw `--repo-color` (a light `L=0.75`) on a light tinted
+ * band, so in light mode it washed out (light-on-light). A solid chip pops on
+ * any ground, per theme: dark mode uses the bright repo colour with dark text
+ * (chip lifts off the dark dock); light mode deepens the chip toward the
+ * foreground and uses white text (a bold tag on the light dock). */
+.dock-cards-section-name {
+  background: var(--repo-color);
+  color: var(--color-surface-0);
+  padding: 0.1rem 0.4rem;
+  border-radius: 5px;
+}
+:root:not(.dark) .dock-cards-section-name {
+  background: color-mix(in oklch, var(--repo-color) 82%, var(--color-fg));
+  color: #fff;
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────
