@@ -12,10 +12,13 @@ import { PassThrough } from "node:stream";
 import { oc } from "@orpc/contract";
 import type { Router } from "@orpc/server";
 import { implement } from "@orpc/server";
-import { describe, expect, it } from "vitest";
+import type { StandardRequest } from "@orpc/standard-server";
+import { ClientPeer } from "@orpc/standard-server-peer";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { stdioLink } from "./links/stdio";
+import { encodeFrame } from "./links/stdio-codec";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
@@ -147,5 +150,119 @@ describe("serveOverStdio — settled-result contract", () => {
     void client.add({ a: 2, b: 3 }).catch(() => {});
 
     await expect(serving).resolves.toEqual({ reason: "end" });
+  });
+});
+
+/**
+ * The #1859 zombie, one level up: when `serveOverStdio` settles
+ * `{ reason: "error" }` because the read loop hit a synchronous failure, the
+ * transport must actually be CLOSED — otherwise the socket stays alive while
+ * the server-side accounting believes the connection is over, and later frames
+ * keep reaching the (already closed) `ServerPeer`. This is the override-arm
+ * harm the issue names (`serveOverUnixSocket`'s per-connection serves over one
+ * shared `net.Socket`).
+ *
+ * Reproduction note (repo rule #1690 — the inherited diagnosis is a hypothesis
+ * until reproduced): a *corrupt inbound frame* does NOT reach this reject arm
+ * through `serveOverStdio` today — `peer.message()` swallows a bad frame as a
+ * caught rejection, never a synchronous throw, so the serve stays pending. The
+ * only reject-arm trigger reachable through the real serve path is a
+ * SYNCHRONOUS `onFrame` throw, of which the documented `onFirstRequest` hook is
+ * the one production lever. The zombie itself is real: before the fix, with the
+ * serve settled, a later genuine request still invoked the router handler.
+ */
+describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", () => {
+  it("a serve settled {reason:'error'} closes the transport and stops reaching the router", async () => {
+    const contract = {
+      add: oc.input(z.object({ a: z.number() })).output(z.number()),
+    };
+    const t = implement(contract);
+    let handlerCalls = 0;
+    const router = t.router({
+      add: t.add.handler(({ input }) => {
+        handlerCalls++;
+        return input.a;
+      }),
+    });
+
+    // Capture ONE genuine encoded request frame to replay AFTER the serve has
+    // settled — the decisive "did a later frame still reach the peer?" probe.
+    // A garbage frame can't witness this (peer.message swallows it with no
+    // router side effect); only a valid request invokes the handler.
+    // `send` emits the raw `EncodedMessage` union `encodeFrame` accepts, so keep
+    // that type — no cast needed at capture or replay.
+    const captured: (string | ArrayBufferLike | Uint8Array)[] = [];
+    const clientPeer = new ClientPeer((m) => {
+      captured.push(m);
+    });
+    const request: StandardRequest = {
+      method: "POST",
+      url: new URL("http://orpc/add"),
+      headers: {},
+      body: { json: { a: 7 }, meta: [] },
+      signal: undefined,
+    };
+    // Fire-and-swallow: this request exists ONLY to make `send` emit one encoded
+    // request frame (captured above). The mock router side never replies, so the
+    // request never resolves; its eventual teardown rejection is expected and
+    // irrelevant to what this test pins.
+    void clientPeer.request(request).catch(() => {});
+    await vi.waitFor(() => expect(captured).toHaveLength(1));
+
+    // The unix-socket shape: ONE duplex is both read and write. `onFirstRequest`
+    // throwing is the reachable synchronous read-loop failure (see the note
+    // above) that drives readFramedLines' frame-handler-failure reject arm.
+    const duplex = new PassThrough();
+    duplex.on("error", () => {}); // absorb the post-settle write on a destroyed stream
+    const serving = serveOverStdio({
+      router,
+      transport: { read: duplex, write: duplex },
+      onFirstRequest: () => {
+        throw new Error("synchronous read-loop failure");
+      },
+    });
+    duplex.write(`${encodeFrame("first")}\n`);
+
+    await expect(serving).resolves.toMatchObject({ reason: "error" });
+
+    // The transport is actually closed — no zombie (dead by accounting yet
+    // alive by socket).
+    expect(duplex.destroyed).toBe(true);
+
+    // …and a later genuine request does NOT reach the router: the destroyed
+    // stream delivers no further 'data', so the handler is never invoked.
+    const requestFrame = captured[0];
+    if (requestFrame === undefined) {
+      throw new Error("expected a captured request frame to replay");
+    }
+    duplex.write(`${encodeFrame(requestFrame)}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(handlerCalls).toBe(0);
+  });
+
+  it("an async onFirstRequest is rejected loudly (→ reason 'error'), not left to escape as an unhandled rejection", async () => {
+    // `onFirstRequest` is typed `() => void`, but TS's void-return compatibility
+    // lets an `async () => {}` satisfy it. Such a hook's rejection would escape
+    // the synchronous read loop as an unhandled rejection; the call site instead
+    // throws on a thenable return, routing it through the same classified arm a
+    // synchronous throw takes.
+    const read = new PassThrough();
+    const write = new PassThrough();
+    const serving = serveOverStdio({
+      router: buildRouter(),
+      transport: { read, write },
+      // Returns a Promise<void> — satisfies `() => void`, but is NOT synchronous.
+      onFirstRequest: async () => {},
+    });
+    read.write(`${encodeFrame("first")}\n`);
+    const end = await serving;
+    expect(end).toMatchObject({ reason: "error" });
+    // The codec wraps the guard throw as SURFACE_STDIO_FRAME_HANDLER_FAILED and
+    // carries the original on `cause`.
+    const error = (end as { error: { code?: string; cause?: unknown } }).error;
+    expect(error).toMatchObject({ code: "SURFACE_STDIO_FRAME_HANDLER_FAILED" });
+    expect((error.cause as Error).message).toMatch(
+      /onFirstRequest must be synchronous/,
+    );
   });
 });
