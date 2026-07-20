@@ -203,7 +203,7 @@ function setupReconcile(init: {
       parentOf: (id) => parents()[id] ?? null,
       activeHostKey: host,
       evictDeparted: eviction.evictDeparted,
-      isDaemonConnected: connected,
+      listIsAuthoritative: connected,
     });
     handles = {
       setRawIds,
