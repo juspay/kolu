@@ -120,7 +120,8 @@ export function framedSend(
 
 /** Read line-delimited frames off `read` until the stream ends. Each
  *  non-empty line is base64-decoded and dispatched to `onFrame`. Returns
- *  a Promise that resolves on `'end'` OR `'close'` and rejects on `'error'`.
+ *  a Promise that resolves on `'end'` OR `'close'` and rejects on `'error'` or
+ *  a synchronous `onFrame` failure (see the SETTLED ⟹ STOPPED invariant below).
  *
  *  Invariant — SETTLED ⟹ STOPPED (#1859): the promise never settles while the
  *  reader is still live. `'end'`/`'close'` resolve (the stream has already

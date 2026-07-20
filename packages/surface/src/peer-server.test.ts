@@ -189,9 +189,11 @@ describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", (
     // settled — the decisive "did a later frame still reach the peer?" probe.
     // A garbage frame can't witness this (peer.message swallows it with no
     // router side effect); only a valid request invokes the handler.
-    const captured: Uint8Array[] = [];
+    // `send` emits the raw `EncodedMessage` union `encodeFrame` accepts, so keep
+    // that type — no cast needed at capture or replay.
+    const captured: (string | ArrayBufferLike | Uint8Array)[] = [];
     const clientPeer = new ClientPeer((m) => {
-      captured.push(m as Uint8Array);
+      captured.push(m);
     });
     const request: StandardRequest = {
       method: "POST",
@@ -200,6 +202,10 @@ describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", (
       body: { json: { a: 7 }, meta: [] },
       signal: undefined,
     };
+    // Fire-and-swallow: this request exists ONLY to make `send` emit one encoded
+    // request frame (captured above). The mock router side never replies, so the
+    // request never resolves; its eventual teardown rejection is expected and
+    // irrelevant to what this test pins.
     void clientPeer.request(request).catch(() => {});
     await vi.waitFor(() => expect(captured).toHaveLength(1));
 
@@ -225,8 +231,38 @@ describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", (
 
     // …and a later genuine request does NOT reach the router: the destroyed
     // stream delivers no further 'data', so the handler is never invoked.
-    duplex.write(`${encodeFrame(captured[0] as Uint8Array)}\n`);
+    const requestFrame = captured[0];
+    if (requestFrame === undefined) {
+      throw new Error("expected a captured request frame to replay");
+    }
+    duplex.write(`${encodeFrame(requestFrame)}\n`);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(handlerCalls).toBe(0);
+  });
+
+  it("an async onFirstRequest is rejected loudly (→ reason 'error'), not left to escape as an unhandled rejection", async () => {
+    // `onFirstRequest` is typed `() => void`, but TS's void-return compatibility
+    // lets an `async () => {}` satisfy it. Such a hook's rejection would escape
+    // the synchronous read loop as an unhandled rejection; the call site instead
+    // throws on a thenable return, routing it through the same classified arm a
+    // synchronous throw takes.
+    const read = new PassThrough();
+    const write = new PassThrough();
+    const serving = serveOverStdio({
+      router: buildRouter(),
+      transport: { read, write },
+      // Returns a Promise<void> — satisfies `() => void`, but is NOT synchronous.
+      onFirstRequest: async () => {},
+    });
+    read.write(`${encodeFrame("first")}\n`);
+    const end = await serving;
+    expect(end).toMatchObject({ reason: "error" });
+    // The codec wraps the guard throw as SURFACE_STDIO_FRAME_HANDLER_FAILED and
+    // carries the original on `cause`.
+    const error = (end as { error: { code?: string; cause?: unknown } }).error;
+    expect(error).toMatchObject({ code: "SURFACE_STDIO_FRAME_HANDLER_FAILED" });
+    expect((error.cause as Error).message).toMatch(
+      /onFirstRequest must be synchronous/,
+    );
   });
 });
