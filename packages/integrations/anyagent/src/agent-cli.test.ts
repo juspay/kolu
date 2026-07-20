@@ -227,8 +227,8 @@ describe("parseAgentCommand", () => {
   });
 
   // Regression (living-clue): a BOOLEAN stable flag must never consume the
-  // token after it. Before the `VALUE_FLAGS` allowlist, the normalizer attached
-  // the token following ANY kept stable flag as its "value", so
+  // token after it. Before per-flag arity was recorded in `STABLE_FLAGS`, the
+  // normalizer attached the token following ANY kept stable flag as its "value", so
   // `claude --dangerously-skip-permissions 'You are BOOT1. Read BRIEF-BOOT1.md…'`
   // kept the whole prompt — which then leaked verbatim into the recent-agents
   // MRU shown in the command palette. The prompt is a positional and must drop.
