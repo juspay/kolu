@@ -130,6 +130,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "The dock's Filters row has two chips: the activity window (hides stale terminals) and a ☾ chip that hides sleeping ones — click ☾ when you want the dock to show only what's awake",
   },
   {
+    id: "amb-dock-resize",
+    text: "In maximized mode, drag the dock's right edge to resize it — just like the right panel. Double-click the edge to reset the width.",
+  },
+  {
     id: "amb-terminal-intent",
     text: `Click the annotation slot in a tile's title bar (or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "Edit intent") to attach a note — line 1 supplants the branch name in dock/switcher; the rest renders as markdown`,
   },

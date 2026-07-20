@@ -92,7 +92,13 @@ import {
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
+import { capturePointerGesture } from "../viewport/capturePointerGesture";
 import { chipInitials } from "./chipInitials";
+import {
+  CARDS_WIDTH_PX,
+  dockCardsWidth,
+  setDockCardsWidth,
+} from "./dockCardsWidth";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
@@ -104,16 +110,18 @@ import { useDockOrder } from "./useDockOrder";
 
 export type DockMode = "rail" | "cards";
 
-// Rail width is shared with the right-panel rail via
-// `RAIL_WIDTH_PX` in `ui/chromeSpacing.ts` so the two collapsed
-// surfaces stay visually paired across the canvas axis.
-const CARDS_WIDTH_PX = 288;
+// Cards-mode width (default + resize bounds + the persisted per-device
+// pref) lives in its own leaf module so the pure clamp is testable
+// without the whole Dock graph. Rail width is shared with the
+// right-panel rail via `RAIL_WIDTH_PX` in `ui/chromeSpacing.ts` so the
+// two collapsed surfaces stay visually paired across the canvas axis.
 
 /** Width in pixels for a given mode. Drives both the outer aside's
  *  inline `width` style and (in maximized posture) the dock's flex
- *  footprint as a left-panel sibling of the canvas. */
+ *  footprint as a left-panel sibling of the canvas. Reactive on
+ *  `dockCardsWidth` for cards mode, so a drag reflows the aside live. */
 function dockWidth(mode: DockMode): number {
-  return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
+  return mode === "rail" ? RAIL_WIDTH_PX : dockCardsWidth();
 }
 
 // Holding the platform modifier (Cmd on macOS, Ctrl elsewhere) reveals
@@ -179,6 +187,29 @@ const Dock: Component<{
   const tree = useDockOrder();
   const posture = useViewPosture();
 
+  // Drag-to-resize the maximized cards dock — mirrors the right panel's
+  // handle. A fresh `AbortController` per gesture; `capturePointerGesture`
+  // (shared with tile resize / canvas pan) wires window pointermove/up and
+  // auto-unwires on release. Width is clamped by `setDockCardsWidth` and
+  // reflows the aside live (canvas `flex-1` sibling gives back the space).
+  let abortDockResize: AbortController | null = null;
+  function startDockResize(e: PointerEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = dockCardsWidth();
+    abortDockResize?.abort();
+    abortDockResize = new AbortController();
+    capturePointerGesture(
+      {
+        onMove: (ev) => setDockCardsWidth(startWidth + (ev.clientX - startX)),
+        onEnd: () => {
+          abortDockResize = null;
+        },
+      },
+      abortDockResize,
+    );
+  }
+
   return (
     <aside
       data-testid="dock"
@@ -212,6 +243,28 @@ const Dock: Component<{
         onCreate={props.onCreate}
         onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
       />
+      {/* Right-edge resize handle — only in the maximized cards sidebar,
+       *  where the dock is a real flex sibling of the canvas (the request:
+       *  resize it "just like the right panel"). Rail is a fixed chip strip
+       *  and the tiled float is a card, so neither offers the handle.
+       *  Invisible until hover; the col-resize cursor is the affordance —
+       *  a plain interactive div, matching the canvas tile resize handles
+       *  (CanvasTile) rather than a `role="separator"` widget (that path is
+       *  Corvu's, which owns its own keyboard/aria contract; a hand-rolled
+       *  separator would need a focusable aria-value range this drag has
+       *  no keyboard step for). Double-click resets to the default width.
+       *  `w-1.5` stays inside the aside's `overflow-hidden`, so no clipped
+       *  pseudo hit-area. */}
+      <Show when={posture.mode() === "maximized" && dockMode() === "cards"}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: pointer-only resize affordance, same as CanvasTile's edge/corner handles — the cursor is the affordance, keyboard resize isn't offered for this drag */}
+        <div
+          data-testid="dock-resize-handle"
+          class="absolute inset-y-0 right-0 z-40 w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors"
+          title="Drag to resize · double-click to reset"
+          onPointerDown={startDockResize}
+          onDblClick={() => setDockCardsWidth(CARDS_WIDTH_PX)}
+        />
+      </Show>
     </aside>
   );
 };
