@@ -149,17 +149,17 @@ describe("gone-verdict waits for an authoritative list (#1900 secondary)", () =>
   });
 
   it("defines the fact ONCE and shares it with the reconcile eviction gate", () => {
-    // The single authority: defined in useDaemonStatus (delegating to
-    // daemonConnected today), and useActiveReconcile's eviction gate reads the
-    // SAME name — so the deep-link census and the reconcile census can't drift.
+    // The single authority: defined once in useDaemonStatus and read by the SAME
+    // name in useActiveReconcile's eviction gate, so the deep-link census and the
+    // reconcile census can't drift. We pin the NAME + the shared wiring, NOT the
+    // current `return daemonConnected()` body — the source docstring flags that as
+    // temporary (the padi-side registry-reconciled marker, #1902), so pinning the
+    // body would break that planned follow-up while the fact's contract is intact.
     const daemonSrc = readFileSync(
       join(here, "kaval/useDaemonStatus.ts"),
       "utf8",
     );
     expect(daemonSrc).toContain("export function listIsAuthoritative()");
-    expect(daemonSrc).toMatch(
-      /export function listIsAuthoritative\(\)[^}]*return daemonConnected\(\);/s,
-    );
     const terminalsSrc = readFileSync(
       join(here, "terminal/useTerminals.ts"),
       "utf8",
