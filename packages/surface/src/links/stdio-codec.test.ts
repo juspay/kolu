@@ -98,15 +98,16 @@ describe("framedSend", () => {
 });
 
 /**
- * The read half's lifecycle invariant (#1859): SETTLED ⟹ STOPPED. Every way
- * `readFramedLines` settles is CAUSED by the read stream terminating, so a
- * settled read can never keep dispatching. The one path that isn't a stream
- * termination by nature — a synchronous throw out of `onFrame` — settles via
- * `read.destroy(err)`, which routes through the same `'error'` listener AND
- * stops the stream. Before the fix that arm was a bare `reject()` that left the
- * `'data'` listener attached and the stream flowing, so the loop kept decoding
- * and dispatching frames the consumer's promise had already reported as "done"
- * (on the override arm: a zombie connection, bookkeeping dead / socket alive).
+ * The read half's lifecycle invariant (#1859): SETTLED ⟹ STOPPED. The promise
+ * never settles while the reader is still live. `'end'`/`'close'` resolve (the
+ * stream has already terminated); every reject goes through `stopAndReject`,
+ * which destroys the reader FIRST (Node sets `destroyed` synchronously) and only
+ * then rejects — so "stopped" strictly precedes "settled", by construction, for
+ * any `Readable`. Before the fix the frame-handler arm was a bare `reject()`
+ * that left the `'data'` listener attached and the stream flowing, so the loop
+ * kept decoding and dispatching frames the consumer's promise had already
+ * reported as "done" (on the override arm: a zombie connection, bookkeeping
+ * dead / socket alive).
  */
 describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
   it("on a synchronous onFrame failure, dispatches NO later frame and destroys the read stream", async () => {
@@ -213,11 +214,12 @@ describe("readFramedLines — settled ⇒ reader stopped (#1859)", () => {
   });
 
   it("rejects (never resolves) even when the stream's _destroy swallows the error", async () => {
-    // "Stopped ⟹ settled" must not depend on `destroy(err)` echoing an 'error'
+    // Settling correctly must not depend on `destroy()` echoing an 'error'
     // event: a Readable whose `_destroy` completes with `cb()` (no error) emits
     // only 'close'. If the reject depended on the 'error' re-entry, a handler
-    // failure here would RESOLVE (misclassified clean end). The explicit reject
-    // after destroy makes it reject regardless of the stream impl.
+    // failure here would RESOLVE (misclassified clean end). `stopAndReject`
+    // rejects explicitly after destroy, so it rejects regardless of the stream
+    // impl.
     const read = new PassThrough({
       destroy(_err, cb) {
         cb(); // swallow: complete cleanup with NO error → only 'close', no 'error'
