@@ -116,7 +116,7 @@ home-manager:
 # builds the `.#default` drv directly, deduped against `nix`'s concurrent
 # build via store locking, and boots as soon as that one path is ready.
 smoke:
-    {{ nix_shell }} bash ci/smoke.sh
+    {{ nix_shell }} bash .apm/skills/ci/smoke.sh
 
 # No `nix` dep: `just test` builds `.#koluBin` itself (justfile `test`
 # recipe), so e2e needs only the pnpm deps `install` provides — not the full
@@ -187,7 +187,7 @@ atlas-sync:
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're
 # unreachable from `default` and the runner never schedules them. They manage
-# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that ci/pu/lease.sh
+# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that .apm/skills/ci/pu/lease.sh
 # leases per run (the box is pinned into the run via the odu MCP's `hosts`
 # argument), replacing the old fork-a-golden-per-run model. See .agency/do.md
 # and docs/pu-box-ci-ralph-report.md.
@@ -195,8 +195,8 @@ atlas-sync:
 # Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
 # healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
 pool-ensure:
-    bash ci/pu/pool.sh
+    bash .apm/skills/ci/pu/pool.sh
 
 # Report pool health without changing anything.
 pool-status:
-    bash ci/pu/pool.sh status
+    bash .apm/skills/ci/pu/pool.sh status

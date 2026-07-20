@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lease an idle pool box for an odu CI run, HOLD it for the run's duration, and
-# release on exit. This is the standalone successor to ci/pu/run.sh: it no longer
+# release on exit. This is the standalone successor to .apm/skills/ci/pu/run.sh: it no longer
 # wraps `odu run` — it only owns the box lease, so the run itself is driven
 # through the odu MCP server (`mcp__odu__run` with a `hosts` pin), which is now
 # the single front door to CI.
@@ -18,11 +18,11 @@
 # background (Claude Code: Bash run_in_background); it is the long-lived process
 # the lease lives in. The flow is:
 #
-#   ci/pu/lease.sh acquire <pr>   &   # background: leases, writes .ci/pu-lease.env, holds
+#   .apm/skills/ci/pu/lease.sh acquire <pr>   &   # background: leases, writes .ci/pu-lease.env, holds
 #   host=$(. .ci/pu-lease.env; echo "$PU_LEASE_HOST")   # x86_64-linux=<box>, or empty
 #   mcp__odu__run  hosts=[$host]                          # MCP owns the run
 #   mcp__odu__wait_for_settle
-#   ci/pu/lease.sh release                                # frees the box
+#   .apm/skills/ci/pu/lease.sh release                                # frees the box
 #
 # ─── Why the lease is RELIABLE (auto-releases even on SIGKILL) ───────────────
 # Unchanged from run.sh: the lock lives ON THE BOX (`flock`). We hold it from
@@ -42,12 +42,12 @@
 # self-releases after MAX_HOLD as a final backstop.
 #
 # Usage:
-#   ci/pu/lease.sh acquire <pr>   # lease + hold (BLOCKS — run in background)
-#   ci/pu/lease.sh release        # release the lease recorded in .ci/pu-lease.env
-#   ci/pu/lease.sh status         # per-box idle/leased snapshot (a flock probe)
+#   .apm/skills/ci/pu/lease.sh acquire <pr>   # lease + hold (BLOCKS — run in background)
+#   .apm/skills/ci/pu/lease.sh release        # release the lease recorded in .ci/pu-lease.env
+#   .apm/skills/ci/pu/lease.sh status         # per-box idle/leased snapshot (a flock probe)
 #
 # acquire prints `PU_LEASE_HOST=x86_64-linux=<box>` on stdout and writes the same,
-# plus run facts for ci/pu/report.sh, to .ci/pu-lease.env. A saturated/unreachable
+# plus run facts for .apm/skills/ci/pu/report.sh, to .ci/pu-lease.env. A saturated/unreachable
 # pool falls back — cold ephemeral `pu create` → empty pin (hosts.json resolves
 # the lane) — so CI is never blocked; an empty PU_LEASE_HOST means "no pin".
 set -uo pipefail
@@ -60,7 +60,7 @@ HEARTBEAT="${KOLU_CI_HEARTBEAT:-10}"         # keepalive interval; must be < TTL
 MAX_HOLD="${KOLU_CI_MAX_HOLD:-3600}"         # self-release backstop for a leaked holder (s)
 ENV_FILE="${KOLU_CI_LEASE_ENV:-.ci/pu-lease.env}"
 
-log() { echo "ci/pu/lease: $*" >&2; }
+log() { echo ".apm/skills/ci/pu/lease: $*" >&2; }
 cfg() { echo "$HOME/.pu-state/$1/ssh_config"; }
 dial() { local h="$1"; shift; ssh -F "$(cfg "$h")" -o ConnectTimeout=20 "$h" "$@"; }
 egress_ok() { dial "$1" 'timeout 12 curl -sf -o /dev/null https://cache.nixos.org/nix-cache-info' >/dev/null 2>&1; }
@@ -127,7 +127,7 @@ try_lease() {
 
 # ── acquire: lease a box (or fall back), record it, then hold until signalled ──
 acquire() {
-  local pr="${1:?usage: ci/pu/lease.sh acquire <pr>}"
+  local pr="${1:?usage: .apm/skills/ci/pu/lease.sh acquire <pr>}"
   trap 'release; exit 0' INT TERM
   trap release EXIT
 
@@ -155,7 +155,7 @@ acquire() {
   fi
 
   # Record the lease for the MCP caller (PU_LEASE_HOST → mcp__odu__run hosts) and
-  # for ci/pu/report.sh (PU_BOX / PU_SHA / PU_EPHEMERAL). An empty PU_LEASE_HOST
+  # for .apm/skills/ci/pu/report.sh (PU_BOX / PU_SHA / PU_EPHEMERAL). An empty PU_LEASE_HOST
   # means "no pin — let hosts.json resolve the lane".
   local sha pin
   sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -170,7 +170,7 @@ acquire() {
     echo "PU_PR=$pr"
   } >"$ENV_FILE"
   echo "PU_LEASE_HOST=$pin"
-  log "holding ${host:-<hosts.json>} for PR $pr — release with: ci/pu/lease.sh release"
+  log "holding ${host:-<hosts.json>} for PR $pr — release with: .apm/skills/ci/pu/lease.sh release"
 
   # Hold the lease until released/killed, or MAX_HOLD elapses (leak backstop).
   local waited=0
@@ -218,5 +218,5 @@ case "$cmd" in
   acquire) acquire "$@" ;;
   release) release_cmd ;;
   status)  status_cmd ;;
-  *) echo "usage: ci/pu/lease.sh {acquire <pr>|release|status}" >&2; exit 2 ;;
+  *) echo "usage: .apm/skills/ci/pu/lease.sh {acquire <pr>|release|status}" >&2; exit 2 ;;
 esac
