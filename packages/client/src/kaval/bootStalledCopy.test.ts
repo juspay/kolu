@@ -16,7 +16,6 @@ const ALL_LEGS: StalledLeg[] = [
   "membership",
   "session",
   "daemon",
-  "unknown",
 ];
 
 describe("bootStalledCopy", () => {
@@ -30,10 +29,6 @@ describe("bootStalledCopy", () => {
 
   it("covers exactly the known legs (no orphan keys, none missing)", () => {
     expect(new Set(Object.keys(BOOT_STALLED_COPY))).toEqual(new Set(ALL_LEGS));
-  });
-
-  it("`unknown` gets its OWN honest copy — not the session leg's wording (R5)", () => {
-    expect(bootStalledCopy("unknown")).not.toEqual(bootStalledCopy("session"));
   });
 
   it("each leg's title is distinct — no leg silently reuses another's card", () => {

@@ -59,14 +59,6 @@ export const BOOT_STALLED_COPY = {
       "kolu reached this host, but its agent (kaval) hasn't reported its status, so the " +
       "workspace can't be trusted yet. Reload to try again, or switch back to your local host.",
   },
-  // UNREACHABLE by design today — insurance for a future overlay return that forgets to name
-  // its leg. Honest and generic: no leg-specific claim it can't back up.
-  unknown: {
-    title: "The workspace didn't become ready",
-    body:
-      "kolu connected, but this host's workspace never finished coming up. Reload to try " +
-      "again, or switch back to your local host.",
-  },
 } satisfies Record<StalledLeg, BootStalledCopy>;
 
 /** Look up a leg's card copy. Total over {@link StalledLeg} — every leg is a key of

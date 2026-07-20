@@ -41,6 +41,7 @@ import type {
   ConnectPhase,
   EntryFailedCause,
 } from "kolu-common/surfacesWithPadi";
+import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
 
 /** Which per-host episode ceiling a boot overlay accrues against (#1763). Every
@@ -53,15 +54,11 @@ export type CeilingClass = "local" | "remote-provisioning" | "remote-handshake";
  *  surface so the failure card can NAME what never arrived (not a mute spinner).
  *  `provisioning` = a remote host binding still copying/building; `membership` = the
  *  `entries` snapshot never grounded the active host; `session` = the session/list
- *  subscription hung; `daemon` = the kaval status never reported. `unknown` is
- *  UNREACHABLE by design today — future-arm insurance so a new overlay return that
- *  forgets to name its leg still escapes (named generically) rather than being missed. */
-export type StalledLeg =
-  | "provisioning"
-  | "membership"
-  | "session"
-  | "daemon"
-  | "unknown";
+ *  subscription hung; `daemon` = the kaval status never reported. There is deliberately NO
+ *  `unknown`/catch-all: the `accrue` tag REQUIRES a `leg`, so every overlay return is forced
+ *  to name a real one at compile time — a generic fallback would only be a silent-degradation
+ *  path the repo's fail-fast philosophy forbids, insuring against a compile-time impossibility. */
+export type StalledLeg = "provisioning" | "membership" | "session" | "daemon";
 
 /** The per-frame anchor VERDICT, declared AT the resolver's return site (never inferred
  *  from `kind`) — a 3-way discriminant the boot-deadline anchor switches on directly:
@@ -207,15 +204,9 @@ function ceilingFor(
   connectPhase: ConnectPhase | undefined,
 ): CeilingClass {
   if (isLocalHost) return "local";
-  return connectPhase === "copying" || connectPhase === "building"
+  return isProvisioningPhase(connectPhase)
     ? "remote-provisioning"
     : "remote-handshake";
-}
-
-/** The ceiling class a NOT-YET-CONNECTED boot overlay accrues against — delegates to
- *  {@link ceilingFor} off the arm's own `connectPhase`. */
-function bindingCeiling(facts: NotYetConnectedFacts): CeilingClass {
-  return ceilingFor(facts.isLocalHost, facts.connectPhase);
 }
 
 /** The internal precedence partition — total over {@link CanvasFacts}, exclusive,
@@ -253,14 +244,13 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
       const leg: StalledLeg =
         facts.entry === "not-a-member"
           ? "membership"
-          : facts.connectPhase === "copying" ||
-              facts.connectPhase === "building"
+          : isProvisioningPhase(facts.connectPhase)
             ? "provisioning"
             : "daemon";
       const tag: BootTag = {
         accrual: "accrue",
         leg,
-        ceiling: bindingCeiling(facts),
+        ceiling: ceilingFor(facts.isLocalHost, facts.connectPhase),
       };
       // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is
       // coming up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase —
