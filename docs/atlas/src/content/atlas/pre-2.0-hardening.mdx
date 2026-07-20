@@ -1,73 +1,70 @@
 ---
 title: "Pre-2.0 hardening — the shortlist"
-description: "The bug/reliability work worth landing before the 2.0 tag, triaged by one rule: 2.0's story is agent-face + self-healing daemons + honest UI, so fix what undermines that. Features and render polish defer past the tag."
+description: "Ship-status board for the 2.0 tag: what can hurt the user, in their words, with a mark per item. ✅ done · 🔶 in flight · ⬜ not started."
 parents: [analysis, roadmap]
 status: proposed
-maturity: seedling
-updated: 2026-07-19
+maturity: budding
+updated: 2026-07-20
 ---
 
 import Callout from "../../components/Callout.astro";
 import Issue from "../../components/Issue.astro";
 
-Triage rule: **fix what undermines the 2.0 story** (the agent face,
-self-healing daemons, honest UI). Defer features and render polish past the
-tag.
+One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not started.
 
-## Tier 1 — block the tag
+## 🔴 Red alert — blocks the tag
 
-| Issue | Why it blocks | The fix |
+| | Issue | What the user feels |
 | --- | --- | --- |
-| <Issue n={1334} /> + <Issue n={1375} /> | **prod-safety.** An agent `/be` run disrupted production `kolu.service`; a local `vitest` forked 30+ daemons and OOM-reaped prod kaval. Running kolu's dev *on* kolu can kill prod — the only *dangerous* class here. A tooling-level guard (PR #1338, a `prod-guard` justfile recipe) was already tried and closed unmerged. | One PR, three locks in the product: **(a)** any dev/test run that spawns daemons is forced into a private throwaway state-root — the harness *refuses to start* against the real one; **(b)** the production service marks its daemons, and every dev-side adopt/kill/discover path refuses a marked daemon, loudly; **(c)** the test harness runs its children under a process+memory cap, so a fork-bomb starves itself, not prod. <Issue n={706} /> is the same class; its full leg (VM/container containment) stays deferred. |
-| <Issue n={1859} /> | In simple words: one corrupt message makes the wire reader *report* "this connection is over" — but it never actually stops reading. Every later message is still decoded and delivered into a peer the server already closed and stopped counting. A zombie connection: bookkeeping says dead, socket says alive. | On settle, detach the `'data'` listener; on decode failure, destroy the stream — so "the read promise settled" and "the read actually stopped" can never diverge (`stdio-codec.ts:126-135`). Audit `links/stdio.ts` for the same divergence. |
-| <Issue n={1754} /> | claude-code live state can lie: stuck "thinking" after the turn completed, never reconciling. A lying dock guts the observe-out UX. **Reproduced** — CI evidence on aarch64-darwin (ollama fast turns: 2.88s turn, indicator stuck `thinking` for the full 60s), and four real-agent e2e scenarios sit descoped waiting on it. | Two known mechanisms, both in the issue: the transcript watcher attaches after the turn's JSONL landed and only tails (fix: **initial full-scan on attach**), and `deriveState` maps only `stop_reason === "end_turn"` to `waiting` (fix: reconcile the emulated stop reasons). Landing both restores the descoped e2e asserts — the regression pin comes free. |
-| <Issue n={1177} /> | ~~`awaiting_user` doesn't chime when the prior state was `waiting`~~ **SHIPPED — PR #1894 merged, issue closed.** The attention-*episode* latch: ≤1 chime per notify-class run, episode ended only by a work state; trigger = class-entry OR escalation into the fenced `awaiting` bucket; honest "needs your input" copy. | Done (reproduce-first RED → 3-refuter design gate → full /be gauntlet). |
-| <Issue n={1763} /> | ~~boot wedge — "Connecting to local…" forever when a boot leg hangs~~ **SHIPPED — PR #1898 merged, issue closed.** One boot deadline wraps the single exported resolver; boot overlays typed at their return sites; per-host monotonic anchor (covers the membership *and* session holes); every ceiling cell finite; honest per-leg escape copy. | Done (fault-injected REDs → 3-refuter gate that REFUTED the first mechanism → delta re-gate → full /be). Residual: the hung-subscription *trigger* class stays open — but a hang now surfaces honestly. |
+| ⬜ | <Issue n={1334} /> + <Issue n={1375} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. |
+| ⬜ | <Issue n={1754} /> | The dock says **"thinking" forever** after the agent already finished. |
+| 🔶 | <Issue n={1859} /> | One corrupt message makes a connection **play dead while it keeps listening**. |
+| 🔶 | <Issue n={1900} /> | **Refresh yanks you to another host** and a toast claims your terminal never existed. |
+| ✅ | <Issue n={1177} /> | An agent that needs you **always chimes** now. (PR #1894) |
+| ✅ | <Issue n={1763} /> | "Connecting to local…" **can no longer spin forever** — a stuck boot names its failure and offers Reload. (PR #1898) |
 
-## Verify & close
+## 🟡 Yellow alert — land next
 
-| Issue | The facts |
-| --- | --- |
-| <Issue n={1681} /> | **was Tier 1; isn't anymore.** PR #1687 (merged 2026-07-05) reproduced the real mechanism — a boot-window per-key `get` threw, killing the chip's subscription non-retriably — and fixed it. No recurrence reported since. Confirm in the field, close; the spellability residual is <Issue n={1688} /> (deferred with reasoning). |
-| <Issue n={901} /> | kaval's survivor architecture *is* this feature: PTYs live in kaval, and a kolu-server redeploy does not touch them — shipped behavior. Confirm, close. |
-| #1793 | closed during this audit — fixed by merged #1892 (presence-only dialogs). |
+| | Issue | What the user feels |
+| --- | --- | --- |
+| ⬜ | <Issue n={1658} /> | A bad write could **lose all your terminals and sessions** — back up state on start. |
+| ⬜ | <Issue n={1667} /> | Closing the last terminals can **focus a dead one**. Fix PR #1677 already open — land it. |
+| ⬜ | <Issue n={1666} /> | Removing a worktree **strands its running terminal**. |
+| ⬜ | <Issue n={1680} /> | On a remote mac, agent state **freezes silently** until restart. |
+| ⬜ | <Issue n={1076} /> | A terminal is left **frozen** (raw mode) after a TUI app exits. |
+| ⬜ | <Issue n={1875} /> | A reconnect race can **dial the same host twice**. |
+| ⬜ | <Issue n={1701} /> | Branch-mode Code tab is **dead over a remote host** ("base branch not found" for one that exists). |
+| ⬜ | <Issue n={1715} /> | A wire naming collision can **cross two channels' data** — silent landmine. |
+| ⬜ | <Issue n={1668} /> | A file deleted at the wrong moment shows **"Loading…" forever**. |
+| ⬜ | <Issue n={1492} /> | Waking a sleeping terminal **doesn't resume** a `nix run` agent. |
 
-## Tier 2 — land after Tier 1
+## 🟢 Condition green — recurrence guards
 
-| Issue | What |
-| --- | --- |
-| <Issue n={1658} /> | back up state JSON on start — best value-per-effort. A prior PR (#1662) closed unmerged against the pre-W2.3 state layout; restart it against today's. |
-| <Issue n={1667} /> | departing terminals focus a dead id — **fix PR #1677 is already open; review and land.** |
-| <Issue n={1666} /> | worktree-remove strands a running terminal at a deleted cwd (kill-error swallowed). |
-| <Issue n={1680} /> | Codex fs.watch dies on darwin-remote padi and never reinstalls → agent-state freezes. |
-| <Issue n={1076} /> | terminal left frozen (raw mode not restored) after a TUI child exits. |
-| <Issue n={1875} /> | makeSession `pin()` during post-link-death backoff races into a concurrent dial. |
-| <Issue n={1701} /> | remote bind: `BASE_BRANCH_NOT_FOUND` for a ref that exists — branch-mode Code tab dead over remote padi. |
-| <Issue n={1715} /> | per-key channel can alias the reserved `:keys` channel — same silent-landmine family as #1859. |
-| <Issue n={1668} /> | file deleted before its first frame shows "Loading…" forever. |
-| <Issue n={1492} /> | waking a sleeping terminal doesn't resume a `nix run …#agent` agent. |
+| | Issue | What it prevents |
+| --- | --- | --- |
+| ⬜ | <Issue n={1706} /> + <Issue n={1693} /> | Regenerated agent skills silently **regressing to a stale commit**. |
+| ⬜ | <Issue n={1707} /> | Big pastes to a Claude terminal **not submitting**. |
+| ⬜ | <Issue n={1885} /> | A renew toast that **lies about success**. |
+| ⬜ | <Issue n={1339} /> | An **opaque 30s hang** where a one-line refusal reason exists. |
+| ⬜ | <Issue n={1679} /> + <Issue n={1695} /> | The two remote-padi **test flakes**. |
 
-## Tier 3 — close the recurrence (bit us this campaign)
+## Verify & close — fix already shipped, confirm it
 
-| Issue | What |
-| --- | --- |
-| <Issue n={1706} /> + <Issue n={1693} /> | `ai::apm` regens from a stale cached commit; add the `ci::apm-sync` drift lane. |
-| <Issue n={1707} /> | large pastes to a Claude TUI don't reliably submit. |
-| <Issue n={1885} /> | server-authored honest kaval-renew toast (the right-depth version of #1883). |
-| <Issue n={1339} /> | opaque 30s timeout when the socket gate dir isn't `0700` — surface the refusal reason. |
-| <Issue n={1679} /> + <Issue n={1695} /> | the two remote-padi test flakes. |
+| | Issue | The fact |
+| --- | --- | --- |
+| ⬜ | <Issue n={1681} /> | Gray-chip fix merged 2026-07-05 (#1687), no recurrence since. Confirm, close. |
+| ⬜ | <Issue n={901} /> | Kaval survivors *are* this feature — redeploys don't kill PTYs. Confirm, close. |
+| ✅ | #1793 | Closed — presence-only dialogs (#1892). |
 
 ## Deferred past 2.0
 
-| What | Why deferred |
-| --- | --- |
-| <Issue n={1240} /> multi-forge · <Issue n={1218} /> web push · <Issue n={1295} /> tiling | features, not hardening. |
-| <Issue n={1305} /> / <Issue n={1306} /> tile artifacts | render polish. |
-| <Issue n={1688} /> unspellable held-open get · <Issue n={1863} /> one-hop audit follow-ups | hardening ledgers with no current victim. |
-| <Issue n={706} /> full agent containment | needs a VM/container; the reachable leg rides the Tier 1 prod-safety PR. |
-| campaign-surface build-out (P0–P3) | its own note. |
+Features (<Issue n={1240} />, <Issue n={1218} />, <Issue n={1295} />) · render
+polish (<Issue n={1305} /> / <Issue n={1306} />) · no-current-victim ledgers
+(<Issue n={1688} />, <Issue n={1863} />) · <Issue n={706} /> full containment
+(needs a VM) · the campaign-surface build-out.
 
 <Callout kind="accent" title="One-thing cut">
   If only one lands: **the <Issue n={1334} />/<Issue n={1375} /> isolation
-  pair.** Everything else degrades UX; that one can eat your prod instance.
+  pair.** Everything else degrades the experience; that one can eat your
+  prod instance.
 </Callout>
