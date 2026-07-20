@@ -3,11 +3,22 @@
  *  optional monospace detail line, and a vertical stack of action buttons.
  *
  *  Extracted from `HostDownCanvas` (#1763) so the new `BootStalledCanvas` renders the SAME
- *  shell rather than a hand-duplicated copy — the honest choice the gate asked for (there was
- *  no pre-existing shell to "reuse"; this makes one). Both callers supply their own copy
- *  authority (`hostDownCopy` / `bootStalledCopy`) and their own recovery actions; the chrome
- *  lives here once. Pure presentation — no `wire`, no copy tables — so it is trivially
- *  render-testable and carries no domain knowledge. */
+ *  shell rather than a hand-duplicated copy. `DegradedCanvas.tsx`'s `DangerCard` is a sibling
+ *  shell for a DIFFERENT severity (danger-toned, single JSX `action` slot, no `detail` line) —
+ *  intentionally NOT generalized into this one: unifying a danger single-action card with a
+ *  warning multi-action list would couple two independently-changing severities behind one
+ *  parameterized shell for a chrome-only saving. This card owns its own (warning) tone and
+ *  typed `actions[]` array so `switchToLocalAction()` can spread into either caller. Both
+ *  callers supply their own copy authority (`hostDownCopy` / `bootStalledCopy`) and their own
+ *  recovery actions; the chrome lives here once.
+ *
+ *  Two exports, two different purities: {@link CanvasFailureCard} itself is pure
+ *  presentation — props in, JSX out, no `wire`, no copy tables — so it is trivially
+ *  render-testable and carries no domain knowledge. {@link switchToLocalAction} is NOT
+ *  pure — it reads `activeHost`/`setActiveHost` from `../wire` — but lives here rather than
+ *  in a separate module because it is the one escape hatch every caller of this shell needs,
+ *  so it sits beside the shell it always renders into instead of forcing each caller to
+ *  import a third file. */
 
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";

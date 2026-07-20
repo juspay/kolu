@@ -41,6 +41,7 @@ import type {
   ConnectPhase,
   EntryFailedCause,
 } from "kolu-common/surfacesWithPadi";
+import { match } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
 
@@ -71,11 +72,19 @@ export type StalledLeg = "provisioning" | "membership" | "session" | "daemon";
  *     anchor.
  *  The resolver KNOWS which of the three it is at every return, so the verdict travels ON
  *  the tag rather than being re-derived downstream from `kind`. A future overlay return must
- *  DECLARE its `accrual` or fail to compile. */
+ *  DECLARE its `accrual` or fail to compile. `accrue` also carries `phase` — the connect
+ *  phase the escape surface names beside the leg — declared here for the SAME reason as
+ *  `leg`/`ceiling`: {@link escapeSurface} renders off the tag alone, never by re-reading
+ *  `facts` for a field that may not exist on every arm. */
 export type BootTag =
   | { accrual: "clear" }
   | { accrual: "retain" }
-  | { accrual: "accrue"; leg: StalledLeg; ceiling: CeilingClass };
+  | {
+      accrual: "accrue";
+      leg: StalledLeg;
+      ceiling: CeilingClass;
+      phase: ConnectPhase | undefined;
+    };
 
 /** Which canvas surface wins, with the payload each surface needs. Tagged so
  *  the down sub-state, the warming label, and the host-failure cause travel WITH
@@ -194,6 +203,13 @@ const CLEAR: BootTag = { accrual: "clear" };
 /** A non-boot overlay the deadline must ignore — holds the anchor without accruing. */
 const RETAIN: BootTag = { accrual: "retain" };
 
+/** Wraps a settled surface in the CLEAR verdict — the `{ mode, tag: CLEAR }` shape every
+ *  settled return site below shares, named once. */
+const clear = (mode: CanvasMode): Precedence => ({ mode, tag: CLEAR });
+/** Wraps a non-boot overlay in the RETAIN verdict — the `{ mode, tag: RETAIN }` shape every
+ *  ignored-overlay return site below shares, named once. */
+const retain = (mode: CanvasMode): Precedence => ({ mode, tag: RETAIN });
+
 /** The ONE ceiling-class derivation — host-locality + connect phase → {@link CeilingClass}:
  *  local (30s), a remote actively provisioning (copying/building — the minutes-scale cell), or
  *  a remote handshake (probing/connecting/undefined — a shorter but still finite cell). Both the
@@ -217,112 +233,110 @@ function ceilingFor(
  *  settled surface. No timeout logic lives here — the escape is applied by
  *  {@link resolveCanvasMode} off this tag. */
 function resolvePrecedence(facts: CanvasFacts): Precedence {
-  // Switch on the ACTIVE entry's connection state FIRST (A' — the resolver's spine). The
-  // connect overlay is read ONLY inside the not-yet-connected arms, where `connectPhase`
-  // exists; the `connected` arm has no `connectPhase`, so it can NEVER route to the overlay
-  // — a stale/lagging connection cell can no longer trap the canvas over a host the map
-  // reports connected (the green-chip / "Building forever" bug). `failed` has no
-  // daemon-status ever coming, so it renders its own cause-typed card, never the loading
-  // spinner or the kaval-dead `down` card.
-  switch (facts.entry) {
-    case "failed":
-      // The host BINDING itself failed (cause-typed) — the Skew-UX host-down card
-      // ([Reconnect] / [Switch to local]), distinct from `down` (a connected host's dead
-      // kaval). Not a boot overlay: it is already a terminal, escape-bearing surface.
-      return {
-        mode: { kind: "host-failed", cause: facts.cause, reason: facts.reason },
-        tag: CLEAR,
-      };
-
-    case "warming":
-    case "not-a-member": {
-      // The boot overlay's leg + ceiling, declared here (C3): a not-a-member entry is a
-      // MEMBERSHIP stall even when it reaches the bindingUp `warming` return; a warming
-      // binding is `provisioning` while nix-copy/build runs, else the binding/`daemon` leg
-      // (a LOCAL restart-drain rides this arm and so carries the 30s local ceiling — a hung
-      // one escapes to down/dead, a normal one clears via the next `workspace` frame).
-      const leg: StalledLeg =
-        facts.entry === "not-a-member"
-          ? "membership"
-          : isProvisioningPhase(facts.connectPhase)
-            ? "provisioning"
-            : "daemon";
-      const tag: BootTag = {
-        accrual: "accrue",
-        leg,
-        ceiling: ceilingFor(facts.isLocalHost, facts.connectPhase),
-      };
-      // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is
-      // coming up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase —
-      // the SAME frame `ConnectCanvas` reads to narrate it, so routing and content never
-      // disagree mid-transition. All three overlay returns below are boot overlays; the
-      // #1763 ceiling (not a per-arm `pendingTimedOut`) bounds them uniformly in the wrapper.
-      const bindingUp = facts.connectPhase !== undefined;
-      if (bindingUp) {
-        return { mode: { kind: "warming", daemonState: undefined }, tag };
-      }
-      // The residual boot gate — pre-first-frame (`connectPhase` still `undefined`) or a
-      // non-binding-up phase: neutral "Connecting…" until both the session cell AND the
-      // daemon-status stream have produced a value.
-      if (facts.isLoading || facts.daemonPending) {
-        return { mode: { kind: "connecting" }, tag };
-      }
-      // The entry-specific surface for a still-pre-connected host. `warming` shows the
-      // neutral warming surface (no kaval `daemonState`); `not-a-member` holds neutral
-      // `connecting` (never a stale claim about a non-member).
-      return facts.entry === "warming"
-        ? { mode: { kind: "warming", daemonState: undefined }, tag }
-        : { mode: { kind: "connecting" }, tag };
-    }
-
-    case "connected": {
-      // A connected entry ALWAYS reaches its workspace/down/empty surface. The loading gate
-      // still covers a connected entry whose session/list or daemon-status leg has not
-      // produced its first value (#1034) — a BOOT overlay (Hole B): a hung session leg past
-      // the ceiling escapes even though the daemon leg delivered. Leg = `session` if the
-      // session/list is what's pending, else `daemon`.
-      if (facts.isLoading || facts.daemonPending) {
-        const leg: StalledLeg = facts.isLoading ? "session" : "daemon";
-        return {
-          mode: { kind: "connecting" },
-          tag: {
+  // Dispatch on the ACTIVE entry's connection state FIRST (A' — the resolver's spine), with
+  // `.exhaustive()` (prefer-ts-pattern) so a future entry kind must be handled or fail the
+  // build. The connect overlay is read ONLY inside the not-yet-connected arms, where
+  // `connectPhase` exists; the `connected` arm has no `connectPhase`, so it can NEVER route to
+  // the overlay — a stale/lagging connection cell can no longer trap the canvas over a host the
+  // map reports connected (the green-chip / "Building forever" bug). `failed` has no
+  // daemon-status ever coming, so it renders its own cause-typed card, never the loading spinner
+  // or the kaval-dead `down` card.
+  return (
+    match(facts)
+      // The host BINDING itself failed (cause-typed) — the Skew-UX host-down card ([Reconnect] /
+      // [Switch to local]), distinct from `down` (a connected host's dead kaval). Not a boot
+      // overlay: it is already a terminal, escape-bearing surface.
+      .with({ entry: "failed" }, (f) =>
+        clear({ kind: "host-failed", cause: f.cause, reason: f.reason }),
+      )
+      .with(
+        { entry: "warming" },
+        { entry: "not-a-member" },
+        (f): Precedence => {
+          // The boot overlay's leg + ceiling, declared here (C3): a not-a-member entry is a
+          // MEMBERSHIP stall even when it reaches the bindingUp `warming` return; a warming
+          // binding is `provisioning` while nix-copy/build runs, else the binding/`daemon` leg
+          // (a LOCAL restart-drain rides this arm and so carries the 30s local ceiling — a hung
+          // one escapes to down/dead, a normal one clears via the next `workspace` frame).
+          const leg: StalledLeg =
+            f.entry === "not-a-member"
+              ? "membership"
+              : isProvisioningPhase(f.connectPhase)
+                ? "provisioning"
+                : "daemon";
+          const tag: BootTag = {
             accrual: "accrue",
-            // A connected fact carries no connect phase → the handshake/local cell.
             leg,
-            ceiling: ceilingFor(facts.isLocalHost, undefined),
-          },
-        };
-      }
-      // `down` and `warming` arrive ALREADY floored on channel liveness at their source
-      // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches these
-      // arms over a dead channel. Neither is a boot overlay: a real kaval death is its own
-      // terminal card (a SETTLED surface → CLEAR), and a kaval-restart `warming` (channel live)
-      // is NOT a wedged boot — a non-boot overlay the deadline must ignore → RETAIN.
-      if (facts.down)
-        return { mode: { kind: "down", down: facts.down }, tag: CLEAR };
-      if (facts.warming)
-        return {
-          mode: { kind: "warming", daemonState: facts.daemonState },
-          tag: RETAIN,
-        };
-      // Terminals on screen → show them (a settled surface → CLEAR). Otherwise "no terminals"
-      // is unconfirmable over a dead channel: show `empty` only when the CHANNEL is LIVE, else
-      // neutral connecting.
-      if (facts.terminalCount > 0)
-        return { mode: { kind: "workspace" }, tag: CLEAR };
-      // Records still arriving after the key list resolved → hold `connecting` instead of
-      // flashing `empty`'s restore card. NOT a boot overlay: the workspace is imminent, so the
-      // deadline must not escape it (a genuine reboot's records arrive PARKED — awaited hits 0
-      // with no live tile — and this falls through to `empty` as intended) → RETAIN.
-      if (facts.recordsAwaited > 0)
-        return { mode: { kind: "connecting" }, tag: RETAIN };
-      // `empty` is a settled surface → CLEAR. A dead-channel connecting is owned by the
-      // post-grace TRANSPORT overlay, not the boot deadline: a non-boot overlay → RETAIN.
-      return facts.channelLive
-        ? { mode: { kind: "empty" }, tag: CLEAR }
-        : { mode: { kind: "connecting" }, tag: RETAIN };
-    }
-  }
+            ceiling: ceilingFor(f.isLocalHost, f.connectPhase),
+            phase: f.connectPhase,
+          };
+          // THE CONNECT OVERLAY (W6), routed off ONE channel: the ACTIVE host's binding is coming
+          // up iff its OWN `connection` cell phase is an up-but-not-yet-connected phase — the SAME
+          // frame `ConnectCanvas` reads to narrate it, so routing and content never disagree
+          // mid-transition. All three overlay returns below are boot overlays; the #1763 ceiling
+          // (not a per-arm `pendingTimedOut`) bounds them uniformly in the wrapper.
+          const bindingUp = f.connectPhase !== undefined;
+          if (bindingUp) {
+            return { mode: { kind: "warming", daemonState: undefined }, tag };
+          }
+          // The residual boot gate — pre-first-frame (`connectPhase` still `undefined`) or a
+          // non-binding-up phase: neutral "Connecting…" until both the session cell AND the
+          // daemon-status stream have produced a value.
+          if (f.isLoading || f.daemonPending) {
+            return { mode: { kind: "connecting" }, tag };
+          }
+          // The entry-specific surface for a still-pre-connected host. `warming` shows the neutral
+          // warming surface (no kaval `daemonState`); `not-a-member` holds neutral `connecting`
+          // (never a stale claim about a non-member).
+          return f.entry === "warming"
+            ? { mode: { kind: "warming", daemonState: undefined }, tag }
+            : { mode: { kind: "connecting" }, tag };
+        },
+      )
+      .with({ entry: "connected" }, (f): Precedence => {
+        // A connected entry ALWAYS reaches its workspace/down/empty surface. The loading gate
+        // still covers a connected entry whose session/list or daemon-status leg has not produced
+        // its first value (#1034) — a BOOT overlay (Hole B): a hung session leg past the ceiling
+        // escapes even though the daemon leg delivered. Leg = `session` if the session/list is
+        // what's pending, else `daemon`.
+        if (f.isLoading || f.daemonPending) {
+          const leg: StalledLeg = f.isLoading ? "session" : "daemon";
+          return {
+            mode: { kind: "connecting" },
+            tag: {
+              accrual: "accrue",
+              // A connected fact carries no connect phase → the handshake/local cell.
+              leg,
+              ceiling: ceilingFor(f.isLocalHost, undefined),
+              phase: undefined,
+            },
+          };
+        }
+        // `down` and `warming` arrive ALREADY floored on channel liveness at their source
+        // accessors (`downState`/`daemonWarming`), so a stale daemon state never reaches these
+        // arms over a dead channel. Neither is a boot overlay: a real kaval death is its own
+        // terminal card (a SETTLED surface → CLEAR), and a kaval-restart `warming` (channel live)
+        // is NOT a wedged boot — a non-boot overlay the deadline must ignore → RETAIN.
+        if (f.down) return clear({ kind: "down", down: f.down });
+        if (f.warming)
+          return retain({ kind: "warming", daemonState: f.daemonState });
+        // Terminals on screen → show them (a settled surface → CLEAR). Otherwise "no terminals"
+        // is unconfirmable over a dead channel: show `empty` only when the CHANNEL is LIVE, else
+        // neutral connecting.
+        if (f.terminalCount > 0) return clear({ kind: "workspace" });
+        // Records still arriving after the key list resolved → hold `connecting` instead of
+        // flashing `empty`'s restore card. NOT a boot overlay: the workspace is imminent, so the
+        // deadline must not escape it (a genuine reboot's records arrive PARKED — awaited hits 0
+        // with no live tile — and this falls through to `empty` as intended) → RETAIN.
+        if (f.recordsAwaited > 0) return retain({ kind: "connecting" });
+        // `empty` is a settled surface → CLEAR. A dead-channel connecting is owned by the
+        // post-grace TRANSPORT overlay, not the boot deadline: a non-boot overlay → RETAIN.
+        return f.channelLive
+          ? clear({ kind: "empty" })
+          : retain({ kind: "connecting" });
+      })
+      .exhaustive()
+  );
 }
 
 /** The honest escape surface for a boot overlay held past its ceiling (#1763). A hung
@@ -337,8 +351,7 @@ function escapeSurface(
   if (tag.leg === "daemon" && facts.isLocalHost) {
     return { kind: "down", down: { state: "dead" } };
   }
-  const phase = "connectPhase" in facts ? facts.connectPhase : undefined;
-  return { kind: "boot-stalled", leg: tag.leg, phase };
+  return { kind: "boot-stalled", leg: tag.leg, phase: tag.phase };
 }
 
 /** THE ONE exported resolver (#1763). Computes the raw precedence, then — off ONE

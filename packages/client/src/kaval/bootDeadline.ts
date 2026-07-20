@@ -33,6 +33,7 @@
  *  suspend sees the real elapsed on resume and may escape immediately to the honest
  *  boot-stalled card (Reload recovers). Same jump the wall clock would have; bounded, honest. */
 
+import { match } from "ts-pattern";
 import type { BootTag, CeilingClass } from "./canvasModeResolver";
 
 /** The LOCAL connect ceiling — mirrors `makeSession`'s default `connectTimeoutMs`, the
@@ -90,20 +91,18 @@ export function recordBootFrame(
   tag: BootTag,
   nowMs: number,
 ): void {
-  switch (tag.accrual) {
-    case "accrue": {
+  // `.exhaustive()` (not a bare `switch`, which returns `void` and so would let a future
+  // 4th `accrual` variant compile as a silent no-op) — prefer-ts-pattern.
+  match(tag)
+    .with({ accrual: "accrue" }, (t) => {
       const a = anchors.get(hostEnc);
-      if (a === undefined || a.ceiling !== tag.ceiling) {
-        anchors.set(hostEnc, { anchorMs: nowMs, ceiling: tag.ceiling });
+      if (a === undefined || a.ceiling !== t.ceiling) {
+        anchors.set(hostEnc, { anchorMs: nowMs, ceiling: t.ceiling });
       }
-      return;
-    }
-    case "clear":
-      anchors.delete(hostEnc);
-      return;
-    case "retain":
-      return;
-  }
+    })
+    .with({ accrual: "clear" }, () => anchors.delete(hostEnc))
+    .with({ accrual: "retain" }, () => {})
+    .exhaustive();
 }
 
 /** Prune anchors for hosts no longer in membership — a genuine re-add earns a FRESH episode

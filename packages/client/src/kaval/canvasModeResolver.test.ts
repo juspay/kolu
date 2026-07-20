@@ -366,6 +366,7 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
       accrual: "accrue",
       leg: "membership",
       ceiling: "local",
+      phase: "connecting",
     });
     expect(
       mode(
@@ -465,6 +466,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       accrual: "accrue",
       leg: "provisioning",
       ceiling: "remote-provisioning",
+      phase: "copying",
     });
     expect(
       tag({
@@ -477,6 +479,7 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
       accrual: "accrue",
       leg: "provisioning",
       ceiling: "remote-provisioning",
+      phase: "building",
     });
   });
 
