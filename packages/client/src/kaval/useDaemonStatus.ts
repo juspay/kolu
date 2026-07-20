@@ -378,12 +378,16 @@ export function daemonConnected(): boolean {
  *    capture→reattach as one `restarting` (`surface-daemon-supervisor/restart.ts`),
  *    so the client sees `connected` only once reattach finished.
  *  - RESIDUAL (not covered here — needs a padi-side registry-reconciled marker,
- *    tracked as a follow-up): a kaval that HUNG at a padi restart so `converge`
+ *    tracked as follow-up #1902): a kaval that HUNG at a padi restart so `converge`
  *    threw (its catch only logs — `ptyHost/index.ts`), then recovered, flips
  *    `connected` before the 2s inventory-reconcile loop re-adopts; and
  *    out-of-band (`kaval-tui`-created) terminals appear the same way. In those
- *    windows an absent id can still read authoritative-but-gone; the 8s deep-link
- *    backstop bounds the wait regardless.
+ *    windows this fact reads `true` over a still-stale list, so an absent id reads
+ *    authoritative-but-gone and the deep-link gone-verdict fires IMMEDIATELY — a
+ *    false gone the 8s backstop does NOT catch (the backstop bounds only the OTHER
+ *    case, where this fact stays `false` and the route waits). #1900's primary
+ *    boot-gate fix already removes the dominant trigger; closing this last window
+ *    honestly needs the #1902 marker.
  *
  *  A reactive accessor; read it inside a tracking scope. */
 export function listIsAuthoritative(): boolean {
