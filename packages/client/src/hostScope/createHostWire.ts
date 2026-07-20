@@ -77,16 +77,6 @@ export interface HostWire {
   session: ReturnType<PadiEntry["cells"]["session"]["use"]>;
   activityFeed: ReturnType<PadiEntry["cells"]["activityFeed"]["use"]>;
   daemonStatus: ReturnType<PadiEntry["collections"]["daemonStatus"]["use"]>;
-  /** Wall-clock ms this host's `daemonStatus` wait BEGAN — stamped ONCE when this
-   *  retained scope is born (first activation / a re-add after membership exit) and
-   *  held for the scope's whole life. `useDaemonStatus`'s `daemonStatusPendingTimedOut`
-   *  measures the "kaval didn't start" ceiling from HERE. Because `daemonStatus` is now
-   *  RETAINED per host (it does NOT re-subscribe on switch-back), the anchor must NOT
-   *  reset on a switch either — a repeatedly-revisited wedged host would otherwise keep
-   *  earning a fresh 30s grace and never surface the honest failure. Living in the
-   *  retained scope gives it exactly the sub's lifetime: one anchor per pending run,
-   *  discarded on membership exit, a fresh one only on a genuine re-add. */
-  daemonPendingAnchorMs: number;
 }
 
 export function createHostWire(host: HostKey): HostWire {
@@ -157,18 +147,11 @@ export function createHostWire(host: HostKey): HostWire {
     keys: () => [encodeHostLocation(LOCAL_LOCATION)],
   });
 
-  // Stamp the daemon-status pending-wait anchor ONCE, at scope birth (this host's
-  // first activation, or a re-add after membership exit). Retained with the scope, so
-  // a switch-BACK does NOT restart the "kaval didn't start" ceiling clock — the sub
-  // it measures isn't re-subscribing either. See {@link HostWire.daemonPendingAnchorMs}.
-  const daemonPendingAnchorMs = Date.now();
-
   return {
     terminalKeys,
     terminals,
     session,
     activityFeed,
     daemonStatus,
-    daemonPendingAnchorMs,
   };
 }

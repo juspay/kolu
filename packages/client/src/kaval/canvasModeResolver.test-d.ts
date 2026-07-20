@@ -26,7 +26,6 @@ import type { CanvasFacts } from "./canvasModeResolver";
 const liveness = {
   isLoading: false,
   daemonPending: false,
-  pendingTimedOut: false,
   isLocalHost: true,
 };
 
