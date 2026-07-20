@@ -29,6 +29,7 @@ import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
+import { pairDisplayRow } from "./useTerminalStore";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -50,13 +51,7 @@ const TerminalMeta: Component<{
    *  `intentEditor.openTerminal(id)`. */
   onOpenIntent: () => void;
 }> = (props) => {
-  // Require BOTH the decorations and the live record. `view` recomputes only
-  // when either REFERENCE turns over (not on a per-leaf tick), so it stays
-  // stable; the fine-grained pr/agent/foreground reads happen at the leaf
-  // inside the children, off the live `meta` proxy.
-  const view = createMemo(() =>
-    props.info && props.meta ? { info: props.info, meta: props.meta } : null,
-  );
+  const view = createMemo(() => pairDisplayRow(props.info, props.meta));
   return (
     <Show when={view()} fallback={<TerminalMetaSkeleton />}>
       {(v) => (
@@ -233,9 +228,7 @@ export const TerminalMetaCompact: Component<{
    *  snapshot. */
   meta: TerminalMetadata | undefined;
 }> = (props) => {
-  const view = createMemo(() =>
-    props.info && props.meta ? { info: props.info, meta: props.meta } : null,
-  );
+  const view = createMemo(() => pairDisplayRow(props.info, props.meta));
   return (
     <Show when={view()} fallback={<TerminalMetaSkeleton />}>
       {(v) => (

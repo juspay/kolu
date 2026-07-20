@@ -10,12 +10,13 @@
  *  store, so derivations like `getDisplayInfo` and `getMetadata` flow
  *  without prop-drilling lookup functions through layout components. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useViewState } from "../useViewState";
 import { terminalListSub } from "../hostScope/activeWire";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 import {
@@ -24,6 +25,20 @@ import {
   tileWebglCost,
   WEBGL_CONTEXT_CAP,
 } from "./webglBudget";
+
+/** The both-present gate for a terminal's display row: the slow `info`
+ *  decorations paired with the live `meta` record, or `null` until BOTH
+ *  arrive. This is the single source of truth for that pairing — the dock
+ *  factory (`createDockRowData`) and the title-bar header both wrap this in
+ *  a `createMemo`, so the pair recomputes only when either REFERENCE turns
+ *  over (not on a per-leaf tick); the fine-grained pr/agent/foreground reads
+ *  happen at the leaf, off the live `meta` proxy. */
+export function pairDisplayRow(
+  info: TerminalDisplayInfo | undefined,
+  meta: TerminalMetadata | undefined,
+): { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
+  return info && meta ? { info, meta } : null;
+}
 
 export const useTerminalStore = createSharedRoot(() => {
   const view = useViewState();
