@@ -7,7 +7,7 @@
  * cache-busting navigation (`reloadForUpdate`, below — not a plain reload; see
  * its doc). The `/solid` entrypoint re-exports them so `<SurfaceAppProvider>`
  * consumers reach them from one import; this subpath is the obvious home when
- * there's no component in scope (kolu and pulam-web both call
+ * there's no component in scope (kolu, and any browser consumer, calls
  * `registerOrRetireServiceWorker()` here at boot).
  */
 

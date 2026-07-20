@@ -41,6 +41,7 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
+import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
@@ -48,6 +49,10 @@ import {
   createEndpoint,
   daemonBuild,
 } from "@kolu/surface-daemon-supervisor";
+import {
+  isSurfaceRelayTransportLost,
+  isSurfaceStdioTransportClosed,
+} from "@kolu/surface/client";
 import { ConnectError, reServeSurface } from "@kolu/surface-remote";
 import { createRouterClient } from "@orpc/server";
 import {
@@ -60,6 +65,7 @@ import {
   vi,
 } from "vitest";
 import {
+  AGENT_DIR_ENV_KEYS,
   daemonEnv,
   ensurePadiBinding,
   handlePadiBootFailure,
@@ -88,6 +94,24 @@ const silentLog = {
   warn() {},
   error() {},
 };
+
+// ── The #1719 residual: an un-retried retryable relay-lost on reconnect ──
+//
+// The reconnect test below kills a bound padi WHILE the re-served `terminalAttach`
+// stream is live. Post-SR5 (#1822) the re-serve relay CATCHES that mid-stream
+// transport loss and re-throws it as the RETRYABLE `RelayTransportLostError`
+// (`SURFACE_RELAY_TRANSPORT_LOST`) — an AWAITED throw, not a floating rejection.
+// Production's re-serve consumer re-subscribes on it via `STREAM_RETRY`; this test
+// dials the re-served router with a RAW `createRouterClient` (no retry plugin), so the
+// attach threw un-retried and flaked. The whole fix is the `STREAM_RETRY` mimic in
+// `roundTripTerminal` (below): retry the attach across the reconnect gap on a
+// survivable transport float.
+//
+// (The earlier premise — an un-ownable oRPC-internal float the DAEMON must survive —
+// was overturned by reproduction: the pre-SR5 abandoned-pull float class died with
+// #1822's relay rework. Two 400-iter isolation runs on the real reconnect, WITH and
+// WITHOUT an ownership wrapper, both showed 0 fails and 0 process floats. So there is
+// no float to own or survive here — only the un-retried awaited throw above.)
 
 /** Set (or, given `undefined`, unset) `$XDG_RUNTIME_DIR` — the single-source pin
  *  below flips this between a simulated wait-time and serve-time read. */
@@ -227,6 +251,7 @@ async function bootReServedPadi(stateRoot: string): Promise<{
     addHost: async () => {},
     removeHost: async () => {},
     reconnectHost: () => {},
+    renewHostDaemon: async () => {},
   });
   // `directLink` internally; drive the assembled router in-process and walk it
   // structurally (`surface.padi.<member>`).
@@ -259,14 +284,45 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   // terminalAttach is a DELTA member — its first frame is the snapshot, forwarded
   // 1:1 through the re-serve's fail-through relay. Frames are a { kind, data, … }
   // discriminated union (contract 5.2); the first is a `snapshot`.
-  const attach = (await padi.terminalAttach.get({ id }))[
-    Symbol.asyncIterator
-  ]();
-  const first = await attach.next();
-  const firstFrame = first.value as TerminalAttachFrame;
+  //
+  // The attach can race the reconnect window: when the bound padi dies mid-attach the
+  // re-serve relay (`failThroughStreamCore`) ends the downstream with the RETRYABLE
+  // `RelayTransportLostError` (`SURFACE_RELAY_TRANSPORT_LOST`) — or the raw
+  // `SURFACE_STDIO_TRANSPORT_CLOSED` — so a LIVE consumer re-subscribes end-to-end. In
+  // PRODUCTION the reServe consumer carries `STREAM_RETRY` and re-subscribes
+  // transparently (the terminal re-attaches with no user-visible break). This test dials
+  // the re-served router with a RAW `createRouterClient` (no retry plugin), so mirror
+  // `STREAM_RETRY` explicitly here: retry the attach across the reconnect gap on a
+  // survivable transport float, exactly as `create` above retries. (This is the
+  // consumer half of the reconnect guarantee; the DAEMON half — surviving the abandoned
+  // oRPC-internal float without crashing — is pinned deterministically in
+  // `reserveFloatBoundary.test.ts`.)
+  let firstFrame: TerminalAttachFrame | undefined;
+  for (let i = 0; i < 200 && firstFrame === undefined; i++) {
+    try {
+      const attach = (await padi.terminalAttach.get({ id }))[
+        Symbol.asyncIterator
+      ]();
+      const first = await attach.next();
+      firstFrame = first.value as TerminalAttachFrame;
+      await attach.return?.();
+    } catch (err) {
+      if (
+        isSurfaceStdioTransportClosed(err) ||
+        isSurfaceRelayTransportLost(err)
+      ) {
+        await sleep(50); // the retryable relay/transport end — re-subscribe like STREAM_RETRY
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (firstFrame === undefined)
+    throw new Error(
+      "terminalAttach never landed a snapshot across the reconnect",
+    );
   expect(firstFrame.kind).toBe("snapshot");
   expect(typeof firstFrame.data).toBe("string");
-  await attach.return?.();
 
   await padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` });
   let screen = "";
@@ -334,6 +390,14 @@ describe("kolu-server padi binder — cutover acceptance", () => {
     // exit)". Assert the honest line appeared and the fabricated one never did.
     expect(seenLines.some((l) => l.includes("endpoint link down"))).toBe(true);
     expect(seenLines.some((l) => l.includes("agent exited"))).toBe(false);
+
+    // Reaching here — a SECOND terminal round-tripped through the re-served surface
+    // after the bound padi died — IS the reconnect guarantee: the consumer re-subscribed
+    // across the transport-loss window (`roundTripTerminal`'s attach retry, the
+    // `STREAM_RETRY` mimic). The DAEMON's survival of the abandoned oRPC-internal float
+    // is the separate guarantee pinned in `reserveFloatBoundary.test.ts` (see the
+    // header note) — not re-asserted here, because under vitest that float surfaces as
+    // this retryable throw, not the process `unhandledRejection` the daemon survives.
   }, 90000);
 
   it("a kolu-server (binder) restart keeps padi's registry WARM — adopts, never respawns (done-criterion b)", async () => {
@@ -758,6 +822,57 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
   it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
     vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
+  });
+
+  it("is EXACTLY every allowlist key + every padi-operational input — no dropped base key, no leaked ambient key (#1872 2a parity)", () => {
+    // The supervisor's detached spawn branch passes `cfg.env` ALONE (macOS launchd,
+    // bare non-systemd) — so daemonEnv MUST carry the login-session base, or padi
+    // launches HOME-less and kaval's own daemonEnv (which mines HOME from padi's env)
+    // cascades the loss into every PTY. Twin of localDriver.daemonEnv. Seed EVERY
+    // allowlist key + every optional operational input, assert the WHOLE object.
+    const saved = { ...process.env };
+    try {
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      const expected: Record<string, string> = {};
+      for (const k of SPAWN_ENV_ALLOWLIST) {
+        process.env[k] = `val-${k}`;
+        expected[k] = `val-${k}`;
+      }
+      // padi-operational inputs (NODE_OPTIONS scrubbed — a value with no dev flags):
+      process.env.KOLU_STATE_DIR = "/state";
+      process.env.KOLU_KAVAL_SPAWN = "detached";
+      process.env.LOG_LEVEL = "warn";
+      process.env.NODE_OPTIONS = "--max-old-space-size=4096";
+      process.env.KOLU_DIAG_DIR = "/diag";
+      process.env.KAVAL_BUILD_ID = "bid";
+      process.env.KAVAL_COMMIT_HASH = "hash";
+      process.env[DAEMON_BIND_PID_ENV] = "4321";
+      // Agent-detection dir overrides padi's sensors read — MUST be forwarded, or
+      // detection silently breaks on a built forced-detached deployment (the exact
+      // e2e regression). Seed + expect each.
+      for (const k of AGENT_DIR_ENV_KEYS) {
+        process.env[k] = `dir-${k}`;
+        expected[k] = `dir-${k}`;
+      }
+      // ambient identity/secret in the server's own env — must NOT reach padi:
+      process.env.CLAUDE_CODE_CHILD_SESSION = "1";
+      Object.assign(expected, {
+        KOLU_STATE_DIR: "/state",
+        KOLU_PADI_STATE_DIR: "/state/root", // always stamped from the arg
+        KOLU_KAVAL_SPAWN: "detached",
+        LOG_LEVEL: "warn",
+        NODE_OPTIONS: "--max-old-space-size=4096",
+        KOLU_DIAG_DIR: "/diag",
+        KAVAL_BUILD_ID: "bid",
+        KAVAL_COMMIT_HASH: "hash",
+        [DAEMON_BIND_PID_ENV]: "4321",
+      });
+
+      expect(daemonEnv("/state/root", false)).toEqual(expected);
+    } finally {
+      for (const k of Object.keys(process.env)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
   });
 });
 

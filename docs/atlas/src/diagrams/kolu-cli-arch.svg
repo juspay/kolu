@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 470" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect width="860" height="470" rx="12" fill="#f6f7fb"/>
+
+  <!-- title row -->
+  <text x="430" y="30" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1d29">one padiSurface, two frontends — kolu tui/mcp never touch kolu-server</text>
+
+  <!-- kolu-tui box -->
+  <rect x="40" y="60" width="300" height="150" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="2.5"/>
+  <text x="190" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#7c3aed">kolu tui · kolu mcp (packages/kolu-cli)</text>
+  <rect x="60" y="100" width="120" height="90" rx="8" fill="#f3e8ff" stroke="#a78bfa"/>
+  <text x="120" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#4c1d95">canvas face</text>
+  <text x="120" y="140" text-anchor="middle" font-size="10.5" fill="#4c1d95">tiles · urgency</text>
+  <text x="120" y="155" text-anchor="middle" font-size="10.5" fill="#4c1d95">attach · create/kill</text>
+  <text x="120" y="170" text-anchor="middle" font-size="10.5" fill="#4c1d95">(human, raw ANSI)</text>
+  <rect x="200" y="100" width="120" height="90" rx="8" fill="#ede9fe" stroke="#a78bfa"/>
+  <text x="260" y="122" text-anchor="middle" font-size="12" font-weight="600" fill="#4c1d95">MCP face</text>
+  <text x="260" y="140" text-anchor="middle" font-size="10.5" fill="#4c1d95">serveSurfaceAsMcp</text>
+  <text x="260" y="155" text-anchor="middle" font-size="10.5" fill="#4c1d95">resources + tools</text>
+  <text x="260" y="170" text-anchor="middle" font-size="10.5" fill="#4c1d95">(agents, stdio)</text>
+
+  <!-- kolu-server box, grayed -->
+  <rect x="530" y="60" width="290" height="150" rx="10" fill="#eef0f5" stroke="#9aa1b1" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="675" y="85" text-anchor="middle" font-size="14" font-weight="700" fill="#6b7280">kolu-server + browser</text>
+  <text x="675" y="110" text-anchor="middle" font-size="11" fill="#6b7280">the FIRST frontend — multi-host map,</text>
+  <text x="675" y="126" text-anchor="middle" font-size="11" fill="#6b7280">provisioning, web canvas</text>
+  <text x="675" y="152" text-anchor="middle" font-size="11" font-style="italic" fill="#6b7280">absent from every kolu-tui path —</text>
+  <text x="675" y="168" text-anchor="middle" font-size="11" font-style="italic" fill="#6b7280">that absence IS the graduation proof</text>
+
+  <!-- shared client seam -->
+  <rect x="90" y="235" width="200" height="34" rx="8" fill="#e0e7ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="190" y="257" text-anchor="middle" font-size="12" font-weight="600" fill="#3730a3">ONE surfaceClient (STREAM_RETRY mounted)</text>
+
+  <!-- transports -->
+  <rect x="60" y="292" width="120" height="30" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="120" y="312" text-anchor="middle" font-size="11.5" font-weight="600" fill="#14532d">unix socket</text>
+  <rect x="200" y="292" width="120" height="30" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="260" y="312" text-anchor="middle" font-size="11.5" font-weight="600" fill="#14532d">ssh stdio pipe</text>
+
+  <!-- padi box -->
+  <rect x="40" y="350" width="450" height="90" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="2.5"/>
+  <text x="265" y="374" text-anchor="middle" font-size="14" font-weight="700" fill="#0e7490">padi (per-host workspace daemon)</text>
+  <text x="265" y="396" text-anchor="middle" font-size="11.5" fill="#155e75">padiSurface: terminals · urgency · status · activity · screen</text>
+  <text x="265" y="413" text-anchor="middle" font-size="11.5" font-weight="600" fill="#155e75">terminalAttach ({seq} byte stream — the path that breaks)</text>
+  <text x="265" y="430" text-anchor="middle" font-size="11.5" fill="#155e75">procs: create · kill · send…</text>
+
+  <!-- kaval box -->
+  <rect x="560" y="350" width="230" height="90" rx="10" fill="#ffffff" stroke="#ca8a04" stroke-width="2"/>
+  <text x="675" y="380" text-anchor="middle" font-size="13" font-weight="700" fill="#854d0e">kaval (PTY daemon)</text>
+  <text x="675" y="402" text-anchor="middle" font-size="11" fill="#854d0e">bytes + PTYs; padi binds it —</text>
+  <text x="675" y="418" text-anchor="middle" font-size="11" fill="#854d0e">the CLI faces never import it</text>
+
+  <!-- arrows -->
+  <defs>
+    <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#475569"/></marker>
+    <marker id="arrGray" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#9aa1b1"/></marker>
+  </defs>
+  <line x1="150" y1="190" x2="175" y2="235" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="245" y1="190" x2="210" y2="235" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="150" y1="269" x2="125" y2="292" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="230" y1="269" x2="255" y2="292" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="120" y1="322" x2="180" y2="350" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="260" y1="322" x2="290" y2="350" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)"/>
+  <line x1="530" y1="395" x2="492" y2="395" stroke="#475569" stroke-width="1.8" marker-end="url(#arr)" transform="rotate(180 511 395)"/>
+  <text x="525" y="388" text-anchor="middle" font-size="10" fill="#475569">binds</text>
+  <line x1="620" y1="210" x2="420" y2="352" stroke="#9aa1b1" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+  <text x="545" y="290" text-anchor="middle" font-size="10.5" fill="#6b7280">dials padiSurface too (today's only consumer)</text>
+</svg>

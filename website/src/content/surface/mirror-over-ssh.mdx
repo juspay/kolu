@@ -38,15 +38,14 @@ tear it down yourself; there is no shared pool.
 ## 2. Pump its frames inward
 
 Implement the mirror surface locally, then run `pumpRemoteSurface` to fold the
-agent's frames into it. Wrap the base contract with `mirroredSurface` first — it
-adds the parent-authoritative `connection` cell (below).
+agent's frames into it. A standalone re-serve serves the agent's base surface
+verbatim.
 
 <Snippet src="packages/surface/example/snippets/remote.ts" region="pump" />
 
 `makeSink` is a *factory*: it takes `{ seq }` (the spawn counter, not a client)
 and the pump rebuilds it on every spawn, so no per-client fold survives a
-reconnect. When the mirrored surface carries `connection`, pass the pump a
-`connection: { set }` and it drives that cell for you off the session's state.
+reconnect.
 
 ## 3. Re-serve the same contract locally
 
@@ -70,12 +69,15 @@ local copy exactly as if the agent were in-process.
   snapshot only ever leads a fresh stream).
 </Aside>
 
-## The connection cell is parent-authoritative
+## Connection health is a host-map concept
 
 Connection health is state the remote agent **cannot** report — it can't observe
-the link *to* itself. So the parent is the sole writer of the `connection` cell:
-`mirroredSurface(base)` reserves the name (it throws on a base that already
-declares one), and the pump projects the session's lifecycle onto it. Everything
-else in the surface is the agent's truth, mirrored; `connection` is the one cell
-the parent authors. For the model behind this pump, see
+the link *to* itself. When you serve many hosts as a **host map**
+([serve a map](/surface/serve-a-map)), that health rides each entry as a fine
+`connection` payload — `serveHostMap` produces the coarse dot and the fine word
+from the same session frame in one projection, the ONE authority both derive from
+(see [@kolu/surface-remote](/surface/ref-surface-remote)).
+A **standalone** re-serve like the one above carries no per-host connection state;
+if a real one ever needs it, the mechanism graduates from the host map with that
+consumer in hand. For the model behind this pump, see
 [The server half](/surface/the-server-half).

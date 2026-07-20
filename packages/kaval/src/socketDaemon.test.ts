@@ -332,6 +332,62 @@ describe("kaval daemon — process-boundary behaviour", () => {
     await reap(c);
   }, 30000);
 
+  it("graceful shutdown reaps a non-tty-aware PTY leader — no orphaned spawn-helper", async () => {
+    // A daemon asked to stop (SIGTERM here; in production the detached daemon
+    // self-exits the same way when its bound run pid vanishes) must reap the
+    // node-pty children it owns. node-pty `setsid`s each PTY into its own
+    // session, so the daemon dying can NEVER let a process-group kill reach them
+    // — only the host disposing each entry (SIGHUP to the leader) does. Before
+    // shutdown was wired to dispose, a SIGTERM'd daemon left the `spawn-helper`
+    // subtree reparented to init and alive, leaking across CI runs (aged orphans
+    // found on rasam) and loading the box — the darwin-under-load flake substrate.
+    //
+    // The pin is a DIRECTLY-spawned, non-tty-aware leader (a bare `sleep`): it
+    // neither reads the pty (so it can't self-exit on the master's EOF) nor
+    // watches the tty — so, unlike a SHELL leader (which reliably self-reaps on
+    // the master's hangup), it cannot RELIABLY be reaped by the OS. darwin's
+    // master-close does hang it up, but only intermittently (observed leaking
+    // once, then reaped on a later 5/5 batch — the aged rasam orphans are that
+    // unreliable tail); the daemon's explicit dispose makes the reap
+    // DETERMINISTIC, which is the fix. A leader that HAS foreground descendants is
+    // reaped whole anyway — the leader's death hangs up its foreground group
+    // (kernel), so the descendants go with it — and a real shell leader self-reaps
+    // on the hangup regardless. Both were verified on rasam: every shell-involved
+    // topology passes even WITHOUT the fix, so the honest reproduction is this
+    // non-self-reaping leader.
+    const d = track(await startDaemon());
+    const conn = await connect(d.socketPath);
+    const { pid } = await conn.client.surface.terminal.spawn({
+      argv: ["sleep", "100000"],
+      cwd: makeCwd(),
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm" },
+      initFiles: [],
+    });
+    await conn.dispose();
+    expect(isAlive(pid)).toBe(true);
+
+    try {
+      // Graceful stop — daemonMain's shutdown `.finally` awaits the host close,
+      // which must dispose (SIGHUP) the PTY leader before the process exits.
+      await reap(d);
+
+      // Reaping is async; poll briefly. RED before the fix: the leader stays
+      // alive past the window (leaked). GREEN after: it is gone.
+      for (let i = 0; i < 50 && isAlive(pid); i++) await sleep(100);
+      expect(isAlive(pid)).toBe(false);
+    } finally {
+      // Never let THIS test strand the leader (e.g. on a RED assertion) — that
+      // would leak exactly the process the test guards against.
+      if (isAlive(pid)) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  }, 30000);
+
   it("SIGTERM teardown removes the socket and releases the gate", async () => {
     const d = track(await startDaemon());
     expect(existsSync(d.socketPath)).toBe(true);

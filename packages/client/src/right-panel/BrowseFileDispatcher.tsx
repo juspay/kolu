@@ -112,6 +112,9 @@ export type BrowseFileDispatcherProps = {
   /** Forwarded to the iframe renderer so an external link clicked in an HTML
    *  preview opens in a real browser tab (the sandbox can't open one itself). */
   onOpenExternal?: (url: string) => void;
+  /** Forwarded to the iframe renderer so a kolu deep link (`#/…`) clicked in an
+   *  HTML preview routes the parent app (the sandbox can't navigate it). */
+  onDeepLink?: (hash: string) => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -363,6 +366,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             onNavigate={props.onNavigate}
             onHistory={props.onHistory}
             onOpenExternal={props.onOpenExternal}
+            onDeepLink={props.onDeepLink}
           />,
         ),
     },

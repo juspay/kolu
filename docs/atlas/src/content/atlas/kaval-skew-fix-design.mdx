@@ -1,0 +1,520 @@
+---
+title: "Design — kaval contract skew: two commits to kill the class"
+description: "The build-ready design for the remote-kaval contract-skew fix: commit 1 repairs the three defects at their seams (log bridge, version-bearing error, typed rethrow); commit 2 fortifies the surface framework (an incompatible daemon state, one kaval-attention surface with per-axis recovery, a declared error channel on defineSurface)."
+parents: [bug-remote-kaval-contract-skew, surface]
+status: implemented
+maturity: seedling
+updated: 2026-07-16
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import flowSvg from "../../diagrams/kaval-skew-fix-design-flow.svg?raw";
+
+<PrLink pr={1876} />
+
+This note is the build plan for the two-tier fix ruled in
+[the bug note](/atlas/bug-remote-kaval-contract-skew.html): **one PR, two
+commits** — commit 1 repairs the instances (SK1–SK3), commit 2 makes the class
+inexpressible (SK4–SK6). Work items carry the **SK** track prefix (new; no
+collisions in the Atlas). Every file:line below was re-grounded at
+`kaval-skew` HEAD (`318f17437`).
+
+<Svg svg={flowSvg} wide caption="The skew fact stays typed at every hop: minted with version fields (SK2), carried as a first-class state (SK4), derived once (SK5), recovered per axis. The RPC leg is declared, not flattened (SK3→SK6). SK1 unblocks the diagnostics that hid all of it." />
+
+## How this honors the design philosophy
+
+- **Fail fast, no fallbacks** — the compensating per-line `try/catch` around the
+  log sink is *deleted*, not kept as a belt-and-braces (SK1); `recycleKaval` on
+  skew refuses typed rather than retrying (one attempt is diagnosis; a retry
+  loop is a lie); an undeclared handler throw still surfaces loudly as
+  `INTERNAL_SERVER_ERROR` — we kill the *flattening of declared errors*, not the
+  crash-loudly path.
+- **Electricity boundaries** — every framework move lands in the package that
+  owns the volatility: the logger seam in `@kolu/surface-remote`, the state sum
+  in `@kolu/surface-daemon-supervisor`, the error channel in `@kolu/surface`.
+  Nothing domain-specific leaks into them; kolu-side code only consumes.
+- **Reuse the existing source of truth** — the `Logger` shape comes from
+  `@kolu/log` (not a new interface, not a pino dep); the skew UX extends the
+  *existing* kaval-currency surface (`kavalCurrency.ts` → `KavalInfoDialog`
+  banner → host-chip pip) instead of a parallel skew card; the remote recovery
+  reuses the binder's existing drain→re-dial→re-realise pipeline. **The reuse
+  ruling is itself fortification**: one badge/dialog surface fed by typed status
+  arms cannot disagree with itself, where a second "your kaval needs attention"
+  surface with its own predicate/copy/action would be this bug's shape — a
+  claim downstream of the truth, free to drift false — rebuilt in the UI. Any
+  duplicated presentation surface or duplicated version-comparison logic is a
+  defect of the same severity as a fallback.
+
+## Gate criteria (binding)
+
+1. **The skew card** — the user sees both versions ("this host's kaval speaks
+   5.0, your kolu needs 5.2") carried as **typed fields end-to-end** (padi
+   throw → status arm → client); no consumer ever re-parses message prose.
+2. **The card offers the working recovery** — one action that stops the old
+   kaval and starts a correct-version one, via the **binder's reprovision
+   path** (re-realise the host closure → fresh kaval), never the recycle path
+   (by `incompatible`'s construction a recycle from the current closure has
+   already been tried and skewed — see SK5). To the user: *"Update &amp;
+   restart kaval."* The "working" claim is **proven on the incident
+   topology** in the evidence, not inferred (see Gates).
+3. **Faithful propagation** — every hop from surface to UI preserves the typed
+   skew; no `INTERNAL_SERVER_ERROR` flattening anywhere on the path.
+
+## Commit 1 — the repairs
+
+### SK1 — the log bridge: a receiver-bound Logger seam
+
+The crash is an **unbound pino method**: `(severity === "error" ? log.error :
+… : log.info)({…}, "…")` extracts a bare function reference, so pino runs with
+`this === undefined` and throws on every line — in both consumers
+(`packages/server/src/padi/remotePadiBinding.ts:697`,
+`packages/server/src/padi/padiBinding.ts:605`). The structural fix moves
+severity dispatch *inside* the session so the hazard has no spellable form:
+
+- **`MakeSessionOptions.onLog` is replaced by `log?: Logger`**
+  (`packages/surface-remote/src/session.ts:416`), the `Logger` type imported
+  from `@kolu/log` (`packages/log/src/index.ts:24` — the workspace's single
+  authoritative shape, zero-dep, structurally compatible with pino child
+  loggers).<Footnote>`@kolu/surface-remote` already carries workspace deps
+  (`@kolu/surface`, `@kolu/surface-map`, `@kolu/shell-quote`), so depending on
+  `@kolu/log` doesn't break any graduation rule. `@kolu/surface-daemon`
+  re-declares the shape locally to stay workspace-dep-free; surface-remote has
+  no such constraint.</Footnote>
+- **`emit` becomes `opts.log[severity]({ line }, label)`** — an indexed call on
+  the receiver, `this` bound by construction. Absent `log`, the current raw
+  `process.stderr.write(line)` default is **unchanged** (odu's
+  `src/coordinator/display.ts:26` depends on surface-remote's default
+  diagnostics reaching raw stderr with the `[host:…]` prefix).
+- **The per-line `try/catch` (`session.ts:567–574`) is deleted**, along with
+  its covering test (`hostSession.test.ts:143–176`, "contains a throwing onLog
+  sink") — the sink it compensated for no longer exists; keeping it would hide
+  the next regression. Stated blast radius: a *throwing* consumer `Logger` now
+  crashes the session loop instead of being swallowed per line — that is
+  fail-fast-correct (a broken logger is a defect to surface, not to spam
+  stderr around), and the receiver-bound internal dispatch removes the one
+  throw source the catch was built for.
+- **`dialAgentOnce` forwards the new option** (`dialAgentOnce.ts:143–148,
+  183`): its `onLog?: (line) => void` becomes `log?: Logger` pass-through.
+- **Consumers**: `padiBinding` passes `log`; `remotePadiBinding` passes
+  `log.child({ host })` — the `{host}` field the old sink attached now rides
+  child bindings. The line-prefix labels (`[host:x local]`…) stay baked into
+  `line` (tests assert them; `hostSession.test.ts:125`).
+- **Tests**: `hostSession.test.ts`, `clockProbe.test.ts` (the severity-routing
+  assertion at :161 becomes a Logger-stub assertion), `probingEpisode`,
+  `currentState`, `remotePadiSsh.test.ts:235` — sinks become 4-method stubs.
+- **Red-first pin**: a session driven with a **real pino logger** (prototype
+  methods) logs every diagnostic line without a throw; red today when the
+  consumer-shaped ternary is exercised.<Footnote>The red repro lives at the new
+  seam's level: drive `makeSession`'s emit path with a genuine pino child
+  logger. Under the current API the equivalent consumer lambda throws per line
+  (`Cannot read properties of undefined (reading 'Symbol(pino.msgPrefix)')`),
+  which the deleted `try/catch` converts into stderr spam + dropped logs — the
+  bug note's defect C.</Footnote>
+
+### SK2 — the error carries its versions
+
+`DaemonContractSkewError`
+(`packages/surface-daemon-supervisor/src/endpoint.ts:82`) today takes a prose
+message; both mint sites already hold the two versions as values and bake them
+into the string. The class gains the facts:
+
+```ts
+new DaemonContractSkewError({ subject: "pty-host", daemonVersion, requiredVersion })
+// .message derived: `${subject} contract skew: daemon speaks ${daemonVersion}, needs ${requiredVersion}`
+```
+
+- `readonly daemonVersion` / `readonly requiredVersion` fields; **message
+  derived from the fields** (parse-don't-validate — no consumer ever regexes
+  the prose). `subject` keeps the two mint flavors legible
+  (`connect.ts:97` "pty-host"; `dial.ts:152` "padiSurface") while staying a
+  field, not free prose.
+- Mint sites updated: `packages/padi/src/ptyHost/connect.ts:97`,
+  `packages/padi/src/dial.ts:152`, plus the three test mints in
+  `endpoint.test.ts` (:624, :778, :1042).
+- Exported-API change → `ref-surface-supervisor.mdx` same commit. Neither
+  drishti nor odu imports the class (grounded grep at both pins — zero hits).
+
+### SK3 — typed rethrow at the knowing endpoint
+
+`recycleKaval`'s catch (`packages/padi/src/servePadi.ts:443–458`) rethrows a
+plain error, which oRPC's `toORPCError` collapses to `INTERNAL_SERVER_ERROR` —
+the toast the user saw. Mirroring the existing `fileGoneAsNotFound` pattern
+(`servePadi.ts:124`):
+
+```ts
+catch (err) {
+  if (isContractSkewError(err)) {
+    throw new ORPCError("KAVAL_CONTRACT_SKEW", {
+      message: err.message,
+      data: { daemonVersion: err.daemonVersion, requiredVersion: err.requiredVersion },
+    });
+  }
+  …existing journal line + rethrow…
+}
+```
+
+- The handler performs **one** recycle attempt (it already does —
+  `restartLocalDaemon` is single-shot); on skew it now *refuses typed*. No
+  retry loop is added anywhere.
+- The client toast (`useDaemonRestart.ts:62–67`) shows `err.message` — with
+  SK3 alone the user already reads the real cause instead of "Internal server
+  error". Commit 2 (SK6) upgrades this same code from an ad-hoc string to a
+  *declared* error; SK5 replaces the affordance that led here.
+- **Red-first pin**: unit test — when `restartLocalDaemon` rejects with a
+  `DaemonContractSkewError`, the `recycleKaval` rejection is an `ORPCError`
+  with `code: "KAVAL_CONTRACT_SKEW"` and both versions in `data`; red today
+  (plain rethrow).
+
+## Commit 2 — the skew becomes a state with one honest surface
+
+### SK4 — `incompatible`: a first-class daemon state
+
+The discrimination already exists inside the endpoint (`SurvivorConnect =
+adopted | skew | unreachable`, `endpoint.ts:476–479`) — it just dies before
+the status surface: a recycle whose *fresh spawn* still skews is caught by a
+skew-blind catch and emitted `dead` (`endpoint.ts:427–433`), and the padi
+binder's refuse arm emits `degraded` (`endpoint.ts:741`). Extend, don't
+invent:
+
+| Seam | Change |
+| --- | --- |
+| `endpointStates.ts` | `ENDPOINT_STATES` gains `"incompatible"` |
+| `EndpointStatus` (endpoint.ts:57) | third arm: `{ state: "incompatible"; daemonVersion; requiredVersion }` (versions from SK2's fields) |
+| `spawnConnectHold` catch (endpoint.ts:427) | `isContractSkewError(err)` → emit `incompatible` with versions; else `dead` as today |
+| refuse arm (endpoint.ts:734–742) | emits `incompatible` (was `degraded`) — same verdict, now named |
+| restart-hold coercion (endpoint.ts:307) | `incompatible` passes through un-coerced, like `dead` — it is a terminal verdict, not a transition |
+| `daemonStatus.ts:105` fold | threads the versions onto the wire object |
+| `DaemonStatusSchema` (vocab.ts:577) | a **third object arm** carrying both versions; `NON_CONNECTED_ENDPOINT_STATES` (vocab.ts:563) excludes `"incompatible"` so the payload is spellable |
+| `padiBinding.ts:479` | the session-loop condition gains the arm (`degraded \|\| dead \|\| incompatible`) |
+
+Client-side totality — every site the state-flow survey found, made exhaustive
+rather than fallthrough:
+
+- `DAEMON_STATE_PRESENTATION` (daemonPresentation.ts:32) — compile-forced new
+  row (tone `down`, label `incompatible`).
+- `toKavalPresence` (daemonPresentation.ts:285) — explicit `incompatible` arm;
+  today's code would fall through to a **lying "warming" pulse**.
+- `liveDownState`'s cast (daemonPresentation.ts:191) + `CanvasMode`/
+  `CanvasFacts` literals (canvasModeResolver.ts:41,122) + `DegradedCanvas`'s
+  prop (`"dead" | "degraded"`, DegradedCanvas.tsx:27) — the down union widens
+  to carry the full status so the canvas can state versions; the **Restart
+  verb renders only on `dead | degraded`** — affordances become a total
+  function of the state sum, so "a restart offered against a daemon a restart
+  can't fix" is unspellable.
+- `daemonConnected()` (useDaemonStatus.ts:333) — must read **false** on
+  `incompatible` (today it would read true: not warming, not in the down
+  union).
+- Command palette (commands.tsx:516) — "Restart kaval" excluded on
+  `incompatible`.
+- `ConnectCanvas` (ConnectCanvas.tsx:68) — reads
+  `DAEMON_STATE_PRESENTATION[state].canvasLabel`; the new row gives it honest
+  copy for free, but the site is on the totality list so the label choice is
+  deliberate, not inherited.
+
+**Red-first pins**: supervisor unit — a recycle whose fresh spawn throws skew
+emits `{state: "incompatible", daemonVersion, requiredVersion}`, never `dead`
+(red today at endpoint.ts:431); client unit — `incompatible` presents `down`
+with no restart verb (red today: warming fallthrough + enabled button).
+
+**The honest version bump — `PADI_SURFACE_VERSION` 4.0 → 4.1.** The third
+`DaemonStatusSchema` arm is a new **emitted wire variant**, and the repo's own
+versioning doctrine (surface.ts:180–208: "the version is an honest statement
+of the wire SHAPE"; 3.1 stayed minor *only because* it had "no reshape, no
+required field, no emitted variant") requires the minor bump. The two skew
+directions both converge: a **new binder against an old padi** (4.0 &lt; 4.1)
+fails `isContractVersionCompatible`'s minor rule (define.ts:1090 — reported
+minor must be ≥ expected), so the padi convergence policy drains-and-replaces
+the old padi before any status is consumed; an **old binder against a new
+padi** is version-compatible (4.1 ≥ 4.0) but build-mismatched, so the build
+axis drains-and-replaces padi *first* — the old client schema never sits long
+enough against a padi that could emit the arm it can't parse. That paragraph
+is the answer to "who reports the skew of the skew-reporter". The symmetry
+teaches the rule: #1865 folded an orphan 4.1 bump *back* because there was
+**no** emitted delta; here the bump is required because there **is**
+one.<Footnote>Doctrine precedents in surface.ts's version log: 3.0/4.0 majors
+for reshapes and removals ("only a major flips `isContractVersionCompatible`
+to refuse the skew"); 3.1 minor for purely-optional adds. A new emitted
+variant sits exactly at the minor line: additive for a newer client, but a
+shape an older client must never be left facing — which the build-axis
+convergence guarantees.</Footnote>
+
+**Red-first pins (SK4, completing the set):**
+- refuse arm — `adoptOrSpawnOrRefuse` on a skewed survivor emits
+  `{state: "incompatible", daemonVersion, requiredVersion}` **and** the
+  binder's `onStatus` still resolves the dial's `closed`
+  (`padiBinding.ts:479` — the `|| incompatible` arm is load-bearing; without
+  it the session loop stops reconciling).
+- restart-hold — an `incompatible` emit under `restartHold` is **not**
+  coerced to `restarting` (endpoint.ts:307): a terminal verdict must never be
+  repainted as progress.
+- palette — "Restart kaval" is omitted from the command palette on
+  `incompatible` (commands.tsx:516).
+
+`ENDPOINT_STATES`/`EndpointStatus` are exported API →
+`ref-surface-supervisor.mdx` + `surface-daemon-invariants.mdx` (the "failures
+report dead before they throw" invariant gains the skew carve-out) same
+commit. Neither drishti nor odu imports the supervisor package (grounded grep,
+zero hits).
+
+### SK5 — one attention surface, per-axis recovery
+
+**The problem is already half-solved in the UI** — kolu has a kaval-attention
+surface: `kavalStale` (kavalCurrency.ts:31, the pure currency derivation), the
+`KavalInfoDialog` banner ("Newer Kaval build available", KavalInfoDialog.tsx:256–277,
+hosting the session-preserving `RestartKavalButton`), and the host-chip pip +
+tooltip (HostDaemonChips.tsx:353–361). The skew presentation is **this same
+surface extended with the contract axis** — not a parallel card. Two grounded
+gaps bridge it:
+
+**(1) Predicate.** `kavalStale` requires `state === "connected"` (a
+build-behind daemon is honestly connected) — a contract-skewed kaval **never
+connects**, so the skew reaches the surface via SK4's `incompatible` status
+arm, not via `kavalStale`. The join is a new single derivation in
+`kavalCurrency.ts`, superseding bare `kavalStale` at every read site:
+
+```ts
+type KavalAttention =
+  | { kind: "none" }
+  | { kind: "stale"; running: string; expected: string }          // currency axis — "newer build available"
+  | { kind: "incompatible"; daemonVersion: string; requiredVersion: string }; // contract axis — "incompatible, needs update"
+
+kavalAttention(expected, status, live): KavalAttention
+// live-floored like kavalStale; incompatible read from the TYPED status arm — never message prose
+```
+
+Both axes light the **one** badge/dialog/pip, distinctly labeled, one chrome:
+amber for `stale`, the down tone for `incompatible`. The two version pairs
+render from typed fields (`staleKey`/`navigableCommit` for currency;
+`daemonVersion`/`requiredVersion` for contract). All three readouts — dialog
+banner, chip pip/tooltip, and the canvas card below — call this one function;
+**no second version-comparison site exists anywhere in the client**.
+
+**(2) Action per axis — two rows, no host split.** One dialog slot, wired per
+axis; `incompatible` gets **one** action on **both** hosts:
+
+| Axis | Action | Why it works |
+| --- | --- | --- |
+| `stale` (any host) | `RestartKavalButton` → `lifecycle.recycleKaval` (unchanged) | respawn from the padi's own closure is exactly "converge the build" |
+| `incompatible` (any host) | **"Update &amp; restart kaval"** (confirm) → `hosts.renewDaemon(host)` | by the time `incompatible` renders, a respawn from the host's current closure has **already been tried and skewed** — the arm's only producer is the fresh-spawn-still-skews catch (endpoint.ts:427–433; a skewed *adopted survivor* is recycled silently by `adoptOrEnsure` + `onContractSkew: recycle` and never reaches the UI). The only action left that changes anything is the one that changes the **closure**: renew. |
+
+A local plain-restart row would offer a recovery the server has already
+proven failed — defect B relocated to the local axis — so it does not exist.
+Local renew is the same verb through the same seam: drain the local padi →
+the binder respawns it from the server's own build → its converge policy
+recycles kaval from the new `KOLU_KAVAL_BIN`. It strictly dominates a plain
+restart and also heals the stale-bound-padi edge cases. The action is
+destructive to the host's terminals (padi drains, kaval recycles), so the
+card's button carries a **confirm affordance** — the same pattern as the
+existing Restart confirm — whose copy states that this host's terminals
+restart.
+
+`hosts.renewDaemon` is the one new RPC: a host-keyed sibling of
+`hosts.reconnect` (router.ts:105–108) that forwards to that host's
+`padiSession.renew()` (padiSession.ts:138 — the binder-owned drain: padi
+persists + exits → the reconnect loop re-dials → `provisionAgent` re-realises
+the **current** drv (`nixCopy.ts:138`, resolved fresh at the top of every dial,
+`sshConnector.ts:71–74`) → the `--stdio` front re-execs padi from the new
+closure (`stdioBridge.ts:13–18`) → the new padi's converge policy
+auto-recycles the old kaval from its new `KOLU_KAVAL_BIN`
+(`KAVAL_CONVERGENCE_POLICY.onContractSkew: recycle`, ptyHost/index.ts:71–75);
+on the local host the same drain respawns padi from the server's own build
+constant, same converge, same fresh kaval). Every step of that pipeline
+already exists and is the *only* path that changes the closure; the RPC
+merely exposes it host-keyed.
+
+**Scope line:** the *padi*-axis contract skew (`dial.ts:152`, subject
+"padiSurface") is deliberately out of scope for this card — it already has
+its own verdict channel (`skew-refused` → `contract-skew-refused` host-down
+card), and the two flavors cannot collide on the kaval card today (a
+skew-refused padi never serves the `daemonStatus` collection this card reads).<Footnote>Why not a new
+`PadiConvergence` arm ("kaval-skew") instead? Because the fact already has a
+per-host wire home — the re-served padiSurface `daemonStatus` collection
+(state `incompatible`, SK4) — and the binder's `convergence()` fact reaches
+the browser only via the legacy local-hardcoded `daemonInventory` cell
+(useDaemonInventory.ts:41–50 flags the gap). Mirroring the same fact onto a
+second channel would create two authorities for one truth — the P3 defect this
+PR exists to kill. One authority per fact: **padi reports the skew** (the
+status arm), **only the binder can fix it** (the renew verb). The convergence
+*vocabulary* is reused where it lives: `renew()` is the binder's existing
+convergence enactment, and the card's copy speaks the same "converge" language
+as `hostDownCopy.ts`.</Footnote>
+
+**The UX flow** (canvas card = the widened `DegradedCanvas` arm; dialog =
+the extended banner):
+
+export const SkewCardMock = () => (
+  <div style="max-width:30rem;margin:1.2rem auto;border:1px solid #e6e2d6;border-radius:12px;padding:1.2rem 1.3rem;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.06);font-family:ui-sans-serif,system-ui">
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <span style="width:10px;height:10px;border-radius:50%;background:#b3261e;display:inline-block"></span>
+      <strong style="color:#1a1c20;font-size:.95rem">kaval is incompatible with this kolu</strong>
+    </div>
+    <p style="margin:.6rem 0 0;font:.78rem/1.5 ui-monospace,monospace;color:#5b6470">
+      this host's kaval speaks <span style="color:#b3261e;font-weight:700">5.0</span> · your kolu needs <span style="color:#1b7a3a;font-weight:700">5.2</span>
+    </p>
+    <p style="margin:.45rem 0 0;font-size:.8rem;color:#5b6470;line-height:1.5">
+      Restarting can't fix this — the host's kaval binary is from an older kolu install.
+      Updating re-realises the host's closure and starts a correct-version kaval.
+    </p>
+    <button type="button" style="margin-top:.85rem;border:1px solid #0b6478;background:#0b6478;color:#fff;border-radius:8px;padding:.45rem .9rem;font-size:.8rem;font-weight:600;cursor:default">
+      Update &amp; restart kaval…
+    </button>
+    <p style="margin:.5rem 0 0;font-size:.7rem;color:#8a8f98">
+      opens a confirm (the existing Restart-confirm pattern): drains padi, re-provisions the
+      closure, starts a correct-version kaval — terminals on this host restart
+    </p>
+  </div>
+);
+
+export const DialogBannerMock = () => (
+  <div style="max-width:30rem;margin:1rem auto;font-family:ui-sans-serif,system-ui">
+    <div style="border:1px solid rgba(179,38,30,.4);background:rgba(179,38,30,.08);border-radius:8px;padding:.6rem .8rem;font-size:.75rem;line-height:1.5">
+      <p style="margin:0;font-weight:600;color:#b3261e">Incompatible — needs update</p>
+      <p style="margin:.25rem 0 0;font:.7rem/1.5 ui-monospace,monospace;color:#5b6470">kaval speaks 5.0 · kolu needs 5.2</p>
+    </div>
+    <div style="border:1px solid rgba(138,82,0,.4);background:rgba(138,82,0,.08);border-radius:8px;padding:.6rem .8rem;font-size:.75rem;line-height:1.5;margin-top:.5rem">
+      <p style="margin:0;font-weight:600;color:#8a5200">Newer Kaval build available</p>
+      <p style="margin:.25rem 0 0;font:.7rem/1.5 ui-monospace,monospace;color:#5b6470">running a1b2c3d · expected e4f5a6b</p>
+    </div>
+    <p style="margin:.5rem 0 0;font-size:.7rem;color:#8a8f98;text-align:center">
+      the KavalInfoDialog banner slot — the two axes, distinctly labeled, one chrome (only one shows at a time:
+      a skewed kaval is never connected, so the axes are mutually exclusive by construction)
+    </p>
+  </div>
+);
+
+<SkewCardMock />
+<DialogBannerMock />
+
+**Red-first pin**: client unit/e2e — on `incompatible` (any host) the canvas
+card shows both versions and offers *Update &amp; restart kaval* behind a
+confirm — never the plain *Restart kaval*. Red today: the canvas shows "kaval
+didn't start" + a Restart that loops forever.
+
+### SK6 — a declared error channel on `defineSurface`
+
+The framework move that kills "a typed daemon error arrives as an opaque
+`INTERNAL_SERVER_ERROR`" as a class. The pinned oRPC (`1.13.13`, every
+`@orpc/*` in pnpm-lock.yaml) carries the full contract-level typed-error API —
+`.errors()` on every builder stage, handler-side `opts.errors` constructor
+maps, client-side `isDefinedError`/`safe` — and kolu uses none of it:
+`ProcedureSpec` (define.ts:227) has no error slot, so a procedure *cannot
+declare* its failure modes.
+
+- **`ProcedureSpec` gains `errors?`**: `Record<CODE, { data?: ZodType;
+  message?: string }>` — additive and optional, so every existing spec literal
+  compiles unchanged (verified against drishti's and odu's spec shapes at
+  their pins, including drishti's `procedures: mirroredAgentSurface.spec.procedures`
+  spec-object reuse).
+- **Runtime + type oracles move in lockstep** (the define.ts:779 drift-watch):
+  `procedureContractEntry` (define.ts:408) applies `.errors()`; the four
+  `buildProcedure*` oracles (define.ts:845–859) and `ProcedureContract`
+  (define.ts:604) thread the error map so the contract type carries it.
+- **Server half is nearly free**: `implementSurface` already spreads oRPC's
+  handler opts (`server.ts:2500`), so a declaring procedure's handler receives
+  the typed `opts.errors.KAVAL_CONTRACT_SKEW({ data })` constructors with no
+  surface plumbing.
+- **Client half**: `BoundProcedure` (surfaceClient.ts:354) currently erases
+  the rejection type; it gains the declared union so a catch narrows with
+  `isDefinedError(e)` to a discriminated `{ code, data }`. `mirrorRemoteSurface`'s
+  forwarders and surface-map's folded contract pass declared errors through
+  untouched (both forward the raw oRPC callable — grounded; the relay
+  "re-throws genuine application errors UNCHANGED", client.ts:116).
+- **Adoption in this PR**: `padiSurface.lifecycle.recycleKaval` declares
+  `KAVAL_CONTRACT_SKEW` with `data: { daemonVersion, requiredVersion }`; the
+  SK3 handler moves from the ad-hoc `new ORPCError(…)` to
+  `opts.errors.KAVAL_CONTRACT_SKEW(…)`; `useDaemonRestart`'s catch
+  discriminates and feeds the same typed pair the SK5 chrome renders.
+- **Honest scope.** Declared-error adoption for the *other* existing surfaces
+  (surface-map's `MAP_KEY_UNKNOWN`/`MAP_ENTRY_FAILED`/`MAP_KEY_NON_CANONICAL`
+  ad-hoc codes, padi's remaining lifecycle verbs, kaval's `ptyHostSurface`) is
+  a stated migration path, not this PR — each is a mechanical
+  `errors:`-declaration + handler move on an already-built channel. And a
+  TypeScript limit, stated plainly: TS cannot type `throw` statements, so "an
+  undeclared plain-Error throw is a compile error" is achievable only for the
+  *client's* catch-narrowing and the *handler's* constructor path — an
+  undeclared throw still reaches the client as `INTERNAL_SERVER_ERROR` at
+  runtime. That remaining path is the fail-fast crash-loudly channel, which is
+  correct; what the channel kills is the flattening of errors a procedure
+  *meant* to be actionable.<Footnote>Full "inexpressible" would need a lint
+  forbidding bare `throw` in surface handlers — worth considering once more
+  than one surface has adopted the channel; deliberately out of scope
+  here.</Footnote>
+- `ProcedureSpec`/`defineSurface` are exported API → `ref-surface.mdx` same
+  commit.
+
+**Red-first pins**: type-level (`.test-d.ts`) — a declaring procedure's
+client rejection narrows via `isDefinedError` to the declared
+`{daemonVersion, requiredVersion}` data, **and `errors?` is threaded through
+all four `buildProcedure*` oracles** (define.ts:845–859, the define.ts:779
+drift-watch) — not just the shape `recycleKaval` happens to use; runtime —
+the declared error **crosses the incident hop**: minted by a handler *behind*
+`surface-map`'s keyed proxy + `mirrorRemoteSurface` (the exact path the field
+failure flattened at, server.ts:534) and arrives at the client
+`defined: true` with data intact, while an undeclared plain throw still
+arrives as `INTERNAL_SERVER_ERROR`. That pin is the incident as a permanent
+regression test.
+
+## Gates — consumers, docs, evidence
+
+**Consumer gate** (`.claude/rules/surface.md`), grounded greps at both pins:
+
+| Consumer | Exposure | Verdict |
+| --- | --- | --- |
+| drishti (`hostRegistry.ts:92`) | `makeSession` — passes **no** `onLog`; specs don't spell `errors`; no supervisor import | pair PR = pin bump to final kolu HEAD, no code change expected; CI green required |
+| odu (`lane.ts:69`) | `makeSession` — no `onLog`; depends on the **default stderr sink** (`display.ts:26`), which SK1 preserves; no supervisor import | SK1/SK2/SK4: `none` · SK6: `adoption-opportunity` (declared errors for `node.rerun`/`run.cancel`) → ledger odu#43 |
+
+**Docs, same PR**: `ref-surface-remote.mdx` (SK1 — also fixes the stale
+"info for the expected-absent case" line at :154–157; the code emits `debug`),
+`ref-surface-supervisor.mdx` (SK2, SK4), `surface-daemon-invariants.mdx`
+(SK4), `ref-surface.mdx` (SK6), `packages/padi/README.md` +
+`packages/kaval/README.md` if the daemon-topology prose mentions restart
+semantics (grep at build time), changelog: one `fixed` entry (the user-facing
+skew UX) + one `changed` entry (the surface framework's declared error
+channel).
+
+**Evidence — prove the recovery, not just the card.** The remote-host skew is
+exactly what the `remote-host-testing` harness exists for, and gate criterion
+2's "the working recovery" must be *shown working* on the **incident
+topology**: a current-contract padi + an **ancient adoptable kaval survivor**
+on the box (the field trace's shape — the "needs 5.2" constant was compiled
+into the remote padi that threw, so the padi was current and the kaval was
+the graveyard survivor). Capture: (before) the dead-end Restart loop /
+opaque toast; (after) the `incompatible` card with both versions, then
+**`hosts.renewDaemon` actually converging the host** — a fresh
+correct-version kaval connects and the canvas comes back. CI: linux pu lease
++ darwin per coordinator arbitration.
+
+<Callout kind="accent" title="Evidence captured (PR #1876) — and a D2 recipe correction">
+  **Reproduce-first surfaced two dead ends in the naïve manufacture**, both
+  banked as positive facts:
+  - **A `KOLU_KAVAL_BIN` env override can't produce the skew** — the built
+    wrapper *force*-`export`s it (a plain `export`, overriding inherited env),
+    so an ambient override never reaches padi's kaval spawn.
+  - **Planting an old kaval at the adopt-hint socket self-heals** — a
+    *current* padi that adopts a 5.0 survivor recycles it (`onSkew → recycle
+    → spawnConnectHold`) and respawns its **baked** current kaval, converging
+    with no `incompatible` ever reaching the UI. So the card appears **only**
+    when padi's *own closure* is stale — which delimits exactly when
+    `renewDaemon` (re-realise the closure) is the right recovery.
+
+  A genuine `incompatible` therefore needs padi's **baked** kaval to be old.
+  The capture wires the real `packages/kaval` build from **`c9fd9a2bf`** (the
+  last 5.0-era commit, before the 5.0→5.2 bump in `557e08a86`/#1783) into
+  padi's closure, so the current padi spawns a genuine 5.0 kaval → the real
+  `connectKaval`→`spawnConnectHold` skew → `incompatible(5.0, 5.2)`. Captured
+  in a real browser: the card with both typed versions + "Update &amp; restart
+  kaval"; then `hosts.renewDaemon` → drain → re-realise (to the real 5.2
+  kaval) → the chip flips to **running · contract v5.2** and the canvas
+  returns. Both frames on the PR's `## Evidence` comment.
+</Callout>
+
+<Callout kind="warn" title="What commit 2 does NOT do">
+  No override knobs, no config to re-enable Restart on a skewed daemon, no
+  retry loops, no fallback path that hides a skew as `degraded`. A skewed
+  daemon is `incompatible`, the UI says so with both versions, and the one
+  recovery offered is the one the evidence proves works on the incident
+  topology.
+</Callout>

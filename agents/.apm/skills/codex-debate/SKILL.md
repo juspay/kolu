@@ -31,9 +31,18 @@ and teardown. Read it; this skill only adds the debate protocol on top.
 Requires running **inside a kolu terminal** (you need to spawn a sibling split). If
 you can't, the skill is inert — say so and stop.
 
-**Spawn** codex as a split beside you, in this worktree, under `--yolo`, at the chosen
-reasoning effort: `codex --yolo -c model_reasoning_effort=<effort>`. `--yolo` is
-**required, not a convenience**: the two moves that make this engine work — codex
+**Spawn** codex as a **split tile beside you** — a sibling on your canvas
+**parented to your own terminal**, NOT a detached terminal — in this worktree,
+under `--yolo`, at the chosen reasoning effort. **Provision it per
+[/kolu](../kolu/SKILL.md)**: the split-with-parent create (`lifecycle_create`
+with a `parentId` MCP-first; its `padi-tui create --parent` fallback) and the
+send→settle→snapshot drive loop are /kolu's protocol, not restated here.
+codex-debate says only *what* to spawn — `codex --yolo` at the chosen
+`model_reasoning_effort`, parented to your own terminal so it lands as a split
+you drive turn-by-turn (a detached, non-parented terminal is the wrong shape
+for a debate — reach for /kolu's split provisioning, never a bare detached
+create). `--yolo` is **required, not a convenience**: the two moves that make
+this engine work — codex
 *writing* its verdict file and *pinging* your terminal (a unix-socket write) — are both
 **denied by every codex sandbox** (`read-only` and `workspace-write` both block the
 socket write; `read-only` also blocks the file write — verified). So the reviewer runs

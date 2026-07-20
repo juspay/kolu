@@ -37,6 +37,7 @@
  * the first successful connect, never null-forever.
  */
 
+import type { Logger } from "@kolu/log";
 import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -155,14 +156,47 @@ export interface Session<
   Client = SurfaceClientLike,
   Prov extends string = never,
 > {
-  /** Pin the session open for the parent's lifetime (bumps a ref so the reconnect
-   *  loop keeps retrying across transient callers reaching zero). Resolves with the
-   *  first client. */
+  /** Pin the session open for as long as the parent process runs (bumps a ref so
+   *  the reconnect loop keeps retrying across transient callers reaching zero).
+   *  Resolves with the first client.
+   *
+   *  NOT a process hold: a pinned session's internal timers are `unref()`'d
+   *  (docs/atlas session-timer-unref) — except the bounded admit-handshake
+   *  timeout, which stays ref'd precisely so a pending `pin()` is settled
+   *  rather than the process exiting silently mid-await — so once its link is
+   *  down, an abandoned session cannot keep an otherwise-finished process
+   *  running (a LIVE link's child/socket is a real hold while it lasts). A
+   *  consumer whose sole purpose is waiting on a session must hold the process
+   *  by its own means (a server socket, stdin, a live transport). Consequently
+   *  a parked onState-derived wait (`ClientCursor.next()` across a reconnect
+   *  gap) is not a process hold either: if nothing else holds the loop, it can
+   *  go silently unsettled as the process exits. */
   pin(): Promise<Client>;
   /** The in-flight/current client promise, or `null` between a link death and the
    *  next dial. Each dial reassigns it, so a pump detects a respawn by identity
-   *  drift. */
+   *  drift.
+   *
+   *  NOT a liveness gate. This is legitimately NON-NULL while merely DIALING — an
+   *  in-flight `attempt()` during `connecting`/provisioning, and (per
+   *  `scheduleReconnect`) a RETAINED rejected promise across a whole backoff wait.
+   *  The pump / `markConnected` handshake depends on that "dialing-or-connected"
+   *  meaning, so `currentClient() !== null` is NEVER "the far end is live" — read
+   *  {@link currentState} (`.phase === "connected"`) for honest liveness. */
   currentClient(): Promise<Client> | null;
+  /** The current published connection frame — the SYNCHRONOUS point-read twin of
+   *  {@link onState}'s snapshot-then-delta. Returns exactly `stateCell.current()`,
+   *  the same value `onState` publishes, so honest liveness is
+   *  `currentState().phase === "connected"`.
+   *
+   *  FRESHNESS BY DESIGN: `onState`'s *delta* delivery is microtask-deferred (a
+   *  fire-and-forget `for await` per subscriber; the initial snapshot on subscribe
+   *  fires synchronously), and a synchronous frame can drive TWO transitions
+   *  (e.g. `disconnected` → give-up `failed`). So a listener that was delivered one
+   *  delta frame may, at the same turn, read a LATER frame here — `currentState()` always
+   *  returns the freshest cell truth, never the frame that woke the reader. That is
+   *  the point: a deferred reader gated on `currentClient()` observes a stale pointer
+   *  reassigned mid-frame; a reader gated on `currentState().phase` cannot. */
+  currentState(): SessionState<Prov>;
   /** Has `destroy()` been called? */
   isDestroyed(): boolean;
   /** Snapshot-then-delta listener: fires the current state synchronously, then on
@@ -381,18 +415,26 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  tunes the cadence — so the illegal "tune a disabled watchdog" state is
    *  unrepresentable. */
   liveness?: false | { intervalMs?: number; timeoutMs?: number };
-  /** Where the session's diagnostic lines go — default `process.stderr`. An
-   *  alt-screen consumer passes its own sink so lines never corrupt the render.
+  /** Where the session's diagnostic lines go — default `process.stderr` (raw
+   *  lines, the plain-CLI case). An alt-screen or daemon consumer passes its
+   *  structured logger so lines never corrupt the render; the session calls
+   *  `log[severity]({ line }, label)` — a RECEIVER-BOUND indexed call, so the
+   *  consumer never dispatches severity over extracted method references (the
+   *  unbound-`this` pino crash class,
+   *  docs/atlas/src/content/atlas/bug-remote-kaval-contract-skew.mdx defect C,
+   *  has no spellable form here). Per-host context rides child bindings:
+   *  `log.child({ host })`.
    *
-   *  `severity` classifies the line so a structured sink routes it to the right log
-   *  level (`.agency/code-police.md`: genuine failed I/O logs at `error`, expected-
-   *  absent conditions at `debug`) — a GENUINE failure (a wedged `system.clockNow`
-   *  probe that hit its deadline, a transport fault) is `"error"`, an expected-absent
-   *  condition (a dial whose client carries no reserved `system.clockNow`) is `"debug"`
-   *  ("tool not installed", not a fault), and ordinary progress is `"info"`. It is
-   *  optional and defaults to `"info"`, so a one-argument sink (`(line) => …`) stays
-   *  source-compatible. */
-  onLog?: (line: string, severity?: "debug" | "info" | "error") => void;
+   *  The session classifies each line itself (`.agency/code-police.md`: genuine
+   *  failed I/O logs at `error`, expected-absent conditions at `debug`) — a
+   *  GENUINE failure (a wedged `system.clockNow` probe that hit its deadline, a
+   *  transport fault) is `"error"`, an expected-absent condition (a dial whose
+   *  client carries no reserved `system.clockNow`) is `"debug"` ("tool not
+   *  installed", not a fault), and ordinary progress is `"info"`.
+   *
+   *  A THROWING logger crashes the session loop — deliberately (fail fast): a
+   *  broken logger is a defect to surface, not to swallow per line. */
+  log?: Logger;
   /** Label for diagnostic lines (`[<label>] …`) — e.g. the host. Default `session`. */
   label?: string;
 }
@@ -542,15 +584,12 @@ export function makeSession<
     line: string,
     severity: "debug" | "info" | "error" = "info",
   ): void => {
-    if (opts.onLog) {
-      try {
-        opts.onLog(line, severity);
-      } catch (err) {
-        // A throwing sink must not escape the diagnostic funnel and freeze the
-        // session; surface the sink's own failure on stderr so it isn't swallowed.
-        const reason = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[${label}] onLog sink threw: ${reason}\n`);
-      }
+    if (opts.log) {
+      // An INDEXED call on the receiver — `this` bound by construction, so a
+      // pino(-child) logger works as-is. No compensating try/catch: a throwing
+      // logger is a consumer defect that must crash loudly, not spam stderr
+      // per line while every diagnostic is dropped (the defect-C shape).
+      opts.log[severity]({ line }, label);
     } else {
       process.stderr.write(`${line}\n`);
     }
@@ -586,11 +625,27 @@ export function makeSession<
     }
   };
 
+  /** Arm a session-INTERNAL timer: always unref'd — a session's internal timers
+   *  must never be what keeps the host process alive (full census: docs/atlas
+   *  session-timer-unref). An unref'd timer still fires normally in any process
+   *  something else holds up (a server socket, stdin, a live transport), so a
+   *  HELD session behaves exactly as before; only an ABANDONED session —
+   *  dropped without destroy() in a process with nothing else keeping the loop
+   *  alive — stops immortalizing its process. Every timer in this file goes
+   *  through here EXCEPT {@link withHandshakeTimeout}'s, the one must-fire
+   *  timer (it settles a caller-awaited `pin()`). */
+  const armInternalTimer = (delayMs: number, fn: () => void): NodeJS.Timeout =>
+    setTimeout(fn, delayMs).unref();
+
   const armTimer = (delayMs: number, fn: () => void): void => {
-    pendingTimer = setTimeout(() => {
+    // The one caller wait this timer alone settles — a pump parked on
+    // `ClientCursor.next()` across a reconnect gap — is by contract not a
+    // process hold; see `pin()`. Exit safety when this fires: see `attempt`'s
+    // invariant note.
+    pendingTimer = armInternalTimer(delayMs, () => {
       pendingTimer = null;
       fn();
-    }, delayMs);
+    });
   };
 
   /** Bound the `admit` handshake by the SAME `connectTimeoutMs` the non-admit path's
@@ -603,6 +658,16 @@ export function makeSession<
    *  slot, NOT the shared `pendingTimer` — the phase timer isn't armed yet here). */
   const withHandshakeTimeout = <T>(p: Promise<T>): Promise<T> =>
     new Promise<T>((resolve, reject) => {
+      // Deliberately NOT unref'd (the one ref'd timer here — docs/atlas
+      // session-timer-unref): its firing rejects a promise `attempt` →
+      // `clientPromise` → `pin()` propagates to an AWAITING caller, and a
+      // pending await holds no event-loop handle of its own — unref'd, a
+      // process whose only handle is this timer would exit silently mid-await
+      // instead of delivering the settle the API promised. It cannot
+      // immortalize anything: bounded (≤connectTimeoutMs), self-clearing,
+      // armed at most once per dial — and the moment it fires, the next hold
+      // is the unref'd backoff, which is the process's exit window. Pinned by
+      // `processExit.test.ts`.
       const timer = setTimeout(() => {
         reject(
           new ConnectError(
@@ -928,6 +993,13 @@ export function makeSession<
     if (!destroyed && refCount > 0) scheduleReconnect(cause, reason);
   };
 
+  /** EXIT-SAFETY INVARIANT (docs/atlas session-timer-unref): the reconnect
+   *  backoff is unref'd, so when it fires as the last handle this chain must
+   *  reach the transport's first event-loop handle without parking on a
+   *  handle-free await — `attempt` → `connectOnce` is microtask-chained to its
+   *  first spawn, and a caller-supplied resolve step that does real work holds
+   *  its own handle. An async-dial refactor that parks on a bare promise before
+   *  the first spawn reopens a silent mid-dial exit for a held session. */
   const attempt = async (): Promise<Client> => {
     dialEpoch += 1;
     // A fresh dial reopens at the connector's opening phase — always an up arm
@@ -1141,14 +1213,17 @@ export function makeSession<
       probeEpoch !== dialEpoch ||
       stateCell.current().phase !== "connected";
     new Promise<number>((resolve, reject) => {
-      clockProbeDeadlineTimer = setTimeout(() => {
+      // Internal probe state, never a caller-awaited settle; whenever the probe
+      // can matter the in-flight RPC's own transport holds the loop, so the
+      // deadline still fires.
+      clockProbeDeadlineTimer = armInternalTimer(clockProbeTimeoutMs, () => {
         clockProbeDeadlineTimer = null;
         const err = new Error(
           `system.clockNow probe exceeded ${clockProbeTimeoutMs}ms deadline (transport up, clock RPC never settled)`,
         );
         ac.abort(err);
         reject(err);
-      }, clockProbeTimeoutMs);
+      });
       measureSurfaceClockOffset(client, ac.signal).then(resolve, reject);
     })
       .then((clockOffset) => {
@@ -1217,11 +1292,12 @@ export function makeSession<
         // Retry on cadence for a genuine transient failure. Guard the callback the same way
         // the probe body is — a later dial or a dropped link cancels this chain, and
         // `destroy()` clears the timer outright.
-        clockProbeTimer = setTimeout(() => {
+        // Internal retry cadence — docs/atlas session-timer-unref.
+        clockProbeTimer = armInternalTimer(clockProbeRetryMs, () => {
           clockProbeTimer = null;
           if (probeStale(epoch)) return;
           pollClockNow(client);
-        }, clockProbeRetryMs);
+        });
       });
   };
 
@@ -1264,6 +1340,12 @@ export function makeSession<
     },
     currentClient() {
       return destroyed ? null : clientPromise;
+    },
+    currentState() {
+      // The freshest cell truth — the same value `onState` publishes, read
+      // synchronously (`onState`'s DELTA delivery is microtask-deferred, so a deferred
+      // reader gets the CURRENT frame, never the one that woke it).
+      return stateCell.current();
     },
     isDestroyed() {
       return destroyed;

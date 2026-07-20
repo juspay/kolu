@@ -24,26 +24,34 @@ import {
 import type { EntryState } from "@kolu/surface-map";
 import type { HostKey } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
-import type {
-  PadiEntryFailure,
-  SkewVersionPair,
-} from "kolu-common/surfacesWithPadi";
+import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
-import { toast } from "solid-sonner";
-import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
-import { kavalStale } from "../kaval/kavalCurrency";
 import {
-  DAEMON_STATE_PRESENTATION,
+  channelLive,
+  DAEMON_UNKNOWN_LABEL,
+  type KavalPresence,
+  kavalPresencePresentation,
+  presenceState,
+  toKavalPresence,
+} from "../kaval/daemonPresentation";
+import KavalInfoDialog, { KAVAL_LOGO_URL } from "../kaval/KavalInfoDialog";
+import { type KavalAttention, kavalAttention } from "../kaval/kavalCurrency";
+import { restartInFlight } from "../kaval/useDaemonRestart";
+import {
   daemonTransportLive,
   formatUptime,
-  kavalDot,
+  type PadiEntry,
   reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
-import { channelLive } from "../kaval/daemonPresentation";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
-import { padiDot } from "../padi/padiPresentation";
+import {
+  type PadiPresence,
+  padiPresencePresentation,
+  presenceLink,
+  toPadiPresence,
+} from "../padi/padiPresentation";
 import { getClockNow } from "../time/clock";
 import {
   dualDaemonSlotClass,
@@ -93,11 +101,11 @@ function skewPairFor(host: HostKey): SkewVersionPair | undefined {
  *  static and interactive marks. */
 function useHostPadi(host: HostKey): {
   live: () => boolean;
-  entry: () => EntryState<PadiEntryFailure>;
+  entry: () => PadiEntry;
   link: () => PadiLink | undefined;
 } {
   const live = daemonTransportLive;
-  const entry = (): EntryState<PadiEntryFailure> => padiMap.entry(host).state();
+  const entry = (): PadiEntry => padiMap.entry(host).state();
   const link = (): PadiLink | undefined =>
     live() ? entryAsPadiLink(entry()) : undefined;
   return { live, entry, link };
@@ -121,7 +129,6 @@ function useHostKaval(host: HostKey): {
   const daemonKey = encodeHostLocation(LOCAL_LOCATION);
   const daemonSub = padiMap.entry(host).collections.daemonStatus.use({
     keys: () => [daemonKey],
-    onError: (err: Error) => toast.error(`Daemon status error: ${err.message}`),
   });
   // Memoized: this host's KavalSubChip reads `daemon()` ~8× per render pass
   // (mark dot, version, state, uptime ×2, memory, update) — each an unmemoized
@@ -138,15 +145,12 @@ function useHostKaval(host: HostKey): {
 }
 
 /** The ONE per-host `processMemory` reader — the Padi and Kaval sub-chips read
- *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription (and one
- *  `onError`) means a single memory-poll failure surfaces ONE toast, not one
- *  per sub-chip. Same reader-as-shared-value discipline the daemonStatus reader
- *  already follows. */
+ *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription means a single
+ *  memory-poll failure surfaces ONE toast (the cell's declared `Padi/kaval memory`
+ *  policy, routed through the interpreter), not one per sub-chip. Same
+ *  reader-as-shared-value discipline the daemonStatus reader already follows. */
 function useHostProcessMemory(host: HostKey) {
-  return padiMap.entry(host).cells.processMemory.use({
-    onError: (err: Error) =>
-      toast.error(`Padi/kaval memory error: ${err.message}`),
-  });
+  return padiMap.entry(host).cells.processMemory.use();
 }
 
 /** The 4-arm process-RSS readout → tooltip text, in ONE place: the Padi and
@@ -160,51 +164,48 @@ function formatProcessMemoryText(m: ProcessRss | undefined): string {
     .exhaustive();
 }
 
-/** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-
- *  constructed {@link useHostPadi} reader from its parent rather than opening its
- *  own: the static path and the interactive sub-chip each build the reader once
- *  and hand it in, so a single mark never re-derives (and, for Kaval, never
- *  double-subscribes) the same host's status. The static path wraps this bare in
- *  a span; the interactive path wraps this SAME mark in the dialog-owning
+/** Presentational Padi mark — logo + status dot for a host. Takes the ALREADY-folded
+ *  {@link PadiPresence} from its parent (the interactive sub-chip and the static mark each
+ *  build it once and hand it in), so the dot tone AND the `data-padi-link` attribute both
+ *  project from the ONE presence — the `!live → unknown` floor is inherited by
+ *  construction, spelled in neither the dialog nor the rail. The static path wraps this
+ *  bare in a span; the interactive path wraps this SAME mark in the dialog-owning
  *  button. */
-const PadiMark: Component<{ padi: ReturnType<typeof useHostPadi> }> = (
-  props,
-) => (
+const PadiMark: Component<{ presence: PadiPresence }> = (props) => (
   <IdentityMark logoSrc={PADI_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
-      data-padi-link={props.padi.link() ?? "unknown"}
-      class={padiDot(props.padi.link(), props.padi.live())}
+      data-padi-link={presenceLink(props.presence)}
+      class={padiPresencePresentation(props.presence).dot}
     />
   </IdentityMark>
 );
 
-/** Presentational Kaval mark — logo + status dot for a host, derived from a
- *  parent-supplied {@link useHostKaval} reader. Same one-derivation-two-
- *  placements shape as {@link PadiMark}; taking the reader as a prop is what
- *  keeps a single interactive mark from opening TWO `daemonStatus` subscriptions
- *  for the same host (the sub-chip already holds one). */
+/** Presentational Kaval mark — logo + status dot for a host, projected from a
+ *  parent-supplied {@link KavalPresence}. Same one-fold-two-placements shape as
+ *  {@link PadiMark}: the dot tone and the `data-daemon-state` attribute both read the ONE
+ *  presence, so the `!live → unknown` floor is inherited by construction. */
 const KavalMark: Component<{
-  kaval: ReturnType<typeof useHostKaval>;
-  /** A newer kaval build is available for this host (see {@link kavalStale}).
-   *  Surfaces the update at a glance — an amber corner pip in the OPPOSITE
-   *  corner from the state dot — so a build-behind kaval doesn't look identical
-   *  to a current one in the chrome (the fuller "newer build …" text still
+  presence: KavalPresence;
+  /** This host's kaval needs attention (see {@link kavalAttention}) — surfaces
+   *  it at a glance as a corner pip in the OPPOSITE corner from the state dot,
+   *  toned per AXIS: amber for the currency nudge ("newer build available"),
+   *  danger for a proven contract skew ("incompatible — needs update") — so
+   *  neither looks identical to a current kaval in the chrome (the fuller text
    *  rides the tooltip + dialog). Static switcher marks don't pass it. */
-  stale?: boolean;
+  attention?: KavalAttention["kind"];
 }> = (props) => (
   <IdentityMark logoSrc={KAVAL_LOGO_URL} imgClass="host-daemon-logo">
     <StatusDot
-      data-daemon-state={
-        props.kaval.live()
-          ? (props.kaval.daemon()?.state ?? "unknown")
-          : "unknown"
-      }
-      class={kavalDot(props.kaval.daemon()?.state, props.kaval.live())}
+      data-daemon-state={presenceState(props.presence)}
+      class={kavalPresencePresentation(props.presence).dot}
     />
-    <Show when={props.stale}>
+    <Show
+      when={props.attention === "stale" || props.attention === "incompatible"}
+    >
       <span
         data-testid="kaval-update-pip"
-        class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-surface-2 bg-amber-500"
+        data-attention={props.attention}
+        class={`absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-surface-2 ${props.attention === "incompatible" ? "bg-danger" : "bg-amber-500"}`}
         aria-hidden="true"
       />
     </Show>
@@ -253,12 +254,20 @@ const PadiSubChip: Component<{
   const { open, setOpen, openForHost } = useDaemonMarkOpen(props.host);
   let triggerEl!: HTMLButtonElement;
   const padi = useHostPadi(props.host);
-  // Per-host identity (version for the tip).
-  const identity = padiMap.entry(props.host).cells.identity.use({
-    onError: (err: Error) => toast.error(`Padi identity error: ${err.message}`),
-  });
-  const padiVersion = (): string | undefined =>
-    identity.value()?.surfaceVersion;
+  // Per-host identity (feeds the presence fold + the `startedAt` reader below).
+  const identity = padiMap.entry(props.host).cells.identity.use();
+  // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
+  // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
+  // construction: a version can surface only for a LIVE, identity-confirmed `connected`
+  // link (a degraded-but-live link no longer leaks a stale "contract v9.9"), and the raw
+  // stale `identity` cell is never read for the version at all.
+  const presence = createMemo(() =>
+    toPadiPresence(padi.link(), padi.live(), identity.value()),
+  );
+  const padiVersion = (): string | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p.identity.surfaceVersion : undefined;
+  };
   const padiStartedAt = (): number | null => {
     const raw = identity.value()?.startedAt;
     if (raw === undefined) return null;
@@ -278,7 +287,7 @@ const PadiSubChip: Component<{
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
     return joinTip(
-      `padi ${padi.live() ? statusTitle(padi.entry()) : "unknown"}`,
+      `padi ${padi.live() ? statusTitle(padi.entry()) : DAEMON_UNKNOWN_LABEL}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
         : padiVersion()
@@ -304,16 +313,14 @@ const PadiSubChip: Component<{
           aria-label={padiTip()}
           aria-expanded={open()}
         >
-          <PadiMark padi={padi} />
+          <PadiMark presence={presence()} />
         </button>
       </Tip>
       <Show when={open()}>
         <PadiInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          link={padi.link()}
-          live={padi.live()}
-          identity={identity.value()}
+          presence={presence()}
           startedAt={padiStartedAt()}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
@@ -333,16 +340,22 @@ const KavalSubChip: Component<{
   let triggerEl!: HTMLButtonElement;
   const clockNow = getClockNow();
   const kaval = useHostKaval(props.host);
-  const padiStatus = padiMap.entry(props.host).cells.status.use({
-    onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
-  });
-  const kavalVersion = (): string | undefined =>
-    kaval.daemon()?.contractVersion;
-  const kavalStateText = (): string => {
-    if (!kaval.live()) return "unknown";
-    const state = kaval.daemon()?.state;
-    return state ? DAEMON_STATE_PRESENTATION[state].label : "unknown";
+  const padiStatus = padiMap.entry(props.host).cells.status.use();
+  // ONE presence fold for this host — the SAME value the dialog renders. The tooltip
+  // version reads off its `connected` arm, so the #1793 liveness floor is inherited by
+  // construction: a version can surface only for a LIVE, identity-confirmed `connected`
+  // daemon, and the raw stale `daemon()` is never read for the version at all.
+  const presence = createMemo(() =>
+    toKavalPresence(kaval.daemon(), kaval.live()),
+  );
+  const kavalVersion = (): string | undefined => {
+    const p = presence();
+    return p.kind === "connected" ? p.contractVersion : undefined;
   };
+  // The status word off the ONE presence projection (not a second hand-rolled
+  // live/state/unknown ladder) — so the rail tooltip and the dialog pill can't drift.
+  const kavalStateText = (): string =>
+    kavalPresencePresentation(presence()).label;
   const kavalUptimeText = (): string | undefined => {
     if (!kaval.live() || kaval.daemon()?.state !== "connected")
       return undefined;
@@ -358,24 +371,27 @@ const KavalSubChip: Component<{
       return "memory unavailable";
     return formatProcessMemoryText(props.mem.value()?.kaval);
   };
-  // The at-a-glance staleness fact for THIS host's kaval — drives both the
-  // amber update pip on the mark (glanceable, no hover) and the tooltip text.
-  const kavalIsStale = (): boolean => {
-    const expected = padiStatus.value()?.expectedKaval;
-    const status = kaval.daemon();
-    return kavalStale(
-      expected?.staleKey,
-      status?.identity?.staleKey,
-      status?.state,
+  // The at-a-glance attention verdict for THIS host's kaval — the SAME joined
+  // derivation the dialog banner and the canvas skew card read (SK5's one
+  // comparison site). Drives both the corner pip on the mark (glanceable, no
+  // hover) and the tooltip text, per axis.
+  const attention = (): KavalAttention =>
+    kavalAttention(
+      padiStatus.value()?.expectedKaval?.staleKey,
+      kaval.daemon(),
       kaval.live(),
     );
-  };
   const kavalUpdateText = (): string | undefined => {
-    if (!kavalIsStale()) return undefined;
-    const expected = padiStatus.value()?.expectedKaval;
-    return expected?.navigableCommit
-      ? `newer build ${expected.navigableCommit.slice(0, 7)} available`
-      : "newer build available";
+    const a = attention();
+    if (a.kind === "incompatible")
+      return `incompatible — speaks ${a.daemonVersion}, kolu needs ${a.requiredVersion}; update needed`;
+    if (a.kind === "stale") {
+      const expected = padiStatus.value()?.expectedKaval;
+      return expected?.navigableCommit
+        ? `newer build ${expected.navigableCommit.slice(0, 7)} available`
+        : "newer build available";
+    }
+    return undefined;
   };
   const kavalTip = (): string =>
     joinTip(
@@ -402,15 +418,16 @@ const KavalSubChip: Component<{
           aria-label={kavalTip()}
           aria-expanded={open()}
         >
-          <KavalMark kaval={kaval} stale={kavalIsStale()} />
+          <KavalMark presence={presence()} attention={attention().kind} />
         </button>
       </Tip>
       <Show when={open()}>
         <KavalInfoDialog
           open={open()}
           onOpenChange={setOpen}
-          status={kaval.daemon()}
-          live={kaval.live()}
+          presence={presence()}
+          attention={attention()}
+          restartInFlight={restartInFlight(kaval.daemon())}
           triggerRef={() => triggerEl}
           hostLabel={hostLabel(props.host)}
         />
@@ -421,18 +438,28 @@ const KavalSubChip: Component<{
 
 const PadiStaticMark: Component<{ host: HostKey }> = (props) => {
   const padi = useHostPadi(props.host);
+  const identity = padiMap.entry(props.host).cells.identity.use();
+  // Build this host's presence from the read-only reader (its OWN single identity
+  // subscription — the static path has no other identity consumer to share with), so the
+  // mark's dot + attribute inherit the same one liveness floor as the interactive path.
+  const presence = createMemo(() =>
+    toPadiPresence(padi.link(), padi.live(), identity.value()),
+  );
   return (
     <span class={identityMarkStaticClass}>
-      <PadiMark padi={padi} />
+      <PadiMark presence={presence()} />
     </span>
   );
 };
 
 const KavalStaticMark: Component<{ host: HostKey }> = (props) => {
   const kaval = useHostKaval(props.host);
+  const presence = createMemo(() =>
+    toKavalPresence(kaval.daemon(), kaval.live()),
+  );
   return (
     <span class={identityMarkStaticClass}>
-      <KavalMark kaval={kaval} />
+      <KavalMark presence={presence()} />
     </span>
   );
 };

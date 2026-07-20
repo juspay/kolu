@@ -14,7 +14,7 @@
  * `kaval/src/stdioBridge.ts`), so a PTY a `create` spawns survives the ssh link
  * and a later `attach` finds it.
  *
- * kaval's only volatile differences from the other one-shot CLIs (pulam-tui):
+ * kaval's only volatile differences from the other one-shot CLIs (padi-tui):
  * the binary name and the per-system drv-map env var. The connectivity probe is
  * no longer one of them — the dial defaults to the framework-reserved
  * `system.live` round-trip, so kaval nominates no liveness verb of its own
@@ -24,6 +24,7 @@
  * never leak into the kaval daemon closure (the staleKey allow-list).
  */
 import { dialAgentOnce } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import type { ptyHostSurface } from "kaval";
 import type { Connection } from "./connect.ts";
 
@@ -41,6 +42,8 @@ const KAVAL_AGENT_DRVS_ENV = "KAVAL_AGENT_DRVS_JSON";
 export function connectPtyHostViaHost(host: string): Promise<Connection> {
   return dialAgentOnce<PtyHostContract>({
     host,
+    // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the localEnv doc on buildAgentCommand.
+    localEnv: composeSpawnEnv(process.env),
     // `${agentPath}/bin/kaval`, run as `kaval --stdio`.
     binary: "kaval",
     envVar: KAVAL_AGENT_DRVS_ENV,

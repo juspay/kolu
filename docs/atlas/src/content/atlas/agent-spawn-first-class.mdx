@@ -1,0 +1,153 @@
+---
+title: "Agent spawn is a face verb — fixing #1872 (Dock detection + transcript loss)"
+description: "Both #1872 bugs happen because an agent was launched through a path that doesn't know it's launching an agent. The fix: kolu's faces (mcp, the coming tui) own 'launch an agent' as a proper operation; kaval-tui builds a clean environment instead of copying the caller's; kaval itself stays a dumb PTY daemon."
+parents: [bug, kolu-cli]
+status: proposed
+maturity: seedling
+updated: 2026-07-17
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+
+## What happened
+
+An orchestrating Claude session created terminals for three worker agents by
+running `kaval-tui create -- claude …` — that is, making **claude itself the
+terminal's root process**, with no shell wrapping it. Two things silently
+broke ([#1872](https://github.com/juspay/kolu/issues/1872)):
+
+**Bug A — the Dock never showed agent activity.** Kolu decides "this terminal
+is running claude" by watching for a special marker that the *shell* prints
+whenever you run a command (the OSC `633;E` mark, emitted by kolu's shell
+hooks). No shell → no marker → kolu never learns what's running. The daemon
+actually *received* the command line at spawn time — it just throws it away
+(`ptyHost.ts:663` initializes `lastCommand` to undefined and nothing but the
+shell marker ever sets it). There's also a second, sneakier blocker: the
+"is the shell sitting idle?" check assumes the terminal's root process is a
+shell. When the root *is* the agent, that check wrongly answers "yes, idle" —
+so even if we fixed the first problem, detection would still be suppressed
+(`sensors.ts:394-402`).
+
+**Bug B — the agents' conversations were never saved (real data loss).**
+`kaval-tui create` copies the caller's **entire environment** into the new
+terminal (`create.ts:55-57`). The orchestrator is itself a Claude session, so
+its private variables came along — including `CLAUDE_CODE_CHILD_SESSION=1`.
+A claude that sees that variable thinks "I'm a temporary child session" and
+**doesn't save its conversation to disk at all**. When kaval restarted, three
+agents' entire histories were simply gone. We proved this with a clean A/B
+test: same spawn with those variables removed → the conversation file appears
+immediately.
+
+## Why terminals created through kolu never had this bug
+
+When you create a terminal in kolu (or through `kolu mcp`), the request
+schema only has `cwd` and `parentId` — **there is no way to pass a command or
+an environment** (`surface.ts:513-518`). So every kolu terminal gets the
+rc-hooked shell (markers work), and its environment comes from the padi
+daemon's own clean one (no caller variables can leak). You literally cannot
+express either bug through the kolu face. That "missing" `command` parameter
+is not a gap — it's the protection. (One nit: the `kolu mcp` tool description
+*claims* it takes a command; it doesn't, and the text should stop saying so.)
+
+## The fix
+
+The idea in one sentence: **"launch an agent" becomes a real operation at the
+level that knows it's launching an agent** — the faces — and the lower layers
+just stop losing information or leaking it.
+
+| Where | What changes | What becomes impossible |
+| --- | --- | --- |
+| **kolu mcp / kolu-tui** (the faces) | "Launch an agent" is its own verb: internally it creates a shell terminal, types the agent command into it, and waits for detection to pick it up. Creating a terminal never takes a raw command. The mcp face already works this way; the coming kolu-tui must too. | Launching an agent without a shell, or with the caller's environment — there's simply no way to ask for it. |
+| **kaval-tui** (the CLI) | Stop copying the caller's environment wholesale. Build the child's environment from a clean base, and let the caller add specific variables explicitly (`--env K=V`). We deliberately did NOT go with "strip the known Claude variables": that fixes only today's agent — the next tool (codex, gemini-cli, …) has different variables and the data loss quietly returns. A clean base fixes all of them, including ones that don't exist yet. | A new terminal accidentally carrying the orchestrator's identity. |
+| **kaval** (the PTY daemon) | One tiny change, and it's bookkeeping, not smarts: when spawning with an explicit command, *remember it* (seed `lastCommand` from the argv it already receives). The shell marker remains the live source when commands run inside a shell. | A terminal whose own daemon doesn't know what it spawned. |
+| **padi's sensors** (only if needed later) | If command-rooted terminals ever become visible to the workspace sensors, the "is the shell idle?" check must first ask "is the root even a shell?" — for an agent-rooted terminal, root-in-foreground means *busy*, the exact opposite of today's reading. | Misreading a running agent as an idle prompt. |
+
+Kaval stays what it is — a dumb PTY daemon. It gains no knowledge of agents
+and no opinions about environments; it just stops discarding a fact it was
+already handed.
+
+**One thing kolu cannot fix**: Claude Code decides "don't save this
+conversation" based on an *inherited environment variable*. Anything that
+forwards environments — ssh, `sudo -E`, a Makefile — can trigger the same
+data loss with no kolu involved. Our clean-environment change protects kolu's
+paths; the root fragility belongs upstream, and we should file it there with
+our A/B evidence.
+
+## Until the fix ships (the working rules)
+
+- Never run `kaval-tui create -- claude …` (or any agent) from an agent
+  session. It hits both bugs.
+- Creating a shell terminal and typing `claude` into it is **not** enough on
+  its own — the shell inherited the orchestrator's variables too. First run
+  `unset CLAUDE_CODE_CHILD_SESSION CLAUDECODE CLAUDE_CODE_SESSION_ID`, then
+  launch. (Shells restored by kaval itself after a restart are already clean.)
+- The own-shell scrub (`unset CLAUDE_CODE_* …` before launching an agent in a
+  hand-tainted `ssh`/`sudo -E` shell) is **permanent hygiene, tied to no PR** —
+  its cause is upstream (agents classifying themselves from inherited env),
+  not something any kolu change fixes. The other interim rules were deleted as
+  their PRs shipped.
+
+## PR phases
+
+Three PRs shipped, ordered by harm — and a fourth downgraded to optional sugar:
+
+**PR 1 — stop the data loss** — **SHIPPED as <PrLink pr={1880} />** (`kaval-tui` + `kolu-pty` + `padi` +
+`surface-daemon-supervisor` + e2e harness + docs + skills). ONE shared
+allowlist (`SPAWN_ENV_ALLOWLIST` in kolu-pty, pinned as data) and
+compose-don't-forward at every seam that reaches an *agent*: kaval-tui's
+create composers; `cleanEnv` (every hosted PTY — was a wholesale
+`{...process.env}`); the supervisor's detached spawn branch (`env = cfg.env`
+unless `fromSource`, parity with systemd `--setenv`); padi's `daemonEnv`
+(expanded to a complete base so cfg.env-alone keeps macOS parity); the e2e
+harness server child. The corrected `kolu mcp` docstring and interim skill
+rules ride here too. Red-first pins: the #1872 leak assertion (shell AND
+command modes) + the allowlist/`daemonEnv` key sets as data.
+
+**PR 1.5 — close the last spawn seam** — **SHIPPED as <PrLink pr={1884} /> (+ drishti#116)** (`@kolu/surface-remote`, immediate
+fast-follow). The remote connector's localhost arm spawns with full
+env-inherit — the one place the ssh boundary doesn't scrub. Defense-in-depth,
+not a present leak: with PR 1 landed, every path from a tainted daemon to an
+*agent* is composed (the localhost child is a daemon, not an agent; its
+downstream PTYs/kaval are composed). Makes the localhost env REQUIRED at the
+type level so full-inherit is unspellable. Breaking surface-remote API — so
+it carries the drishti pair PR + odu verdict + `ref-surface-remote.mdx`,
+finalized against post-gauntlet HEAD.
+
+**PR 2 — stop the detection loss** — **SHIPPED as <PrLink pr={1890} />**
+(`kaval` + `padi` + e2e + skills). **The premise was corrected reproduce-first,
+before any fix code**: a command-rooted *claude* turned out to be detected
+already (its adapter resolves by pid + session file, independent of both
+locks) — the field's three invisible claudes were Bug B, which PR 1 fixed. The
+locks bite the **command-hint path only**: codex/opencode/grok, whose kernel
+process name is the node shim, not the agent — 3 of 4 supported agents when
+command-rooted. So PR 2 is honestly the **shim hint-agent + bookkeeping** fix:
+seed `lastCommand` (and the title) from the spawn argv on the same channel the
+shell marker uses (seed first, live marks win), and — demand-pulled from PR 3,
+its gate condition being empirically live — the padi sensor's `shellIdle`
+discrimination via one optional `commandRooted` boolean, kaval → padi
+server-side only. No `ptyHostSurface` contract bump (optional additive fields;
+absence degrades to today's reading both skew directions). Reds: an npm-shim
+`opencode` spawned command-rooted, invisible → visible; a `claude` scenario
+kept green as the regression guard documenting the pid path. This PR
+deletes PR 1's "never `create -- <agent>`" skill rule for the *detection*
+reason; the terminal is still shell-less, so the Dock's richer shell
+affordances stay absent — which is fine for the raw CLI path.
+
+**PR 3 — the face verb** — **DOWNGRADED to optional ergonomics; not planned.**
+The original argument was safety: make the hand-assembled launch impossible to
+express. That argument dissolved when PRs 1–2 fixed both bugs *at the
+substrate*, with regression pins: today `create -- claude` composes its
+environment and is detected in the Dock — the broken way is no longer broken.
+What a dedicated verb would still add is convenience only (returns after
+detection confirms instead of at spawn; a shell to drop back into when the
+agent exits; one step instead of two). If kolu-tui wants that sugar someday,
+it can add it — but "we fixed the bugs, so build the thing that would have
+prevented them" is backwards once the fixes are pinned. Issue #1872 closes
+with PR 2.
+
+<Callout kind="warn" title="Grounding">
+  Shapes and file:line anchors from a 16-agent architecture + perfection
+  review over the #1872 evidence (13 findings, 0 refuted). Each PR carries
+  its own red-first pin; none depends on the others to merge.
+</Callout>

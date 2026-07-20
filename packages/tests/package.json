@@ -7,6 +7,7 @@
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface-map": "workspace:*",
     "get-port": "^7.2.0",
+    "kaval-tui": "workspace:*",
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
     "playwright": "1.57.0",

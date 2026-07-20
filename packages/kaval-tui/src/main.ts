@@ -34,7 +34,11 @@
 import { fstatSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
+import {
+  ACCEPTED_KEY_NAMES,
+  encodeKey,
+  SNAPSHOT_TTY_RESET as TTY_RESET,
+} from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -54,8 +58,6 @@ import { materializeHistoryPage } from "./historyPage.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
 import {
-  ACCEPTED_KEY_NAMES,
-  encodeKey,
   planSend,
   rejectUnknownSendFlags,
   resolveSendInput,
@@ -154,10 +156,15 @@ const argv = cli({
       parameters: ["[command...]"],
       help: {
         description:
-          "Spawn a new terminal and print its id; the daemon owns it. Runs a plain $SHELL by default, or the command you pass — prefix it with `--` when it takes its own flags: `kaval-tui create -- htop -d 5`. Then `kaval-tui attach <id>` to take it over.",
+          "Spawn a new terminal and print its id; the daemon owns it. Runs a plain $SHELL by default, or the command you pass — prefix it with `--` when it takes its own flags: `kaval-tui create -- htop -d 5`. Then `kaval-tui attach <id>` to take it over. The new terminal's environment is composed from a clean canonical base — the vars a shell needs (HOME, PATH, SHELL, …), presentation (TERM, LANG, …), and the login-session capability vars (XDG runtime dir, ssh-agent socket, DBUS, TMPDIR) — NOT a copy of this process's env: a var you exported into the current shell does not follow into the new terminal (an interactive shell still sources your ~/.bashrc / ~/.zshrc, so vars set there are present). This is deliberate — copying the caller's env leaks an orchestrating agent's private identity vars and silently loses that agent's data (see issue #1872). Add specific vars back explicitly with `--env K=V` (repeatable).",
       },
       flags: {
         ...endpointFlags,
+        env: {
+          type: [String],
+          description:
+            "add an env var to the new terminal as K=V (repeatable) — the explicit escape hatch for a var the clean canonical base drops. `--env FOO=bar --env BAZ=1`. A later --env overrides a base var of the same name. This is the ONLY way to add env; there is no inherit-everything switch (that would reopen the #1872 identity-leak).",
+        },
         json: {
           type: Boolean,
           description: "machine-readable JSON output ({ id, pid, cwd })",
@@ -257,7 +264,7 @@ const argv = cli({
       parameters: ["<id>"],
       help: {
         description:
-          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints one result frame per outcome — `{ id, result, … }`, where `result` is met / timeout / gone / interrupted / closed (a met frame adds `fired` — idle / match —, elapsedMs, and matchedLine on a match), so a driver never falls back to the exit code alone. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `pulam-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
+          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints one result frame per outcome — `{ id, result, … }`, where `result` is met / timeout / gone / interrupted / closed (a met frame adds `fired` — idle / match —, elapsedMs, and matchedLine on a match), so a driver never falls back to the exit code alone. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `padi-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
         ...endpointFlags,
@@ -480,10 +487,44 @@ async function cmdHistory(
   );
 }
 
+/** The daemon-authoritative locator stamps `--env` must reject (fail-fast, not a silent
+ *  no-op): both composers overwrite them with the real terminal id / dialed socket AFTER
+ *  `extraEnv`, so `--env KAVAL_SOCKET=x` is a no-op (locally) or an inconsistency
+ *  (remotely). One rule — they are STAMPED, never caller-set. (`__proto__`/`prototype`/
+ *  `constructor` are NOT rejected: they are valid env names, and the record is
+ *  null-prototype below, so a literal `__proto__=…` round-trips as an ordinary data key
+ *  rather than mutating a prototype — the arbitrary-K=V contract holds.) */
+const REJECTED_ENV_KEYS = new Set(["KAVAL_TERMINAL_ID", "KAVAL_SOCKET"]);
+
+/** Parse+VALIDATE the repeatable `--env K=V` flag, pre-dial (like `sendCall`), so a
+ *  malformed value fails BEFORE `--host` provisions the closure and launches a remote
+ *  `kaval --stdio`. Splits on the FIRST `=` so a value may itself contain `=`
+ *  (`--env URL=a=b` → `URL`→`a=b`), and rejects the daemon-stamped locator keys
+ *  (`REJECTED_ENV_KEYS`). The record is **null-prototype** so a literal `__proto__=…`
+ *  is a real data property, not a silent prototype mutation. */
+function parseEnvAssignments(pairs: readonly string[]): Record<string, string> {
+  const env: Record<string, string> = Object.create(null);
+  for (const pair of pairs) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) {
+      fail(`--env expects K=V, got ${JSON.stringify(pair)}`);
+    }
+    const key = pair.slice(0, eq);
+    if (REJECTED_ENV_KEYS.has(key)) {
+      fail(
+        `--env cannot set ${JSON.stringify(key)} — it is a daemon-stamped locator, set authoritatively.`,
+      );
+    }
+    env[key] = pair.slice(eq + 1);
+  }
+  return env;
+}
+
 async function cmdCreate(
   conn: Connection,
   endpoint: Endpoint,
   command: readonly string[],
+  extraEnv: Record<string, string>,
   json: boolean,
 ): Promise<void> {
   // Compose the WHOLE fully-specified input client-side (the host derives
@@ -502,6 +543,7 @@ async function cmdCreate(
       host: { shell: info.shell, home: info.home, path: info.path },
       localEnv: process.env,
       command,
+      extraEnv,
     });
     home = info.home;
   } else {
@@ -514,6 +556,7 @@ async function cmdCreate(
       cwd: process.cwd(),
       env: process.env,
       command,
+      extraEnv,
       kavalSocket: endpoint.socket,
     });
     home = homedir();
@@ -695,7 +738,7 @@ function abortOnShutdownSignals(): AbortController {
 
 /** Block until terminal `id`'s raw output meets `condition`, then map the
  *  outcome to output + exit code — the thin glue over `awaitOutputCondition`
- *  (the pure, testable data layer). Exit codes mirror `pulam-tui wait`: 0 met ·
+ *  (the pure, testable data layer). Exit codes mirror `padi-tui wait`: 0 met ·
  *  2 timeout · 3 the terminal exited first · 130 interrupted · 1 link/usage
  *  error. */
 async function cmdWait(
@@ -1025,6 +1068,12 @@ async function main(): Promise<void> {
       json: argv.flags.json,
     };
   }
+  // Validate `--env` PRE-DIAL too (mirrors `sendCall`): a malformed `K=V` or a
+  // rejected key must fail BEFORE `--host` provisions the closure and launches a
+  // remote `kaval --stdio` — otherwise the loud validation error lands after the
+  // expensive, side-effecting remote spawn. `env` is a create-only flag.
+  const createEnv =
+    argv.command === "create" ? parseEnvAssignments(argv.flags.env) : {};
   // The endpoint this command targets — its transport AND the suffix that
   // re-targets a later `attach` at the same daemon (see `endpointHint`). A local
   // endpoint resolves its socket ONCE here, up front, and CARRIES it: we dial it
@@ -1054,7 +1103,13 @@ async function main(): Promise<void> {
     // not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
-      await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
+      await cmdCreate(
+        conn,
+        endpoint,
+        argv._.command,
+        createEnv,
+        argv.flags.json,
+      );
     else if (argv.command === "snapshot") {
       // `--viewport`, `--tail`, and `--lines` (a synonym for `--tail`) each
       // bound the output differently, so more than one is ambiguous — crash
@@ -1104,7 +1159,7 @@ async function main(): Promise<void> {
       // validated pre-dial above), so keying the branch off it — rather than
       // re-checking `argv.command === "wait"` and re-narrowing with an internal
       // "can't happen" guard — carries the validated invocation straight through
-      // (mirrors pulam-tui's `waitTargets !== null` dispatch).
+      // (mirrors padi-tui's `waitTargets !== null` dispatch).
       await cmdWait(
         conn,
         await resolveOne(conn, argv._.id),

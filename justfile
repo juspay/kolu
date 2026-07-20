@@ -163,7 +163,7 @@ lint: install
 # dev state root gives each dev instance its OWN padi to supervise — the local
 # twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
 server:
-    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/server && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)
 client:
@@ -347,15 +347,10 @@ test-quick *args: install
     set -euo pipefail
     {{ nix_shell_e2e }} pnpm --filter kolu-client build
     # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
-    # Without nix build there's no `kolu` binary, so we create a temp wrapper
-    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
-    wrapper="$(mktemp)"
-    trap 'rm -f "$wrapper"' EXIT
-    cat > "$wrapper" <<SCRIPT
-    #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
-    SCRIPT
-    chmod +x "$wrapper"
+    # Without nix build there's no `kolu` binary, so the checked-in source
+    # wrapper (shared with `record`) stands in: it sets KOLU_CLIENT_DIST and
+    # execs tsx on the kolu-cli entry, what the nix-built binary does.
+    wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
@@ -374,13 +369,9 @@ record name="": install
     #!/usr/bin/env bash
     set -euo pipefail
     {{ nix_shell_e2e }} pnpm --filter kolu-client build
-    wrapper="$(mktemp)"
-    trap 'rm -f "$wrapper"' EXIT
-    cat > "$wrapper" <<SCRIPT
-    #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
-    SCRIPT
-    chmod +x "$wrapper"
+    # The checked-in source wrapper (shared with `test-quick`) stands in for
+    # the nix-built `kolu` binary.
+    wrapper="$PWD/scripts/kolu-source-wrapper.sh"
     name_filter=""
     [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
     cd packages/tests

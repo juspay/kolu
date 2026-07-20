@@ -57,6 +57,7 @@ function toWireEntry(e: PtyListEntry): PtyHostListEntry {
     lastActivity: e.lastActivity,
     title: e.title,
     foregroundProcess: e.foregroundProcess,
+    commandRooted: e.commandRooted,
   };
 }
 
@@ -169,7 +170,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       // Preexec command marks — snapshot-then-deltas (streaming.md §2). The
       // last command replays first (`replayed: true`) so a sensor that attaches
-      // AFTER the mark (a lazily-attaching or restarted pulam) still learns it
+      // AFTER the mark (a lazily-attaching or restarted padi) still learns it
       // and resolves a command-only agent like codex; live marks follow with
       // `replayed: false`. The flag is load-bearing, NOT decorative: unlike
       // `foreground`, this stream's consumer has a LIVE-ONLY side effect
@@ -181,9 +182,18 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           requirePty(input.id as PtyId);
           const sub = host.subscribeCommandRun(input.id, signal);
           const last = host.getLastCommand(input.id);
-          if (last !== undefined) yield { command: last, replayed: true };
+          // The snapshot carries the RETAINED command's dialect (it may be a
+          // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
+          // seed is published synchronously at spawn, before any subscriber, so it
+          // never arrives live) — hence `shellJoin: false` on the live frames.
+          if (last !== undefined)
+            yield {
+              command: last,
+              replayed: true,
+              shellJoin: host.getLastCommandShellJoin(input.id),
+            };
           for await (const command of sub) {
-            yield { command, replayed: false };
+            yield { command, replayed: false, shellJoin: false };
           }
         },
       },
@@ -274,6 +284,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               id,
               shell: program,
               args,
+              commandRooted: input.commandRooted,
               env: input.env,
               cwd: input.cwd,
               cols: input.cols,
@@ -372,7 +383,23 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   // daemon's diagnostics can log the terms/heap curve without a round-trip
   // through the wire client. The mirror count is the leak's independent variable
   // (kaval-heap-oom.mdx), so it's the column to watch.
-  return { ...surface, terminalCount: () => host.size() };
+  return {
+    ...surface,
+    terminalCount: () => host.size(),
+    // Shutdown reaps every live PTY. node-pty `setsid`s each PTY into its own
+    // session, so a process-group kill of the daemon can NEVER reach the
+    // spawn-helper/shell subtree — only the host disposing each entry does.
+    // The surface runtime's own `close` releases nothing today, so before this
+    // the daemon's graceful shutdown (pid-gone self-exit / SIGTERM / abort —
+    // daemonMain's `.finally` awaits this close) left those children orphaned to
+    // init, leaking node-pty processes across CI runs and loading the box (the
+    // darwin-under-load flake substrate). This is the "daemon owns shutdown by
+    // construction" the close handle was exposed for. `dispose()` is idempotent.
+    close: async () => {
+      host.dispose();
+      await surface.close();
+    },
+  };
 }
 
 /** The FINAL top-level router — the `.router` field of `servePtyHost`'s
@@ -390,8 +417,9 @@ export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
  *   - `router` — the same final router, for advanced in-process use;
  *   - `done` / `close` — the surface runtime's supervision handles. The
  *     ptyHost surface declares no cell connectors, so `done` is inert (nothing
- *     to fault) and `close` releases nothing today — exposed so the daemon owns
- *     shutdown by construction, not as a behavior change.
+ *     to fault); `close` disposes every live PTY and then closes the surface
+ *     runtime, so a shutting-down daemon reaps its node-pty children instead of
+ *     orphaning them — the daemon owning shutdown by construction.
  *  Call once per process; calling twice spawns two independent hosts. */
 export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   router: PtyHostRouter;
@@ -402,7 +430,8 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   terminalCount: () => number;
   /** Rejects on an owned surface fault (inert today — no cell connectors). */
   done: Promise<void>;
-  /** Release the surface runtime's owned sources. Idempotent. */
+  /** Dispose every live PTY, then release the surface runtime's owned sources.
+   *  Idempotent. This is what makes daemon shutdown reap its node-pty children. */
   close(): Promise<void>;
 } {
   const served = servePtyHost(deps);

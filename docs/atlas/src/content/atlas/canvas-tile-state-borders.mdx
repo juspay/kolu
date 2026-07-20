@@ -157,7 +157,7 @@ existing ranking + ageing, no parallel scheme:
   caption="Reuse the upstream classifiers, add one canvas-only mapper. AgentInfo.state → a bucket (agentBucket); an unread flag marks a fresh missed alert; lastActivityAt vs the activity window (useStaleCheck) ages a waiter — the three signals the dock already reads. The canvas would add its own pure tileAura(bucket, unread, stale) → tier, gathered once and read by both the tile and the minimap marker. Focus (activeId) paints the teal ring, clears unread, mutes the tile's own aura — so the loudest border is always elsewhere. No new state, no new clock."
   code={`direction: down
 state: "AgentInfo.state — thinking · tool_use · waiting · awaiting_user · running_background"
-bucket: "agentBucket() — working | awaiting | none (never idle: that's entryBucket's job)"
+bucket: "agentBucket() — working | awaiting | none (never idle: that's buildDockModel's idleClassifier branch)"
 unread: "isUnread(id) — fresh + missed (useViewState)"
 stale: "lastActivityAt vs activity window — useStaleCheck() / isStale()"
 tileAura: "tileAura(bucket, unread, stale) — canvas-only pure mapper → tier"

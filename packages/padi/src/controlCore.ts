@@ -18,10 +18,7 @@ import {
   type padiControlSurface,
 } from "./surface.ts";
 
-type ControlCoreDeps = Omit<
-  ImplementSurfaceDeps<typeof padiControlSurface.spec>,
-  "channel"
->;
+type ControlCoreDeps = ImplementSurfaceDeps<typeof padiControlSurface.spec>;
 
 /** Assemble the control-core server deps. `stateRoot` is padi's identity (echoed
  *  by `hello`); `startedAt` is padi's boot time (ms epoch), stamped once at daemon

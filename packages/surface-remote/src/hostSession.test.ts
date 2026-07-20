@@ -24,6 +24,7 @@
  * fail; case 2's resolver rejects before `provisionAgent` is ever reached.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { collectLogger } from "./loggerStubs.testutil";
 import { provisionAgent } from "./nixCopy";
 import {
   type DownSessionState,
@@ -52,20 +53,6 @@ const PROVISION_NETWORK_FAILURE = {
   cause: "network" as const,
 };
 
-/** Synchronous `SessionState` snapshot — the `.current()` the Session role
- *  dropped. `onState` delivers the live value synchronously on subscribe, so a
- *  fresh subscribe/unsubscribe reads the current state without waiting on async
- *  delta delivery. */
-function snap(session: {
-  onState(cb: (s: SessionState<SshProv>) => void): () => void;
-}): SessionState<SshProv> {
-  let s!: SessionState<SshProv>;
-  session.onState((state) => {
-    s = state;
-  })();
-  return s;
-}
-
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
  *  the UP arm carries no `error`/`cause` fields at all, so a test that expects a
  *  down state asserts it here rather than reading a field that doesn't exist on a
@@ -83,6 +70,7 @@ function failingSession() {
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
+      localEnv: {},
       resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
     }),
     reconnectDelayMs: 1000,
@@ -93,12 +81,13 @@ function failingSession() {
 /** A session whose `.drv` resolver always rejects — models a host that's
  *  unreachable at arch-probe time (`resolveSystem` ssh exits non-zero).
  *  `provisionAgent` is never reached, so it stays unmocked here. */
-function unresolvableSession(onLog?: (line: string) => void) {
+function unresolvableSession(onLine?: (line: string) => void) {
   return makeSession({
     initialConnection: "probing",
     connectOnce: sshConnector({
       host: "testhost",
       binary: "agent",
+      localEnv: {},
       resolveDrvPath: () =>
         Promise.reject(
           new Error(
@@ -108,11 +97,11 @@ function unresolvableSession(onLog?: (line: string) => void) {
     }),
     reconnectDelayMs: 1000,
     label: "testhost",
-    onLog,
+    log: onLine ? collectLogger(onLine) : undefined,
   });
 }
 
-describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)", () => {
+describe("HostSession log sink (alt-screen consumers divert all diagnostics)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(provisionAgent).mockResolvedValue(PROVISION_FAILURE);
@@ -122,7 +111,7 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     vi.clearAllMocks();
   });
 
-  it("routes every diagnostic line to onLog and none to process.stderr", async () => {
+  it("routes every diagnostic line to the logger and none to process.stderr", async () => {
     const lines: string[] = [];
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const session = makeSession({
@@ -130,10 +119,11 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
       connectOnce: sshConnector({
         host: "altscreen",
         binary: "agent",
+        localEnv: {},
         resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       }),
       reconnectDelayMs: 1000,
-      onLog: (line) => lines.push(line),
+      log: collectLogger((l) => lines.push(l)),
       // Production (`dialAgentOnce`) tags every line `[host:<host> …]`; mirror that.
       label: "host:altscreen",
     });
@@ -149,44 +139,6 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     // …and NOT one of them touched the tty — the alt-screen invariant.
     const toTty = stderr.mock.calls.map((c) => String(c[0]));
     expect(toTty.some((l) => l.includes("[host:altscreen"))).toBe(false);
-
-    stderr.mockRestore();
-    session.destroy();
-  });
-
-  it("contains a throwing onLog sink so it can't break the session lifecycle", async () => {
-    // `emit` is the single funnel for the caller-supplied `onLog`, and it runs
-    // from `updateState` BEFORE `stateCell.set`. A throwing sink that escaped
-    // would skip the state write / reconnect scheduling and freeze the session.
-    // Guarded at the funnel, the throw is swallowed (surfaced on stderr) and the
-    // lifecycle proceeds: the failing-provision drive still reaches `failed`.
-    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-    const session = makeSession({
-      initialConnection: "probing",
-      connectOnce: sshConnector({
-        host: "throwsink",
-        binary: "agent",
-        resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
-      }),
-      reconnectDelayMs: 1000,
-      onLog: () => {
-        throw new Error("sink boom");
-      },
-      label: "throwsink",
-    });
-
-    session.pin().catch(() => {});
-    // Drive all five provision failures to the terminal state. If a throwing
-    // sink had escaped `emit` (called from every transition), the state machine
-    // would have wedged before reaching `failed`.
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(snap(session).phase).toBe("failed");
-
-    // The sink failure isn't swallowed silently — it's reported on stderr.
-    const toTty = stderr.mock.calls.map((c) => String(c[0]));
-    expect(toTty.some((l) => l.includes("onLog sink threw: sink boom"))).toBe(
-      true,
-    );
 
     stderr.mockRestore();
     session.destroy();
@@ -212,7 +164,7 @@ describe("HostSession reconnect after give-up", () => {
     session.pin().catch(() => {});
     await vi.advanceTimersByTimeAsync(20_000);
 
-    expect(snap(session).phase).toBe("failed");
+    expect(session.currentState().phase).toBe("failed");
     // The invariant the fix restores: no spawn in flight ⇒ the slot the
     // reconnect guard reads is null. Pre-fix this held the last rejected
     // spawn promise because no child ever exited to clear it.
@@ -222,7 +174,7 @@ describe("HostSession reconnect after give-up", () => {
     // await, so re-arming is observable immediately. Pre-fix, the guard
     // saw a non-null slot and returned without spawning — state stuck.
     session.reconnect();
-    expect(snap(session).phase).toBe("probing");
+    expect(session.currentState().phase).toBe("probing");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
@@ -258,8 +210,8 @@ describe("HostSession reconnect after give-up", () => {
     // Well past the 5th attempt a "remote" provision failure would have
     // given up at (1+2+4+8s).
     await vi.advanceTimersByTimeAsync(70_000);
-    expect(snap(session).phase).not.toBe("failed");
-    expect(down(snap(session)).cause).toBe("network");
+    expect(session.currentState().phase).not.toBe("failed");
+    expect(down(session.currentState()).cause).toBe("network");
 
     session.destroy();
   });
@@ -288,18 +240,18 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(down(snap(session)).cause).toBe("network");
-    expect(down(snap(session)).error).toMatch(/exited 255/);
-    expect(snap(session).phase).not.toBe("failed");
+    expect(down(session.currentState()).cause).toBe("network");
+    expect(down(session.currentState()).error).toMatch(/exited 255/);
+    expect(session.currentState().phase).not.toBe("failed");
 
     session.destroy();
   });
 
   it("never gives up on an unreachable host — a network fault is not terminal", async () => {
-    // Count retries off the `onLog` sink, NOT the state `log` tail: the tail is now
+    // Count retries off the log sink, NOT the state `log` tail: the tail is now
     // scoped to the CURRENT episode (it RESETS on each down→up reconnect — W6 item 4),
     // so a per-episode tail holds at most one "host unreachable" line at any instant.
-    // `onLog` receives every emitted diagnostic across all episodes, so it is the
+    // The log sink receives every emitted diagnostic across all episodes, so it is the
     // honest witness that the loop retried past the give-up ceiling.
     const emitted: string[] = [];
     const session = unresolvableSession((line) => emitted.push(line));
@@ -312,8 +264,8 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // stranding in terminal `failed` with a manual Reconnect as the only
     // way out.
     await vi.advanceTimersByTimeAsync(70_000);
-    expect(snap(session).phase).not.toBe("failed");
-    expect(down(snap(session)).cause).toBe("network");
+    expect(session.currentState().phase).not.toBe("failed");
+    expect(down(session.currentState()).cause).toBe("network");
 
     // Proof it sailed past the old MAX_CONSECUTIVE_FAILURES (=5) ceiling:
     // more than five "host unreachable" retry lines were EMITTED (across episodes).
@@ -329,7 +281,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
 
     // First probe fails → disconnected with the backoff timer armed.
     await vi.advanceTimersByTimeAsync(10);
-    expect(snap(session).phase).toBe("disconnected");
+    expect(session.currentState().phase).toBe("disconnected");
 
     // The bug: `recheck()` cleared the backoff timer, then early-returned
     // because `clientPromise` still held the *rejected* pre-child spawn
@@ -340,7 +292,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // `spawn()` sets "copying" before its first await, so the re-arm is
     // observable synchronously.
     session.recheck();
-    expect(snap(session).phase).toBe("probing");
+    expect(session.currentState().phase).toBe("probing");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
@@ -351,7 +303,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     session.pin().catch(() => {});
 
     await vi.advanceTimersByTimeAsync(10);
-    expect(snap(session).phase).toBe("disconnected");
+    expect(session.currentState().phase).toBe("disconnected");
 
     // A `pin()` (the surviving `ensureSpawned` entry point — `acquire` was
     // dropped in S9) landing during backoff must NOT spin up a second,
@@ -371,7 +323,7 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // The backoff timer is untouched, so recheck() takes the "cancel the
     // wait, drop the stale handle, respawn now" path and recovers cleanly.
     session.recheck();
-    expect(snap(session).phase).toBe("probing");
+    expect(session.currentState().phase).toBe("probing");
     expect(session.currentClient()).not.toBeNull();
 
     session.destroy();

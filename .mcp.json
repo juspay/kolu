@@ -9,6 +9,13 @@
       "type": "stdio",
       "command": ".claude/skills/odu-mcp/bin/serve",
       "args": []
+    },
+    "kolu": {
+      "type": "stdio",
+      "command": "kolu",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

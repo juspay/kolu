@@ -1,0 +1,64 @@
+---
+title: Inside a Tile
+description: "Each canvas tile is a full terminal: splits and tabs, per-terminal font zoom, WebGL rendering with inline images, clickable URLs, and self-healing output."
+order: 43
+section: Use Kolu
+koluHero:
+  eyebrow: the terminal
+  headline: A real terminal, {not a preview}.
+---
+
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+A tile is a full terminal, not a preview — a real xterm.js instance with
+everything you'd expect from a native one.
+
+## Splits and tabs
+
+**Split** a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, add tabs with
+<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Open splits show as a `▭ N`
+chip on the dock row. A split made from the shell or by an agent
+([`padi-tui create --parent`](/padi)) opens the same way — the pane expands and
+the new split is selected, no click needed (unless you're already working in
+another split of that tile, which it won't yank you off).
+
+In a split, the pane that does **not** have focus recedes slightly, so the one
+your keystrokes are going to always reads as the foreground.
+
+## Font zoom
+
+Zoom the font with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> — it zooms
+only the focused tile and persists per terminal, so two tiles can be aligned to
+the same size.
+
+## Rendering
+
+- **WebGL rendering** with a canvas fallback, kept on your whole working set of
+  terminals at once so switching between them never churns GPU contexts.
+- **Clickable URLs** — a long URL that wraps across lines survives resizes and
+  always opens whole.
+- **Unicode 11** and **inline images** (sixel, iTerm2, kitty).
+
+## Output keeps flowing
+
+The terminal defends itself against the ways live output can silently stall: a
+heartbeat detects a dead connection (a sleeping laptop, a Wi-Fi roam) and
+reconnects on its own; a repaint queued while the window was in the background
+runs the instant you return; and when a flooding terminal outruns its view, it
+re-attaches and repaints from a fresh snapshot rather than freezing. You should
+never need a keypress or a reload to see output that already happened.
+
+## On touch devices
+
+A **mobile key bar** sends the keys soft keyboards lack — Esc, Tab, arrows,
+Ctrl+C — with two sticky modifiers you tap to arm. The full story is in
+[kolu on a Phone](/mobile).
+
+## Next
+
+<CardGrid>
+  <LinkCard title="The Canvas" href="/canvas" description="the plane the tiles live on: pan, zoom, maximize, arrange" />
+  <LinkCard title="The Right Panel" href="/right-panel" description="every tile's Inspector and Code tab" />
+  <LinkCard title="The Code Tab" href="/code-tab" description="the file browser scoped to the tile's repo" />
+</CardGrid>

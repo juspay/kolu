@@ -42,74 +42,90 @@ const EXIT_FLAGS: ReadonlySet<string> = new Set([
   "-h",
 ]);
 
+/** Whether a stable flag consumes the token that follows it as its value
+ *  (`--model sonnet` → `"value"`) or is a standalone boolean switch
+ *  (`--dangerously-skip-permissions` → `"boolean"`). Co-located with each
+ *  flag's membership below so arity and membership — two facets of the same
+ *  flag, introduced by the same event — cannot drift apart. */
+type FlagArity = "boolean" | "value";
+
 /** Per-agent allowlist of flags that define a meaningfully different
- *  invocation. Only these are preserved in the MRU form. The map's
- *  keys double as the set of known agent basenames — no separate
- *  KNOWN_AGENTS set to keep in sync.
+ *  invocation, each mapped to its arity. Only these are preserved in the MRU
+ *  form. The map's keys double as the set of known agent basenames — no
+ *  separate KNOWN_AGENTS set to keep in sync.
  *
- *  A flag not listed here is dropped silently — that is the safe
- *  default. To add support for a new stable flag, add it here. */
-const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+ *  A flag not listed here is dropped silently — that is the safe default. To
+ *  add support for a new stable flag, add it here with its arity: a `"value"`
+ *  flag consumes the following token (`--model sonnet`), a `"boolean"` switch
+ *  must NOT. Stating the arity is mandatory, which is what keeps a trailing
+ *  prompt positional out of the MRU — `claude --dangerously-skip-permissions
+ *  'You are BOOT1…'` normalizes to `claude --dangerously-skip-permissions`,
+ *  dropping the prompt rather than attaching it as a bogus value (the
+ *  living-clue / kolu#1895 leak fix). */
+const STABLE_FLAGS: ReadonlyMap<
+  string,
+  ReadonlyMap<string, FlagArity>
+> = new Map([
   [
     "claude",
-    new Set([
-      "--model",
-      "--dangerously-skip-permissions",
-      "--allowedTools",
-      "--disallowedTools",
-      "--permission-mode",
-      "--add-dir",
-      "--agent",
-      "--mcp-config",
-      "--strict-mcp-config",
-      "--append-system-prompt",
-      "--settings",
-      "--bare",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--dangerously-skip-permissions", "boolean"],
+      ["--allowedTools", "value"],
+      ["--disallowedTools", "value"],
+      ["--permission-mode", "value"],
+      ["--add-dir", "value"],
+      ["--agent", "value"],
+      ["--mcp-config", "value"],
+      ["--strict-mcp-config", "boolean"],
+      ["--append-system-prompt", "value"],
+      ["--settings", "value"],
+      ["--bare", "boolean"],
     ]),
   ],
   [
     "opencode",
-    new Set([
-      "--model",
-      "--dangerously-skip-permissions",
-      "--yolo",
-      "--agent",
-      "--pure",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--dangerously-skip-permissions", "boolean"],
+      ["--yolo", "boolean"],
+      ["--agent", "value"],
+      ["--pure", "boolean"],
     ]),
   ],
-  ["aider", new Set(["--model"])],
+  ["aider", new Map<string, FlagArity>([["--model", "value"]])],
   [
     "codex",
-    new Set([
-      "--model",
-      "--yolo",
-      "--config",
-      "-c",
-      "--profile",
-      "-p",
-      "--sandbox",
-      "-s",
-      "--ask-for-approval",
-      "-a",
-      "--full-auto",
-      "--oss",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["--yolo", "boolean"],
+      ["--config", "value"],
+      ["-c", "value"],
+      ["--profile", "value"],
+      ["-p", "value"],
+      ["--sandbox", "value"],
+      ["-s", "value"],
+      ["--ask-for-approval", "value"],
+      ["-a", "value"],
+      ["--full-auto", "boolean"],
+      ["--oss", "boolean"],
     ]),
   ],
-  ["goose", new Set([])],
-  ["gemini", new Set([])],
-  ["cursor-agent", new Set([])],
+  ["goose", new Map<string, FlagArity>([])],
+  ["gemini", new Map<string, FlagArity>([])],
+  ["cursor-agent", new Map<string, FlagArity>([])],
   [
     "grok",
-    new Set([
-      "--model",
-      "-m",
-      "--always-approve",
-      "--permission-mode",
-      "--agent",
-      "--no-plan",
-      "--no-subagents",
-      "--reasoning-effort",
-      "--effort",
+    new Map<string, FlagArity>([
+      ["--model", "value"],
+      ["-m", "value"],
+      ["--always-approve", "boolean"],
+      ["--permission-mode", "value"],
+      ["--agent", "value"],
+      ["--no-plan", "boolean"],
+      ["--no-subagents", "boolean"],
+      ["--reasoning-effort", "value"],
+      ["--effort", "value"],
     ]),
   ],
 ]);
@@ -257,9 +273,33 @@ export function agentNameFromCommand(command: string): string | null {
  * Parse a raw command line. Returns the normalized agent invocation
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
+ *
+ * TWO input formats reach here, in two different quoting dialects, and the CALLER
+ * knows which — so it says so rather than the string being sniffed (a raw line
+ * can mix both dialects, so no string-shape heuristic is reliable). An OSC 633;E
+ * mark is a user's raw shell command line (standard quoting — double quotes, `$`,
+ * backticks — which `string-argv` tokenizes); the #1872 command-rooted SEED is
+ * `shellJoin(argv)`, whose exact inverse is `shellSplit`. A command-rooted PTY has
+ * no shell, so it emits ONLY the seed (never a 633 line) and a shell terminal
+ * emits ONLY 633 marks — so a terminal's `commandRooted` flag perfectly selects
+ * the tokenizer. Pass `shellJoinFormat: true` for a command-rooted seed. Reuses
+ * `shellSplit`; adds no tokenizer.
  */
-export function parseAgentCommand(raw: string): string | null {
-  const [head, ...args] = parseArgsStringToArgv(raw.trim());
+export function parseAgentCommand(
+  raw: string,
+  shellJoinFormat = false,
+): string | null {
+  const trimmed = raw.trim();
+  const argv = shellJoinFormat
+    ? shellSplit(trimmed)
+    : parseArgsStringToArgv(trimmed);
+  return normalizeAgentInvocation(argv);
+}
+
+/** Normalize an already-tokenized argv to its agent invocation string, or `null`
+ *  if `argv[0]` isn't a known agent. Shared by both tokenizer attempts above. */
+function normalizeAgentInvocation(argv: string[]): string | null {
+  const [head, ...args] = argv;
   if (head === undefined) return null;
 
   const agent = basename(head);
@@ -279,16 +319,20 @@ export function parseAgentCommand(raw: string): string | null {
     if (t === "--") break; // stop at explicit end-of-flags
     if (!t.startsWith("-")) continue; // drop positional
     const next = args[i + 1];
-    if (!allowed.has(t)) {
+    const arity = allowed.get(t);
+    if (arity === undefined) {
       // Unknown flag — skip it and its value (if present)
       if (next !== undefined && !next.startsWith("-")) i++;
       continue;
     }
     // Stable flag — keep verbatim
     kept.push(t);
-    // If the next token is a non-flag value (e.g. `--model sonnet`),
-    // attach it to the flag as-is.
-    if (next !== undefined && !next.startsWith("-")) {
+    // Attach the following token as this flag's value ONLY when the flag is
+    // known to take one (`--model sonnet`). A boolean switch
+    // (`--dangerously-skip-permissions`) must not consume it — otherwise a
+    // trailing prompt positional gets kept as a bogus value and leaks into the
+    // MRU. See the per-flag arity in `STABLE_FLAGS`.
+    if (arity === "value" && next !== undefined && !next.startsWith("-")) {
       kept.push(next);
       i++;
     }

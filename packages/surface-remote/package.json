@@ -9,13 +9,15 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./connection": "./src/connection.ts"
+    "./connection": "./src/connection.ts",
+    "./loggerStubs.testutil": "./src/loggerStubs.testutil.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/log": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-map": "workspace:*",
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@orpc/server": "^1.13.13",
     "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }

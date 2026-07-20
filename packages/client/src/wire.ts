@@ -32,6 +32,7 @@ import {
   hostKeysInclude,
 } from "kolu-common/hostKey";
 import {
+  type ClientErrorPolicy,
   DEFAULT_PREFERENCES,
   type Preferences,
   type PreferencesPatch,
@@ -52,13 +53,79 @@ import {
   createSignal,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { floorConnectionInfo } from "./host/connectionFloor.ts";
+import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
+import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
+
+/** The ONE kolu client-error interpreter (SR11, fork-A) — the single place kolu's
+ *  app-owned {@link ClientErrorPolicy} arms are rendered. Registered at BOTH seams
+ *  (`connectSurfaces` for the root app cells — origin-free; `connectSurfaceMap` for the
+ *  padi map — origin `{ key }` injected per entry), so a spec-declared `client.onError`
+ *  policy reaches app code on a subscription failure without any use-site `onError`. It
+ *  REPLACES the hand-rolled `surfaceSubError` (createHostWire) and `onHostMembershipError`
+ *  (this module) — both folded in.
+ *
+ *  Arms:
+ *   - `toast`     — plain `${label} error: ${msg}` (root app cells + membership);
+ *   - `hostToast` — `Host ${hostLabel(origin.key)} ${label} error: ${msg}` (urgency,
+ *     and — the 4C ruling — daemonStatus, whose chip now gains host attribution and
+ *     whose background failure becomes a host-named toast);
+ *   - `scopedSub` — the retained per-host sub split: the GROUNDED-active host toasts
+ *     `${label}: ${msg}`; a background host logs (never dropped). Activeness is the
+ *     GROUNDED enc-compare (`groundedActiveHost()` vs `origin.key`, both encoded — never
+ *     raw `activeHost`, never ref identity), matching the retained-scope contract.
+ *
+ *  m6 dedup: every toast carries a deterministic `{ id }` keyed on `kind:label:host`, so
+ *  daemonStatus — opened at TWO subscriptions per host (createHostWire + the chip) —
+ *  collapses its identical `Host X daemon status error` to ONE (solid-sonner updates the
+ *  existing toast in place) instead of stacking two. */
+export function interpretClientError(
+  p: ClientErrorPolicy,
+  err: Error,
+  origin?: { key: HostKey },
+): void {
+  const originEnc = origin ? encodeHostKey(origin.key) : "";
+  const id = `${p.kind}:${p.label}:${originEnc}`;
+  // `hostToast` and `scopedSub` ride ONLY origin-bearing (map-entry) members — a
+  // root-surface member is typed to the origin-free `toast` arm (F8). So a missing
+  // origin in either is an IMPOSSIBLE state (origin injection regressed): FAIL LOUD
+  // rather than silently emit an unattributed toast / a `for ?` background line
+  // (caught-error-must-not-collapse). `originEnc` then equals `encodeHostKey(origin.key)`.
+  const requireOrigin = (): HostKey => {
+    if (!origin)
+      throw new Error(
+        `interpretClientError: ${p.kind} "${p.label}" reached with no origin — ` +
+          "it is declared on a map-entry member; origin injection must have regressed.",
+      );
+    return origin.key;
+  };
+  match(p)
+    .with({ kind: "toast" }, (t) => {
+      toast.error(`${t.label} error: ${err.message}`, { id });
+    })
+    .with({ kind: "hostToast" }, (t) => {
+      toast.error(
+        `Host ${hostLabel(requireOrigin())} ${t.label} error: ${err.message}`,
+        { id },
+      );
+    })
+    .with({ kind: "scopedSub" }, (t) => {
+      requireOrigin();
+      const g = groundedActiveHost();
+      const active = g !== null && encodeHostKey(g) === originEnc;
+      if (active) toast.error(`${t.label}: ${err.message}`, { id });
+      else
+        console.error(
+          `createHostWire: background ${t.label} for ${originEnc}: ${err.message}`,
+        );
+    })
+    .exhaustive();
+}
 
 // `connectSurfaces` is the receptacle for "multiple sibling surfaces over one
 // reconnecting socket with the half-open watchdog wired in." kolu plugs into it
@@ -89,6 +156,9 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 const conn = connectSurfaces<typeof contract, typeof surfaces>({
   surfaces,
   url: wsBaseUrl,
+  // The root app cells (koluSurface / surfaceApp) declare origin-FREE `toast` policies;
+  // route them through the ONE interpreter (design §A/m4).
+  onClientError: (p, e) => interpretClientError(p as ClientErrorPolicy, e),
 });
 const { ws, echo } = conn;
 
@@ -118,10 +188,12 @@ const link = conn.link;
 //
 // kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
 // Leak-D multi-surface fact) — it ignores `conn.health`. kolu surfaces subscription
-// failure PER CELL, colocated — each `.use({ onError })` raises its own `toast.error`
-// next to the state it owns (preferences here; activityFeed / session / terminal-list /
-// daemon-status in the per-host `createHostWire`, gated on the active host) — which is
-// the house style (`.claude/rules/toast-conventions.md`: "colocated, not centralized").
+// failure PER MEMBER: each cell/collection DECLARES its `client.onError` policy on the
+// spec (`toast` for the root cells; `hostToast`/`scopedSub` for the padi map's per-host
+// members), and the ONE `interpretClientError` (registered at both `connectSurfaces` and
+// `connectSurfaceMap` above) renders it next to the state it owns — the house style
+// (`.claude/rules/toast-conventions.md`: "colocated, not centralized"), now DECLARED once
+// per member rather than hand-wired at every `.use()`.
 // A single global "is the app healthy?" gate is the wrong shape for a terminal
 // workspace, where one degraded cell must not blank the canvas. The fold ships for a
 // consumer whose control plane WANTS one answer:
@@ -152,18 +224,15 @@ export const surfaceApp = clients.surfaceApp;
 //    `connectSurfaces` watchdog `live` by construction (the handle is unforgeable), so
 //    every chip floors on the real socket — there is no raw `{ live }` seam to pass a
 //    green-over-dead accessor through.
-export const padiMap = connectSurfaceMap(padiHostMap, conn.transport);
-
-/** The ONE membership-error handler for `padiMap.entries` — shared by BOTH whole-collection
- *  consumers (this module's reconcile sub + `HostSelectorStrip`'s strip) so a membership-stream
- *  failure toasts once, not twice. The whole-collection dedup slot now supports a per-consumer
- *  `onError` REGISTRY (`surfaceClient.ts`), so two distinct handlers — or a bare `.use()` racing
- *  ahead of this one — would each still fire independently regardless of registration order;
- *  sharing this one reference is a choice for a single toast, not a requirement to avoid a
- *  crash. */
-export const onHostMembershipError = (err: Error): void => {
-  toast.error(`Host membership error: ${err.message}`);
-};
+export const padiMap = connectSurfaceMap(padiHostMap, conn.transport, {
+  // The padi map's per-entry members (identity/urgency/status/…/daemonStatus) and its
+  // membership `entries` collection declare their policies on the spec; route them all
+  // through the ONE interpreter, with the per-key `origin` the map injects for entry
+  // members (`entries` fires origin-free). This folds in the old `surfaceSubError`
+  // (createHostWire) and `onHostMembershipError` (deleted here).
+  onClientError: (p, e, origin) =>
+    interpretClientError(p as ClientErrorPolicy, e, origin),
+});
 
 /** The per-tab ACTIVE host — which host's padi surface THIS browser tab views. Backed by
  *  `sessionStorage` (per-tab, never shared across tabs). The persisted value is the
@@ -232,7 +301,7 @@ const hostScoped = createRoot(() => {
   // The membership authority — shared by the host-membership reconcile (further down) and
   // HostSelectorStrip (deduped via the base-client ref-count). The active host's connection
   // cell re-arms itself off `active`'s `membershipId` re-key (below), not this membership read.
-  const members = padiMap.entries.use({ onError: onHostMembershipError });
+  const members = padiMap.entries.use();
   // FAIL-FAST invariant guard (juspay/kolu#1766): `LOCAL_HOST` is the server's unremovable
   // seed[0] (`server/index.ts`), so once membership has LOADED (a non-empty snapshot) it MUST
   // contain local. Both `groundedActiveHost` (scans uniformly → `null` if local is absent) and
@@ -255,35 +324,30 @@ const hostScoped = createRoot(() => {
       }
     });
   }
-  // The ACTIVE host's link-health cell (W6 — "the honest connect"): its `phase`
-  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a
-  // cold remote provision narrates its real phase instead of a mute "Connecting…".
-  // Deliberately ACTIVE-HOST-ONLY (not retained per host in `createHostWire`): a background
-  // host's connect-phase narration is not a fact to hold warm — only the host you are
-  // looking at needs its overlay live. `useEntry` re-keys the subscription on a host switch
-  // AND on a same-key membership RE-JOIN: the server ends the per-entry connection stream
-  // TYPED when the host flaps out of membership (a re-add mints a fresh session; the
-  // captured forward correctly orphans), and the entry's opaque `membershipId` changes on
-  // that re-add, so the keyed lens disposes the stranded stream and opens a fresh one BY
-  // CONSTRUCTION (PR3 — this is what retired the hand-rolled `createRejoinKeyedSub` rearm).
-  const connection = active.cells.connection.use({
-    onError: (err: Error) =>
-      toast.error(`Connection subscription error: ${err.message}`),
-  }).value;
+  // The ACTIVE host's link health (W6 — "the honest connect"): its `phase`
+  // (copying/building/connecting/…) + live `log` tail drive the connect overlay so a cold
+  // remote provision narrates its real phase instead of a mute "Connecting…".
+  //
+  // SR9 — ONE connection authority. This is NO LONGER a second `connection` cell
+  // subscription (that cell is gone). It is the FINE `connection` payload the host map
+  // publishes on the ENTRY — the SAME `active.state()` the dot reads — so the dot and the
+  // word derive from ONE subscription and can never disagree (the drishti#102 divergence
+  // has no encoding left). `useEntry` already re-keys the entry on a host switch AND a
+  // same-key re-add (a new `membershipId`), so this read rebuilds by construction (PR3).
+  // Active-host-only falls out for free: only the active entry's state is read here.
+  const connection = (): ConnectionInfo | undefined => {
+    const s = active.state();
+    return s.kind === "not-a-member" ? undefined : s.connection;
+  };
   // Preferences is HOST-INDEPENDENT (no host to capture), but it rides this ONE app-scope
   // owner rather than a bare import-time module-const sub — the sharing-by-convention
   // singleton the map redesign deletes. One `.use()` here; every `preferences()` reader
   // folds onto it (the base-client dedup would share it even if opened per-consumer, but
   // imperative module-level readers like useTips have no reactive owner of their own).
-  const preferences = app.cells.preferences.use({
-    authority: "local",
-    initial: DEFAULT_PREFERENCES,
-    // Debounce window for size writes that opt in via `{ coalesce: true }` (#1041): the
-    // rightPanel splitter fires a patch per drag frame; discrete toggles flush immediately.
-    coalesceMs: 150,
-    // Covers subscription drops + coalesced-flush failures.
-    onError: (err: Error) => toast.error(`Preferences error: ${err.message}`),
-  });
+  // Authority (`local`), the coalesce window (#1041), and the error policy now ride the
+  // `preferences` cell's `client` DECLARATION (kolu-common/surface) — routed through the
+  // ONE interpreter — so this use-site is bare.
+  const preferences = app.cells.preferences.use();
   // Host-membership reconcile: if the ACTIVE host leaves the pool — the user ✕'d their own
   // guest chip, or the server auto-retired it on re-serve-pump death (`pool.remove`) —
   // `useEntry(activeHost)` does NOT re-key on its own, so the tab would be stranded on a
@@ -292,12 +356,12 @@ const hostScoped = createRoot(() => {
   // snapshot has landed, a departed active host falls back to the unremovable LOCAL default,
   // LOUDLY (the server-driven auto-retire is otherwise silent). The `entries` sub dedups
   // with the selector strip's via the base-client ref-count.
-  // Both whole-collection `entries` consumers (this sub + HostSelectorStrip's strip) bake the
-  // SAME `onHostMembershipError` reference into the shared dedup slot's per-consumer registry,
-  // so a membership-stream failure surfaces once (not twice) regardless of which consumer
-  // registers first — each registered handler now fires independently either way, so sharing
-  // this reference is just to avoid a duplicate toast, never to dodge a crash. (`members` is
-  // defined ABOVE — shared with the connection re-arm.)
+  // Both whole-collection `entries` consumers (this sub + HostSelectorStrip's strip) now open
+  // BARE — the membership error policy (`Host membership error: …`) rides the map's
+  // `entriesClient` declaration and routes through the ONE `interpretClientError`; the
+  // interpreter's `{ id }` dedup (kind:label:host) collapses an identical membership toast to
+  // one regardless of which consumer's sub fired it. (`members` is defined ABOVE — shared
+  // with the connection re-arm.)
   // Pending add-a-host intent: the host the user just added, to activate the frame it JOINS
   // membership. `hosts.add` resolves BEFORE the `entries` stream delivers the new member, so a
   // bare `setActiveHost` in the add `.then` reads as a departed host to the reconcile below and
@@ -390,14 +454,15 @@ export const activePadiRpc = hostScoped.procedures;
  *  this accessor is only the carve-out reach. */
 export const activePadiStreams = hostScoped.streams;
 
-/** The ACTIVE host's link-health cell value (`phase` + `log` tail), or `undefined`
- *  before its first frame. Drives the connect overlay's copying/building narration. Floored
- *  (C') on the SAME map-transport liveness the chip's `EntryStatus` uses (`padiMap.live`):
- *  with our link to the publisher dead/half-open, a frozen `building`/`copying` cell stops
- *  asserting a live phase — mirroring surface-map's `floorOnLiveness` for `EntryStatus`, so the
- *  connection cell is no longer the one un-floored per-host authority (#1568 sibling). */
+/** The ACTIVE host's link-health value (`phase` + `log` tail), or `undefined` before its
+ *  first frame. Drives the connect overlay's copying/building narration. Already floored on
+ *  the map's transport liveness at the ONE floor — `active.state()` runs through surface-map's
+ *  `floorOnLiveness`, which drops the fine `connection` word (as well as demoting the dot) when
+ *  our link to the publisher is dead/half-open, so a frozen `building`/`copying` phase stops
+ *  asserting a live phase (#1568). No client-side re-floor: the word inherits the SAME liveness
+ *  decision as the dot by construction, so the two can never disagree. */
 export const connectionInfo = (): ConnectionInfo | undefined =>
-  floorConnectionInfo(hostScoped.connection(), padiMap.live());
+  hostScoped.connection();
 
 // The per-host wire-view facades — recentRepos / recentAgents / savedSession /
 // savedSessionSub / terminalListSub — WINDOW the active host's RETAINED wire

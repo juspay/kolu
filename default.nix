@@ -98,6 +98,8 @@ let
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
+      ./packages/kolu-cli
+      ./packages/kolu-mcp
       ./packages/padi
       ./packages/padi-tui
       ./packages/server
@@ -125,7 +127,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-FTPc1K2Zr4AOvEu8rmWM7LIEqU+grVZ1mE1Mpkg2A5s=";
+    hash = "sha256-AgEHHnlBKTCeJmNoFbnb5sqtdZmx3o2aiHsie2Q29aY=";
     fetcherVersion = 3;
   };
 
@@ -244,7 +246,12 @@ let
       (pkgs.lib.fileset.unions [
         (pkgs.lib.fileset.difference
           (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/padi/src)
-          ./packages/padi/src/dial.ts)
+          (pkgs.lib.fileset.unions [
+            ./packages/padi/src/dial.ts
+            # `watch.ts` rides the dial kit (client-side watch/wait helpers the
+            # MCP face + padi-tui share) — client-only for the same reason.
+            ./packages/padi/src/watch.ts
+          ]))
         ./packages/padi/package.json
       ])
       # kaval — but ONLY its LIBRARY surface (what padi embeds in-process from
@@ -460,7 +467,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
-      --add-flags "${koluStamped}/packages/server/src/index.ts" \
+      --add-flags "${koluStamped}/packages/kolu-cli/src/main.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \

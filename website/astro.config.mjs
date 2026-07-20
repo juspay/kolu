@@ -1,10 +1,13 @@
 // @ts-check
 
 import { existsSync, readFileSync } from "node:fs";
+import { unified } from "@astrojs/markdown-remark";
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
+import { remarkChangelog } from "./src/remarkChangelog";
+import { shikiConfig } from "./src/shiki-config.mjs";
 
 function readKoluVersion() {
   if (process.env.KOLU_VERSION) return process.env.KOLU_VERSION;
@@ -56,15 +59,10 @@ export default defineConfig({
     },
   },
   markdown: {
-    shikiConfig: {
-      // Dual theme — astro emits both as CSS variables; global.css routes
-      // them via `[data-theme]` so code blocks track the light/dark toggle.
-      themes: {
-        light: "vitesse-light",
-        dark: "vitesse-black",
-      },
-      defaultColor: false,
-      wrap: false,
-    },
+    processor: unified({ remarkPlugins: [remarkChangelog] }),
+    // The whole shiki setup (derived langs preload + guard + no-tokenize-bail)
+    // lives in src/shiki-config.mjs so test/shiki-eager-langs.test.mjs pins
+    // the exact object astro builds with — see that module for the mechanism.
+    shikiConfig,
   },
 });

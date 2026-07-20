@@ -7,6 +7,9 @@
     "test:unit": "pnpm -r test:unit",
     "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
+  "devDependencies": {
+    "vitest": "^4.1.0"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "@parcel/watcher",
@@ -26,8 +29,8 @@
       "shell-quote": "^1.8.4",
       "qs": "^6.15.2",
       "@anthropic-ai/sdk": "^0.91.1",
-      "@xterm/xterm": "6.1.0-beta.225",
-      "@xterm/addon-webgl": "0.20.0-beta.224"
+      "@xterm/xterm": "6.1.0-beta.289",
+      "@xterm/addon-webgl": "0.20.0-beta.288"
     }
   }
 }

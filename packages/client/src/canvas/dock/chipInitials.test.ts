@@ -8,16 +8,6 @@ function info(group: string, label: string): TerminalDisplayInfo {
     repoColor: "#000",
     branchColor: "#000",
     annotationColor: "#000",
-    meta: {
-      state: "active",
-      cwd: "/tmp",
-      git: null,
-      location: LOCAL_LOCATION,
-      pr: { kind: "absent" },
-      agent: null,
-      foreground: null,
-      lastActivityAt: 0,
-    },
     subCount: 0,
     key: { group, label },
   };

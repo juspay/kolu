@@ -16,18 +16,19 @@
  */
 import {
   serveOverUnixSocket,
+  type UnixSocketListener,
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
 import type { Logger } from "@kolu/surface-daemon";
 
-export interface PtyHostSocketListener {
-  /** The path the socket is bound to (or that a live peer already owns). */
-  readonly socketPath: string;
-  /** Stop accepting connections and remove the socket file. Idempotent and
-   *  safe to call synchronously from a `process.on("exit")` handler. */
-  close(): void;
-}
+/** The receptacle's listener, narrowed to what pty-host callers get: the
+ *  path and `close()` (with the receptacle's own teardown contract), minus
+ *  `outcome` — refusal interpretation stays owned by the kolu voice here. */
+export type PtyHostSocketListener = Pick<
+  UnixSocketListener,
+  "socketPath" | "close"
+>;
 
 /** The kolu-flavored warning for each way `serveOverUnixSocket` can refuse
  *  to bind. The socket serves the FULL `ptyHostSurface`
@@ -67,7 +68,9 @@ function describeRefusal(
 }
 
 /** Start serving `router` over a unix socket at `socketPath`. Returns a
- *  listener whose `close()` stops it and removes the socket file.
+ *  listener whose `close()` stops it — accepting AND every established peer
+ *  (attached kaval-tui sessions are severed; their serves settle through the
+ *  normal peer-death chain) — and removes the socket file.
  *
  *  The socket is an *additive* convenience — it's how `kaval-tui` reaches the
  *  pty-host — and kolu-server's web path is entirely independent of it, so a

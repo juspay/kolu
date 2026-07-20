@@ -63,6 +63,34 @@ For another device, prefer the private HTTPS setup in
 [Remote Access](/remote-access); plain LAN HTTP does not unlock install prompts,
 badges, or notifications.
 
+## Subcommands
+
+The bare command is an alias of `kolu web` — the two spellings accept the same
+flags and boot the same server, so everything above works spelled either way:
+
+```sh
+nix --refresh run github:juspay/kolu -- web --host 0.0.0.0 --port 8080
+```
+
+`kolu mcp` connects a **coding agent** — Claude Code, Codex, any MCP host — to
+this host's terminals over MCP (stdio), no browser involved. Register it and the
+agent can create terminals, type into them (text and Enter as separate sends),
+wait for output to settle or a turn to end, read the screen, and watch which
+terminals need you:
+
+```sh
+# Claude Code
+claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
+# a kolu on another machine, over ssh
+claude mcp add kolu-zest -- nix --refresh run github:juspay/kolu -- mcp --host user@zest
+```
+
+The full guide — wiring, the drive loop, and every tool — is on the [MCP
+page](/mcp).
+
+`kolu tui` (a terminal-side canvas) is **reserved**: today it exits with a
+pointer at the plan instead of running. `kolu --help` lists the subcommands.
+
 <Aside type="tip" title="Create the first terminal">
   Double-click any empty spot on the canvas to open the New terminal menu. The
   dock's `+` button opens the same flow. The first full walkthrough is

@@ -56,8 +56,10 @@
 import {
   composeSurfaceContracts,
   defineSurface,
+  defineSurfaceWithPolicy,
   type SurfaceTypes,
 } from "@kolu/surface/define";
+import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
@@ -91,6 +93,7 @@ import {
   DEFAULT_PADI_PROCESS_MEMORY,
   CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
+  KavalSkewVersionsSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -109,6 +112,11 @@ import {
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
 export * from "./vocab.ts";
+// kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
+// so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
+// importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
+// re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
+export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -197,8 +205,32 @@ export * from "./vocab.ts";
  *  fail-fast rule rejects. Its consequence is the graceful padi-ONLY drain every
  *  code-change deploy already pays (a newer binder drains the straddling 3.x padi —
  *  save + exit — then respawns it at 4.0): kaval and the PTYs are UNTOUCHED, because a
- *  padi-surface bump does not touch the kaval contract. */
-export const PADI_SURFACE_VERSION = "4.0";
+ *  padi-surface bump does not touch the kaval contract.
+ *
+ *  4.1 (additive · minor): `daemonStatus` gains the `incompatible` arm — a NEW
+ *  EMITTED VARIANT carrying `daemonVersion`/`requiredVersion` (SK4, the
+ *  contract-skew-as-a-state fix). The version is an honest statement of the wire
+ *  SHAPE: 3.1 stayed minor only because it had "no emitted variant"; here there
+ *  IS one, so the minor bump is REQUIRED (the mirror of #1865, which folded an
+ *  orphan 4.1 bump BACK because nothing emitted had changed — the two together
+ *  teach the rule). Why a minor suffices — both skew directions converge before
+ *  an unparseable frame is ever consumed: a NEWER binder (expects 4.1) against
+ *  an old 4.0 padi fails `isContractVersionCompatible`'s minor rule (reported
+ *  minor must be ≥ expected), so the binder drains-and-replaces the padi before
+ *  consuming its surface; an OLDER 4.0 binder against a new 4.1 padi is
+ *  version-compatible but BUILD-mismatched, so the build axis
+ *  drains-and-replaces padi first — the old client schema (no `incompatible`
+ *  arm) never sits against a padi that could emit it. (Two honest caveats on
+ *  that second leg: the build drain is FENCED once per binder boot, and
+ *  off-nix both build ids are "" so the axis is silent — in those windows an
+ *  old binder rides a new padi version-compatibly, and IF that host's kaval
+ *  then skews, the emitted `incompatible` frame fails the old client's
+ *  discriminated-union parse LOUDLY — fail-fast, never mis-read as another
+ *  state. That narrow edge is inherent to any additive minor; the common
+ *  nix-run path converges the binder before it can occur.) That is
+ *  the answer to "who reports the skew of the skew-reporter": the existing
+ *  convergence machinery, before the new arm can reach an old parser. */
+export const PADI_SURFACE_VERSION = "4.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -660,7 +692,7 @@ export const PadiSessionImportInputSchema = z.object({
 
 // ── The surface ───────────────────────────────────────────────────────────
 
-export const padiSurface = defineSurface({
+export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
   cells: {
     /** padi's self-declared surface contract version (1.0). */
     version: { schema: PadiVersionSchema, default: DEFAULT_PADI_VERSION },
@@ -672,6 +704,7 @@ export const padiSurface = defineSurface({
       schema: PadiIdentitySchema,
       default: DEFAULT_PADI_IDENTITY,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Padi identity" } },
     },
     /** The recency-free urgency projection — read-only on the client; a DERIVED
      *  member (`derived.cell(($) => recomputeUrgency($.terminals()))` in
@@ -683,6 +716,7 @@ export const padiSurface = defineSurface({
       default: { awaitingIds: [] } satisfies PadiUrgency,
       equals: urgencyEqual,
       verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "urgency" } },
     },
     /** Host-side build-currency facts — today the `expectedKaval` axis (the kaval
      *  this padi would spawn). Read-only on the client; padi seeds it once at boot
@@ -691,6 +725,7 @@ export const padiSurface = defineSurface({
       schema: PadiStatusSchema,
       default: DEFAULT_PADI_STATUS,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Kaval status" } },
     },
     /** The running kaval + padi daemons on THIS padi's host — the "Running daemons"
      *  leak diagnostic the Kaval + Padi dialogs list. Read-only on the client; padi's
@@ -701,6 +736,7 @@ export const padiSurface = defineSurface({
       schema: PadiHostInventorySchema,
       default: DEFAULT_PADI_HOST_INVENTORY,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Host inventory" } },
     },
     /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
      *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
@@ -711,6 +747,7 @@ export const padiSurface = defineSurface({
       schema: PadiProcessMemorySchema,
       default: DEFAULT_PADI_PROCESS_MEMORY,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Padi/kaval memory" } },
     },
     /** Server-derived activity feed (recent repos + recent agents) — the MRU the
      *  workspace switcher + command palette read. Read-only on the client; padi's
@@ -724,6 +761,12 @@ export const padiSurface = defineSurface({
         typeof ActivityFeedSchema
       >,
       verbs: ["get", "test__set"],
+      client: {
+        onError: {
+          kind: "scopedSub",
+          label: "Activity feed subscription error",
+        },
+      },
     },
     /** Last persisted snapshot of terminals + active id, or null when no session
      *  is saved — the restore card's source. Read-only on the client; padi's
@@ -735,6 +778,12 @@ export const padiSurface = defineSurface({
       schema: SavedSessionSchema.nullable(),
       default: null as z.infer<typeof SavedSessionSchema> | null,
       verbs: ["get", "test__set"],
+      client: {
+        onError: {
+          kind: "scopedSub",
+          label: "Saved-session subscription error",
+        },
+      },
     },
   },
   collections: {
@@ -744,6 +793,7 @@ export const padiSurface = defineSurface({
       keySchema: TerminalIdSchema,
       schema: PadiTerminalSchema,
       verbs: ["keys", "get"],
+      client: { onError: { kind: "scopedSub", label: "Metadata error" } },
     },
     /** Per-host pty-host daemon (kaval) status — padi supervises its kaval, so
      *  the daemon-liveness cell is padi's to serve. Read-only on the client. */
@@ -751,6 +801,11 @@ export const padiSurface = defineSurface({
       keySchema: z.string(),
       schema: DaemonStatusSchema,
       verbs: ["keys", "get"],
+      // 4C RULING: `hostToast` (not the old per-subscription split) — the chip gains
+      // host attribution and a background host's daemon-status failure becomes a
+      // host-named toast (the two srid-ruled deltas). Origin `{ key }` is guaranteed
+      // for an entry member.
+      client: { onError: { kind: "hostToast", label: "daemon status" } },
     },
   },
   streams: {
@@ -828,7 +883,20 @@ export const padiSurface = defineSurface({
        *  that is the separate `control.drain` upgrade path. Takes no input,
        *  resolves once the fresh kaval is connected (or rejects, session safe on
        *  disk to retry/restore). */
-      recycleKaval: {},
+      recycleKaval: {
+        // The DECLARED error union (SK6): a proven contract skew is the one
+        // failure this procedure can translate — versions ride as TYPED data
+        // (the client narrows with `isDefinedError`; nothing re-parses prose),
+        // shaped by the ONE skew-payload spelling (`KavalSkewVersionsSchema`,
+        // shared with the `incompatible` status arm). An undeclared throw
+        // still crosses as INTERNAL_SERVER_ERROR — the fail-fast channel for
+        // genuinely unexpected failures.
+        errors: {
+          KAVAL_CONTRACT_SKEW: {
+            data: KavalSkewVersionsSchema,
+          },
+        },
+      },
     },
     /** Terminal chrome — the client-owned per-terminal UI record. */
     chrome: {

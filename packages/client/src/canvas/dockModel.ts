@@ -12,27 +12,43 @@ import {
   type IdleBucket,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
+import {
+  pairDisplayRow,
+  type TerminalDisplayInfo,
+} from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
-/** Live-terminal source row before a presentation-specific order is applied. */
+/** Live-terminal source row before a presentation-specific order is applied.
+ *  `info` carries display decorations (colors, key); `meta` is the LIVE
+ *  per-terminal record read from `getMetadata` — the search/bucket/render
+ *  facts (pr / agent / foreground / lastActivityAt) come off it, never off a
+ *  display-info snapshot (see `terminalDisplay.ts`). */
 export interface DockSourceEntry {
   id: TerminalId;
   info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
   layout?: TileLayout;
 }
 
-/** Pair terminal ids with display info and optional canvas layout. */
+/** Pair terminal ids with display info, live metadata, and optional canvas
+ *  layout. Skips a terminal until BOTH its display info and its live record
+ *  have arrived. */
 export function buildWorkspaceEntries(
   ids: TerminalId[],
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined,
   getLayout?: (id: TerminalId) => TileLayout | undefined,
 ): DockSourceEntry[] {
   const entries: DockSourceEntry[] = [];
   for (const id of ids) {
-    const info = getDisplayInfo(id);
-    if (!info) continue;
-    entries.push({ id, info, layout: getLayout?.(id) });
+    const row = pairDisplayRow(getDisplayInfo(id), getMetadata(id));
+    if (!row) continue;
+    entries.push({
+      id,
+      info: row.info,
+      meta: row.meta,
+      layout: getLayout?.(id),
+    });
   }
   return entries;
 }
@@ -135,6 +151,9 @@ type DockEntryBase = {
   label: string;
   suffix?: string;
   info: TerminalDisplayInfo;
+  /** The live per-terminal record — search text, bucket, and the switcher
+   *  card's pr/agent/foreground reads all come off this, not `info`. */
+  meta: TerminalMetadata;
   searchText: string;
 };
 
@@ -202,8 +221,9 @@ export type DockModel = {
 
 /** Classify live agent metadata into the dock's agent-state PAINT buckets — the
  *  canvas tile aura, the minimap badge, the expanded-switcher columns. Pure —
- *  does not consider staleness. Callers that have a staleness signal should
- *  prefer `entryBucket()` so parked terminals route to the Idle column.
+ *  does not consider staleness. Callers that have a staleness signal route
+ *  parked terminals to the Idle column via `buildDockModel`'s `idleClassifier`
+ *  branch, which takes precedence over this paint bucket.
  *
  *  Defers the per-state PAINT decision to `agentPaintClass` in
  *  `@kolu/terminal-vocab/agentProjection`, so the closed agent-state set is
@@ -240,24 +260,6 @@ export function metaBucket(
   meta: TerminalMetadata,
 ): Exclude<AgentBucketKind, "idle"> {
   return paintBucket(activeArm(meta)?.agent);
-}
-
-/** Classify a terminal into a switcher column. Parked terminals (last
- *  agent transition older than the activity-window threshold, surfaced via
- *  the idle classifier as a non-null sub-bucket key) route to "idle"
- *  regardless of current agent state — the unified mental model is
- *  "anything past the threshold goes to one place." Identity for stale-
- *  but-still-awaiting agents is preserved at the *render* layer
- *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set).
- *  A `null` classifier result keeps the entry on its agent-state column;
- *  the classifier itself is what enforces the never-active
- *  (`lastActivityAt === null`) plain-shell exclusion. */
-export function entryBucket(
-  info: TerminalDisplayInfo,
-  idleClassifier?: (lastActivityAt: number | null) => IdleBucketKey | null,
-): AgentBucketKind {
-  if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
-  return metaBucket(info.meta);
 }
 
 const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
@@ -301,7 +303,7 @@ function prSearchFields(pr: PrResult | undefined): string[] {
     case "unsupported":
       return [pr.kind];
     default: {
-      // Exhaustiveness guard (matches `prValueText` in pulam-tui): a future
+      // Exhaustiveness guard (matches `prValueText` in padi-tui): a future
       // `PrResult` variant added without a case here is a compile error, not a
       // silent `undefined` return that crashes search on `...prSearchFields(...)`.
       const _exhaustive: never = pr;
@@ -314,12 +316,12 @@ function searchTextFor(entry: {
   repoName: string;
   label: string;
   suffix?: string;
-  info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
 }): string {
-  const { info } = entry;
-  const git = info.meta.git;
+  const { meta } = entry;
+  const git = meta.git;
   // sleeping/absent terminal has no live overlay (arm undefined → fields undefined)
-  const arm = activeArm(info.meta);
+  const arm = activeArm(meta);
   const fg = arm?.foreground;
   const agent = arm?.agent;
   const values: string[] = [
@@ -329,8 +331,8 @@ function searchTextFor(entry: {
   ];
 
   add(values, entry.suffix);
-  add(values, info.meta.cwd);
-  add(values, info.meta.lastAgentCommand);
+  add(values, meta.cwd);
+  add(values, meta.lastAgentCommand);
   add(values, git?.repoRoot);
   add(values, git?.repoName);
   add(values, git?.worktreePath);
@@ -385,16 +387,17 @@ export function buildDockModel(
       label: source.info.key.label,
       suffix: source.info.key.suffix,
       info: source.info,
+      meta: source.meta,
     };
     const searchText = searchTextFor(baseFields);
-    const idleSub = idleClassifier?.(source.info.meta.lastActivityAt) ?? null;
+    const idleSub = idleClassifier?.(source.meta.lastActivityAt) ?? null;
     if (idleSub !== null) {
       return { ...baseFields, searchText, bucket: "idle" as const, idleSub };
     }
     return {
       ...baseFields,
       searchText,
-      bucket: metaBucket(source.info.meta),
+      bucket: metaBucket(source.meta),
     };
   });
 

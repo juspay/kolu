@@ -1,0 +1,73 @@
+---
+title: Keyboard Shortcuts
+description: "The complete keyboard reference for kolu: terminal navigation, the palettes and switchers, splits and tabs, zoom, panels, and capture. Mod is Cmd on macOS and Ctrl elsewhere."
+order: 48
+section: Use Kolu
+koluHero:
+  eyebrow: reference
+  headline: Every chord, {in one place}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+
+The complete set of global shortcuts, from kolu's action registry.
+**Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows.
+Press <kbd>Mod</kbd> + <kbd>/</kbd> in the app for the same list as a live
+overlay.
+
+## Terminals
+
+| Action | Shortcut |
+| --- | --- |
+| New terminal | <kbd>Mod</kbd> + <kbd>T</kbd> &nbsp;·&nbsp; <kbd>Mod</kbd> + <kbd>Enter</kbd> |
+| New terminal menu | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> |
+| Switch to terminal 1–9 | <kbd>Mod</kbd> + <kbd>1</kbd> … <kbd>9</kbd> |
+| Next terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>]</kbd> |
+| Previous terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>[</kbd> |
+| Cycle terminals by most-recent use | <kbd>Ctrl</kbd> + <kbd>Tab</kbd> &nbsp;·&nbsp; <kbd>Alt</kbd> + <kbd>Tab</kbd> |
+| Maximize / restore terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> |
+
+## Palettes & switchers
+
+| Action | Shortcut |
+| --- | --- |
+| Command palette | <kbd>Mod</kbd> + <kbd>K</kbd> |
+| Workspace switcher | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> |
+| Switch host | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> |
+| Shortcuts help | <kbd>Mod</kbd> + <kbd>/</kbd> |
+
+## Splits & tabs
+
+| Action | Shortcut |
+| --- | --- |
+| Toggle terminal split | <kbd>Ctrl</kbd> + <kbd>`</kbd> |
+| Split terminal | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd> |
+| Next split tab | <kbd>Ctrl</kbd> + <kbd>PageDown</kbd> |
+| Previous split tab | <kbd>Ctrl</kbd> + <kbd>PageUp</kbd> |
+
+## Zoom & view
+
+| Action | Shortcut |
+| --- | --- |
+| Zoom in (font) | <kbd>Mod</kbd> + <kbd>+</kbd> |
+| Zoom out (font) | <kbd>Mod</kbd> + <kbd>-</kbd> |
+| Reset zoom | <kbd>Mod</kbd> + <kbd>0</kbd> |
+| Toggle right panel | <kbd>Mod</kbd> + <kbd>Alt</kbd> + <kbd>B</kbd> |
+| Toggle dock (rail / cards) | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
+
+## Find, theme & capture
+
+| Action | Shortcut |
+| --- | --- |
+| Find in terminal | <kbd>Mod</kbd> + <kbd>F</kbd> |
+| Copy selection | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> |
+| Shuffle theme | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>J</kbd> |
+| Screenshot terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> |
+| Pause / resume recording | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>.</kbd> |
+
+<Aside type="note" title="Find is confined to the terminal">
+  <kbd>Mod</kbd> + <kbd>F</kbd> opens kolu's terminal search only while focus is
+  in a terminal — the one surface the browser's own find-in-page can't reach.
+  Anywhere else (the Code tab, a rendered preview, the palette) the chord defers
+  to the browser's native find.
+</Aside>

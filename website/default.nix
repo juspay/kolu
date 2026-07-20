@@ -24,6 +24,7 @@
         ./astro.config.mjs
         ./src
         ./public
+        ./test
       ];
     }} $out
     chmod -R u+w $out
@@ -34,6 +35,7 @@
     rm -f $out/public/padi-logo.svg
     cp ${../packages/padi/logo.svg} $out/public/padi-logo.svg
     cp ${../packages/server/package.json} $out/kolu-server-package.json
+    cp ${../scripts/fence-langs.mjs} $out/fence-langs.mjs
   ''
 }:
 let
@@ -113,6 +115,16 @@ let
       runHook preBuild
       pnpm build
       runHook postBuild
+    '';
+
+    # Unit pins for the shiki eager-langs preload (test/*.test.mjs): the
+    # derived `langs` wiring, grammar-engaged rendering, and the fail-fast
+    # guard — CI-gated here via ci::nix, no separate lane needed.
+    doCheck = true;
+    checkPhase = ''
+      runHook preCheck
+      node --test test/*.test.mjs
+      runHook postCheck
     '';
 
     # Place the vendored example sources as the website root's sibling so

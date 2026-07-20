@@ -97,9 +97,14 @@ export {
   type BoundProcedureOptions,
   type BoundStream,
   buildSurfaceClient,
+  // The declared-error narrowing verbs (SK6) — re-exported through the surface
+  // receptacle so an app never imports `@orpc/client` to read a typed rejection.
+  isDefinedError,
+  type OnClientError,
   type ReadOnlyBoundCollection,
   type ReadOnlyBoundCollectionResult,
   resolveTransport,
+  safe,
   type SurfaceClient,
   type SurfaceClients,
   surfaceClient,

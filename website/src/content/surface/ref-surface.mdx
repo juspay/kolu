@@ -42,6 +42,19 @@ The `Surface<S>` value carries `surface.contract` (the typed oRPC router that
 replaces a hand-written `oc.router`), `surface.descriptors`, and `surface.spec`.
 Read member types back with `SurfaceTypes<typeof surface.spec>`.
 
+A procedure may declare its **error union** — `{ <verb>: { input?, output?,
+errors?: { <CODE>: { data?, message?, status? } } } }` (oRPC contract-level
+typed errors). A declared error crosses every hop `defined: true` with its
+`data` intact — through a `SurfaceMap`'s keyed proxy and
+`mirrorRemoteSurface`'s forwarders included — and the bound client face's
+rejection carries the union, so a caller narrows with
+`isDefinedError`/`safe` — re-exported from `@kolu/surface/solid`, so the
+narrowing happens through the same receptacle that declares the union
+(never a direct `@orpc/client` import) — to a typed `{ code, data }`
+instead of parsing message prose. An **undeclared** plain throw still arrives as
+`INTERNAL_SERVER_ERROR`: that is the fail-fast crash-loudly channel,
+deliberately untouched — declare exactly the failures a caller can act on.
+
 Every surface also carries three framework-reserved procedures,
 `surface.system.live`, `surface.system.identity`, and `surface.system.clockNow`,
 all injected by `defineSurface` and auto-answered by the server — no app declares
@@ -57,6 +70,54 @@ midpoint so the one-way latency does not bias the result). Both accept an option
 
 To key several standalone surfaces under one namespace over one transport, use
 `composeSurfaceContracts({ <key>: surface })`.
+
+### Declaring a client error policy — `defineSurfaceWithPolicy`
+
+A member can carry an **opaque, app-typed client error policy** on its spec — a
+value the framework never interprets, only **threads to the app's registered
+interpreter** when that member's client subscription fails. The app owns both the
+policy union and the interpreter; `@kolu/surface` names neither.
+
+`defineSurfaceWithPolicy<TPolicy>()(spec)` is the curried form of `defineSurface`
+that threads the app's policy union `TPolicy` through the spec (the two-step call
+pins `TPolicy` explicitly while the spec keeps its precise `const S` inference).
+Plain `defineSurface` is the `TPolicy = never` case — its `client` slot is
+**unfillable**, so existing callers pay nothing.
+
+- **`ClientCellPolicy<TPolicy>`** — a cell's `client` slot. The `onError` policy
+  sits flat, intersected with an `authority` discriminant: `{ onError?: TPolicy } & ({
+  authority?: "server" } | { authority: "local"; coalesceMs?: number })`. There is **no `initial`** — a
+  local-authority cell seeds its store from the mandatory `CellSpec.default`, so
+  "local-authority without a seed" is a type error, not a runtime surprise. The
+  client runtime **sources `authority` and `coalesceMs` from this declaration**, so a
+  bare `.cells.X.use()` inherits them (a use-site value still overrides); declaring
+  `authority: "local"` on the spec is what makes a use-site bag empty.
+- **`ClientCollectionPolicy<TPolicy>`** — a collection's `client` slot, `onError`
+  **only** (a collection's `keys` filter is per-site use-site wiring, not policy).
+
+```ts
+type Toast = { kind: "toast"; label: string };
+const surface = defineSurfaceWithPolicy<Toast>()({
+  cells: {
+    preferences: {
+      schema: PreferencesSchema,
+      default: DEFAULT_PREFERENCES,
+      client: { authority: "local", coalesceMs: 150,
+                onError: { kind: "toast", label: "Preferences" } },
+    },
+  },
+});
+```
+
+The interpreter is registered at the **connection seam** — `onClientError` on
+`connectSurfaces` (`@kolu/surface-app`) or `connectSurfaceMap` (`@kolu/surface-map`),
+threaded inward to every `buildSurfaceClient`. The base interpreter is **origin-free**
+(`(policy, err) => void`); the `{ key }` origin a keyed map needs is injected in
+`@kolu/surface-map` (see [its reference](/surface/ref-surface-map)). A member that
+declares `client.onError` but whose client was built with **no** interpreter makes
+`buildSurfaceClient` **throw at construction** — a declared policy can never route
+nowhere. The policy is interpreted **per subscription**: a deduped cell fires once,
+a keyed collection's per-key subs each fire.
 
 ## Serving a surface
 
@@ -83,7 +144,7 @@ Dependency shapes, per member:
 - `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. A `connect(cell, { signal })` async source-republish receives an abort signal and MAY return a `Disposer`; it is an owned source of the runtime (its rejection reaches `done`, `close()` aborts + disposes it).
 - `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
 - `streams: { <k>: { source } }` — or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
-- `procedures: { <ns>: { <verb>: async ({ input, ctx, signal }) => … } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single.
+- `procedures: { <ns>: { <verb>: async ({ input, ctx, signal, errors }) => … } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single. A procedure that declares `errors` receives the typed per-code constructors on `errors` — `throw errors.SOME_CODE({ message?, data })` mints the declared error with its data schema-validated.
 
 Stores and channels:
 
@@ -152,12 +213,18 @@ wrapper is the graph's only exit by construction.
 
 | Export                      | Signature                                           | Role                                                                                                                                                                                                             |
 | --------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source(install, initial?)` | `(SourceInstall<T>, T?) → Source<T>`                | an external push input; `install(emit)` returns an uninstall fn, installed lazily on the first subscriber and torn down when the last leaves. `initial` seeds the level (else `undefined` until the first frame) |
+| `source(install, initial?)` | `(SourceInstall<T>, T?) → Source<T>`                | an external PUSH input; `install(emit)` returns an uninstall fn, installed lazily on the first subscriber and torn down when the last leaves. `initial` seeds the level (else `undefined` until the first frame) |
+| `source({read, install})`   | `({read, install}) → PollSource<T>`                 | an external POLL input read on a caller-owned cadence (`install(tick)` schedules re-reads). Published via `derived.cell` / `derived.collection`, the bridge owns the policy: a T+0 seed read whose **first failure propagates** (no fabricated default), a non-overlap (`inFlight`) guard, and later-read **log-skip-continue** (holds the last value) |
+| `everyMs(ms)`               | `(number) → (tick: () => void) => SourceCleanup`    | the cadence half of a poll `source` — the fixed-interval `install` closure, `source({ read, install: everyMs(5_000) })`. The interval is `unref`'d (a live sampler never keeps the event loop alive) and the returned cleanup clears it — the one home for the unref'd-interval hygiene every interval-driven poll source would otherwise re-spell |
+| `everyMsOr(ms, subscribe)`  | `(number, (tick) => () => void) → (tick: () => void) => SourceCleanup` | the interval+edge cadence fuse: `everyMs`'s interval PLUS an edge `subscribe(tick)` (any change source — a reconnect/state feed, a config-changed hook), for a poll whose value can move faster than its coarse interval. Re-reads on the tick AND the instant `subscribe` fires; both the interval and the subscription tear down on cleanup — the one home for the fuse, previously re-spelled as app-local twins |
 | `scan(src, initial, step)`  | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes                                        |
 | `computed(fn)`              | `(() => T) → GraphNode<T>`                           | a derived value reading OTHER graph nodes — a private intermediate several wire members can share without any becoming a wire member. Glitch-free by the engine's version-checked lazy pull; nothing to dispose  |
 | `batch(fn)`                 | `(() => void) → void`                               | group several graph writes into ONE frame so derivations recompute once — the one knob an app reaches for to coalesce a multi-member burst of ctx writes                                                        |
 | `derived.cell(node)`        | `(GraphNode<T>) → DerivedCell<T>`                   | publish a pre-built graph node (a `scan`, a `computed`) as a cell — the deps for an `implementSurface` `cells.<key>` slot                                                                                        |
 | `derived.cell(($) => …)`    | `(($: SiblingRead<S>) => T) → DerivedComputeCell<S, T>` | publish a SIBLING derivation as a cell; `$` is the typed sibling-read face (`$.someCell(): T`, `$.someCollection(): ReadonlyMap<K, T>`). Reading a sibling is depending on it — the cell recomputes when a sibling it read changed |
+| `derived.collection(node)`  | `(GraphNode<ReadonlyMap<K,V>>) → DerivedCollection` | publish a keyed node (a poll `source` reading a whole `Map`, or a `computed` producing one) as a COLLECTION — the keyed-reconciler wire adapter: it diffs each frame against the last by the collection's `equals` and drives the surface's per-key publishers for exactly the changed + removed keys. Graph-owned (ctx `upsert`/`remove` throw) |
+| `reactiveFamily(opts)`      | `({members, attach, onEvict?}) → ReactiveFamily<K,S>` | a keyed family of member states as a graph SOURCE (SR9). Owns, once for every consumer: membership diff (attach entrants, detach + evict leavers), last-frame hold (a version-signal change edge, O(1) per frame), per-key disposal, and per-member error isolation. `members` is a `Source<readonly K[]>`; `attach(key, set)` subscribes one member's state |
+| `derived.registry(family, resolve)` | `(ReactiveFamily<K,S>, (key, state?) => Entry) → DerivedRegistry<K,Entry>` | the pull-face `MapRegistry` exit over a `reactiveFamily` (SR9) — resolves each member's entry on demand from its cached state and fires `subscribe` on every family change. The split of the old `registryFromFamily` along the source/exit axis |
 
 The `$` face is a plain mapped type over the surface spec (`SiblingRead<S>` in
 `@kolu/surface/define`), typed at the declaration site by the deps slot — no
@@ -189,6 +256,25 @@ is a deliberate **later phase** — the "unhealthy-after-N-failures" question; p
 0 stops loudly and latches but does not yet flip client health. It never heals;
 recovery is a restart. Streams and events deliberately do **not** ride the graph —
 a signal conflates same-batch frames, and a stream must see every one.
+
+`derived.collection(node)` publishes a keyed node as a collection through a
+**keyed reconciler**: it holds the current map, diffs each new frame against it by
+the collection's value `equals`, and drives the surface's own per-key
+`upsert`/`remove` publishers for exactly the changed and removed keys — so a
+poll-backed collection republishes only what moved. The graph is its one writer
+(the ctx `upsert`/`remove` throw). Two collection opt-ins ride with it:
+
+- **`CollectionSpec.equals?: (a, b) => boolean`** — per-key value equality, the
+  collection sibling of `CellSpec.equals`. The reconciler's diff predicate,
+  declared once on the spec instead of hand-held at each write site. Omitted ⇒
+  every present key republishes each frame (an always-moving per-tick rate).
+- **`CollectionImplDeps.materializeSiblingView?: boolean`** — a PURE optimization
+  behind `readAll()` for an authored collection whose `readAll` is an EXPENSIVE
+  per-key fold. Set it and the `$`-sibling read returns a per-key cache maintained
+  by the collection's own `upsert`/`remove` writes, instead of re-folding the whole
+  collection on every `$`-read — the fix for a derived member folding `$.<coll>()`
+  on a firehose (O(M²)→O(M) recomputes). SAFE ONLY when every mutation flows
+  through the ctx `upsert`/`remove` seam (the view's single write path).
 
 ## Consuming in SolidJS
 
@@ -264,6 +350,41 @@ per transport; see [How to choose a link](/surface/choose-a-link).
 Matching serve-side entry points: `serveOverStdio`, `serveOverUnixSocket`, and
 oRPC's `RPCHandler` (`.upgrade(ws)`) for browsers.
 
+`serveOverUnixSocket`'s listener `close()` runs the whole ordered teardown:
+it stops accepting, **disconnects every established peer**, and removes the
+socket file. Each severed connection then settles its own serve in the
+event-loop turns behind the call — in-flight subscriptions finalize and
+their timers clear — without `close()` waiting on it. A closed host cannot go on
+serving live peers; a wedged half-open peer is destroyed without drain
+negotiation (its unflushed frames are dropped — a host that closed is
+closed). Closing one listener never touches another listener's connections.
+`close()` stays synchronous, idempotent, and safe from a `process.on("exit")`
+handler.
+
+### `serveOverStdio` lifetime — selected by construction
+
+`serveOverStdio({ router })` never rejects: it resolves a discriminated
+`{ reason: "end" } | { reason: "error", error }` when the read stream ends.
+The `reason` classification is **arm-independent**: clean teardown reads as
+`"end"` from *both* directions — a clean EOF (the peer closed its end) and a
+benign write death (`EPIPE`/`ERR_STREAM_DESTROYED`, the peer's read side
+vanishing mid-push) — while `"error"` is reserved for a genuinely abnormal
+death (a read error, a decode failure, a non-benign write failure). What
+happens *after* the resolve is selected by the same construction that picks
+the transport:
+
+- **No `transport` override** (the default `process.stdin`/`stdout` — the
+  subprocess-agent case): the process IS the agent, and the framework owns
+  its lifetime. After the returned promise settles — every synchronous
+  post-settle continuation (an `await`-site's `dispose()` + log) still runs —
+  the framework **exits the process**: `0` for `"end"`, `1` for `"error"`.
+  There is no opt-out: a live handle (a poll interval, a watcher) can no
+  longer keep an agent alive after its link died.
+- **Explicit `transport`** (loopback pairs in tests, a socket, any embedded
+  peer): the promise resolves the value and the **caller** owns the process
+  lifetime, as before. *(The resolved value itself did change: a benign
+  write death used to read `"error"` here and now reads `"end"`.)*
+
 ### The retry contract (`@kolu/surface/client`)
 
 Every framework-driven stream carries `STREAM_RETRY`, which retries transport
@@ -282,6 +403,39 @@ application error that must **not** retry.
 | `SURFACE_STDIO_TRANSPORT_CLOSED` / `SURFACE_TRANSPORT_RETIRED` | the permanently-dead transport codes |
 | `deadTransportError(code, message)` | mint a non-retriable dead-transport `ORPCError` |
 | `isDeadTransportError(err)` | recognize those dead-transport codes — the recognition twin of `deadTransportError` |
+
+### The bounded-wait scaffold (`@kolu/surface/wait`)
+
+The client-side "block until a condition lands on a stream" discipline, shared
+by every consumer that hand-rolled it before (kaval-tui's output-idle wait,
+padi-tui's agent-state wait, the kolu MCP face's composite `wait_*` tools).
+Zero imports — a stream-consumption leaf beside `first-frame`.
+
+| Export | Purpose |
+| --- | --- |
+| `WaitOutcome<Met>` | the one outcome union — `met` (payload spread flat; `Met` must not carry its own `kind`) · `gone` · `timeout` · `interrupted` · `closed` |
+| `runWait(opts, watchers)` | own the race: chain the caller's signal, arm the timeout, first-writer-wins `settle`, resolve the `interrupted`/`closed` fallback |
+| `WaitCtx<Met>` | what watchers receive — `settle` · `signal` (chain every subscription) · `elapsedMs()` · `recordUpstreamError` |
+| `waitOutcomeJson(id, outcome, metJson)` | serialize an outcome to the driver-facing JSON frame — owns the four terminal arms (`timeout`/`gone`/`interrupted`/`closed`) once; the per-face `met` shape is the injected `metJson` callback |
+| `MAX_TIMER_MS` / `isValidTimerMs` | the `setTimeout` 32-bit-ceiling range rule every timeout/idle window flows through |
+
+A watcher that **rejects** is a bug, not an outcome: the rejection propagates
+out of `runWait` verbatim — `closed` is reserved for the link settling without
+an outcome. The condition *watchers* stay in each consumer (they bind that
+consumer's surface contract); only the outcome union and the race lifecycle
+live here.
+
+### `pollOnChange` (`@kolu/surface/poll-on-change`) — the client pulse-then-requery core
+
+The framework-free CLIENT dual of the server's `pollOnEvent`: subscribe a
+value-bearing `{seq}` PULSE stream (over `unenrolledStreamCall`, so it carries
+`STREAM_RETRY`), re-run a request/response procedure on every frame (initial
+snapshot + each change + each post-reconnect snapshot), abort-supersede a slow
+read, and emit through `onResult` / `onError` / `onComplete`. Zero Solid/kolu
+imports — the loop only. The SolidJS ergonomics (a reconciled store, `.pending()`,
+the #818 selection-stability guard) wrap it in `packages/client`'s
+`createPolledQuery`; a consumer needing the same pattern reaches for the wrapper,
+not this engine directly.
 
 ## Liveness and health
 
@@ -302,6 +456,19 @@ downstream watchdog reaches into the other for the clock; both import it from he
 conjunction of transport-live and every readiness predicate; a subscription
 error stays in `subs` and is never folded into `live`. This is what lets the
 UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
+
+## Recognizing a transport-loss end (for reconnect retry)
+
+A re-serve relay ends a live downstream with one of two typed `ORPCError` codes on
+a transport loss: `SURFACE_STDIO_TRANSPORT_CLOSED` (the raw stdio close) or, when
+the relay catches an upstream death mid-stream and re-throws it wrapped, the
+**retryable** `SURFACE_RELAY_TRANSPORT_LOST`. A plugin-equipped client re-subscribes
+on the latter automatically via `STREAM_RETRY`; a consumer that dials the re-served
+router with a **raw** client (no retry plugin) recognizes them with
+`isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reason)` (both
+from `@kolu/surface/client` — brand-checked on `ORPCError` + the exact code) to retry
+the subscribe across a reconnect window. Both are deliberately tight; the relay
+re-throws genuine application errors UNCHANGED, so neither code is ever an app error.
 
 ## Cross-cutting invariants
 

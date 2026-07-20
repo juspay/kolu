@@ -28,7 +28,6 @@ const full: PadiPresence = {
   identity: {
     buildCommit: "deadbeef",
     surfaceVersion: "1.1",
-    convergence: null,
     lifetime: { kind: "forever" },
   },
 };
@@ -42,7 +41,6 @@ const declaredNoCommit: PadiPresence = {
   identity: {
     buildCommit: null,
     surfaceVersion: "1.1",
-    convergence: null,
     lifetime: { kind: "forever" },
   },
 };
@@ -58,7 +56,7 @@ const missingBuildCommit: PadiPresence = {
   // @ts-expect-error — `identity` without its mandatory `buildCommit` must not compile
   // — the field the whole bug was about. If this line ever compiles, the P4 escape
   // hatch has regressed.
-  identity: { surfaceVersion: "1.1", convergence: null },
+  identity: { surfaceVersion: "1.1" },
 };
 void missingBuildCommit;
 
@@ -66,5 +64,11 @@ void missingBuildCommit;
 // "connected but unknown" by `kind`, never by an absent-vs-present field.
 const warming: PadiPresence = { kind: "warming" };
 void warming;
+const unknown: PadiPresence = { kind: "unknown" };
+void unknown;
 const down: PadiPresence = { kind: "down" };
 void down;
+
+// @ts-expect-error — `unknown` carries NO payload: a connected-era fact cannot ride it.
+const unknownWithFact: PadiPresence = { kind: "unknown", identity: {} };
+void unknownWithFact;

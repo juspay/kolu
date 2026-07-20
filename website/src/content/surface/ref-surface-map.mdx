@@ -17,9 +17,9 @@ subpath, whose `testMembershipId()` mints a branded `MembershipId` for fixtures)
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, and an optional mount `name`; returns a `SurfaceMap` |
+| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on every arm, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), and an optional mount `name`; returns a `SurfaceMap` |
 | `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ router, dispose }` |
-| `connectSurfaceMap(map, transport)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
+| `connectSurfaceMap(map, transport, opts?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
 
 `defineSurfaceMap`'s `key` schema need not be a branded string — its `z.infer` is
 `Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
@@ -34,7 +34,12 @@ field so a host splices a **typed** value (`{ surface: { …, [name]: map.surfac
 with no `as any`. `entriesSpec` is the membership collection's wire spec, always
 string-keyed. The domain failure schema is the `failure` argument itself — embedded in
 `entriesSpec.schema` and the `entries.get` contract output, so there is no separate
-`failureSchema` field.
+`failureSchema` field. The optional **`entriesClient`** (SR11) is the app-typed
+client error policy (`ClientCollectionPolicy<EP>`) threaded onto `entriesSpec.client`,
+so a map-membership subscription failure reaches the app's `connectSurfaceMap`
+`onClientError`; its `EP` is inferred from the value and defaults to `never` (a
+policy-free map — every existing caller — keeps `entriesSpec.client` unfillable). The
+membership collection has no per-key origin, so its interpreter fires origin-free.
 
 `connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
 `conn.transport` from `connectSurfaces`) — a bare or pre-sliced wire link throws. The
@@ -42,6 +47,20 @@ transport-slice key derives from **`map.name`**: a named map is sliced from the 
 handle by that name *after* the half-open guard (so the scope inherits the parent's
 watchdog by construction), and a nameless map is served at the transport root and not
 sliced. There is no `siblingKey` argument — the key comes from the declaration.
+
+`connectSurfaceMap`'s optional third argument is `ConnectSurfaceMapOptions<Key>`,
+whose `onClientError?: (policy, err, origin?: { key: Key }) => void` is the app's
+client error interpreter — the keyed-map counterpart to `connectSurfaces`'
+`onClientError` (see the
+[core reference](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy)).
+`@kolu/surface-map` is where a `{ key }` **origin** exists, so — unlike the origin-free
+base interpreter — this one carries it: a per-key entry member's declared
+`client.onError` fires with `origin = { key }` (injected by the per-key client
+builder, which holds the decoded key), while the membership `entries` collection (no
+per-key origin) fires with `origin` omitted. So an origin-requiring policy arm is only
+reachable where the key exists, and the base `buildSurfaceClient` stays
+origin-agnostic. Required in practice when the entry surface carries a policy — a
+declared policy with no interpreter throws at construction.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="define" />
 
@@ -90,7 +109,10 @@ mapped type over the entry spec's `procedures`, so it types straight from the
 declaration with **no cast**, while dodging the union-budget overflow (TS2590) a
 full `ContractRouterClient` over an abstract entry spec would trip. The
 key-injecting link folds `{ mapKey }` into every call, so the caller never passes
-the key. `entry.rpc` stays typed **`unknown`** on a generic map — it is only for
+the key. A procedure's **declared error union** (`ProcedureSpec.errors`) rides
+the folded contract too, so a typed error minted behind the map's keyed proxy
+arrives at the outer client `defined: true` with its data intact — the map hop
+never demotes a declared error to `INTERNAL_SERVER_ERROR`. `entry.rpc` stays typed **`unknown`** on a generic map — it is only for
 the framework-**reserved** procedures (`system.live` / `system.identity`) and the
 link-root escape hatch, which a consumer reaches through its own concrete contract;
 a declared procedure never needs it.
@@ -176,7 +198,7 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
 - Throws if called outside a reactive owner — it holds a `keyArray` of per-key
   roots that must be disposed with the app.
 
-## `EntryStatus<Failure>` — the projected per-entry status
+## `EntryStatus<Failure, Conn>` — the projected per-entry status
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
 
@@ -185,9 +207,10 @@ watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "sta
 - **`membershipId` is a branded `MembershipId`, not a bare `string`.** The type is `MembershipIdSchema.brand("MembershipId")` (a non-empty branded string), so an empty `""` or a client-fabricated id is a **compile error** — an opaque never-reused identity is unspellable by a consumer (P4). It is produced only two ways: `serveSurfaceMap`'s mint (`MembershipIdSchema.parse(crypto.randomUUID())`) and the wire `entryStatusSchema` parse (the one boundary a status is decoded through). The brand is erased at runtime (the value is the plain string), so keying and serialization are unchanged. Tests mint one through the `testMembershipId()` helper on the `@kolu/surface-map/testing` subpath — never a literal. The transient pre-frame gap (a key seen in the membership keyset before its first status frame) uses the single sanctioned `PENDING_MEMBERSHIP_ID` marker, which is display-only and never keyed against.
 - **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` → `warming`; `connected` → `connected`; a `disconnected` carrying a standing domain failure, or a terminal `failed`, → `failed`; a plain transient `disconnected` (no specific failure) → `warming`. `warming` means in motion (self-heals — an unreachable box retrying at backoff is warming, not failed); `failed` means it needs intervention.
 - **`Failure` is a type parameter.** It defaults to `unknown` and is inferred from the map's `failure` schema; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map so `.failure` narrows there. The package carries the discriminant, never the enumeration.
+- **`Conn` is the fine connection payload (SR9), carried on every arm.** Optional and inferred from the map's `connection` schema, exactly like `Failure`: the package carries `state.connection` and validates it against that schema, never enumerating what a domain's connection states are. It is the ONE authority the coarse dot (`kind`) and the fine word both derive from — `serveHostMap` produces both from the same `SessionState` frame in one projection, so a "dot connected, word connecting" split (the drishti#102 divergence) has no construction path. A consumer reads the word off the same entry it reads the dot from (`state().connection`), never a second subscription; a map with no `connection` schema simply omits the field.
 - **The `failed` arm carries a schema-valid domain `failure` value**, validated by the map's own `failure` schema — not a loose object. padi's `PadiEntryFailure` is a `z.discriminatedUnion` over a structural `cause`, each arm carrying its human `reason` (and the `contract-skew-refused` arm additionally a typed `running`/`expected` version pair), so a consumer reads `state.failure.cause` / `state.failure.reason` (and `.running`/`.expected` on the skew arm) with full narrowing.
 - **The framework fixes only the shape, not the fields.** `failure` is whatever the map's `failure` schema (`ZodType<Failure>`) accepts — a bare string, a code-only object, or a discriminated union are all valid; the package fixes only that `failure` is a sibling field on the `failed` arm (never a second `kind`), validated by that schema. The `reason` field is padi's own convention (a human string, never parsed for control flow), not a framework guarantee — a domain whose schema carries no `reason` is equally well-formed.
-- **`EntryState<Failure>` = `EntryStatus<Failure> | { kind: "not-a-member" }`** lives in the solid-free contract module, so a node consumer re-exports it type-only.
+- **`EntryState<Failure, Conn>` = `EntryStatus<Failure, Conn> | { kind: "not-a-member" }`** lives in the solid-free contract module, so a node consumer re-exports it type-only.
 
 ## `MapRegistry<K>` — the server seam
 

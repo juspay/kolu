@@ -1,6 +1,12 @@
+import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // The Solid JSX transform, so a `.test.tsx` render harness compiles its JSX to
+  // real DOM under happy-dom (mirrors `packages/surface/vitest.config.ts`).
+  // `hot: false` — no solid-refresh under test (it needs the dev build and only
+  // warns to stderr; the render tests don't hot-reload).
+  plugins: [solid({ hot: false })],
   // solid-js's package.json picks `dist/server.cjs` (the SSR build) under
   // Node's `"node"` export condition, where `createEffect` is a no-op.
   // Tests that exercise reactive primitives (e.g. `createReactiveSubscription`)
@@ -24,7 +30,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // The client is a BROWSER app: run its tests with a DOM so the browser
     // `solid-js/web` build is honest (`isServer === false`) and module-load-time
     // DOM access (`window.matchMedia` in `@solid-primitives/media`, etc.) works.

@@ -1,0 +1,126 @@
+---
+title: Surface lifetime audit — who enforces "X dies when Y dies"
+description: A 29-seam sweep of the surface stack's lifetime contracts, hunting siblings of the stdio-orphan class — 10 framework-owned, 13 consumer-homework, 4 unenforced; two real siblings confirmed, one already fixed by #1851, plus a ranked follow-up list.
+parents: [stdio-agent-lifetime, analysis]
+status: implemented
+maturity: budding
+updated: 2026-07-16
+---
+
+import Footnote from "../../components/Footnote.astro";
+
+The stdio-orphan discovery ([stdio-agent-lifetime](stdio-agent-lifetime.html),
+drishti#109) posed a generalizable question: **for every resource the surface
+stack creates or holds, who enforces its death — the framework, the consumer's
+discipline, or nobody?** This note records the answer: a 3-phase adversarial
+sweep (seam inventory → constructible-orphan + promise-gap hunts → refuters)
+over surface links, surface-daemon, surface-remote, kaval, and padi.
+
+## The census
+
+**29 lifetime seams: 10 framework-owned · 13 consumer-homework · 4 unenforced.**
+The framework-owned column is genuinely strong where it exists — server-side
+subscriptions abort with their transport by construction (`peer.close()` →
+every handler signal), per-connection serves die with their peer, the
+half-open-wire watchdog is unspellable through the blessed `surfaceClient`
+factories, and `.use()` subscriptions die with their reactive owner. The
+defect surface is the other 17 seams, where a documented death is somebody's
+homework.<Footnote>Full seam-by-seam inventory with file:line contracts in
+the sweep artifact (workflow `wf_55dd0375-f90`, 10 agents, journal in the
+coordinator session). This note records the census, the confirmed findings,
+and the dispositions — not all 29 rows.</Footnote>
+
+## Confirmed siblings, dispositioned
+
+- **kaval graceful shutdown reaped nothing — ALREADY FIXED.** The sweep
+  (running on a pre-#1851 tree) confirmed the daemon's `.finally` close was
+  inert for PTY subtrees; verification against current master shows
+  <a href="https://github.com/juspay/kolu/pull/1851">#1851</a>'s composed
+  close ("disposes every live PTY … the daemon owning its runtime's lifetime
+  by construction") landed the exact fix the finding proposes. Disposition:
+  **fixed, no action** — and a good calibration point: the hunt independently
+  re-derived a bug the flake campaign had just root-caused.
+- **`dialAgentOnce` delegates remote death entirely to the agent's EOF
+  self-exit.** `dispose()` kills only the local ssh child; no tty is
+  allocated (`ssh --` without `-t`), so no SIGHUP ever reaches the remote,
+  and the ControlMaster tunnel lingers ~10&nbsp;min. Today that makes the
+  remote agent's death pure convention — the drishti#109 mechanism from the
+  dialer's side. Disposition: **mostly absorbed by
+  [stdio-agent-lifetime](stdio-agent-lifetime.html)** (EOF self-exit becomes
+  framework-owned at the agent); the **residual belt** — dialer-side bounded
+  kill (agent reports its pid at handshake; `dispose()` issues `ssh host
+  kill <pid>`) for the wedged-agent case EOF can't reach — is a recorded
+  follow-up, demand-gated on a field sighting post-STDIO1.
+- **`makeSession` promises a hold "for the parent's lifetime" but binds to
+  nothing** (weakened-confirmed): an abandoned, undestroyed session respawns
+  ssh children forever, and its non-unref'd reconnect timer pins the event
+  loop — the seed's shape plus process churn. Disposition: **fixed** by the
+  per-timer census in [session-timer-unref](session-timer-unref.html) —
+  `unref()` on the backoff/watchdog/probe timers (an abandoned session can no
+  longer immortalize its host process), with the admit-handshake timeout
+  deliberately kept ref'd (it settles a caller-awaited `pin()`); the fuller
+  parent-binding (boundToPid-style auto-destroy) still waits for a real
+  consumer bite.
+
+## The pattern the minors share
+
+Ten minor findings, one shape: **the framework mints a disposer and documents
+when it must be called, then hopes.** `serveOverUnixSocket`'s `close()`
+stopped accepting but left established per-connection serves (and their
+timers) running — fixed by <a
+href="https://github.com/juspay/kolu/pull/1870">#1870</a>, which made
+`close()` run the full teardown (stop accepting → disconnect established
+peers → release the inode); `createLiveSignal`'s watchdog outlives a discarded socket unless the
+consumer remembers `dispose()`; surface-daemon's `daemonMain` resolves
+`DaemonExit` and leaves process exit to every new bin — *the seed's homework,
+re-assigned at the daemon layer*; kaval's **ungraceful** arm (SIGKILL/OOM) has
+no reaper at all (the known flake-campaign follow-up — #1851 closed the
+graceful half); `inProcessPtyHost` promises rc-file cleanup that an optional
+consumer hook enforces. Individually small; collectively the same P5 verdict
+as the seed — the knowing endpoint delegates.
+
+## The unifying mechanism — tenure, not transports (srid's reframe)
+
+The census's real payoff is that the 17 non-framework-owned cells are **one
+missing concept expressed 17 times**, not 17 problems: a serving process's
+**tenure** — what holds it alive, and the ordered teardown that must run when
+the last hold releases — *regardless of how it was started* (stdio, ssh,
+unix socket). The transports differ only in the holds:
+
+| assembly | holds | teardown chain today |
+| --- | --- | --- |
+| stdio/ssh agent | the one link | framework-owned after [stdio-agent-lifetime](stdio-agent-lifetime.html) |
+| socket daemon | gate + policy (idle timeout, state-root watcher, parent pid — the `boundToPid` shape) | framework-owned: `close()` stops accepting **and disconnects established peer serves** (<a href="https://github.com/juspay/kolu/pull/1870">#1870</a>); dispose surface → exit owned by `daemonProcessMain` (<a href="https://github.com/juspay/kolu/pull/1862">#1862</a>) |
+| `daemonMain` bins | already modeled (`DaemonExit` resolves on drain/idle/watch) | framework-owned: `daemonProcessMain` owns the exit (<a href="https://github.com/juspay/kolu/pull/1862">#1862</a>) |
+
+The follow-up this recommends: **one shared piece of machinery in
+`@kolu/surface-daemon`** where a daemon declares what holds it alive, and the
+framework runs the whole shutdown sequence (*stop accepting → disconnect
+remaining clients → release resources → exit the process*) when the last hold
+releases. But not yet — the house rule says don't build shared machinery
+until two real things need it. So, in order: **(1)** the stdio-agent fix
+(#1858) ships now as a direct fix, no new abstraction. **(2)** When we fix
+the same "returns done-as-a-value instead of exiting" problem in the daemon
+binaries (`daemonMain`), that's the second place needing identical logic —
+THAT is when the shared machinery gets built, extracted from the two working
+fixes — shipped as `daemonProcessMain` (<a
+href="https://github.com/juspay/kolu/pull/1862">#1862</a>). **(3)** The
+unix-socket gap (closing a daemon doesn't disconnect already-connected
+clients) — shipped by <a
+href="https://github.com/juspay/kolu/pull/1870">#1870</a>, with one honest
+deviation from this plan's wording: the disconnect needed **no new
+machinery at all**. A closure-scoped index of accepted sockets plus
+`destroy()` lets each connection's *existing* settle chain (the step-1
+teardown) do the whole job, and the ordered chain slots into `daemonMain`'s
+existing `close()` call — reuse of the machinery's *chain*, not a new named
+piece of it.
+
+## What this buys
+
+The census turns future lifetime questions from archaeology into lookup: a
+new consumer (kolu-cli's faces, a fourth stdio agent) can be checked against
+the 17 non-framework-owned seams it touches, and each fix flips rows from
+homework to owned — with the tenure harness as the move that flips whole
+columns. The refuter discipline mattered: two over-claimed variants died in
+verification, and the one stale finding (kaval) was caught by checking the
+sweep's tree against merged master before reporting.

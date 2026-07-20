@@ -33,7 +33,11 @@ export function useTerminals() {
   const store = useTerminalStore();
 
   const getSubject = (id: TerminalId) =>
-    terminalSubject(store.getDisplayInfo(id), store.terminalLabel(id));
+    terminalSubject(
+      store.getDisplayInfo(id),
+      store.getMetadata(id),
+      store.terminalLabel(id),
+    );
 
   const alerts = useTerminalAlerts({
     activeId: store.activeId,

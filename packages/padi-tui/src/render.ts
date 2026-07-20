@@ -11,6 +11,7 @@
  * `@kolu/terminal-vocab/agentProjection` stays the single source of truth.
  */
 
+import { activeAgent, WAIT_STATES, type WaitState } from "@kolu/padi/dial";
 import type { PadiTerminal } from "@kolu/padi/surface";
 import {
   agentBucket,
@@ -30,15 +31,9 @@ export function shortId(id: string): string {
   return id.slice(0, SHORT_ID_LEN);
 }
 
-/** The LIVE agent of a composed record, or `null` — only the `active` arm carries
- *  a running agent (`sleeping`/`parked` are dormant, their PTY released), so the
- *  union is narrowed here rather than at every read site. */
-export function activeAgent(v: PadiTerminal): AgentInfo | null {
-  return v.state === "active" ? v.agent : null;
-}
-
 /** The live foreground process of a composed record, or `null` — active-only,
- *  same as {@link activeAgent}. */
+ *  same as `activeAgent` (which now lives in the dial kit's watch module,
+ *  beside the wait predicate it feeds). */
 function activeForeground(v: PadiTerminal): { name: string } | null {
   return v.state === "active" ? v.foreground : null;
 }
@@ -75,23 +70,6 @@ export function resolveTerminalId(
   return { kind: "found", id: first };
 }
 
-/** The coarse agent buckets `wait --until` accepts as targets — the `agentBucket`
- *  fold's vocabulary minus `other` (an `other` bucket never matches a real agent,
- *  so accepting it would only ever time out). `wait` compares against the
- *  *bucket*, never the raw `AgentInfo['state']` literals, so the one fold in
- *  `@kolu/terminal-vocab/agentProjection` stays the single source of truth
- *  (see `.claude/rules/dock-fleet-mirror.md`). */
-export const WAIT_STATES = [
-  "working",
-  "awaiting",
-  "waiting",
-] as const satisfies readonly Exclude<
-  ReturnType<typeof agentBucket>,
-  "other"
->[];
-
-export type WaitState = (typeof WAIT_STATES)[number];
-
 /** Parse a `--until` value — a comma list of bucket names — into the set of
  *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
  *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
@@ -116,18 +94,6 @@ export function parseUntilStates(
     };
   }
   return { kind: "ok", targets: new Set(tokens as WaitState[]) };
-}
-
-/** Whether a terminal's agent is in one of the target buckets — the `wait`
- *  predicate. A record with no live agent (a bare shell, a sleeping/parked
- *  terminal, or an agent that exited) is never a match; otherwise its `state`
- *  folds through the shared `agentBucket` and is tested for membership. */
-export function agentMatchesUntil(
-  v: PadiTerminal,
-  targets: ReadonlySet<string>,
-): boolean {
-  const agent = activeAgent(v);
-  return agent !== null && targets.has(agentBucket(agent.state));
 }
 
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its
@@ -209,7 +175,7 @@ function prValueText(pr: PadiTerminal["pr"]): string {
  *  `list` uses). Sorted by id for a stable display. Empty inventory gets an
  *  honest one-liner, not a bare header. The STATE column names the record arm
  *  (active · sleeping · parked) — padi serves dormant records too, unlike the
- *  old pulam awareness snapshot. */
+ *  retired pulam daemon's awareness snapshot. */
 export function formatStatus(
   entries: Array<[TerminalId, PadiTerminal]>,
 ): string {

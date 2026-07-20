@@ -8,8 +8,8 @@
  */
 
 import {
-  daemonExitCode,
   daemonMain,
+  daemonProcessMain,
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
   stderrLogger,
@@ -25,19 +25,22 @@ const router = serveRouter as Parameters<typeof daemonMain>[0]["router"];
 
 // The example surface's flattened router — the same `router` a browser or a
 // unix-socket client reaches; the daemon just serves it durably.
-export async function runDaemon(controller: AbortController): Promise<never> {
+export function runDaemon(controller: AbortController): void {
   // #region lifecycle
-  const exit = await daemonMain({
-    gatePath: GATE_PATH, // the single-instance scope key
-    socketPath: SOCKET_PATH, // where the surface is served
-    router, // runtime.router — already the final flattened router
-    lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
-    log: stderrLogger(),
-    signal: controller.signal,
-    onReady: ({ socketPath, pid }) =>
-      process.stderr.write(`listening on ${socketPath} (pid ${pid})\n`),
+  daemonProcessMain({
+    name: "fleet-top", // crash-arm narration prefix
+    run: () =>
+      daemonMain({
+        gatePath: GATE_PATH, // the single-instance scope key
+        socketPath: SOCKET_PATH, // where the surface is served
+        router, // runtime.router — already the final flattened router
+        lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
+        log: stderrLogger(),
+        signal: controller.signal,
+        onReady: ({ socketPath, pid }) =>
+          process.stderr.write(`listening on ${socketPath} (pid ${pid})\n`),
+      }),
   });
-  process.exit(daemonExitCode(exit));
   // #endregion lifecycle
 }
 

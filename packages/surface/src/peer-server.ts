@@ -17,15 +17,14 @@
  * see the deliberately-broken `--broken-stdout-log` variant in the
  * remote-process-monitor example's agent.
  *
- * **Defensive measure**: when `transport` is unset *and* this module
- * detects it's running as an stdio agent (the typical case — explicit
- * `--stdio` arg or no TTY on stdout), it preemptively redirects
- * `console.log` to `process.stderr`. This catches the most common
- * accidental writes; consumers that use third-party loggers (pino, etc.)
- * must still configure them to fd 2 themselves. The detection is
- * intentionally tight (explicit signal only) so the function stays safe
- * to call from non-agent contexts (e.g. tests using a `LoopbackPair`)
- * without surprising stderr redirection.
+ * **Defensive measure**: when `transport` is unset — the one and only
+ * discriminant, the same construction-time flag that drives the Lifetime
+ * section below; there is no argv or TTY detection — this module
+ * preemptively redirects `console.log` to `process.stderr`. This catches
+ * the most common accidental writes; consumers that use third-party
+ * loggers (pino, etc.) must still configure them to fd 2 themselves.
+ * Non-agent contexts (tests using a `LoopbackPair`, unix-socket per-peer
+ * serves) pass an explicit `transport` and are untouched.
  *
  * ## Pass the router directly — no wrapping
  *
@@ -39,6 +38,42 @@
  * const { router } = implementSurface(surface, deps);
  * await serveOverStdio({ router });
  * ```
+ *
+ * ## Lifetime — the process IS the agent (default transport)
+ *
+ * A `serveOverStdio()` call with no `transport` override is the construction
+ * that means "this process exists to serve this link": when the link ends,
+ * the framework runs its teardown, lets the returned promise settle (so a
+ * caller's synchronous post-settle cleanup still runs), then **exits the
+ * process** — `0` on a clean end, `1` on a transport error. This is
+ * framework-owned and has no opt-out: any live handle (a poll interval, a
+ * watcher) would otherwise keep the event loop alive after the link died and
+ * leave an invisible immortal orphan on someone else's machine (drishti#109
+ * — ten re-parented `--stdio` agents on one fleet host). "Agent process
+ * alive, link dead" is not a spellable state.
+ *
+ * An explicit `transport` override (loopback pairs in tests, a unix-socket
+ * connection, any embedded peer): the promise resolves with how serving
+ * ended and the **caller** owns the process lifetime. (The `reason`
+ * classification itself — including benign write deaths reading as `"end"`,
+ * see `ServeOverStdioEnd` — is arm-independent; only lifetime ownership
+ * differs between the arms.)
+ *
+ * Post-settle work on the default arm: everything reachable from the settled
+ * promise's microtask cascade (an `await serveOverStdio(…)` continuation
+ * doing sync `dispose()` + logging) completes before the exit, which is
+ * scheduled behind it with `setImmediate`. There is deliberately NO async
+ * last-gasp hook: every known consumer's post-settle work is synchronous. If
+ * a real consumer ever needs one, add it as a *partitioned* options type so
+ * that `{ transport, onEnd }` fails to TYPECHECK (the hook is meaningless on
+ * the caller-owned arm — make the combination unrepresentable, don't ignore
+ * it or throw at runtime).
+ *
+ * Sibling at the daemon layer: `@kolu/surface-daemon`'s `daemonProcessMain`
+ * (tenure.ts) — the same framework-owned exit for a daemon BIN, aligned by
+ * doctrine (settle first, exit on `setImmediate`, a caught error never
+ * blocks the exit) rather than by import: the dependency arrow points
+ * surface-daemon → surface, so the two cures share shape, not code.
  *
  * ## Deferred heartbeat
  *
@@ -65,7 +100,11 @@ import {
   type HandleStandardServerPeerMessageOptions,
 } from "@orpc/server/standard-peer";
 import { ServerPeer } from "@orpc/standard-server-peer";
-import { framedSend, readFramedLines } from "./links/stdio-codec";
+import {
+  framedSend,
+  isBenignWriteError,
+  readFramedLines,
+} from "./links/stdio-codec";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin`
  *  for `read` and `process.stdout` for `write`. */
@@ -77,21 +116,29 @@ export interface StdioTransport {
 /** How a `serveOverStdio` call ended. `serveOverStdio` NEVER rejects —
  *  serving ends when the read stream does, and both ways it does so are
  *  ordinary peer-lifecycle events, not exceptional states for the serving
- *  process: `"end"` is a clean EOF (the peer closed its end / the parent
- *  exited), `"error"` is an abrupt transport death (peer reset, a pipe torn
- *  mid-frame), with the cause in `error`.
+ *  process. `"end"` is clean teardown from EITHER direction: a clean EOF
+ *  (the peer closed its end / the parent exited) or a benign write death
+ *  (`EPIPE`/`ERR_STREAM_DESTROYED` — the peer's read side vanished
+ *  mid-push; the funnel below classifies it with the codec's
+ *  `isBenignWriteError`). `"error"` is a genuinely abnormal death — a read
+ *  error, a malformed-frame decode failure, or a non-benign write failure
+ *  — with the cause in `error`. This classification applies on BOTH arms
+ *  (default and explicit transport); the arms differ only in who owns the
+ *  process lifetime afterwards.
  *
  *  Rejecting on transport error was a crash footgun: a host serving many
  *  short-lived peers (e.g. `serveOverUnixSocket`'s per-connection serves)
  *  fires one of these promises per peer, and an un-`.catch()`-ed rejection
  *  from any flaky client became an unhandled rejection — fatal under
  *  `process.exit(1)`-on-unhandledRejection policies. A settled result makes
- *  the no-crash path the default; callers that care inspect `reason`. */
-export interface ServeOverStdioEnd {
-  reason: "end" | "error";
-  /** The read-stream error when `reason === "error"`. */
-  error?: unknown;
-}
+ *  the no-crash path the default; callers that care inspect `reason`.
+ *
+ *  A discriminated union, so "a clean end carrying an error" and "an
+ *  abnormal death with no cause" are unrepresentable — narrowing on
+ *  `reason` is the one honest way to ask "did it fail?". */
+export type ServeOverStdioEnd =
+  | { reason: "end" }
+  | { reason: "error"; error: unknown };
 
 export interface ServeOverStdioOptions<T extends Context> {
   /** Top-level router accepted by `StandardRPCHandler`. An
@@ -121,7 +168,12 @@ export interface ServeOverStdioOptions<T extends Context> {
 /** Serve a typed oRPC router over a stdio transport. Resolves when the
  *  read stream ends (the parent disconnected) — with HOW it ended, never a
  *  rejection (see `ServeOverStdioEnd`); the returned Promise is long-lived
- *  for the lifetime of the agent process. */
+ *  for the lifetime of the agent process.
+ *
+ *  Lifetime is selected by construction (see "Lifetime" in the header): with
+ *  no `transport` override the process IS the agent and the framework exits
+ *  it after the promise settles (`0` on `"end"`, `1` on `"error"`); with an
+ *  explicit `transport` the caller owns the process lifetime. */
 export function serveOverStdio<T extends Context>(
   opts: ServeOverStdioOptions<T>,
 ): Promise<ServeOverStdioEnd> {
@@ -129,11 +181,15 @@ export function serveOverStdio<T extends Context>(
     read: process.stdin,
     write: process.stdout,
   };
-  const usingDefaultStdout = opts.transport === undefined;
+  // The construction-time discriminant (see "Lifetime" in the header): no
+  // transport override ⇒ this process IS the agent. Two consequences hang off
+  // it — we own stdout (the console.log redirect below) and we own the
+  // process lifetime (the exit fork at the bottom).
+  const processIsTheAgent = opts.transport === undefined;
 
   // Lesson #4 defensive measure: when we own stdout (no override), route
   // console.log to stderr so accidental writes don't corrupt the wire.
-  if (usingDefaultStdout) {
+  if (processIsTheAgent) {
     const origLog = console.log.bind(console);
     console.log = (...args: unknown[]) => {
       process.stderr.write(`${args.map((a) => String(a)).join(" ")}\n`);
@@ -148,30 +204,44 @@ export function serveOverStdio<T extends Context>(
   const handler = new StandardRPCHandler<T>(opts.router, opts.handlerOptions);
   let firstRequestSeen = false;
 
+  // ONE teardown: convert a write-side death into the read stream's settle,
+  // carrying NO classification — the terminal seam below is the single place
+  // `reason` is decided, for every stream shape and both directions.
+  // `endServing(err)` settles via the read 'error' (classified below);
+  // `endServing()` settles error-free via 'close' → `reason: "end"` (the
+  // codec's declared resolve-on-'close' edge). Guarded so a torn pipe that
+  // kills both halves at once doesn't double-destroy.
+  //
+  // Honest limit: a real write failure that arrives only AFTER the read
+  // side is already destroyed (the classification commit point — one tick
+  // before the 'close' settle) is absorbed — the read stream ending is the
+  // definition of serving ending, and re-opening a committed teardown for a
+  // late writer-side fault would be a second source of truth.
+  const endServing = (error?: Error) => {
+    if (!transport.read.destroyed) transport.read.destroy(error);
+  };
+
   // Symmetric to the client link's write guard (`links/stdio.ts`). A failed
   // `write()` rejects the in-flight frame (the `writeFramedMessage` Promise
-  // below), but Node also emits 'error' on the write stream, and an unhandled
-  // 'error' is a hard crash — the very `process.exit(1)`-on-unhandled footgun
-  // this module already closes for the *read* side (see `ServeOverStdioEnd`).
-  // When our stdout pipe breaks (the parent died, the unix-socket peer reset),
-  // serving must end the same way a read-side death ends it, not crash the
-  // agent. Funnel the write error into the read stream's teardown so the
-  // returned promise settles `{ reason: "error", error }` exactly as a read
-  // error does — one teardown path, both directions. Guarded so a torn pipe
-  // that kills both halves at once doesn't double-destroy.
-  //
-  // This 'error' lifecycle guard stays here, not in the codec's
-  // `writeFramedMessage` (which is framing-only on purpose): the teardown
-  // response is consumer-specific (the client closes its link instead).
-  transport.write.on("error", (err) => {
-    if (!transport.read.destroyed) transport.read.destroy(err);
-  });
+  // in the codec), but Node also emits 'error' on the write stream, and an
+  // unhandled 'error' is a hard crash — the very
+  // `process.exit(1)`-on-unhandled footgun this module already closes for
+  // the *read* side (see `ServeOverStdioEnd`). This lifecycle guard stays
+  // here, not in the codec (framing-only on purpose): the teardown response
+  // is consumer-specific (the client closes its link instead).
+  transport.write.on("error", endServing);
 
+  // `onPeerGone` (= `endServing`, error-free) closes the 'error'-event blind
+  // spot: a `write()` on a stream `destroy()`ed WITHOUT an error reports
+  // `ERR_STREAM_DESTROYED` only to the write callback — no 'error' event
+  // ever fires — and a swallow-only send would leave the serve promise
+  // pending forever (on the default arm: the immortal orphan, re-spelled).
+  // A stable reference, not an inline arrow: the sender runs per frame.
   const peer = new ServerPeer((message) =>
-    framedSend(transport.write, message),
+    framedSend(transport.write, message, endServing),
   );
 
-  return readFramedLines(transport.read, (frame) => {
+  const settled = readFramedLines(transport.read, (frame) => {
     if (!firstRequestSeen) {
       firstRequestSeen = true;
       opts.onFirstRequest?.();
@@ -200,9 +270,69 @@ export function serveOverStdio<T extends Context>(
   })
     .then(
       (): ServeOverStdioEnd => ({ reason: "end" }),
-      (error: unknown): ServeOverStdioEnd => ({ reason: "error", error }),
+      // THE one classification point — every death, every shape, both
+      // directions, flows through this rejection arm: a read error directly;
+      // a write death via `endServing(err)`; a shared-duplex death (the
+      // canonical `serveOverUnixSocket` one-socket transport, where Node
+      // marks the stream destroyed BEFORE emitting 'error', bypassing the
+      // funnel) as the read 'error' itself. A benign peer-gone code
+      // (EPIPE / ERR_STREAM_DESTROYED) IS clean teardown: on a parent
+      // death, a pushing agent often sees stdout-EPIPE before stdin
+      // delivers EOF, and carrying that race as an *error* would
+      // nondeterministically flip the same clean teardown between exit 0
+      // and exit 1 on the default arm — which ssh propagates to
+      // Restart=on-failure units and CI wrappers. Classifying ONLY here
+      // keeps the contract in `ServeOverStdioEnd` shape-independent by
+      // construction.
+      (error: unknown): ServeOverStdioEnd =>
+        isBenignWriteError(error)
+          ? { reason: "end" }
+          : { reason: "error", error },
     )
-    .finally(() => {
-      peer.close();
+    // Teardown close, as a fulfilled-only stage — NOT `.finally`. After the
+    // classification stage above the chain is always fulfilled, so this one
+    // handler runs the close on BOTH the end and error paths (the same
+    // coverage `.finally` gave). The difference: if `peer.close()` ever
+    // throws SYNCHRONOUSLY, a `.finally` would re-reject the chain, breaking
+    // the NEVER-rejects contract the exit fork below and every
+    // `serveOverStdio` caller load-bear on. Guarding the close makes
+    // never-rejects structural — `settled` cannot reject by construction.
+    // Scope honestly stated: the try/catch contains only synchronous throws.
+    // An exception thrown by a user AbortSignal listener during close is NOT
+    // in that class — EventTarget re-throws it on `process.nextTick`
+    // (an uncaughtException), outside any promise chain — and stays
+    // fail-fast, outside the settled-result contract.
+    .then((end) => {
+      try {
+        peer.close();
+      } catch (err) {
+        process.stderr.write(
+          `[@kolu/surface/peer-server] peer.close() threw during teardown: ${
+            (err as Error).message
+          }\n`,
+        );
+      }
+      return end;
     });
+
+  if (processIsTheAgent) {
+    // Framework-owned exit (see "Lifetime" in the header): the layer that
+    // saw the link die is the only one that can guarantee the process dies
+    // with it — the app's `main` cannot know what else holds the event loop
+    // (that unknowability is exactly what made the drishti#109 orphans
+    // invisible). `setImmediate` is load-bearing: it fires only after the
+    // ENTIRE microtask cascade from the settle drains, so every caller
+    // continuation (`await serveOverStdio(…)` → sync dispose/log) completes
+    // first. (`process.nextTick` would ALSO run after the direct microtask
+    // cascade — but it would preempt nextTick-mediated continuation work,
+    // e.g. a post-settle `stream.destroy()` whose 'close' is emitted via
+    // the tick queue. `setImmediate` runs strictly after both.)
+    void settled.then((end) => {
+      setImmediate(() => {
+        process.exit(end.reason === "end" ? 0 : 1);
+      });
+    });
+  }
+
+  return settled;
 }

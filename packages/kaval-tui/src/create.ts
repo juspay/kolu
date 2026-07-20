@@ -5,7 +5,7 @@
  * the contract, and prints these.
  *
  * `create` is the *raw* multiplexer's spawn: a plain `$SHELL` (or a command
- * you pass) run with no login flag, no rcfiles, no kolu policy. Since B0 the
+ * you pass) run with no login flag and no kolu rc-hooks/shell-init policy (the shared spawn-env policy still applies — see composeSpawnEnv). Since B0 the
  * wire is fully specified (the host derives nothing from its own env), so the
  * client composes the whole input itself — here, from kaval-tui's own
  * `process.env`/`cwd`, the same
@@ -19,6 +19,11 @@ import {
   type PtyHostSpawnInput,
   type PtyHostSpawnResult,
 } from "kaval";
+// The ONE shared spawn-env allowlist lives in kolu-pty (the env-policy home beside
+// cleanEnv), so kaval-tui's composers cannot drift from cleanEnv / daemonEnv / the
+// e2e harness. This is the #1872 structural invariant: identity cannot ride ambient
+// env into any kolu-spawned process.
+import { composeSpawnEnv, pickEnv, SPAWN_ENV_PRESENTATION } from "kolu-pty";
 import { commandName, sanitizeCell, shortId, tildeify } from "./render.ts";
 
 /** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema).
@@ -26,13 +31,18 @@ import { commandName, sanitizeCell, shortId, tildeify } from "./render.ts";
 export type CreateResult = PtyHostSpawnResult;
 
 /** Compose the fully-specified spawn input. Pure: `id`, `cwd`, `env`, and an
- *  optional `command` are passed in (`main.ts` supplies `randomUUID()` /
- *  `process.cwd()` / `process.env` / the `[command…]` positional) so the result
- *  is deterministic and testable. `argv` is the given `command`, or `[$SHELL]`
- *  (falling back to `DEFAULT_SPAWN_SHELL`, the host-agreeing `/bin/sh`) when none
- *  is passed — a plain shell, run with no login flag. There
- *  are no rcfiles, and the env is the caller's own with `undefined` values
- *  dropped: the host writes nothing of its own.
+ *  optional `command`/`extraEnv` are passed in (`main.ts` supplies `randomUUID()` /
+ *  `process.cwd()` / `process.env` / the `[command…]` positional / the `--env`
+ *  additions) so the result is deterministic and testable. `argv` is the given
+ *  `command`, or `[$SHELL]` (falling back to `DEFAULT_SPAWN_SHELL`, the
+ *  host-agreeing `/bin/sh`) when none is passed — a plain shell, run with no login
+ *  flag. There are no rcfiles.
+ *
+ *  The env is NOT the caller's own copied wholesale — it is composed from the shared
+ *  {@link SPAWN_ENV_ALLOWLIST} (kolu-pty; the caller's env mined for the canonical
+ *  base), then the explicit `--env K=V` additions layered on top, then the
+ *  `KAVAL_SOCKET` stamp. Composing (not forwarding) is what stops an orchestrator's
+ *  identity vars leaking into the child — the #1872 data loss.
  *
  *  This is the LOCAL-host composer: the daemon runs on this machine, so our own
  *  `process.cwd()`/`process.env`/`$SHELL` ARE the host's facts. The remote
@@ -46,14 +56,21 @@ export function buildCreateInput(opts: {
   /** Program + args to run instead of a plain shell — the `[command…]`
    *  positional (`kaval-tui create -- htop -d 5`). Empty/absent → `$SHELL`. */
   command?: readonly string[];
+  /** Explicit `--env K=V` additions — the caller's opt-in escape hatch for a
+   *  session var the clean base drops. Layered AFTER the base, so a caller may also
+   *  override a base var (e.g. a custom `PATH`). */
+  extraEnv?: Record<string, string>;
   /** The socket this daemon was dialed on, stamped as `KAVAL_SOCKET` so a process
    *  inside the spawned terminal can reach the daemon that owns it — the same
    *  `$TMUX` convention padi follows. Overwrites any inherited value from
    *  `opts.env`: the child is owned by THIS daemon, not an outer one. */
   kavalSocket: string;
 }): PtyHostSpawnInput {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(opts.env)) if (v != null) env[k] = v;
+  // The shared primitive — same allowlist mine cleanEnv / daemonEnv funnel through,
+  // so this composer cannot drift from them. Explicit `--env` additions layer on top,
+  // then the KAVAL_SOCKET stamp.
+  const env: Record<string, string> = composeSpawnEnv(opts.env);
+  Object.assign(env, opts.extraEnv ?? {}); // null-proto env preserves a __proto__ key
   env.KAVAL_SOCKET = opts.kavalSocket;
   return composeCreateInput({
     id: opts.id,
@@ -82,23 +99,11 @@ export interface RemoteHostFacts {
 const BASELINE_REMOTE_PATH =
   "/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin";
 
-/** Presentation-only env vars safe to carry from the local CLI to a remote PTY:
- *  they describe the *terminal we're attaching with*, not the local machine's
- *  identity/secrets, so they improve the remote shell (colour, locale) without
- *  leaking anything. Everything else local stays local. */
-const REMOTE_ENV_PASSTHROUGH = [
-  "TERM",
-  "COLORTERM",
-  "LANG",
-  "LC_ALL",
-  "LC_CTYPE",
-] as const;
-
 /** Compose the spawn input for a REMOTE daemon (`--host`). Unlike the local
  *  composer, the cwd/shell/HOME come from the daemon's `system.info` (the
  *  machine the PTY runs on), and the env is NOT the local `process.env` — it is
  *  a minimal env built from the host's own `HOME`/`SHELL` plus only the
- *  presentation vars in `REMOTE_ENV_PASSTHROUGH`. This keeps the contract's
+ *  presentation vars in the shared `SPAWN_ENV_PRESENTATION` (kolu-pty). This keeps the contract's
  *  invariant honest (the host derives nothing — the client specifies it all)
  *  while not shipping a local cwd that may not exist there or leaking local
  *  environment. cwd defaults to the host's `home` (no remote-cwd flag yet). */
@@ -108,19 +113,24 @@ export function buildRemoteCreateInput(opts: {
   /** The local CLI's env, mined ONLY for the presentation passthrough vars. */
   localEnv: NodeJS.ProcessEnv;
   command?: readonly string[];
+  /** Explicit `--env K=V` additions — same escape hatch as the local composer, so
+   *  the flag behaves identically whether or not `--host` is given (a create flag
+   *  that silently no-ops under `--host` would be a fail-fast violation). Layered
+   *  after the host base, so it can also override a host-derived var. */
+  extraEnv?: Record<string, string>;
 }): PtyHostSpawnInput {
-  const env: Record<string, string> = {
+  // Null-prototype base (like the local composer's `pickEnv`) so a caller's
+  // `--env __proto__=…` layered below is a data key, not a prototype mutation.
+  const env: Record<string, string> = Object.assign(Object.create(null), {
     HOME: opts.host.home,
     SHELL: opts.host.shell || DEFAULT_SPAWN_SHELL,
     // The host's PATH (not ours — local store paths don't exist there). Without
     // it the remote shell finds no external command and the PTY exits 127 on the
     // first one. Falls back to a baseline if an older daemon didn't report it.
     PATH: opts.host.path || BASELINE_REMOTE_PATH,
-  };
-  for (const k of REMOTE_ENV_PASSTHROUGH) {
-    const v = opts.localEnv[k];
-    if (v != null) env[k] = v;
-  }
+  });
+  Object.assign(env, pickEnv(SPAWN_ENV_PRESENTATION, opts.localEnv));
+  Object.assign(env, opts.extraEnv ?? {}); // null-proto env preserves a __proto__ key
   return composeCreateInput({
     id: opts.id,
     cwd: opts.host.home,
@@ -147,13 +157,15 @@ function composeCreateInput(opts: {
   env: Record<string, string>;
   command?: readonly string[];
 }): PtyHostSpawnInput {
-  const argv =
-    opts.command && opts.command.length > 0
-      ? [...opts.command]
-      : [opts.shell || DEFAULT_SPAWN_SHELL];
+  const command = opts.command && opts.command.length > 0 ? opts.command : null;
+  const commandRooted = command !== null;
+  const argv = command ? [...command] : [opts.shell || DEFAULT_SPAWN_SHELL];
   return {
     id: opts.id,
     argv,
+    // #1872: a `create -- <cmd>` PTY has the command as its root and no shell —
+    // tell the host so it seeds the command + reads foreground==root as busy.
+    commandRooted,
     cwd: opts.cwd,
     env: { ...opts.env, KAVAL_TERMINAL_ID: opts.id },
     initFiles: [],

@@ -24,16 +24,25 @@ contracts.
 You drive the debate from your own turn: spawn a **live `codex` session as a split
 terminal next to you** and take turns with it until you agree. There is no `Workflow`
 tool and no subagent — you *are* one debater, the split codex *is* the other. **All
-the terminal mechanics belong to the [/kolu skill](../kolu/SKILL.md)** — spawning a
+the terminal mechanics belong to the [/kolu skill](../../../apm_modules/_local/agents/.apm/skills/kolu/SKILL.md)** — spawning a
 split, the send→settle→submit sequence, the done-signal, the large-paste file rule,
 and teardown. Read it; this skill only adds the debate protocol on top.
 
 Requires running **inside a kolu terminal** (you need to spawn a sibling split). If
 you can't, the skill is inert — say so and stop.
 
-**Spawn** codex as a split beside you, in this worktree, under `--yolo`, at the chosen
-reasoning effort: `codex --yolo -c model_reasoning_effort=<effort>`. `--yolo` is
-**required, not a convenience**: the two moves that make this engine work — codex
+**Spawn** codex as a **split tile beside you** — a sibling on your canvas
+**parented to your own terminal**, NOT a detached terminal — in this worktree,
+under `--yolo`, at the chosen reasoning effort. **Provision it per
+[/kolu](../../../apm_modules/_local/agents/.apm/skills/kolu/SKILL.md)**: the split-with-parent create (`lifecycle_create`
+with a `parentId` MCP-first; its `padi-tui create --parent` fallback) and the
+send→settle→snapshot drive loop are /kolu's protocol, not restated here.
+codex-debate says only *what* to spawn — `codex --yolo` at the chosen
+`model_reasoning_effort`, parented to your own terminal so it lands as a split
+you drive turn-by-turn (a detached, non-parented terminal is the wrong shape
+for a debate — reach for /kolu's split provisioning, never a bare detached
+create). `--yolo` is **required, not a convenience**: the two moves that make
+this engine work — codex
 *writing* its verdict file and *pinging* your terminal (a unix-socket write) — are both
 **denied by every codex sandbox** (`read-only` and `workspace-write` both block the
 socket write; `read-only` also blocks the file write — verified). So the reviewer runs
@@ -361,7 +370,7 @@ next-round rebuttal), and `answer-claude-N.md` / `answer-codex-N.md` / `candidat
 `answer-<slug>.md` for answer mode. **None of this feeds the PR comment** — that is a
 compact commit table (step 4); the debate's per-round detail lives in the commit messages.
 There are **no** workflow or `codex exec` scripts; the engine is this protocol plus the
-[/kolu skill](../kolu/SKILL.md).
+[/kolu skill](../../../apm_modules/_local/agents/.apm/skills/kolu/SKILL.md).
 
 This skill is generated from `agents/.apm/skills/codex-debate/`; edit the source there
 and keep the generated `.claude/` and `.agents/` copies identical in the same commit

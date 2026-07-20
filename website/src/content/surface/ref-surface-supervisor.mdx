@@ -14,10 +14,18 @@ dependency.
 
 ## The endpoint
 
-`createEndpoint(spec)` is the state machine: `connecting → connected | dead`,
-then `connected → degraded` if the daemon dies mid-session. `ensure()` runs the
-always-recycle boot; `current()` is the live connection. It is generic over the
-client `C` and identity `I`.
+`createEndpoint(spec)` is the state machine: `connecting → connected | dead |
+incompatible`, then `connected → degraded` if the daemon dies mid-session.
+`incompatible` is the PROVEN contract-skew verdict — a respawn from the
+realised closure already skewed (or a refuse-policy survivor skews at
+handshake) — reported with both contract versions on the status
+(`{ state: "incompatible", daemonVersion, requiredVersion }`), never collapsed
+into `dead`/`degraded`: a consumer deriving affordances from the state sum
+must not offer a restart against it (restarting cannot fix a skew; only
+changing the closure can). It is deliberately NOT coerced by a restart hold —
+a skew inside a restart is that restart's terminal verdict, not a transition.
+`ensure()` runs the always-recycle boot; `current()` is the live connection.
+It is generic over the client `C` and identity `I`.
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="endpoint" />
 
@@ -27,6 +35,30 @@ client `C` and identity `I`.
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
 | `restart(endpoint, steps)` | the composed `capture → drain → recycle → reattach` sequence |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
+| `socketHolders(socketPath)` | ask the OS which process(es) hold a unix-socket PATH — `Promise<SocketHolder[]>` (`{ pid, command }`), `/proc/net/unix` + `/proc/<pid>/fd` on linux, a `timeout`-bounded `lsof` on darwin. Async and bounded because it runs on the daemon boot/recovery path that shares the serving event loop. The identity source the gate-less-squatter recovery uses when the gate no longer names the holder; throws on an unsupported platform (fail-fast). A leaf beside `waitForPidGone` — pid lifecycle via the OS |
+| `SocketSquatterForeignError` · `isSocketSquatterForeignError(err)` | thrown when the process holding the rendezvous socket did NOT complete the kaval handshake — a foreign / non-conforming holder that is **never** killed. Carries `socketPath` and `holders: SocketHolder[]` (each pid + command) so the refusal names the squatter. Brand-checked, realm-robust |
+| `DaemonContractSkewError` · `isContractSkewError(err)` | the ONE typed connect rejection that proves incompatibility. Constructed from fields — `{ subject, daemonVersion, requiredVersion, pid? }` — with the message derived from them (no consumer ever re-parses the prose); `readonly daemonVersion` / `requiredVersion` ride the instance so downstream translators (a typed RPC rethrow, a status arm) read them structurally. The optional `readonly pid` is the skewed daemon's self-reported OS pid (additive), carried so the gate-less-squatter recovery of an OLD orphan — which throws here before a connection exists — has its identity attestation. The guard is brand-checked (realm-robust), never `instanceof` |
+| `ENDPOINT_STATES` · `ENDPOINT_STATE_DOWN` · `isDownEndpointState(s)` | the state tuple and its TOTAL down/terminal classification, both living in the zero-dependency, browser-safe `/states` subpath (re-exported from the package root). `ENDPOINT_STATE_DOWN` is a `Record<EndpointState, boolean>`, so a new state is a compile error at the home until classified; consumers (a dial-ended check, a client presentation table) read `isDownEndpointState` instead of hand-spelling the `degraded \|\| dead \|\| incompatible` disjunct |
+
+<Aside type="caution" title="`cfg.env` means different things per launch mode">
+  `survivableSpawnDriver`'s `cfg.env` is read differently by the mode the driver
+  picks, so compose it for the mode you will hit. On the **detached** path (the
+  production default) `env` is the COMPLETE child env — nothing from the parent is
+  layered under it, so a partial set spawns a daemon with no `PATH`/`HOME`; carry
+  the daemon's whole base (compose it from a fixed allowlist, as the snippet
+  above does — kolu mines `kolu-pty`'s `SPAWN_ENV_ALLOWLIST`). Under **systemd**
+  `env` OVERLAYS the unit's PAM/manager env via `--setenv`, so a partial set is
+  fine. Launch mode and env inheritance are ONE union field so the illegal
+  combination is unspellable: **`fromSource`** omitted (or `false`) is a normal
+  launch (systemd-eligible, `env` complete). An **object** `{ inheritParentEnv }`
+  forces the detached branch even under a session (an actual source launch OR a
+  built binary a box forces detached), and its `inheritParentEnv` decides whether
+  `env` layers OVER the supervisor's full parent env — `true` only for an actual
+  from-source launch (the dev nix-shell env); a built forced-detached daemon uses
+  `{ inheritParentEnv: false }` and gets `env` alone. Folding the two together
+  means "inherit the parent env on a normal launch" is a type error, not a prose
+  invariant a caller must remember.
+</Aside>
 
 ## The convergence kit
 

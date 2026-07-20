@@ -3,14 +3,13 @@
  *  update detail rides each host-chip Kaval tooltip and {@link KavalInfoDialog}.
  *  Session-preserving Restart-kaval lives in that dialog (`RestartKavalButton`).
  *
- *  The derivation ({@link kavalStale}) is a read-site join of two raw facts —
+ *  The derivation ({@link kavalAttention}) is a read-site join of two raw facts —
  *  `expected` (padi's `status.expectedKaval`) and `reported` (the connected
  *  daemon's `daemonStatus.identity`) — never stored, never folded into the
  *  client-vs-server `≠ srv` signal (which stays the commit comparison). */
 
 import type { PadiStatus } from "@kolu/padi/surface";
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
 import { activeHost, padiMap } from "../wire";
 
 // A module-level standing subscription to padi's `status` cell (the same pattern
@@ -20,9 +19,7 @@ import { activeHost, padiMap } from "../wire";
 // A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
 // `createRoot` (module-lifetime), so it re-keys when the active host switches.
 const padiStatus = createRoot(() =>
-  padiMap.useEntry(activeHost).cells.status.use({
-    onError: (err: Error) => toast.error(`Kaval status error: ${err.message}`),
-  }),
+  padiMap.useEntry(activeHost).cells.status.use(),
 );
 
 /** The *expected* kaval identity — the build padi would spawn

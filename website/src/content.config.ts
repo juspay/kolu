@@ -68,17 +68,20 @@ const blog = defineCollection({
 // Unreleased section; `/release X.Y.Z` stamps it with a version + date.
 const changelog = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/changelog" }),
-  schema: z.object({
-    // The renderer sorts and anchors dated entries on an `X.Y.Z` shape; the
-    // perpetual unreleased entry carries the literal `Unreleased` placeholder
-    // (it's filtered out before any sort/anchor). Enforce that shape here so a
-    // malformed version fails the build instead of mis-sorting silently.
-    version: z.union([
-      z.literal("Unreleased"),
-      z.string().regex(/^\d+\.\d+\.\d+$/),
-    ]),
-    date: z.coerce.date().optional(),
-  }),
+  // Release identity is one strict pair: the perpetual Unreleased entry is
+  // dateless, while every numbered release is dated. Keeping the pair as a
+  // union prevents malformed metadata from becoming a vUnreleased URL or an
+  // unpinned numbered release.
+  schema: z.union([
+    z.object({
+      version: z.literal("Unreleased"),
+      date: z.never().optional(),
+    }),
+    z.object({
+      version: z.string().regex(/^\d+\.\d+\.\d+$/),
+      date: z.coerce.date(),
+    }),
+  ]),
 });
 
 export const collections = { docs, surface, blog, changelog };

@@ -17,12 +17,15 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "happy-dom": "^20.8.9",
     "typescript": "^7.0.2",
+    "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.2.10",
-    "@pierre/trees": "^1.0.0-beta.4",
+    "@pierre/diffs": "^1.2.12",
+    "@pierre/trees": "^1.0.0-beta.5",
+    "@solid-primitives/event-listener": "^2.4.5",
     "solid-js": "^1.9.0"
   }
 }

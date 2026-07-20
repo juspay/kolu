@@ -11,12 +11,12 @@
  *   kaval --socket PATH    serve at an explicit path (gate + rcDir sit beside it)
  *
  * This file is the executable, never an import target — it runs the daemon on
- * load. The bin maps the daemon's `DaemonExit` to a process exit code; the
+ * load. `daemonProcessMain` owns the process exit (code + crash arm); the
  * lifecycle itself (gate → serve → teardown) is the testable `runKavalDaemon`.
  */
 
 import { parseArgs } from "node:util";
-import { daemonExitCode, stderrLogger } from "@kolu/surface-daemon";
+import { daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
 import { runKavalDaemon } from "./daemonMain.ts";
 import { runStdioBridge } from "./stdioBridge.ts";
 
@@ -63,15 +63,11 @@ if (values.stdio) {
       process.exit(1);
     });
 } else {
-  runKavalDaemon({ socketOverride: values.socket, log: stderrLogger() })
-    .then((exit) => {
-      // The success/failure classification lives with `DaemonExit` in the spine
-      // (`already-running`/`shutdown` → 0, `serve-failed` → 1), so a new variant
-      // is reclassified once at the type's home, not re-decided in every bin.
-      process.exit(daemonExitCode(exit));
-    })
-    .catch((err: unknown) => {
-      process.stderr.write(`kaval: ${(err as Error).message}\n`);
-      process.exit(1);
-    });
+  // The spine owns the rest of this process's life (see tenure.ts) — a live
+  // PTY child or diagnostics timer can't keep a finished daemon alive.
+  daemonProcessMain({
+    name: "kaval",
+    run: () =>
+      runKavalDaemon({ socketOverride: values.socket, log: stderrLogger() }),
+  });
 }

@@ -35,40 +35,7 @@
  * single-line argument — and `--paste` / `--no-paste` force it; the `paste`
  * field of the result makes it visible, never silent.
  */
-import {
-  controlByte,
-  metaByte,
-  NAMED_KEY_BYTES,
-  wrapBracketedPaste,
-} from "@kolu/terminal-protocol";
-
-/** The named keys `send` accepts, as one human string for the command help, the
- *  `--key` flag help, and the unknown-key error — so the vocabulary is written
- *  ONCE, not hand-copied across three doc strings (the drift class `keyInput.ts`
- *  was created to kill). Slashes group the arrow cluster; `send.test.ts` guards
- *  that every token here resolves via `encodeKey` and that every byte in
- *  `NAMED_KEY_BYTES` is reachable from it, so adding a key to the table without
- *  listing it here fails CI — the same protection pulam's `WAIT_STATES` enjoys. */
-export const ACCEPTED_KEY_NAMES =
-  "Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space, Shift-Tab";
-
-/** A named key (`Escape`, `Up`, `Enter`, case-insensitive) or a modifier chord
- *  (`C-c`, `M-b`) → its raw bytes; `undefined` when unrecognized. The named-key
- *  table and the `C-` control fold come from `@kolu/terminal-protocol`, so this
- *  CLI shares the one byte vocabulary with the rich client and the mobile key
- *  bar; only the CLI-only `C-`/`M-` chord parsing lives here. `M-<char>`
- *  (meta/alt) prefixes ESC to the char verbatim (`M-b` → `\x1bb`). */
-export function encodeKey(name: string): string | undefined {
-  const named = NAMED_KEY_BYTES[name.toLowerCase()];
-  if (named !== undefined) return named;
-  // Bind the captured char directly so it narrows to `string` (the regex has one
-  // group, but `noUncheckedIndexedAccess` types `match[1]` as `string | undefined`).
-  const ctrl = /^c-(.)$/i.exec(name)?.[1];
-  if (ctrl !== undefined) return controlByte(ctrl);
-  const meta = /^m-(.)$/i.exec(name)?.[1];
-  if (meta !== undefined) return metaByte(meta);
-  return undefined;
-}
+import { wrapBracketedPaste } from "@kolu/terminal-protocol";
 
 /** The canonical three-step submit ritual, rendered ONCE so the command lines
  *  can't drift across the sites that teach it: the `--submit` migration error

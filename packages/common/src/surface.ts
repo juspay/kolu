@@ -34,8 +34,14 @@
 // `kolu-common → @kolu/padi` direction (the same edge `surfacesWithPadi`/`contract` use);
 // the seal forbids the REVERSE (padi importing kolu). Types re-exported below so existing
 // `kolu-common/surface` importers are unchanged.
-import { HostDaemonInventorySchema } from "@kolu/padi/surface";
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  HostDaemonInventorySchema,
+  type ToastOnlyPolicy,
+} from "@kolu/padi/surface";
+import {
+  defineSurfaceWithPolicy,
+  type SurfaceTypes,
+} from "@kolu/surface/define";
 import {
   type BuildInfo,
   defineBuildInfo,
@@ -44,7 +50,7 @@ import {
 // The honest three-way process-RSS union — composed below into `ProcessMemorySchema`.
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
-import { ProcessRssSchema } from "@kolu/terminal-vocab/schema";
+import { type ProcessRss, ProcessRssSchema } from "@kolu/terminal-vocab/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { match } from "ts-pattern";
 import { z } from "zod";
@@ -53,6 +59,12 @@ import { z } from "zod";
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
 // them here — the schema home moved to the daemon-domain package, the consumers didn't.
 export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
+// kolu's app-owned client-error-policy union (SR11) — its home is `@kolu/padi`
+// (so `padiSurface`'s members can reference it without the seal-forbidden
+// `@kolu/padi → kolu-common` import); re-exported HERE so `koluSurface` above and
+// the kolu client (`interpretClientError` in `wire.ts`) reach it through their
+// usual `kolu-common/surface` door.
+export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
@@ -60,7 +72,7 @@ export type {
 } from "@kolu/terminal-vocab/agentProjection";
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
 // rank) is OWNED by `@kolu/terminal-vocab/agentProjection` — the ONE source
-// pulam-tui and pulam-web already share. The kolu client reaches it through the
+// padi-tui and downstream dashboards (drishti) already share. The kolu client reaches it through the
 // SAME door it already uses for the awareness schema (this module) rather than a
 // second, direct `@kolu/terminal-vocab` edge, so the Dock joins as a third
 // consumer of the same definition instead of re-deriving "needs-you".
@@ -470,6 +482,34 @@ export function bytesToWholeMB(bytes: number): number {
   return Math.round(bytes / BYTES_PER_MB);
 }
 
+/** Two per-process RSS readings render the same whole-MB figure — same status and,
+ *  when `ok`, the same whole megabytes (an `absent`/`error` pair carries no number
+ *  to compare). */
+function rssMbEqual(a: ProcessRss, b: ProcessRss): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status === "ok" && b.status === "ok") {
+    return bytesToWholeMB(a.rssBytes) === bytesToWholeMB(b.rssBytes);
+  }
+  return true;
+}
+
+/** Two readouts are equal when all three processes render the same whole-MB figure
+ *  — the `processMemory` cell's `equals`, so a sub-MB RSS wobble never re-publishes
+ *  to every connected client. Declared HERE at the spec (the derived poll cell is
+ *  the one writer, per the reactive bridge's "equals lives at the member, once"
+ *  law) and built on the shared {@link bytesToWholeMB} so the dedup boundary and the
+ *  client's rendered figure are one computation. */
+export function processMemoryMbEqual(
+  a: ProcessMemory,
+  b: ProcessMemory,
+): boolean {
+  return (
+    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
+    rssMbEqual(a.padi, b.padi) &&
+    rssMbEqual(a.kaval, b.kaval)
+  );
+}
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
@@ -530,7 +570,7 @@ export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
  *  (injected INTO padi at boot) until W2.2 gives padi its own state-root. So this
  *  surface serves NO collections and NO events. surface-app's buildInfo/identity
  *  ride the sibling surface above, not here. */
-export const koluSurface = defineSurface({
+export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
      *  on disk. Storage is flat (no discriminated-union subtrees), so the
@@ -543,13 +583,22 @@ export const koluSurface = defineSurface({
       patch: applyPreferencesPatch,
       // `test__set` exposed for e2e fixtures.
       verbs: ["get", "patch", "test__set"],
+      // Local-authority on the client (optimistic writes, server-canonical on disk);
+      // the coalesce window trailing-debounces size drags (#1041). NO `initial` — the
+      // local store seeds from the mandatory `default` above. `onError` covers both a
+      // subscription drop and a coalesced-flush failure.
+      client: {
+        authority: "local",
+        coalesceMs: 150,
+        onError: { kind: "toast", label: "Preferences" },
+      },
     },
 
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.
-     *  The server's periodic sampler is the sole writer
-     *  (`koluSurfaceCtx.cells.processMemory.set`); clients read-only. It samples
-     *  kolu-server's own RSS and FOLDS IN padi's `{ padi, kaval }` reading off the
-     *  re-served padi surface — `padi`/`kaval` are `absent` until the first fold,
+     *  A DERIVED poll cell (`derived.cell(source(...))` in `server/src/index.ts`), so
+     *  the reactor graph is the one writer — no ctx `.set`; clients read-only. It
+     *  samples kolu-server's own RSS and FOLDS IN padi's `{ padi, kaval }` reading off
+     *  the re-served padi surface — `padi`/`kaval` are `absent` until the first fold,
      *  and whenever padi is down. */
     processMemory: {
       schema: ProcessMemorySchema,
@@ -558,42 +607,57 @@ export const koluSurface = defineSurface({
         padi: { status: "absent" },
         kaval: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
+      // Whole-MB dedup — a DERIVED poll cell (`derived.cell(source(...))` in
+      // `server/src/index.ts`), so the graph is the one writer and `equals` is the
+      // ONE wire dedup point, declared here at the member (the reactive bridge's law).
+      // A sub-MB RSS wobble never re-publishes to every connected client.
+      equals: processMemoryMbEqual,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Memory readout" } },
     },
 
     /** kolu-server's live view of its binding to the local padi (see
-     *  {@link PadiLinkSchema}). Server-authored — kolu-server is the sole writer,
-     *  driving it off the bound padi session's connection state
-     *  (`server/src/index.ts` via `koluSurfaceCtx.cells.padiLink.set`); clients
-     *  read-only. The client folds it into the warming/degraded canvas so a padi drop
-     *  shows an honest connecting state, never a frozen-but-live-looking world (#1034).
-     *  Gate-closed default `connecting`, so a fresh subscription reads "coming up"
-     *  before the first transition rather than a premature `connected`. */
+     *  {@link PadiLinkSchema}). Server-authored — a DERIVED PUSH cell scanning the bound
+     *  padi's `onState` (`server/src/surface.ts`), so the reactor graph is the one writer
+     *  (no ctx `.set`); clients read-only. The client folds it into the warming/degraded
+     *  canvas so a padi drop shows an honest connecting state, never a frozen-but-live
+     *  world (#1034). Gate-closed default `connecting`, so a fresh subscription reads
+     *  "coming up" before the first transition rather than a premature `connected`. */
     padiLink: {
       schema: PadiLinkSchema,
       default: "connecting" satisfies PadiLink,
+      // The derived cell's one wire dedup point: a repeated same-link transition
+      // (onState fires once per endpoint status, several map to the same padiLink) never
+      // re-publishes to every connected client.
+      equals: (a, b) => a === b,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "padi link status" } },
     },
 
     /** Live boot-time readout (kolu-server + padi) for the rail's uptime (see
-     *  {@link ProcessStartedAtSchema}). Server-authored — kolu-server drives it off
-     *  the bound padi session's connection state, the SAME `onState` that drives
-     *  `padiLink` (`server/src/index.ts` via `koluSurfaceCtx.cells.processStartedAt.set`);
-     *  clients read-only. The `{ server: null, padi: null }` default is the honest
-     *  pre-yield "unknown" for BOTH legs — no `0` sentinel (the rail gates a `null` out
-     *  rather than rendering a bogus uptime off a fabricated boot time). */
+     *  {@link ProcessStartedAtSchema}). Server-authored — a DERIVED PUSH cell scanning the
+     *  SAME padi `onState` that drives `padiLink` (`server/src/surface.ts`), so the graph
+     *  is the one writer (no ctx `.set`); clients read-only. The `{ server: null, padi:
+     *  null }` default is the honest pre-yield "unknown" for BOTH legs — no `0` sentinel
+     *  (the rail gates a `null` out rather than rendering a bogus uptime off a fabricated
+     *  boot time). */
     processStartedAt: {
       schema: ProcessStartedAtSchema,
       default: { server: null, padi: null } satisfies z.infer<
         typeof ProcessStartedAtSchema
       >,
+      // The derived cell's one wire dedup point: a transition that leaves both boot times
+      // unchanged never re-publishes.
+      equals: (a, b) => a.server === b.server && a.padi === b.padi,
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Uptime readout" } },
     },
 
     /** The host-daemon inventory — every running kaval + padi on this host, each
      *  marked whether kolu's bound padi owns it (see {@link DaemonInventorySchema}).
-     *  Server-authored diagnostic readout (a dedicated read-only enumerator is the
-     *  sole writer via `koluSurfaceCtx.cells.daemonInventory.set`); clients read-only.
+     *  Server-authored diagnostic readout — a DERIVED poll cell
+     *  (`derived.cell(source(...))` in `server/src/index.ts`), so the reactor graph is
+     *  the one writer (no ctx `.set`); clients read-only.
      *  The Kaval/Padi dialogs list it so a LEAKED post-upgrade daemon — invisible in
      *  the UI before, surfaced only by a `kaval-tui` CLI error — is diagnosable at a
      *  glance. Presentation data, so it rides koluSurface like memory/uptime — NOT a
@@ -601,7 +665,15 @@ export const koluSurface = defineSurface({
     daemonInventory: {
       schema: DaemonInventorySchema,
       default: DEFAULT_DAEMON_INVENTORY,
+      // Structural dedup — a DERIVED poll cell (`derived.cell(source(...))` in
+      // `server/src/index.ts`), so the graph is the one writer and `equals` is the
+      // ONE wire dedup point, declared here at the member (the reactive bridge's law).
+      // A steady-state re-enumeration (the daemon set changes rarely) never
+      // re-publishes to every connected client — a shallow JSON compare is fine (the
+      // lists are tiny, a handful of daemons at most).
+      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
       verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Daemon inventory" } },
     },
   },
 });

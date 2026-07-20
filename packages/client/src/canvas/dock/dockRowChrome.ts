@@ -9,7 +9,7 @@ export function agentLabel(agent: AgentInfo | null | undefined): string {
 }
 
 export function metaLine(entry: DockEntry): string {
-  const { meta } = entry.info;
+  const { meta } = entry;
   const arm = activeArm(meta);
   if (!arm) return meta.cwd; // sleeping: no live overlay
   if (arm.agent?.summary) return arm.agent.summary;

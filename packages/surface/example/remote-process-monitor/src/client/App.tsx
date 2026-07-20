@@ -1,16 +1,18 @@
 /**
  * Remote process monitor — htop-flavoured single-page UI.
  *
- * Header strip = host + connection chip + live process count + load /
+ * Header strip = host + health dot + live process count + load /
  * mem / uptime / OS, with a usage bar across the top.
  * Body = process table sorted by descending CPU% (click headers to
  * re-sort by user / mem / pid); a search box above the table filters
  * by PID, user, or command substring.
  *
- * The "connecting overlay" exhibits row 4 of the falsifiability table:
- * the parent's `connection` cell yields its current value synchronously
- * on subscribe — the overlay attaches before `connect()` returns and
- * still sees the initial `state === "connecting"` (or `"copying"`).
+ * SR9: this example teaches re-serve mechanics + process monitoring, not connection
+ * PRESENTATION. Per-host connection state (the copying/building/connecting phase + log
+ * tail) is a host-map concept — it rides a `@kolu/surface-map` host map's `entries`
+ * channel as its fine `connection` payload (see `@kolu/surface-remote`'s `serveHostMap`),
+ * not a per-re-serve `connection` cell. So the health dot + connecting overlay here are
+ * driven by the re-serve's own `health()` fact, phase-agnostic.
  */
 
 import type { SurfaceHealth } from "@kolu/surface/solid";
@@ -21,7 +23,6 @@ import { createStore, reconcile } from "solid-js/store";
 import {
   type CoreId,
   type CpuCore,
-  DEFAULT_CONNECTION,
   DEFAULT_SYSTEM,
   type Pid,
   type Process,
@@ -34,12 +35,6 @@ export default function App() {
   // System cell: snapshot-then-delta of OS metrics from the remote
   // agent. Server authority — the parent forwards the agent's reads.
   const system = app.cells.system.use({});
-  // Connection cell: snapshot-then-delta of the parent-to-agent link
-  // lifecycle. Independent of `system` — the link can be "copying" or
-  // "disconnected" while `system` still holds the last good snapshot.
-  // The overlay attaches before `connect()` returns and sees the
-  // initial `connecting` state (R-1.5 falsifiability row 4).
-  const connection = app.cells.connection.use({});
 
   // Processes table — driven by the bulk `processesSnapshot` stream,
   // NOT the per-key `processes` collection. For a 600+ row htop view,
@@ -79,9 +74,6 @@ export default function App() {
   const [sortKey, setSortKey] = createSignal<SortKey>("cpu");
 
   const currentSystem = createMemo(() => system.value() ?? DEFAULT_SYSTEM);
-  const currentConnection = createMemo(
-    () => connection.value() ?? DEFAULT_CONNECTION,
-  );
 
   const allPids = createMemo<Pid[]>(() =>
     Object.keys(processes).map((k) => Number(k)),
@@ -135,20 +127,16 @@ export default function App() {
       <div class="mx-auto max-w-6xl overflow-hidden rounded border border-gray-300 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <Header
           system={currentSystem()}
-          connection={currentConnection()}
           health={app.health}
           count={allPids().length}
         />
         {/* The body is ready when `h.live` holds AND no subscription is erroring
-            (the framework health FACT, which now includes the enrolled
-            `processesSnapshot` stream and every per-core sub). `h.live` ALREADY
-            implies the agent link is `connected`: the `connection` cell declares
-            `liveWhen: v => v.phase === "connected"`, so `surfaceClient` AND-folds
-            that leg into `health().live` BY CONSTRUCTION — re-reading
-            `connection.phase === "connected"` into the gate here would be pure
-            redundancy (and would teach the fold this five-round effort retired).
-            `<SurfaceGate>` owns the policy via its `ready` override; the
-            `fallback` shows the connecting overlay, surfacing a subscription error
+            (the framework health FACT, which includes the enrolled `processesSnapshot`
+            stream and every per-core sub). SR9: this re-serve carries no `connection`
+            cell, so `h.live` reflects the browser↔parent transport + stream enrolment,
+            not a per-host agent-link phase (that is a host-map concept — see
+            `surface.ts`). `<SurfaceGate>` owns the policy via its `ready` override; the
+            `fallback` shows a neutral connecting overlay, surfacing a subscription error
             if one is what's holding the gate closed. Don't gate on `pending` — the
             original example never blocked the table on per-key first-frames, and a
             single slow core shouldn't blank the whole view. */}
@@ -157,7 +145,6 @@ export default function App() {
           ready={(h) => h.live && !h.subs.some((s) => s.error)}
           fallback={(h) => (
             <ConnectingOverlay
-              state={h().live ? currentConnection().phase : "connecting"}
               error={h().subs.find((s) => s.error)?.error?.message}
             />
           )}
@@ -195,7 +182,6 @@ type Row = { pid: Pid; proc: Process };
 
 function Header(props: {
   system: ReturnType<() => typeof DEFAULT_SYSTEM>;
-  connection: ReturnType<() => typeof DEFAULT_CONNECTION>;
   health: Accessor<SurfaceHealth>;
   count: number;
 }) {
@@ -228,21 +214,16 @@ function Header(props: {
             <span class="font-semibold">{props.system.hostname || "—"}</span>
           </span>
           <span class="flex items-center gap-1.5 text-xs">
-            {/* The connection dot is the framework `<HostStatusPip>` — its GREEN
-                comes ONLY from the health FACT (the same `ready` the gate below
-                uses), so a stale `connected` cell over a dead link can't paint it.
-                The state WORD stays a neutral label, never a raw-state green. */}
+            {/* The health dot is the framework `<HostStatusPip>` — its GREEN comes ONLY
+                from the health FACT (the same `ready` the gate uses), so a dead link
+                can't paint it. SR9: no per-host connection phase here (a host-map
+                concept — see `surface.ts`); the dot reflects the re-serve's health. */}
             <HostStatusPip
               health={props.health}
               ready={(h) => h.live && !h.subs.some((s) => s.error)}
               readyColor="#10b981"
-              notReadyTone={() =>
-                props.connection.phase === "failed" ? "#ef4444" : "#f59e0b"
-              }
-              pulse={props.connection.phase !== "failed"}
-              title={props.connection.phase}
+              notReadyTone={() => "#f59e0b"}
             />
-            <span class="text-gray-500">{props.connection.phase}</span>
           </span>
           <span class="text-gray-500">·</span>
           <span class="text-gray-500">
@@ -319,20 +300,12 @@ function FilterBar(props: {
   );
 }
 
-function ConnectingOverlay(props: { state: string; error?: string }) {
-  // A live subscription error (the gate held closed while CONNECTED) wins the
-  // headline — it's the actionable failure; otherwise show the link-lifecycle
-  // line keyed off the `connection` cell's state.
-  const msg = () =>
-    props.error ??
-    {
-      copying: "Copying agent to remote…",
-      building: "Building agent on remote…",
-      connecting: "Connecting…",
-      disconnected: "Reconnecting…",
-      failed: "Connection failed — gave up retrying.",
-    }[props.state] ??
-    "Initializing…";
+function ConnectingOverlay(props: { error?: string }) {
+  // A live subscription error (the gate held closed) wins the headline — it's the
+  // actionable failure; otherwise a neutral connecting line. SR9: this re-serve has no
+  // `connection` cell to key a fine link-lifecycle phase off (a host-map concept — see
+  // `surface.ts`), so the overlay is phase-agnostic.
+  const msg = () => props.error ?? "Connecting…";
   return (
     <div class="px-4 py-12 text-center text-gray-600 dark:text-gray-400">
       <div class="mb-2 text-lg">{msg()}</div>

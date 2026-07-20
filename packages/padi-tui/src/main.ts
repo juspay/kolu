@@ -30,7 +30,11 @@
  * exclusive with --socket / --state-root (all name a daemon; --host is remote).
  */
 
-import { resolveRunningPadiSocket } from "@kolu/padi/dial";
+import {
+  awaitAgentState,
+  resolveRunningPadiSocket,
+  watchTerminals,
+} from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import {
@@ -41,12 +45,7 @@ import {
 import { cli, command } from "cleye";
 import { runCreate } from "./create.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
-import {
-  awaitAgentState,
-  readTerminalKeys,
-  settledSnapshot,
-  watchTerminals,
-} from "./read.ts";
+import { readTerminalKeys, settledSnapshot } from "./read.ts";
 import {
   formatStatus,
   formatStatusJson,

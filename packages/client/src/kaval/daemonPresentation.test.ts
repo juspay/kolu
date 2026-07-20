@@ -1,51 +1,54 @@
-import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
+import type { DaemonStatus } from "@kolu/padi/surface";
+import {
+  ENDPOINT_STATES,
+  isDownEndpointState,
+} from "@kolu/surface-daemon-supervisor/states";
 import { describe, expect, it } from "vitest";
 import {
   channelLive,
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   formatLifetime,
-  kavalDot,
+  kavalPresencePresentation,
   liveDownState,
   liveWarming,
+  offerRestartVerb,
+  presenceState,
   serverDot,
   toKavalPresence,
   toneDot,
 } from "./daemonPresentation";
 
-describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1568 green-dot class)", () => {
-  it("paints the daemon-state tone only when the transport is LIVE", () => {
-    // A connected daemon over a live link → its 'ok' tone; a transient state → warming.
-    expect(kavalDot("connected", true)).toBe(toneDot.ok);
-    expect(kavalDot("connected", true)).not.toBe(DAEMON_UNKNOWN_DOT);
-    expect(kavalDot("restarting", true)).toBe(toneDot.warming);
-    expect(kavalDot("dead", true)).toBe(toneDot.down);
-  });
+// ── Wire-status fixtures — `liveDownState` takes the FULL status since SK4 (the
+// `incompatible` arm's version pair rides the same wire value). ──────────────
 
-  it("FLOORS to the unknown grey when the transport is NOT live — never bg-ok over a dead/half-open channel", () => {
-    // The bug Reviewer 2 confirmed: a dead ws leaves the retained 'connected' state
-    // stale, but the dot painted bg-ok off it — a definite 'running' the dead channel
-    // can't confirm. Floored: grey (unknown), for EVERY state — a known state can
-    // only REFINE the tone WITHIN a live link, never claim a verdict over a dead one.
-    for (const state of Object.keys(
-      DAEMON_STATE_PRESENTATION,
-    ) as DaemonState[]) {
-      expect(kavalDot(state, false)).toBe(DAEMON_UNKNOWN_DOT);
+/** A payload-less down/transient wire status. */
+const down = (state: "dead" | "degraded"): DaemonStatus => ({ state });
+
+/** The proven-skew wire arm (SK4) — both versions as REQUIRED typed fields. */
+const incompatibleStatus = (): DaemonStatus => ({
+  state: "incompatible",
+  daemonVersion: "5.0",
+  requiredVersion: "5.2",
+});
+
+/** A minimal connected wire status (identity present). */
+const minimalConnected = (): DaemonStatus => ({
+  state: "connected",
+  identity: { staleKey: "k", navigableCommit: "c".repeat(40) },
+  contractVersion: "5.2",
+  startedAt: 1,
+});
+
+describe("DAEMON_STATE_PRESENTATION.down — the table's VALUES equal the states' home classification", () => {
+  // The table's rows are already compile-forced (Record<DaemonState, …>); this
+  // pins the down FLAGS to `isDownEndpointState`, the classification declared at
+  // the states' home (`@kolu/surface-daemon-supervisor/states`). A future state
+  // classified at the home therefore can't silently diverge in this client table.
+  it("every state's `down` flag equals isDownEndpointState(state)", () => {
+    for (const s of ENDPOINT_STATES) {
+      expect(DAEMON_STATE_PRESENTATION[s].down).toBe(isDownEndpointState(s));
     }
-    // Specifically: a connected daemon over a dead link is NOT painted 'running'.
-    expect(kavalDot("connected", false)).not.toBe(toneDot.ok);
-  });
-
-  it("is the unknown grey for a pre-first-yield state, live or not", () => {
-    expect(kavalDot(undefined, true)).toBe(DAEMON_UNKNOWN_DOT);
-    expect(kavalDot(undefined, false)).toBe(DAEMON_UNKNOWN_DOT);
-  });
-
-  it("the unknown grey is distinct from the `down` (dead-daemon) tone — unknown ≠ dead", () => {
-    // A dead LINK reads 'unknown' (grey), a dead DAEMON over a live link reads
-    // 'down' (red): the two failures must not collapse into one verdict.
-    expect(DAEMON_UNKNOWN_DOT).not.toBe(toneDot.down);
-    expect(kavalDot("dead", true)).not.toBe(DAEMON_UNKNOWN_DOT);
   });
 });
 
@@ -90,14 +93,24 @@ describe("liveWarming / liveDownState — daemon-state claims FLOORED on transpo
   });
 
   it("liveDownState is the down sub-state ONLY over a live link, else undefined (unknown ≠ down)", () => {
-    expect(liveDownState("dead", true)).toBe("dead");
-    expect(liveDownState("degraded", true)).toBe("degraded");
+    expect(liveDownState(down("dead"), true)).toEqual({ state: "dead" });
+    expect(liveDownState(down("degraded"), true)).toEqual({
+      state: "degraded",
+    });
+    // The proven skew (SK4) is a DOWN verdict carrying its typed version pair
+    // through to the skew card — never collapsed to a bare dead/degraded.
+    expect(liveDownState(incompatibleStatus(), true)).toEqual({
+      state: "incompatible",
+      daemonVersion: "5.0",
+      requiredVersion: "5.2",
+    });
     // Dead link: a retained down state is stale → unknown, NOT a definite "down"
     // (so DegradedCanvas never paints over a link we can't see through).
-    expect(liveDownState("dead", false)).toBeUndefined();
-    expect(liveDownState("degraded", false)).toBeUndefined();
+    expect(liveDownState(down("dead"), false)).toBeUndefined();
+    expect(liveDownState(down("degraded"), false)).toBeUndefined();
+    expect(liveDownState(incompatibleStatus(), false)).toBeUndefined();
     // A non-down or unknown state is not down regardless.
-    expect(liveDownState("connected", true)).toBeUndefined();
+    expect(liveDownState(minimalConnected(), true)).toBeUndefined();
     expect(liveDownState(undefined, true)).toBeUndefined();
   });
 });
@@ -118,17 +131,27 @@ describe("the active-entry leg — the SECOND floor on the host-scoped kaval dae
     expect(channelLive(false, false)).toBe(false);
   });
 
-  it("kavalDot: a `connected` daemon over a live transport but a non-connected active entry reads UNKNOWN, not green", () => {
+  it("the dot: a `connected` daemon over a live transport but a non-connected active entry reads UNKNOWN, not green", () => {
     // The concrete defect: server-published `connected` + live ws, but the active REMOTE
-    // entry is not connected → the dot must be grey "unknown", never bg-ok "running".
-    expect(kavalDot("connected", channelLive(true, false))).toBe(
-      DAEMON_UNKNOWN_DOT,
-    );
-    expect(kavalDot("connected", channelLive(true, false))).not.toBe(
-      toneDot.ok,
-    );
+    // entry is not connected → the dot must be grey "unknown", never bg-ok "running". The
+    // floor now rides `toKavalPresence` (folded on `channelLive`), read by the ONE
+    // `kavalPresencePresentation` projection both the dialog and the rail mark share.
+    expect(
+      kavalPresencePresentation(
+        toKavalPresence(minimalConnected(), channelLive(true, false)),
+      ).dot,
+    ).toBe(DAEMON_UNKNOWN_DOT);
+    expect(
+      kavalPresencePresentation(
+        toKavalPresence(minimalConnected(), channelLive(true, false)),
+      ).dot,
+    ).not.toBe(toneDot.ok);
     // Both legs live → the daemon state refines the tone as before.
-    expect(kavalDot("connected", channelLive(true, true))).toBe(toneDot.ok);
+    expect(
+      kavalPresencePresentation(
+        toKavalPresence(minimalConnected(), channelLive(true, true)),
+      ).dot,
+    ).toBe(toneDot.ok);
   });
 
   it("liveDownState/liveWarming, fed channelLive directly: a non-connected entry ⇒ unknown, not down/warming", () => {
@@ -137,7 +160,7 @@ describe("the active-entry leg — the SECOND floor on the host-scoped kaval dae
     // the describe block below). A dead entry reads unknown (undefined down-state,
     // not-warming) — `daemonConnected()` therefore reads false.
     const dead = channelLive(true, false);
-    expect(liveDownState("dead", dead)).toBeUndefined();
+    expect(liveDownState(down("dead"), dead)).toBeUndefined();
     expect(liveWarming("restarting", dead)).toBe(false);
   });
 });
@@ -164,14 +187,14 @@ describe("the daemon-rail floor is now host-UNIFORM (W4 daemon-rail unification 
     expect(liveWarming("connected", localDrain)).toBe(
       liveWarming("connected", remoteFlap),
     );
-    expect(liveDownState("degraded", localDrain)).toBe(
-      liveDownState("degraded", remoteFlap),
+    expect(liveDownState(down("degraded"), localDrain)).toBe(
+      liveDownState(down("degraded"), remoteFlap),
     );
     // Concretely: neither reads a stale claim over the dropped channel — unknown, not a
     // frozen "running"/"degraded" (the #1034 never-show-a-stale-verdict invariant, now
     // enforced identically for every host by construction, not by a per-host gate).
     expect(liveWarming("connected", localDrain)).toBe(false);
-    expect(liveDownState("degraded", localDrain)).toBeUndefined();
+    expect(liveDownState(down("degraded"), localDrain)).toBeUndefined();
   });
 });
 
@@ -209,7 +232,9 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
     // presence, never beside a connected one.
     const status = connectedStatus(undefined);
     const presence = toKavalPresence(status, true);
-    expect(presence.kind).toBe("warming");
+    // `warming` with `state: "connected"` — still reads "running"/green (a live pre-identity
+    // kaval IS up), but the facts are NOT trustworthy: `kind !== "connected"`.
+    expect(presence).toEqual({ kind: "warming", state: "connected" });
     expect(presence).not.toMatchObject({ kind: "connected" });
   });
 
@@ -220,13 +245,16 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
       staleKey: "abc",
       navigableCommit: "deadbeef",
     });
-    expect(toKavalPresence(status, false)).toEqual({ kind: "warming" });
+    // A dead channel can't confirm ANY state → `unknown` (grey), distinct from `warming`
+    // (a live link coming up): a stale `connected` must never paint a warming pulse either.
+    expect(toKavalPresence(status, false)).toEqual({ kind: "unknown" });
     // Reconnect (channel live again, status unchanged) — identity is confirmed again.
     expect(toKavalPresence(status, true)).toMatchObject({ kind: "connected" });
   });
 
   it("pre-first-value (status undefined) and a genuinely down daemon each read their own honest kind — never `connected`", () => {
-    expect(toKavalPresence(undefined, true)).toEqual({ kind: "warming" });
+    // No value yet ⇒ `unknown` (grey), same as a dead channel — not `warming`.
+    expect(toKavalPresence(undefined, true)).toEqual({ kind: "unknown" });
     expect(toKavalPresence({ state: "dead" } as DaemonStatus, true)).toEqual({
       kind: "down",
       state: "dead",
@@ -234,9 +262,10 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
     expect(
       toKavalPresence({ state: "degraded" } as DaemonStatus, true),
     ).toEqual({ kind: "down", state: "degraded" });
+    // A live transient carries its fine `state` so the dot/label stay lossless.
     expect(
       toKavalPresence({ state: "connecting" } as DaemonStatus, true),
-    ).toEqual({ kind: "warming" });
+    ).toEqual({ kind: "warming", state: "connecting" });
   });
 
   it("carries the wire `lifetime` onto the connected presence (and leaves it undefined for a survivor predating the field)", () => {
@@ -270,6 +299,71 @@ describe("toKavalPresence — P4: connected ⇒ identity present, by constructio
   });
 });
 
+describe("kavalPresencePresentation — the dialog's dot + word + text tone, ONE match over presence (no raw state/live at the render site)", () => {
+  it("dot: unknown is grey, connected is ok, the fine transient/down state drives the tone", () => {
+    expect(kavalPresencePresentation({ kind: "unknown" }).dot).toBe(
+      DAEMON_UNKNOWN_DOT,
+    );
+    expect(
+      kavalPresencePresentation({
+        kind: "connected",
+        identity: { staleKey: "k", navigableCommit: "c" },
+        contractVersion: "5.2",
+        startedAt: 1,
+        socketPath: undefined,
+        lifetime: undefined,
+      }).dot,
+    ).toBe(toneDot.ok);
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "restarting" }).dot,
+    ).toBe(toneDot.warming);
+    // A LIVE pre-identity `connected` is up → green, even though facts aren't trustworthy.
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "connected" }).dot,
+    ).toBe(toneDot.ok);
+    expect(kavalPresencePresentation({ kind: "down", state: "dead" }).dot).toBe(
+      toneDot.down,
+    );
+    expect(kavalPresencePresentation({ kind: "incompatible" }).dot).toBe(
+      toneDot.down,
+    );
+  });
+
+  it("label + text tone: unknown reads 'unknown'/text-fg-3; every other arm's fine state reads its own word/text-fg (restarting… stays restarting…)", () => {
+    expect(kavalPresencePresentation({ kind: "unknown" }).label).toBe(
+      "unknown",
+    );
+    expect(kavalPresencePresentation({ kind: "unknown" }).textClass).toBe(
+      "text-fg-3",
+    );
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "connecting" }).label,
+    ).toBe(DAEMON_STATE_PRESENTATION.connecting.label);
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "restarting" }).label,
+    ).toBe(DAEMON_STATE_PRESENTATION.restarting.label);
+    // pre-identity connected still reads "running" (lossless vs the old raw-state label).
+    expect(
+      kavalPresencePresentation({ kind: "warming", state: "connected" }).label,
+    ).toBe(DAEMON_STATE_PRESENTATION.connected.label);
+    expect(
+      kavalPresencePresentation({ kind: "down", state: "degraded" }).label,
+    ).toBe(DAEMON_STATE_PRESENTATION.degraded.label);
+    // A known arm reads the standard text tone, never the unknown grey.
+    expect(
+      kavalPresencePresentation({ kind: "down", state: "degraded" }).textClass,
+    ).toBe("text-fg");
+  });
+
+  it("#1793: a not-live channel projects to grey 'unknown' — never a green dot or a 'running' word painted off a stale value", () => {
+    const stale = minimalConnected(); // truthy, connected-era
+    const dead = toKavalPresence(stale, false); // …but the channel is dead
+    expect(dead).toEqual({ kind: "unknown" });
+    expect(kavalPresencePresentation(dead).dot).toBe(DAEMON_UNKNOWN_DOT);
+    expect(kavalPresencePresentation(dead).label).toBe("unknown");
+  });
+});
+
 describe("formatLifetime — the shared humanizer for the Kaval/Padi dialog lifetime row", () => {
   it("renders each lifetime arm, and a survivor predating the field reads the dash", () => {
     expect(formatLifetime({ kind: "forever" })).toBe("forever");
@@ -283,5 +377,74 @@ describe("formatLifetime — the shared humanizer for the Kaval/Padi dialog life
     // `undefined` is a survivor predating the wire field — an honest dash, never a
     // fabricated policy.
     expect(formatLifetime(undefined)).toBe("—");
+  });
+});
+
+describe("the incompatible arm (SK4) — a proven skew is its own verdict, never a warming pulse", () => {
+  it("toKavalPresence maps incompatible to its OWN payload-less arm — not warming, not down", () => {
+    // Payload-less by design: the versions are rendered by the canvas card
+    // (DaemonDownState) and the attention chip/banner (KavalAttention); the
+    // presence's one consumer (the dialog) extracts only `connected`.
+    expect(toKavalPresence(incompatibleStatus(), true)).toEqual({
+      kind: "incompatible",
+    });
+  });
+
+  it("over a dead link the retained skew folds to unknown like every stale claim (unknown ≠ incompatible)", () => {
+    expect(toKavalPresence(incompatibleStatus(), false)).toEqual({
+      kind: "unknown",
+    });
+  });
+
+  it("the presentation row is a DOWN tone (red dot, down: true) — never the warming pulse the old fallthrough painted", () => {
+    expect(DAEMON_STATE_PRESENTATION.incompatible.tone).toBe("down");
+    expect(DAEMON_STATE_PRESENTATION.incompatible.down).toBe(true);
+    expect(kavalPresencePresentation({ kind: "incompatible" }).dot).toBe(
+      toneDot.down,
+    );
+  });
+});
+
+describe("presenceState — the rail mark's data-daemon-state, projected from presence (behavior-identical to the retired raw pair)", () => {
+  it("names each arm; warming/down expose the fine state; a dead channel reads 'unknown'", () => {
+    expect(presenceState(toKavalPresence(minimalConnected(), true))).toBe(
+      "connected",
+    );
+    expect(presenceState({ kind: "warming", state: "restarting" })).toBe(
+      "restarting",
+    );
+    // A live pre-identity `connected` still reads "connected" (the warming arm carries it).
+    expect(presenceState({ kind: "warming", state: "connected" })).toBe(
+      "connected",
+    );
+    expect(presenceState({ kind: "down", state: "degraded" })).toBe("degraded");
+    expect(presenceState({ kind: "incompatible" })).toBe("incompatible");
+    // A dead channel (or no value) reads "unknown", never a stale state.
+    expect(presenceState(toKavalPresence(minimalConnected(), false))).toBe(
+      "unknown",
+    );
+  });
+});
+
+describe("offerRestartVerb — the Restart affordance is a total function of the PRESENCE sum, floored on liveness (D5c, #1793)", () => {
+  const connected = toKavalPresence(minimalConnected(), true);
+
+  it("offered on a live-confirmed connected/down; withheld while warming", () => {
+    expect(offerRestartVerb(connected)).toBe(true);
+    expect(offerRestartVerb({ kind: "down", state: "dead" })).toBe(true);
+    expect(offerRestartVerb({ kind: "down", state: "degraded" })).toBe(true);
+    expect(offerRestartVerb({ kind: "warming", state: "connecting" })).toBe(
+      false,
+    );
+  });
+
+  it("#1793 (affordance axis): NEVER offered over an `unknown` (dead/half-open) channel — an action the channel can't carry out", () => {
+    // The axis the presence-only FACT fix left open: the old `(warming, down)` shape
+    // collapsed a dead channel to `(false, undefined)` and returned `true`.
+    expect(offerRestartVerb({ kind: "unknown" })).toBe(false);
+  });
+
+  it("withheld against a PROVEN skew — never the dead-end restart the skew card replaces", () => {
+    expect(offerRestartVerb({ kind: "incompatible" })).toBe(false);
   });
 });

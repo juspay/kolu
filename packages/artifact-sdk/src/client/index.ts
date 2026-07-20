@@ -34,6 +34,7 @@ export type {
 export {
   type BindOptions,
   bindArtifactSdk,
+  observeIframeDeepLink,
   observeIframeHistory,
   observeIframeNavigation,
   observeIframeOpenExternal,

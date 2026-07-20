@@ -29,6 +29,7 @@ import {
   createLiveSignal,
   type HeartbeatTuning,
   type LiveSignalHandle,
+  type OnClientError,
   type SurfaceClients,
   type SurfaceConnectionStatus,
   type SurfaceHealth,
@@ -61,6 +62,17 @@ export interface ConnectSurfacesOptions<
    *  watchdog out (`heartbeat: false` on the lifecycle, which mints no brand) — so
    *  this seam stays the single watchdog and the single, honest brand. */
   heartbeat?: HeartbeatTuning;
+  /** The app's ORIGIN-FREE client error interpreter — threaded to EVERY sibling
+   *  client so a spec-declared `client.onError` policy (a surface built via
+   *  `defineSurfaceWithPolicy`) reaches app code on a subscription failure. The app
+   *  spells ONE interpreter HERE (design §A/m4); `surfaceClients` forwards it to each
+   *  `buildSurfaceClient`.
+   *
+   *  OPTIONAL at the type: a policy-FREE surface bundle (`TPolicy = never`, the
+   *  existing callers) declares no `client.onError`, so it needs none. When a sibling
+   *  DOES carry a policy, `buildSurfaceClient` THROWS at construction if this was
+   *  omitted (design §D / F5) — a declared policy can never route nowhere. */
+  onClientError?: OnClientError;
 }
 
 /** A live multi-surface connection: the shared socket, its `pid` echo, the per-key
@@ -114,7 +126,7 @@ export function connectSurfaces<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
   const E extends Record<string, Surface<any>> = Record<string, Surface<any>>,
 >(opts: ConnectSurfacesOptions<E>): SurfacesConnection<E, C> {
-  const { surfaces, heartbeat: hb, ...socketOptions } = opts;
+  const { surfaces, heartbeat: hb, onClientError, ...socketOptions } = opts;
   // Fail fast on an empty surface map: the watchdog probes `system.live` on the
   // FIRST sibling's slice, so with no sibling there is no probe target and the
   // heartbeat would degrade noisily (a wrong/absent `siblingKey` reached
@@ -147,7 +159,7 @@ export function connectSurfaces<
   // Hand the WHOLE handle to `surfaceClients` — it reads the combined `.link` and the
   // shared watchdog-backed `.live` off it, scopes the link per sibling, and threads
   // the one `live` into every sibling's `health().live` (paired by construction).
-  const clients = surfaceClients(transport, surfaces);
+  const clients = surfaceClients(transport, surfaces, onClientError);
   return {
     ws,
     echo,

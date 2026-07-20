@@ -45,6 +45,7 @@ import ExportSessionDialog, {
   exportSessionDialog,
 } from "./ExportSessionDialog";
 import { createImportSessionAction } from "./importSessionAction";
+import { useDeepLinks } from "./useDeepLinks";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
@@ -92,6 +93,10 @@ const App: Component = () => {
   // the host chips already read. `store.activate` focuses a tile on the (post-
   // switch) active host.
   useHostAttention({ focusTerminal: store.activate });
+  // Deep links: a `#/…` URL (bookmark, orchestrator tag, PWA launch) commands the
+  // view onto a host / terminal / file / settings — through the SAME view actions,
+  // view-only by law. See `useDeepLinks`.
+  useDeepLinks();
   // The tile registry — what the canvas, dock, switcher, and mode read for tile
   // PRESENCE (the set, layout, active selection, count). The terminal store
   // stays the source for terminal CONTENT (display info, metadata, the active
@@ -128,6 +133,7 @@ const App: Component = () => {
     buildWorkspaceEntries(
       tileStore.tileIds(),
       store.getDisplayInfo,
+      store.getMetadata,
       tileStore.getLayout,
     ),
   );
@@ -451,7 +457,7 @@ const App: Component = () => {
             <ConnectCanvas daemonState={undefined} />
           </Match>
           <Match when={downMode()}>
-            {(m) => <DegradedCanvas state={m().state} />}
+            {(m) => <DegradedCanvas down={m().down} />}
           </Match>
           <Match when={hostFailedMode()}>
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
@@ -609,6 +615,7 @@ const App: Component = () => {
                       renderTileTitle={(id) => (
                         <TerminalMeta
                           info={store.getDisplayInfo(id)}
+                          meta={store.getMetadata(id)}
                           unread={store.isUnread(id)}
                           onOpenIntent={() => intentEditor.openTerminal(id)}
                         />

@@ -25,18 +25,14 @@
 
 import type { RunningKaval, RunningPadi } from "kolu-common/surface";
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
+import { type DaemonScan, daemonScanCause } from "../host/daemonScan";
 import { daemonChannelLive } from "../kaval/useDaemonStatus";
 import { activeHost, padiMap } from "../wire";
-import { hostInventoryLive } from "./hostInventoryLive";
 
 // A host-scoped standing readout — rides `useEntry(activeHost)` under an app-scope
 // `createRoot` (module-lifetime), so it re-keys when the active host switches.
 const sub = createRoot(() =>
-  padiMap.useEntry(activeHost).cells.hostInventory.use({
-    onError: (err: Error) =>
-      toast.error(`Host inventory error: ${err.message}`),
-  }),
+  padiMap.useEntry(activeHost).cells.hostInventory.use(),
 );
 
 /** Every running kaval daemon on the BOUND host, each marked `active` when that host's
@@ -51,24 +47,35 @@ export function boundHostPadis(): RunningPadi[] {
   return sub.value()?.padis ?? [];
 }
 
-/** Whether the bound host's inventory is a TRUSTWORTHY live reading the dialog may render
- *  as a definite answer — the conjunction of (a) the bound padi being LIVE and (b) it
- *  having reported a real frame (its own active padi row). Not (a): a dropped ssh link /
- *  drain window leaves the re-served cell STALE (held populated) — reading it as live
- *  would show a dead padi's list as current (#1034); the bind-liveness fact excludes it.
- *  Not (b): a just-connected bind before its first frame is the seeded empty default. So
- *  the dialogs read "unavailable" for BOTH, never "No running daemons" (a masquerade).
- *  See {@link hostInventoryLive}. */
-export function boundHostInventoryLive(): boolean {
-  return hostInventoryLive({
-    // kolu's honest bind-liveness fact for the ACTIVE host's inventory (this cell rides
-    // `useEntry(activeHost)`): the browser transport ∧ the active entry's own connection
-    // (`daemonChannelLive` — so a dead entry's frozen re-served inventory is not read as
-    // live, whether that entry is a REMOTE ssh flap or a LOCAL `daemon.restart` drain — the
-    // #1568 leg the dot floors on, W4 daemon-rail unification: one fact, every host).
+/** The bound host's daemon-scan liveness as a DISCRIMINATED CAUSE (#1793) — the ONE fold
+ *  the "Running daemons" section reads, so a NOT-live scan names WHY (connecting vs a hard
+ *  `failed(cause)` host vs a too-old padi) instead of guessing "connecting". A total fold
+ *  over the active host's typed entry state ({@link daemonScanCause}) × whether a real
+ *  frame has landed:
+ *
+ *   - `bindLive` is kolu's honest bind-liveness fact (browser transport ∧ the active
+ *     entry's own connection, `daemonChannelLive`) — so a dead entry's frozen re-served
+ *     inventory is never read as live, REMOTE ssh flap or LOCAL `daemon.restart` drain
+ *     alike (#1568, W4 daemon-rail unification: one fact, every host). It gates only the
+ *     `connected` arm's live-vs-too-old call.
+ *   - `framePresent`: a live padi ALWAYS reports ITSELF (`withSelfPadi` seeds its own
+ *     active row even at T+0), so "no active padi row" is the tell that no real frame has
+ *     landed — distinct from a genuine zero (which can't happen). Without it a
+ *     just-connected bind's seeded-empty `{ kavals: [], padis: [] }` would read as a
+ *     definite "No running daemons" (#1034). */
+export function boundHostScan(): DaemonScan {
+  return daemonScanCause(padiMap.entry(activeHost()).state(), {
     bindLive: daemonChannelLive(),
-    padis: boundHostPadis(),
+    framePresent: boundHostPadis().some((p) => p.active),
   });
+}
+
+/** Whether the bound host's inventory is a TRUSTWORTHY live reading the dialog may render
+ *  as a definite answer — derived from the single {@link boundHostScan} fold so the floor
+ *  consumers (the Padi socket row, the kaval converge nudge) and the section's copy can't
+ *  drift on what "live" means. */
+export function boundHostInventoryLive(): boolean {
+  return boundHostScan().kind === "live";
 }
 
 /** The BOUND padi kolu is using (`active`), or `undefined` before the first scan. The

@@ -63,8 +63,8 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
           cells: { state: { store: inMemoryStore({ value: 0 }) } },
           procedures: {
             math: {
-              double: async ({ input }: { input: unknown }) => ({
-                y: (input as { x: number }).x * 2,
+              double: async ({ input }) => ({
+                y: input.x * 2,
               }),
             },
           },
@@ -97,8 +97,8 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
           cells: { state: { store: inMemoryStore({ value: 0 }) } },
           procedures: {
             math: {
-              double: async ({ input }: { input: unknown }) => ({
-                y: (input as { x: number }).x * 2,
+              double: async ({ input }) => ({
+                y: input.x * 2,
               }),
             },
           },
@@ -145,8 +145,8 @@ describe("implementSurfaces: connect cell-dep", () => {
           },
           procedures: {
             math: {
-              double: async ({ input }: { input: unknown }) => ({
-                y: (input as { x: number }).x,
+              double: async ({ input }) => ({
+                y: input.x,
               }),
             },
           },

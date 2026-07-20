@@ -8,9 +8,9 @@
  *      otherwise suppress) and injects kolu's OSC hooks.
  *
  * The split matters under macOS launchd user agents, where the parent env
- * is near-empty and cleanEnv passthrough alone wouldn't carry a usable
- * PATH — the wrapper's replay step compensates by sourcing user dotfiles
- * directly. Linux/systemd masks this because PAM seeds the user-instance
+ * is near-empty and cleanEnv's canonical-allowlist composition alone wouldn't
+ * carry a usable PATH — the wrapper's replay step compensates by sourcing user
+ * dotfiles directly. Linux/systemd masks this because PAM seeds the user-instance
  * env from the login session.
  *
  * Nix devshell pollution is handled at startup: the server refuses to run
@@ -22,9 +22,14 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 
 /**
- * Default env vars safe to forward from a nix devshell to PTY shells.
- * Everything else (NIX_*, DIRENV_*, derivation vars) is excluded.
- * Exported so callers can pass it as the default whitelist value.
+ * The DEFAULT dev/nix-shell whitelist, layered ADDITIVELY on top of the canonical
+ * {@link SPAWN_ENV_ALLOWLIST} base (see `cleanEnv`) — NOT a replacement. Note every one
+ * of its keys is ALREADY in that base (HOME/USER/PATH/LOGNAME → FUNCTIONAL, TERM/LANG/
+ * LC_ALL → PRESENTATION, DISPLAY → OPERATIONAL), so this default widens the base with
+ * *nothing* — it exists as the harmless compat default. The whitelist MECHANISM earns its
+ * keep as the CUSTOMIZATION seam: a caller passes MORE keys to admit genuinely-extra dev
+ * vars the base drops (e.g. the e2e harness extends it with `GIT_AUTHOR_*`). Everything
+ * unnamed (NIX_*, DIRENV_*, derivation vars) is excluded. Exported so callers can build on it.
  *
  * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
  * VTE_VERSION, COLORTERM) live in `koluIdentityEnv()` and are layered on
@@ -34,7 +39,123 @@ import { join } from "node:path";
 export const NIX_ENV_WHITELIST =
   "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY";
 
-/** Whitelist set once at startup; undefined means passthrough mode (production). */
+// The ONE canonical allowlist of env keys safe to carry into a kolu-spawned process,
+// composed from THREE named classes so a future addition must name a class it belongs
+// to — and an identity-ish key has no class to claim. It is an ALLOWLIST, not a
+// blacklist: a key NOT named here is DROPPED, so an identity var that doesn't exist yet
+// (a future agent's `CLAUDE_CODE_CHILD_SESSION` kin, an orchestrator's private marker)
+// cannot ride ambient env into any kolu-spawned process (the #1872 class). The line is
+// not "narrow for its own sake" — it is "no ambient IDENTITY, finite, pinned"; a
+// non-identity CAPABILITY var the user's login session owns is in-scope.
+
+/** Class 1 — FUNCTIONAL base: what a shell or daemon needs to run at all. */
+export const SPAWN_ENV_FUNCTIONAL = [
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "PATH",
+  "SHELL",
+] as const;
+
+/** Class 2 — PRESENTATION: describes the *terminal* (colour, locale), never identity.
+ *  Named separately so a composer that reads functional vars from a different source (a
+ *  remote host's `system.info`) can still carry presentation from the local terminal.
+ *  The full POSIX locale-category set is carried, not just `LANG`/`LC_ALL`: a user who
+ *  sets an individual category (`LC_TIME`, `LC_MESSAGES`, …) without `LC_ALL` would
+ *  otherwise silently lose it, so date/number/message formatting drifts in the PTY. */
+export const SPAWN_ENV_PRESENTATION = [
+  "TERM",
+  "COLORTERM",
+  "LANG",
+  "LANGUAGE",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LC_MESSAGES",
+  "LC_TIME",
+  "LC_NUMERIC",
+  "LC_COLLATE",
+  "LC_MONETARY",
+] as const;
+
+/** Class 3 — OPERATIONAL-SESSION: capability vars MINTED BY THE USER'S LOGIN SESSION
+ *  (PAM / systemd-user / launchd), NOT by dotfiles — so the wrapper rcfile replay
+ *  cannot restore them, and dropping them silently breaks an interactive terminal
+ *  (ssh-agent git push, `systemctl --user`, GUI apps, desktop notifications). All are
+ *  non-identity CAPABILITY vars, so carrying them honors the invariant.
+ *   - `TMPDIR` is load-bearing on DARWIN: launchd mints a per-user `/var/folders/…`
+ *     temp dir per login session; narrowing it out silently falls every macOS tool
+ *     back to `/tmp`.
+ *   - `SSH_AGENT_PID` is deliberately OUT: `SSH_AUTH_SOCK` grants *signing* capability
+ *     (a terminal workload needs it); `SSH_AGENT_PID` grants *kill-the-agent*
+ *     capability, which no terminal workload needs — smaller is honest. */
+export const SPAWN_ENV_OPERATIONAL = [
+  "XDG_RUNTIME_DIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_STATE_HOME",
+  "SSH_AUTH_SOCK",
+  // The GUI-session display group, all minted by the login session: `DISPLAY` (X11)
+  // is a session capability like its Wayland sibling, NOT a "run at all" functional
+  // var — a shell runs fine without it — so it lives here, not in FUNCTIONAL.
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XAUTHORITY",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "TMPDIR",
+] as const;
+
+/** The single source of truth every composer funnels through: `cleanEnv` (below, for
+ *  every hosted PTY shell), kaval-tui's `create`, padi's `daemonEnv`, and the e2e
+ *  harness. A caller that genuinely needs a var outside all three classes adds it back
+ *  EXPLICITLY (kaval-tui's `--env K=V`); there is no inherit-everything switch. Pinned
+ *  exactly as data (`shell.test.ts`), grouped by class, so a widen is a reviewed,
+ *  test-visible act. */
+export const SPAWN_ENV_ALLOWLIST = [
+  ...SPAWN_ENV_FUNCTIONAL,
+  ...SPAWN_ENV_PRESENTATION,
+  ...SPAWN_ENV_OPERATIONAL,
+] as const;
+
+/**
+ * The atomic env-mining primitive: pick a fixed set of `keys` out of an env
+ * `source`, keeping only the defined ones. Every kolu env composer is one binding
+ * of this — the allowlist base ({@link composeSpawnEnv}), the nix-devshell
+ * whitelist ({@link cleanEnv}), the remote presentation carry (`create.ts`) — so a
+ * future refinement to the mining rule lands in ONE place and can't drift across
+ * the three sites that used to inline the loop.
+ */
+export function pickEnv(
+  keys: Iterable<string>,
+  source: NodeJS.ProcessEnv,
+): Record<string, string> {
+  // Null-prototype so a key literally named `__proto__` (a caller's `--env __proto__=…`
+  // layered on top downstream) is a real data property, never a prototype mutation.
+  const env: Record<string, string> = Object.create(null);
+  for (const key of keys) {
+    const value = source[key];
+    if (value != null) env[key] = value;
+  }
+  return env;
+}
+
+/**
+ * Compose a clean env by mining `source` for ONLY the {@link SPAWN_ENV_ALLOWLIST}
+ * keys (defined — an empty string is a real value, kept, since unset vs empty is a
+ * distinction downstream tools rely on, especially locale vars). The shared
+ * primitive behind every kolu spawn composer,
+ * so none can drift from the others: identity/secret vars outside the allowlist are
+ * dropped by construction. Callers layer their own explicit additions and stamps on
+ * top of the result.
+ */
+export function composeSpawnEnv(
+  source: NodeJS.ProcessEnv,
+): Record<string, string> {
+  return pickEnv(SPAWN_ENV_ALLOWLIST, source);
+}
+
+/** Set once at startup. `undefined` (production) means compose from the canonical
+ *  SPAWN_ENV_ALLOWLIST; a set value is the dev/nix-shell WIDENING of that base. */
 let envWhitelist: Set<string> | undefined;
 
 /**
@@ -96,9 +217,14 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
 /**
  * Sanitize the parent env that will reach the PTY shell.
  *
- * Without a whitelist (production): pass process.env straight through.
- * With a whitelist (dev/test inside nix shell): pick only whitelisted vars
- * and override SHELL with the user's login shell from /etc/passwd.
+ * Without a whitelist (production): compose from {@link SPAWN_ENV_ALLOWLIST} — a
+ * clean canonical base, NOT the whole parent env. This is the #1872 fix: the
+ * daemon's env can carry leaked identity vars, and forwarding it wholesale leaked
+ * them into every hosted PTY.
+ * With a whitelist (dev/test inside nix shell): compose the SAME canonical base,
+ * then ADDITIVELY widen it with the whitelisted nix-devshell vars, and override
+ * SHELL with the user's login shell from /etc/passwd. The whitelist widens the
+ * base, it does not replace it — so dev never gets a narrower env than production.
  *
  * Either way, a single shared post-step strips kolu's own internal env
  * (the `KOLU_*` namespace plus the wrapper-baked kaval identity vars — see
@@ -115,17 +241,32 @@ export function cleanEnv(): Record<string, string> {
   const loginShell = userInfo().shell || "/bin/sh";
   let env: Record<string, string>;
   if (envWhitelist) {
-    env = {};
-    for (const key of envWhitelist) {
-      const value = process.env[key];
-      if (value != null) env[key] = value;
-    }
+    // Dev/test inside a nix devshell: start from the SAME canonical allowlist base
+    // production composes — so the OPERATIONAL login-session vars (XDG_RUNTIME_DIR,
+    // SSH_AUTH_SOCK, WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS, TMPDIR) are present
+    // in dev too, matching production and the class's own rationale (dropping them
+    // silently breaks an interactive terminal). Then ADDITIVELY widen with the
+    // nix-devshell vars the whitelist names, on top. The whitelist is a dev-only
+    // WIDENING, not a replacement, so a developer running `just dev` never silently
+    // gets a narrower env than production.
+    env = composeSpawnEnv(process.env);
+    Object.assign(env, pickEnv(envWhitelist, process.env));
     // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp
     // that user bashrc files expect. Use the real login shell from /etc/passwd.
     env.SHELL = loginShell;
   } else {
-    env = { ...process.env } as Record<string, string>;
-    // Ensure SHELL is set — systemd user services may not have it.
+    // Production: compose from the shared SPAWN_ENV_ALLOWLIST — NOT a wholesale
+    // `{...process.env}` copy. The daemon's own process env can carry an
+    // orchestrator's leaked identity vars (CLAUDE_CODE_CHILD_SESSION and kin,
+    // #1872) or any other ambient marker; forwarding it verbatim leaked those into
+    // EVERY hosted PTY. Composing from the allowlist closes the whole class in one
+    // move — an unknown future identity var is dropped by construction. The wrapper
+    // rcfile replay (prepareShellInit) re-sources the user's dotfiles, so their
+    // real shell env is restored and the wholesale passthrough was never
+    // load-bearing (holds even under the macOS launchd near-empty parent env).
+    env = composeSpawnEnv(process.env);
+    // Ensure SHELL is set — systemd user services may not have it, and it may be
+    // absent from the allowlist mine above.
     env.SHELL ??= loginShell;
   }
   // Don't forward kolu's own internal env into the user's shell. The nix

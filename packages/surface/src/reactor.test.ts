@@ -10,7 +10,7 @@
  * `reactorEngineLaws.test.ts`.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
@@ -18,7 +18,9 @@ import {
   batch,
   computed,
   derived,
+  type DerivedCell,
   type DerivedComputeCell,
+  everyMsOr,
   scan,
   source,
 } from "./reactor";
@@ -304,7 +306,7 @@ describe("derived.cell", () => {
       inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
-    dc.connect(ctx);
+    void dc.connect(ctx);
     // The first (synchronous) connect run pushes the seed, deduped against the
     // identical store seed → nothing published at wiring.
     expect(ctx.published).toEqual([]);
@@ -330,7 +332,7 @@ describe("derived.cell", () => {
       inMemoryStore(dc.store.get()),
       (a: { level: string }, b: { level: string }) => a.level === b.level,
     );
-    dc.connect(ctx);
+    void dc.connect(ctx);
     expect(ctx.published).toEqual([]); // seed deduped
 
     emit(85); // ok -> alert
@@ -418,7 +420,7 @@ describe("derived.cell", () => {
     const count = scan(src, 0, (n) => n + 1);
     const dc = derived.cell(count);
 
-    dc.connect({ set: () => {} });
+    void dc.connect({ set: () => {} });
     expect(() => dc.connect({ set: () => {} })).toThrow(/twice/);
     dc.dispose();
   });
@@ -451,7 +453,7 @@ describe("computed", () => {
     );
     // Eager seed from the computed's current value (count 0 → 0), never a default.
     expect(dc.store.get()).toBe(0);
-    dc.connect(ctx);
+    void dc.connect(ctx);
     expect(ctx.published).toEqual([]); // seed deduped at wiring
 
     emit(0); // count → 1 → doubled 2
@@ -816,7 +818,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
-    dc.connect(ctx);
+    void dc.connect(ctx);
 
     emit(0); // count 1 → 2
     expect(ctx.published).toEqual([2]);
@@ -871,5 +873,705 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
     });
     expect(ctx.cells.mirror.get()).toBe(7);
+  });
+});
+
+describe("source (poll shape) — derived.cell(source({ read, install }))", () => {
+  it("seeds from the T+0 read, then re-reads and publishes on each tick", async () => {
+    let value = 1;
+    let tick!: () => void;
+    let uninstalled = 0;
+    const src = source({
+      read: () => Promise.resolve(value),
+      install: (t) => {
+        tick = t;
+        return () => {
+          uninstalled++;
+        };
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(
+      inMemoryStore<number | undefined>(undefined),
+      (a, b) => a === b,
+    );
+    // The connect is ASYNC for a poll source — it awaits the T+0 seed read.
+    const dispose = await dc.connect(ctx);
+    expect(ctx.published).toEqual([1]); // T+0 seed published
+
+    value = 2;
+    tick();
+    await flush();
+    expect(ctx.published).toEqual([1, 2]); // re-read on tick
+
+    value = 2; // unchanged value — the member `equals` dedups it
+    tick();
+    await flush();
+    expect(ctx.published).toEqual([1, 2]);
+
+    dispose();
+    expect(uninstalled).toBe(1); // the disposer uninstalls the caller's cadence
+  });
+
+  it("a poll source's level is honestly T | undefined; the dedicated overload recovers the served T (compile-time)", () => {
+    const src = source<number>({
+      read: () => Promise.resolve(1),
+      install: () => () => {},
+    });
+    // The poll source's own level is HONESTLY `number | undefined` (undefined until
+    // the seed) — NOT a synchronously-readable `number`. This assignment is the
+    // assertion; it would fail to typecheck if `value` claimed `number`.
+    const level: number | undefined = src.value.value;
+    void level;
+    // The dedicated poll overload returns a `PollDerivedCell<number>` whose CONNECTOR
+    // publishes a `number` (the served value), but whose SYNCHRONOUS dep face is
+    // honestly `number | undefined` — the type does NOT launder pre-seed undefined
+    // into `number`. These assignments are the assertion (F3):
+    const cell = derived.cell(src);
+    const preSeedGet: number | undefined = cell.store.get();
+    const preSeedSibling: number | undefined = cell.siblingRead();
+    void preSeedGet;
+    void preSeedSibling;
+    // @ts-expect-error — `store.get()` is `number | undefined`, NOT `number`: a poll
+    // dep's facade has no value before the seed, and the type says so.
+    const launderedGet: number = cell.store.get();
+    void launderedGet;
+    // @ts-expect-error — `siblingRead()` is `number | undefined`, NOT `number`.
+    const launderedSibling: number = cell.siblingRead();
+    void launderedSibling;
+    // The exploit F3 closes: wrapping the level in a `computed` yields a
+    // `GraphNode<number | undefined>` (honest), so the cell it makes is
+    // `DerivedCell<number | undefined>` — it can NOT masquerade as a `number` cell.
+    const wrapped = derived.cell(computed(() => src.value.value));
+    // @ts-expect-error — the wrapped cell is DerivedCell<number | undefined>; the
+    // undefined can't be silently laundered away under a `number` type.
+    const notNumber: DerivedCell<number> = wrapped;
+    void notNumber;
+    expect(typeof src).toBe("object");
+  });
+
+  it("first-read failure PROPAGATES — the connect rejects (a boot crash)", async () => {
+    const src = source<number>({
+      read: () => Promise.reject(new Error("sensor down")),
+      install: () => () => {},
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+    await expect(dc.connect(ctx)).rejects.toThrow("sensor down");
+    expect(ctx.published).toEqual([]); // nothing served — never a fabricated default
+  });
+
+  it("a LATER read that throws is log-skip-continue (holds the last value)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "ok" | "boom" = "ok";
+      let tick!: () => void;
+      const src = source<number>({
+        read: () =>
+          mode === "ok"
+            ? Promise.resolve(5)
+            : Promise.reject(new Error("blip")),
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(
+        inMemoryStore<number | undefined>(undefined),
+        (a, b) => a === b,
+      );
+      await dc.connect(ctx);
+      expect(ctx.published).toEqual([5]);
+
+      mode = "boom";
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5]); // held — no new publish, no throw out
+      expect(spy).toHaveBeenCalledOnce();
+      dc.dispose();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a LATER tick whose PUBLISHER throws is log-skip-continue — no unhandled rejection, holds last", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let value = 5;
+      let tick!: () => void;
+      const src = source<number>({
+        read: () => Promise.resolve(value),
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      // A cell whose `set` THROWS on the second publish (a later-tick publisher throw
+      // — a write hook / reconcile publisher failing). The seed publish (5) succeeds.
+      const published: number[] = [];
+      let boom = false;
+      const throwingCell = {
+        set: (v: number) => {
+          if (boom) throw new Error("publish blip");
+          published.push(v);
+        },
+      };
+      await dc.connect(throwingCell);
+      expect(published).toEqual([5]); // seed published
+
+      boom = true;
+      value = 6;
+      tick(); // the later read succeeds, but the publish throws
+      await flush();
+      // Log-skip-continue: the throw is logged and the last value HELD — NOT an
+      // unhandled rejection (nothing awaits tickRead's chain), and the poll lives on.
+      expect(published).toEqual([5]);
+      expect(spy).toHaveBeenCalledOnce();
+
+      // The poll is NOT wedged — a later good publish still lands (inFlight cleared).
+      boom = false;
+      value = 7;
+      tick();
+      await flush();
+      expect(published).toEqual([5, 7]);
+      dc.dispose();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("non-overlap guard COALESCES a tick during an in-flight read into ONE trailing read (not dropped)", async () => {
+    let reads = 0;
+    let resolveRead!: (n: number) => void;
+    let tick!: () => void;
+    const src = source<number>({
+      read: () => {
+        reads++;
+        return new Promise<number>((r) => {
+          resolveRead = r;
+        });
+      },
+      install: (t) => {
+        tick = t;
+        return () => {};
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+    const connectP = dc.connect(ctx); // T+0 seed read in flight (reads === 1)
+    expect(reads).toBe(1);
+    resolveRead(1);
+    await connectP;
+
+    // `tick` sets `inFlight` synchronously, then defers the read a microtask (so a
+    // SYNCHRONOUS throw from `read` takes the logged-skip path, not the callback).
+    tick(); // inFlight = true synchronously; read A scheduled
+    tick(); // LATCHED (dirty) — inFlight is already true; NOT dropped
+    tick(); // still latched — a burst COALESCES to a single trailing read
+    await flush(); // let read A actually run
+    expect(reads).toBe(2); // seed (1) + read A (1); the burst is still latched, not yet read
+
+    // Resolving read A fires the ONE coalesced trailing read for the whole burst —
+    // the edge is remembered, not lost (F6), and exactly once (not per tick).
+    resolveRead(2);
+    await flush();
+    expect(reads).toBe(3); // the single trailing read — never 4+ (burst coalesced)
+    resolveRead(3);
+    await flush();
+    expect(reads).toBe(3); // nothing further latched → no extra read
+    dc.dispose();
+  });
+
+  it("a later read that throws SYNCHRONOUSLY is log-skip-continue — inFlight never wedges", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "ok" | "throw" = "ok";
+      let val = 5;
+      let tick!: () => void;
+      const src = source<number>({
+        // A THROW-ONLY read is type-compatible; this returns before its Promise.
+        read: () => {
+          if (mode === "throw") throw new Error("sync boom");
+          return Promise.resolve(val);
+        },
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(
+        inMemoryStore<number | undefined>(undefined),
+        (a, b) => a === b,
+      );
+      await dc.connect(ctx);
+      expect(ctx.published).toEqual([5]);
+
+      mode = "throw";
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5]); // held, not crashed
+      expect(spy).toHaveBeenCalled();
+
+      // NOT wedged: a subsequent good read still publishes (inFlight was cleared even
+      // though the previous read threw synchronously).
+      mode = "ok";
+      val = 9;
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5, 9]);
+      dc.dispose();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an edge DURING the seed is latched and reflected by a trailing read (durable readiness)", async () => {
+    // The install (the change-listener) runs BEFORE the seed, so an edge that fires
+    // while the seed is still in flight is remembered — not lost to a not-yet-
+    // subscribed listener, the exact race a kaval connecting mid-inventory-seed hits.
+    let value = 1;
+    let resolveSeed!: (n: number) => void;
+    let seeded = false;
+    let tick!: () => void;
+    const src = source<number>({
+      read: () => {
+        if (!seeded) {
+          seeded = true;
+          return new Promise<number>((r) => {
+            resolveSeed = r;
+          }); // the seed — held until resolveSeed
+        }
+        return Promise.resolve(value); // later reads sample the live value
+      },
+      install: (t) => {
+        tick = t;
+        return () => {};
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(
+      inMemoryStore<number | undefined>(undefined),
+      (a, b) => a === b,
+    );
+    const connectP = dc.connect(ctx); // installs, then the seed goes in flight
+    tick(); // an edge fires WHILE the seed is in flight — latched as `dirty`
+    value = 2; // the state that edge signalled
+    resolveSeed(1); // the seed lands = the now-stale 1
+    await connectP;
+    await flush(); // the trailing read for the during-seed edge runs
+    // The seed published 1, then the latched trailing read corrected it to 2 at once
+    // — the mid-seed edge is honoured, not deferred to the next cadence.
+    expect(ctx.published).toEqual([1, 2]);
+    dc.dispose();
+  });
+
+  it("a throwing seed PUBLISHER tears down the cadence before connect rejects — no leak (F8)", async () => {
+    // Install-before-seed puts the cadence into the seed's publication lifetime, so a
+    // publisher throw (a cell write hook / a collection reconcile publisher) at
+    // `set(seed)` — the SAME fault class as a read failure — must roll the cadence
+    // back immediately, not leave it polling a failed publisher until an external
+    // dispose.
+    let installed = 0;
+    let uninstalled = 0;
+    const src = source<number>({
+      read: () => Promise.resolve(1),
+      install: (t) => {
+        installed++;
+        void t;
+        return () => {
+          uninstalled++;
+        };
+      },
+    });
+    const dc = derived.cell(src);
+    // A cell whose seed publish THROWS.
+    const throwingCell = {
+      set: () => {
+        throw new Error("publisher boom");
+      },
+    };
+    await expect(dc.connect(throwingCell)).rejects.toThrow("publisher boom");
+    // Cadence rolled back at once — no dispose() call, no leaked interval.
+    expect(installed).toBe(1);
+    expect(uninstalled).toBe(1);
+  });
+
+  it("close during a LATER in-flight read: no failure log, no late publish (owned abort is silent)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let tick!: () => void;
+      let seeded = false;
+      const src = source<number>({
+        read: (signal) => {
+          if (!seeded) {
+            seeded = true;
+            return Promise.resolve(1);
+          }
+          // A later read that COOPERATES with the abort — it rejects when close aborts.
+          return new Promise<number>((_res, rej) => {
+            signal?.addEventListener("abort", () => rej(new Error("aborted")), {
+              once: true,
+            });
+          });
+        },
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+      const ctl = new AbortController();
+      await dc.connect(ctx, { signal: ctl.signal });
+      expect(ctx.published).toEqual([1]);
+
+      tick(); // a later read starts and is in flight
+      await flush();
+      ctl.abort(); // close() aborts the in-flight read cooperatively
+      await flush();
+      // The read rejects with the OWNED abort reason — clean shutdown, NOT a poll
+      // failure: nothing logged, nothing published.
+      expect(spy).not.toHaveBeenCalled();
+      expect(ctx.published).toEqual([1]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("close during the T+0 seed: no late publish, cadence torn down, connect settles", async () => {
+    let resolveRead!: (n: number) => void;
+    let installed = 0;
+    let uninstalled = 0;
+    const src = source<number>({
+      read: () =>
+        new Promise<number>((r) => {
+          resolveRead = r;
+        }),
+      install: (t) => {
+        installed++;
+        void t;
+        return () => {
+          uninstalled++;
+        };
+      },
+    });
+    const dc = derived.cell(src);
+    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+    const ctl = new AbortController();
+    const connectP = dc.connect(ctx, { signal: ctl.signal }); // installs, seed in flight
+    ctl.abort(); // close() races the seed
+    resolveRead(7); // seed resolves AFTER the abort
+    await connectP; // must SETTLE (not hang)
+    expect(ctx.published).toEqual([]); // no late publish over a closing runtime
+    // The cadence is installed BEFORE the seed (so a during-seed edge isn't lost),
+    // so a close-during-seed must TEAR IT DOWN — no live listener leaks.
+    expect(installed).toBe(1);
+    expect(uninstalled).toBe(1);
+  });
+
+  it("rides implementSurface: a poll cell seeds the spec DEFAULT, then publishes reads", async () => {
+    let value = 100;
+    let tick!: () => void;
+    const src = source({
+      read: () => Promise.resolve(value),
+      install: (t) => {
+        tick = t;
+        return () => {};
+      },
+    });
+    const surface = defineSurface({
+      cells: {
+        temp: {
+          schema: z.number(),
+          default: -1,
+          equals: (a: number, b: number) => a === b,
+          verbs: ["get"],
+        },
+      },
+    });
+    const { ctx, done } = implementSurface(surface, {
+      cells: { temp: derived.cell(src) },
+    });
+    void done;
+    // The seed read resolves on a microtask; before it lands the cell serves the
+    // spec DEFAULT (behavior-neutral with the hand-rolled sampler), never undefined.
+    await flush();
+    expect(ctx.cells.temp.get()).toBe(100); // first read published over the default
+
+    value = 200;
+    tick();
+    await flush();
+    expect(ctx.cells.temp.get()).toBe(200);
+  });
+});
+
+describe("derived.collection — the keyed reconciler", () => {
+  const surface = defineSurface({
+    collections: {
+      items: {
+        keySchema: z.string(),
+        schema: z.object({ n: z.number() }),
+        // per-key value equality — the reconciler's diff predicate
+        equals: (a: { n: number }, b: { n: number }) => a.n === b.n,
+        verbs: ["keys", "get"],
+      },
+    },
+  });
+
+  it("reconciles a poll source's whole-map read into per-key upserts + removes", async () => {
+    let table = new Map<string, { n: number }>([
+      ["a", { n: 1 }],
+      ["b", { n: 2 }],
+    ]);
+    let tick!: () => void;
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => Promise.resolve(new Map(table)),
+            install: (t) => {
+              tick = t;
+              return () => {};
+            },
+          }),
+        ),
+      },
+    });
+    await flush(); // the T+0 seed read lands → reconcile upserts every key
+    expect(runtime.ctx.collections.items.readAll()).toEqual(
+      new Map([
+        ["a", { n: 1 }],
+        ["b", { n: 2 }],
+      ]),
+    );
+
+    // Change b's value, add c, drop a — the reconciler upserts b+c and removes a.
+    table = new Map([
+      ["b", { n: 5 }],
+      ["c", { n: 9 }],
+    ]);
+    tick();
+    await flush();
+    expect(runtime.ctx.collections.items.readAll()).toEqual(
+      new Map([
+        ["b", { n: 5 }],
+        ["c", { n: 9 }],
+      ]),
+    );
+    await runtime.close();
+  });
+
+  it("immediate same-turn close is clean — the deferred connect never runs on a torn collection (F4)", async () => {
+    let seedStarted = false;
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => {
+              seedStarted = true;
+              return Promise.resolve(new Map<string, { n: number }>());
+            },
+            install: () => () => {},
+          }),
+        ),
+      },
+    });
+    // Close in the SAME TURN — this synchronously aborts the connector and disposes
+    // the collection BEFORE the deferred connect microtask runs. That microtask must
+    // observe the abort and no-op; otherwise it calls `connect()` on a torn
+    // collection ("connect() after dispose()") and faults `done` on a clean close.
+    const closeP = runtime.close();
+    await flush(); // drain the deferred connect microtask
+    await expect(closeP).resolves.toBeUndefined();
+    await expect(runtime.done).resolves.toBeUndefined(); // clean, not a fault
+    expect(seedStarted).toBe(false); // connect was skipped — the seed never started
+  });
+
+  it("is graph-owned: ctx upsert/remove throw (the reconciler is the one writer)", async () => {
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => Promise.resolve(new Map<string, { n: number }>()),
+            install: () => () => {},
+          }),
+        ),
+      },
+    });
+    await flush();
+    expect(() => runtime.ctx.collections.items.upsert("x", { n: 1 })).toThrow(
+      /graph-owned/,
+    );
+    expect(() => runtime.ctx.collections.items.remove("x")).toThrow(
+      /graph-owned/,
+    );
+    await runtime.close();
+  });
+
+  it("boot narrowing: a derived collection declaring a wire WRITE verb crashes at wiring", () => {
+    // A derived collection is wire-read-only (its reconciler is the one writer); a
+    // declared `upsert`/`delete` wire verb would let a client publish a value the
+    // graph never derived — a second writer. Crash at boot, mirroring derived cells.
+    const writeSurface = defineSurface({
+      collections: {
+        items: {
+          keySchema: z.string(),
+          schema: z.object({ n: z.number() }),
+          verbs: ["keys", "get", "upsert", "delete"],
+        },
+      },
+    });
+    expect(() =>
+      implementSurface(writeSurface, {
+        collections: {
+          items: derived.collection(
+            source({
+              read: () => Promise.resolve(new Map<string, { n: number }>()),
+              install: () => () => {},
+            }),
+          ),
+        },
+      }),
+    ).toThrow(/wire-read-only/);
+  });
+
+  it("an unchanged tick reconciles to NOTHING — same map in, no key churn (equals dedup)", async () => {
+    // A poll read that keeps yielding the SAME content (fresh object refs, equal
+    // `.n`) must not churn the collection: the reconciler's `equals` diff drops it.
+    let table = new Map<string, { n: number }>([["a", { n: 1 }]]);
+    let tick!: () => void;
+    const runtime = implementSurface(surface, {
+      collections: {
+        items: derived.collection(
+          source({
+            read: () => Promise.resolve(new Map(table)),
+            install: (t) => {
+              tick = t;
+              return () => {};
+            },
+          }),
+        ),
+      },
+    });
+    await flush();
+    const afterSeed = runtime.ctx.collections.items.readAll();
+    // Same content, fresh object references — equal by `.n`.
+    table = new Map([["a", { n: 1 }]]);
+    tick();
+    tick();
+    await flush();
+    // The reconciler held: content is unchanged (an equals-changed value WOULD have
+    // replaced it — see the reconcile test above).
+    expect(runtime.ctx.collections.items.readAll()).toEqual(afterSeed);
+    // A genuinely changed value still lands, proving the tick loop is live.
+    table = new Map([["a", { n: 2 }]]);
+    tick();
+    await flush();
+    expect(runtime.ctx.collections.items.readAll()).toEqual(
+      new Map([["a", { n: 2 }]]),
+    );
+    await runtime.close();
+  });
+});
+
+describe("everyMsOr — the fused interval + edge cadence", () => {
+  // These pin the graduated cadence fuse at its HOME (SR8.c): the interval+edge
+  // `install` moved here out of kolu-server's app-local `everyMsOrOnState` twin, and
+  // its contract — edge-fire, unref'd interval, both-teardown — is asserted where it
+  // lives. Fake timers are scoped to this block so the async poll-source tests above
+  // keep their real-timer `flush`.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("fires the tick when the subscribed edge fires (the force-resample), not just on the interval", () => {
+    let fireEdge!: () => void;
+    const subscribe = (tick: () => void): (() => void) => {
+      fireEdge = tick;
+      return () => {};
+    };
+    const tick = vi.fn();
+
+    const cleanup = everyMsOr(5_000, subscribe)(tick);
+
+    // No interval elapsed yet — but an edge force-resamples immediately.
+    expect(tick).not.toHaveBeenCalled();
+    fireEdge();
+    expect(tick).toHaveBeenCalledTimes(1);
+
+    // The interval still ticks independently.
+    vi.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(2);
+    fireEdge();
+    expect(tick).toHaveBeenCalledTimes(3);
+
+    cleanup?.();
+  });
+
+  it("the interval is unref'd so a live sampler never holds the process open on its own", () => {
+    const unref = vi.fn();
+    const setInterval = vi
+      .spyOn(globalThis, "setInterval")
+      .mockReturnValue({ unref } as unknown as ReturnType<
+        typeof globalThis.setInterval
+      >);
+
+    const cleanup = everyMsOr(5_000, () => () => {})(() => {});
+    expect(setInterval).toHaveBeenCalledOnce();
+    expect(unref).toHaveBeenCalledOnce();
+
+    cleanup?.();
+    setInterval.mockRestore();
+  });
+
+  it("cleanup unsubscribes the edge AND clears the interval — both, not one", () => {
+    const off = vi.fn();
+    const subscribe = vi.fn((_tick: () => void) => off);
+    const tick = vi.fn();
+
+    const cleanup = everyMsOr(5_000, subscribe)(tick);
+    expect(subscribe).toHaveBeenCalledOnce();
+
+    cleanup?.();
+    // The subscription is torn down …
+    expect(off).toHaveBeenCalledOnce();
+    // … and the interval no longer fires the tick.
+    vi.advanceTimersByTime(20_000);
+    expect(tick).not.toHaveBeenCalled();
+  });
+
+  it("rolls the interval back if subscribe throws during setup — no orphaned timer", () => {
+    const clearInterval = vi.spyOn(globalThis, "clearInterval");
+    const boom = new Error("edge source unavailable");
+    const subscribe = () => {
+      throw boom;
+    };
+
+    // The interval is live before subscribe runs; a throwing subscribe must clear it, not leak it.
+    expect(() => everyMsOr(5_000, subscribe)(() => {})).toThrow(boom);
+    expect(clearInterval).toHaveBeenCalledOnce();
+
+    // No orphaned timer survives to fire.
+    const tick = vi.fn();
+    everyMsOr(5_000, () => () => {})(tick);
+    vi.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(1);
+
+    clearInterval.mockRestore();
+  });
+
+  it("clears the interval even when unsubscribe throws during cleanup — finally, not sequence", () => {
+    const off = () => {
+      throw new Error("unsubscribe failed");
+    };
+    const tick = vi.fn();
+    const cleanup = everyMsOr(5_000, () => off)(tick);
+
+    // A throwing unsubscribe propagates, but the interval is still torn down (finally).
+    expect(() => cleanup?.()).toThrow("unsubscribe failed");
+    vi.advanceTimersByTime(20_000);
+    expect(tick).not.toHaveBeenCalled();
   });
 });

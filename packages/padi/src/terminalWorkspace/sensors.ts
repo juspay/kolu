@@ -6,8 +6,9 @@
  *  store: it cannot CONSTRUCT the two memory facts (`lastActivityAt` /
  *  `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
  *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`TerminalSnapshot`),
- *  not a runtime mutator split. kolu folds the stream into a `TerminalState`
- *  (`./fold.ts`); the daemon (pulam) folds the snapshot half only.
+ *  not a runtime mutator split. padi folds the stream into a `TerminalState`
+ *  (`./fold.ts`, with memory on the host clock); a memoryless dashboard consumer
+ *  folds the snapshot half only.
  *
  *  Producer:
  *
@@ -86,10 +87,17 @@ interface AgentEngineState {
 export interface CommandRunSample {
   command: string;
   replayed: boolean;
+  /** The command's quoting dialect: `true` = the command-rooted `shellJoin` seed
+   *  (reparse with `shellSplit`), `false` = a raw OSC 633;E line (reparse with
+   *  `string-argv`). REQUIRED — a host hands the producer a definite dialect (the
+   *  optional-on-the-wire skew default is resolved once at the pty-host bridge),
+   *  so the tokenizer is never guessed from the string, the terminal, or a
+   *  fallback in the parsing path. */
+  shellJoin: boolean;
 }
 
-/** Per-terminal signals the sensors subscribe to. The host (kolu-server's
- *  local endpoint, or `pulam`) creates a fresh in-memory channel of each kind
+/** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
+ *  a local or remote host) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
  *  pty-host serves the same taps. */
 export interface SensorSignals {
@@ -111,7 +119,7 @@ export interface SensorSignals {
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
  *  one optional host input the producer takes (besides the taps). Provided by
- *  hosts that can reach the PTY screen buffer (kolu's local endpoint and pulam,
+ *  padi wherever it can reach the PTY screen buffer (local or remote host,
  *  via pty-host's `getScreenText`). Async + host-supplied, so the producer keeps
  *  its zero *synchronous* dependency on the PTY host. Drives
  *  `AgentAdapter.screenScrape` promotion (Claude's `AskUserQuestion` /
@@ -354,8 +362,12 @@ function startAgentCommandSensor(
   log: Logger,
 ): () => void {
   return signals.commandRun.consume({
-    onEvent: ({ command: raw, replayed }) => {
-      const normalized = parseAgentCommand(raw);
+    onEvent: ({ command: raw, replayed, shellJoin }) => {
+      // The pty-host tags each command's dialect: a command-rooted `shellJoin`
+      // seed (`shellJoin: true` → reparse with `shellSplit`) vs a raw OSC 633;E
+      // line (reparse with `string-argv`). Tokenize by that fact — no fallback in
+      // the parsing path; `shellJoin` is a required field on the sample.
+      const normalized = parseAgentCommand(raw, shellJoin);
       agentState.currentAgent = normalized
         ? agentNameFromCommand(normalized)
         : null;
@@ -383,22 +395,45 @@ function startAgentCommandSensor(
 
 // ── Agent detectors ───────────────────────────────────────────────────
 
+// What `foreground === root` MEANS — the single decision `commandRooted` was
+// added to encapsulate, in ONE place. `pid` is the ROOT pid (constant, from
+// spawn). Shell is idle when the foreground process group IS the shell itself
+// (or unknown): for a shell-rooted PTY that root is the shell, so
+// `foreground === root` means an idle prompt. But for a COMMAND-rooted PTY
+// (#1872) the root IS the agent, so `foreground === root` means the agent is
+// BUSY — the exact opposite. There is no shell to be idle at, so it is never
+// shell-idle. Both the snapshot/display path and the reconcile session-end-dedup
+// path read the answer from here, so they can never encode different answers.
+function isShellIdle(
+  foregroundPid: number | undefined,
+  pid: number,
+  commandRooted: boolean,
+): boolean {
+  return commandRooted
+    ? false
+    : foregroundPid === undefined || foregroundPid === pid;
+}
+
 function snapshotSignals(
   foreground: ForegroundSample,
   pid: number,
   cwd: string,
   currentAgent: string | null,
-): AgentTerminalState {
+  commandRooted: boolean,
+): { state: AgentTerminalState; shellIdle: boolean } {
   const foregroundPid = foreground.foregroundPid;
-  // Shell is idle when the foreground process group IS the shell itself (or
-  // unknown). `pid` is the shell's pid (constant, from spawn).
-  const shellIdle = foregroundPid === undefined || foregroundPid === pid;
+  const shellIdle = isShellIdle(foregroundPid, pid, commandRooted);
   const proc = foreground.process;
+  // Return the computed `shellIdle` alongside `state` so the reconcile path
+  // reads this one flip rather than re-deriving it from `state.foregroundPid`.
   return {
-    foregroundPid,
-    cwd,
-    readForegroundBasename: () => (proc ? path.basename(proc) : null),
-    lastAgentCommandName: shellIdle ? null : currentAgent,
+    state: {
+      foregroundPid,
+      cwd,
+      readForegroundBasename: () => (proc ? path.basename(proc) : null),
+      lastAgentCommandName: shellIdle ? null : currentAgent,
+    },
+    shellIdle,
   };
 }
 
@@ -491,6 +526,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   readScreenText: ReadScreenText | undefined,
   emit: (o: TerminalEvent) => void,
   log: Logger,
+  commandRooted: boolean,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
   let current: {
@@ -554,11 +590,12 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     }
   }
   function reconcileInner() {
-    const state = snapshotSignals(
+    const { state, shellIdle } = snapshotSignals(
       currentForeground,
       pid,
       currentCwd,
       agentState.currentAgent,
+      commandRooted,
     );
     if (!registeredForExternal && adapter.externalChanges?.isPresent(state)) {
       const activation = getActivation(adapter.kind);
@@ -585,10 +622,10 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
     // flavor flips — a defined-non-shell `unknown` giving way to a shell-idle `null` —
     // so a genuine quit after an ambiguous window still clears even though `current` is
-    // already null by then. `pid` is the shell's own pid (constant, from spawn), the
-    // same predicate `snapshotSignals` computes for `shellIdle`.
-    const shellIdle =
-      state.foregroundPid === undefined || state.foregroundPid === pid;
+    // already null by then. `shellIdle` is the SAME boolean `snapshotSignals` already
+    // computed for this sample (read off its companion return, not re-derived) — so the
+    // dedup and the display path can never disagree, including the #1872 command-rooted
+    // flip where `foreground === root` is BUSY, never an idle-shell authoritative null.
     if (
       (current?.key ?? null) === nextKey &&
       (nextKey !== null || lastAbsenceShellIdle === shellIdle)
@@ -841,12 +878,21 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
  *  coupling injected, not imported, so this package names no host). NO seed, no
  *  store: the producer cannot remember, so a host hands it only what it observes. */
 export interface SensorInputs {
-  /** OS pid of the PTY's shell — constant for the terminal's life, known at spawn.
-   *  The agent detectors compare it to the foreground pid to decide "shell idle"
-   *  (foreground IS the shell). */
+  /** OS pid of the PTY's ROOT process — constant for the terminal's life, known at
+   *  spawn (the shell for a shell-rooted PTY, the command for a command-rooted one).
+   *  The agent detectors compare it to the foreground pid to decide "shell idle":
+   *  `foreground === root` is an idle prompt for a shell root, but a BUSY agent for
+   *  a command root — see `isShellIdle` / `commandRooted`. */
   pid: number;
   /** Spawn-time cwd — read once at start; later cwd changes flow via `signals.cwd`. */
   cwd: string;
+  /** True when the PTY's root process IS the spawned command, not a shell
+   *  (#1872). The agent detectors read it so `foreground === root` reads as a
+   *  busy command-rooted agent, not an idle shell prompt. Required: the host
+   *  resolves "absent = shell-rooted" once at the wire-read boundary (a padi
+   *  spawn, or an adopted entry that omits it), so a concrete boolean always
+   *  reaches here. */
+  commandRooted: boolean;
   signals: SensorSignals;
   readScreenText?: ReadScreenText;
   log: Logger;
@@ -864,7 +910,7 @@ export function startSensors(
   inputs: SensorInputs,
   emit: (o: TerminalEvent) => void,
 ): () => void {
-  const { pid, cwd, signals, readScreenText, log } = inputs;
+  const { pid, cwd, commandRooted, signals, readScreenText, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
@@ -873,8 +919,8 @@ export function startSensors(
   // it, so a throw escaping `emit` would both freeze the raising sensor's `consume`
   // loop AND desync the host fold from the now-advanced baseline (a later equal value
   // deduped → lost forever). So error handling lives where the fallible work actually
-  // is — the host's publish boundary (kolu's `commitSnapshot` / `updateMemory` /
-  // `emitTerminalsDirty`, and pulam's `upsert`, each fold-ACCEPT then guard their own
+  // is — the host's publish boundary (the fold's `updateMemory` and padi's
+  // collection `upsert`, each fold-ACCEPT then guard their own
   // publish), NOT a funnel wrapper here that would sit at the wrong seam (after the
   // baseline advanced) and merely log a lost observation. With the publish guarded at
   // its boundary, `emit` is infallible and passed straight through to each sensor.
@@ -924,6 +970,7 @@ export function startSensors(
       readScreenText,
       emit,
       log,
+      commandRooted,
     );
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);

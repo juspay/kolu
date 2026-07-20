@@ -15,7 +15,7 @@
  * defaults to the reserved `system.live` round-trip (`probeSurfaceLive`) — the
  * same receptacle HostSession's periodic watchdog plugs into — so no CLI
  * nominates its own liveness verb. A CLI overrides `probe` only for a protocol
- * assertion that goes beyond liveness (pulam-tui's `version` first-frame check).
+ * assertion that goes beyond liveness (padi-tui's padiSurface contract-version gate).
  *
  * This is the *one-shot* shape: it fires `markConnected()` itself and discards
  * the `HostSession`, because a one-shot CLI needs no copying/connecting overlay
@@ -24,6 +24,7 @@
  * (as mini-ci's dialer does) — it does NOT reuse this `{ client, dispose }`.
  */
 
+import type { Logger } from "@kolu/log";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
@@ -113,15 +114,15 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  `process.env.FOO` property that could silently drift. */
   agentDrvsJson: string | undefined;
   /** Noun for the "no <noun> derivation baked for system=…" error (e.g.
-   *  `kaval`, `pulam`). */
+   *  `kaval`, `padi`). */
   drvNoun: string;
   /** The EXACT stderr prefix the remote agent writes before its fatal message,
-   *  right before exiting (e.g. `pulam:`, `kaval --stdio:`). Required and
+   *  right before exiting (e.g. the retired pulam's `pulam:`, or `kaval --stdio:`). Required and
    *  caller-supplied because it is NOT always `${drvNoun}:` — kaval's `--stdio`
    *  front writes `kaval --stdio:`, not `kaval:`. The agent's fatal is the LAST
    *  thing it writes, so `dialAgentOnce` surfaces everything from the last line
    *  carrying this prefix through the end of the remote stderr as the dial's
-   *  failure reason — capturing a multi-line block (e.g. pulam's "more than one
+   *  failure reason — capturing a multi-line block (e.g. the retired pulam's "more than one
    *  kaval" error listing each `--kaval <socket>` candidate), not just the
    *  prefixed first line. */
   fatalPrefix: string;
@@ -130,22 +131,30 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  framework-reserved `system.live` round-trip (`probeSurfaceLive`), the same
    *  receptacle HostSession's periodic watchdog plugs into, so every
    *  `defineSurface` agent is provable without nominating an app verb. Override
-   *  ONLY for a genuine protocol assertion that goes BEYOND liveness — pulam-tui
-   *  asserts its `version` cell yields a first frame, which is a contract check,
+   *  ONLY for a genuine protocol assertion that goes BEYOND liveness — padi-tui
+   *  gates the padiSurface contract version, which is a contract check,
    *  not merely "is the link alive". The result is discarded; a rejection fails
    *  the dial (and destroys the session). */
   probe?: (client: AgentClient<C>) => Promise<unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
-   *  the caller's concern (see the pulam-tui `--kaval` call site). */
+   *  the caller's concern (see the remote padi binding's `--state-root` call site). */
   extraArgs?: readonly string[];
-  /** Diagnostic-line sink, forwarded to `HostSessionOptions.onLog`. Omit and the
-   *  session writes its `nix copy` progress / connection transitions / forwarded
-   *  remote stderr to `process.stderr` (what a plain CLI wants). An alt-screen
-   *  consumer (an OpenTUI board) passes its own sink so these never corrupt the
-   *  rendered screen — the lines stay in the session state for failure reads. */
-  onLog?: (line: string) => void;
+  /** The COMPLETE env for a localhost dial's direct `spawn` — REQUIRED (threaded to
+   *  `sshConnector` → `buildAgentCommand`). A localhost agent runs with EXACTLY this
+   *  env, never the caller's ambient `process.env`, so identity vars can't ride an
+   *  ambient inherit into a locally-hosted agent (#1872 / PR1.5). Unused on a real
+   *  remote (the ssh client inherits). The caller composes a clean env — kolu CLIs via
+   *  kolu-pty's `composeSpawnEnv`; surface-remote stays policy-free. */
+  localEnv: Record<string, string>;
+  /** Structured diagnostic logger, forwarded to `MakeSessionOptions.log`. Omit
+   *  and the session writes its `nix copy` progress / connection transitions /
+   *  forwarded remote stderr to `process.stderr` (what a plain CLI wants). An
+   *  alt-screen consumer (an OpenTUI board) passes its own logger so these
+   *  never corrupt the rendered screen — the lines stay in the session state
+   *  for failure reads. */
+  log?: Logger;
 }
 
 /** Dial an agent on `host` over ssh, one-shot. Provisions the daemon's closure,
@@ -173,6 +182,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       host: opts.host,
       binary: opts.binary,
       extraArgs: opts.extraArgs,
+      localEnv: opts.localEnv,
       resolveDrvPath: () =>
         resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
     }),
@@ -180,22 +190,11 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // before the transport is up — so this session opens at "probing" (the arch probe +
     // warm check), advancing to "copying"/"building" only when a real cold copy runs.
     initialConnection: "probing",
-    onLog: opts.onLog,
+    log: opts.log,
     // Preserve the pre-S9 `[host:<host> …]` diagnostic prefix byte-for-byte (the tag
     // every `HostSession` line carried), so an alt-screen consumer's log filtering
     // and the failure-read tail are unchanged.
     label: `host:${opts.host}`,
-  });
-  // Capture the latest session state (snapshot-then-delta) so the failure path can
-  // read the agent's own fatal off the log's REMOTE-origin lines — the role exposes
-  // no synchronous `current()` snapshot, so a live `onState` mirror stands in. The
-  // remote lines are now the `source === "remote"` entries of the unified `log`
-  // (provenance is a field), reduced to their raw text.
-  let latestRemoteLines: readonly string[] = [];
-  const unsubState = session.onState((s) => {
-    latestRemoteLines = s.log
-      .filter((e) => e.source === "remote")
-      .map((e) => e.line);
   });
   // The agent's OWN fatal reason, read off the session AFTER a failed dial. When
   // the agent exits before serving — a bad `--kaval` pick, a startup crash — the
@@ -203,7 +202,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // the agent's last stderr (the REMOTE-origin lines of the session's `log` —
   // `log` entries with `source === "remote"`) is the real reason. The agent writes
   // its fatal as `<fatalPrefix> <message>` to its own stderr right before exiting
-  // (see pulam's / kaval's bin.ts), forwarded onto those remote-origin `log` lines,
+  // (see padi's / kaval's bin.ts), forwarded onto those remote-origin `log` lines,
   // already separated (by the `source` field) from the session's OWN local
   // lifecycle chatter ("agent exited", "reconnecting in 2000ms…"). Reading them BY
   // ORIGIN (`source === "remote"`) rather than re-parsing an in-band tag keeps the
@@ -214,13 +213,14 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // The fatal is the LAST thing the agent writes, so it is the TAIL of the
   // remote-origin lines (never evicted by the `MAX_PROGRESS_LINES` cap, which drops
   // the oldest) — captured FROM the last prefixed line THROUGH the end, not just
-  // that one line. pulam's ambiguity error is multi-line (the "more than one kaval"
+  // that one line. The retired pulam's ambiguity error was multi-line (the "more than one kaval"
   // header plus each `--kaval <socket>` candidate the user needs to recover):
   // `forEachLine` splits it into separate remote `log` entries where only the first
   // carries the prefix, so matching a single prefixed line would drop the
-  // candidates. We read the WHOLE current tail once, on the catch
-  // path — no `onState` accumulator (a cached partial block could otherwise
-  // short-circuit a later full read under stderr fragmentation).
+  // candidates. We read the WHOLE current tail once, on the catch path, off the
+  // session's freshest frame (`currentState()`) — no `onState` accumulator (a cached
+  // partial block could otherwise short-circuit a later full read under stderr
+  // fragmentation).
   const agentFatal = (remoteLines: readonly string[]): string | undefined => {
     const prefix = opts.fatalPrefix;
     // Walk back to the last line that opens the fatal block.
@@ -241,9 +241,11 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     return block.trim() || undefined;
   };
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
-  // failure anywhere in pin/probe must destroy the session itself — otherwise
-  // its ref-counted reconnect loop/watchdog timer leaks for any caller that
-  // catches the rejection (the CLI exits, but this dialer is also used by tests).
+  // failure anywhere in pin/probe must destroy the session itself. The session's
+  // timers no longer pin the process (they are unref'd — docs/atlas
+  // session-timer-unref), but an undestroyed session in a HELD process (tests,
+  // a server embedding this dialer) would keep redialing/spawning ssh children
+  // for as long as that process lives — the leak this destroy still prevents.
   try {
     // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE
     // the connect watchdog arms, so a cold copy doesn't time it out) and spawns
@@ -256,14 +258,13 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // any real command. Default to the framework-reserved `system.live` probe —
     // the receptacle HostSession's periodic watchdog also plugs into — so a CLI
     // need not nominate its own liveness verb; only a deliberate protocol
-    // assertion (pulam-tui's first-frame check) overrides it.
+    // assertion (padi-tui's contract-version gate) overrides it.
     const probe = opts.probe ?? probeSurfaceLive;
     await probe(client);
     session.markConnected();
     return {
       client,
       dispose: () => {
-        unsubState();
         session.destroy();
       },
     };
@@ -272,8 +273,12 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // `exit` event, so yield once to let that handler land the agent's stderr on
     // the session state before we read the whole current tail.
     await new Promise((resolve) => setImmediate(resolve));
-    const reason = agentFatal(latestRemoteLines);
-    unsubState();
+    const reason = agentFatal(
+      session
+        .currentState()
+        .log.filter((e) => e.source === "remote")
+        .map((e) => e.line),
+    );
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
     // and clears timers) must NOT replace the failure the caller needs to see.
     try {

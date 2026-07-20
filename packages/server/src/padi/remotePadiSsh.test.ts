@@ -52,6 +52,7 @@ import {
   type SshProv,
   sshConnector,
 } from "@kolu/surface-remote";
+import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -230,9 +231,12 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // `buildAgentCommand` already runs the binary as `padi --stdio` (host.ts) and
         // appends extraArgs AFTER it — so extraArgs must NOT re-pass `--stdio`.
         extraArgs: [],
+        // The localhost arm's composed env — this suite dials a real ssh host, so it
+        // is unused, but the type requires it (PR1.5 / #1872).
+        localEnv: {},
         resolveDrvPath: async () => PADI_DRV as string,
       }),
-      onLog: (line) => console.log(`[host] ${line}`),
+      log: collectLogger((l) => console.log(`[host] ${l}`)),
     });
     sessions.push(s);
     return s;

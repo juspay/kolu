@@ -31,6 +31,7 @@
  *     connectOnce: sshConnector({
  *       host,
  *       binary,
+ *       localEnv,  // the composed env a `localhost` dial spawns with (never ambient process.env)
  *       resolveDrvPath: async () => {
  *         const sys = await resolveSystem(host);
  *         const drv = myDrvBySystem[sys];

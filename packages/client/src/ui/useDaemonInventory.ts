@@ -32,7 +32,7 @@ import type {
   RunningPadi,
 } from "kolu-common/surface";
 import { createRoot } from "solid-js";
-import { toast } from "solid-sonner";
+import { daemonTransportLive } from "../kaval/useDaemonStatus";
 import { app } from "../wire";
 
 // HOST-SCOPING: every reader below rides koluSurface's `daemonInventory` cell, which
@@ -55,17 +55,21 @@ import { app } from "../wire";
 // load with no owner to hold its listener count above zero (the "build commit —"
 // symptom: the cell's real first value never has a live subscriber to land on).
 // Wrapped in an app-lifetime `createRoot` so it survives for the session.
-const sub = createRoot(() =>
-  app.cells.daemonInventory.use({
-    onError: (err) => toast.error(`Daemon inventory error: ${err.message}`),
-  }),
-);
+const sub = createRoot(() => app.cells.daemonInventory.use());
 
 /** The ssh host kolu-server's padi is bound to (`KOLU_PADI_HOST`), or `null` for a
  *  LOCAL binding / before the first enumeration. When non-null, the machine kolu-server
  *  runs on is NOT the bound host — so the dialogs show its `localScan` as a separate
  *  "this machine, not the bound host" group beside the bound host's own list. */
 export function daemonScanBoundHost(): string | null {
+  // FLOORED at the reader on `daemonTransportLive()` (#1793), mirroring
+  // {@link boundPadiConvergence}: this rides the `daemonInventory` cell over the browser↔
+  // kolu-server ws, which RETAINS its last binding across a transport drop. Over a dead
+  // transport the retained "bound to <host>" is STALE, so the reader reads `null` — and its
+  // three consumers (the dialog "bound to ssh · <host>" line, the socket row's `ssh · <host>`,
+  // and the "Padi daemons on <host>" heading) all inherit the floor by construction, never
+  // asserting a live ssh binding a dead channel can no longer confirm.
+  if (!daemonTransportLive()) return null;
   const binding = sub.value()?.binding;
   return binding?.kind === "remote" ? binding.host : null;
 }
@@ -91,7 +95,16 @@ export function localScanPadis(): RunningPadi[] {
  *  it to show a degraded bind as a visible banner (running vs expected build, the reason) —
  *  the whole point of the dialog: nothing swallowed behind the scenes. Remote arm only; the
  *  local arm's `convergence()` reports `null` today (see `ensurePadiBinding` in
- *  `padiBinding.ts`). */
+ *  `padiBinding.ts`).
+ *
+ *  FLOORED at the reader on `daemonTransportLive()` (#1793): this rides the `daemonInventory`
+ *  cell, delivered over the browser↔kolu-server ws, which RETAINS its last value across a
+ *  transport drop. Over a dead transport the retained anomaly is STALE — the channel that
+ *  would clear it is gone — so the reader reads `null` (no banner) rather than a frozen
+ *  running/expected-build banner beside an "unknown" padi. A live transport with a genuinely
+ *  degraded/failed REMOTE bind still reports its anomaly honestly (that IS the banner's job);
+ *  the floor withholds only a value the dead channel can no longer confirm. */
 export function boundPadiConvergence(): PadiConvergence | null {
+  if (!daemonTransportLive()) return null;
   return sub.value()?.boundPadi?.convergence ?? null;
 }

@@ -9,10 +9,11 @@
  * skeleton, opposite policies, which is the evidence the mechanism is real and
  * not one program's internals wearing a package name.
  *
- * It never calls `process.exit`: it returns a `DaemonExit` the bin maps to a
- * code. That keeps the whole lifecycle drivable in-process from a test — the
- * gate-race choreography and the idle-timeout path run under vitest with no
- * real signals and no forked children.
+ * It never calls `process.exit`: it returns a `DaemonExit` that
+ * `daemonProcessMain` (tenure.ts, the bin half) maps to a code. That keeps the
+ * whole lifecycle drivable in-process from a test — the gate-race choreography
+ * and the idle-timeout path run under vitest with no real signals and no
+ * forked children.
  */
 
 import {
@@ -236,16 +237,52 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   // Once the socket is listening, the socket file and the held gate are real
   // side effects — a `finally` guarantees they are torn down on EVERY exit from
   // the lifetime block, not just the clean `waitForShutdown` resolve. Without
-  // it an `onReady` throw, an `isIdle` throw, or a `waitForShutdown` rejection
-  // would leak a stale socket and a held gate, blocking the next launch.
+  // it an `onReady` throw or a `waitForShutdown` throw (the boundToPid pid
+  // guard) would leak a stale socket and a held gate, blocking the next launch.
   try {
-    log.info({ socketPath, gatePath, pid: process.pid }, "daemon listening");
-    spec.onReady?.({ socketPath, pid: process.pid });
+    // Shutdown triggers BEFORE the readiness announcement: `waitForShutdown`
+    // installs the SIGTERM/SIGINT handlers synchronously, and a supervisor
+    // that reacts to `onReady` (or the "daemon listening" line) by signaling
+    // must find the daemon already signal-safe — announced-then-armed leaves
+    // a kernel-default-disposition window where that signal KILLS the
+    // process instead of draining it (caught live by the tenure pins: a
+    // warm test harness SIGTERM-raced the gap deterministically). This also
+    // means an invalid `boundToPid` pid (the guard throw) crashes BEFORE
+    // ready is ever announced — a daemon that cannot arm its lifetime must
+    // not claim to be up.
+    const { shutdown, disarm, alreadyOver } = waitForShutdown(lifetime, signal);
 
-    const reason = await waitForShutdown(lifetime, signal);
+    // The armed lifetime must never outlive this frame: `finish()` already
+    // disarms on every resolving path and `disarm` is idempotent, so the
+    // `finally` is a no-op there — it exists for the THROWING paths (an
+    // `onReady` throw today, any statement inserted here tomorrow), where
+    // leaked signal handlers and poll timers would otherwise accumulate
+    // across a test running many daemons (the exact leak `waitForShutdown`'s
+    // cleanup discipline exists to prevent). Structural, not per-statement.
+    try {
+      // Shutdown can win DURING arming (an already-aborted external signal,
+      // an already-dead bound pid): the daemon was never meaningfully up, so
+      // it must not claim to be — skip the announcement and fall through to
+      // the ordinary teardown. Announcing here would advertise an UNARMED
+      // process (`finish` already stood the triggers down): an
+      // announcement-triggered SIGTERM would meet the kernel's default
+      // disposition and kill the process before the wrapper release stages
+      // (observed as exit 143).
+      if (!alreadyOver) {
+        log.info(
+          { socketPath, gatePath, pid: process.pid },
+          "daemon listening",
+        );
+        spec.onReady?.({ socketPath, pid: process.pid });
+      }
 
-    log.info({ reason }, "daemon shutting down");
-    return { kind: "shutdown", reason };
+      const reason = await shutdown;
+
+      log.info({ reason }, "daemon shutting down");
+      return { kind: "shutdown", reason };
+    } finally {
+      disarm();
+    }
   } finally {
     listener.close();
     gate.release();
@@ -257,15 +294,28 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
  *  Fixed, not a knob (tests inject a small value via the `boundToPid` arm's `pollMs`). */
 const PID_WATCH_POLL_MS = 2_000;
 
-/** Resolve when the daemon should stop: an OS signal (SIGTERM/SIGINT), the
- *  external abort, under `idleTimeout` `ms` of continuous idleness, or under
- *  `boundToPid` the moment the watched pid is gone. All handlers are removed
- *  before resolving, so a returning daemon leaves no listeners behind (a test runs
- *  many daemons in one process). */
+/** Arm the daemon's shutdown triggers and resolve `shutdown` when it should
+ *  stop: an OS signal (SIGTERM/SIGINT), the external abort, under
+ *  `idleTimeout` `ms` of continuous idleness, or under `boundToPid` the
+ *  moment the watched pid is gone. All handlers are removed before resolving,
+ *  so a returning daemon leaves no listeners behind (a test runs many daemons
+ *  in one process). The triggers are installed SYNCHRONOUSLY at the call —
+ *  that is the readiness ordering `daemonMain` load-bears on — and `disarm`
+ *  removes them without resolving, for the one caller path (an `onReady`
+ *  throw) where the armed promise must not outlive the daemon call. */
 function waitForShutdown(
   lifetime: DaemonLifetime,
   external?: AbortSignal,
-): Promise<"signal" | "abort" | "idle" | "pid-gone"> {
+): {
+  shutdown: Promise<"signal" | "abort" | "idle" | "pid-gone">;
+  disarm: () => void;
+  /** Shutdown won DURING arming (an already-aborted external signal, an
+   *  already-dead bound pid): `shutdown` is already resolved and the triggers
+   *  already stood down. The caller must NOT announce readiness — the daemon
+   *  was never meaningfully up, and an announcement-triggered signal would
+   *  meet the kernel's default disposition (observed as exit 143). */
+  alreadyOver: boolean;
+} {
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
   // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
   // (0, negative, fractional, out of range) would be silently reclassified — a
@@ -278,90 +328,104 @@ function waitForShutdown(
       `boundToPid.pid must be a positive integer within pid_t range; got ${lifetime.pid}`,
     );
   }
-  return new Promise((resolve) => {
-    let settled = false;
-    const cleanups: Array<() => void> = [];
-    const finish = (reason: "signal" | "abort" | "idle" | "pid-gone"): void => {
-      if (settled) return;
-      settled = true;
-      for (const c of cleanups) c();
-      resolve(reason);
-    };
-    // The poll-timer scaffold, single-sourced: create the interval, unref it so it
-    // never keeps the event loop alive on its own, and register a clearInterval
-    // cleanup. Both poll sites (idleTimeout, boundToPid) supply only their period +
-    // predicate; the register/unref/cleanup idiom lives here once.
-    const registerPoll = (period: number, tick: () => void): void => {
-      const t = setInterval(tick, period);
-      t.unref?.();
-      cleanups.push(() => clearInterval(t));
-    };
+  // `armed` gates BOTH enders: the first `finish` (resolve) or `disarm`
+  // (cleanup-only, promise left forever-pending for the throwing-`onReady`
+  // path where nothing awaits it) wins; everything after is a no-op.
+  let armed = true;
+  const cleanups: Array<() => void> = [];
+  const disarm = (): void => {
+    if (!armed) return;
+    armed = false;
+    for (const c of cleanups) c();
+  };
+  const shutdown = new Promise<"signal" | "abort" | "idle" | "pid-gone">(
+    (resolve) => {
+      const finish = (
+        reason: "signal" | "abort" | "idle" | "pid-gone",
+      ): void => {
+        if (!armed) return;
+        disarm();
+        resolve(reason);
+      };
+      // The poll-timer scaffold, single-sourced: create the interval, unref it so it
+      // never keeps the event loop alive on its own, and register a clearInterval
+      // cleanup. Both poll sites (idleTimeout, boundToPid) supply only their period +
+      // predicate; the register/unref/cleanup idiom lives here once.
+      const registerPoll = (period: number, tick: () => void): void => {
+        const t = setInterval(tick, period);
+        t.unref?.();
+        cleanups.push(() => clearInterval(t));
+      };
 
-    for (const sig of ["SIGTERM", "SIGINT"] as const) {
-      const handler = (): void => finish("signal");
-      process.on(sig, handler);
-      cleanups.push(() => {
-        process.off(sig, handler);
-      });
-    }
-
-    if (external) {
-      if (external.aborted) {
-        finish("abort");
-        return;
-      }
-      const handler = (): void => finish("abort");
-      external.addEventListener("abort", handler, { once: true });
-      cleanups.push(() => external.removeEventListener("abort", handler));
-    }
-
-    // Lifetime-specific shutdown trigger, dispatched EXHAUSTIVELY over the union
-    // (mirroring `daemonExitCode`'s fence) — the signal + external-abort triggers
-    // above apply to every kind, so `forever` adds nothing here. A future
-    // `DaemonLifetime` kind compile-fails at the `satisfies never` until it wires
-    // its own trigger, rather than silently inheriting `forever`'s "signal only".
-    switch (lifetime.kind) {
-      case "forever":
-        break;
-      case "idleTimeout": {
-        // Poll idleness; shut down once it has held continuously for `ms`. Any
-        // activity resets the clock. The tick is frequent relative to `ms` but
-        // capped so a long timeout doesn't busy-poll.
-        let idleSince: number | undefined;
-        const period = Math.max(20, Math.min(lifetime.ms, 1000));
-        registerPoll(period, () => {
-          if (lifetime.isIdle()) {
-            idleSince ??= Date.now();
-            if (Date.now() - idleSince >= lifetime.ms) finish("idle");
-          } else {
-            idleSince = undefined;
-          }
+      for (const sig of ["SIGTERM", "SIGINT"] as const) {
+        const handler = (): void => finish("signal");
+        process.on(sig, handler);
+        cleanups.push(() => {
+          process.off(sig, handler);
         });
-        break;
       }
-      case "boundToPid": {
-        // The daemon's reason to exist is the run at `pid`; watch it and shut down
-        // cleanly once it is gone. Registration on an ALREADY-dead pid exits
-        // immediately — the run this daemon would serve is already over, so there is
-        // nothing to serve (and no poll tick to wait for). The pid is already proven
-        // a single-process pid by the guard clause above.
-        const { pid } = lifetime;
-        // Reuse the package's canonical liveness probe (`isHolderLive`, pidGate.ts) —
-        // the same `kill(pid,0)` verdict the gate's stale-reap and the supervisor use,
-        // single-sourced so the two can't drift on the ESRCH-gone / EPERM-alive rule.
-        if (!isHolderLive(pid)) {
-          finish("pid-gone");
+
+      if (external) {
+        if (external.aborted) {
+          finish("abort");
+          return;
+        }
+        const handler = (): void => finish("abort");
+        external.addEventListener("abort", handler, { once: true });
+        cleanups.push(() => external.removeEventListener("abort", handler));
+      }
+
+      // Lifetime-specific shutdown trigger, dispatched EXHAUSTIVELY over the union
+      // (mirroring `daemonExitCode`'s fence) — the signal + external-abort triggers
+      // above apply to every kind, so `forever` adds nothing here. A future
+      // `DaemonLifetime` kind compile-fails at the `satisfies never` until it wires
+      // its own trigger, rather than silently inheriting `forever`'s "signal only".
+      switch (lifetime.kind) {
+        case "forever":
+          break;
+        case "idleTimeout": {
+          // Poll idleness; shut down once it has held continuously for `ms`. Any
+          // activity resets the clock. The tick is frequent relative to `ms` but
+          // capped so a long timeout doesn't busy-poll.
+          let idleSince: number | undefined;
+          const period = Math.max(20, Math.min(lifetime.ms, 1000));
+          registerPoll(period, () => {
+            if (lifetime.isIdle()) {
+              idleSince ??= Date.now();
+              if (Date.now() - idleSince >= lifetime.ms) finish("idle");
+            } else {
+              idleSince = undefined;
+            }
+          });
           break;
         }
-        registerPoll(lifetime.pollMs ?? PID_WATCH_POLL_MS, () => {
-          if (!isHolderLive(pid)) finish("pid-gone");
-        });
-        break;
+        case "boundToPid": {
+          // The daemon's reason to exist is the run at `pid`; watch it and shut down
+          // cleanly once it is gone. Registration on an ALREADY-dead pid exits
+          // immediately — the run this daemon would serve is already over, so there is
+          // nothing to serve (and no poll tick to wait for). The pid is already proven
+          // a single-process pid by the guard clause above.
+          const { pid } = lifetime;
+          // Reuse the package's canonical liveness probe (`isHolderLive`, pidGate.ts) —
+          // the same `kill(pid,0)` verdict the gate's stale-reap and the supervisor use,
+          // single-sourced so the two can't drift on the ESRCH-gone / EPERM-alive rule.
+          if (!isHolderLive(pid)) {
+            finish("pid-gone");
+            break;
+          }
+          registerPoll(lifetime.pollMs ?? PID_WATCH_POLL_MS, () => {
+            if (!isHolderLive(pid)) finish("pid-gone");
+          });
+          break;
+        }
+        default:
+          // Exhaustiveness fence: a new `DaemonLifetime` kind compile-fails here until
+          // it joins a case above (`lifetime satisfies never`).
+          lifetime satisfies never;
       }
-      default:
-        // Exhaustiveness fence: a new `DaemonLifetime` kind compile-fails here until
-        // it joins a case above (`lifetime satisfies never`).
-        lifetime satisfies never;
-    }
-  });
+    },
+  );
+  // `armed` flipped during construction ⇔ a trigger fired synchronously
+  // (`finish` disarms before resolving), so this read IS the already-over fact.
+  return { shutdown, disarm, alreadyOver: !armed };
 }

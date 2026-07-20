@@ -12,7 +12,7 @@ an agent that drives another agent.
 
 It is the raw, non-interactive sibling of [`kaval-tui`](../kaval-tui) — verbs,
 no canvas (where kaval-tui shows what's *running* in each PTY, padi-tui shows
-what each terminal *is in*). It **replaces `pulam-tui`**: its `wait` reads real
+what each terminal *is in*). It **replaces the retired `pulam-tui`**: its `wait` reads real
 agent state off padi (better than kaval-tui's guess-from-silence), and its
 `create` spawns terminals, split tiles, and worktree'd agents that appear on the
 canvas.

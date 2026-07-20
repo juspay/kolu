@@ -19,12 +19,12 @@ import {
   padiSurface,
 } from "./surface.ts";
 
-describe("padiSurface 1.0 contract", () => {
+describe("padiSurface contract", () => {
   it("builds the padi surface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.0, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.1, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -39,7 +39,11 @@ describe("padiSurface 1.0 contract", () => {
     // (retired per #1784's W12 disposition — no production caller). A removed procedure
     // is a shape-break, so an old binder that still called it must refuse a 4.0 padi
     // rather than hit a missing proc — only a major closes that skew in both directions.
-    expect(PADI_SURFACE_VERSION).toBe("4.0");
+    // 4.1 (minor): `daemonStatus` gained the `incompatible` emitted variant
+    // (SK4) — an additive arm, so a minor per the versioning doctrine in
+    // surface.ts (the mirror of #1865, which folded a bump BACK because
+    // nothing emitted had changed; here something did).
+    expect(PADI_SURFACE_VERSION).toBe("4.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,

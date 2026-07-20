@@ -2,11 +2,13 @@
  *  outer-layer folds the merged status indicator wraps around the core.
  *
  *  A `PipVariant` is the agent-state CORE the `StatePip` component switches
- *  over — the cross-surface vocabulary kolu's on-canvas **Dock** and the
- *  **pulam-web** fleet dashboard both speak, so a given agent state renders the
- *  IDENTICAL pip (glyph · colour · animation) on both. `StatePip` lives here, in
- *  a presentation leaf both surfaces import, rather than in `dock/` where it
- *  used to — location is structure.
+ *  over — the cross-surface vocabulary kolu's on-canvas **Dock** speaks, and
+ *  any fleet mirror that adopts it (it was first shared with the now-retired
+ *  **pulam-web** fleet dashboard, since dissolved into padi), so a given agent
+ *  state renders the IDENTICAL pip (glyph · colour · animation) on every
+ *  surface. `StatePip` lives here, in a presentation leaf every consuming
+ *  surface imports, rather than in `dock/` where it used to — location is
+ *  structure.
  *
  *  The core is only ONE of three axes the indicator now folds into one glyph
  *  (R-activity-merge). The other two — terminal **liveness** (moving bytes) and
@@ -23,22 +25,23 @@
  *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
  *
  *  `pipForPaintClass` is the single definition of "which pip an agent's paint
- *  class shows", imported by BOTH the Dock's `pipVariant` and pulam-web's
- *  `pipVariantFor`, so the agent-paint → pip mapping can't be spelled — and
+ *  class shows", imported by the Dock's `pipVariant` (and any fleet mirror's
+ *  equivalent fold), so the agent-paint → pip mapping can't be spelled — and
  *  drift — twice (the exact "defined twice → drifts" hazard R-pip-unify closes).
  *  Each surface layers only its OWN core overlays on top: the Dock adds
- *  `parked`→empty and its deliberate `sleeping`; pulam-web adds structural
- *  sleeping (no agent + no foreground). Neither surface's local triage concepts
- *  leak in here. So the IDENTICAL-pip guarantee is precisely for **agent**
- *  states (everything the shared fold decides); the **non-agent** overlays
- *  deliberately diverge — a touched-but-idle shell paints `idle` on the Dock
- *  (folded on recency) but `sleeping` on pulam-web (folded on foreground), by
- *  design, because each surface owns what an agentless terminal means to it.
+ *  `parked`→empty and its deliberate `sleeping`; the retired pulam-web added
+ *  structural sleeping (no agent + no foreground). No surface's local triage
+ *  concepts leak in here. So the IDENTICAL-pip guarantee is precisely for
+ *  **agent** states (everything the shared fold decides); the **non-agent**
+ *  overlays deliberately diverge — a touched-but-idle shell paints `idle` on the
+ *  Dock (folded on recency), where the retired pulam-web painted `sleeping`
+ *  (folded on foreground), by design, because each surface owns what an
+ *  agentless terminal means to it.
  *
  *  This module is exposed on its OWN `./pipVariant` subpath (the same shape
  *  `@kolu/solid-pierre` uses for its `./paths` reconcile fold), so the pure-logic
- *  consumers — the Dock's `pipVariant`, pulam-web's `pipVariantFor`, and their
- *  unit tests — import the fold WITHOUT pulling in `StatePip` (the barrel's JSX),
+ *  consumers — the Dock's `pipVariant` (and any fleet mirror's `pipVariantFor`)
+ *  and their unit tests — import the fold WITHOUT pulling in `StatePip` (the barrel's JSX),
  *  which a node-environment Vitest can't transform out of a workspace dependency.
  *  The rendering call sites import `StatePip` from the barrel; the two entry
  *  points are a deliberate value/JSX split, not redundancy. */
@@ -56,7 +59,7 @@ export type PipVariant =
  *  (`@kolu/terminal-vocab/agentProjection`'s `AgentPaintClass`): `none` (no
  *  agent paint) renders nothing — a surface that wants a muted dot for a
  *  touched-but-agentless terminal maps that case itself (the Dock's `idle`,
- *  pulam-web's nonagent), it does not belong to the agent-paint vocabulary.
+ *  a fleet mirror's nonagent), it does not belong to the agent-paint vocabulary.
  *  Exhaustive with a `satisfies never` fence so a new paint class forces a pip
  *  decision HERE, in the one shared definition. */
 export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
@@ -161,8 +164,8 @@ export const LIVE_RING_CLASS = "statepip-live-ring";
  *    - the Dock's per-terminal unread BADGE — this class composed with
  *      `ALERT_BADGE_CLASS` (its absolute corner placement + pill dims + pulse
  *      from `statepip.css`), boolean, no count.
- *  pulam-web's fleet rows render the same `StatePip` alert axis, so they adopt it
- *  too on their next dep bump — the dock-fleet-mirror contract, by construction.
+ *  A fleet mirror's rows render the same `StatePip` alert axis, so any mirror
+ *  adopts it too on its next dep bump — the dock-fleet-mirror contract, by construction.
  *
  *  A Tailwind class STRING (not a raw-CSS colour) so it is pixel-identical to the
  *  chip's current utilities; it single-sources across repos the same way
@@ -178,7 +181,7 @@ export const ATTENTION_PILL_CLASS =
  *  surrounding alert ring (especially nested with the live ring) read as
  *  overwhelming, so the alert uses a different shape that never competes with the
  *  live ring. What the badge MEANS is the surface's to name (`StatePip`'s
- *  `alertLabel`): the Dock's unopened-unread, pulam-web's live notify-class.
+ *  `alertLabel`): the Dock's unopened-unread, a fleet mirror's live notify-class.
  *
  *  Composed WITH `ATTENTION_PILL_CLASS` at the render site: this class carries
  *  only the overlay's absolute corner placement, pill dimensions, separator ring

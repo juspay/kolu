@@ -102,6 +102,7 @@ function startHarness(): Harness {
     undefined,
     (o) => emits.push(o),
     log,
+    false, // shell-rooted terminal
   );
   let titles = 0;
   return {

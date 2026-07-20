@@ -1,13 +1,8 @@
 import type { PadiTerminal } from "@kolu/padi/surface";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
-import {
-  agentMatchesUntil,
-  formatStatus,
-  parseUntilStates,
-  resolveTerminalId,
-  WAIT_STATES,
-} from "./render.ts";
+import { WAIT_STATES } from "@kolu/padi/dial";
+import { formatStatus, parseUntilStates, resolveTerminalId } from "./render.ts";
 
 /** A minimal `active` composed record — the agent the wait predicate reads plus
  *  the git/pr/foreground the status table renders. Cast because the full
@@ -93,48 +88,6 @@ describe("resolveTerminalId — prefix resolution", () => {
 
   it("reports no match for an unknown prefix", () => {
     expect(resolveTerminalId("ffff", ids)).toEqual({ kind: "none" });
-  });
-});
-
-describe("agentMatchesUntil — the wait predicate over a composed record", () => {
-  const awaitingOrWaiting = new Set(["awaiting", "waiting"]);
-
-  it("matches an agent whose bucket is in the targets", () => {
-    expect(
-      agentMatchesUntil(
-        activeWithAgent(claude("awaiting_user")),
-        awaitingOrWaiting,
-      ),
-    ).toBe(true);
-    expect(
-      agentMatchesUntil(activeWithAgent(claude("waiting")), awaitingOrWaiting),
-    ).toBe(true);
-  });
-
-  it("does NOT match a working agent for an awaiting/waiting wait", () => {
-    expect(
-      agentMatchesUntil(activeWithAgent(claude("thinking")), awaitingOrWaiting),
-    ).toBe(false);
-  });
-
-  it("matches a working agent for a working wait (the two-phase phase 1)", () => {
-    const working = new Set(["working"]);
-    expect(
-      agentMatchesUntil(activeWithAgent(claude("tool_use")), working),
-    ).toBe(true);
-  });
-
-  it("never matches a record with no live agent", () => {
-    expect(agentMatchesUntil(activeWithAgent(null), awaitingOrWaiting)).toBe(
-      false,
-    );
-    // A dormant record has no `.agent` at all.
-    expect(
-      agentMatchesUntil(
-        { state: "parked" } as unknown as PadiTerminal,
-        awaitingOrWaiting,
-      ),
-    ).toBe(false);
   });
 });
 

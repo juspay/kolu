@@ -30,7 +30,12 @@
  * object (never re-finalize it via oRPC `implement`).
  */
 
-import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
+import {
+  type AnyContractRouter,
+  type ErrorMap,
+  eventIterator,
+  oc,
+} from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import {
   CLOCK_NOW_NAMESPACE,
@@ -94,7 +99,35 @@ export type CollectionDelta<K, T> = Extract<
   { kind: "delta" }
 >;
 
-export interface CellSpec<T = unknown, P = T> {
+/** A CLIENT-side error policy declared on a cell spec — the OPAQUE, app-typed
+ *  slot the framework carries but never interprets. `TPolicy` is the app's own
+ *  closed discriminated union (kolu's `{kind:"toast"|"hostToast"|"scopedSub"}`,
+ *  drishti's `{kind:"log"}`); the framework only THREADS the declared value to
+ *  the app's registered interpreter (`onClientError`) when a subscription fails.
+ *
+ *  DISCRIMINATED on `authority`, not flattened — a server-authority cell and a
+ *  local-authority cell are structurally distinct client-side subscriptions, and
+ *  a discriminant keeps `coalesceMs` (a write-coalescing knob) unspellable on a
+ *  server-authority cell. There is NO `initial` field: the local-authority store
+ *  seeds from the cell's MANDATORY {@link CellSpec.default}, so "local-authority
+ *  without a seed" is unrepresentable without a duplicate source of truth.
+ *
+ *  The default `TPolicy = never` makes `onError` unfillable for every existing
+ *  `defineSurface` caller — no policy VALUE is assignable — so the slot costs
+ *  nothing until a surface opts in via {@link defineSurfaceWithPolicy}. */
+export type ClientCellPolicy<TPolicy> = { onError?: TPolicy } & (
+  | { authority?: "server" }
+  | { authority: "local"; coalesceMs?: number }
+);
+
+/** A CLIENT-side error policy declared on a collection spec — the collection
+ *  sibling of {@link ClientCellPolicy}, but `onError` ONLY. A collection has no
+ *  authority/coalesce concept (its per-site reactive `keys` filter is genuine
+ *  use-site wiring, not a declared policy), so the slot carries just the opaque,
+ *  app-typed error policy. `TPolicy = never` keeps it unfillable by default. */
+export type ClientCollectionPolicy<TPolicy> = { onError?: TPolicy };
+
+export interface CellSpec<T = unknown, P = T, TPolicy = never> {
   schema: ZodType<T>;
   default: T;
   /** When set, `patch` becomes the canonical mutation verb and `set` is
@@ -142,19 +175,48 @@ export interface CellSpec<T = unknown, P = T> {
    *  This is the runtime sibling of {@link equals}: the GENERIC mechanism lives in
    *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
    *  literal or any domain vocabulary), while the predicate itself (`v.state ===
-   *  "connected"`) is declared on the cell where its schema lives (e.g.
-   *  `surface-remote`'s `connectionCell`) — the same mechanism/vocabulary split
-   *  as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
+   *  "connected"`) is declared on the cell where its schema lives — the same
+   *  mechanism/vocabulary split as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
    *  and every `health()` read), and ensure the cell's `default` does NOT satisfy
    *  it (gate-closed cold start), so a freshly-composed surface reads `connecting`
    *  until a genuine "ready" frame arrives — `DEFAULT_CONNECTION` already complies. */
   liveWhen?: (value: T) => boolean;
+  /** The OPAQUE, app-typed client error policy for this cell — see
+   *  {@link ClientCellPolicy}. The framework never interprets it; it threads the
+   *  declared value to the app's registered `onClientError` when this cell's
+   *  client subscription fails. Unfillable unless the surface was built with a
+   *  non-`never` `TPolicy` via {@link defineSurfaceWithPolicy}.
+   *
+   *  The `authority: "local"` arm's validity (a non-null object value with a
+   *  `set`/`patch` verb) is enforced by `buildSurfaceClient`'s CONSTRUCTION
+   *  BACKSTOP, not the type: the `SurfaceSpec` constraint erases `T` to `any` at
+   *  the `defineSurfaceWithPolicy` spec-literal site, so a `[T] extends [object]`
+   *  gate would resolve to the full union there anyway (`[any] extends [object]`
+   *  distributes to both arms) — a type gate can't reliably fire where the
+   *  declaration is written, exactly as the missing-interpreter check is runtime
+   *  for the same erasure reason. */
+  client?: ClientCellPolicy<TPolicy>;
 }
 
-export interface CollectionSpec<K = unknown, T = unknown> {
+export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
   keySchema: ZodType<K>;
   schema: ZodType<T>;
   verbs?: readonly CollectionVerb[];
+  /** The OPAQUE, app-typed client error policy for this collection — see
+   *  {@link ClientCollectionPolicy}. The framework threads the declared value to
+   *  the app's registered `onClientError` on a subscription failure; it never
+   *  interprets it. Unfillable unless the surface was built with a non-`never`
+   *  `TPolicy` via {@link defineSurfaceWithPolicy}. */
+  client?: ClientCollectionPolicy<TPolicy>;
+  /** Per-key VALUE equality — the collection sibling of {@link CellSpec.equals}.
+   *  A `derived.collection(...)` reconciler uses it to publish only the keys whose
+   *  value actually MOVED against the last snapshot (drishti's `processChanged`,
+   *  declared once here instead of hand-held at every write site). Omitted ⇒ the
+   *  reconciler treats every present key as changed each frame (the unconditional
+   *  re-publish drishti's `cpuCores`/`networkInterfaces` do today — a per-tick rate
+   *  that always moves). It does NOT gate an authored collection's `upsert` publish;
+   *  it is the derived reconciler's diff predicate. */
+  equals?: (a: T, b: T) => boolean;
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
@@ -172,11 +234,30 @@ export interface ProcedureSpec<I = unknown, O = unknown> {
   input?: ZodType<I>;
   /** When omitted the procedure returns void. */
   output?: ZodType<O>;
+  /** The procedure's DECLARED error union (SK6) — oRPC contract-level typed
+   *  errors, keyed by error code. A declaring handler receives per-code typed
+   *  constructors on its oRPC `opts.errors` (`opts.errors.SOME_CODE({ data })`),
+   *  and the bound client face's rejection carries the union, so a caller
+   *  narrows a failure with `isDefinedError` / `safe` to `{ code, data }` —
+   *  a typed domain error can no longer flatten to an opaque
+   *  `INTERNAL_SERVER_ERROR` at a generic hop. Undeclared throws still cross
+   *  as `INTERNAL_SERVER_ERROR` (TypeScript cannot type `throw`) — that
+   *  remains the fail-fast crash-loudly channel; declare what is actionable. */
+  errors?: ErrorMap;
 }
 
-export interface SurfaceSpec {
-  cells?: Record<string, CellSpec<any, any>>;
-  collections?: Record<string, CollectionSpec<any, any>>;
+/** `TPolicy` DEFAULTS to `any`, not `never` — so every bare `extends SurfaceSpec`
+ *  constraint across the framework (`Surface<S>`, `SurfaceContractFor<S>`, the bound
+ *  client types, the map's `ES`, …) accepts a policy-bearing spec without churn: a
+ *  wider constraint still admits every existing `TPolicy = never` spec. The
+ *  "unfillable client for existing callers" guarantee is pinned at the ONE seam that
+ *  MINTS a spec from a caller literal — `defineSurface<const S extends
+ *  SurfaceSpec<never>>` — so a plain `defineSurface` caller still cannot spell a
+ *  `client.onError` value (it must be assignable to `never`). A surface OPTS IN to a
+ *  real policy union via {@link defineSurfaceWithPolicy}. */
+export interface SurfaceSpec<TPolicy = any> {
+  cells?: Record<string, CellSpec<any, any, TPolicy>>;
+  collections?: Record<string, CollectionSpec<any, any, TPolicy>>;
   streams?: Record<string, StreamSpec<any, any>>;
   events?: Record<string, EventSpec<any, any>>;
   /** Imperative escape hatch — non-descriptor RPCs that should still
@@ -212,7 +293,7 @@ export const DEFAULT_COLLECTION_VERBS = [
  *  to update. `CellVerbsOf` is its type-level dual (TS can't reuse the runtime
  *  value); keep the two in step. */
 export function resolveCellVerbs(
-  spec: CellSpec<any, any>,
+  spec: CellSpec<any, any, any>,
 ): readonly CellVerb[] {
   return (
     spec.verbs ??
@@ -229,7 +310,7 @@ export function resolveCellVerbs(
  *  (`server.ts`'s `walkSurface`), and the client binding (`surfaceClient`) can't
  *  drift on a `??` someone forgot to update. */
 export function resolveCollectionVerbs(
-  spec: CollectionSpec<any, any>,
+  spec: CollectionSpec<any, any, any>,
 ): readonly CollectionVerb[] {
   return spec.verbs ?? DEFAULT_COLLECTION_VERBS;
 }
@@ -238,7 +319,9 @@ export function resolveCollectionVerbs(
  *  {@link resolveCollectionVerbs} so the deltas gate (server-side coalescing and
  *  client-side routing) reads from the one verb resolver, never an inline
  *  `.includes("deltas")` that a third call site could forget. */
-export function collectionHasDeltas(spec: CollectionSpec<any, any>): boolean {
+export function collectionHasDeltas(
+  spec: CollectionSpec<any, any, any>,
+): boolean {
   return resolveCollectionVerbs(spec).includes("deltas");
 }
 
@@ -251,7 +334,7 @@ export function collectionHasDeltas(spec: CollectionSpec<any, any>): boolean {
 // surface.contract` for end-to-end inference.
 
 function cellContractEntries<T, P>(
-  spec: CellSpec<T, P>,
+  spec: CellSpec<T, P, any>,
 ): Record<string, unknown> {
   const verbs = resolveCellVerbs(spec);
   const entries: Record<string, unknown> = {};
@@ -295,7 +378,7 @@ export function collectionDeltasSchema<K, T>(
 }
 
 function collectionContractEntries<K, T>(
-  spec: CollectionSpec<K, T>,
+  spec: CollectionSpec<K, T, any>,
 ): Record<string, unknown> {
   const verbs = resolveCollectionVerbs(spec);
   const keyShape = z.object({ key: spec.keySchema });
@@ -340,7 +423,13 @@ function eventContractEntries<I, T>(
 function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
   const input = spec.input ?? z.void();
   const output = spec.output ?? z.void();
-  return oc.input(input).output(output);
+  // `.errors` is applied UNCONDITIONALLY (empty map when undeclared) so this
+  // runtime entry and the `buildProcedure*` type oracles below stay one shape
+  // — the drift-watch rule; an empty map is semantically "no declared errors".
+  return oc
+    .input(input)
+    .output(output)
+    .errors(spec.errors ?? {});
 }
 
 // ── Mapped types for `surface.contract` ────────────────────────────────
@@ -362,10 +451,10 @@ export type SurfaceContractFor<S extends SurfaceSpec> = {
 };
 
 type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
-  S["cells"] extends Record<string, CellSpec<any, any>>
+  S["cells"] extends Record<string, CellSpec<any, any, any>>
     ? { [K in keyof S["cells"] & string]: CellContract<S["cells"][K]> }
     : EmptyObj,
-  S["collections"] extends Record<string, CollectionSpec<any, any>>
+  S["collections"] extends Record<string, CollectionSpec<any, any, any>>
     ? {
         [K in keyof S["collections"] & string]: CollectionContract<
           S["collections"][K]
@@ -405,7 +494,7 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
  *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
  *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the
  *  exact cell whose stale-health safety relies on `set` being absent. */
-export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
+export type CellVerbsOf<S extends CellSpec<any, any, any>> = S extends {
   verbs: readonly CellVerb[];
 }
   ? S["verbs"][number]
@@ -423,11 +512,12 @@ export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
  *  `surface.<collection>.deltas` that compiles and then rejects at runtime, and
  *  a read-only collection (`verbs: ["keys", "get"]`, e.g. `common`'s `authored` /
  *  `daemonStatus`) must NOT type the `upsert` / `delete` the server omits. */
-export type CollectionVerbsOf<S extends CollectionSpec<any, any>> = S extends {
-  verbs: readonly CollectionVerb[];
-}
-  ? S["verbs"][number]
-  : (typeof DEFAULT_COLLECTION_VERBS)[number];
+export type CollectionVerbsOf<S extends CollectionSpec<any, any, any>> =
+  S extends {
+    verbs: readonly CollectionVerb[];
+  }
+    ? S["verbs"][number]
+    : (typeof DEFAULT_COLLECTION_VERBS)[number];
 
 /** Whether a cell exposes a CLIENT-facing wire-mutation verb — `set` or
  *  `patch`, the verbs the Solid client's `.use()` mutate path actually calls.
@@ -439,7 +529,7 @@ export type CollectionVerbsOf<S extends CollectionSpec<any, any>> = S extends {
  *  honoring `verbs` in the raw contract: it must select the SAME mutation verb
  *  the runtime binds in `surfaceClient`, or the bound type advertises a `.set` /
  *  local-authority path the runtime closure can't service (`mutate` undefined). */
-export type CellIsMutable<S extends CellSpec<any, any>> =
+export type CellIsMutable<S extends CellSpec<any, any, any>> =
   "set" extends CellVerbsOf<S>
     ? true
     : "patch" extends CellVerbsOf<S>
@@ -455,7 +545,7 @@ export type CellIsMutable<S extends CellSpec<any, any>> =
  *  would post a partial `P` to the full-value `set` endpoint. `surfaceClient`
  *  collapses such a cell's client patch shape to `T` (full replacement through
  *  `set`); this type is what drives that collapse. */
-export type CellHasPatchVerb<S extends CellSpec<any, any>> =
+export type CellHasPatchVerb<S extends CellSpec<any, any, any>> =
   "patch" extends CellVerbsOf<S> ? true : false;
 
 /** One contract entry per resolved verb — `get` streams the schema, `set` /
@@ -471,7 +561,7 @@ type CellVerbEntry<V extends CellVerb, T, P> = V extends "get"
         ? { test__set: ReturnType<typeof buildCellSet<T>> }
         : EmptyObj;
 
-type CellContract<S extends CellSpec<any, any>> = S extends {
+type CellContract<S extends CellSpec<any, any, any>> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
 }
@@ -511,7 +601,7 @@ type CollectionVerbEntry<
   ? { [P in V]: CollectionContractShape<K, T>[P] }
   : EmptyObj;
 
-type CollectionContract<S extends CollectionSpec<any, any>> = S extends {
+type CollectionContract<S extends CollectionSpec<any, any, any>> = S extends {
   keySchema: ZodType<infer K>;
   schema: ZodType<infer T>;
 }
@@ -532,16 +622,29 @@ type EventContract<S extends EventSpec<any, any>> = S extends {
   ? ReturnType<typeof buildEvent<I, T>>
   : never;
 
+/** The spec's declared error map, or the empty map when it declares none —
+ *  the ONE extractor for "how a spec declares errors", owned here beside
+ *  {@link ProcedureSpec}. Threaded through ALL FOUR `buildProcedure*` oracles
+ *  (the drift-watch rule: the runtime entry applies `.errors` on every shape,
+ *  so must the types), and consumed by server.ts's `ProcedureErrorCtors` and
+ *  the Solid client's `BoundProcedureError` — so a change to the declaration
+ *  shape edits this alias, not three modules. */
+export type ProcedureSpecErrors<S> = S extends {
+  errors: infer E extends ErrorMap;
+}
+  ? E
+  : Record<never, never>;
+
 type ProcedureContract<S extends ProcedureSpec<any, any>> = S extends {
   input: ZodType<infer I>;
   output: ZodType<infer O>;
 }
-  ? ReturnType<typeof buildProcedure<I, O>>
+  ? ReturnType<typeof buildProcedure<I, O, ProcedureSpecErrors<S>>>
   : S extends { input: ZodType<infer I> }
-    ? ReturnType<typeof buildProcedureNoOutput<I>>
+    ? ReturnType<typeof buildProcedureNoOutput<I, ProcedureSpecErrors<S>>>
     : S extends { output: ZodType<infer O> }
-      ? ReturnType<typeof buildProcedureNoInput<O>>
-      : ReturnType<typeof buildProcedureNoIO>;
+      ? ReturnType<typeof buildProcedureNoInput<O, ProcedureSpecErrors<S>>>
+      : ReturnType<typeof buildProcedureNoIO<ProcedureSpecErrors<S>>>;
 
 type MergeContract<
   A extends Record<string, unknown>,
@@ -578,7 +681,7 @@ type MergeContract<
  *  `import { Note, NoteId } from "./surface"` (the universal pattern in
  *  Zod / Drizzle / tRPC ecosystems). */
 export type SurfaceTypes<S extends SurfaceSpec> = {
-  cells: S["cells"] extends Record<string, CellSpec<any, any>>
+  cells: S["cells"] extends Record<string, CellSpec<any, any, any>>
     ? {
         [K in keyof S["cells"] & string]: {
           Value: z.infer<S["cells"][K]["schema"]>;
@@ -588,7 +691,10 @@ export type SurfaceTypes<S extends SurfaceSpec> = {
         };
       }
     : EmptyObj;
-  collections: S["collections"] extends Record<string, CollectionSpec<any, any>>
+  collections: S["collections"] extends Record<
+    string,
+    CollectionSpec<any, any, any>
+  >
     ? {
         [K in keyof S["collections"] & string]: {
           Key: z.infer<S["collections"][K]["keySchema"]>;
@@ -770,20 +876,48 @@ function buildEvent<I, T>(opts: {
   };
 }
 
-function buildProcedure<I, O>(opts: { input: ZodType<I>; output: ZodType<O> }) {
-  return oc.input(opts.input).output(opts.output);
+// Each oracle threads the spec's DECLARED error map (SK6) — `E` defaults to
+// the empty map so an errors-less spec resolves the same contract type it
+// always did. All four apply `.errors` because the runtime entry does
+// (unconditionally, empty when undeclared) — one shape, no drift.
+function buildProcedure<I, O, E extends ErrorMap = Record<never, never>>(opts: {
+  input: ZodType<I>;
+  output: ZodType<O>;
+  errors?: E;
+}) {
+  return oc
+    .input(opts.input)
+    .output(opts.output)
+    .errors((opts.errors ?? {}) as E);
 }
 
-function buildProcedureNoOutput<I>(opts: { input: ZodType<I> }) {
-  return oc.input(opts.input).output(z.void());
+function buildProcedureNoOutput<
+  I,
+  E extends ErrorMap = Record<never, never>,
+>(opts: { input: ZodType<I>; errors?: E }) {
+  return oc
+    .input(opts.input)
+    .output(z.void())
+    .errors((opts.errors ?? {}) as E);
 }
 
-function buildProcedureNoInput<O>(opts: { output: ZodType<O> }) {
-  return oc.input(z.void()).output(opts.output);
+function buildProcedureNoInput<
+  O,
+  E extends ErrorMap = Record<never, never>,
+>(opts: { output: ZodType<O>; errors?: E }) {
+  return oc
+    .input(z.void())
+    .output(opts.output)
+    .errors((opts.errors ?? {}) as E);
 }
 
-function buildProcedureNoIO() {
-  return oc.input(z.void()).output(z.void());
+function buildProcedureNoIO<E extends ErrorMap = Record<never, never>>(opts?: {
+  errors?: E;
+}) {
+  return oc
+    .input(z.void())
+    .output(z.void())
+    .errors((opts?.errors ?? {}) as E);
 }
 
 // ── Surface value ──────────────────────────────────────────────────────
@@ -793,14 +927,19 @@ export interface SurfaceDescriptors<S extends SurfaceSpec> {
   cells: {
     [K in keyof S["cells"] & string]: S["cells"][K] extends CellSpec<
       infer T,
-      infer _P
+      infer _P,
+      any
     >
       ? Cell<K, T>
       : never;
   };
   collections: {
     [K in keyof S["collections"] &
-      string]: S["collections"][K] extends CollectionSpec<infer K2, infer T>
+      string]: S["collections"][K] extends CollectionSpec<
+      infer K2,
+      infer T,
+      any
+    >
       ? Collection<K, K2, T>
       : never;
   };
@@ -840,7 +979,7 @@ export interface Surface<S extends SurfaceSpec = SurfaceSpec> {
  *
  *  Consumers feed the result to `implement(contract)` (server) and a link —
  *  `websocketLink<typeof contract>(...)` / `stdioLink` / `directLink` (client). */
-export function defineSurface<const S extends SurfaceSpec>(
+export function defineSurface<const S extends SurfaceSpec<never>>(
   spec: S,
 ): Surface<S> {
   // Collect verb-records by surface key, merging cell/collection/stream/event
@@ -959,6 +1098,41 @@ export function defineSurface<const S extends SurfaceSpec>(
     spec,
     descriptors: descriptors as unknown as SurfaceDescriptors<S>,
   };
+}
+
+/** {@link defineSurface}, but threading an app-owned client error policy union
+ *  `TPolicy` through the spec so a member can declare `client: { onError: … }`
+ *  (see {@link ClientCellPolicy} / {@link ClientCollectionPolicy}). CURRIED — the
+ *  first call pins `TPolicy`, the returned function takes the spec:
+ *
+ *      type Toast = { kind: "toast"; label: string };
+ *      const surface = defineSurfaceWithPolicy<Toast>()({
+ *        cells: { preferences: { schema, default, client: { onError: { kind: "toast", label: "Preferences" } } } },
+ *      });
+ *
+ *  The two-step form is load-bearing: it lets the caller name `TPolicy`
+ *  EXPLICITLY while the spec argument keeps its `const S` inference (so
+ *  `surface.spec` / `SurfaceTypes<typeof surface.spec>` stay precise). A single
+ *  `defineSurfaceWithPolicy<TPolicy, S>(spec)` would force the caller to spell
+ *  `S` too (losing inference) or drop `TPolicy` (losing the policy typing) — TS
+ *  has no per-parameter partial inference. Runtime is identical to
+ *  {@link defineSurface}: the policy slot is inert data the framework only threads
+ *  to the app's interpreter, never reads here.
+ *
+ *  A surface built through this reports its `TPolicy` on `SurfaceSpec<TPolicy>`,
+ *  which is what lets the per-scope policy typing (F8) hold: a root surface
+ *  instantiated with a toast-only union makes an origin-requiring arm
+ *  unspellable, and the mandatory `default` makes a local-authority cell without
+ *  a seed a type error. Plain `defineSurface` is the `TPolicy = never` case — its
+ *  `client` slot is unfillable, so existing callers pay nothing. */
+export function defineSurfaceWithPolicy<TPolicy>() {
+  return <const S extends SurfaceSpec<TPolicy>>(spec: S): Surface<S> =>
+    // Runtime is identical to `defineSurface` — the policy slot is inert data. Cast
+    // through the base (policy-erased) spec type so the shared builder runs; the
+    // `Surface<S>` return restores the caller's precise, policy-bearing spec type.
+    defineSurface(
+      spec as unknown as SurfaceSpec<never>,
+    ) as unknown as Surface<S>;
 }
 
 /** Whether a peer reporting contract version `reportedVersion` is

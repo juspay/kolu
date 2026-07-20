@@ -17,25 +17,28 @@ describe("buildCreateInput", () => {
   // KAVAL_SOCKET so a process inside can reach the daemon that owns it.
   const SOCK = "/tmp/kaval-501/pty-host.sock";
 
-  it("composes a fully-specified plain-shell input — argv=[$SHELL], no rcfiles", () => {
+  it("composes a fully-specified plain-shell input from the canonical base — argv=[$SHELL], no rcfiles", () => {
     const input = buildCreateInput({
       id: "abc",
       cwd: "/work",
+      // SHELL is on the canonical allowlist; a non-canonical caller var (FOO) is NOT
+      // forwarded — the env is composed from the base, never copied wholesale.
       env: { SHELL: "/bin/zsh", FOO: "bar" },
       kavalSocket: SOCK,
     });
     expect(input).toEqual({
       id: "abc",
       argv: ["/bin/zsh"],
+      commandRooted: false,
       cwd: "/work",
       env: {
         SHELL: "/bin/zsh",
-        FOO: "bar",
         KAVAL_SOCKET: SOCK,
         KAVAL_TERMINAL_ID: "abc",
       },
       initFiles: [],
     });
+    expect("FOO" in input.env).toBe(false);
   });
 
   it("falls back to /bin/sh when the env names no SHELL", () => {
@@ -58,6 +61,9 @@ describe("buildCreateInput", () => {
     });
     // argv IS the command — the shell is not consulted when one is passed.
     expect(input.argv).toEqual(["htop", "-d", "5"]);
+    // #1872: a command-rooted spawn is flagged so the host seeds it + the
+    // sensors read foreground==root as busy.
+    expect(input.commandRooted).toBe(true);
   });
 
   it("ignores an empty command (no positional) and uses $SHELL", () => {
@@ -71,20 +77,85 @@ describe("buildCreateInput", () => {
     expect(input.argv).toEqual(["/bin/zsh"]);
   });
 
-  it("drops undefined env values (ProcessEnv holes), keeps defined ones", () => {
+  it("composes ONLY the canonical allowlist base, dropping arbitrary caller vars and holes", () => {
     const input = buildCreateInput({
       id: "x",
       cwd: "/",
-      env: { SHELL: "/bin/sh", KEEP: "1", GONE: undefined },
+      env: {
+        // canonical base (functional + presentation) — kept:
+        HOME: "/home/u",
+        PATH: "/usr/bin",
+        SHELL: "/bin/sh",
+        USER: "u",
+        LANG: "en_US.UTF-8",
+        // an allowlisted key present but undefined (ProcessEnv hole) — dropped:
+        DISPLAY: undefined,
+        // non-canonical caller vars — dropped, NOT forwarded:
+        NOT_CANONICAL: "1",
+        AWS_SECRET_ACCESS_KEY: "shhh",
+      },
       kavalSocket: SOCK,
     });
     expect(input.env).toEqual({
+      HOME: "/home/u",
+      PATH: "/usr/bin",
       SHELL: "/bin/sh",
-      KEEP: "1",
+      USER: "u",
+      LANG: "en_US.UTF-8",
       KAVAL_SOCKET: SOCK,
       KAVAL_TERMINAL_ID: "x",
     });
-    expect("GONE" in input.env).toBe(false);
+    expect("NOT_CANONICAL" in input.env).toBe(false);
+    expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
+    expect("DISPLAY" in input.env).toBe(false);
+  });
+
+  it("--env round-trips env names that collide with Object.prototype keys (constructor/prototype/__proto__)", () => {
+    // codex F3: these are valid env-var names, not something to reject. The composer's
+    // null-prototype records carry them as DATA, not prototype mutations. `__proto__`
+    // must be an OWN key on the extraEnv (a plain `{__proto__: x}` literal would set the
+    // prototype), so build extraEnv on a null-proto object.
+    const extraEnv: Record<string, string> = Object.create(null);
+    const pairs: [string, string][] = [
+      ["constructor", "c"],
+      ["prototype", "p"],
+      ["__proto__", "pp"],
+    ];
+    for (const [k, v] of pairs) {
+      extraEnv[k] = v; // variable key → index signature, so no `.constructor` Function type
+    }
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { SHELL: "/bin/sh" },
+      extraEnv,
+      kavalSocket: SOCK,
+    });
+    // All three reached the child env as OWN data properties — read via descriptor to
+    // dodge the `.constructor` accessor / the `__proto__` getter that a `.` read hits.
+    expect(
+      Object.getOwnPropertyDescriptor(input.env, "constructor")?.value,
+    ).toBe("c");
+    expect(Object.getOwnPropertyDescriptor(input.env, "prototype")?.value).toBe(
+      "p",
+    );
+    expect(Object.getOwnPropertyDescriptor(input.env, "__proto__")?.value).toBe(
+      "pp",
+    );
+  });
+
+  it("--env additions (extraEnv) re-add a dropped var and can override a base var", () => {
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { SHELL: "/bin/sh", PATH: "/usr/bin" },
+      // FOO is not on the base — the explicit escape hatch re-adds it; PATH is on the
+      // base — an explicit --env overrides it (layered after the base).
+      extraEnv: { FOO: "bar", PATH: "/custom/bin" },
+      kavalSocket: SOCK,
+    });
+    expect(input.env.FOO).toBe("bar");
+    expect(input.env.PATH).toBe("/custom/bin");
   });
 
   it("stamps KAVAL_TERMINAL_ID with the terminal's own id, overwriting an inherited one", () => {
@@ -120,6 +191,40 @@ describe("buildCreateInput", () => {
     expect(
       buildCreateInput({ id, cwd: "/", env: {}, kavalSocket: SOCK }).id,
     ).toBe(id);
+  });
+
+  // SPAWN1 red-first pin (#1872), parameterized over BOTH spawn modes. The caller may
+  // itself be an orchestrating Claude session, whose private identity vars
+  // (CLAUDE_CODE_CHILD_SESSION=1 + kin) MUST NOT ride into the spawned terminal: a claude
+  // that sees CLAUDE_CODE_CHILD_SESSION classifies itself as a nested child and never
+  // persists its conversation (real data loss — 3 agents, A/B-proven in
+  // agent-spawn-first-class.mdx). The #1872 field repro was COMMAND mode
+  // (`create -- claude`); a shell-mode-only pin would let a command-mode regression — the
+  // exact #1872 shape — pass. Both modes must strip the identity vars.
+  it.each([
+    { mode: "shell mode (plain $SHELL)", command: undefined },
+    {
+      mode: "command mode (`create -- claude`, the #1872 field repro)",
+      command: ["claude"],
+    },
+  ])("does not forward the caller's CLAUDE_CODE_* identity vars — $mode (data-loss guard, #1872)", ({
+    command,
+  }) => {
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: {
+        SHELL: "/bin/bash",
+        CLAUDE_CODE_CHILD_SESSION: "1",
+        CLAUDECODE: "1",
+        CLAUDE_CODE_SESSION_ID: "abc",
+      },
+      command,
+      kavalSocket: SOCK,
+    });
+    expect("CLAUDE_CODE_CHILD_SESSION" in input.env).toBe(false);
+    expect("CLAUDECODE" in input.env).toBe(false);
+    expect("CLAUDE_CODE_SESSION_ID" in input.env).toBe(false);
   });
 });
 
@@ -203,6 +308,35 @@ describe("buildRemoteCreateInput", () => {
     expect(input.argv).toEqual(["htop", "-d", "5"]);
     expect(input.cwd).toBe("/home/prod");
     expect(input.env.HOME).toBe("/home/prod");
+  });
+
+  it("applies --env additions on the remote path too (flag behaves the same with --host)", () => {
+    const input = buildRemoteCreateInput({
+      id: "r1",
+      host,
+      localEnv,
+      extraEnv: { FOO: "bar", PATH: "/custom/bin" },
+    });
+    // Added on top of the host base, and able to override a host-derived var.
+    expect(input.env.FOO).toBe("bar");
+    expect(input.env.PATH).toBe("/custom/bin");
+    // The local secret still never crosses the wire — extraEnv is explicit-only.
+    expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
+  });
+
+  it("--env round-trips a __proto__ key on the remote path too (null-proto base, codex F3)", () => {
+    const extraEnv: Record<string, string> = Object.create(null);
+    extraEnv.__proto__ = "pp"; // own key on a null-proto object
+    const input = buildRemoteCreateInput({
+      id: "r1",
+      host,
+      localEnv,
+      extraEnv,
+    });
+    // Reached the child env as an OWN data property, not a prototype mutation.
+    expect(Object.getOwnPropertyDescriptor(input.env, "__proto__")?.value).toBe(
+      "pp",
+    );
   });
 });
 

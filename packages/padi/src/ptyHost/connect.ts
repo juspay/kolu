@@ -26,6 +26,7 @@ import {
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import { withTimeout } from "../withTimeout.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
@@ -64,6 +65,30 @@ export type KavalConnectionMetadata = {
  *  survivor. The first two are possibly-transient and must not cost a survivor
  *  its live PTYs, so they stay plain errors the endpoint retries. (`ensure`'s
  *  fresh-boot path turns any of the three into `dead` regardless.) */
+/** Deadline for the `system.version` handshake READ — the socket is already
+ *  connected, so a healthy kaval answers in milliseconds; a peer that accepts but
+ *  never replies (a foreign squatter, a wedged daemon) must reject here rather than
+ *  hang boot. Generous enough that a loaded-box kaval never trips it. */
+const HANDSHAKE_READ_DEADLINE_MS = 10_000;
+
+/** Read `system.version` off `client`, bounded by {@link HANDSHAKE_READ_DEADLINE_MS}:
+ *  a peer that accepts the unix connection but never answers oRPC (a foreign squatter,
+ *  a wedged daemon) would otherwise leave the read pending FOREVER and hang boot. The
+ *  deadline is a BAKED constant, never an override knob (fail-fast). `Promise.race`
+ *  attaches a handler to the version promise, so a late rejection after the caller's
+ *  `socket.destroy()` is not unhandled. Throws on the deadline; the CALLER destroys
+ *  the socket (both `connectKaval` and the convergence probe already do, in their own
+ *  catch, so error handling stays where each wants it). */
+function readSystemVersionBounded(
+  client: PtyHostClient,
+): Promise<Awaited<ReturnType<PtyHostClient["surface"]["system"]["version"]>>> {
+  return withTimeout(
+    client.surface.system.version({}),
+    HANDSHAKE_READ_DEADLINE_MS,
+    `handshake read exceeded ${HANDSHAKE_READ_DEADLINE_MS}ms deadline`,
+  );
+}
+
 export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
@@ -77,7 +102,7 @@ export async function connectKaval(
     ReturnType<PtyHostClient["surface"]["system"]["version"]>
   >;
   try {
-    version = await client.surface.system.version({});
+    version = await readSystemVersionBounded(client);
   } catch (err) {
     socket.destroy();
     throw new Error(
@@ -93,10 +118,20 @@ export async function connectKaval(
     socket.destroy();
     // The ONE failure that proves the survivor is incompatible — raise the typed
     // skew error so `adoptOrEnsure` recycles it (retrying can't fix incompatible
-    // contracts). Every other reject above stays a plain Error (non-skew).
-    throw new DaemonContractSkewError(
-      `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
-    );
+    // contracts). Every other reject above stays a plain Error (non-skew). The
+    // versions ride as FIELDS (SK2) so every downstream consumer — the typed
+    // recycleKaval rethrow, the `incompatible` status arm — reads them
+    // structurally, never re-parsing the message prose.
+    throw new DaemonContractSkewError({
+      subject: "pty-host",
+      daemonVersion: version.contractVersion,
+      requiredVersion: PTY_HOST_CONTRACT_VERSION,
+      // The skewed daemon's OWN pid, so the gate-less-squatter recovery of an OLD
+      // orphan (the 25494 case, which throws HERE before a connection exists) has
+      // its third identity attestation. `pid` is a required `system.version` field
+      // (since #1301), so a validated `version` always carries it.
+      pid: version.pid,
+    });
   }
   let closed = false;
   socket.once("close", () => {
@@ -153,7 +188,10 @@ export async function probeKavalForConvergence(
     ReturnType<PtyHostClient["surface"]["system"]["version"]>
   >;
   try {
-    version = await client.surface.system.version({});
+    // Bounded like `connectKaval` (F2): converge probes BEFORE the recovery runs, so
+    // a silent-accept holder here would hang boot before `adoptOrEnsure` could reach
+    // the recovery's foreign refusal. The deadline turns it into a clean `null`.
+    version = await readSystemVersionBounded(client);
   } catch {
     socket.destroy();
     return null; // the daemon is there but did not answer the probe — treat as none.

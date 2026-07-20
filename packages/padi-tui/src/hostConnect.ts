@@ -21,7 +21,7 @@
  * even at a padiSurface skew) and running the shared `assertPadiSurfaceCompatible`
  * makes a remote padi too new for this build (or a padi-tui too old) fail LOUD with
  * the SAME "upgrade" line the local path gives — a protocol assertion beyond
- * liveness, which is pulam-tui's precedent for overriding `probe`.
+ * liveness, following the retired pulam-tui's precedent for overriding `probe`.
  *
  * A tui is a DIAL, never a supervisor (#1313): this reads the remote `hello` only
  * to GATE, and never drains / converges / recycles the remote padi — that is the
@@ -33,6 +33,7 @@
 import { assertPadiSurfaceCompatible, scopePadiSurface } from "@kolu/padi/dial";
 import type { PadiDaemonContract } from "@kolu/padi/surface";
 import { dialAgentOnce } from "@kolu/surface-remote";
+import { composeSpawnEnv } from "kolu-pty";
 import type { Connection } from "./connect.ts";
 
 /** The per-system `{ system → padi .drv }` map env var, baked onto the padi-tui
@@ -49,6 +50,8 @@ const PADI_AGENT_DRVS_ENV = "PADI_AGENT_DRVS_JSON";
 export async function connectPadiTuiViaHost(host: string): Promise<Connection> {
   const dial = await dialAgentOnce<PadiDaemonContract>({
     host,
+    // localhost spawn env: clean allowlist via kolu-pty's composeSpawnEnv; see the localEnv doc on buildAgentCommand.
+    localEnv: composeSpawnEnv(process.env),
     // `${agentPath}/bin/padi`, run as `padi --stdio`. The connector appends
     // `--stdio` itself, so it is NEVER added here (F2 in remotePadiBinding).
     binary: "padi",
@@ -59,8 +62,8 @@ export async function connectPadiTuiViaHost(host: string): Promise<Connection> {
     // `padi:` — see padi/src/stdioBridge.ts + bin.ts), so the dial surfaces the
     // remote's own reason instead of the transport's opaque "stream closed".
     fatalPrefix: "padi --stdio:",
-    // A protocol assertion BEYOND liveness (pulam-tui's precedent for overriding
-    // `probe`): read the frozen control core's `hello` and gate the padiSurface
+    // A protocol assertion BEYOND liveness (the retired pulam-tui's precedent for
+    // overriding `probe`): read the frozen control core's `hello` and gate the padiSurface
     // contract version — the SAME judgement `connectPadi` runs against the local
     // socket — so a skew fails loud here rather than deep inside oRPC. GATE only; a
     // tui never drains or converges the remote padi (#1313).
