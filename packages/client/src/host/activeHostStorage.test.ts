@@ -60,15 +60,15 @@ describe("activeHostStorageForLaunch — read the live install env, then pick", 
 
   const backends = { local: fakeStorage(), session: fakeStorage() };
 
-  it("installed display-mode (standalone) → localStorage", () => {
-    stubDisplayModes(["(display-mode: standalone)"]);
-    stubIosStandalone(false);
-    expect(activeHostStorageForLaunch(backends)).toBe(backends.local);
-  });
-
-  it("installed display-mode (minimal-ui / fullscreen) → localStorage", () => {
-    // The reader matches ALL of surface-app's installed display-modes, not just standalone.
-    stubDisplayModes(["(display-mode: fullscreen)"]);
+  // The reader matches ALL of surface-app's installed display-modes. Pin EACH arm
+  // independently, so a typo in (or removal of) any single query fails its own case —
+  // not just the standalone one.
+  it.each([
+    "(display-mode: standalone)",
+    "(display-mode: minimal-ui)",
+    "(display-mode: fullscreen)",
+  ])("installed display-mode %s → localStorage", (query) => {
+    stubDisplayModes([query]);
     stubIosStandalone(false);
     expect(activeHostStorageForLaunch(backends)).toBe(backends.local);
   });
