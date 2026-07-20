@@ -20,14 +20,14 @@
  */
 
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
-import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
 import { toast } from "solid-sonner";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  switchToLocalAction,
 } from "./CanvasFailureCard";
-import { activeHost, client, setActiveHost } from "../wire";
+import { activeHost, client } from "../wire";
 import { hostDownCopy } from "./hostDownCopy";
 
 const HostDownCanvas: Component<{
@@ -35,10 +35,6 @@ const HostDownCanvas: Component<{
   reason: string;
 }> = (props) => {
   const copy = () => hostDownCopy(props.cause);
-  // The local default is unremovable and always a member, so `[Switch to local]`
-  // is the always-available escape hatch — hidden only when it IS the active host
-  // (switching to where you already are is a no-op).
-  const isLocal = () => activeHost().kind === "local";
   const actions = (): CanvasFailureAction[] => [
     // The RECOVERY verb. A standing refuse (cross-supervisor / skew / unconverged)
     // HOLDS degraded WITHOUT auto-reconnecting — so once the operator clears the cause
@@ -57,16 +53,7 @@ const HostDownCanvas: Component<{
           );
       },
     },
-    ...(isLocal()
-      ? []
-      : [
-          {
-            label: "Switch to local",
-            testid: "switch-to-local",
-            tone: "secondary" as const,
-            onClick: () => setActiveHost(LOCAL_HOST),
-          },
-        ]),
+    ...switchToLocalAction(),
   ];
   return (
     <CanvasFailureCard

@@ -19,22 +19,20 @@
  */
 
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
-import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
 import type { StalledLeg } from "../kaval/canvasModeResolver";
 import { bootStalledCopy } from "../kaval/bootStalledCopy";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  switchToLocalAction,
 } from "./CanvasFailureCard";
-import { activeHost, setActiveHost } from "../wire";
 
 const BootStalledCanvas: Component<{
   leg: StalledLeg;
   phase: ConnectPhase | undefined;
 }> = (props) => {
   const copy = () => bootStalledCopy(props.leg);
-  const isLocal = () => activeHost().kind === "local";
   // Render the live provisioning phase beside the static copy (C4) — so a wedged remote build
   // names WHERE it is stuck ("Still copying" / "Still building") rather than a bare title.
   const detail = () =>
@@ -52,16 +50,7 @@ const BootStalledCanvas: Component<{
       tone: "primary",
       onClick: () => location.reload(),
     },
-    ...(isLocal()
-      ? []
-      : [
-          {
-            label: "Switch to local",
-            testid: "switch-to-local",
-            tone: "secondary" as const,
-            onClick: () => setActiveHost(LOCAL_HOST),
-          },
-        ]),
+    ...switchToLocalAction(),
   ];
   return (
     <CanvasFailureCard

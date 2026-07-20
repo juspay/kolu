@@ -9,8 +9,10 @@
  *  lives here once. Pure presentation — no `wire`, no copy tables — so it is trivially
  *  render-testable and carries no domain knowledge. */
 
+import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
 import { WarningIcon } from "../ui/Icons";
+import { activeHost, setActiveHost } from "../wire";
 
 /** One action button in the card's vertical stack. `tone: "primary"` is the warning-accented
  *  recovery verb (Reconnect / Reload); `"secondary"` is the neutral escape hatch (Switch to
@@ -20,6 +22,23 @@ export interface CanvasFailureAction {
   testid: string;
   onClick: () => void;
   tone: "primary" | "secondary";
+}
+
+/** The shared escape-hatch action — "Switch to local", the neutral verb back to the
+ *  unremovable LOCAL default. Empty when the active host already IS local (switching to
+ *  where you are is a no-op). Both failure canvases (`HostDownCanvas` / `BootStalledCanvas`)
+ *  spread it into their actions rather than re-deriving the guard + action object, so the
+ *  one escape hatch lives beside the shared card it renders into. */
+export function switchToLocalAction(): CanvasFailureAction[] {
+  if (activeHost().kind === "local") return [];
+  return [
+    {
+      label: "Switch to local",
+      testid: "switch-to-local",
+      tone: "secondary",
+      onClick: () => setActiveHost(LOCAL_HOST),
+    },
+  ];
 }
 
 /** The shared failure-card shell. `detail` is an optional verbatim line (a raw `reason`, a
