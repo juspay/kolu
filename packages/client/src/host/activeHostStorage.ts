@@ -33,7 +33,8 @@ import { type InstallEnv, isInstalledFromEnv } from "@kolu/surface-app/solid";
  *  (standalone / minimal-ui / fullscreen) and its inline-cast for the non-standard iOS
  *  `navigator.standalone`, so the two "installed?" answers cannot diverge and no third
  *  `declare global` Navigator copy is added. Reads globals directly (like surface-app); the
- *  injectable, unit-pinnable seam is {@link activeHostStorage}, which takes the env as a value. */
+ *  install DECISION is {@link isInstalledFromEnv} (surface-app's kernel), and the
+ *  injectable, unit-pinnable seam is {@link activeHostStorage}, which takes the verdict as a boolean. */
 function readInstallEnv(): InstallEnv {
   const displayModeStandalone =
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -53,22 +54,23 @@ export interface StorageBackends {
   session: Storage;
 }
 
-/** The storage-backend decision: an INSTALLED / standalone launch context → the
- *  survive-relaunch backend (`localStorage`), a regular tab → per-tab (`sessionStorage`).
- *  Pure over an injected {@link InstallEnv} (surface-app's canonical install fact) and
- *  injected backends, so the pick is unit-pinnable without a real PWA. */
+/** The storage-backend decision — the one thing this module owns: an INSTALLED launch
+ *  context → the survive-relaunch backend (`localStorage`), a regular tab → per-tab
+ *  (`sessionStorage`). Pure over the install verdict as a boolean (surface-app's
+ *  {@link isInstalledFromEnv} owns deriving it) and injected backends, so the pick is
+ *  unit-pinnable without a real PWA and without re-exercising surface-app's install kernel. */
 export function activeHostStorage(
-  env: InstallEnv,
+  installed: boolean,
   backends: StorageBackends,
 ): Storage {
-  return isInstalledFromEnv(env) ? backends.local : backends.session;
+  return installed ? backends.local : backends.session;
 }
 
 /** Boot-time convenience: read the LIVE install env and pick the backend. The one call
  *  site is `wire.ts`'s `activeHost` pref, at module init — before the `<SurfaceAppProvider>`
  *  owner exists, so the reactive `useSurfaceApp().isInstalled()` isn't reachable and a
  *  synchronous read is required. Kept as a thin split from the pure {@link activeHostStorage}
- *  so the decision stays testable with an injected env. */
+ *  so the decision stays testable with an injected verdict. */
 export function activeHostStorageForLaunch(backends: StorageBackends): Storage {
-  return activeHostStorage(readInstallEnv(), backends);
+  return activeHostStorage(isInstalledFromEnv(readInstallEnv()), backends);
 }
