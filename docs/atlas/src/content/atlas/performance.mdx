@@ -233,6 +233,23 @@ re-runs it, correctly. The gate closes the *set-reference* path; the field-level
 path is already as narrow as it should be.</Footnote>
 </Finding>
 
+<Finding sev="low" id="n-displayinfo-no-live-record" title="Corollary — the display-info snapshot must carry NO live record — ✓ fixed">
+The keystone win has a sharp edge worth stating on its own, so a future change
+doesn't re-introduce it: **precisely because** PR / agent / foreground churn
+never re-runs `displayInfos`, anything *live* carried in its **output** silently
+goes stale. `TerminalDisplayInfo` used to bundle the whole `TerminalMetadata`,
+so a consumer reading `getDisplayInfo(id).meta.pr` off that snapshot saw a value
+frozen at the last `git` / `cwd` / membership change — the canvas tile title bar
+lagged the dock on PR resolution (the dock reads the live `getMetadata(id)`
+proxy; the header read the snapshot). This is the *reactively-correct* shape: a
+memo hands out only what it invalidates on. **Fixed** <PrLink pr={1897} /> —
+`meta` is removed from `TerminalDisplayInfo` entirely, so every live fact (pr / agent / foreground /
+intent / git) now reads from `getMetadata(id)` — the fine-grained store proxy —
+at each consumer's own leaf, and the header tracks the same leaf the dock does. A
+`terminalDisplay.test.ts` guard asserts the display info can never again carry a
+record; the memo keeps only colors, the identity key, and sub-count.
+</Finding>
+
 - <span id="n-getsubterminalids" />**`getSubTerminalIds` O(n) scan, called per top-level terminal** inside the display derivation → O(n²) per metadata update (`useTerminalMetadata.ts:54-56`, `terminalDisplay.ts:80`). A `Map<ParentId, TerminalId[]>` index built in the same memo replaces the repeated full scans with one O(n) pass — a *better-algorithm* N cut. <Pill variant="lo">low</Pill>
 - **`terminalLabel` O(n) `indexOf` per access** (`useTerminalMetadata.ts:94-96`) — real, but only 2 call sites, both at event boundaries; a precomputed id→position map (derived alongside the group-by index above) collapses it to O(1). Bundle it with that index work, don't chase it alone. <Pill variant="lo">low</Pill>
 - **Per-tile geometry arithmetic** (`onScreen`, `tileTransformCSS` in `CanvasTile.tsx:114-130`) recomputes per pan/zoom frame — but the big win (not *mounting* off-screen auras) already shipped; the residual ~4 ops/tile/rAF is the arithmetic pan/zoom genuinely changes each frame, likely below noise. *Remaining within* the canvas work. <Pill variant="lo">low</Pill>

@@ -134,6 +134,7 @@ const App: Component = () => {
     buildWorkspaceEntries(
       tileStore.tileIds(),
       store.getDisplayInfo,
+      store.getMetadata,
       tileStore.getLayout,
     ),
   );
@@ -626,6 +627,7 @@ const App: Component = () => {
                       renderTileTitle={(id) => (
                         <TerminalMeta
                           info={store.getDisplayInfo(id)}
+                          meta={store.getMetadata(id)}
                           unread={store.isUnread(id)}
                           onOpenIntent={() => intentEditor.openTerminal(id)}
                         />

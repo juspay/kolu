@@ -215,15 +215,63 @@ describe("parseAgentCommand", () => {
 
   it("preserves grok stable flags and strips positionals", () => {
     // `-m` takes a value; trailing prompt words after the last flag are
-    // positionals and drop. (A bare boolean like `--always-approve` followed
-    // by a word attaches that word as a value — same allowlist rule as every
-    // other agent — so keep the prompt after a valued flag.)
+    // positionals and drop. A bare boolean like `--always-approve` does NOT
+    // swallow the token after it (see the leak regression below), so a real
+    // valued flag downstream still keeps its value.
     expect(parseAgentCommand("grok -m grok-4.5 fix the bug")).toBe(
       "grok -m grok-4.5",
     );
     expect(parseAgentCommand("grok --always-approve --model grok-4.5")).toBe(
       "grok --always-approve --model grok-4.5",
     );
+  });
+
+  // Regression (living-clue): a BOOLEAN stable flag must never consume the
+  // token after it. Before per-flag arity was recorded in `STABLE_FLAGS`, the
+  // normalizer attached the token following ANY kept stable flag as its "value", so
+  // `claude --dangerously-skip-permissions 'You are BOOT1. Read BRIEF-BOOT1.md…'`
+  // kept the whole prompt — which then leaked verbatim into the recent-agents
+  // MRU shown in the command palette. The prompt is a positional and must drop.
+  it("does not leak a prompt after a boolean flag into the MRU", () => {
+    expect(
+      parseAgentCommand(
+        "claude --dangerously-skip-permissions 'You are BOOT1. Read BRIEF-BOOT1.md in this directory and follow it exactly.'",
+      ),
+    ).toBe("claude --dangerously-skip-permissions");
+    // Same via the command-rooted (#1872) seed dialect.
+    expect(
+      parseAgentCommand(
+        shellJoin([
+          "claude",
+          "--dangerously-skip-permissions",
+          "You are AWAIT1. Read BRIEF-AWAIT1.md in this directory and follow it exactly.",
+        ]),
+        true,
+      ),
+    ).toBe("claude --dangerously-skip-permissions");
+    // Every other boolean stable flag has the same exposure.
+    expect(parseAgentCommand("opencode --yolo 'do the thing'")).toBe(
+      "opencode --yolo",
+    );
+    expect(parseAgentCommand("codex --full-auto 'ship it'")).toBe(
+      "codex --full-auto",
+    );
+    expect(parseAgentCommand("claude --bare 'summarize this'")).toBe(
+      "claude --bare",
+    );
+    expect(parseAgentCommand("grok --no-plan 'fix the bug'")).toBe(
+      "grok --no-plan",
+    );
+  });
+
+  // A boolean flag dropping its follower must not disturb a real valued flag
+  // that comes after it — the prompt drops, the model value survives.
+  it("keeps a valued flag after a boolean flag while dropping a trailing prompt", () => {
+    expect(
+      parseAgentCommand(
+        "claude --dangerously-skip-permissions --model sonnet 'do this'",
+      ),
+    ).toBe("claude --dangerously-skip-permissions --model sonnet");
   });
 
   // Regression: a stable flag's VALUE can contain shell-significant
