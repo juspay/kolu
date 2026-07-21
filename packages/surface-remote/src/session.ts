@@ -101,8 +101,12 @@ const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
  *     never a `0` placeholder — the offset is a separate fact riding this arm.
  *   - `disconnected` — `error` + `cause` are REQUIRED, never nullable: a down link
  *     ALWAYS has a real reason, so a consumer needs no `?? "disconnected"`
- *     invented-text fallback. `cause` is `"network"` (unreachable; retries forever)
- *     or `"remote"` (host reached, rejected us).
+ *     invented-text fallback. `cause` is `"network"` (transport-class: unreachable, or a
+ *     wedged/killed transport — normally retries at capped backoff) or `"remote"` (host
+ *     reached, rejected us — bounded). `cause` is the transport CLASS, not the retry
+ *     policy: a budget-exhausted silent provisioning step publishes `disconnected` +
+ *     `"network"` and then gives up terminally (`failed` + `"network"`) without retrying
+ *     (#1908) — the retry decision lives in `scheduleReconnect`, not in the cause.
  *   - `failed` — TERMINAL. `cause` is `"network" | "remote"` — the HONEST transport
  *     class, orthogonal to terminality: a give-up on `MAX_CONSECUTIVE_FAILURES` bounded
  *     remote rejections is `"remote"`, but a give-up from a budget-EXHAUSTED silent
