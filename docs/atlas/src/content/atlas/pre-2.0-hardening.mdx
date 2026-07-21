@@ -4,7 +4,7 @@ description: "Ship-status board for the 2.0 tag: what can hurt the user, in thei
 parents: [analysis, roadmap]
 status: proposed
 maturity: budding
-updated: 2026-07-20
+updated: 2026-07-21
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -16,8 +16,8 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 | | Issue | What the user feels |
 | --- | --- | --- |
-| ⬜ | <Issue n={1334} /> + <Issue n={1375} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. |
-| ⬜ | <Issue n={1754} /> | The dock says **"thinking" forever** after the agent already finished. |
+| 🔶 | <Issue n={1334} /> + <Issue n={1375} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. Fix at PR #1911 (38/38 green, merge decision open); [the locks, in plain words](./host-isolation-locks.html). |
+| 🔶 | <Issue n={1754} /> | The dock says **"thinking" forever** after the agent already finished. Fix at PR #1914 (append-poll floor; CI finishing). |
 | ✅ | <Issue n={1859} /> | ~~One corrupt message makes a connection play dead while it keeps listening~~ — "settled ⟹ stopped" holds by construction. (PR #1901) |
 | ✅ | <Issue n={1900} /> | ~~Refresh yanks you to another host with a lying toast~~ — boot honors the consumed stamp; the gone-verdict waits for an authoritative census. (PR #1903) |
 | ✅ | <Issue n={1177} /> | An agent that needs you **always chimes** now. (PR #1894) |
@@ -76,7 +76,7 @@ naiveintent. Two decisions and three facts carry over:
 
 | # | Decision / fact |
 | --- | --- |
-| 1 | **PR #1896 is HELD on a five-minute field test.** Deploy master (it now has #1903), switch the installed PWA to a remote host, quit, relaunch with an **empty hash**. Host reverts to local → #1896's premise is real: re-scope its body honestly (it fixes the empty-hash relaunch, NOT the reload-yank #1903 fixed) and merge. Host persists → close #1896 as a misdiagnosis. Never merge it un-re-scoped. |
+| 1 | ~~PR #1896 HELD on a field test~~ — **RESOLVED 2026-07-20**: srid ran the field test against a real remote host; the yank was #1903's deep-link replay all along, and the one case #1896 covered has no beneficiary. Closed as misdiagnosis, unmerged. |
 | 2 | **Next lanes, dispatch-ready under the full arc** (reproduce-first → adversarial design gate → /be): the <Issue n={1334} />/<Issue n={1375} /> isolation pair — three locks: forced private state-roots for dev/test, a production marker every dev-side adopt/kill path refuses, a resource leash on test harnesses; freshly evidenced by the 2026-07-20 load-45 incident (two odu pipelines silently ran on localhost — root fix shipped as odu#47). And <Issue n={1754} /> — fix direction in the issue: initial full-scan on transcript-watcher attach + `stop_reason` reconcile; restores four descoped e2e asserts. |
 | 3 | **CI venue law.** `~/.config/odu/hosts.json` on the coordinator's machine must name real venues: `aarch64-darwin` → rasam (`nix-infra@rasam.tail12b27.ts.net`); **no x86_64-linux venue exists yet** — once pureintent retires from agent duty it is the natural candidate. odu ≥ #47 fails fast when the config is missing (never silent localhost). Workers must verify `host ≠ localhost` in run records before claiming CI. |
 | 4 | **The watcher era should end.** <Issue n={1904} /> (kolu MCP standing subscription / supervision-edge delivery) exists because hand-rolled watcher agents dropped worker reports at four seams in one day. Until it lands: every dispatched ask gets a listener attached in the same breath, re-attached after every restart. |
