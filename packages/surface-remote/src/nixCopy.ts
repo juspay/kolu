@@ -320,13 +320,13 @@ export async function provisionAgent(
   // to the user-visible ring (a cold miss can write a scary line).
   const onProbeProgress = scanForNetworkError;
   // A direct-ssh command surfaces ssh's own 255 on a transport failure. Keys on the
-  // EXIT arm's numeric code; a `lifetime-expired` (our kill) and an `aborted` (user
-  // verb) are RETRYABLE `"network"` — never the bounded `"remote"` default — so a
-  // wedged-then-killed step retries and a user abort never burns the give-up budget.
+  // EXIT arm's numeric code; an `aborted` (user verb) is RETRYABLE `"network"` — never
+  // the bounded `"remote"` default — so a user abort never burns the give-up budget.
   // A `signal`/`spawn-error`/plain non-255 exit falls to the bounded `"remote"`.
+  // `lifetime-expired` (our kill) never reaches here: each step intercepts its own kill
+  // inline via `expiredResult` (with its budget), before it ever calls `causeFor`.
   const causeFor = (res: ExitResult): "network" | "remote" => {
-    if (res.kind === "lifetime-expired" || res.kind === "aborted")
-      return "network";
+    if (res.kind === "aborted") return "network";
     return sawNetworkError || (res.kind === "exit" && res.code === 255)
       ? "network"
       : "remote";
