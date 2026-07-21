@@ -140,18 +140,6 @@ export function encodeProjectPath(cwd: string): string {
 
 // --- Transcript path discovery ---
 
-/**
- * Find the JSONL transcript path for a session — exact match by session ID.
- *
- * Returns null if the file doesn't exist yet (common: claude creates the
- * JSONL lazily on the first user↔assistant exchange, not at session start).
- * Callers should treat null as "wait and retry" via a project dir watcher,
- * not as "give up".
- *
- * No MRU fallback: picking the most recently modified file in the project
- * dir leads to attaching to a stale previous-session transcript while the
- * current session's file is still being created. Better to wait.
- */
 /** The deterministic transcript path for a session — computed, not probed.
  *  Claude writes this file lazily (after the first message), so it may not
  *  exist yet; callers that need append-robust watching subscribe on it
@@ -161,6 +149,18 @@ export function transcriptPathFor(session: SessionFile): string {
   return path.join(projectDir, `${session.sessionId}.jsonl`);
 }
 
+/**
+ * Find the JSONL transcript path for a session — exact match by session ID,
+ * or null if the file doesn't exist yet.
+ *
+ * Returns null if the file doesn't exist yet (common: claude creates the
+ * JSONL lazily on the first user↔assistant exchange, not at session start).
+ * Callers should treat null as "wait and retry", not as "give up".
+ *
+ * No MRU fallback: picking the most recently modified file in the project
+ * dir leads to attaching to a stale previous-session transcript while the
+ * current session's file is still being created. Better to wait.
+ */
 export function findTranscriptPath(session: SessionFile): string | null {
   const exactPath = transcriptPathFor(session);
   try {

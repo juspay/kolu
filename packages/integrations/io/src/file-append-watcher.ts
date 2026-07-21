@@ -84,8 +84,19 @@ export interface SubscribeFileAppendsOpts {
  * Watch `filePath` for content changes with an append-robust guarantee, and
  * call `onChange` (the consumer's own debounced, change-gated handler) whenever
  * it may have changed. Subscribe **unconditionally** — the file need not exist
- * yet; the floor tolerates absence and fires the moment it appears (the first
- * observation that finds the file is the appearance reconcile).
+ * yet; the floor tolerates absence and fires `onChange` on the **absent→present
+ * transition** (a session file that appears after attach) and on every
+ * subsequent append.
+ *
+ * **The consumer must perform its own initial read on attach.** No *synthetic*
+ * initial `onChange` is emitted for a file that already exists and is unchanged
+ * at subscribe time — `fs.watchFile` fires only on a change from the stat it
+ * samples at watch-start, so a present-unchanged file stays silent. (This is the
+ * opposite of the sibling `createDirFilenameWatcher`, which fires one
+ * reconciliation tick on attach — the two subscribe-shaped primitives have
+ * deliberately opposite initial-fire contracts.) Every consumer here already
+ * reads on attach, so the file-present-at-attach window is covered by the
+ * consumer, not by a primitive-emitted fire.
  *
  * Returns an idempotent unsubscribe that closes both watchers behind a `closed`
  * guard rechecked after the async disambiguating stat, so no late callback fires
