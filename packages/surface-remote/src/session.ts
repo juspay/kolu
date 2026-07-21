@@ -1018,8 +1018,8 @@ export function makeSession<
     const attemptsSoFar = consecutiveFailures;
     consecutiveFailures += 1;
     if (
-      cause === "remote" &&
-      (terminal || consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
+      terminal ||
+      (cause === "remote" && consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
     ) {
       localProgress(
         terminal

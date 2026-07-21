@@ -255,7 +255,9 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
       onProgress: () => {},
       ...provArgs(b),
     });
-    expect(res.ok === false && res.cause).toBe("remote");
+    // A silent-then-killed step is a transport fault, so `cause` stays `network`; the
+    // give-up axis is the orthogonal `terminal` flag the session's gate keys off.
+    expect(res.ok === false && res.cause).toBe("network");
     expect(res.ok === false && res.terminal).toBe(true);
     expect(res.ok === false && res.reason).toMatch(/giving up/i);
   });

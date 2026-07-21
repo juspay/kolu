@@ -403,7 +403,10 @@ export async function provisionAgent(
         reason: `${opts.host}: 'nix copy --derivation' ${describeExit(copyRes)}${
           terminal ? " — giving up (silent too many times)" : ""
         }`,
-        cause: terminal ? "remote" : "network",
+        // A silent-then-killed step is a transport fault (`network`); the `terminal` flag
+        // is the give-up axis, orthogonal to `cause`. The session's give-up gate keys off
+        // `terminal` directly, so the cause stays honest.
+        cause: "network",
         ...(terminal ? { terminal: true } : {}),
       };
     }
@@ -448,7 +451,10 @@ export async function provisionAgent(
       reason: `${opts.host}: 'nix-store --realise' ${describeExit(realiseRes)}${
         terminal ? " — giving up (silent too many times)" : ""
       }`,
-      cause: terminal ? "remote" : "network",
+      // A silent-then-killed step is a transport fault (`network`); the `terminal` flag
+      // is the give-up axis, orthogonal to `cause`. The session's give-up gate keys off
+      // `terminal` directly, so the cause stays honest.
+      cause: "network",
       ...(terminal ? { terminal: true } : {}),
     };
   }
