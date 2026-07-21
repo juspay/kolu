@@ -43,6 +43,7 @@
  */
 
 import { buildSshProbeCommand } from "./host";
+import { PROVISION_PROBE_DEADLINE_MS } from "./nixCopy";
 import { describeExit, runCapture } from "./process";
 
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
@@ -52,12 +53,6 @@ import { describeExit, runCapture } from "./process";
  *  matching `.drv`. The guard only rejects output that clearly isn't a
  *  system string (empty, a warning line, multi-token noise). */
 const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
-
-/** Hard deadline for the arch probe (#1908 D1b) — a quick `nix-instantiate --eval`
- *  round-trip, never a build, so a fixed seconds-scale bound owns it. Without this the
- *  probe could wedge forever on a dead ssh channel (the #1908 class), and it is the
- *  first thing every dial runs. Generous so a slow link doesn't false-fail. */
-const ARCH_PROBE_DEADLINE_MS = 30_000;
 
 /** In-memory, per-process arch cache keyed by host. A host's nix-system is
  *  stable for the lifetime of this process, so the ssh round-trip the probe
@@ -104,7 +99,11 @@ async function probeSystem(host: string): Promise<string> {
     "builtins.currentSystem",
   );
   const res = await runCapture(command, args, {
-    policy: { kind: "deadline", ms: ARCH_PROBE_DEADLINE_MS },
+    // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never
+    // a build — so it shares the QUICK-step deadline the warm check and pin ride: one
+    // constant for "how long a quick nix/ssh round-trip may run before the channel is
+    // called dead", tuned in a single place.
+    policy: { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS },
   });
   if (!res.ok) {
     throw new Error(
