@@ -1,3 +1,16 @@
+---
+name: orchestrator
+description: >-
+  Running memory of the coordination rules for an orchestrator agent driving
+  implementing agents on kolu terminals — authorization boundaries, the
+  dispatch protocol (MCP-first via the kolu skill, with its TUI fallback),
+  verification discipline, and how to communicate with the human. Load whenever coordinating a multi-agent campaign
+  (dispatching briefs to agents in kolu PTYs, tracking their PRs, verifying
+  their claims), or when acting as the coordinator in a padi/surface-style
+  campaign. Triggers on "orchestrate the agents", "coordinate the campaign",
+  "dispatch to the agents", "act as coordinator", or driving multiple
+  implementing agents from one supervising session.
+---
 # Orchestrator
 
 Coordination rules for a supervising agent driving implementing agents on kolu
