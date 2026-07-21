@@ -122,17 +122,21 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
     expect(runProgress).not.toHaveBeenCalled();
   });
 
-  it("handles a multi-output derivation — all outputs are checked (R5a)", async () => {
+  it("a MULTI-output agent derivation fails loud — no silent wrong-output pick (F7)", async () => {
+    // The agent is at `<out>/bin/<binary>`; `-q --outputs` neither names nor orders its
+    // lines, so a multi-output drv is ambiguous. Rather than pick the first (which may be
+    // `debug`/`dev`), it fails loud (a terminal `remote` config error) and never checks.
     mockWarmHit(`${STORE}\n${STORE2}\n`);
-    await provisionAgent({
+    const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
       ...provArgs(),
     });
-    const args = checkValidityCall()![1];
-    // Both outputs presence-checked; a partial closure is not a hit.
-    expect(args).toContain(STORE);
-    expect(args).toContain(STORE2);
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("remote");
+    expect(res.ok === false && res.reason).toMatch(/multi-output/i);
+    // No presence check was even issued for the ambiguous drv.
+    expect(checkValidityCall()).toBeUndefined();
   });
 });

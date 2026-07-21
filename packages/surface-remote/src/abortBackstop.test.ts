@@ -16,6 +16,7 @@ import {
   type ConnectContext,
   ConnectError,
   type Connection,
+  DEFAULT_PRE_CONNECTED_LIVENESS_MS,
   makeSession,
 } from "./session";
 import type { SshProv } from "./sshConnector";
@@ -93,7 +94,19 @@ describe("#1908 R6b — recheck aborts an in-flight dial and redials now", () =>
       liveness: false,
       log: silentLogger,
     });
-    session.pin().catch(() => {});
+    // Capture dial 1's OWN promise (what a `pin()` awaiter holds); it must REJECT rather
+    // than fulfil with the torn-down client (F5).
+    const dial1 = session.pin();
+    let dial1Fulfilled: unknown = "PENDING";
+    let dial1Rejected = false;
+    dial1.then(
+      (c) => {
+        dial1Fulfilled = c;
+      },
+      () => {
+        dial1Rejected = true;
+      },
+    );
     await flush();
     expect(dials).toBe(1);
 
@@ -103,7 +116,44 @@ describe("#1908 R6b — recheck aborts an in-flight dial and redials now", () =>
     expect(dials).toBe(2);
 
     // NOW dial 1's connectOnce resolves LATE with a live connection.
+    const deadClient = {};
     resolveDial1?.({
+      client: deadClient,
+      closed: new Promise(() => {}),
+      isAlive: () => Promise.resolve(),
+      teardown,
+    });
+    await flush();
+    await flush();
+
+    // The superseded dial tore its connection down instead of adopting it, did not connect
+    // through it (still coming up on dial 2), and its promise REJECTED — never fulfilling a
+    // pin() awaiter with the torn-down client.
+    expect(teardown).toHaveBeenCalledTimes(1);
+    expect(session.currentState().phase).toBe("probing");
+    expect(dial1Rejected).toBe(true);
+    expect(dial1Fulfilled).toBe("PENDING");
+    session.destroy();
+  });
+
+  it("a dial that resolves AFTER destroy() is torn down, not adopted (F4)", async () => {
+    let resolveDial: ((c: Connection<unknown>) => void) | undefined;
+    const teardown = vi.fn();
+    const session = makeSession<unknown, SshProv>({
+      connectOnce: () =>
+        new Promise((res) => {
+          resolveDial = res;
+        }),
+      initialConnection: "probing",
+      liveness: false,
+      log: silentLogger,
+    });
+    session.pin().catch(() => {});
+    await flush();
+
+    session.destroy();
+    // The connector resolves LATE — after destroy aborted the dial.
+    resolveDial?.({
       client: {},
       closed: new Promise(() => {}),
       isAlive: () => Promise.resolve(),
@@ -111,11 +161,10 @@ describe("#1908 R6b — recheck aborts an in-flight dial and redials now", () =>
     });
     await flush();
 
-    // The superseded dial tore its connection down instead of adopting it, and the
-    // session did not connect through it (still coming up on dial 2).
+    // `isCurrent` is false once destroyed, so the late resolve tears the connection down
+    // rather than adopting it past destroy (no orphaned child).
     expect(teardown).toHaveBeenCalledTimes(1);
-    expect(session.currentState().phase).toBe("probing");
-    session.destroy();
+    expect(session.isDestroyed()).toBe(true);
   });
 });
 
@@ -127,13 +176,15 @@ describe("#1908 R8b — the pre-connected liveness backstop", () => {
     vi.useRealTimers();
   });
 
+  // The backstop bound is BAKED (no override — F8): drive fake time to the real constant.
+  const BOUND = DEFAULT_PRE_CONNECTED_LIVENESS_MS;
+
   it("cycles a silent wedged dial past its bound (the resolveDrvPath-wedge seam)", async () => {
     const h = hangingConnector();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
       initialConnection: "probing",
       liveness: false,
-      preConnectedLivenessMs: 1000,
       reconnectDelayMs: 5,
       log: silentLogger,
     });
@@ -142,8 +193,8 @@ describe("#1908 R8b — the pre-connected liveness backstop", () => {
     expect(h.dials()).toBe(1);
 
     // No progress line, no phase advance, never connected — the backstop fires at its
-    // bound and cycles the attempt (abort → redial).
-    await vi.advanceTimersByTimeAsync(1100);
+    // baked bound and cycles the attempt (abort → redial).
+    await vi.advanceTimersByTimeAsync(BOUND + 100);
     await flush();
     expect(h.firstSignal()?.aborted).toBe(true);
     expect(h.dials()).toBeGreaterThanOrEqual(2);
@@ -159,15 +210,15 @@ describe("#1908 R8b — the pre-connected liveness backstop", () => {
       },
       initialConnection: "probing",
       liveness: false,
-      preConnectedLivenessMs: 1000,
       log: silentLogger,
     });
     session.pin().catch(() => {});
     await flush();
 
-    // Emit a progress line every 400ms for ~2s — always under the 1000ms bound.
+    // Emit a progress line every (BOUND − 1000)ms for ~5× the bound — each always under
+    // the bound since the previous line, so the backstop never fires.
     for (let i = 0; i < 5; i++) {
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(BOUND - 1000);
       ctx?.localProgress(`still copying path ${i}`);
     }
     // Still the SAME first dial — a chatty (healthy-but-slow) provision was never cycled.

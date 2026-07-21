@@ -116,4 +116,53 @@ describe("D1b — abort (#1908 R6b)", () => {
     expect(res.kind).toBe("aborted");
     expect(Date.now() - start).toBeLessThan(2000);
   });
+
+  it("an ALREADY-aborted signal never spawns the (side-effecting) child (F2)", {
+    timeout: 10_000,
+  }, async () => {
+    const ac = new AbortController();
+    ac.abort(); // aborted BEFORE the call
+    const res = await runCapture("sh", ["-c", "echo RAN"], {
+      policy: { kind: "deadline", ms: 5000 },
+      signal: ac.signal,
+    });
+    // Settles aborted with no output — the command (a stand-in for `nix copy`) never ran.
+    expect(res.kind).toBe("aborted");
+    expect(res.stdout).not.toContain("RAN");
+  });
+});
+
+describe("D1b — group reap (#1908 F1)", () => {
+  it("SIGKILLs a TERM-ignoring grandchild that outlived the leader's close", {
+    timeout: 10_000,
+  }, async () => {
+    // The leader prints its pid (== its process-group id, since detached), forks a
+    // grandchild that IGNORES SIGTERM, then exits 0 on its own TERM — so the leader's
+    // `close` fires while the grandchild is still alive. The escalation must NOT be
+    // cleared on that close; the grace SIGKILL reaps the grandchild.
+    const res = await runCapture(
+      "sh",
+      ["-c", 'echo $$; trap "exit 0" TERM; ( trap "" TERM; sleep 30 ) & wait'],
+      { policy: { kind: "deadline", ms: 400 } },
+    );
+    expect(res.kind).toBe("lifetime-expired");
+    const pgid = Number.parseInt(res.stdout.trim(), 10);
+    expect(Number.isFinite(pgid)).toBe(true);
+    // Wait past the TERM→KILL grace, then the whole group must be gone (ESRCH).
+    await new Promise((r) => setTimeout(r, 2600));
+    expect(() => process.kill(-pgid, 0)).toThrow();
+  });
+
+  it("runProgress resets progress-liveness on STDOUT (not just stderr) — F11", {
+    timeout: 10_000,
+  }, async () => {
+    // runProgress ignores stdout for capture, but must still DRAIN it to bump liveness,
+    // or a healthy stdout-only child is killed as silent. Emits stdout only, every 150ms.
+    const res = await runProgress(
+      "sh",
+      ["-c", "for i in 1 2 3 4; do echo out; sleep 0.15; done"],
+      { policy: { kind: "progress-liveness", silenceMs: 400 } },
+    );
+    expect(res).toEqual({ ok: true, kind: "exit", code: 0 });
+  });
 });

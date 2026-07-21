@@ -66,7 +66,7 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  *  cross-module ordering invariant (this MUST exceed the ssh connector's max budgeted
  *  step silence, `PROVISION_STEP_SILENCE_BASE_MS × 2^(PROVISION_STEP_MAX_EXPIRIES − 1)`,
  *  so the per-step budget always fires first on copy/build) can be asserted by a test
- *  that binds the REAL value rather than a copy. See `MakeSessionOptions.preConnectedLivenessMs`. */
+ *  that binds the REAL value rather than a copy. See the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS`. */
 export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
 
 /** The dead-man ceiling for a LOCAL arm's liveness watchdog (see
@@ -324,7 +324,7 @@ export interface ConnectContext<Prov extends string = never> {
    *  `recheck()` during an in-flight dial, on the pre-connected backstop, and on
    *  `destroy()`. A connector with a non-child await (e.g. `resolveDrvPath`) should
    *  wire it in too where it can; whatever it can't cover is caught by the session's
-   *  pre-connected liveness backstop (see {@link MakeSessionOptions.preConnectedLivenessMs}). */
+   *  pre-connected liveness backstop (see the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS` backstop). */
   signal: AbortSignal;
   /** Monotonic CAMPAIGN generation, bumped at each campaign birth (a user verb, a
    *  post-connected drop, the first/re-pin dial). A connector holding per-campaign
@@ -341,7 +341,7 @@ export interface ConnectContext<Prov extends string = never> {
  *
  *  LIVENESS CONTRACT (#1908 R8b): a dial must keep making progress — emit a
  *  `localProgress`/`remoteProgress` line or advance a `provisioning` phase — or reach
- *  `connecting`, within the session's {@link MakeSessionOptions.preConnectedLivenessMs}
+ *  `connecting`, within the session's the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS` backstop
  *  bound. A dial that goes fully silent past it (a wedge in a non-child await like
  *  `resolveDrvPath`, which `ctx.signal` cannot group-kill) is cycled by the session's
  *  pre-connected backstop. This is liveness, not a deadline: a chatty minutes-long
@@ -444,18 +444,6 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  treating `connecting` as wedged and tearing the connection down (routes
    *  through the normal reconnect path). Default 30s. */
   connectTimeoutMs?: number;
-  /** The pre-connected LIVENESS backstop bound (#1908 R8b). While a campaign is
-   *  coming up (any up-but-not-`connected` phase), if NO progress line arrives and NO
-   *  phase advances for this long, the session cycles the attempt (abort in-flight +
-   *  redial), narrated. It guards the seam the per-child lifetime policies can't — a
-   *  wedge in a non-helper await like `resolveDrvPath` — against a future connector,
-   *  and would have caught the #1908 incident on its own. LIVENESS, never a deadline:
-   *  a chatty build resets it every line, so it never caps a healthy slow provision.
-   *  MUST exceed the connector's own maximum budgeted silence (the ssh connector's
-   *  `PROVISION_STEP_SILENCE_BASE_MS × 2^(N-1)` = 960s) so the per-step budget always
-   *  fires first on copy/build and this only bites a genuinely silent campaign
-   *  (#1908 C1). Default 20min (1_200_000ms). */
-  preConnectedLivenessMs?: number;
   /** Disable the periodic liveness watchdog (default ON). While `connected`, the
    *  watchdog races the connection's `isAlive` probe against a timeout; a true
    *  non-answer force-cycles the link (a silently half-open socket). An object
@@ -500,11 +488,15 @@ export function makeSession<
   const label = opts.label ?? "session";
   const reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 30_000;
-  // The pre-connected liveness backstop bound (#1908 R8b) — 20min default, safely above
-  // the ssh connector's 960s max budgeted step-silence (C1) so the per-step budget
-  // always fires first on copy/build; this only bites a genuinely silent campaign.
-  const preConnectedLivenessMs =
-    opts.preConnectedLivenessMs ?? DEFAULT_PRE_CONNECTED_LIVENESS_MS;
+  // The pre-connected liveness backstop bound (#1908 R8b) — BAKED (not a knob): 20min,
+  // safely above the ssh connector's 960s max budgeted step-silence (C1) so the per-step
+  // budget always fires first on copy/build and this only bites a genuinely silent
+  // campaign. It is NOT a `MakeSessionOptions` override: a consumer setting it below the
+  // connector's max budgeted silence would let the backstop cycle (and reset the budget)
+  // before the step budget ever terminalises — a permanently-silent copy would loop
+  // forever, defeating the terminal guarantee. The invariant is unbreakable by
+  // construction (F8); `livenessOrdering.test.ts` asserts the constant relationship.
+  const preConnectedLivenessMs = DEFAULT_PRE_CONNECTED_LIVENESS_MS;
   // Cadence for re-attempting a FAILED `system.clockNow` offset probe while the
   // session stays connected. Readiness is link-liveness (a failed probe leaves the
   // link `connected` with an honest `clockOffset: null`), so the probe is not on the
@@ -1035,11 +1027,15 @@ export function makeSession<
           : `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
       clientPromise = null;
-      // EXPLICIT carry-forward: `reason` is the SAME real failure that just put
-      // the session `disconnected` (the only path into this give-up branch) —
-      // passed by the caller, never spread-inherited from `prev` (which the
-      // discriminated union no longer lets us do blindly for an up arm anyway).
-      setDown("failed", reason, cause);
+      // `failed` is always the `"remote"` cause by DESIGN — a give-up (a terminal
+      // budget-exhaustion OR `MAX_CONSECUTIVE_FAILURES` bounded remote faults) is a
+      // BOUNDED TERMINAL verdict, which is exactly the `"remote"` class ("we reached the
+      // host / tried enough and stopped"), never the retry-forever `"network"` class. So
+      // pass `"remote"` EXPLICITLY here rather than the incoming `cause` (which is the
+      // honest per-attempt classification — `"network"` for a silent copy while it was
+      // still retrying): the terminal frame states the give-up honestly, and this is not a
+      // silent rewrite of `network → remote` (F3). `reason` carries the real failure text.
+      setDown("failed", reason, "remote");
       return;
     }
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
@@ -1147,7 +1143,12 @@ export function makeSession<
     // and launches a fresh dial, so a superseded dial must be INERT on every write it can
     // still make — not only the reject path (the pre-connection analog of `handleClosed`'s
     // `conn !== current` guard). (#1908 C2 + arch-gate finding.)
-    const isCurrent = (): boolean => myEpoch === dialEpoch;
+    // …still current means the epoch hasn't moved AND the session isn't destroyed:
+    // `destroy()` aborts the dial but a connector/admit await that loses the abort could
+    // still resolve after teardown, and adopting then would orphan a child past destroy
+    // (F4). Treating destroyed as not-current routes every late settle through the inert
+    // teardown path.
+    const isCurrent = (): boolean => myEpoch === dialEpoch && !destroyed;
     // A fresh dial reopens at the connector's opening phase — always an up arm
     // (no stale error to clear: there is no field for one).
     setUp(opts.initialConnection);
@@ -1187,21 +1188,24 @@ export function makeSession<
     }
     // "This dial was superseded while an await ran" — a `recheck()`/backstop abort the
     // connector couldn't reject (e.g. the admit `hello()` was in flight, or a provision
-    // finished just as the abort fired). Drop the connection WITHOUT adopting: tear it
-    // down and hand back its inert client, so it can't clobber the fresh dial's `current`
-    // or orphan this connection's child (the arch-gate's admit-path finding). The returned
-    // client is never adopted — the caller's `clientPromise` was already reassigned by the
-    // redial. One definition, shared by both async resumption points below.
-    const bailIfSuperseded = (): Client | null => {
-      if (isCurrent()) return null;
+    // finished just as the abort fired), or a `destroy()`. Drop the connection WITHOUT
+    // adopting: tear it down and REJECT this attempt so it can't clobber the fresh dial's
+    // `current` or orphan this connection's child. It REJECTS rather than resolving with
+    // `conn.client` because that client's transport was just torn down — a caller still
+    // awaiting this dial's `pin()` promise must not fulfil with a dead client (F5); a
+    // rejection is the honest "this dial produced nothing usable". Superseded ⇒ no
+    // `setDown`/`scheduleReconnect` (the fresh dial owns the state). One definition,
+    // shared by both async resumption points below.
+    const bailIfSuperseded = (): void => {
+      if (isCurrent()) return;
       conn.teardown();
-      return conn.client;
+      throw new ConnectError(
+        "dial superseded (aborted/destroyed while resolving)",
+        "network",
+      );
     };
     // The dial RESOLVED.
-    {
-      const inert = bailIfSuperseded();
-      if (inert !== null) return inert;
-    }
+    bailIfSuperseded();
     // Wire this connection's death once, up front, so every path below (adopt /
     // refuse) routes a later link drop through the same reconnect machinery.
     const wireClosed = (): void => {
@@ -1234,11 +1238,8 @@ export function makeSession<
       }
       // The admit `hello()` can take as long as `connectTimeoutMs`; if a `recheck()`/
       // backstop superseded this dial while it ran, adopting/refusing now would clobber
-      // the fresh dial's `current` and orphan this connection's child. Tear it down inert.
-      {
-        const inert = bailIfSuperseded();
-        if (inert !== null) return inert;
-      }
+      // the fresh dial's `current` and orphan this connection's child. Tear it down + reject.
+      bailIfSuperseded();
       if (verdict.kind === "refuse") {
         // The transport is up but we won't serve this far end (a skew). KEEP the
         // connection (a later death re-admits), OVERLAY the degraded frame onto

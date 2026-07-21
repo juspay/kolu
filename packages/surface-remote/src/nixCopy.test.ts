@@ -302,6 +302,49 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     });
     expect(onCampaign).toHaveBeenCalledWith(7);
   });
+
+  it("onCampaign is MONOTONIC — a stale older epoch does not reset a newer campaign (F6)", () => {
+    const b = makeProvisionBudgets();
+    const copyReset = vi.spyOn(b.copy, "reset");
+    b.onCampaign(2); // establish campaign 2
+    copyReset.mockClear();
+    b.onCampaign(1); // a STALE dial from campaign 1 resolving late → must be IGNORED
+    expect(copyReset).not.toHaveBeenCalled();
+    b.onCampaign(3); // a genuinely newer campaign still resets
+    expect(copyReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("an abort DURING the GC-root pin is a retryable failure, not a false success (F9)", async () => {
+    // Cold path succeeds through realise; the user aborts during the final pin.
+    mockNix({ pin: { ok: false, kind: "aborted", stdout: "" } });
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.reason).toMatch(/aborted/i);
+  });
+
+  it("provisioning aborted before it starts does no work and returns network (F6)", async () => {
+    const b = makeProvisionBudgets();
+    const onCampaign = vi.spyOn(b, "onCampaign");
+    mockNix();
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      budgets: b,
+      campaignEpoch: 1,
+      signal: AbortSignal.abort(),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    // The shared budget was NOT touched by the already-aborted (superseded) dial.
+    expect(onCampaign).not.toHaveBeenCalled();
+    expect(runCapture).not.toHaveBeenCalled();
+  });
 });
 
 // A store-path .drv with a 32-char base32 hash, like nix produces.

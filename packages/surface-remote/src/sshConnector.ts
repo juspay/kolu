@@ -48,8 +48,10 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
  *  ACTUALLY happening, split at the real command boundaries `nixCopy.ts` runs:
  *   - `"probing"`  — the OPENING phase: the ssh arch probe (`resolveDrvPath`) plus
- *                     the warm realise-probe (`nix-store --realise` — "does the host
- *                     already have the closure?"). No copy exists yet; on a WARM host
+ *                     the ASK-ONLY warm check (a sender-local `nix-store -q --outputs`
+ *                     then a bounded `nix-store --check-validity` — "does the host already
+ *                     have the closure?", never a substituting `--realise`). No copy
+ *                     exists yet; on a WARM host
  *                     this is the whole provisioning story and it never enters
  *                     `copying`. This is why the warm path stays CALM — a warm dial
  *                     goes `probing → connecting → connected` with no build UI.

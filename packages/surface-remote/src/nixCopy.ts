@@ -54,6 +54,7 @@ import {
   nixSshOpts,
 } from "./host";
 import {
+  type CaptureResult,
   describeExit,
   type ExitResult,
   type LifetimePolicy,
@@ -104,7 +105,7 @@ export interface StepBudget {
  *  is the terminal count. The maximum silence it ever asks for is `base × 2^(maxExpiries
  *  − 1)` (the last non-terminal grant), which MUST stay under the session's pre-connected
  *  backstop bound so the step's own kill always fires first on a copy/build — see
- *  `PROVISION_STEP_*` and `MakeSessionOptions.preConnectedLivenessMs`. */
+ *  `PROVISION_STEP_*` and `DEFAULT_PRE_CONNECTED_LIVENESS_MS`. */
 export function makeStepBudget(
   baseMs: number,
   maxExpiries: number,
@@ -154,7 +155,13 @@ export function makeProvisionBudgets(): ProvisionBudgets {
     copy,
     build,
     onCampaign(epoch: number): void {
-      if (epoch === lastEpoch) return;
+      // MONOTONIC (F6): reset only on a STRICTLY NEWER campaign. A stale dial N whose
+      // `resolveDrvPath` resolved after dial N+1 already began provisioning would
+      // otherwise roll `lastEpoch` backwards and ERASE N+1's accumulated expiries,
+      // defeating the terminal kill budget. `campaignEpoch` only ever increases
+      // (`startEpisode` bumps it), so an epoch `<= lastEpoch` is a superseded dial —
+      // ignore it.
+      if (epoch <= lastEpoch) return;
       lastEpoch = epoch;
       copy.reset();
       build.reset();
@@ -261,16 +268,22 @@ function expiredResult(
 
 /** Pin `target` behind the indirect per-agent GC root at `rootPath` — the SHARED
  *  best-effort step both the warm-HIT path and the cold step-4 use (#1908 R5d: one
- *  pin, one failure semantics). Re-realising an already-valid path is instant and
- *  cannot substitute; a `deadline` expiry here is ALSO non-fatal (the agent still
- *  runs, unpinned). Best-effort throughout. */
+ *  pin, one failure semantics). Re-realising a path that is STILL valid is instant.
+ *  There is a bounded race (F12): the validity check and this pin are separate commands,
+ *  so a concurrent `nix-collect-garbage` on the host could remove the unrooted output
+ *  between them, after which `--realise <output>` is allowed to substitute (fetch) it.
+ *  That surprise fetch is bounded by the `deadline` policy — it is killed at the deadline
+ *  and degrades to "runs, unpinned" — so the warm path never wedges on it, but it is NOT
+ *  the "substitution is impossible" the earlier comment over-claimed. A `deadline` expiry
+ *  (or any genuine failure) here is non-fatal; only a user `aborted` is surfaced (F9).
+ *  Best-effort throughout. */
 async function pinGcRoot(
   host: string,
   target: string,
   rootPath: string,
   onProgress: (line: string) => void,
   signal: AbortSignal | undefined,
-): Promise<void> {
+): Promise<CaptureResult> {
   onProgress(`${host}: pinning GC root at '${rootPath}'…`);
   const pin = buildSshProbeCommand(
     host,
@@ -286,11 +299,17 @@ async function pinGcRoot(
     policy: probePolicy(),
     signal,
   });
-  if (!pinRes.ok) {
+  // A GENUINE pin failure (a remote error, or a `deadline` expiry) is best-effort — the
+  // agent still runs, just unpinned. But a user ABORT is NOT a pin failure to swallow
+  // (F9): it is a live cancellation the caller must honour, so it is returned unnarrated
+  // for `provisionAgent` to turn into a retryable `"network"` result rather than a false
+  // `{ ok: true }`.
+  if (!pinRes.ok && pinRes.kind !== "aborted") {
     onProgress(
       `${host}: GC-root pin ${describeExit(pinRes)}; agent runs but is unpinned`,
     );
   }
+  return pinRes;
 }
 
 /** Ship the `.drv` to `$host` and realise it there. Returns the
@@ -301,8 +320,19 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
   const { signal, budgets } = opts;
+  // Already aborted before we start ⇒ do NO work and, crucially, do NOT mutate the shared
+  // budgets (a superseded dial must not touch a newer campaign's accumulated state — F6).
+  // A user abort is a budget-EXEMPT, retryable `"network"` fault (C3).
+  if (signal?.aborted) {
+    return {
+      ok: false,
+      reason: `${opts.host}: provisioning aborted before it started`,
+      cause: "network",
+    };
+  }
   // Reconcile the campaign reset HERE (not in the connector): a fresh campaign zeroes
-  // the step budgets' doubling/terminal state; a retry within the campaign is a no-op.
+  // the step budgets' doubling/terminal state; a retry within the campaign is a no-op;
+  // a STALE (older-epoch) dial is ignored (`onCampaign` is monotonic — F6).
   budgets.onCampaign(opts.campaignEpoch);
 
   // Watch the streamed output for ssh/nix connection errors as it flows by, so a
@@ -356,15 +386,30 @@ export async function provisionAgent(
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
-    if (outsRes.ok && outputs.length > 0) {
-      // Ask the host, bounded, whether ALL outputs are already valid there. This is a
-      // pure store query — it NEVER substitutes (verified: `--check-validity` on an
-      // absent path returns non-zero instantly, no fetch). A partial closure is a miss.
+    // The agent is at `<out>/bin/<binary>`, so the derivation MUST be single-output —
+    // `nix-store -q --outputs` does not name or order its lines (`debug`/`dev` can precede
+    // `out`), so "the agent output" is only unambiguous when there is exactly one. Rather
+    // than silently pick the wrong one (F7), a multi-output agent drv fails LOUD (a
+    // terminal config error, `"remote"`) — the no-fallbacks doctrine. (Supporting a
+    // multi-output agent by selecting `out` explicitly, e.g. via `nix derivation show`, is
+    // a recorded follow-up; kolu's agent packages are single-output by construction.)
+    if (outsRes.ok && outputs.length > 1) {
+      return {
+        ok: false,
+        reason: `${opts.host}: agent derivation is multi-output (${outputs.length} outputs) — only single-output agent derivations are supported`,
+        cause: "remote",
+      };
+    }
+    if (outsRes.ok && outputs.length === 1) {
+      const agentPath = outputs[0]!;
+      // Ask the host, bounded, whether the output is already valid there. This is a pure
+      // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
+      // returns non-zero instantly, no fetch).
       const check = buildSshProbeCommand(
         opts.host,
         "nix-store",
         "--check-validity",
-        ...outputs,
+        agentPath,
       );
       const checkRes = await runCapture(check.command, check.args, {
         onProgress: onProbeProgress,
@@ -372,17 +417,23 @@ export async function provisionAgent(
         signal,
       });
       if (checkRes.ok) {
-        // Warm hit. The primary output is the agent path (the agent drv is
-        // single-output; for a multi-output drv this is its first output). Refresh the
-        // GC root via the SHARED best-effort pin, then short-circuit.
-        const agentPath = outputs[0]!;
-        await pinGcRoot(
+        // Warm hit. Refresh the GC root via the SHARED best-effort pin, then short-circuit
+        // — unless the user aborted DURING the pin (F9), which is a live cancellation, not
+        // a swallowable pin failure.
+        const pinRes = await pinGcRoot(
           opts.host,
           agentPath,
           rootPath,
           opts.onProgress,
           signal,
         );
+        if (pinRes.kind === "aborted") {
+          return {
+            ok: false,
+            reason: `${opts.host}: provisioning aborted during GC-root pin`,
+            cause: "network",
+          };
+        }
         onProgress(
           `${opts.host}: already provisioned at ${agentPath} — skipped copy`,
         );
@@ -474,11 +525,21 @@ export async function provisionAgent(
     };
   }
   budgets.build.reset();
-  // `--realise` prints one line per output; the primary is the agent path.
-  const agentPath = realiseRes.stdout
+  // `--realise` prints one line per output. Same single-output contract as the warm path
+  // (F7): the agent is at `<out>/bin/<binary>` and nix does not order/name the lines, so a
+  // multi-output result is ambiguous — fail LOUD rather than pick the wrong output.
+  const outPaths = realiseRes.stdout
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => l.length > 0);
+    .filter((l) => l.length > 0);
+  if (outPaths.length > 1) {
+    return {
+      ok: false,
+      reason: `${opts.host}: agent derivation is multi-output (${outPaths.length} outputs) — only single-output agent derivations are supported`,
+      cause: "remote",
+    };
+  }
+  const agentPath = outPaths[0];
   if (agentPath === undefined) {
     return {
       ok: false,
@@ -491,13 +552,27 @@ export async function provisionAgent(
 
   // 4. Pin the realised output behind a stable, per-agent GC root — the SHARED
   //    best-effort pin (same as the warm-hit path). If the root path can't be formed
-  //    (local $HOME unset) we warn and continue.
+  //    (local $HOME unset) we warn and continue; a user ABORT during the pin (F9) is a
+  //    live cancellation, surfaced as a retryable failure rather than a false success.
   if (rootPath === null) {
     opts.onProgress(
       `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
     );
   } else {
-    await pinGcRoot(opts.host, agentPath, rootPath, opts.onProgress, signal);
+    const pinRes = await pinGcRoot(
+      opts.host,
+      agentPath,
+      rootPath,
+      opts.onProgress,
+      signal,
+    );
+    if (pinRes.kind === "aborted") {
+      return {
+        ok: false,
+        reason: `${opts.host}: provisioning aborted during GC-root pin`,
+        cause: "network",
+      };
+    }
   }
 
   return { ok: true, agentPath };

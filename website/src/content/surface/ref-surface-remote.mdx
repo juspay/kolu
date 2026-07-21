@@ -220,7 +220,9 @@ is the `source` field.
 <Aside type="note" title="Nix is the contract, not the implementation">
   Provisioning ships a `.drv` (a [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html) — build instructions, platform-neutral), so the
   remote realises target-arch-correct binaries — parent darwin can front target
-  linux. A warm host collapses the copy/realise/pin to a single realise-probe.
+  linux. A warm host short-circuits via an ASK-ONLY check (a sender-local
+  `nix-store -q --outputs` then a bounded `nix-store --check-validity` on the host —
+  never a substituting `--realise`), then a best-effort GC-root pin.
   There is no tarball, Docker, or prebuilt fallback. The parent's user must be in
   the remote's `trusted-users`.
 </Aside>

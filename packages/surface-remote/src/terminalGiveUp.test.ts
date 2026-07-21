@@ -69,14 +69,14 @@ describe("#1908 — a permanently-silent copy reaches `failed`, bounded", () => 
       initialConnection: "probing",
       liveness: false,
       reconnectDelayMs: 1,
-      // Well above any budgeted silence so the backstop can't preempt the step budget.
-      preConnectedLivenessMs: 10_000_000,
       log: silentLogger,
     });
 
     session.pin().catch(() => {});
-    // Drain each attempt + its tiny backoff. Cap iterations so a REGRESSION (infinite
-    // loop) fails loudly here instead of hanging.
+    // Drain each attempt + its tiny backoff. The mocked copy lifetime-expires INSTANTLY
+    // (no real timer), so we only advance the ~1ms backoffs — the baked backstop (20min)
+    // never fires here, leaving the step budget to terminalise. Cap iterations so a
+    // REGRESSION (infinite loop) fails loudly here instead of hanging.
     for (let i = 0; i < 40 && session.currentState().phase !== "failed"; i++) {
       await vi.advanceTimersByTimeAsync(5);
     }

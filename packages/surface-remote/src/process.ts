@@ -157,13 +157,24 @@ function runWithLifetime(
   o: LifetimeSpawn,
 ): Promise<{ result: ExitResult; stdout: string }> {
   return new Promise((resolve) => {
+    // Already aborted before we spawn ⇒ never start the (side-effecting: `nix copy`,
+    // realise, pin) child at all — a post-spawn kill can't prevent work a forked child
+    // races to begin. Settle `aborted` up front. (#1908 codex-debate F2.)
+    if (o.signal?.aborted) {
+      resolve({ result: { ok: false, kind: "aborted" }, stdout: "" });
+      return;
+    }
+
     const proc = spawn(o.cmd, [...o.args], {
       // DETACHED so the child leads its OWN process group — a policy/abort kill then
       // targets the whole group (`-pid`), reaping the ssh grandchild that inherited
       // the stderr pipe. Without this, `process.kill(-pid)` would hit the PARENT's
       // group. (#1908 R2.)
       detached: true,
-      stdio: ["ignore", o.captureStdout ? "pipe" : "ignore", "pipe"],
+      // Always PIPE stdout: `runCapture` buffers it, `runProgress` drains it only to
+      // bump progress-liveness — so the policy's "resets on ANY output" contract holds
+      // for both helpers, and a stdout-only child is never killed as silent (F11).
+      stdio: ["ignore", "pipe", "pipe"],
       env: o.env ? { ...process.env, ...o.env } : undefined,
     });
 
@@ -189,10 +200,25 @@ function runWithLifetime(
       resolve({ result, stdout });
     };
 
-    // Kill the whole group: SIGTERM now, escalate to SIGKILL after a grace if the
-    // group is still alive (a child that ignores SIGTERM is still reaped — C8). The
-    // escalation timer is INDEPENDENT of `settle` (which already fired) and unref'd so
-    // it can't immortalize the process; it is cleared when the child actually exits.
+    // Is the child's process GROUP still alive? A signal-0 probe: `process.kill(-pid, 0)`
+    // succeeds (does nothing) while any member survives, throws `ESRCH` once the group is
+    // empty. Used to decide whether the SIGKILL escalation is still needed after the
+    // leader's `close` (F1).
+    const groupAlive = (pid: number): boolean => {
+      try {
+        process.kill(-pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Kill the whole group: SIGTERM now, escalate to SIGKILL after a grace so a member
+    // that IGNORES SIGTERM is still reaped (C8/F1). The escalation is REF'D and fires
+    // independently of `settle` (which already fired) — it must reach a TERM-ignoring ssh
+    // grandchild, which a caller with no other handles would otherwise outrun. It is
+    // cleared only when the whole GROUP is provably gone (see `close`), never on the
+    // leader's exit alone (the leader closing proves nothing about a surviving grandchild).
     const killGroup = (): void => {
       const pid = proc.pid;
       if (pid === undefined) return;
@@ -203,13 +229,13 @@ function runWithLifetime(
         return;
       }
       killTimer = setTimeout(() => {
+        killTimer = null;
         try {
           process.kill(-pid, "SIGKILL");
         } catch {
           /* group exited during the grace — done */
         }
       }, TERM_GRACE_MS);
-      killTimer.unref?.();
     };
 
     function onAbort(): void {
@@ -247,23 +273,24 @@ function runWithLifetime(
 
     armPolicyTimer();
 
-    if (o.captureStdout) {
-      proc.stdout?.setEncoding("utf-8");
-      proc.stdout?.on("data", (chunk: string) => {
-        stdout += chunk;
-        bumpLiveness();
-      });
-    }
+    proc.stdout?.setEncoding("utf-8");
+    proc.stdout?.on("data", (chunk: string) => {
+      if (o.captureStdout) stdout += chunk;
+      bumpLiveness();
+    });
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => {
       forEachLine(chunk, o.onProgress);
       bumpLiveness();
     });
 
-    // The child actually exited — reap the escalation timer and settle (inert if a
-    // policy/abort kill already settled).
+    // The child (the group LEADER) exited. Settle from its `close`, but clear the SIGKILL
+    // escalation ONLY if the whole GROUP is gone — a grandchild that ignored SIGTERM and
+    // closed the inherited pipe can still be alive, and the escalation is the one thing
+    // that reaps it (F1). If the group survives, leave the escalation to fire.
     proc.on("close", (code, signal) => {
-      if (killTimer !== null) {
+      const pid = proc.pid;
+      if (killTimer !== null && (pid === undefined || !groupAlive(pid))) {
         clearTimeout(killTimer);
         killTimer = null;
       }
@@ -274,7 +301,8 @@ function runWithLifetime(
       settle({ ok: false, kind: "spawn-error", message: err.message });
     });
 
-    // Wire the abort last so an already-aborted signal kills the just-spawned child.
+    // Wire the abort for aborts that occur AFTER launch (the pre-spawn case returned
+    // above). An abort group-kills the child and settles `aborted`.
     if (o.signal !== undefined) {
       if (o.signal.aborted) onAbort();
       else o.signal.addEventListener("abort", onAbort, { once: true });
