@@ -65,16 +65,18 @@ conversation path has to pick one deliberately — a one-shot is not a stream.
 
 **Client consume:**
 
-- Kolu UI (CH1): `client.streams.transcriptChat.use(() => ({ id: focusedTerminal() }))` — enrolled in surface health by default.
-- pesu (PE1): same stream over the dialed client (async iterator + stream-retry context). Unenrolled only if a single terminal's re-sub must not flicker a global health fact (same carve-out class as `terminalAttach`).
+- Kolu UI (CT1+CH1, one PR): `client.streams.transcriptChat.use(() => ({ id: focusedTerminal() }))` — enrolled by default; reduce into a **bounded tail**, not an unbounded list.
+- pesu (PE1): same stream over the dialed client; track a post **cursor**, not full session RAM.
 
-**Re-serve forwarding:** **`delta`** (fail-through) — same class as `activity` / `terminalAttach`. A mid-chain disconnect must terminate the downstream stream so a snapshot is only ever the first frame of a *fresh* stream, never spliced into a half-open one.
+**Re-serve forwarding:** **`delta`** (fail-through) — same class as `activity` / `terminalAttach`.
 
 **Rejected alternatives (recorded):**
 
-- Procedure-first CT1 + poll — works as a stopgap, lies about the product (we want live).
-- Cell of “last assistant text” — loses history and multi-bubble turns.
-- Event of “assistant said X” — reconnect drops everything already spoken.
+- Procedure-first + poll — not live.
+- Full message list every stream frame — re-bloats every yield; fights windowing.
+- Cell of “last assistant text” — loses multi-bubble turns.
+- Event of “assistant said X” — no backlog on subscribe.
+- Unbounded Solid store of all chat events — multi-hour sessions blow memory.
 
 ## Bind state (pesu-local)
 
@@ -132,10 +134,10 @@ Return half — **CT1 is the wire for this.** Today: loaders + `transcript.expor
 | A | agent CLI | appends to vendor session store (Claude JSONL, Codex/OpenCode SQLite, …) |
 | B | padi | loaders → IR; filter to chat (`user` / `assistant` — same cut as HTML chat-log mode) |
 | C | **`streams.transcriptChat`** | input `{ id }`; first yield = full chat snapshot; later = deltas (new messages or growing assistant text) |
-| D | CH1 / PE1 | UI paints bubbles; pesu `postMessage` / `updateMessage` into the XS thread |
+| D | CT1+CH1 / PE1 | Inspector windowed list; pesu posts with a cursor |
 
-Reconnect: client re-subscribes → fresh snapshot replaces stale state (surface
-stream invariant). No poll loop as the design.
+Reconnect: fresh **bounded** snapshot replaces the window (surface stream
+invariant). No poll; no unbounded accumulator.
 
 ## What each API is (and is not)
 
@@ -197,14 +199,12 @@ members; no second terminal protocol.
 ## Build order — not pesu first
 
 Full pesu needs XS credentials, webhooks, and a public URL. The **interesting
-half of the product** does not: a conversation face on one terminal over the
-**transcript stream** + `sendInput`. That is useful in kolu alone — and it is
-what `/bridge` does by hand via MCP (`sendInput`, wait for agent state, read
-output), but as a real UI instead of a skill loop.
+half of the product** does not: live conversation in the Inspector over a
+**transcript stream** + `sendInput`. That is useful in kolu alone.
 
 | Do first | Why |
 | --- | --- |
-| **CT1 + CH1** | Ship the live message pipe as a kolu feature; no XS |
+| **CT1+CH1** (one PR) | Stream + Inspector Conversation + **windowed memory** — no XS |
 | **PE0** | Chat can create/drive a terminal from XS (half duplex still useful) |
 | **PE1** | Same stream, second consumer (post into XS) |
 
@@ -213,131 +213,120 @@ Not in this tree: multi-agent campaign board / bridge dashboard as product UI
 we only productize the **1:1 conversation** that pesu will also use.
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "CT1 · streams.transcriptChat (padi)", m: "surface stream · no XS", h: "#ct1" },
-  { d: 0, g: "○", c: "last", l: "CH1 · Conversation section in Inspector", m: "needs CT1 · real right-panel chrome", h: "#ch1" },
-  { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CH1 proven · XS", h: "#pe0" },
-  { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — stream → postMessage", m: "needs CT1 + PE0", h: "#pe1" },
+  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · stream + Inspector Conversation (one PR)", m: "windowed · no XS", h: "#ct1-ch1" },
+  { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CT1+CH1 · XS", h: "#pe0" },
+  { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — stream → postMessage", m: "needs CT1+CH1 + PE0", h: "#pe1" },
   { d: 0, g: "○", c: "last", l: "PE2 · deep link + turn UX", m: "needs PE0", h: "#pe2" },
 ];
 
-<PhaseTree title="ROADMAP — conversation face, then pesu" phases={PT} />
+<PhaseTree title="ROADMAP — conversation in kolu, then pesu" phases={PT} />
 
+<a id="ct1-ch1"></a>
 <a id="ct1"></a>
+<a id="ch1"></a>
 
-### CT1 — `streams.transcriptChat`
+### CT1+CH1 — one PR: stream + Inspector Conversation
 
-<Phase id="CT1" name="padi surface stream: chat-filtered transcript frames" status="next" />
+<Phase id="CT1+CH1" name="streams.transcriptChat + Conversation in Inspector (windowed, not unbounded)" status="next" />
+
+**One PR.** A stream with no consumer is not shippable product; a Conversation
+section with no stream is a poll hack. Ship both together.
+
+#### Wire (CT1 half)
 
 **Today:** `procedures.transcript.exportHtml` — one-shot HTML. Loaders already
 produce a vendor-neutral IR.
 
-**Ship:** a new **`streams`** member on `padiSurface` (name TBD; call it
-`transcriptChat` here):
+**Ship:** `streams.transcriptChat` (name TBD) on `padiSurface`:
 
 ```
 input:  { id: terminalId }
-output: chat-filtered frames
-        // prefer explicit snapshot | delta (attach-style),
-        // or full message list each frame (activity-style)
+output: { kind: "snapshot" | "delta", … }   // attach-style, not full-list every frame
 ```
 
-- Filter = HTML **chat log** mode: `user` + `assistant` only (no tools, edits,
-  reasoning dumps).
-- **Snapshot-then-deltas** so reconnect replaces state; never deltas-only.
-- Forwarding policy: **`delta`** (fail-through).
-- Implement by watching the same session files sensors already touch; re-run
-  (or incremental) loaders; emit when chat-visible text changes.
+- Filter = HTML **chat log** mode: `user` + `assistant` only.
+- **Snapshot-then-deltas**; reconnect replaces state.
+- Forwarding: **`delta`** (fail-through).
+- **Not** “full message list every yield” — that re-bloats every frame and
+  fights windowing. Prefer an attach-style snapshot of a **bounded tail**
+  (last *N* chat events, *N* fixed in the contract) plus small deltas
+  (append / grow last assistant). Older history is optional later (scroll-up
+  page procedure) — not required for v1 if the tail is useful.
 
-`exportHtml` stays as the export procedure. A dump procedure is optional and
-is **not** CT1.
+`exportHtml` stays the unbounded export path (offline document). Live UI must
+not load that whole document into a Solid store.
 
-**Done when:** a Solid consumer and a raw dial client can both subscribe to
-one terminal's chat frames live, and a reconnect delivers a coherent snapshot.
-
-<a id="ch1"></a>
-
-### CH1 — conversation in the right panel (Inspector)
-
-<Phase id="CH1" name="live chat log in the Inspector next to Compose" status="todo" needs={["CT1"]} />
-
-#### What kolu is today (do not invent chrome)
+#### UI (CH1 half) — real kolu chrome only
 
 Real shell, as shipped:
 
-- **Canvas tile** = the PTY (title bar + xterm). Agent TUI, tools, raw output
-  live **here** — always.
-- **Right panel** tabs = **Inspector | Code** only
-  (`RightPanelTabKind`, `data-testid="right-panel-tab-*"`).
-- **Inspector** already has **Compose** (`ComposeSection`): mono draft box,
-  **Send →**, copy *“Inserts into the terminal — press Enter there to submit”*.
-  Then Directory / Git / Agent / Attach sections (`Section` + uppercase labels).
+- **Canvas tile** = the PTY. Agent TUI stays **here**.
+- Right panel tabs = **Inspector | Code** only.
+- Inspector already has **Compose** (`ComposeSection`: insert, not submit).
 
-CH1 does **not** put Terminal|Chat on the tile. The tile stays a terminal.
-
-#### What you get (prototype)
-
-One new **Conversation** section **above Compose** in the same Inspector —
-live chat-filtered transcript for *this* terminal. Compose stays the write
-path; the tile still shows the agent working with tools.
+**Add:** **Conversation** section **above Compose** — live chat-filtered
+messages for *this* terminal. No Terminal|Chat on the tile.
 
 <KoluShellMockup />
 
-| You do (today’s chrome) | What happens after CH1 |
+| You do | What happens |
 | --- | --- |
-| Open right panel → **Inspector** | Same tab bar as now |
-| Scroll **Conversation** | Human / AI messages from CT1 — no tool_call noise |
-| **Compose** + **Send →** (⌘↵) | Same control as today: `sendInput` into the tile’s PTY |
-| Watch the **tile** | Agent TUI / tools still there when you want depth |
+| Open **Inspector** | Same tab bar as now |
+| Read **Conversation** | Human / AI only — tools omitted |
+| **Compose** + **Send →** | Existing `sendInput` into the tile’s PTY |
+| Watch the **tile** | Full agent TUI when you want depth |
+
+#### Memory: live tail, not an archive in RAM
+
+Long agent sessions must not grow the client’s heap without bound.
+
+| Rule | Detail |
+| --- | --- |
+| **Bounded client buffer** | Conversation state is a **ring / tail window** (same *N* as the stream snapshot, or a fixed pixel/message budget) — not an append-only array of the whole session |
+| **Virtualized list** | Only rows in (or near) the viewport mount DOM; scroll recycles rows |
+| **Stick to bottom** | When the user is at the live edge (like xterm’s follow), new deltas auto-scroll; scrolling up pauses follow |
+| **Reconnect** | Snapshot replaces the window; do not concatenate onto a stale accumulator |
+| **Export stays separate** | Full history → existing HTML export, not the live panel |
+
+Rejected: holding every message ever for the terminal in `createStore` “because
+the stream sent them.”
 
 #### Open product call (Compose)
 
-Compose today **inserts, does not submit** (see `composeSend` / docs). Chat
-users often expect Send = full turn. Decide in CH1:
+Compose today **inserts, does not submit**. Chat feel may want submit — decide
+in this PR; must not break Compose’s paste-race rule.
 
-- keep insert (honest with current Compose), or  
-- optional “submit” (trailing Enter) for conversation mode only — must not
-  break the paste-race rule Compose exists for.
+#### Done when (this one PR)
 
-#### Not this
-
-| Already in kolu | CH1 |
-| --- | --- |
-| Compose alone | write without a live read of the conversation |
-| Export HTML chat log | offline snapshot, not live in the panel |
-| Fake “Chat tab on the tile” | **not** kolu — rejected |
-
-#### Under the chrome
-
-Conversation body ← `streams.transcriptChat` (CT1). Compose → existing
-`lifecycle.sendInput`. Placement = `MetadataInspector` section, not new
-tile modes.
-
-**Done when:** with Inspector open you can follow the conversation without
-export or reading tool spam in the panel, while the tile remains the real
-PTY; reconnect does not double-paint messages.
+- Subscribe to `transcriptChat` for the focused terminal.
+- Inspector **Conversation** shows a live, **windowed** chat log (no tool spam).
+- Client memory stays bounded under multi-hour sessions (tail + virtualize).
+- Reconnect does not double-paint or grow without bound.
+- Tile remains the real PTY; Compose still works.
 
 <a id="pe0"></a>
 
 ### PE0 — pesu inbound
 
-<Phase id="PE0" name="XS webhook → create terminal + sendInput" status="todo" needs={["CH1"]} />
+<Phase id="PE0" name="XS webhook → create terminal + sendInput" status="todo" needs={["CT1+CH1"]} />
 
 **What you get:** first DM/@mention creates terminal+agent, stores
 `threadId → terminalId`, later messages (author only) go in via `sendInput`.
-Ack + deep link into kolu. Replies still read in kolu (CH1) until PE1.
+Ack + deep link into kolu. Replies still read in kolu (CT1+CH1) until PE1.
 
 **Done when:** phone → XS → agent is running on your machine; you can continue
-in kolu's conversation face.
+in the Inspector conversation.
 
 <a id="pe1"></a>
 
 ### PE1 — pesu outbound
 
-<Phase id="PE1" name="subscribe transcriptChat → XS postMessage" status="todo" needs={["CT1", "PE0"]} />
+<Phase id="PE1" name="subscribe transcriptChat → XS postMessage" status="todo" needs={["CT1+CH1", "PE0"]} />
 
-pesu subscribes to the **same** CT1 stream for the bound terminal; posts new
-`assistant` texts into the thread. `updateMessage` / `agentProgress` optional
-here or PE2. No second transcript path.
+pesu subscribes to the **same** stream for the bound terminal; posts new
+`assistant` texts into the thread. pesu can track a **cursor** (last posted
+event id / hash) — it does not need to retain the full session in memory
+either. `updateMessage` / `agentProgress` optional here or PE2.
 
 **Done when:** agent replies appear in the XS thread without tools/edits, and
 survive pesu reconnect without duplicate history storms (snapshot replace).
@@ -355,8 +344,8 @@ while a turn streams; `agentProgress` while working.
 
 DM the bot → terminal under padi/kaval → first prompt is yours → assistant
 replies in the XS thread (messages only) **and** the same conversation is
-live in kolu's chat face over **one** padi stream → deep link opens that
-terminal.
+live in the Inspector Conversation (windowed) over **one** padi stream → deep
+link opens that terminal.
 
 export const KoluShellMockup = () => (
   <div
