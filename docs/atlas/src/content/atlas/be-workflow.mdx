@@ -4,7 +4,7 @@ description: How kolu takes a task to a shipped, reviewed PR — one interview u
 parents: [reference, llm-autonomy]
 status: implemented
 maturity: budding
-updated: 2026-06-24
+updated: 2026-07-21
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -117,11 +117,13 @@ above; the rest are fully autonomous.
    any review*, so every reviewer's findings land as comments on a real PR. The
    changelog link is backfilled and, if there's a plan note, it's finalized to
    `status: implemented` via <Skill name="atlas" />.
-4. **Review gauntlet** — the heart of `/be` (next section).
+4. **Review gauntlet** — the heart of `/be` (next section). Skip entirely with
+   `/be --skip-gauntlet …` (draft PR → Ship with no reviewers).
 5. **Ship** — CI and evidence, in parallel (section after next).
-6. **Done** — report the PR, the gauntlet outcome, and CI status. `/be` *never
-   merges*; the human reviews the commits and merges when satisfied. Then it runs
-   <Skill name="self-improve" /> to mine the session for recurring friction.
+6. **Done** — report the PR, the gauntlet outcome (or that the gauntlet was
+   skipped), and CI status. `/be` *never merges*; the human reviews the commits
+   and merges when satisfied. Then it runs <Skill name="self-improve" /> to mine
+   the session for recurring friction.
 
 ## The review gauntlet
 
