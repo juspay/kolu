@@ -8,6 +8,7 @@ updated: 2026-07-21
 ---
 
 import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
 import Issue from "../../components/Issue.astro";
 
 One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not started.
@@ -16,12 +17,45 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 | | Issue | What the user feels |
 | --- | --- | --- |
-| 🔶 | <Issue n={1334} /> + <Issue n={1375} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. Fix at PR #1911 (38/38 green, merge decision open); [the locks, in plain words](./host-isolation-locks.html). |
-| 🔶 | <Issue n={1754} /> | The dock says **"thinking" forever** after the agent already finished. Fix at PR #1914 (append-poll floor; CI finishing). |
+| 🔶 | <Issue n={1334} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. PR #1911 works but **failed adversarial review — rescope decision open** (next section). Wire-verb bypass split to <Issue n={1912} />; [the locks, in plain words](./host-isolation-locks.html). |
+| ✅ | <Issue n={1375} /> | ~~A local `vitest` run forks 30+ real daemons and OOM-reaps prod kaval~~ — real-daemon suites are **off by default** now. (PR #1921) |
+| ✅ | <Issue n={1754} /> | ~~The dock says **"thinking" forever** after the agent already finished~~ — append-poll floor under fs.watch. (PR #1914; confirm in the field, then close the issue.) |
 | ✅ | <Issue n={1859} /> | ~~One corrupt message makes a connection play dead while it keeps listening~~ — "settled ⟹ stopped" holds by construction. (PR #1901) |
 | ✅ | <Issue n={1900} /> | ~~Refresh yanks you to another host with a lying toast~~ — boot honors the consumed stamp; the gone-verdict waits for an authoritative census. (PR #1903) |
 | ✅ | <Issue n={1177} /> | An agent that needs you **always chimes** now. (PR #1894) |
 | ✅ | <Issue n={1763} /> | "Connecting to local…" **can no longer spin forever** — a stuck boot names its failure and offers Reload. (PR #1898) |
+
+### PR #1911 — the review verdict (2026-07-21)
+
+An adversarial review (11 hunters over the real diff — /perfection-review +
+/architecture-first-principles C1–C7 — every finding re-verified by a refuter)
+says: **the lock is good; half the PR isn't the lock.**<Footnote>The lock core
+survived every attack: fail-closed marker read (empty/corrupt/EACCES all
+refuse), symlink-safe root identity down to the deepest existing ancestor,
+guard-before-logger so a refused launch can't even create a log dir in
+production's root, the `--stdio` front guarded before any spawn.</Footnote>
+
+- **~52% of the 1,483 added lines serve the lock.** The rest is role markers
+  **nothing reads** — their only reader, the adopt/kill guard, was rejected out
+  of the PR to <Issue n={1912} /> — plus ~370 lines in kaval closing a
+  gate-leak window the PR itself opens to order that unread write. Lock 1
+  needs **zero kaval changes**.
+- **Both ssh e2e lanes are broken by the PR, invisibly** — CI has no
+  ssh.<Footnote>`remotePadiSsh.test.ts` dials the remote `padi --stdio` with no
+  `--role` and no `--state-root`, which the new guard now refuses before
+  serving; `just e2e-ssh-2box` deliberately binds boxB's REAL default-root padi
+  as a dev-role binder — now structurally refused.</Footnote>
+- **The prose overclaims**: comments and README assert the adopt/kill guard
+  exists ("can never adopt or SIGTERM") — it doesn't yet; only *binding* is
+  refused.
+- **One real treasure buried inside**: padi leaks its boot gate when startup
+  throws — a genuine pre-existing bug whose fix deserves its own small PR.
+
+**Open decision (srid):** close #1911 and rebuild lock-only — padi + server +
+nix, ~half the size, review-recommended — or trim it in place on the existing
+branch. Either way the ssh lanes and the overclaiming docs are fixed in the
+same change, and the write-only role stamps ship with their reader in
+<Issue n={1912} />.
 
 ## 🟡 Yellow alert — land next
 
@@ -64,20 +98,14 @@ polish (<Issue n={1305} /> / <Issue n={1306} />) · no-current-victim ledgers
 (needs a VM) · the campaign-surface build-out.
 
 <Callout kind="accent" title="One-thing cut">
-  If only one lands: **the <Issue n={1334} />/<Issue n={1375} /> isolation
-  pair.** Everything else degrades the experience; that one can eat your
-  prod instance.
+  If only one lands: **the <Issue n={1334} /> state-root lock.** Everything
+  else degrades the experience; that one can eat your prod instance.
 </Callout>
 
-## Coordinator handoff — open decisions (2026-07-20)
+## Standing facts (coordinator)
 
-The prior coordinator (RT-fable-main, pureintent) retires; the next runs on
-naiveintent. Two decisions and three facts carry over:
-
-| # | Decision / fact |
+| # | Fact |
 | --- | --- |
-| 1 | ~~PR #1896 HELD on a field test~~ — **RESOLVED 2026-07-20**: srid ran the field test against a real remote host; the yank was #1903's deep-link replay all along, and the one case #1896 covered has no beneficiary. Closed as misdiagnosis, unmerged. |
-| 2 | **Next lanes, dispatch-ready under the full arc** (reproduce-first → adversarial design gate → /be): the <Issue n={1334} />/<Issue n={1375} /> isolation pair — three locks: forced private state-roots for dev/test, a production marker every dev-side adopt/kill path refuses, a resource leash on test harnesses; freshly evidenced by the 2026-07-20 load-45 incident (two odu pipelines silently ran on localhost — root fix shipped as odu#47). And <Issue n={1754} /> — fix direction in the issue: initial full-scan on transcript-watcher attach + `stop_reason` reconcile; restores four descoped e2e asserts. |
-| 3 | **CI venue law.** `~/.config/odu/hosts.json` on the coordinator's machine must name real venues: `aarch64-darwin` → rasam (`nix-infra@rasam.tail12b27.ts.net`); **no x86_64-linux venue exists yet** — once pureintent retires from agent duty it is the natural candidate. odu ≥ #47 fails fast when the config is missing (never silent localhost). Workers must verify `host ≠ localhost` in run records before claiming CI. |
-| 4 | **The watcher era should end.** <Issue n={1904} /> (kolu MCP standing subscription / supervision-edge delivery) exists because hand-rolled watcher agents dropped worker reports at four seams in one day. Until it lands: every dispatched ask gets a listener attached in the same breath, re-attached after every restart. |
-| 5 | Standing law unchanged: srid merges all PRs; full /be for every code PR (docs-only exempt); no pattern kills; reproduce-first per #1690; adversarial gate before fix code, every time. |
+| 1 | **CI venue law.** `~/.config/odu/hosts.json` on the coordinator's machine must name real venues: `aarch64-darwin` → rasam (`nix-infra@rasam.tail12b27.ts.net`); **no x86_64-linux venue exists yet** — once pureintent retires from agent duty it is the natural candidate. odu ≥ #47 fails fast when the config is missing (never silent localhost). Workers must verify `host ≠ localhost` in run records before claiming CI. |
+| 2 | **The watcher era should end.** <Issue n={1904} /> (kolu MCP standing subscription / supervision-edge delivery) exists because hand-rolled watcher agents dropped worker reports at four seams in one day. Until it lands: every dispatched ask gets a listener attached in the same breath, re-attached after every restart. |
+| 3 | Standing law unchanged: srid merges all PRs; full /be for every code PR (docs-only exempt); no pattern kills; reproduce-first per #1690; adversarial gate before fix code, every time. |
