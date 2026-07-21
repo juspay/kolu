@@ -142,6 +142,20 @@ async function dockWidth(world: KoluWorld): Promise<number> {
   return box.width;
 }
 
+/** The persisted cards width, read and parsed EXACTLY as production does
+ *  (`JSON.parse` + a strict `typeof === "number"` check) — a stored value the
+ *  real parser would reject fails here too, instead of being coerced with
+ *  `Number(...)`. Returns `null` when the key is absent, `NaN` when present but
+ *  not a finite JSON number (Playwright's evaluate serialization preserves both). */
+async function storedDockWidth(world: KoluWorld): Promise<number | null> {
+  return world.page.evaluate(() => {
+    const raw = localStorage.getItem("kolu-dock-cards-width");
+    if (raw === null) return null;
+    const v: unknown = JSON.parse(raw);
+    return typeof v === "number" && Number.isFinite(v) ? v : NaN;
+  });
+}
+
 Then(
   "the dock resize handle should be visible",
   async function (this: KoluWorld) {
@@ -209,16 +223,9 @@ Then(
     if (rendered === undefined) {
       throw new Error("no post-drag dock width captured");
     }
-    // Parse localStorage EXACTLY as production does (JSON.parse + a strict
-    // `typeof === "number"` check — a stored JSON string like `"428"` that the
-    // real parser rejects must fail here too, not be coerced with `Number(...)`).
-    // The canonical value a reload consumes must equal the width on screen.
-    const stored = await this.page.evaluate(() => {
-      const raw = localStorage.getItem("kolu-dock-cards-width");
-      if (raw === null) return null;
-      const v: unknown = JSON.parse(raw);
-      return typeof v === "number" && Number.isFinite(v) ? v : NaN;
-    });
+    // The canonical stored value a reload consumes must equal the width on
+    // screen (parsed strictly, as production does — see `storedDockWidth`).
+    const stored = await storedDockWidth(this);
     if (stored === null || Number.isNaN(stored)) {
       throw new Error(
         `persisted dock width is not a finite JSON number: ${stored}`,
@@ -295,12 +302,7 @@ Then(
     );
     // ...and so does the persisted value (the cancel wrote the pre-drag width
     // back through setDockCardsWidth).
-    const stored = await this.page.evaluate(() => {
-      const raw = localStorage.getItem("kolu-dock-cards-width");
-      if (raw === null) return null;
-      const v: unknown = JSON.parse(raw);
-      return typeof v === "number" && Number.isFinite(v) ? v : NaN;
-    });
+    const stored = await storedDockWidth(this);
     if (
       stored === null ||
       Number.isNaN(stored) ||
@@ -316,12 +318,9 @@ Then(
 When(
   "I shrink the viewport to {int} pixels wide",
   async function (this: KoluWorld, width: number) {
-    const current = this.page.viewportSize();
-    await this.page.setViewportSize({
-      width,
-      height: current?.height ?? 720,
-    });
-    await this.waitForFrame();
+    // `resizeViewport` is the canonical helper — it waits TWO frames so the
+    // layout reflow AND the xterm.js fit settle before the assertion reads back.
+    await this.resizeViewport(width, this.page.viewportSize()?.height ?? 720);
   },
 );
 

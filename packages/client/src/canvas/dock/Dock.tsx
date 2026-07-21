@@ -209,11 +209,18 @@ const Dock: Component<{
   onMount(() => setHostEl(asideEl.parentElement));
   const hostSize = createElementSize(hostEl);
 
+  /** The one resizable dock surface: the maximized cards sidebar. Named once so
+   *  the width computation and the resize-handle gate stay provably
+   *  co-extensive — a handle can't render on a dock that isn't host-capped, nor
+   *  vice versa. */
+  const isResizableDock = (): boolean =>
+    posture.mode() === "maximized" && dockMode() === "cards";
+
   /** Rendered width for the maximized cards sidebar — the stored preference
    *  capped to the live host width (handle stays reachable); other postures use
    *  the plain `dockWidth`. */
   const effectiveDockWidth = (): number =>
-    posture.mode() === "maximized" && dockMode() === "cards"
+    isResizableDock()
       ? effectiveDockCardsWidth(dockCardsWidth(), hostSize.width ?? 0)
       : dockWidth(dockMode());
 
@@ -309,7 +316,7 @@ const Dock: Component<{
        *  no keyboard step for). Double-click resets to the default width.
        *  `w-1.5` stays inside the aside's `overflow-hidden`, so no clipped
        *  pseudo hit-area. */}
-      <Show when={posture.mode() === "maximized" && dockMode() === "cards"}>
+      <Show when={isResizableDock()}>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: pointer-only resize affordance, same as CanvasTile's edge/corner handles — the cursor is the affordance, keyboard resize isn't offered for this drag */}
         <div
           data-testid="dock-resize-handle"
