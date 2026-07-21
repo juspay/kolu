@@ -22,7 +22,6 @@
  */
 
 import type { Component } from "solid-js";
-import { toast } from "solid-sonner";
 import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   type BootStalledCopy,
@@ -30,10 +29,10 @@ import {
   bootStalledPhaseDetail,
   CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
-import { activeHost, client } from "../wire";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
 
@@ -61,18 +60,10 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
         dataAttrs: { "data-recovery": "connector" },
         // The RECOVERY verb: recycle the SERVER connector for this host (PR1's recheck()),
         // NOT `location.reload()` (which recycles only the browser and can't touch the dial).
-        recovery: {
+        recovery: reconnectAction({
           label: "Retry connection",
           testid: "boot-stalled-reconnect",
-          tone: "primary" as const,
-          onClick: () => {
-            client.hosts
-              .reconnect({ host: activeHost() })
-              .catch((err: Error) =>
-                toast.error(`Couldn't reconnect: ${err.message}`),
-              );
-          },
-        },
+        }),
       };
     }
     return {

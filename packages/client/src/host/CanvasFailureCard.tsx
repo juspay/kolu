@@ -22,8 +22,9 @@
 
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
+import { toast } from "solid-sonner";
 import { WarningIcon } from "../ui/Icons";
-import { activeHost, setActiveHost } from "../wire";
+import { activeHost, client, setActiveHost } from "../wire";
 
 /** One action button in the card's vertical stack. `tone: "primary"` is the warning-accented
  *  recovery verb (Reconnect / Reload); `"secondary"` is the neutral escape hatch (Switch to
@@ -50,6 +51,29 @@ export function switchToLocalAction(): CanvasFailureAction[] {
       onClick: () => setActiveHost(LOCAL_HOST),
     },
   ];
+}
+
+/** The shared recovery action — "recycle the SERVER ssh connector for this host into a fresh
+ *  dial" (`client.hosts.reconnect`, PR1's abort-in-flight `recheck()`). Both failure canvases
+ *  (`HostDownCanvas` / `BootStalledCanvas`) plug into this factory rather than hand-wiring the
+ *  same `reconnect` call + error toast, so the one connector-recovery verb lives beside the
+ *  shared card it renders into (only `label`/`testid` differ per caller). */
+export function reconnectAction(opts: {
+  label: string;
+  testid: string;
+}): CanvasFailureAction {
+  return {
+    label: opts.label,
+    testid: opts.testid,
+    tone: "primary",
+    onClick: () => {
+      client.hosts
+        .reconnect({ host: activeHost() })
+        .catch((err: Error) =>
+          toast.error(`Couldn't reconnect: ${err.message}`),
+        );
+    },
+  };
 }
 
 /** The shared failure-card shell. `detail` is an optional verbatim line (a raw `reason`, a
