@@ -13,9 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
 import {
   agentGcRootPath,
+  makeProvisionBudgets,
   makeStepBudget,
-  PROVISION_STEP_MAX_EXPIRIES,
-  PROVISION_STEP_SILENCE_BASE_MS,
+  type ProvisionBudgets,
   provisionAgent,
 } from "./nixCopy";
 import {
@@ -45,18 +45,10 @@ const okOut = (stdout: string): CaptureResult => ({
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
-/** Fresh per-step budgets for one provision. */
-function budgets() {
-  return {
-    copyBudget: makeStepBudget(
-      PROVISION_STEP_SILENCE_BASE_MS,
-      PROVISION_STEP_MAX_EXPIRIES,
-    ),
-    buildBudget: makeStepBudget(
-      PROVISION_STEP_SILENCE_BASE_MS,
-      PROVISION_STEP_MAX_EXPIRIES,
-    ),
-  };
+/** The fused budgets + campaign epoch a `provisionAgent` call needs. Pass a custom
+ *  `budgets` (e.g. a tight-terminal one) to override. */
+function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
+  return { budgets, campaignEpoch: 0 };
 }
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
@@ -104,7 +96,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(res).toEqual({ ok: true, agentPath: STORE });
 
@@ -128,7 +120,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(runProgress).toHaveBeenCalledTimes(1);
     const opts = vi.mocked(runProgress).mock.calls[0]![2];
@@ -145,7 +137,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(res.ok && res.agentPath).toBe(STORE);
   });
@@ -158,7 +150,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
         host: "testhost",
         drvPath: DRV,
         onProgress: (l) => lines.push(l),
-        ...budgets(),
+        ...provArgs(),
       });
     })();
     expect(res).toEqual({ ok: true, agentPath: STORE });
@@ -171,7 +163,7 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(res.ok).toBe(false);
     // No pin call was issued.
@@ -189,7 +181,7 @@ describe("provisionAgent cause classification", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(res.ok === false && res.cause).toBe("network");
   });
@@ -213,82 +205,100 @@ describe("provisionAgent cause classification", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(res.ok === false && res.cause).toBe("remote");
   });
 });
 
+const EXPIRED_COPY = {
+  ok: false as const,
+  kind: "lifetime-expired" as const,
+  policy: { kind: "progress-liveness" as const, silenceMs: 120_000 },
+  signal: "SIGTERM" as const,
+};
+
+/** A fused ProvisionBudgets with an overridable copy step (default: normal). */
+function budgetsWithCopy(
+  copy: ReturnType<typeof makeStepBudget>,
+): ProvisionBudgets {
+  return {
+    copy,
+    build: makeStepBudget(120_000, 4),
+    onCampaign: () => {},
+  };
+}
+
 describe("provisionAgent lifetime-policy handling (#1908)", () => {
   it("a lifetime-expired copy is retryable (network) and records the budget", async () => {
-    const b = budgets();
-    const spy = vi.spyOn(b.copyBudget, "recordExpiry");
-    mockNix({
-      copy: {
-        ok: false,
-        kind: "lifetime-expired",
-        policy: { kind: "progress-liveness", silenceMs: 120_000 },
-        signal: "SIGTERM",
-      },
-    });
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.copy, "recordExpiry");
+    mockNix({ copy: EXPIRED_COPY });
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...b,
+      ...provArgs(b),
     });
     expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBeFalsy();
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("a budget-EXHAUSTED silent copy becomes genuinely terminal (remote)", async () => {
+  it("a budget-EXHAUSTED silent copy becomes GENUINELY TERMINAL (terminal:true)", async () => {
     // A tight budget: one expiry exhausts it.
-    const copyBudget = makeStepBudget(120_000, 1);
-    const buildBudget = makeStepBudget(120_000, 4);
-    mockNix({
-      copy: {
-        ok: false,
-        kind: "lifetime-expired",
-        policy: { kind: "progress-liveness", silenceMs: 120_000 },
-        signal: "SIGTERM",
-      },
-    });
+    const b = budgetsWithCopy(makeStepBudget(120_000, 1));
+    mockNix({ copy: EXPIRED_COPY });
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      copyBudget,
-      buildBudget,
+      ...provArgs(b),
     });
     expect(res.ok === false && res.cause).toBe("remote");
+    expect(res.ok === false && res.terminal).toBe(true);
     expect(res.ok === false && res.reason).toMatch(/giving up/i);
   });
 
   it("an aborted copy is retryable (network) and does NOT touch the budget", async () => {
-    const b = budgets();
-    const spy = vi.spyOn(b.copyBudget, "recordExpiry");
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.copy, "recordExpiry");
     mockNix({ copy: { ok: false, kind: "aborted" } });
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...b,
+      ...provArgs(b),
     });
     expect(res.ok === false && res.cause).toBe("network");
     expect(spy).not.toHaveBeenCalled();
   });
 
   it("a successful copy RESETS the copy budget's doubling", async () => {
-    const b = budgets();
-    const spy = vi.spyOn(b.copyBudget, "reset");
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.copy, "reset");
     mockNix();
     await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...b,
+      ...provArgs(b),
     });
     expect(spy).toHaveBeenCalled();
+  });
+
+  it("resets the budgets when the campaign epoch changes (onCampaign)", async () => {
+    const b = makeProvisionBudgets();
+    const onCampaign = vi.spyOn(b, "onCampaign");
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      budgets: b,
+      campaignEpoch: 7,
+    });
+    expect(onCampaign).toHaveBeenCalledWith(7);
   });
 });
 

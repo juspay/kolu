@@ -17,12 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import {
-  makeStepBudget,
-  PROVISION_STEP_MAX_EXPIRIES,
-  PROVISION_STEP_SILENCE_BASE_MS,
-  provisionAgent,
-} from "./nixCopy";
+import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import { type CaptureResult, runCapture, runProgress } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -43,17 +38,8 @@ const okOut = (stdout: string): CaptureResult => ({
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
-function budgets() {
-  return {
-    copyBudget: makeStepBudget(
-      PROVISION_STEP_SILENCE_BASE_MS,
-      PROVISION_STEP_MAX_EXPIRIES,
-    ),
-    buildBudget: makeStepBudget(
-      PROVISION_STEP_SILENCE_BASE_MS,
-      PROVISION_STEP_MAX_EXPIRIES,
-    ),
-  };
+function provArgs() {
+  return { budgets: makeProvisionBudgets(), campaignEpoch: 0 };
 }
 
 /** A warm host: outputs computed locally, present on the host, pin ok. */
@@ -95,7 +81,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(res).toEqual({ ok: true, agentPath: STORE });
 
@@ -120,7 +106,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(checkValidityCall()![2].policy.kind).toBe("deadline");
   });
@@ -131,7 +117,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     expect(runProgress).not.toHaveBeenCalled();
   });
@@ -142,7 +128,7 @@ describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      ...budgets(),
+      ...provArgs(),
     });
     const args = checkValidityCall()![1];
     // Both outputs presence-checked; a partial closure is not a hit.

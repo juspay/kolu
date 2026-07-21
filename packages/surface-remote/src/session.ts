@@ -353,6 +353,12 @@ export class ConnectError extends Error {
     // downstream tsconfig (drishti's `noImplicitOverride`) rejects (TS4115). This is
     // the connector's own transport classification, so it gets its own honest name.
     readonly failureCause: "network" | "remote",
+    /** A GENUINELY-TERMINAL fault: the session gives up NOW, regardless of the
+     *  consecutive-failure counter (#1908 C5). A budget-exhausted silent provisioning
+     *  step sets this so a permanently-silent copy/build reaches `failed` in a bounded
+     *  number of attempts — the retry counter alone can't, because the pre-connected
+     *  backstop resets it first. Default `false` (a normal bounded `"remote"` fault). */
+    readonly terminal: boolean = false,
   ) {
     super(message);
     this.name = "ConnectError";
@@ -1000,6 +1006,10 @@ export function makeSession<
   const scheduleReconnect = (
     cause: "network" | "remote",
     reason: string,
+    // A GENUINELY-TERMINAL fault gives up NOW, regardless of the counter (#1908 C5) —
+    // a budget-exhausted silent provisioning step, which the pre-connected backstop
+    // would otherwise reset before `consecutiveFailures` ever reached the ceiling.
+    terminal = false,
   ): void => {
     if (destroyed || pendingTimer !== null) return;
     // A stale (rejected) `clientPromise` during backoff keeps `launchAttempt`
@@ -1007,9 +1017,14 @@ export function makeSession<
     // dial. The terminal give-up branch clears it (no timer to act as the guard).
     const attemptsSoFar = consecutiveFailures;
     consecutiveFailures += 1;
-    if (cause === "remote" && consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+    if (
+      cause === "remote" &&
+      (terminal || consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
+    ) {
       localProgress(
-        `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
+        terminal
+          ? `gave up — ${reason}`
+          : `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
       clientPromise = null;
       // EXPLICIT carry-forward: `reason` is the SAME real failure that just put
@@ -1120,33 +1135,57 @@ export function makeSession<
     // starts NOW instead of waiting out a wedged dial.
     const abort = new AbortController();
     dialAbort = abort;
+    // Is THIS dial still the current one? A `recheck()`/backstop abort bumps `dialEpoch`
+    // and launches a fresh dial, so a superseded dial must be INERT on every write it can
+    // still make — not only the reject path (the pre-connection analog of `handleClosed`'s
+    // `conn !== current` guard). (#1908 C2 + arch-gate finding.)
+    const isCurrent = (): boolean => myEpoch === dialEpoch;
     // A fresh dial reopens at the connector's opening phase — always an up arm
     // (no stale error to clear: there is no field for one).
     setUp(opts.initialConnection);
     let conn: Connection<Client>;
     try {
       conn = await opts.connectOnce({
-        localProgress,
-        remoteProgress,
-        provisioning: (phase) => setUp(phase),
-        connecting: () => setUp("connecting"),
+        // Gate the ctx callbacks on `isCurrent`: a superseded dial's straggling progress
+        // line / phase advance must not paint the live session's state.
+        localProgress: (line) => {
+          if (isCurrent()) localProgress(line);
+        },
+        remoteProgress: (line) => {
+          if (isCurrent()) remoteProgress(line);
+        },
+        provisioning: (phase) => {
+          if (isCurrent()) setUp(phase);
+        },
+        connecting: () => {
+          if (isCurrent()) setUp("connecting");
+        },
         signal: abort.signal,
         campaignEpoch,
       });
     } catch (err) {
-      // C2 — a SUPERSEDED dial: `recheck()`/the backstop aborted this one and a fresh
-      // dial is already underway (`dialEpoch` moved past `myEpoch`), so this late
-      // rejection must NOT `setDown` over the new dial or arm a spurious backoff. The
-      // pre-connection analog of `handleClosed`'s `conn !== current` guard. Return inert.
-      if (myEpoch !== dialEpoch) {
+      // A SUPERSEDED dial's late rejection must NOT `setDown` over the new dial or arm a
+      // spurious backoff — return inert.
+      if (!isCurrent()) {
         throw err instanceof Error ? err : new Error(String(err));
       }
       const cause: "network" | "remote" =
         err instanceof ConnectError ? err.failureCause : "network";
       const reason = err instanceof Error ? err.message : String(err);
+      const terminal = err instanceof ConnectError ? err.terminal : false;
       setDown("disconnected", reason, cause);
-      scheduleReconnect(cause, reason);
+      scheduleReconnect(cause, reason, terminal);
       throw err instanceof Error ? err : new Error(reason);
+    }
+    // The dial RESOLVED. If it was superseded while resolving (a `recheck()`/backstop
+    // abort that the connector couldn't reject — e.g. the admit `hello()` was in flight,
+    // or a provision finished just as the abort fired), tearing this connection down and
+    // returning inert is what stops it clobbering the fresh dial's `current` and orphaning
+    // this connection's child (the arch-gate's admit-path finding). The returned client is
+    // never adopted — the caller's `clientPromise` was already reassigned by the redial.
+    if (!isCurrent()) {
+      conn.teardown();
+      return conn.client;
     }
     // Wire this connection's death once, up front, so every path below (adopt /
     // refuse) routes a later link drop through the same reconnect machinery.
@@ -1170,9 +1209,20 @@ export function makeSession<
         // reconnect (`network` — recovery, never a give-up spiral).
         const reason = err instanceof Error ? err.message : String(err);
         conn.teardown();
-        setDown("disconnected", reason, "network");
-        scheduleReconnect("network", reason);
+        // A superseded dial (aborted mid-admit) must not `setDown`/backoff over the fresh
+        // dial — the connection is already torn down; just return inert.
+        if (isCurrent()) {
+          setDown("disconnected", reason, "network");
+          scheduleReconnect("network", reason);
+        }
         throw err instanceof Error ? err : new Error(reason);
+      }
+      // The admit `hello()` can take as long as `connectTimeoutMs`; if a `recheck()`/
+      // backstop superseded this dial while it ran, adopting/refusing now would clobber
+      // the fresh dial's `current` and orphan this connection's child. Tear it down inert.
+      if (!isCurrent()) {
+        conn.teardown();
+        return conn.client;
       }
       if (verdict.kind === "refuse") {
         // The transport is up but we won't serve this far end (a skew). KEEP the

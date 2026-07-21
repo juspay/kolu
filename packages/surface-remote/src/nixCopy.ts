@@ -78,19 +78,22 @@ export const PROVISION_STEP_SILENCE_BASE_MS = 120_000;
  *  that so R4 always fires first on a copy/build step. */
 export const PROVISION_STEP_MAX_EXPIRIES = 4;
 
-/** A per-step progress-liveness budget owned by the CONNECTOR (persists across a
- *  campaign's retries; #1908 C5). It carves the "silent-forever step" terminal OUT
- *  of the give-up counter (a `lifetime-expired` is retryable/`network`, which never
- *  gives up — so without this a wedged-then-killed step would loop forever):
+/** A per-step progress-liveness budget (#1908 R4/C5):
  *
  *   - `policy()`       — the current `progress-liveness` policy; `silenceMs = base ×
  *                        2^(consecutive expiries)`, so a genuinely slow path gets more
  *                        room each retry.
  *   - `recordExpiry()` — count one expiry; returns `true` when the budget is EXHAUSTED
- *                        (the step is now terminal). Doubles the next bound.
- *   - `reset()`        — on step SUCCESS or CAMPAIGN BIRTH (a fresh episode / a user
- *                        verb). Deliberately NOT reset by a user abort (C3).
- */
+ *                        (the step is now genuinely TERMINAL — the caller must fail the
+ *                        session, not retry). Doubles the next bound.
+ *   - `reset()`        — on step SUCCESS or CAMPAIGN BIRTH.
+ *
+ *  Terminal-ness is DECOUPLED from the session's `MAX_CONSECUTIVE_FAILURES` give-up
+ *  counter: an exhausted budget makes provisioning fail TERMINALLY at once (a
+ *  distinct give-up), so a permanently-silent copy/build reaches `failed` in a bounded
+ *  number of attempts — NOT the "one `remote` of five" the pre-connected backstop
+ *  would otherwise reset before it ever counted (the composed-mechanism hole the
+ *  architecture gate caught). */
 export interface StepBudget {
   policy(): LifetimePolicy;
   recordExpiry(): boolean;
@@ -98,7 +101,10 @@ export interface StepBudget {
 }
 
 /** Build a {@link StepBudget}. `baseMs` doubles per consecutive expiry; `maxExpiries`
- *  is the terminal count. */
+ *  is the terminal count. The maximum silence it ever asks for is `base × 2^(maxExpiries
+ *  − 1)` (the last non-terminal grant), which MUST stay under the session's pre-connected
+ *  backstop bound so the step's own kill always fires first on a copy/build — see
+ *  `PROVISION_STEP_*` and `MakeSessionOptions.preConnectedLivenessMs`. */
 export function makeStepBudget(
   baseMs: number,
   maxExpiries: number,
@@ -119,6 +125,43 @@ export function makeStepBudget(
   };
 }
 
+/** The two provisioning step budgets fused into ONE value the connector holds and
+ *  `provisionAgent` takes whole (#1908 C5 + the C3 ergonomics fusion): the copy and
+ *  build {@link StepBudget}s plus the campaign-epoch reconciliation, so a connector
+ *  keeps ONE object and does NO hand-kept `lastCampaignEpoch` bookkeeping. */
+export interface ProvisionBudgets {
+  readonly copy: StepBudget;
+  readonly build: StepBudget;
+  /** Reset both step budgets when the campaign changes (a fresh episode / user verb).
+   *  Idempotent within a campaign — a no-op until `epoch` moves. Called by
+   *  `provisionAgent` at the top of every dial, so the connector needn't track it. */
+  onCampaign(epoch: number): void;
+}
+
+/** Build a {@link ProvisionBudgets}. One construction per connector (persists across a
+ *  campaign's retry dials); the campaign reset lives INSIDE it. */
+export function makeProvisionBudgets(): ProvisionBudgets {
+  const copy = makeStepBudget(
+    PROVISION_STEP_SILENCE_BASE_MS,
+    PROVISION_STEP_MAX_EXPIRIES,
+  );
+  const build = makeStepBudget(
+    PROVISION_STEP_SILENCE_BASE_MS,
+    PROVISION_STEP_MAX_EXPIRIES,
+  );
+  let lastEpoch = -1;
+  return {
+    copy,
+    build,
+    onCampaign(epoch: number): void {
+      if (epoch === lastEpoch) return;
+      lastEpoch = epoch;
+      copy.reset();
+      build.reset();
+    },
+  };
+}
+
 export interface ProvisionOptions {
   host: string;
   /** `KOLU_AGENT_DRV` from the operator — a `/nix/store/…-agent.drv`
@@ -133,11 +176,14 @@ export interface ProvisionOptions {
   /** Fired ONCE, on the COLD path, at the copy→realise boundary — right before
    *  `nix-store --realise` starts the BUILD. Advances `copying → building`. Optional. */
   onBuilding?: () => void;
-  /** The copy step's progress-liveness budget (#1908 R4/C5) — CONNECTOR-owned so its
-   *  doubling/terminal state persists across a campaign's retries. */
-  copyBudget: StepBudget;
-  /** The build step's progress-liveness budget — same ownership as `copyBudget`. */
-  buildBudget: StepBudget;
+  /** The fused per-step progress-liveness budgets (#1908 R4/C5) — CONNECTOR-owned so
+   *  their doubling/terminal state persists across a campaign's retries. `provisionAgent`
+   *  reconciles the campaign reset itself via {@link campaignEpoch}. */
+  budgets: ProvisionBudgets;
+  /** The current campaign generation (from `ctx.campaignEpoch`). `provisionAgent` resets
+   *  the budgets when it changes — so the connector holds the budgets and passes the
+   *  epoch, doing no reset bookkeeping of its own. */
+  campaignEpoch: number;
   /** Per-dial abort (recheck's abort-in-flight, #1908 R6b): aborting group-kills the
    *  in-flight provisioning child and settles the run as `"aborted"` — a retryable,
    *  budget-EXEMPT fault. Threaded into every child. */
@@ -148,9 +194,16 @@ export type ProvisionResult =
   | { ok: true; agentPath: string }
   // `cause` lets the session keep retrying a host that went unreachable
   // *mid-provision* (asleep/roaming after the arch probe) instead of burning the
-  // give-up budget — while a genuine `"remote"` rejection (`trusted-users`, or a
-  // budget-EXHAUSTED silent step) still fails loudly.
-  | { ok: false; reason: string; cause: "network" | "remote" };
+  // give-up budget — while a genuine `"remote"` rejection (`trusted-users`) fails
+  // loudly. `terminal` marks a fault that must give up NOW regardless of the retry
+  // counter — a budget-EXHAUSTED silent step (decoupled from `MAX_CONSECUTIVE_FAILURES`
+  // so the backstop can't reset it away).
+  | {
+      ok: false;
+      reason: string;
+      cause: "network" | "remote";
+      terminal?: boolean;
+    };
 
 /** Per-agent GC-root path for the realised output, or `null` when one
  *  can't be formed (see the localhost case below). Keyed on the .drv's
@@ -223,7 +276,10 @@ export async function provisionAgent(
   opts: ProvisionOptions,
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
-  const { signal } = opts;
+  const { signal, budgets } = opts;
+  // Reconcile the campaign reset HERE (not in the connector): a fresh campaign zeroes
+  // the step budgets' doubling/terminal state; a retry within the campaign is a no-op.
+  budgets.onCampaign(opts.campaignEpoch);
 
   // Watch the streamed output for ssh/nix connection errors as it flows by, so a
   // host that went unreachable mid-`nix copy` (which exits with nix's code, not
@@ -331,21 +387,24 @@ export async function provisionAgent(
         // The copy is a transfer that can sit idle for minutes; progress-liveness kills
         // it only on real silence (#1908 R4). The ssh nix forks internally rides the
         // shared master + dead-peer keepalive via NIX_SSHOPTS.
-        policy: opts.copyBudget.policy(),
+        policy: budgets.copy.policy(),
         env: { NIX_SSHOPTS: nixSshOpts() },
         signal,
       },
     );
     if (copyRes.kind === "lifetime-expired") {
-      // A silent copy — killed. Retryable UNLESS the per-step budget is exhausted, in
-      // which case the step is genuinely terminal (#1908 C5) — do not loop forever.
-      const terminal = opts.copyBudget.recordExpiry();
+      // A silent copy — killed. Retryable (`network`) UNLESS the per-step budget is
+      // exhausted, in which case the step is GENUINELY TERMINAL (`terminal: true`, #1908
+      // C5) — the session gives up NOW, decoupled from the retry counter, so a
+      // permanently-silent copy can't loop forever.
+      const terminal = budgets.copy.recordExpiry();
       return {
         ok: false,
         reason: `${opts.host}: 'nix copy --derivation' ${describeExit(copyRes)}${
           terminal ? " — giving up (silent too many times)" : ""
         }`,
         cause: terminal ? "remote" : "network",
+        ...(terminal ? { terminal: true } : {}),
       };
     }
     if (!copyRes.ok) {
@@ -355,7 +414,7 @@ export async function provisionAgent(
         cause: causeFor(copyRes),
       };
     }
-    opts.copyBudget.reset(); // success clears the doubling
+    budgets.copy.reset(); // success clears the doubling
     onProgress(`${opts.host}: derivation copy complete`);
     // The copy reached the host, so it's provably reachable *now* — clear any network
     // flag a speculative check blip set, so a later genuine *remote* realise failure
@@ -379,17 +438,18 @@ export async function provisionAgent(
   );
   const realiseRes = await runCapture(build.command, build.args, {
     onProgress,
-    policy: opts.buildBudget.policy(),
+    policy: budgets.build.policy(),
     signal,
   });
   if (realiseRes.kind === "lifetime-expired") {
-    const terminal = opts.buildBudget.recordExpiry();
+    const terminal = budgets.build.recordExpiry();
     return {
       ok: false,
       reason: `${opts.host}: 'nix-store --realise' ${describeExit(realiseRes)}${
         terminal ? " — giving up (silent too many times)" : ""
       }`,
       cause: terminal ? "remote" : "network",
+      ...(terminal ? { terminal: true } : {}),
     };
   }
   if (!realiseRes.ok) {
@@ -399,7 +459,7 @@ export async function provisionAgent(
       cause: causeFor(realiseRes),
     };
   }
-  opts.buildBudget.reset();
+  budgets.build.reset();
   // `--realise` prints one line per output; the primary is the agent path.
   const agentPath = realiseRes.stdout
     .split("\n")

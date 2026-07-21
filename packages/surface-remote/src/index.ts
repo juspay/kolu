@@ -50,7 +50,9 @@ export {
   type RemotePoolOptions,
 } from "./hostFanout";
 export {
+  makeProvisionBudgets,
   makeStepBudget,
+  type ProvisionBudgets,
   type ProvisionOptions,
   type ProvisionResult,
   provisionAgent,

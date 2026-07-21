@@ -70,6 +70,53 @@ describe("#1908 R6b — recheck aborts an in-flight dial and redials now", () =>
     expect(h.dials()).toBe(2); // …and a fresh dial started NOW (no backoff advanced)
     session.destroy();
   });
+
+  it("a superseded dial tears down a LATE-resolved connection instead of adopting it (no orphan)", async () => {
+    // The arch-gate finding: the epoch guard covered only the reject path, so a dial that
+    // RESOLVED after being superseded (its provision finished / admit hello landed just as
+    // recheck fired) would `setCurrent` and clobber the fresh dial's connection, orphaning
+    // this one's ssh child.
+    let resolveDial1: ((c: Connection<unknown>) => void) | undefined;
+    let dials = 0;
+    const teardown = vi.fn();
+    const connectOnce = (): Promise<Connection<unknown>> => {
+      dials += 1;
+      if (dials === 1)
+        return new Promise((res) => {
+          resolveDial1 = res;
+        });
+      return new Promise(() => {}); // dial 2 hangs (in flight)
+    };
+    const session = makeSession<unknown, SshProv>({
+      connectOnce,
+      initialConnection: "probing",
+      liveness: false,
+      log: silentLogger,
+    });
+    session.pin().catch(() => {});
+    await flush();
+    expect(dials).toBe(1);
+
+    // Supersede dial 1: recheck aborts it and launches dial 2.
+    session.recheck();
+    await flush();
+    expect(dials).toBe(2);
+
+    // NOW dial 1's connectOnce resolves LATE with a live connection.
+    resolveDial1?.({
+      client: {},
+      closed: new Promise(() => {}),
+      isAlive: () => Promise.resolve(),
+      teardown,
+    });
+    await flush();
+
+    // The superseded dial tore its connection down instead of adopting it, and the
+    // session did not connect through it (still coming up on dial 2).
+    expect(teardown).toHaveBeenCalledTimes(1);
+    expect(session.currentState().phase).toBe("probing");
+    session.destroy();
+  });
 });
 
 describe("#1908 R8b — the pre-connected liveness backstop", () => {

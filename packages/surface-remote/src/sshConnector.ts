@@ -24,12 +24,7 @@ import {
   isLocalHost,
   ResolveDrvError,
 } from "./host";
-import {
-  makeStepBudget,
-  PROVISION_STEP_MAX_EXPIRIES,
-  PROVISION_STEP_SILENCE_BASE_MS,
-  provisionAgent,
-} from "./nixCopy";
+import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   ConnectError,
@@ -105,29 +100,13 @@ export interface SshConnectorOptions {
 export function sshConnector<C extends AnyContractRouter>(
   opts: SshConnectorOptions,
 ): Connector<AgentClient<C>, SshProv> {
-  // Per-STEP progress-liveness budgets, owned HERE (the connector closure) so their
-  // doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). Reset on
-  // step success (inside `provisionAgent`) and on campaign birth (below) — never on a
-  // user abort.
-  const copyBudget = makeStepBudget(
-    PROVISION_STEP_SILENCE_BASE_MS,
-    PROVISION_STEP_MAX_EXPIRIES,
-  );
-  const buildBudget = makeStepBudget(
-    PROVISION_STEP_SILENCE_BASE_MS,
-    PROVISION_STEP_MAX_EXPIRIES,
-  );
-  // The campaign generation the budgets were last reset for; a new campaign (user verb,
-  // post-connected drop, first dial) bumps `ctx.campaignEpoch` and clears the budgets.
-  let lastCampaignEpoch = -1;
+  // The fused per-step progress-liveness budgets, owned HERE (the connector closure) so
+  // their doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). The
+  // campaign reset lives INSIDE the budgets (`onCampaign`, called by `provisionAgent`),
+  // so the connector holds ONE object and keeps no `lastCampaignEpoch` of its own.
+  const budgets = makeProvisionBudgets();
 
   return async (ctx): Promise<Connection<AgentClient<C>>> => {
-    // Campaign birth ⇒ fresh budgets (the D3 episode fact drives the budget reset too).
-    if (ctx.campaignEpoch !== lastCampaignEpoch) {
-      lastCampaignEpoch = ctx.campaignEpoch;
-      copyBudget.reset();
-      buildBudget.reset();
-    }
     // Resolve the derivation first — where the arch probe (or any deferred per-host
     // drv lookup) runs. A host unreachable at probe time rejects here and is
     // classified `"network"` (retry forever) unless it is a `ResolveDrvError`
@@ -153,8 +132,10 @@ export function sshConnector<C extends AnyContractRouter>(
       // (the ask-only check short-circuits) and stays `probing` → connecting.
       onCopying: () => ctx.provisioning("copying"),
       onBuilding: () => ctx.provisioning("building"),
-      copyBudget,
-      buildBudget,
+      budgets,
+      // The campaign generation — `provisionAgent` resets the budgets when it changes,
+      // so the connector does no reset bookkeeping.
+      campaignEpoch: ctx.campaignEpoch,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
       // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
       signal: ctx.signal,
@@ -162,8 +143,13 @@ export function sshConnector<C extends AnyContractRouter>(
     if (!provision.ok) {
       // `provisionAgent` classifies why: a `"remote"` rejection (e.g. `trusted-users`
       // won't accept the closure) is bounded → terminal; a `"network"` failure (the
-      // host went unreachable mid-copy, after the probe succeeded) keeps retrying.
-      throw new ConnectError(provision.reason, provision.cause);
+      // host went unreachable mid-copy, after the probe succeeded) keeps retrying; a
+      // budget-EXHAUSTED silent step is `terminal` → give up NOW (#1908 C5).
+      throw new ConnectError(
+        provision.reason,
+        provision.cause,
+        provision.terminal ?? false,
+      );
     }
     const realisedAgentPath = provision.agentPath;
 
