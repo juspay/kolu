@@ -24,12 +24,17 @@
  *     connecting   ──markConnected ──────▶ connected
  *     connecting   ──watchdog timeout ───▶ disconnected (tear down, then retry)
  *     connected    ──link died ──────────▶ disconnected ──reconnect──▶ <open>
- *     disconnected ──gave up (N *remote* fails)──▶ failed   (terminal; `reconnect()` re-arms)
+ *     disconnected ──gave up (N *remote* fails, OR a budget-exhausted silent step)──▶ failed
+ *                                                          (terminal; `reconnect()` re-arms)
  *
  * A `"remote"` failure (reached the host, it rejected us) is terminal after
- * `MAX_CONSECUTIVE_FAILURES`; a `"network"` failure (unreachable host) is NEVER
- * terminal — the capped backoff keeps probing so a roaming laptop self-heals. `recheck()` force-cycles even a seemingly-connected link
- * (wake/network change); `reconnect()` only re-arms a `failed`/idle session.
+ * `MAX_CONSECUTIVE_FAILURES`. A `"network"` failure (transport-class: unreachable host, or a
+ * wedged/killed transport) normally retries forever at capped backoff so a roaming laptop
+ * self-heals — with ONE terminal exception (#1908): a budget-exhausted silent provisioning
+ * step gives up terminally, surfacing `failed` + `"network"` (the honest cause; terminality is
+ * the phase, orthogonal to the transport class). `recheck()` force-cycles even a
+ * seemingly-connected link (wake/network change); `reconnect()` only re-arms a `failed`/idle
+ * session.
  *
  * Every server auto-answers the framework-reserved `system.identity` (see
  * `@kolu/surface/identity`), so `identity()` reports the bound server's contract
