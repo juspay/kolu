@@ -132,7 +132,10 @@ export function canvasMode(deps: {
   // forever. Passed ONLY on the warming arm (a connected/failed/not-a-member entry's `sinceMs`
   // measures a different clock, and the class ceilings own those), so the campaign cell is
   // naturally cleared the instant the entry settles.
-  const campaignMs = state.kind === "warming" ? info?.sinceMs : undefined;
+  const campaignMs =
+    state.kind === "warming" && !liveness.isLocalHost
+      ? info?.sinceMs
+      : undefined;
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs, campaignMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
   recordBootFrame(hostEnc, tag, nowMs);
