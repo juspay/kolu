@@ -59,37 +59,35 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
     onClick: () => location.reload(),
   };
 
-  // Primitive discriminant — deduped on value, so the action selection below only re-runs when
-  // the ARM actually flips, not on every tick that hands us a fresh-but-equal recovery object.
-  const via = createMemo(() => props.recovery.via);
-  const recovery = createMemo<CanvasFailureAction>(() =>
-    via() === "connector" ? connectorRecovery : clientRecovery,
+  // The recovery arm, as two VALUE-deduped payload memos: exactly one is defined at a time — a
+  // client leg (Reload card) XOR a connector phase (Retry card). EVERY derivation below reads
+  // these, never the fresh-per-tick `props.recovery` object, so a tick that changed nothing
+  // re-reads the same primitive and rebuilds nothing (no button churn, no per-second DOM writes).
+  // The card can still flip arm/phase IN PLACE — a warming-remote leg can settle to a connected
+  // session without the mode leaving `boot-stalled` — which these track by value.
+  const clientLeg = createMemo(() =>
+    props.recovery.via === "client" ? props.recovery.leg : undefined,
   );
-  // switch-to-local, memoized on the active host so its action object is stable across ticks too.
-  const switchActions = createMemo(() => switchToLocalAction());
-  const actions = createMemo<CanvasFailureAction[]>(() => [
-    recovery(),
-    ...switchActions(),
-  ]);
+  const connectorPhase = createMemo(() =>
+    props.recovery.via === "connector" ? props.recovery.phase : undefined,
+  );
 
-  // Copy + the live phase detail — derived off the recovery arm, SEPARATELY from the actions so a
-  // phase change narrates without re-keying the buttons. Cheap constants (the copy maps), so a
-  // tick that leaves the arm/phase unchanged re-reads the same reference and paints nothing new.
-  const copy = createMemo(() =>
-    props.recovery.via === "connector"
-      ? CONNECTOR_STALLED_COPY
-      : bootStalledCopy(props.recovery.leg),
-  );
-  const detail = createMemo(() =>
-    props.recovery.via === "connector"
-      ? bootStalledPhaseDetail(props.recovery.phase)
-      : undefined,
-  );
+  const actions = createMemo<CanvasFailureAction[]>(() => [
+    clientLeg() === undefined ? connectorRecovery : clientRecovery,
+    ...switchToLocalAction(),
+  ]);
+  const copy = createMemo(() => {
+    const leg = clientLeg();
+    return leg === undefined ? CONNECTOR_STALLED_COPY : bootStalledCopy(leg);
+  });
+  // The live phase detail — the connector card's only per-phase narration (the client arm's
+  // `connectorPhase` is `undefined`, and `bootStalledPhaseDetail(undefined)` is `undefined`).
+  const detail = createMemo(() => bootStalledPhaseDetail(connectorPhase()));
   const dataAttrs = createMemo((): Record<string, string> => {
-    const r = props.recovery;
-    return r.via === "connector"
+    const leg = clientLeg();
+    return leg === undefined
       ? { "data-recovery": "connector" }
-      : { "data-recovery": "client", "data-stalled-leg": r.leg };
+      : { "data-recovery": "client", "data-stalled-leg": leg };
   });
 
   return (
