@@ -142,7 +142,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
-  const awaiting = useHostAwaiting(props.host);
+  const counts = useHostAwaiting(props.host);
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -214,10 +214,23 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             host={props.host}
             labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
           />
-          {/* Urgency badge — the host's awaiting count, hidden at zero. The
-           *  shared `HostAwaitingPill` owns the amber token; only the sizing is
-           *  local. */}
-          <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
+          {/* Attention marks. The amber PILL is the "asking" count (agents blocked
+           *  on you), hidden at zero. The quiet DOT is finished-but-unlooked-at work
+           *  — shown only on a host you are NOT currently viewing, so switching to a
+           *  host clears it; it answers "which host did that finish sound come from"
+           *  without inflating the loud asking count. */}
+          <HostAwaitingPill
+            count={counts.awaiting()}
+            sizeClass="min-w-4 px-1 h-4"
+          />
+          <Show when={counts.finished() > 0 && !isActive()}>
+            <span
+              role="img"
+              class="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-fg-3/70"
+              title={`${counts.finished()} finished on ${hostLabel(props.host)}`}
+              aria-label={`${counts.finished()} finished terminals on ${hostLabel(props.host)}`}
+            />
+          </Show>
         </button>
         <div
           class="flex h-8 items-center transition-colors"
@@ -260,7 +273,7 @@ const HostSwitcherRow: Component<{
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
-  const awaiting = useHostAwaiting(host);
+  const counts = useHostAwaiting(host);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
     props.onPicked();
@@ -316,7 +329,10 @@ const HostSwitcherRow: Component<{
             {statusLabel(host)}
           </span>
         </span>
-        <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
+        <HostAwaitingPill
+          count={counts.awaiting()}
+          sizeClass="min-w-4 px-1 h-4"
+        />
       </button>
       <button
         type="button"

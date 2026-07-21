@@ -1,11 +1,11 @@
-/** `useHostAwaiting` — the ONE owner of a host's "awaiting count" derivation.
+/** `useHostAwaiting` — the ONE owner of a host's per-host attention counts.
  *
- *  A chip's amber "needs you" pill reads the host's `urgency` cell and projects
- *  its `awaitingIds.length`. That standing subscription + its onError toast +
- *  the `?? 0` projection are one concept ("what the awaiting pill counts"), so
- *  they live here once rather than being hand-rolled at each render site
- *  (`HostChip`, `HostSwitcherRow`, `MobileHostChip`). When a second per-host
- *  fact lands or `awaitingIds` changes shape, this is the single place it moves.
+ *  A chip reads the host's `urgency` cell and projects two counts: `awaiting`
+ *  (agents blocked on you → the amber "needs you" pill) and `finished` (agents
+ *  that just ended a turn → the quiet host-tab mark on a host you aren't looking
+ *  at). That standing subscription + its onError toast + the `?? 0` projections
+ *  are one concept, so they live here once rather than being hand-rolled at each
+ *  render site (`HostChip`, `HostSwitcherRow`, `MobileHostChip`).
  *
  *  `urgency` is (per the desktop strip's note) the FIRST client consumer of the
  *  keyed map's per-host `urgency` cell — an explicitly early, growing fact set.
@@ -18,10 +18,16 @@
 import type { HostKey } from "kolu-common/hostKey";
 import { padiMap } from "../wire";
 
-/** The host's awaiting count as a reactive accessor — hidden-at-zero pill fodder.
+/** A host's attention counts as reactive accessors — hidden-at-zero mark fodder.
  *  The urgency cell's declared `hostToast` policy (host-prefixed: `Host <host>
  *  urgency error: …`) routes through the ONE interpreter, so this use-site is bare. */
-export function useHostAwaiting(host: HostKey): () => number {
+export function useHostAwaiting(host: HostKey): {
+  awaiting: () => number;
+  finished: () => number;
+} {
   const urgency = padiMap.entry(host).cells.urgency.use();
-  return () => urgency.value()?.awaitingIds.length ?? 0;
+  return {
+    awaiting: () => urgency.value()?.awaitingIds.length ?? 0,
+    finished: () => urgency.value()?.finishedIds.length ?? 0,
+  };
 }

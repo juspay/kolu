@@ -474,6 +474,13 @@ export const PadiUrgencySchema = z.object({
    *  (`awaiting_user`) — for a badge deep-link to focus one, and for the badge
    *  COUNT (`.length`), read at the consumer, never duplicated here. */
   awaitingIds: z.array(TerminalIdSchema),
+  /** The ids of the terminals whose agent just FINISHED its turn and is idling
+   *  (`waiting`) — the other half of the attention model. Carried so the ONE
+   *  cross-host attention owner (`useAttention`) applies the SAME rules to a
+   *  finished agent on a background host as on the active one (fire once if
+   *  unseen, quiet host-tab mark), instead of a finish being legible only on the
+   *  host you're looking at. Recency-free like `awaitingIds`. */
+  finishedIds: z.array(TerminalIdSchema),
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 
@@ -486,9 +493,18 @@ export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
  *  spec can declare it directly — the bridge's "equals lives at the member, once"
  *  law — without `surface.ts` reaching into the fold module. */
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
-  if (a.awaitingIds.length !== b.awaitingIds.length) return false;
-  for (let i = 0; i < a.awaitingIds.length; i++) {
-    if (a.awaitingIds[i] !== b.awaitingIds[i]) return false;
+  return (
+    sameIds(a.awaitingIds, b.awaitingIds) &&
+    sameIds(a.finishedIds, b.finishedIds)
+  );
+}
+
+/** Order-sensitive id-list equality — both attention lists carry ids in the
+ *  map's insertion order, so a reorder is a real change worth publishing. */
+function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
   }
   return true;
 }
@@ -713,7 +729,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  point (declared here at the member, per the reactive bridge's law). */
     urgency: {
       schema: PadiUrgencySchema,
-      default: { awaitingIds: [] } satisfies PadiUrgency,
+      default: { awaitingIds: [], finishedIds: [] } satisfies PadiUrgency,
       equals: urgencyEqual,
       verbs: ["get"],
       client: { onError: { kind: "hostToast", label: "urgency" } },

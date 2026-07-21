@@ -1,9 +1,8 @@
 /** The ONE OS-notification delivery seam for the whole client.
  *
- *  A single `createNotify` instance shared by BOTH attention paths — the
- *  cross-host path (`host/useHostAttention`) and the per-terminal activity-alert
- *  path (`terminal/useActivityAlerts` + `terminal/useTerminalAlerts`) — so the
- *  origin's ONE service worker has ONE seam (see `@kolu/surface-app/notify`),
+ *  A single `createNotify` instance owned by the ONE attention module
+ *  (`attention/useAttention`) — so the origin's ONE service worker has ONE seam
+ *  (see `@kolu/surface-app/notify`),
  *  one permission request, and one tag-keyed multi-window de-dup discipline,
  *  never two hand-rolled copies of the same landmine handling.
  *

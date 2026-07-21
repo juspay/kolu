@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
+  migratePreferences_1_34_0,
 } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
@@ -95,6 +96,33 @@ describe("migratePreferences_1_32_0", () => {
       DEFAULT_PREFERENCES.newTerminalCollapsed,
     );
     expect(migrated.newTerminalTheme).toBe("shuffle");
+  });
+});
+
+describe("migratePreferences_1_34_0", () => {
+  it("renames activityAlerts → attentionAlerts, carrying the OFF value forward", () => {
+    // The falsifiable carry-forward: a user who turned alerts OFF keeps them off
+    // across the rename, NOT reset to the `true` default.
+    const migrated = migratePreferences_1_34_0({
+      activityAlerts: false,
+      scrollLock: true,
+    });
+    expect(migrated.attentionAlerts).toBe(false);
+    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true); // guards the above from a default flip
+    expect(migrated).not.toHaveProperty("activityAlerts");
+    // …unrelated preferences carry through verbatim.
+    expect(migrated.scrollLock).toBe(true);
+  });
+
+  it("carries the ON value forward too", () => {
+    const migrated = migratePreferences_1_34_0({ activityAlerts: true });
+    expect(migrated.attentionAlerts).toBe(true);
+    expect(migrated).not.toHaveProperty("activityAlerts");
+  });
+
+  it("leaves a record with no activityAlerts untouched (fresh ≥1.34 install)", () => {
+    const fresh = { attentionAlerts: false, scrollLock: true };
+    expect(migratePreferences_1_34_0(fresh)).toEqual(fresh);
   });
 });
 

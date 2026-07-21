@@ -60,7 +60,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
-  const awaiting = useHostAwaiting(props.host);
+  const counts = useHostAwaiting(props.host);
 
   return (
     <button
@@ -118,7 +118,10 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       {/* Unread pill — the shared `HostAwaitingPill` (roomier mobile sizing),
        *  the same token the desktop chip and switcher row render, hidden at
        *  zero. */}
-      <HostAwaitingPill count={awaiting()} sizeClass="h-5 min-w-5 px-1.5" />
+      <HostAwaitingPill
+        count={counts.awaiting()}
+        sizeClass="h-5 min-w-5 px-1.5"
+      />
     </button>
   );
 };

@@ -160,15 +160,15 @@ const SettingsPopover: Component<{
             />
           </SettingRow>
           <SettingRow
-            label="Activity alerts"
+            label="Attention alerts"
             hint={{
               text: "Sound + notification when a background terminal finishes.",
             }}
           >
             <Toggle
               testId="activity-alerts-toggle"
-              enabled={preferences().activityAlerts}
-              onChange={(on) => updatePreferences({ activityAlerts: on })}
+              enabled={preferences().attentionAlerts}
+              onChange={(on) => updatePreferences({ attentionAlerts: on })}
             />
           </SettingRow>
           <SettingRow
