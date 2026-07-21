@@ -1,6 +1,6 @@
 ---
 title: Chat threads as terminals
-description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only."
+description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. Build the conversation face in kolu first; pesu reuses it."
 parents: [feature, comparison]
 status: proposed
 maturity: seedling
@@ -9,12 +9,16 @@ updated: 2026-07-21
 
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import Phase from "../../components/Phase.astro";
 import Svg from "../../components/Svg.astro";
 import wire from "../../diagrams/chat-native-agents-loop.svg?raw";
 
-**One Xyne Spaces thread ↔ one kolu terminal.** First message creates both.
-User text → terminal input; agent **messages** (not tools/edits) → thread.
-pesu is the only bridge; config is env/systemd next to pesu, not the web app.
+**One conversation ↔ one kolu terminal.** User text → terminal input; agent
+**messages** (not tools/edits) → conversation. The chat surface can be the
+**kolu UI** first, then **Xyne Spaces via pesu** — same pipe, different face.
+
+pesu is the XS bridge only; config is env/systemd next to pesu, not the web app.
 
 ## Components
 
@@ -169,8 +173,107 @@ packages/pesu/
 Same layering idea as `padi-tui`: thin composition over existing padi verbs;
 no second terminal protocol.
 
-## Done criterion
+## Build order — not pesu first
 
-DM the bot → terminal appears under padi/kaval with the agent running → your
-words are the first prompt → assistant replies show up in the same XS thread
-without tool noise → deep link opens that terminal in the PWA.
+Full pesu needs XS credentials, webhooks, and a public URL. The **interesting
+half of the product** does not: a conversation face on one terminal, using
+transcript messages + `sendInput`. That is useful in kolu alone — and it is
+what `/bridge` does by hand via MCP (`sendInput`, wait for agent state, read
+output), but as a real UI instead of a skill loop.
+
+| Do first | Why |
+| --- | --- |
+| **CT1 + CH1** | De-risk the message pipe; ship a nifty kolu feature with no XS |
+| **PE0** | Chat can create/drive a terminal from XS (half duplex is still useful) |
+| **PE1** | Reuse CT1's chat filter; XS becomes another consumer of the same path |
+
+Not in this tree: multi-agent campaign board / bridge dashboard as product UI
+— that is a different note ([campaign surface](campaign-surface.html)). Here
+we only productize the **1:1 conversation** that pesu will also use.
+
+export const PT = [
+  { d: 0, g: "▶", c: "prog", l: "CT1 · chat transcript as data (padi)", m: "foundation · no XS", h: "#ct1" },
+  { d: 0, g: "○", c: "last", l: "CH1 · conversation face in kolu UI", m: "needs CT1 · the nifty feature", h: "#ch1" },
+  { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CH1 proven · XS", h: "#pe0" },
+  { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — assistant → thread", m: "needs CT1 (+ optional stream)", h: "#pe1" },
+  { d: 0, g: "○", c: "last", l: "PE2 · deep link + turn UX", m: "needs PE0", h: "#pe2" },
+];
+
+<PhaseTree title="ROADMAP — conversation face, then pesu" phases={PT} />
+
+<a id="ct1"></a>
+
+### CT1 — chat transcript as data
+
+<Phase id="CT1" name="padi: structured chat events, not only HTML export" status="next" />
+
+**Today:** `transcript.exportHtml` returns a document. Loaders already build a
+vendor-neutral IR (`user` · `assistant` · `tool_*` · …).
+
+**Ship:** a padi procedure (name TBD, e.g. `transcript.chat` / `transcript.get`)
+that returns the **chat-filtered** event list for a live terminal — same cut as
+HTML chat-log mode. Consumers: kolu UI, MCP, later pesu.
+
+*Optional follow-on inside CT1 if poll is painful:* stream
+`transcript.events({ id })` snapshot-then-deltas (surface stream invariants).
+Poll of the procedure is enough to start CH1.
+
+**Done when:** client or MCP can fetch assistant/user messages for a terminal
+without rendering HTML.
+
+<a id="ch1"></a>
+
+### CH1 — conversation face in kolu
+
+<Phase id="CH1" name="UI: chat pane on one terminal — like driving via /bridge, but product" status="todo" needs={["CT1"]} />
+
+**What you get:** for the focused agent terminal, a **conversation view** —
+bubbles from CT1 (`assistant` in, your prompts as `user`), compose box that
+calls `lifecycle.sendInput`. Toggle or split with the raw PTY (depth still
+there). No tools, no edit spam — that is the point.
+
+This is the `/bridge` human loop productized for **one** terminal: type a
+message, see the reply, without living in the agent TUI or an MCP skill. Not
+a multi-worker board.
+
+**Done when:** you can run a whole agent turn from the chat face on desktop and
+mobile without opening the export dialog; the PTY still works for depth.
+
+<a id="pe0"></a>
+
+### PE0 — pesu inbound
+
+<Phase id="PE0" name="XS webhook → create terminal + sendInput" status="todo" needs={["CH1"]} />
+
+**What you get:** first DM/@mention creates terminal+agent, stores
+`threadId → terminalId`, later messages (author only) go in via `sendInput`.
+Ack + deep link into kolu. Replies still read in kolu (CH1) until PE1.
+
+**Done when:** phone → XS → agent is running on your machine; you can continue
+in kolu's conversation face.
+
+<a id="pe1"></a>
+
+### PE1 — pesu outbound
+
+<Phase id="PE1" name="assistant events → XS postMessage" status="todo" needs={["CT1", "PE0"]} />
+
+Subscribe or poll CT1; post new `assistant` texts into the bound thread.
+`updateMessage` / `agentProgress` optional here or PE2.
+
+**Done when:** agent replies appear in the XS thread without tools/edits.
+
+<a id="pe2"></a>
+
+### PE2 — deep link + turn UX
+
+<Phase id="PE2" name="open terminal in PWA; growing reply; typing indicator" status="todo" needs={["PE0"]} />
+
+Polish only — no new architecture. Deep link on create; grow one bot message
+while a turn streams; `agentProgress` while working.
+
+## Done criterion (full tree)
+
+DM the bot → terminal under padi/kaval → first prompt is yours → assistant
+replies in the XS thread (messages only) **and** the same conversation is
+readable in kolu's chat face → deep link opens that terminal.
