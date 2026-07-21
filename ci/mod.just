@@ -125,12 +125,10 @@ nix:
 flake-check:
     nix flake check --accept-flake-config -L
 
-# Builds the home-manager example flake, overriding kolu to this checkout and
-# nixpkgs to the root's npins-pinned source. Both overrides are load-bearing:
-# overriding only kolu makes Nix update the example lock and resolve its original
-# `nixpkgs-unstable` branch through api.github.com — exactly the #1204 failure.
-# Like `ci::nix`, this enumerates the current system on purpose: the Linux lane
-# builds Linux checks/configurations and the Darwin lane builds Darwin checks.
+# Builds the home-manager example flake, whose committed lock owns nixpkgs at a
+# full revision; CI overrides only kolu to this checkout. Like `ci::nix`, this
+# enumerates the current system on purpose: the Linux lane builds Linux
+# checks/configurations and the Darwin lane builds Darwin checks.
 # No `nix` dep: store locking dedups the shared kolu drv with the `nix` node's
 # concurrent build, letting the home-manager VM work overlap the big build
 # instead of queuing behind every flake output.
@@ -138,15 +136,10 @@ home-manager:
     #!/usr/bin/env bash
     set -euo pipefail
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    nixpkgs_path="$(nix eval --impure --raw --expr '(import ./npins).nixpkgs.outPath')"
-    override_args=(
-      --override-input kolu .
-      --override-input nixpkgs "path:$nixpkgs_path"
-    )
     outputs=()
     check_installables="$(
       nix eval --raw "./nix/home/example#checks.$system" \
-        "${override_args[@]}" \
+        --override-input kolu . \
         --apply "attrs: builtins.concatStringsSep \"\\n\" (map (name: \"./nix/home/example#checks.$system.\" + name) (builtins.attrNames attrs))"
     )"
     while IFS= read -r output; do
@@ -158,14 +151,14 @@ home-manager:
     fi
     config_installables="$(
       nix eval --raw ./nix/home/example#nixosConfigurations \
-        "${override_args[@]}" \
+        --override-input kolu . \
         --apply "configs: builtins.concatStringsSep \"\\n\" (map (name: \"./nix/home/example#nixosConfigurations.\" + name + \".config.system.build.toplevel\") (builtins.filter (name: configs.\${name}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames configs)))"
     )"
     while IFS= read -r output; do
       [[ -n "$output" ]] && outputs+=("$output")
     done <<< "$config_installables"
     nix build -L --no-link --print-out-paths \
-      "${override_args[@]}" \
+      --override-input kolu . \
       "${outputs[@]}"
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches

@@ -105,9 +105,9 @@ nix build .#checks.x86_64-linux.adoption-adopt \
 ```
 
 In CI this is automatic: `ci::home-manager` directly builds this example's
-outputs with kolu overridden to the checkout and nixpkgs to the root npins pin.
-That realizes every `checks.x86_64-linux.*`, so the service smoke and all
-adoption VM tests build and run on the Linux lane.
+outputs with kolu overridden to the checkout and nixpkgs fixed by the example's
+committed lock. That realizes every `checks.x86_64-linux.*`, so the service smoke
+and all adoption VM tests build and run on the Linux lane.
 
 > `adoption-skew` forces a **second full kolu build** (the contract-bumped
 > `koluNew` `postPatch`-seds a source constant), so it is the slow check. That
