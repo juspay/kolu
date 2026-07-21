@@ -82,9 +82,10 @@ import { snapshotSession } from "./terminals.ts";
 import { LOCAL_LOCATION } from "./vocab.ts";
 
 export interface PadiDaemonOptions {
-  /** The state-root to anchor to — padi's identity. Defaults (via
-   *  {@link resolvePadiStateRoot}) to `KOLU_PADI_STATE_DIR` else the binary's
-   *  spelled default. dev/e2e pass an explicit path. */
+  /** The state-root to anchor to — padi's identity. Resolved via
+   *  {@link resolvePadiStateRoot}: explicit path or `KOLU_PADI_STATE_DIR`
+   *  required (no silent default — juspay/kolu#1334). dev/e2e pass an
+   *  explicit path; production wrappers set the env. */
   stateRoot?: string;
   /** Override the socket path (`--socket`); the gate sits beside it. kolu-server's
    *  binder ALWAYS sets this — the exact path it already computed with
@@ -347,12 +348,15 @@ export async function runPadiDaemon(
   opts: PadiDaemonOptions,
 ): Promise<DaemonExit> {
   const { log } = opts;
+  // Resolve identity FIRST — bind refuses without an explicit path (#1334). Logger
+  // open and every path derivation need the resolved root; configureDaemonLog used
+  // to re-resolve ambiently and would throw (or, pre-#1334, log under production).
+  const stateRoot = resolvePadiStateRoot(opts.stateRoot);
   // A DAEMON boot: route padi's domain pino stream (the `@kolu/padi` `log` this module and its
   // domain code share) to the rolled-file + stderr multistream (P0). Unconditional at the ONE
   // entrypoint every spawn path runs, so no spawn path can forget it; fails loud here if the
   // state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
-  configureDaemonLog();
-  const stateRoot = resolvePadiStateRoot(opts.stateRoot);
+  configureDaemonLog(stateRoot);
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   const gatePath = padiGatePath(socketPath);
   const kavalSocket = padiKavalSocketPath(stateRoot);
