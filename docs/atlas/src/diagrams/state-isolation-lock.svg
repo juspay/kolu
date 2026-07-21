@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 440" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arr-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#16a34a"/>
+    </marker>
+    <marker id="arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <!-- role sources feeding the guard -->
+  <rect x="340" y="24" width="300" height="64" rx="8" fill="#f59e0b" fill-opacity="0.12" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="490" y="48" text-anchor="middle" fill="#b45309" font-weight="600">who am I? — KOLU_ROLE</text>
+  <text x="490" y="70" text-anchor="middle" fill="#b45309" font-size="12">nix wrapper (local prod) · --role over ssh (remote)</text>
+  <line x1="490" y1="88" x2="490" y2="146" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- the three binder entry points -->
+  <g>
+    <rect x="30" y="80" width="220" height="52" rx="8" fill="#3b82f6" fill-opacity="0.10" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="140" y="102" text-anchor="middle" fill="#1d4ed8" font-weight="600">kolu-server boot</text>
+    <text x="140" y="121" text-anchor="middle" fill="#1d4ed8" font-size="12">packages/server index.ts</text>
+
+    <rect x="30" y="176" width="220" height="52" rx="8" fill="#3b82f6" fill-opacity="0.10" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="140" y="198" text-anchor="middle" fill="#1d4ed8" font-weight="600">padi daemon boot</text>
+    <text x="140" y="217" text-anchor="middle" fill="#1d4ed8" font-size="12">daemonMain.ts — before the logger</text>
+
+    <rect x="30" y="272" width="220" height="52" rx="8" fill="#3b82f6" fill-opacity="0.10" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="140" y="294" text-anchor="middle" fill="#1d4ed8" font-weight="600">padi --stdio front (ssh)</text>
+    <text x="140" y="313" text-anchor="middle" fill="#1d4ed8" font-size="12">stdioBridge.ts — before any spawn</text>
+  </g>
+  <line x1="250" y1="106" x2="336" y2="180" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="250" y1="202" x2="336" y2="202" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="250" y1="298" x2="336" y2="224" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- the one guard -->
+  <rect x="340" y="152" width="300" height="100" rx="10" fill="#8b5cf6" fill-opacity="0.10" stroke="#8b5cf6" stroke-width="2"/>
+  <text x="490" y="182" text-anchor="middle" fill="#6d28d9" font-weight="700">resolveBoundStateRoot()</text>
+  <text x="490" y="203" text-anchor="middle" fill="#6d28d9" font-size="12">@kolu/padi · role.ts — the ONE gate every binder runs</text>
+  <text x="490" y="222" text-anchor="middle" fill="#6d28d9" font-size="12">default root? symlink alias? marked relocated root?</text>
+  <text x="490" y="241" text-anchor="middle" fill="#6d28d9" font-size="12">unreadable marker ⇒ refuse (fail closed)</text>
+
+  <!-- the persistent marker feeding the guard -->
+  <rect x="340" y="316" width="300" height="64" rx="8" fill="#64748b" fill-opacity="0.08" stroke="#64748b" stroke-width="1.5"/>
+  <text x="490" y="340" text-anchor="middle" fill="#475569" font-weight="600">persistent marker — &lt;state-root&gt;/role</text>
+  <text x="490" y="362" text-anchor="middle" fill="#475569" font-size="12">stamped by production only · empty/corrupt reads as refuse</text>
+  <line x1="490" y1="316" x2="490" y2="258" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- outcomes -->
+  <rect x="700" y="120" width="250" height="64" rx="8" fill="#16a34a" fill-opacity="0.10" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="825" y="146" text-anchor="middle" fill="#15803d" font-weight="600">production → binds</text>
+  <text x="825" y="167" text-anchor="middle" fill="#15803d" font-size="12">default or marked root, as before</text>
+  <line x1="640" y1="180" x2="694" y2="158" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr-g)"/>
+
+  <rect x="700" y="220" width="250" height="64" rx="8" fill="#dc2626" fill-opacity="0.10" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="825" y="246" text-anchor="middle" fill="#b91c1c" font-weight="600">dev / test → CRASH</text>
+  <text x="825" y="267" text-anchor="middle" fill="#b91c1c" font-size="12">StateRootIsolationError, before any bind</text>
+  <line x1="640" y1="224" x2="694" y2="248" stroke="#dc2626" stroke-width="1.8" marker-end="url(#arr-r)"/>
+
+  <!-- out of scope -->
+  <rect x="30" y="380" width="220" height="44" rx="8" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="140" y="399" text-anchor="middle" fill="#64748b" font-weight="600" font-size="13">kaval — UNTOUCHED</text>
+  <text x="140" y="416" text-anchor="middle" fill="#64748b" font-size="11">not a binder; no changes at all</text>
+
+  <rect x="700" y="380" width="250" height="44" rx="8" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="825" y="399" text-anchor="middle" fill="#64748b" font-weight="600" font-size="13">adopt/kill wire verbs → #1912</text>
+  <text x="825" y="416" text-anchor="middle" fill="#64748b" font-size="11">role stamps ship there, with their reader</text>
+</svg>

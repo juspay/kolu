@@ -8,7 +8,6 @@ updated: 2026-07-21
 ---
 
 import Callout from "../../components/Callout.astro";
-import Footnote from "../../components/Footnote.astro";
 import Issue from "../../components/Issue.astro";
 
 One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not started.
@@ -17,45 +16,24 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 | | Issue | What the user feels |
 | --- | --- | --- |
-| 🔶 | <Issue n={1334} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. PR #1911 works but **failed adversarial review — rescope decision open** (next section). Wire-verb bypass split to <Issue n={1912} />; [the locks, in plain words](./host-isolation-locks.html). |
+| 🔶 | <Issue n={1334} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. PR #1911 **closed after adversarial review** (srid, 2026-07-21); rebuild plan of record: [state isolation](./state-isolation.html) (SI1 gate-leak fix → SI2 the lock). Wire-verb bypass split to <Issue n={1912} />; [the locks, in plain words](./host-isolation-locks.html). |
 | ✅ | <Issue n={1375} /> | ~~A local `vitest` run forks 30+ real daemons and OOM-reaps prod kaval~~ — real-daemon suites are **off by default** now. (PR #1921) |
-| ✅ | <Issue n={1754} /> | ~~The dock says **"thinking" forever** after the agent already finished~~ — append-poll floor under fs.watch. (PR #1914; confirm in the field, then close the issue.) |
+| ✅ | <Issue n={1754} /> | ~~The dock says **"thinking" forever** after the agent already finished~~ — append-poll floor under fs.watch. (PR #1914, deliberately `Refs` not `Closes`: the issue stays open until the e2e asserts descoped in PR #1751 are restored by a follow-up once #1751 merges.) |
 | ✅ | <Issue n={1859} /> | ~~One corrupt message makes a connection play dead while it keeps listening~~ — "settled ⟹ stopped" holds by construction. (PR #1901) |
 | ✅ | <Issue n={1900} /> | ~~Refresh yanks you to another host with a lying toast~~ — boot honors the consumed stamp; the gone-verdict waits for an authoritative census. (PR #1903) |
 | ✅ | <Issue n={1177} /> | An agent that needs you **always chimes** now. (PR #1894) |
 | ✅ | <Issue n={1763} /> | "Connecting to local…" **can no longer spin forever** — a stuck boot names its failure and offers Reload. (PR #1898) |
 
-### PR #1911 — the review verdict (2026-07-21)
+### PR #1911 — closed after review (2026-07-21)
 
-An adversarial review (11 hunters over the real diff — /perfection-review +
-/architecture-first-principles C1–C7 — every finding re-verified by a refuter)
-says: **the lock is good; half the PR isn't the lock.**<Footnote>The lock core
-survived every attack: fail-closed marker read (empty/corrupt/EACCES all
-refuse), symlink-safe root identity down to the deepest existing ancestor,
-guard-before-logger so a refused launch can't even create a log dir in
-production's root, the `--stdio` front guarded before any spawn.</Footnote>
-
-- **~52% of the 1,483 added lines serve the lock.** The rest is role markers
-  **nothing reads** — their only reader, the adopt/kill guard, was rejected out
-  of the PR to <Issue n={1912} /> — plus ~370 lines in kaval closing a
-  gate-leak window the PR itself opens to order that unread write. Lock 1
-  needs **zero kaval changes**.
-- **Both ssh e2e lanes are broken by the PR, invisibly** — CI has no
-  ssh.<Footnote>`remotePadiSsh.test.ts` dials the remote `padi --stdio` with no
-  `--role` and no `--state-root`, which the new guard now refuses before
-  serving; `just e2e-ssh-2box` deliberately binds boxB's REAL default-root padi
-  as a dev-role binder — now structurally refused.</Footnote>
-- **The prose overclaims**: comments and README assert the adopt/kill guard
-  exists ("can never adopt or SIGTERM") — it doesn't yet; only *binding* is
-  refused.
-- **One real treasure buried inside**: padi leaks its boot gate when startup
-  throws — a genuine pre-existing bug whose fix deserves its own small PR.
-
-**Open decision (srid):** close #1911 and rebuild lock-only — padi + server +
-nix, ~half the size, review-recommended — or trim it in place on the existing
-branch. Either way the ssh lanes and the overclaiming docs are fixed in the
-same change, and the write-only role stamps ship with their reader in
-<Issue n={1912} />.
+Adversarial review (11 hunters, refuter-verified) found the lock core sound
+but only ~52% of the 1,483 added lines serving it — the rest was role markers
+nothing reads (their reader was rejected to <Issue n={1912} />) plus kaval
+machinery closing a window the PR itself opened; both ssh e2e lanes broke
+invisibly. srid ruled: **close and rebuild lock-only.** The plan of record —
+SI1 (padi gate-leak fix, the one treasure extracted) then SI2 (the lock: padi
++ server + nix, zero kaval) — lives in **[state
+isolation](./state-isolation.html)**; the full verdict is on the closed PR.
 
 ## 🟡 Yellow alert — land next
 
