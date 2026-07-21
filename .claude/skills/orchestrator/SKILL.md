@@ -51,7 +51,10 @@ data file in the project. Grown practice, each line paid for:
 - **Split: skill assets + project data.** The shell and renderer are versioned
   skill assets — `dashboard/{index.html,index.js}` beside this file. The DATA is
   `$PWD/orchestrator-data.js` in the downstream project's root: `window.BOARD =
-  {…}` — a JSON payload in one assignment, git-untracked, the ONLY file a state
+  {…}` — a JSON payload in one assignment **followed by
+  `window.dispatchEvent(new Event("board-data"))`** (the renderer paints ONLY on
+  that event — a bare assignment loads fine and leaves the shell stuck on
+  "loading…" forever, the recorded failure). Git-untracked, the ONLY file a state
   change edits. Never stage it (a careless `git add` once swept the board into
   the docs branch — pathspec-stage around it). Open
   `<any skill copy>/dashboard/index.html` in the Code tab; every generated copy
@@ -72,7 +75,12 @@ data file in the project. Grown practice, each line paid for:
   are one tree, never two sections. Plus `queue[]` (pills waiting on the
   human), `shipped[]` (collapsed), `strip` (venues + laws footer), `project` /
   `updated` / `coordinator`. States: `done` · `run` (pulsing) · `wait`
-  (on the human) · `block` · `q` (queued, dashed).
+  (on the human) · `block` · `q` (queued, dashed). **The merge `queue[]` holds
+  only PRs whose FULL forge check rollup has been verified all-green** — see
+  Verification's merge-READY rule; a PR with any `fail`/`pending` check (CodeQL
+  and the GitHub-native checks included, not just the odu lanes) does not enter
+  the queue. The queue IS the green-CI evidence; never place a merge item there
+  on the odu outcome alone.
 - **Format** (srid's ruling: "less words, more graph"): departure-board ops
   aesthetic, full-mono, dark-first + light via `prefers-color-scheme`; pill
   stations on hairline rails; detail lives in hover `title` attrs, never in
@@ -91,6 +99,17 @@ data file in the project. Grown practice, each line paid for:
   (click = read the plan, atlas-branch fresh since the path resolves in the
   coordinator's worktree); a PR station → the GitHub URL (external arm,
   untouched). The board is a control surface, not a mirror. Link badges are DERIVED from href shape in the renderer (never data): ❯ terminal · ▤ note/file (a /code?path= deep link) · ↗ external — the icon tells the target class before the click, with a legend line under the masthead.
+- **Red-alert sound.** A single TNG red-alert chime (`dashboard/red-alert.mp3`)
+  fires the moment a `block` station FIRST appears anywhere in the tree — a new
+  alert — and NEVER re-fires on the 30s data reload for a still-standing block:
+  `index.js` is not reloaded (only the data script is re-inserted), so the
+  module-level `seenBlocks` set survives every refresh and the first paint seeds
+  it silently (opening the board never blares). A `🔊/🔇` mute pill in the
+  masthead toggles it — **unmuted by default**, persisted in `localStorage`
+  (`ob-muted`) when the sandbox allows, module-var otherwise. Autoplay policy:
+  the chime is primed on the first click (a one-shot `unlockAudio`), so a brand
+  new alert may render its red pulse before sound is permitted — the visual
+  alert never depends on audio.
 - **The standing atlas/docs PR is AMBIENT, not a queue item**: the human
   tracks the coordinator's atlas branch himself — the board and reports never
   nag it into the merge queue; only NON-docs deliverables occupy the waiting
@@ -113,6 +132,7 @@ data file in the project. Grown practice, each line paid for:
 - Reproduce bugs first. Never skip tests. Never defer a fixable defect.
 - The record stays honest: an issue tracks the symptom it was filed for — a refuted mechanism gets an appended correction (and a retitle if the title asserts it), never a re-scope away from the symptom. A PR claims exactly what it proves, and evidence transfers only within its class (a live-boot claim needs live-boot evidence; a before capture wants its after).
 - Watchdog long-running agents; tear down ONLY by PIDs captured at spawn. Pattern selection of processes — `pkill -f`, `pgrep`, `ps|grep|kill`, marker/substring/socket-path matching — is one banned class; a stray the pids file missed is reported (pid + args), never hunted. An agent's `ps|grep` teardown marker once matched the production kaval and killed every PTY on the box (2026-07-12). Shared-host state gets isolated; production hosts and the human's default remote roots are untouchable.
+- **A merge-READY surfacing or a merge-queue item carries EVIDENCE of an ALL-GREEN forge check rollup — the WHOLE `gh pr checks <n>`, not just the odu lanes.** Before a PR is called merge-ready or placed in the board's merge queue, verify the complete rollup shows ZERO `fail` and ZERO `pending` — CodeQL, the SentinelOne scans, `build-and-push`, and every GitHub-native check included, not only the odu two-platform CI. A red check is DISQUALIFYING until investigated and resolved AT THE FORGE — never waved off as "probably infra" from its name or its 2-second duration. The recorded failure: a 2-second CodeQL "fail" was dismissed as an infra bail and the PR surfaced as merge-ready; it was **2 real high-severity security alerts in the PR's own new test files**, and CodeQL was green on sibling PRs so "pre-existing infra" was outright false. The odu outcome being `passed` is necessary, not sufficient — the odu lanes are a subset of the forge's checks. The merge queue is evidence of green **by construction**: an item in it means its full rollup was read and every check is green; a red or unverified check means the item does not belong there yet.
 
 ## The coordinator's own changes
 
@@ -151,3 +171,4 @@ data file in the project. Grown practice, each line paid for:
 
 - Plain words, outcome first. No codenames, no arrow chains; the human never has to ask twice for the TLDR.
 - Time is never a cost against correct process (/perfection-review).
+- **Bridge protocol (srid's standing order, 2026-07-20):** address the human as Lt. Cmdr. Data addresses Captain Picard — concise, precise, plain declarative sentences, orders acknowledged briefly ("Acknowledged, Captain") with status and awaiting-orders stated outright. Clarity outranks flavor: never cryptic, never verbose.

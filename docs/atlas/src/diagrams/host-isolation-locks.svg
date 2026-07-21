@@ -1,0 +1,66 @@
+<svg viewBox="0 0 700 330" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12.5">
+  <defs>
+    <marker id="hA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6472"/>
+    </marker>
+    <marker id="hR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c0392b"/>
+    </marker>
+    <marker id="hG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2e7d4f"/>
+    </marker>
+  </defs>
+  <style>
+    .box{rx:9;ry:9;stroke-width:1.6}
+    .ok{fill:#e3f6e9;stroke:#2e7d4f}
+    .bad{fill:#fbe2e2;stroke:#c0392b}
+    .neut{fill:#eef1f6;stroke:#5b6472}
+    .prod{fill:#fff3d4;stroke:#b8860b}
+    .t{fill:#1c2430}
+    .h{font-weight:700}
+    .sub{fill:#5b6472;font-size:11px}
+    .subR{fill:#c0392b;font-size:11px;font-weight:700}
+    .subG{fill:#2e7d4f;font-size:11px;font-weight:700}
+  </style>
+
+  <!-- LOCK 1 (top half) -->
+  <text class="t h" x="16" y="24" font-size="14">LOCK 1 — the folder is the identity</text>
+
+  <rect class="box prod" x="440" y="40" width="244" height="58"/>
+  <text class="t h" x="562" y="61" text-anchor="middle">~/.local/state/padi</text>
+  <text class="sub" x="562" y="78" text-anchor="middle">production's folder (its identity)</text>
+
+  <rect class="box ok" x="16" y="40" width="180" height="58"/>
+  <text class="t h" x="106" y="61" text-anchor="middle">your real kolu</text>
+  <text class="sub" x="106" y="78" text-anchor="middle">badge: KOLU_ROLE=production</text>
+  <line x1="196" y1="69" x2="436" y2="69" stroke="#2e7d4f" stroke-width="1.8" marker-end="url(#hG)"/>
+  <text class="subG" x="316" y="61" text-anchor="middle">binds — allowed</text>
+
+  <rect class="box bad" x="16" y="122" width="180" height="58"/>
+  <text class="t h" x="106" y="143" text-anchor="middle">bare pnpm dev / padi</text>
+  <text class="sub" x="106" y="160" text-anchor="middle">no badge, no own folder</text>
+  <line x1="196" y1="151" x2="360" y2="100" stroke="#c0392b" stroke-width="1.8" stroke-dasharray="7 4" marker-end="url(#hR)"/>
+  <text class="subR" x="300" y="140" text-anchor="middle">✗ CRASH at bind:</text>
+  <text class="subR" x="300" y="154" text-anchor="middle">"set KOLU_PADI_STATE_DIR"</text>
+
+  <!-- LOCK 3 (bottom half) -->
+  <text class="t h" x="16" y="222" font-size="14">LOCK 3 — tests forked real daemons, uncapped, seeing prod</text>
+
+  <rect class="box neut" x="16" y="238" width="180" height="58"/>
+  <text class="t h" x="106" y="259" text-anchor="middle">bare vitest</text>
+  <text class="sub" x="106" y="276" text-anchor="middle">19 real-spawn suites</text>
+
+  <rect class="box ok" x="260" y="238" width="190" height="58"/>
+  <text class="t h" x="355" y="259" text-anchor="middle">describeDaemon gate</text>
+  <text class="sub" x="355" y="276" text-anchor="middle">skips: KOLU_DAEMON_TESTS unset</text>
+
+  <rect class="box prod" x="510" y="238" width="174" height="58"/>
+  <text class="t h" x="597" y="259" text-anchor="middle">CI: ci::daemon node</text>
+  <text class="sub" x="597" y="276" text-anchor="middle">gate ON · leashed · capped</text>
+
+  <line x1="196" y1="267" x2="256" y2="267" stroke="#5b6472" stroke-width="1.6" marker-end="url(#hA)"/>
+  <text class="subG" x="226" y="259" text-anchor="middle">0 forks</text>
+  <line x1="450" y1="267" x2="506" y2="267" stroke="#2e7d4f" stroke-width="1.6" marker-end="url(#hG)"/>
+
+  <text class="sub" x="16" y="322">+ every test worker's env is scrubbed of KAVAL_SOCKET / PADI_SOCKET — tests cannot even see the real daemons.</text>
+</svg>
