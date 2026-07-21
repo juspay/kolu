@@ -385,6 +385,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -1091,6 +1094,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
+      kolu-io:
+        specifier: workspace:*
+        version: link:../integrations/io
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1098,6 +1104,9 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/shell-quote:
     devDependencies:

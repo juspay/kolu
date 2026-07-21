@@ -49,10 +49,12 @@ export function installFsWatchShim(): FsWatchShim {
   const real = fs.watch;
   const handles: WatchHandle[] = [];
 
-  // deno-lint-ignore no-explicit-any
-  const fake = ((watchPath: fs.PathLike, ...rest: any[]): fs.FSWatcher => {
+  type WatchListener = (eventType: string, filename: string) => void;
+  const fake = ((watchPath: fs.PathLike, ...rest: unknown[]): fs.FSWatcher => {
     // fs.watch(path, listener) | fs.watch(path, options, listener)
-    const listener = typeof rest[0] === "function" ? rest[0] : rest[1];
+    const listener = (
+      typeof rest[0] === "function" ? rest[0] : rest[1]
+    ) as WatchListener | undefined;
     let closed = false;
     const handle: WatchHandle = {
       path: String(watchPath),

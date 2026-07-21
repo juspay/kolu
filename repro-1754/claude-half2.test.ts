@@ -1,21 +1,20 @@
 /**
- * #1754 Half-2 repro — claude-code watcher strands `thinking` on a fast turn.
+ * #1754 Half-2 fix proof — claude-code watcher SELF-HEALS on a fast turn.
  *
- * Same class as the grok repro. The transcript watcher attaches while the turn
- * is open (a trailing live `user` prompt → `thinking`), then the assistant's
- * terminal `stop_reason:"end_turn"` line appends AFTER attach. On a fast turn
- * the OS coalesces / drops that append's fs.watch edge.
+ * Inverted from the original reproduction (git history) per the design-gate
+ * ruling. The transcript watcher attaches while the turn is open (a trailing
+ * live `user` prompt → `thinking`), then the assistant's terminal
+ * `stop_reason:"end_turn"` line appends AFTER attach and its `fs.watch` edge is
+ * DROPPED. Pre-fix this stranded `thinking` forever — claude's
+ * `decayTransientState` stale-recheck is deliberately DISARMED for a live
+ * (non-orphaned) `thinking` (`recheckAt: null`, "live turn, never cleared"), so
+ * the one existing fallback could not rescue it.
  *
- * Claude DOES have a fallback timer (`decayTransientState`'s stale-recheck),
- * but it is deliberately DISARMED for a live `thinking`: a non-orphaned prompt
- * (one that postdates the running claude's `startedAt`) returns
- * `{ recheckAt: null }` — "this is a live turn, never cleared". So on the exact
- * shape a fast real turn produces, the one fallback that could rescue the state
- * does not arm, and the dropped edge strands `thinking` with no recovery.
- *
- * As with grok, the final step proves this is Half 2, not Half 1: the same
- * on-disk transcript, read via the watcher's own 256 KB tail, derives `waiting`
- * the instant a single edge is delivered.
+ * With the append-robust floor, the real `fs.watchFile` poll re-reads the same
+ * on-disk transcript within one interval and reconciles to `waiting` — no edge,
+ * no further write, and WITHOUT leaning on the disarmed decay path. The shim
+ * suppresses only `fs.watch`; `fs.watchFile` is real, so this drives the true
+ * recovery end-to-end.
  *
  * Run: node_modules/.bin/vitest run repro-1754/claude-half2.test.ts
  */
@@ -113,8 +112,8 @@ function completionLine(): string {
   });
 }
 
-describe("#1754 Half 2 — claude-code stranded `thinking` on a fast turn", () => {
-  it("strands `thinking` when the terminal `end_turn` edge is dropped", async () => {
+describe("#1754 Half 2 — claude-code self-heals a dropped `end_turn` edge", () => {
+  it("reconciles to `waiting` via the floor after a dropped edge (no manual edge)", async () => {
     fs.writeFileSync(transcriptPath, openTurnTranscript());
 
     const states: string[] = [];
@@ -136,22 +135,16 @@ describe("#1754 Half 2 — claude-code stranded `thinking` on a fast turn", () =
     // 2) FAST TURN: the terminal `end_turn` appends AFTER attach.
     fs.appendFileSync(transcriptPath, completionLine());
 
-    // 3) DROP the edge — model the coalesced / missed fs.watch notification.
-    //    Wait past the 150 ms debounce. The stale-recheck timer is disarmed for
-    //    a live `thinking`, so nothing re-derives.
-    await sleep(600);
+    // 3) DROP the edge — the shim never delivers the fs.watch callback. The
+    //    stale-recheck timer stays disarmed for a live `thinking`, so pre-fix
+    //    nothing re-derived. Wait past one poll interval (DEFAULT_APPEND_POLL_MS
+    //    = 1000 ms) so the fs.watchFile floor observes the append.
+    await sleep(1400);
 
-    // BUG: stranded on `thinking` though `end_turn` is on disk.
-    expect(states.at(-1)).toBe("thinking");
-    expect(states).not.toContain("waiting");
-
-    // 4) Prove Half 2, not Half 1: the SAME transcript, read via the watcher's
-    //    own 256 KB tail, derives `waiting` the instant one edge is delivered.
-    const delivered = shim.fireSuffix(`${SESSION_ID}.jsonl`);
-    expect(delivered).toBeGreaterThan(0);
-    await sleep(300);
-
+    // FIXED: the floor re-read the same transcript and reconciled to `waiting`
+    // with NO edge, NO further write, and without the disarmed decay path.
     expect(states.at(-1)).toBe("waiting");
+    expect(shim.forSuffix(`${SESSION_ID}.jsonl`).length).toBeGreaterThan(0);
 
     watcher.destroy();
   });

@@ -12,13 +12,16 @@
     "./sqlite": "./src/sqlite/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@kolu/log": "workspace:*"
+    "@kolu/log": "workspace:*",
+    "kolu-io": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
   }
 }

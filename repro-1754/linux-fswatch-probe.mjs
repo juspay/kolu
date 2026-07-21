@@ -105,4 +105,4 @@ async function main() {
   console.log("not surface statistically here this run.");
 }
 
-main();
+void main();

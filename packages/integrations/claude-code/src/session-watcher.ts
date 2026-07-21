@@ -11,17 +11,15 @@
 
 import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
-import { match } from "ts-pattern";
+import { DEFAULT_APPEND_POLL_MS, subscribeFileAppends } from "kolu-io";
 import {
   completedBackgroundTaskIds,
   decayTransientState,
   deriveState,
   deriveTaskProgress,
   deriveWorkflowProgress,
-  encodeProjectPath,
   extractTasks,
   fetchSessionSummary,
-  findTranscriptPath,
   firstTranscriptTimestampMs,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
@@ -30,12 +28,12 @@ import {
   observeWorkflowRun,
   outstandingBackgroundTasks,
   outstandingForkRuns,
-  PROJECTS_DIR,
   type SessionFile,
   type WorkflowObservation,
   subagentsDirFor,
   TAIL_BYTES,
   tailJsonlLines,
+  transcriptPathFor,
   watchOrWaitForDir,
   workflowsDirFor,
 } from "./core.ts";
@@ -87,11 +85,13 @@ const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
 
 // --- Transcript watching lifecycle ---
 
-/** Transcript-watching state machine — mutually exclusive states. */
-type TranscriptWatching =
-  | { kind: "none" }
-  | { kind: "waiting"; dirWatcher: () => void }
-  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
+// The transcript is watched by `subscribeFileAppends` (kolu-io): an `fs.watch`
+// fast path plus an `fs.watchFile` floor that survives a dropped/coalesced
+// terminal-append edge (juspay/kolu#1754). It subscribes on the DETERMINISTIC
+// transcript path unconditionally — the file need not exist yet — so the old
+// none/waiting/watching state machine and its dir-watch appearance bootstrap
+// (which a dropped projectDir edge could strand) are gone; the floor tolerates
+// absence and fires on appearance.
 
 // --- Logger interface ---
 
@@ -136,7 +136,10 @@ export function createSessionWatcher(
   onUpdate: (info: ClaudeCodeInfo) => void,
   plog: Logger,
 ): SessionWatcher {
-  let transcriptWatching: TranscriptWatching = { kind: "none" };
+  // The deterministic transcript path, watched unconditionally (see below).
+  const transcriptPath = transcriptPathFor(session);
+  // Unsubscribe for the append-robust transcript watch; null until set up.
+  let transcriptUnsub: (() => void) | null = null;
   let lastInfo: ClaudeCodeInfo | null = null;
   let lastSummary: string | null = null;
   // Ordering fence for the async summary fetch. Each `refreshSummary` dispatch
@@ -192,18 +195,14 @@ export function createSessionWatcher(
   let destroyed = false;
 
   function teardownTranscriptWatching() {
-    match(transcriptWatching)
-      .with({ kind: "none" }, () => {})
-      .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ path, fileWatcher }) => {
-        fileWatcher.close();
-        plog.info(
-          { path, session: session.sessionId },
-          "claude-code: transcript watcher retired",
-        );
-      })
-      .exhaustive();
-    transcriptWatching = { kind: "none" };
+    if (transcriptUnsub) {
+      transcriptUnsub();
+      transcriptUnsub = null;
+      plog.info(
+        { path: transcriptPath, session: session.sessionId },
+        "claude-code: transcript watcher retired",
+      );
+    }
   }
 
   /** Trailing-edge debounce: reset the timer on every event, fire
@@ -241,49 +240,30 @@ export function createSessionWatcher(
     }, delay);
   }
 
-  function attachTranscriptWatcher(tp: string) {
-    try {
-      const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
-      transcriptWatching = { kind: "watching", path: tp, fileWatcher };
-      plog.info(
-        { path: tp, session: session.sessionId },
-        "claude-code: transcript watcher installed",
-      );
-    } catch (err) {
-      plog.error({ err, path: tp }, "failed to watch transcript");
-      transcriptWatching = { kind: "none" };
-    }
-  }
-
   function setupTranscriptWatching() {
-    const tp = findTranscriptPath(session);
-    if (tp) {
-      plog.debug({ path: tp }, "transcript found");
-      attachTranscriptWatcher(tp);
-      onTranscriptMaybeChanged();
-      return;
-    }
-    plog.debug(
-      { session: session.sessionId, cwd: session.cwd },
-      "transcript not found yet (JSONL created after first message)",
+    // Subscribe UNCONDITIONALLY on the deterministic transcript path
+    // (juspay/kolu#1754, Q7). Claude writes the JSONL lazily after the first
+    // message, so it may not exist yet — the append-robust floor tolerates
+    // absence and fires on appearance, so no separate dir-watch bootstrap is
+    // needed. The floor also means a dropped fs.watch edge (a fast turn's
+    // completion append) can no longer strand the live-state: it self-heals on
+    // the next poll. `scheduleTranscriptCheck` is the existing 150 ms-debounced,
+    // change-gated handler both the edge and the floor feed.
+    transcriptUnsub = subscribeFileAppends(
+      transcriptPath,
+      () => scheduleTranscriptCheck(),
+      {
+        intervalMs: DEFAULT_APPEND_POLL_MS,
+        log: plog,
+        label: "claude-code: transcript",
+      },
     );
-    const projectDir = `${PROJECTS_DIR}/${encodeProjectPath(session.cwd)}`;
-    const dirWatcher = watchOrWaitForDir(
-      projectDir,
-      () => onProjectDirChanged(),
-      plog,
+    plog.info(
+      { path: transcriptPath, session: session.sessionId },
+      "claude-code: transcript watcher installed",
     );
-    transcriptWatching = { kind: "waiting", dirWatcher };
-  }
-
-  function onProjectDirChanged() {
-    if (destroyed) return;
-    if (transcriptWatching.kind !== "waiting") return;
-    const tp = findTranscriptPath(session);
-    if (!tp) return;
-    plog.debug({ path: tp }, "transcript appeared");
-    transcriptWatching.dirWatcher();
-    attachTranscriptWatcher(tp);
+    // Initial read covers the file-already-present-at-attach window (B4); an
+    // absent file reads as [] and derives nothing, harmlessly.
     onTranscriptMaybeChanged();
   }
 
@@ -316,9 +296,7 @@ export function createSessionWatcher(
 
   function onTranscriptMaybeChanged() {
     if (destroyed) return;
-    if (transcriptWatching.kind !== "watching") return;
-
-    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    const lines = tailJsonlLines(transcriptPath, TAIL_BYTES);
     // One clock read for the whole pass: the workflow-staleness filter
     // (`liveOutstandingTasks`), the fork scan, both stale deadlines, and the
     // transient-decay quiet window all compare against this single `now`, so no
@@ -360,7 +338,7 @@ export function createSessionWatcher(
     const derived = deriveState(lines, outstanding);
     if (!derived) {
       plog.debug(
-        { path: transcriptWatching.path },
+        { path: transcriptPath },
         "no user/assistant message in transcript tail",
       );
       return;
@@ -412,7 +390,7 @@ export function createSessionWatcher(
       // mixed set fires on whichever ages out first.
       staleDeadline = nextStaleDeadline(live, now);
     } else {
-      const quietMs = transcriptQuietMs(transcriptWatching.path, now);
+      const quietMs = transcriptQuietMs(transcriptPath, now);
       if (quietMs !== null) {
         const decayed = decayTransientState(
           derived.state,
@@ -433,7 +411,7 @@ export function createSessionWatcher(
     }
     scheduleStaleRecheck(staleDeadline);
 
-    scanTasksIncremental(transcriptWatching.path);
+    scanTasksIncremental(transcriptPath);
 
     // Only read journals when the agent is actually busy-waiting on a
     // background task — keeps the common path off the (potentially large)
@@ -446,7 +424,7 @@ export function createSessionWatcher(
 
     // Conversation age (survives `claude -c` resume), resolved once off the
     // transcript head and cached — see the `startedAt` declaration.
-    startedAt ??= firstTranscriptTimestampMs(transcriptWatching.path);
+    startedAt ??= firstTranscriptTimestampMs(transcriptPath);
 
     const info: ClaudeCodeInfo = {
       kind: "claude-code",

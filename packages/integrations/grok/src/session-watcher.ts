@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentInfoEqual } from "anyagent";
+import { DEFAULT_APPEND_POLL_MS, subscribeFileAppends } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { deriveGrokInfo, type GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
@@ -32,6 +33,9 @@ export function createGrokWatcher(
   let lastInfo: GrokInfo | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const watchers: fs.FSWatcher[] = [];
+  // Unsubscribes for the append-robust floor (juspay/kolu#1754), torn down
+  // alongside the raw watchers.
+  const cleanups: Array<() => void> = [];
 
   function emitIfChanged(): void {
     if (destroyed) return;
@@ -106,7 +110,26 @@ export function createGrokWatcher(
     }
   }
 
-  watchPath(session.eventsPath);
+  // events.jsonl is the primary state signal. Wrap it in the append-robust
+  // floor (juspay/kolu#1754): a dropped/coalesced terminal-append edge — macOS
+  // kqueue especially — would otherwise strand the tile on a transient state
+  // forever (grok has no other fallback timer). Subscribe UNCONDITIONALLY (the
+  // Q7 reversal): grok's old dir-watch bootstrap never re-armed a file watch
+  // after events.jsonl appeared and kqueue dir-watches never fire on child
+  // content appends, so a session matched before the file was flushed got no
+  // steady-state watch on macOS at all. The floor tolerates absence and fires
+  // on appearance, closing that hole with the same mechanism.
+  cleanups.push(
+    subscribeFileAppends(session.eventsPath, schedule, {
+      intervalMs: DEFAULT_APPEND_POLL_MS,
+      log,
+      label: "grok: events",
+    }),
+  );
+  // summary.json / signals.json stay edge-only (dir-watch bootstrap for the
+  // temp+rename rewrite). Both are re-read on every events.jsonl tick, so a
+  // dropped edge there only staleness the model/title/token display until the
+  // next events tick — a display-freshness residual, not a state lie (Q6).
   watchPath(session.summaryPath);
   // signals.json carries contextTokensUsed — re-emit when the window moves.
   watchPath(session.signalsPath);
@@ -126,6 +149,14 @@ export function createGrokWatcher(
       destroyed = true;
       if (timer) clearTimeout(timer);
       timer = null;
+      for (const c of cleanups) {
+        try {
+          c();
+        } catch {
+          /* ignore unsubscribe races */
+        }
+      }
+      cleanups.length = 0;
       for (const w of watchers) {
         try {
           w.close();

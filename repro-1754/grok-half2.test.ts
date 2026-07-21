@@ -1,20 +1,18 @@
 /**
- * #1754 Half-2 repro — grok watcher strands `thinking` on a fast turn.
+ * #1754 Half-2 fix proof — grok watcher SELF-HEALS on a fast turn.
  *
- * Failure mode (coordinator's "Half 2 — append-after-attach, coalesced/missed
- * re-read"): the watcher attaches while the turn is open (`turn_started` →
- * `thinking`), then the terminal `turn_ended` append lands AFTER attach. On a
- * fast turn the OS coalesces / drops that append's fs.watch edge, and because
- * the grok watcher is *purely edge-triggered* (no poll / re-stat fallback, and
- * unlike claude no decay timer at all), nothing ever re-reads the file. The
- * indicator strands on `thinking` forever.
+ * This file first *reproduced* the bug (git history) and now proves the FIX,
+ * inverted per the design-gate ruling. The scenario is unchanged — the watcher
+ * attaches while the turn is open (`turn_started` → `thinking`), then the
+ * terminal `turn_ended` append lands AFTER attach and its `fs.watch` edge is
+ * DROPPED (the shim never fires it), modeling exactly the macOS-kqueue coalesce
+ * that stranded grok forever (grok has no decay timer of its own).
  *
- * This is NOT Half 1 (attach-after-write): the file on disk carries the
- * terminal `turn_ended`, and the watcher's own 128 KB tail read WOULD derive
- * `waiting` from it — proven by the final step, which fires a single edge and
- * watches the SAME bytes flip to `waiting`. The only thing standing between
- * stranded and correct is one fs.watch notification the OS is permitted to
- * drop.
+ * With the append-robust floor (`subscribeFileAppends`), the real `fs.watchFile`
+ * poll re-reads the file within one interval even though no edge arrived, so the
+ * state reconciles to `waiting` on its own — NO manual edge, NO further write.
+ * The shim suppresses only `fs.watch` (the edge); `fs.watchFile` (the floor) is
+ * real, so this drives the true recovery path end-to-end.
  *
  * Run: node_modules/.bin/vitest run repro-1754/grok-half2.test.ts
  */
@@ -87,8 +85,8 @@ function setupSession(): GrokSession {
   };
 }
 
-describe("#1754 Half 2 — grok stranded `thinking` on a fast turn", () => {
-  it("strands `thinking` when the terminal `turn_ended` edge is dropped", async () => {
+describe("#1754 Half 2 — grok self-heals a dropped `turn_ended` edge", () => {
+  it("reconciles to `waiting` via the floor after a dropped edge (no manual edge)", async () => {
     const session = setupSession();
     const states: GrokInfo["state"][] = [];
     const watcher = createGrokWatcher(session, (info) =>
@@ -101,24 +99,17 @@ describe("#1754 Half 2 — grok stranded `thinking` on a fast turn", () => {
     // 2) FAST TURN: the terminal completion appends AFTER attach.
     appendEvent(session.eventsPath, { type: "turn_ended" });
 
-    // 3) DROP the edge — model the coalesced / missed fs.watch notification
-    //    (no callback delivered). Wait well past the 150 ms debounce; grok has
-    //    no other timer, so nothing else can fire.
-    await sleep(500);
+    // 3) DROP the edge — the shim never delivers the fs.watch callback (the
+    //    coalesced / missed notification). Pre-fix this stranded `thinking`
+    //    forever; now the fs.watchFile floor re-reads on its own cadence.
+    //    Wait past one poll interval (DEFAULT_APPEND_POLL_MS = 1000 ms).
+    await sleep(1400);
 
-    // BUG: the state is stranded on `thinking` though the turn ended long ago.
-    expect(states.at(-1)).toBe("thinking");
-    expect(states).not.toContain("waiting");
-
-    // 4) Prove it is Half 2, not Half 1: the SAME on-disk bytes, read via the
-    //    watcher's own tail path, derive `waiting` the instant a single edge is
-    //    delivered. The file was correct all along; only the notification was
-    //    missing.
-    const delivered = shim.fireSuffix("events.jsonl");
-    expect(delivered).toBeGreaterThan(0);
-    await sleep(300); // debounce + margin
-
+    // FIXED: the floor recovered the missed append with NO edge and NO further
+    // write — the exact strand is gone.
     expect(states.at(-1)).toBe("waiting");
+    // The shim proves the edge never fired — recovery was the floor's doing.
+    expect(shim.forSuffix("events.jsonl").length).toBeGreaterThan(0);
 
     watcher.destroy();
   });

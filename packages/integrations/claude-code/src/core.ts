@@ -152,9 +152,17 @@ export function encodeProjectPath(cwd: string): string {
  * dir leads to attaching to a stale previous-session transcript while the
  * current session's file is still being created. Better to wait.
  */
-export function findTranscriptPath(session: SessionFile): string | null {
+/** The deterministic transcript path for a session — computed, not probed.
+ *  Claude writes this file lazily (after the first message), so it may not
+ *  exist yet; callers that need append-robust watching subscribe on it
+ *  unconditionally (see the session watcher, juspay/kolu#1754). */
+export function transcriptPathFor(session: SessionFile): string {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
-  const exactPath = path.join(projectDir, `${session.sessionId}.jsonl`);
+  return path.join(projectDir, `${session.sessionId}.jsonl`);
+}
+
+export function findTranscriptPath(session: SessionFile): string | null {
+  const exactPath = transcriptPathFor(session);
   try {
     fs.accessSync(exactPath);
     return exactPath;
