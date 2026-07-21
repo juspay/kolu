@@ -10,8 +10,11 @@
  *  `pointercancel` INSTEAD of `pointerup` — can't strand the window listeners
  *  live (they'd otherwise keep firing `onMove` on every later pointer move until
  *  an eventual `pointerup` that may never come). A completed gesture runs
- *  `onEnd`; a cancelled one runs `onCancel` when given (else `onEnd`), so a
- *  caller can distinguish "commit" from "revert".
+ *  `onEnd`; a cancelled one runs `onCancel` when given, and is otherwise
+ *  **cleanup-only** (listeners torn down, `onEnd` NOT called) — omitting
+ *  `onCancel` opts out of commit-on-cancel, it does not fall through to the
+ *  commit path (so a caller whose `onEnd` writes/commits never commits a
+ *  gesture the platform cancelled).
  *
  *  Pass `pointerId` to bind the gesture to the pointer that started it: events
  *  from any OTHER pointer (a second touch/pen) are ignored, so they can't drive
@@ -53,8 +56,11 @@ export function capturePointerGesture(
     "pointercancel",
     (e) => {
       if (!mine(e)) return;
+      // `abort()` tears the listeners down; omitting `onCancel` is cleanup-only,
+      // NOT a fall-through to `onEnd` — a cancelled gesture must never run a
+      // caller's commit path.
       abort.abort();
-      (handlers.onCancel ?? handlers.onEnd)(e);
+      handlers.onCancel?.(e);
     },
     { signal },
   );

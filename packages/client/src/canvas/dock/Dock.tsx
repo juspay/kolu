@@ -228,6 +228,10 @@ const Dock: Component<{
     // Primary button only — a right/middle-button drag on the edge shouldn't
     // resize (and would fight the context menu / pan).
     if (e.button !== 0) return;
+    // A resize is already in flight — ignore further pointerdowns rather than
+    // abort-and-replace, so a second touch/pen (which also reports button 0)
+    // can't hijack the active gesture from the pointer that owns it.
+    if (abortDockResize) return;
     e.preventDefault();
     const startX = e.clientX;
     // Delta rides the RENDERED width (so a host-capped dock doesn't jump on
@@ -235,7 +239,8 @@ const Dock: Component<{
     // is cancelled (a completed drag keeps whatever the last move persisted).
     const startWidth = effectiveDockWidth();
     const startStored = dockCardsWidth();
-    abortDockResize?.abort();
+    // No prior gesture to abort — the `if (abortDockResize) return` guard above
+    // already established it's null.
     abortDockResize = new AbortController();
     capturePointerGesture(
       {

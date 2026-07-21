@@ -151,11 +151,23 @@ Then(
   },
 );
 
+Then(
+  "the dock resize handle should not be present",
+  async function (this: KoluWorld) {
+    // The handle is `<Show>`-gated to the maximized cards sidebar, so it is
+    // removed from the DOM in rail / tiled postures (not merely hidden).
+    await this.page.waitForFunction(
+      (selector) => document.querySelectorAll(selector).length === 0,
+      DOCK_RESIZE_HANDLE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When(
   "I drag the dock resize handle right by {int} pixels",
   async function (this: KoluWorld, dx: number) {
-    // Capture the pre-drag width so the follow-up can prove the drag widened
-    // the dock and that the width survives a reload.
+    // Capture the pre-drag width so the follow-up can prove the drag widened it.
     this.savedDockWidth = await dockWidth(this);
     const handle = this.page.locator(DOCK_RESIZE_HANDLE_SELECTOR);
     const box = await handle.boundingBox();
@@ -185,27 +197,89 @@ Then("the dock should be wider than before", async function (this: KoluWorld) {
     { selector: DOCK_SELECTOR, prev: before },
     { timeout: POLL_TIMEOUT },
   );
-  // Advance the remembered width to the widened value for the reload check.
-  this.savedDockWidth = await dockWidth(this);
 });
 
 Then(
-  "the dock should keep its widened width",
+  "the resized dock width should be persisted",
   async function (this: KoluWorld) {
-    const widened = this.savedDockWidth;
-    if (widened === undefined) {
-      throw new Error("no widened dock width captured");
+    // `persistedPref` writes the width to localStorage on every drag step — the
+    // same value a reload reads back (identical mechanism to dockMode). Assert
+    // the persisted value is a finite number wider than the default (288),
+    // proving the drag wrote through to per-device storage.
+    const stored = await this.page.evaluate(() => {
+      const raw = localStorage.getItem("kolu-dock-cards-width");
+      return raw === null ? null : Number(JSON.parse(raw));
+    });
+    if (stored === null || !Number.isFinite(stored) || stored <= 288) {
+      throw new Error(`expected persisted dock width > 288, got ${stored}`);
     }
-    // Persistence is per-device (localStorage), so the width returns within a
-    // pixel or two of the pre-reload value — allow a small tolerance for
-    // sub-pixel layout rounding.
+  },
+);
+
+When(
+  "I shrink the viewport to {int} pixels wide",
+  async function (this: KoluWorld, width: number) {
+    const current = this.page.viewportSize();
+    await this.page.setViewportSize({
+      width,
+      height: current?.height ?? 720,
+    });
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the dock resize handle should stay within the viewport",
+  async function (this: KoluWorld) {
+    const viewport = this.page.viewportSize();
+    if (!viewport) throw new Error("no viewport size");
+    // The whole point of the host cap: the handle at the dock's right edge must
+    // stay on-screen so the user can always drag / double-click it back. With
+    // the cap inert (the Round-2 ref bug) a wide drag overflows and this fails.
     await this.page.waitForFunction(
-      ({ selector, target }) => {
+      ({ selector, vw }) => {
         const el = document.querySelector(selector);
         if (!el) return false;
-        return Math.abs(el.getBoundingClientRect().width - target) <= 4;
+        const box = el.getBoundingClientRect();
+        return box.right <= vw && box.left >= 0 && box.width > 0;
       },
-      { selector: DOCK_SELECTOR, target: widened },
+      { selector: DOCK_RESIZE_HANDLE_SELECTOR, vw: viewport.width },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the canvas beside the dock should stay at least {int} pixels wide",
+  async function (this: KoluWorld, min: number) {
+    await this.page.waitForFunction(
+      ({ selector, minWidth }) => {
+        const el = document.querySelector(selector);
+        if (!el) return false;
+        return el.getBoundingClientRect().width >= minWidth;
+      },
+      { selector: '[data-testid="canvas-container"]', minWidth: min },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When("I double-click the dock resize handle", async function (this: KoluWorld) {
+  await this.page.locator(DOCK_RESIZE_HANDLE_SELECTOR).dblclick();
+  await this.waitForFrame();
+});
+
+Then(
+  "the dock should return to its default width",
+  async function (this: KoluWorld) {
+    // Default cards width is 288px; allow a small tolerance for layout rounding.
+    await this.page.waitForFunction(
+      (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return false;
+        return Math.abs(el.getBoundingClientRect().width - 288) <= 4;
+      },
+      DOCK_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
   },

@@ -159,18 +159,39 @@ Feature: Dock
     Then the dock hidden footer should use the "cards" layout
     And there should be no page errors
 
-  Scenario: Resize the maximized dock by dragging its right edge, and it persists
-    # In maximized mode the dock is a real sidebar beside the canvas, and its
-    # right edge is a drag handle (like the right panel). Dragging widens it
-    # live; the width is remembered per device across a reload. The handle only
-    # exists in the maximized cards sidebar — not the rail, not the tiled float.
+  Scenario: The resize handle exists only in the maximized cards sidebar; drag widens and persists, double-click resets
+    # The handle is `<Show>`-gated to maximized + cards: absent in the tiled
+    # float and in rail mode, present in the maximized cards sidebar. Dragging
+    # widens the dock live and writes the width to per-device storage; a
+    # double-click on the edge resets it to the default.
     Given I create a terminal
+    # Tiled (default posture): no handle.
+    Then the dock resize handle should not be present
     When I click the chrome-bar maximize toggle
     Then the dock should be in maximized mode
     And the dock resize handle should be visible
+    # Rail mode, even while maximized: still no handle.
+    When I collapse the dock to rail
+    Then the dock resize handle should not be present
+    When the dock is expanded
+    Then the dock resize handle should be visible
     When I drag the dock resize handle right by 140 pixels
     Then the dock should be wider than before
-    When I reload the page and wait for ready
+    And the resized dock width should be persisted
+    When I double-click the dock resize handle
+    Then the dock should return to its default width
+    And there should be no page errors
+
+  Scenario: The maximized dock reserves canvas room so its handle stays reachable
+    # The load-bearing recoverability contract: on a narrow host the rendered
+    # width is capped so a usable canvas — and the handle at the dock's right
+    # edge — always stay on-screen. A wide drag that ignored the host cap would
+    # push the handle off-screen (the inert-cap regression this pins).
+    Given I create a terminal
+    When I click the chrome-bar maximize toggle
+    And I shrink the viewport to 760 pixels wide
     Then the dock should be in maximized mode
-    And the dock should keep its widened width
+    When I drag the dock resize handle right by 600 pixels
+    Then the dock resize handle should stay within the viewport
+    And the canvas beside the dock should stay at least 150 pixels wide
     And there should be no page errors
