@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
-import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
 
 // PROJECTS_DIR is captured at module load; setting it also disables the
 // summary-fetch CLI spawn. Point it at a temp dir before importing the watcher.

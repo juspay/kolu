@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeFileAppends } from "./file-append-watcher.ts";
-import { suppressFsWatchEdges } from "./suppress-fs-watch.testutil.ts";
+import { suppressFsWatchEdges } from "./suppress-fs-watch.testlib.ts";
 
 const INTERVAL = 80;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

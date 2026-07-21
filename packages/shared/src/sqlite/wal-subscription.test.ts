@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
-import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWalSubscription } from "./wal-subscription.ts";
 

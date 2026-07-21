@@ -9,7 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./suppress-fs-watch.testutil": "./src/suppress-fs-watch.testutil.ts"
+    "./suppress-fs-watch.testlib": "./src/suppress-fs-watch.testlib.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

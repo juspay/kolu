@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
 import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
-import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testlib";
 import { createGrokWatcher } from "./session-watcher.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
