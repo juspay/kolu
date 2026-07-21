@@ -19,7 +19,8 @@
  * coverage" is mechanical, not aspirational.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describeDaemon } from "@kolu/daemon-test-gate";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import type { PtyHostClient } from "./inProcessPtyHost.ts";
 import {
   DEFAULT_SPAWN_SHELL,
@@ -176,7 +177,10 @@ export function runContractCorpus(opts: {
   makeHost: () => Promise<CorpusHost>;
   makeCwd: () => string;
 }): void {
-  describe(`pty-host contract corpus — ${opts.label}`, () => {
+  // ALWAYS gated: the corpus forks real PTYs via `terminal.spawn` on EVERY host
+  // (in-process or spawned-daemon), so a bare `vitest` must skip it and fork
+  // nothing (#1375). `describe` stays imported for the pure-logic blocks elsewhere.
+  describeDaemon(`pty-host contract corpus — ${opts.label}`, () => {
     let host: CorpusHost;
     const client = (): PtyHostClient => host.client;
 

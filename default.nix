@@ -88,6 +88,7 @@ let
       ./packages/solid-browser
       ./packages/solid-statepip
       ./packages/common
+      ./packages/daemon-test-gate
       ./packages/integrations
       ./packages/nonempty
       ./packages/shared

@@ -20,7 +20,10 @@ import { provisionAgent } from "./nixCopy";
 import type { ConnectContext } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
 
-vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
+vi.mock("./nixCopy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./nixCopy")>()),
+  provisionAgent: vi.fn(),
+}));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
 /** A fake child with open stdio — the connector wires `stdout`/`stdin` and asserts
@@ -35,12 +38,14 @@ function fakeChild() {
   return child;
 }
 
-/** The connector only needs these four hooks; none is asserted here. */
+/** The connector only needs these hooks; none is asserted here. */
 const noopCtx: ConnectContext<SshProv> = {
   localProgress: () => {},
   remoteProgress: () => {},
   provisioning: () => {},
   connecting: () => {},
+  signal: new AbortController().signal,
+  campaignEpoch: 0,
 };
 
 /** The `env` the connector handed `spawn` on its single call. */

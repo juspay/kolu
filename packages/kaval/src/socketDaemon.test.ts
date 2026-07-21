@@ -23,15 +23,11 @@ import {
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
 import { DAEMON_BIND_PID_ENV, gatePid } from "@kolu/surface-daemon";
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import { KAVAL_GATE_FILE } from "./socketPath.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
@@ -67,6 +63,7 @@ function spawnTs(
   args: string[],
   stdout: "ignore" | "pipe",
 ): ChildProcess {
+  assertDaemonSpawnAllowed("a real kaval daemon (node --import loader bin.ts)");
   return spawn(process.execPath, ["--import", TSX_LOADER, file, ...args], {
     stdio: ["ignore", stdout, "ignore"],
     env: process.env,
@@ -77,6 +74,7 @@ function spawnTs(
  *  does NOT ship — so the launcher guard can demonstrate its broken SIGTERM
  *  teardown against the working loader form. */
 function spawnTsCli(file: string, args: string[]): ChildProcess {
+  assertDaemonSpawnAllowed("a real kaval daemon (tsx CLI fork)");
   return spawn(process.execPath, [TSX_CLI, file, ...args], {
     stdio: ["ignore", "ignore", "ignore"],
     env: process.env,
@@ -248,6 +246,9 @@ async function reap(d: Daemon): Promise<void> {
 function runKavalTui(
   args: string[],
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  // The runtime leash at the fork site (per-call-site, like spawnTs/spawnTsCli above):
+  // this re-execs a real kaval-tui, so a gate-off vitest must never reach it.
+  assertDaemonSpawnAllowed("a real kaval-tui (node --import loader)");
   return new Promise((resolvePromise) => {
     const child = track(
       spawn(process.execPath, ["--import", TSX_LOADER, KAVAL_TUI, ...args], {
@@ -292,7 +293,7 @@ runContractCorpus({
 });
 
 // ── Daemon-only scenarios ───────────────────────────────────────────────────
-describe("kaval daemon — process-boundary behaviour", () => {
+describeDaemon("kaval daemon — process-boundary behaviour", () => {
   // Backstop: reap every daemon/tui this block spawned that a failing test left
   // alive — SIGKILL the tracked child handles AND reap each rendezvous by its
   // gate pid (which reaches a forked GRANDCHILD the child handle can't). Runs

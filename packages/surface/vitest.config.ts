@@ -38,6 +38,9 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // Scrub the production daemon-locator env in every worker so a test can
+    // never reach a live daemon (#1334 adversary path). See @kolu/daemon-test-gate.
+    setupFiles: ["@kolu/daemon-test-gate/setup"],
     // `vite-plugin-solid` defaults the test environment to `jsdom`; pin it back
     // to `node` so the reactive/primitive `.test.ts` files run plain, and let
     // ONLY the render `.test.tsx` opt into a DOM via its

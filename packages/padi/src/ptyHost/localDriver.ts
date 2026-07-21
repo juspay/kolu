@@ -35,7 +35,12 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import { KAVAL_GATE_FILE, KOLU_ROLE_ENV, kavalLogPath } from "kaval";
+import {
+  assertDaemonSpawnAllowed,
+  KAVAL_GATE_FILE,
+  KOLU_ROLE_ENV,
+  kavalLogPath,
+} from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
 
 /** The single-instance gate kaval claims, beside its socket — the same path
@@ -144,7 +149,7 @@ export function localKavalDriver(socketPath: string): DaemonDriver {
   const { binPath, args } = resolveKavalLaunch(socketPath);
   const forceDetached =
     !process.env.KOLU_KAVAL_BIN || process.env.KOLU_KAVAL_SPAWN === "detached";
-  return survivableSpawnDriver({
+  const driver = survivableSpawnDriver({
     binPath,
     args,
     env: daemonEnv(),
@@ -162,4 +167,14 @@ export function localKavalDriver(socketPath: string): DaemonDriver {
     // truncate-on-boot, so a kaval that outlives padi/kolu-server stays diagnosable.
     stderrLog: kavalLogPath(socketPath),
   });
+  // The A8 runtime spawn leash at the REAL kaval funnel (F5): a gate-off vitest
+  // worker can reach `localKavalDriver` through helper indirection, so the guard
+  // sits at the driver's OWN spawn, not just in tests. A strict no-op in production
+  // (no `VITEST`); the generic `survivableSpawnDriver` stays untouched (odu reuses it).
+  return {
+    spawn: () => {
+      assertDaemonSpawnAllowed("a real kaval daemon");
+      return driver.spawn();
+    },
+  };
 }

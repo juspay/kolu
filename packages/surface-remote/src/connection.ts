@@ -54,9 +54,10 @@ const logSchema = z.array(LogEntrySchema).readonly();
  *     FIELDS. The `connected` arm ALSO carries `clockOffset` (the far-end host's
  *     wall-clock offset measured at admit off the reserved `system.clockNow`),
  *     `null` until that first probe stamps it.
- *   - `disconnected`: `error` + `cause` (`network` unreachable / `remote` refused).
- *   - `failed`: terminal, `cause` is the `"remote"` literal — a `network` fault
- *     never gives up, so `failed`+`network` is unrepresentable (mirroring the pin).
+ *   - `disconnected`: `error` + `cause` (`network` transport-class / `remote` refused).
+ *   - `failed`: terminal, `cause` is `network | remote` — the HONEST transport class,
+ *     orthogonal to terminality (a budget-exhausted silent provisioning step gives up
+ *     `network`, a `MAX_CONSECUTIVE_FAILURES` rejection gives up `remote`; #1908 F3).
  *
  *  The provisioning phase NAMES are the ssh connector's own vocabulary; the value is
  *  carried on the host map's entry (whose sessions are exactly those ssh sessions), so
@@ -85,7 +86,7 @@ export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
   z.object({
     phase: z.literal("failed"),
     error: z.string(),
-    cause: z.literal("remote"),
+    cause: z.enum(["network", "remote"]),
     log: logSchema,
     sinceMs: z.number(),
   }),

@@ -10,6 +10,10 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { socketHolders } from "./socketHolder.ts";
 
 const children: number[] = [];
@@ -25,6 +29,10 @@ afterEach(async () => {
 });
 
 function spawnHolder(socketPath: string): Promise<number> {
+  // The runtime spawn leash at the fork site itself (F5): this helper forks a real,
+  // long-lived child, so a gate-off vitest worker that reached it through indirection
+  // throws here rather than forking. A no-op under the gate (where these tests run).
+  assertDaemonSpawnAllowed("a socket-holder child");
   const script = `
     const net = require("node:net");
     const srv = net.createServer(() => {});
@@ -47,49 +55,54 @@ function spawnHolder(socketPath: string): Promise<number> {
 
 const onLinux = process.platform === "linux";
 
-describe.skipIf(!onLinux)("socketHolders (linux /proc)", () => {
-  it("names the exact pid + command holding a bound socket path", async () => {
-    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-    const socketPath = join(d, "held.sock");
-    const pid = await spawnHolder(socketPath);
+(onLinux ? describeDaemon : describe.skip)(
+  "socketHolders (linux /proc)",
+  () => {
+    it("names the exact pid + command holding a bound socket path", async () => {
+      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+      const socketPath = join(d, "held.sock");
+      const pid = await spawnHolder(socketPath);
 
-    const holders = await socketHolders(socketPath);
-    expect(holders.map((h) => h.pid)).toContain(pid);
-    const holder = holders.find((h) => h.pid === pid);
-    // The command label is read from /proc/<pid>/cmdline — a node invocation here.
-    expect(holder?.command).toMatch(/node|-e/i);
-  });
+      const holders = await socketHolders(socketPath);
+      expect(holders.map((h) => h.pid)).toContain(pid);
+      const holder = holders.find((h) => h.pid === pid);
+      // The command label is read from /proc/<pid>/cmdline — a node invocation here.
+      expect(holder?.command).toMatch(/node|-e/i);
+    });
 
-  it("returns empty for a path nobody holds", async () => {
-    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-    expect(await socketHolders(join(d, "nobody.sock"))).toEqual([]);
-  });
+    it("returns empty for a path nobody holds", async () => {
+      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+      expect(await socketHolders(join(d, "nobody.sock"))).toEqual([]);
+    });
 
-  it("finds a holder whose socket PATH CONTAINS A SPACE (parses the /proc path column, not a truncated split)", async () => {
-    // A caller-supplied `--pty-host-socket` path may contain spaces; the /proc/net/unix
-    // parse must take the whole trailing path column, not `split(/\s+/)[7]`.
-    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-    const spaced = join(d, "with space");
-    mkdirSync(spaced);
-    const socketPath = join(spaced, "held.sock");
-    const pid = await spawnHolder(socketPath);
-    expect((await socketHolders(socketPath)).map((h) => h.pid)).toContain(pid);
-  });
+    it("finds a holder whose socket PATH CONTAINS A SPACE (parses the /proc path column, not a truncated split)", async () => {
+      // A caller-supplied `--pty-host-socket` path may contain spaces; the /proc/net/unix
+      // parse must take the whole trailing path column, not `split(/\s+/)[7]`.
+      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+      const spaced = join(d, "with space");
+      mkdirSync(spaced);
+      const socketPath = join(spaced, "held.sock");
+      const pid = await spawnHolder(socketPath);
+      expect((await socketHolders(socketPath)).map((h) => h.pid)).toContain(
+        pid,
+      );
+    });
 
-  it("stops naming the holder once it exits (no stale pid)", async () => {
-    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-    const socketPath = join(d, "held.sock");
-    const pid = await spawnHolder(socketPath);
-    expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
-      true,
-    );
+    it("stops naming the holder once it exits (no stale pid)", async () => {
+      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+      const socketPath = join(d, "held.sock");
+      const pid = await spawnHolder(socketPath);
+      expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
+        true,
+      );
 
-    process.kill(pid, "SIGKILL");
-    children.splice(children.indexOf(pid), 1);
-    // Wait for the kernel to drop the socket binding.
-    await new Promise((r) => setTimeout(r, 80));
-    expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
-      false,
-    );
-  });
-});
+      process.kill(pid, "SIGKILL");
+      children.splice(children.indexOf(pid), 1);
+      // Wait for the kernel to drop the socket binding.
+      await new Promise((r) => setTimeout(r, 80));
+      expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
+        false,
+      );
+    });
+  },
+);

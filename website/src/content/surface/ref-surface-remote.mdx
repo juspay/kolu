@@ -160,9 +160,12 @@ Every arm carries two fields: a provenance-tagged `log` tail
 (`{ source: "local" | "remote"; line }[]`) and `sinceMs`, the server-stamped elapsed
 of the CURRENT episode in milliseconds — a **duration** on the server's single clock
 (never a foreign epoch the browser would subtract), which the browser extends smoothly
-with its own ticker. Both `log` and `sinceMs` are scoped to the current dial-to-up
-episode and RESET on a down→up crossing, so a reconnect never shows a stale tail under
-a fresh timer. The **`connected`** arm alone additionally carries `clockOffset: number | null`
+with its own ticker. Both `log` and `sinceMs` are scoped to the current **campaign**
+(#1908 D3): they are stamped/reset at CAMPAIGN BIRTH — the first (or re-pin) dial, a user
+`reconnect()`/`recheck()`, and a *connected*-link drop — but **NOT** on a backoff retry
+within an ongoing connect campaign. So a wedged provision that retries for ten minutes
+reads ten minutes (not the per-attempt ~1s a per-dial reset showed), and the log survives
+retry dials (capped) so a coming-up card can render the attempt tail. The **`connected`** arm alone additionally carries `clockOffset: number | null`
 — the far-end host's wall-clock offset (ms) vs the serving process, measured off the
 framework-reserved `system.clockNow` at admit (RTT-compensated; see
 `measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped
@@ -181,9 +184,11 @@ for the expected-absent case (an agent dial whose client carries no reserved
 fall to raw `process.stderr` (the plain-CLI default). Consumers never dispatch severity
 over extracted method references — the unbound-`this` crash class has no spellable form —
 and a throwing logger crashes the session loop deliberately (fail fast). `disconnected` adds `error` +
-`cause` (`"network"` unreachable / `"remote"` refused); `failed` is terminal with `cause`
-pinned to the `"remote"` literal (a network fault never gives up, so `failed` + `network` is
-unrepresentable). There is no separate `progressLines` / `remoteProgressLines` — provenance
+`cause` (`"network"` transport-class / `"remote"` reached-and-refused); `failed` is terminal and carries
+`cause: "network" | "remote"` — the HONEST transport class, orthogonal to terminality: a
+`MAX_CONSECUTIVE_FAILURES` remote rejection gives up `"remote"`, but a budget-exhausted silent
+provisioning step (#1908) gives up `"network"` (a wedged transport killed enough times — never
+"reached and rejected"). There is no separate `progressLines` / `remoteProgressLines` — provenance
 is the `source` field.
 
 | Export | Subpath | Role |
@@ -205,8 +210,11 @@ is the `source` field.
 - **`currentClient()` is not a liveness gate.** It returns the in-flight/current client promise and is legitimately *non-null while merely dialing* — during `connecting`/provisioning, and (because `scheduleReconnect` retains the rejected dial) across an entire reconnect backoff window. The pump/`markConnected` handshake depends on that "dialing-or-connected" meaning, so `currentClient() !== null` is never "the far end is live" — read `currentState().phase` for that.
 - **`pin()` is parent-lifetime intent.** It bumps the ref-count unconditionally, so the session keeps reconnecting even if the first spawn fails, and resolves with the first client. `destroy()` drops it regardless of the count.
 - **A session's internal timers never hold the process alive.** The reconnect backoff, connect watchdog, and clock probes are `unref()`'d, so once its link is down a pinned-but-abandoned session cannot keep an otherwise-finished process running — the process exits and the session dies with it. (*A LIVE link is different: its ssh child / socket is a real event-loop hold while it lasts.*) A consumer whose sole purpose is waiting on a session must hold the process by its own means (a server socket, stdin, a live transport; every live dial's child/socket is itself a hold). Consequently **a parked `ClientCursor.next()` / onState-derived wait is *not* a process hold**: across a reconnect gap it is settled only by the backoff firing, and if nothing else holds the loop it goes silently unsettled as the process exits. The one deliberately ref'd timer is the admit-handshake timeout — it must fire even as the last handle standing, because it rejects a `pin()` a caller is awaiting.
-- **Network faults retry forever; remote faults are bounded.** A `network` fault (host unreachable) never terminates — it retries at capped backoff (60s). A `remote` fault (host answered but rejected the closure) is bounded by a max consecutive-failure count, then surfaces terminal `failed`.
-- **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale).
+- **Network faults retry (capped); remote faults are bounded — and a silent provisioning step is terminated by its own budget.** A `network` fault (transport-class: host unreachable, or a wedged/killed transport) retries at capped backoff (60s) — it does not itself count toward give-up. A `remote` fault (host answered but rejected the closure) is bounded by `MAX_CONSECUTIVE_FAILURES`, then surfaces terminal `failed` + `remote`. The one `network` fault that DOES terminate is a **budget-exhausted silent provisioning step** (#1908): the ssh connector's per-step progress-liveness budget gives up after N consecutive silent kills, surfacing terminal `failed` + `network` (the honest transport cause — terminality is the phase, not a rewrite of the cause).
+- **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale) **and, since #1908 (R6b), an IN-FLIGHT dial** — it aborts that dial (the connector's `ctx.signal` fires, group-killing any provisioning child) and redials NOW with no backoff. It used to no-op while a dial was in flight; that documented no-op is fixed. Every `recheck()`/`reconnect()` is a fresh campaign (fresh `sinceMs`/log, fresh connector budgets).
+- **Provisioning children have owned lifetimes (#1908 D1b).** The `runProgress`/`runCapture` fire-and-collect helpers (`/` root) take a REQUIRED `LifetimePolicy` — `{ kind: "deadline"; ms }` for a quick step or `{ kind: "progress-liveness"; silenceMs }` for a minutes-long copy/build (killed only on real output-silence, never a healthy slow transfer). A kill settles the distinct `ExitResult` arm `lifetime-expired` (retryable), a user abort settles `aborted`; both group-kill the child (and its ssh grandchild) and settle AT the kill, never awaiting a `close` that may never fire. `ConnectContext` carries a per-dial `signal` (the abort) and a `campaignEpoch` (fresh connector budgets per campaign).
+- **The pre-connected liveness backstop (#1908 R8b).** While a campaign is coming up, if NO progress line arrives and NO phase advances for the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS` (20min), the session cycles the attempt (abort + redial), narrated. The bound is intentionally NOT configurable: it MUST stay above the connector's maximum step-silence budget so the per-step budget always terminalises first (a lower bound would let the backstop reset the budget and loop a silent copy forever), so baking it makes that ordering invariant unbreakable. It is liveness (a chatty build resets it every line, never capped) and guards the seam the per-child policies can't — a wedge in a non-helper await like `resolveDrvPath`.
+- **`provisionAgent(opts)` → `ProvisionResult`** (`/` root) — ship a `.drv` to a host and realise it (the ssh connector's provisioning step, usable standalone). `ProvisionOptions`: `{ host, drvPath, onProgress, onCopying?, onBuilding?, budgets, campaignEpoch, signal? }` — `budgets` is a `ProvisionBudgets` (`makeProvisionBudgets()`: the fused copy+build progress-liveness step budgets the caller holds across a campaign's retries; the connector keeps ONE and does no epoch bookkeeping), `campaignEpoch` reconciles the per-campaign budget reset, `signal` is the abort. `ProvisionResult` is `{ ok: true; agentPath }` or `{ ok: false; reason; cause: "network" | "remote"; terminal? }` — `terminal` marks a budget-exhausted silent step that must give up NOW (decoupled from `MAX_CONSECUTIVE_FAILURES`, so the backstop can't reset it away).
 - **Liveness watchdog, default-on.** While `connected`, it probes the reserved `system.live` round-trip on an interval; a rejection still counts as alive (the round-trip completed). What a **timeout** does depends on the arm's structure (P5), through the optional `Connection.processAlive` same-box oracle: a **remote** arm (ssh — no oracle) reads silence as death and force-cycles the child, because the network can die silently. A **local** arm (endpoint/stdio) that supplies `processAlive` consults the same-box process table instead — process **gone** → force-cycle now; process **alive** → the link is merely slow under load, so it keeps probing rather than force-cycling, bounded by a baked minute-scale dead-man ceiling (alive-but-silent past it → force-cycle anyway). This is arm structure, not a knob. Opt out with `liveness: false`.
 - **State progression.** `copying → connecting → connected`; on drop, `disconnected → copying → …` at exponential backoff capped at 60s.
 - **A mirror never fabricates a value.** A re-served (mirrored) cell serves NO frame until the authority's first real fold. Its store still seeds the declared default (so `store.get()` is a typed `T`), but the framework's `hasSnapshot` gate withholds that seed until the fold writes the authority's first frame — on a mirror the only writer is the fold, never a wire client. So the reader's `T | undefined` ("no frame yet") holds end to end: the mirror relays truth or stays silent, and the declared default belongs to the ONE writer, never a mirror relaying a guess.
@@ -214,7 +222,9 @@ is the `source` field.
 <Aside type="note" title="Nix is the contract, not the implementation">
   Provisioning ships a `.drv` (a [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html) — build instructions, platform-neutral), so the
   remote realises target-arch-correct binaries — parent darwin can front target
-  linux. A warm host collapses the copy/realise/pin to a single realise-probe.
+  linux. A warm host short-circuits via an ASK-ONLY check (a sender-local
+  `nix-store -q --outputs` then a bounded `nix-store --check-validity` on the host —
+  never a substituting `--realise`), then a best-effort GC-root pin.
   There is no tarball, Docker, or prebuilt fallback. The parent's user must be in
   the remote's `trusted-users`.
 </Aside>

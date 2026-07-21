@@ -40,6 +40,10 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { text } from "node:stream/consumers";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  assertDaemonSpawnAllowed,
+  daemonTestsEnabled,
+} from "@kolu/daemon-test-gate";
 import { describe, expect, it } from "vitest";
 
 // tsx's ESM loader, resolved from THIS package's node_modules — `node --import
@@ -72,6 +76,7 @@ async function runFixture(
   fixture: string,
   deadlineMs: number,
 ): Promise<FixtureRun> {
+  assertDaemonSpawnAllowed("a real fixture child (node --import tsx fixture)");
   const child = spawn(
     process.execPath,
     ["--import", TSX_LOADER, join(here, fixture)],
@@ -104,46 +109,52 @@ async function runFixture(
 
 // `.concurrent`: the two child-process pins are independent pure I/O waits, so
 // they run side by side — file wall-clock is the slower child, not the sum.
-describe.concurrent("makeSession timers vs the host process's life", () => {
-  it("an abandoned session (pinned, undestroyed, endpoint gone) does not immortalize its host process", {
-    timeout: 20_000,
-  }, async () => {
-    // Deadline (8s) ≪ the fixture's reconnectDelayMs (30s): a clean exit
-    // within it proves the pending backoff timer held nothing — it cannot be
-    // "the timer fired and the loop drained".
-    const run = await runFixture("processExit.fixture.immortal.ts", 8_000);
-    expect(run.stdout).toContain("MAIN-END");
-    expect(
-      run.timedOut,
-      `child still alive after 8s — its session timers hold the event loop (stderr: ${run.stderr})`,
-    ).toBe(false);
-    expect(run.code).toBe(0);
-  });
+// Forks real fixture children, so gate behind KOLU_DAEMON_TESTS (a bare vitest
+// skips it — #1375). `.concurrent` is load-bearing (the two child-process pins
+// run side by side), so compose it with the gate rather than describeDaemon.
+(daemonTestsEnabled() ? describe.concurrent : describe.skip)(
+  "makeSession timers vs the host process's life",
+  () => {
+    it("an abandoned session (pinned, undestroyed, endpoint gone) does not immortalize its host process", {
+      timeout: 20_000,
+    }, async () => {
+      // Deadline (8s) ≪ the fixture's reconnectDelayMs (30s): a clean exit
+      // within it proves the pending backoff timer held nothing — it cannot be
+      // "the timer fired and the loop drained".
+      const run = await runFixture("processExit.fixture.immortal.ts", 8_000);
+      expect(run.stdout).toContain("MAIN-END");
+      expect(
+        run.timedOut,
+        `child still alive after 8s — its session timers hold the event loop (stderr: ${run.stderr})`,
+      ).toBe(false);
+      expect(run.code).toBe(0);
+    });
 
-  it("a caller awaiting pin() still receives the admit-handshake timeout when its timer is the only handle", {
-    timeout: 20_000,
-  }, async () => {
-    const run = await runFixture("processExit.fixture.handshake.ts", 10_000);
-    // The rejection was DELIVERED — not a silent early exit: the marker
-    // carries a child-measured elapsed around the awaited pin() plus
-    // withHandshakeTimeout's own message. The elapsed proves the ref'd timer
-    // FIRED (≥ the fixture's 300ms connectTimeoutMs) — measured inside the
-    // child, so tsx startup time can't satisfy the bound spuriously.
-    const marker = run.stdout.match(
-      /HANDSHAKE-REJECTED after (\d+)ms: admit handshake timed out/,
-    );
-    expect(
-      marker,
-      `marker missing from child stdout: ${JSON.stringify(run.stdout)} (stderr: ${run.stderr})`,
-    ).not.toBeNull();
-    expect(Number(marker?.[1])).toBeGreaterThanOrEqual(300);
-    expect(
-      run.timedOut,
-      `child still alive after 10s (stderr: ${run.stderr})`,
-    ).toBe(false);
-    expect(run.code).toBe(0);
-  });
-});
+    it("a caller awaiting pin() still receives the admit-handshake timeout when its timer is the only handle", {
+      timeout: 20_000,
+    }, async () => {
+      const run = await runFixture("processExit.fixture.handshake.ts", 10_000);
+      // The rejection was DELIVERED — not a silent early exit: the marker
+      // carries a child-measured elapsed around the awaited pin() plus
+      // withHandshakeTimeout's own message. The elapsed proves the ref'd timer
+      // FIRED (≥ the fixture's 300ms connectTimeoutMs) — measured inside the
+      // child, so tsx startup time can't satisfy the bound spuriously.
+      const marker = run.stdout.match(
+        /HANDSHAKE-REJECTED after (\d+)ms: admit handshake timed out/,
+      );
+      expect(
+        marker,
+        `marker missing from child stdout: ${JSON.stringify(run.stdout)} (stderr: ${run.stderr})`,
+      ).not.toBeNull();
+      expect(Number(marker?.[1])).toBeGreaterThanOrEqual(300);
+      expect(
+        run.timedOut,
+        `child still alive after 10s (stderr: ${run.stderr})`,
+      ).toBe(false);
+      expect(run.code).toBe(0);
+    });
+  },
+);
 
 describe("the unref seam is structural, not conventional", () => {
   it("session.ts has exactly two bare setTimeout call sites: the seam and the must-fire timer", () => {

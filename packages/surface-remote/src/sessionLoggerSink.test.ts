@@ -19,7 +19,8 @@ import { provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
 
-vi.mock("./nixCopy", () => ({
+vi.mock("./nixCopy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./nixCopy")>()),
   provisionAgent: vi.fn(),
 }));
 

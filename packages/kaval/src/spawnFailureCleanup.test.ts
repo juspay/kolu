@@ -13,7 +13,8 @@
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describeDaemon } from "@kolu/daemon-test-gate";
+import { expect, it, vi } from "vitest";
 
 // Mock the primitive so `createPtyHost().spawn` throws synchronously. Only the
 // members the spawn path touches need to exist; `has`/`list` back the handler's
@@ -38,29 +39,32 @@ const silentLog: Logger = {
   error: () => {},
 };
 
-describe("spawn handler — init-file rollback on host.spawn failure", () => {
-  it("removes the files it wrote when host.spawn throws, leaving rcDir empty", async () => {
-    const rcDir = mkdtempSync(join(tmpdir(), "kolu-spawnfail-"));
-    const client = createInProcessPtyHost({
-      log: silentLog,
-      rcDir,
-      lifetime: { kind: "forever" },
-    }).client;
-    await expect(
-      client.surface.terminal.spawn({
-        argv: ["/bin/bash"],
-        cwd: rcDir,
-        env: {},
-        // One flat + one nested file (the zsh ZDOTDIR shape) so the prune of
-        // the dir the write created is exercised on the failure path too.
-        initFiles: [
-          { name: "bashrc-fail", content: "export X=1" },
-          { name: join("zdotdir-fail", ".zshrc"), content: "export Y=2" },
-        ],
-      }),
-    ).rejects.toThrow(/forced spawn failure/);
-    expect(existsSync(join(rcDir, "bashrc-fail"))).toBe(false);
-    expect(existsSync(join(rcDir, "zdotdir-fail"))).toBe(false);
-    expect(readdirSync(rcDir)).toEqual([]);
-  });
-});
+describeDaemon(
+  "spawn handler — init-file rollback on host.spawn failure",
+  () => {
+    it("removes the files it wrote when host.spawn throws, leaving rcDir empty", async () => {
+      const rcDir = mkdtempSync(join(tmpdir(), "kolu-spawnfail-"));
+      const client = createInProcessPtyHost({
+        log: silentLog,
+        rcDir,
+        lifetime: { kind: "forever" },
+      }).client;
+      await expect(
+        client.surface.terminal.spawn({
+          argv: ["/bin/bash"],
+          cwd: rcDir,
+          env: {},
+          // One flat + one nested file (the zsh ZDOTDIR shape) so the prune of
+          // the dir the write created is exercised on the failure path too.
+          initFiles: [
+            { name: "bashrc-fail", content: "export X=1" },
+            { name: join("zdotdir-fail", ".zshrc"), content: "export Y=2" },
+          ],
+        }),
+      ).rejects.toThrow(/forced spawn failure/);
+      expect(existsSync(join(rcDir, "bashrc-fail"))).toBe(false);
+      expect(existsSync(join(rcDir, "zdotdir-fail"))).toBe(false);
+      expect(readdirSync(rcDir)).toEqual([]);
+    });
+  },
+);

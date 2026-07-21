@@ -199,7 +199,10 @@ _awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "runnin
 tools".
 
 **Resume** uses `grok -c` (most recent in the directory) or `grok --resume <uuid>`
-(an exact conversation). **Context tokens** come from `signals.json`
+(an exact conversation). Launch-shape flags such as `--model` / `-m`,
+`--always-approve`, `--no-plan`, `--no-subagents`, and **`--no-alt-screen`**
+(inline TUI instead of the alternate screen) are kept on the **recent agents**
+list and on sleep/wake resume. **Context tokens** come from `signals.json`
 (`contextTokensUsed`); **task progress** stays null until Grok's plan checklist
 is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
 (unwraps Grok's `<user_query>` harness so the HTML shows the human prompt).

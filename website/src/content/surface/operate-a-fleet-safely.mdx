@@ -57,11 +57,11 @@ parallel record of "which hosts exist" beside it.
 
 ## Isolate each host's failures
 
-A fleet's failures must stay local to the host that had them. The session state
-machine already isolates two kinds:
+A fleet's failures must stay local to the host that had them. `cause` is the
+transport CLASS (not the retry policy); the session state machine isolates two kinds:
 
-- A **network** fault (host asleep, roaming, VPN down) is *never* terminal: the session retries at capped backoff forever, so a laptop that closes at home reconnects on its own at a café. It projects as `warming` — in motion, no action needed.
-- A **remote** fault (host answered but rejected the closure — e.g. the user isn't in `trusted-users`) is bounded: after a few consecutive failures the session surfaces terminal `failed`, and the map shows that one host's chip as needing intervention. The other hosts are untouched.
+- A **network** fault (host asleep, roaming, VPN down) *normally* retries at capped backoff forever, so a laptop that closes at home reconnects on its own at a café. It projects as `warming` — in motion, no action needed. The ONE terminal exception (#1908): a **budget-exhausted silent provisioning step** — the ssh connector kills a wedged copy/build enough consecutive times that its progress-liveness budget gives up — surfaces terminal `failed` + `network` (the honest transport cause; terminality is the phase, not a rewrite to `remote`).
+- A **remote** fault (host answered but rejected the closure — e.g. the user isn't in `trusted-users`) is bounded: after a few consecutive failures the session surfaces terminal `failed` + `remote`, and the map shows that one host's chip as needing intervention. The other hosts are untouched.
 
 On a long-running parent, call `recheck()` on every session when the machine
 wakes or regains connectivity — a post-sleep link is often stale (the far end

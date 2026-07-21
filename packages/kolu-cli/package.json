@@ -21,6 +21,7 @@
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.0.0",
     "kolu-common": "workspace:*",

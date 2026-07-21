@@ -29,6 +29,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createLoopbackPair } from "./loopback";
@@ -55,6 +59,7 @@ afterEach(() => {
 });
 
 function spawnAgent(...modeArgs: string[]): ChildProcessWithoutNullStreams {
+  assertDaemonSpawnAllowed("a real agent child (node --import tsx fixture)");
   const child = spawn(
     process.execPath,
     ["--import", "tsx", FIXTURE, ...modeArgs],
@@ -132,51 +137,54 @@ async function waitExit(
   }
 }
 
-describe("serveOverStdio lifetime — default transport (the process IS the agent)", () => {
-  it("exits 0 when the parent closes the link, despite a live interval", async () => {
-    const child = spawnAgent();
-    const stderr = watchStderr(child);
-    await stderr.waitFor("fixture: serving");
+describeDaemon(
+  "serveOverStdio lifetime — default transport (the process IS the agent)",
+  () => {
+    it("exits 0 when the parent closes the link, despite a live interval", async () => {
+      const child = spawnAgent();
+      const stderr = watchStderr(child);
+      await stderr.waitFor("fixture: serving");
 
-    child.stdin.end(); // parent death, read half: EOF on the agent's stdin
+      child.stdin.end(); // parent death, read half: EOF on the agent's stdin
 
-    const { code } = await waitExit(child, EXIT_WAIT_MS);
-    expect(code).toBe(0);
-    // Post-settle sync work (step 4) ran before the framework exit.
-    expect(stderr.seen()).toContain("fixture: settled reason=end");
-  });
-
-  it("exits 0 when the parent's read side dies mid-push (benign write EPIPE)", async () => {
-    const child = spawnAgent();
-    const stderr = watchStderr(child);
-    await stderr.waitFor("fixture: serving");
-
-    // Subscribe the forever-stream so the agent is continuously PUSHING,
-    // then kill the parent's read side only: the agent's next push EPIPEs
-    // while its stdin never sees EOF — clean teardown from the write
-    // direction, which must exit 0 exactly like the EOF leg.
-    const client = stdioLink<typeof lifetimeContract>({
-      read: child.stdout,
-      write: child.stdin,
+      const { code } = await waitExit(child, EXIT_WAIT_MS);
+      expect(code).toBe(0);
+      // Post-settle sync work (step 4) ran before the framework exit.
+      expect(stderr.seen()).toContain("fixture: settled reason=end");
     });
-    const ticks = await client.tick();
-    await ticks[Symbol.asyncIterator]().next(); // one yield roundtripped
 
-    child.stdout.destroy(); // parent read side gone
+    it("exits 0 when the parent's read side dies mid-push (benign write EPIPE)", async () => {
+      const child = spawnAgent();
+      const stderr = watchStderr(child);
+      await stderr.waitFor("fixture: serving");
 
-    const { code } = await waitExit(child, EXIT_WAIT_MS);
-    expect(code).toBe(0);
-    expect(stderr.seen()).toContain("fixture: settled reason=end");
-  });
+      // Subscribe the forever-stream so the agent is continuously PUSHING,
+      // then kill the parent's read side only: the agent's next push EPIPEs
+      // while its stdin never sees EOF — clean teardown from the write
+      // direction, which must exit 0 exactly like the EOF leg.
+      const client = stdioLink<typeof lifetimeContract>({
+        read: child.stdout,
+        write: child.stdin,
+      });
+      const ticks = await client.tick();
+      await ticks[Symbol.asyncIterator]().next(); // one yield roundtripped
 
-  it("exits 1 on a genuinely abnormal read-stream error", async () => {
-    const child = spawnAgent("--self-error");
-    await watchStderr(child).waitFor("fixture: serving");
+      child.stdout.destroy(); // parent read side gone
 
-    const { code } = await waitExit(child, EXIT_WAIT_MS);
-    expect(code).toBe(1);
-  });
-});
+      const { code } = await waitExit(child, EXIT_WAIT_MS);
+      expect(code).toBe(0);
+      expect(stderr.seen()).toContain("fixture: settled reason=end");
+    });
+
+    it("exits 1 on a genuinely abnormal read-stream error", async () => {
+      const child = spawnAgent("--self-error");
+      await watchStderr(child).waitFor("fixture: serving");
+
+      const { code } = await waitExit(child, EXIT_WAIT_MS);
+      expect(code).toBe(1);
+    });
+  },
+);
 
 describe("serveOverStdio lifetime — explicit transport override (caller owns lifetime)", () => {
   it("resolves the end value and does NOT exit the process", async () => {
