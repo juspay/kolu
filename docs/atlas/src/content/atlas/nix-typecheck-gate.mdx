@@ -16,7 +16,7 @@ import Issue from "../../components/Issue.astro";
 *Talk-mode response · diagnosis confirmed against source · design reviewed (Lowy + Hickey) and revised.*
 
 <Callout kind="accent" title="Verdict — the diagnosis is correct, with one sharpening: CI already catches this">
-At the time of this diagnosis a standalone `typecheck` node ran in the CI DAG, so a server type error *could not* reach `master` through CI even then; <PrLink pr={1056} /> has since replaced that node with the cached `checks.*.typecheck` flake output realized by the `ci::nix` full-output build (<Cite file="ci/mod.just" lines="86-119" />). The real, narrower gap was **local false confidence**: a standalone `nix build` exits 0 with broken types (incident #1034), and `nix build` is therefore not the proof people treat it as. The fix the issue asks for — make `nix build` itself a type-proof — is worth doing, and it also lets us *delete* a CI node rather than add one.
+At the time of this diagnosis a standalone `typecheck` node ran in the CI DAG, so a server type error *could not* reach `master` through CI even then; <PrLink pr={1056} /> has since replaced that node with the cached `checks.*.typecheck` flake output realized by the `ci::nix` full-output build (<Cite file="ci/mod.just" lines="86-115" />). The real, narrower gap was **local false confidence**: a standalone `nix build` exits 0 with broken types (incident #1034), and `nix build` is therefore not the proof people treat it as. The fix the issue asks for — make `nix build` itself a type-proof — is worth doing, and it also lets us *delete* a CI node rather than add one.
 </Callout>
 
 ## What I verified
@@ -47,7 +47,7 @@ So the path that gives false confidence:
 
 Add a typecheck *derivation* to the root `flake.nix` that reuses `pnpmDeps`, runs `pnpm -r typecheck`, and `touch $out` on success. Three things fall out of this:
 
-- **It becomes a hard, un-skippable gate.** The CI `nix` node directly builds every current-system flake output (<Cite file="ci/mod.just" lines="86-119" />). A new `checks.*` output is picked up automatically — no new CI recipe needed.
+- **It becomes a hard, un-skippable gate.** The CI `nix` node directly builds every current-system flake output (<Cite file="ci/mod.just" lines="86-115" />). A new `checks.*` output is picked up automatically — no new CI recipe needed.
 - **It's content-addressed.** The derivation only re-runs when its source changes, and the result is shared through `cache.nixos.asia/oss`. The current `ci::typecheck` recipe re-runs `pnpm typecheck` unconditionally every pipeline.
 - **It lets us delete a node.** Once typecheck is a flake output covered by the `nix` node, the standalone `typecheck` recipe and its DAG edge are redundant → remove them. Net: **3 typecheck loci → 3** (package.json script, `just check`, nix derivation), one fewer CI node, all still delegating to the one shared `pnpm -r typecheck` mechanism.
 

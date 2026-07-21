@@ -95,26 +95,22 @@ nix:
     #!/usr/bin/env bash
     set -euo pipefail
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    flake_outputs="$(nix flake show --json .)"
     outputs=()
     for kind in packages checks devShells; do
       names="$(
-        jq -cer --arg kind "$kind" --arg system "$system" '
-          .[$kind][$system]
-          | if type == "object"
-            then keys
-            else error("ci::nix: flake output " + $kind + "." + $system + " is missing or is not an object")
-            end
-        ' <<< "$flake_outputs"
+        nix eval --raw ".#$kind.$system" \
+          --apply 'attrs: builtins.concatStringsSep "\n" (builtins.attrNames attrs)'
       )"
-      count="$(jq -r 'length' <<< "$names")"
+      count=0
+      while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        outputs+=(".#$kind.$system.$name")
+        ((count += 1))
+      done <<< "$names"
       if (( count == 0 )); then
         echo "ci::nix: flake exposed no $kind outputs for $system" >&2
         exit 1
       fi
-      while IFS= read -r name; do
-        outputs+=(".#$kind.$system.$name")
-      done < <(jq -r '.[]' <<< "$names")
     done
     nix build -L --no-link --print-out-paths "${outputs[@]}"
 
