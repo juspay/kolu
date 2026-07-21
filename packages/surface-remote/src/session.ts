@@ -1185,15 +1185,22 @@ export function makeSession<
       scheduleReconnect(cause, reason, terminal);
       throw err instanceof Error ? err : new Error(reason);
     }
-    // The dial RESOLVED. If it was superseded while resolving (a `recheck()`/backstop
-    // abort that the connector couldn't reject — e.g. the admit `hello()` was in flight,
-    // or a provision finished just as the abort fired), tearing this connection down and
-    // returning inert is what stops it clobbering the fresh dial's `current` and orphaning
-    // this connection's child (the arch-gate's admit-path finding). The returned client is
-    // never adopted — the caller's `clientPromise` was already reassigned by the redial.
-    if (!isCurrent()) {
+    // "This dial was superseded while an await ran" — a `recheck()`/backstop abort the
+    // connector couldn't reject (e.g. the admit `hello()` was in flight, or a provision
+    // finished just as the abort fired). Drop the connection WITHOUT adopting: tear it
+    // down and hand back its inert client, so it can't clobber the fresh dial's `current`
+    // or orphan this connection's child (the arch-gate's admit-path finding). The returned
+    // client is never adopted — the caller's `clientPromise` was already reassigned by the
+    // redial. One definition, shared by both async resumption points below.
+    const bailIfSuperseded = (): Client | null => {
+      if (isCurrent()) return null;
       conn.teardown();
       return conn.client;
+    };
+    // The dial RESOLVED.
+    {
+      const inert = bailIfSuperseded();
+      if (inert !== null) return inert;
     }
     // Wire this connection's death once, up front, so every path below (adopt /
     // refuse) routes a later link drop through the same reconnect machinery.
@@ -1228,9 +1235,9 @@ export function makeSession<
       // The admit `hello()` can take as long as `connectTimeoutMs`; if a `recheck()`/
       // backstop superseded this dial while it ran, adopting/refusing now would clobber
       // the fresh dial's `current` and orphan this connection's child. Tear it down inert.
-      if (!isCurrent()) {
-        conn.teardown();
-        return conn.client;
+      {
+        const inert = bailIfSuperseded();
+        if (inert !== null) return inert;
       }
       if (verdict.kind === "refuse") {
         // The transport is up but we won't serve this far end (a skew). KEEP the
