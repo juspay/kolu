@@ -52,9 +52,9 @@ export function installFsWatchShim(): FsWatchShim {
   type WatchListener = (eventType: string, filename: string) => void;
   const fake = ((watchPath: fs.PathLike, ...rest: unknown[]): fs.FSWatcher => {
     // fs.watch(path, listener) | fs.watch(path, options, listener)
-    const listener = (
-      typeof rest[0] === "function" ? rest[0] : rest[1]
-    ) as WatchListener | undefined;
+    const listener = (typeof rest[0] === "function" ? rest[0] : rest[1]) as
+      | WatchListener
+      | undefined;
     let closed = false;
     const handle: WatchHandle = {
       path: String(watchPath),
