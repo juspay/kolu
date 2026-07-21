@@ -144,9 +144,14 @@ describe("resolvePadiStateRoot — override wins, always absolute, no silent def
       /KOLU_PADI_STATE_DIR must be set/,
     );
     expect(() => resolvePadiStateRoot()).toThrow(/1334/);
-    // Relative paths are supported when provided — message must not claim
-    // "absolute only" (codex F4).
-    expect(resolvePadiStateRoot("relative/padi")).toBe(resolve("relative/padi"));
+    // Pin F4 remediation wording — relative paths stay supported; message
+    // must not claim "absolute only".
+    try {
+      resolvePadiStateRoot();
+    } catch (e) {
+      expect((e as Error).message).toMatch(/Relative paths are resolved against cwd/);
+      expect((e as Error).message).not.toMatch(/absolute directory/);
+    }
   });
 });
 
