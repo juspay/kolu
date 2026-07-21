@@ -99,9 +99,11 @@ describe("claude watcher — append-robust floor (#1754)", () => {
     // No transcript file yet — the old `findTranscriptPath`/none-waiting-watching
     // machinery would have deferred watching until the projectDir bootstrap
     // fired. The new wiring subscribes on `transcriptPathFor` unconditionally,
-    // so nothing should be emitted until the file exists.
-    expect(fs.existsSync(transcriptPath)).toBe(false);
-
+    // so nothing should be emitted until the file exists. Absence is asserted
+    // functionally below (`states` stays empty — an absent transcript reads as
+    // [] and derives nothing); an `fs.existsSync` pre-check here would be a
+    // redundant check-then-write on the same path, which CodeQL flags as a
+    // file-system race (js/file-system-race).
     const states: string[] = [];
     const watcher = createSessionWatcher(
       { pid: process.pid, sessionId: SESSION_ID, cwd: CWD, startedAt: BASE },

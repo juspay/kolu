@@ -105,8 +105,11 @@ describe("grok watcher — append-robust floor (#1754)", () => {
       signalsPath: path.join(dir, "signals.json"),
       startedAt: Date.parse("2026-07-20T00:00:00.000Z"),
     };
-    expect(fs.existsSync(eventsPath)).toBe(false);
-
+    // events.jsonl is absent — asserted functionally below (the initial state is
+    // the missing-file `thinking` default; had the file existed with a turn
+    // already ended it would read `waiting`). An `fs.existsSync` pre-check here
+    // would be a redundant check-then-write on the same path — CodeQL flags that
+    // as a file-system race (js/file-system-race), so we lean on the state.
     const states: GrokInfo["state"][] = [];
     const watcher = createGrokWatcher(session, (i) => states.push(i.state));
 
