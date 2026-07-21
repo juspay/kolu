@@ -71,6 +71,15 @@
     letter-spacing:.14em; text-transform:uppercase; color:var(--orange);
   }
   .mast h1 em { font-style:normal; color:var(--lilac) }
+  /* mute toggle — an LCARS pill parked at the header's right end */
+  .mute-btn {
+    position:absolute; top:22px; right:16px; z-index:3;
+    font:700 11px/1 var(--cond); letter-spacing:.14em; text-transform:uppercase;
+    color:#000; background:var(--gold); border:0; border-radius:11px;
+    padding:6px 14px; cursor:pointer; transition:filter .15s, background .15s;
+  }
+  .mute-btn:hover { filter:brightness(1.15) }
+  .mute-btn.is-muted { background:var(--q); color:var(--dim) }
   .meta {
     margin-top:4px; font-size:12px; color:var(--dim); letter-spacing:.08em;
     text-transform:uppercase; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
