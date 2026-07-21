@@ -83,6 +83,7 @@ import {
   makeSession,
   type Session,
 } from "@kolu/surface-remote";
+import { assertDaemonSpawnAllowed } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
@@ -289,7 +290,7 @@ export function localPadiDriver(
   );
   const forceDetached =
     !process.env.KOLU_PADI_BIN || process.env.KOLU_PADI_SPAWN === "detached";
-  return survivableSpawnDriver({
+  const driver = survivableSpawnDriver({
     binPath,
     args,
     env: daemonEnv(stateRoot, verbose),
@@ -307,6 +308,16 @@ export function localPadiDriver(
     // via the daemon entrypoint's multistream (no flag). Under systemd, stderr → journald.
     stderrLog: padiStderrLogPath(stateRoot),
   });
+  // The A8 runtime spawn leash at the REAL padi funnel (F5), twin of `localKavalDriver`:
+  // a gate-off vitest worker reaching `localPadiDriver` through helper indirection is
+  // refused at the driver's OWN spawn, not just in tests. A strict no-op in production
+  // (no `VITEST`); the generic `survivableSpawnDriver` (odu's) stays untouched.
+  return {
+    spawn: () => {
+      assertDaemonSpawnAllowed("a real padi daemon");
+      return driver.spawn();
+    },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

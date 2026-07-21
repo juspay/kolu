@@ -32,6 +32,10 @@ import {
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { assertPadiSurfaceCompatible } from "./dial.ts";
 import {
@@ -93,6 +97,7 @@ const spawned: Padi[] = [];
  *  the child env forces the detached branch (no `KOLU_PADI_BIN`/systemd here) and
  *  scrubs any inherited `INVOCATION_ID` that would divert it to `systemd-run`. */
 function spawnPadi(stateRoot: string, bindPid: number = process.pid): Padi {
+  assertDaemonSpawnAllowed("a real padi daemon (node --import loader bin.ts)");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
@@ -217,6 +222,9 @@ const stdioFronts: PadiStdioFront[] = [];
  *  byte relay to the durable padi the front adopt-or-spawns. Mirrors `spawnPadi`'s
  *  env scrubbing; stderr is inherited so a fatal `padi --stdio:` line is visible. */
 function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
+  assertDaemonSpawnAllowed(
+    "a real padi --stdio front (node --import loader bin.ts)",
+  );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
@@ -296,7 +304,7 @@ afterEach(async () => {
   }
 });
 
-describe("padi the process — dial acceptance", () => {
+describeDaemon("padi the process — dial acceptance", () => {
   it("handshakes the frozen control core over its socket", async () => {
     const stateRoot = makeStateRoot();
     const p = await startPadi(stateRoot);
@@ -479,109 +487,112 @@ describe("padi the process — dial acceptance", () => {
   }, 60000);
 });
 
-describe("padi the process — dialed over a stdio front (the ssh transport, minus ssh)", () => {
-  // These prove the SAME control-core handshake + terminal round-trip the socket
-  // tests above prove, but through `padi --stdio` + `frontDaemonOverStdio` +
-  // `stdioLink` — the exact byte path kolu-server's remote binding rides over ssh
-  // (`getHostSession({ binary: "padi", extraArgs: ["--stdio"] })`). No ssh here:
-  // the front's own piped stdio is the wire, so the relay is exercised on its own.
+describeDaemon(
+  "padi the process — dialed over a stdio front (the ssh transport, minus ssh)",
+  () => {
+    // These prove the SAME control-core handshake + terminal round-trip the socket
+    // tests above prove, but through `padi --stdio` + `frontDaemonOverStdio` +
+    // `stdioLink` — the exact byte path kolu-server's remote binding rides over ssh
+    // (`getHostSession({ binary: "padi", extraArgs: ["--stdio"] })`). No ssh here:
+    // the front's own piped stdio is the wire, so the relay is exercised on its own.
 
-  it("handshakes the frozen control core through the byte relay", async () => {
-    const stateRoot = makeStateRoot();
-    const front = spawnPadiStdioFront(stateRoot);
-    // The durable padi comes up behind the front (which adopt-or-spawns it); wait
-    // on its digest socket directly, then drive the front's relayed client.
-    await waitForPadi(front.socketPath);
-    const client = stdioClient(front);
+    it("handshakes the frozen control core through the byte relay", async () => {
+      const stateRoot = makeStateRoot();
+      const front = spawnPadiStdioFront(stateRoot);
+      // The durable padi comes up behind the front (which adopt-or-spawns it); wait
+      // on its digest socket directly, then drive the front's relayed client.
+      await waitForPadi(front.socketPath);
+      const client = stdioClient(front);
 
-    const hello = await client.surface.control.core.hello();
-    expect(hello.stateRoot).toBe(resolve(stateRoot));
-    expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
-    expect(hello.controlCoreVersion).toBe("1.0");
-    expect(hello.startedAt).toBeGreaterThan(0);
+      const hello = await client.surface.control.core.hello();
+      expect(hello.stateRoot).toBe(resolve(stateRoot));
+      expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
+      expect(hello.controlCoreVersion).toBe("1.0");
+      expect(hello.startedAt).toBeGreaterThan(0);
 
-    const clock = await client.surface.control.core.clockNow();
-    expect(clock.epochMs).toBeGreaterThan(0);
+      const clock = await client.surface.control.core.clockNow();
+      expect(clock.epochMs).toBeGreaterThan(0);
 
-    await reapStdioFront(front);
-  }, 40000);
+      await reapStdioFront(front);
+    }, 40000);
 
-  it("round-trips a terminal through padiSurface over the byte relay", async () => {
-    const stateRoot = makeStateRoot();
-    const front = spawnPadiStdioFront(stateRoot);
-    await waitForPadi(front.socketPath);
-    const client = stdioClient(front);
+    it("round-trips a terminal through padiSurface over the byte relay", async () => {
+      const stateRoot = makeStateRoot();
+      const front = spawnPadiStdioFront(stateRoot);
+      await waitForPadi(front.socketPath);
+      const client = stdioClient(front);
 
-    const { id } = await client.surface.padi.lifecycle.create({
-      cwd: makeStateRoot(),
-    });
-    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+      const { id } = await client.surface.padi.lifecycle.create({
+        cwd: makeStateRoot(),
+      });
+      expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
-    // terminalAttach is the per-subscriber byte stream (delta/fail-through) — its
-    // first frame is the snapshot, relayed straight through the front.
-    const attach = (await client.surface.padi.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
-    const first = await attach.next();
-    // `snapshot` union frame (contract 3.0) relayed straight through the front.
-    // The stream iterator's value type erases to `{}`, so name the REAL frame
-    // union (not a hand-rolled shape) and narrow on its discriminant: the
-    // `snapshot` arm carries `data` + the absolute `topLine` seed.
-    const firstFrame = first.value as TerminalAttachFrame;
-    if (firstFrame.kind !== "snapshot")
-      throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
-    expect(typeof firstFrame.data).toBe("string");
-    expect(typeof firstFrame.topLine).toBe("number");
+      // terminalAttach is the per-subscriber byte stream (delta/fail-through) — its
+      // first frame is the snapshot, relayed straight through the front.
+      const attach = (await client.surface.padi.terminalAttach.get({ id }))[
+        Symbol.asyncIterator
+      ]();
+      const first = await attach.next();
+      // `snapshot` union frame (contract 3.0) relayed straight through the front.
+      // The stream iterator's value type erases to `{}`, so name the REAL frame
+      // union (not a hand-rolled shape) and narrow on its discriminant: the
+      // `snapshot` arm carries `data` + the absolute `topLine` seed.
+      const firstFrame = first.value as TerminalAttachFrame;
+      if (firstFrame.kind !== "snapshot")
+        throw new Error(`expected a snapshot frame, got ${firstFrame.kind}`);
+      expect(typeof firstFrame.data).toBe("string");
+      expect(typeof firstFrame.topLine).toBe("number");
 
-    await client.surface.padi.lifecycle.sendInput({
-      id,
-      data: "echo FRONTMARK\r",
-    });
-    let screen = "";
-    for (let i = 0; i < 120 && !screen.includes("FRONTMARK"); i++) {
-      screen = await client.surface.padi.screen.state({ id });
-      if (!screen.includes("FRONTMARK")) await sleep(50);
-    }
-    expect(screen).toContain("FRONTMARK");
+      await client.surface.padi.lifecycle.sendInput({
+        id,
+        data: "echo FRONTMARK\r",
+      });
+      let screen = "";
+      for (let i = 0; i < 120 && !screen.includes("FRONTMARK"); i++) {
+        screen = await client.surface.padi.screen.state({ id });
+        if (!screen.includes("FRONTMARK")) await sleep(50);
+      }
+      expect(screen).toContain("FRONTMARK");
 
-    await reapStdioFront(front);
-  }, 40000);
+      await reapStdioFront(front);
+    }, 40000);
 
-  it("the durable daemon SURVIVES the front dropping (detach → reattach)", async () => {
-    // The mosh/dtach property the remote binding leans on: a front is a proxy, so
-    // killing it must leave the padi + its kaval + a live PTY standing, and a
-    // FRESH front must adopt the same daemon and find the terminal still there.
-    const stateRoot = makeStateRoot();
-    const front1 = spawnPadiStdioFront(stateRoot);
-    await waitForPadi(front1.socketPath);
-    const client1 = stdioClient(front1);
-    const { id } = await client1.surface.padi.lifecycle.create({
-      cwd: makeStateRoot(),
-    });
-    await client1.surface.padi.lifecycle.sendInput({
-      id,
-      data: "echo SURVIVOR\r",
-    });
+    it("the durable daemon SURVIVES the front dropping (detach → reattach)", async () => {
+      // The mosh/dtach property the remote binding leans on: a front is a proxy, so
+      // killing it must leave the padi + its kaval + a live PTY standing, and a
+      // FRESH front must adopt the same daemon and find the terminal still there.
+      const stateRoot = makeStateRoot();
+      const front1 = spawnPadiStdioFront(stateRoot);
+      await waitForPadi(front1.socketPath);
+      const client1 = stdioClient(front1);
+      const { id } = await client1.surface.padi.lifecycle.create({
+        cwd: makeStateRoot(),
+      });
+      await client1.surface.padi.lifecycle.sendInput({
+        id,
+        data: "echo SURVIVOR\r",
+      });
 
-    // Drop the first front (SIGTERM the proxy only) — the detached daemon lives.
-    front1.child.kill("SIGTERM");
-    await front1.exited;
+      // Drop the first front (SIGTERM the proxy only) — the detached daemon lives.
+      front1.child.kill("SIGTERM");
+      await front1.exited;
 
-    // A second front adopts the SAME durable daemon (its socket is still bound),
-    // and the terminal created through the first front is still there.
-    const front2 = spawnPadiStdioFront(stateRoot);
-    await waitForPadi(front2.socketPath);
-    const client2 = stdioClient(front2);
-    let screen = "";
-    for (let i = 0; i < 120 && !screen.includes("SURVIVOR"); i++) {
-      screen = await client2.surface.padi.screen.state({ id });
-      if (!screen.includes("SURVIVOR")) await sleep(50);
-    }
-    expect(screen).toContain("SURVIVOR");
+      // A second front adopts the SAME durable daemon (its socket is still bound),
+      // and the terminal created through the first front is still there.
+      const front2 = spawnPadiStdioFront(stateRoot);
+      await waitForPadi(front2.socketPath);
+      const client2 = stdioClient(front2);
+      let screen = "";
+      for (let i = 0; i < 120 && !screen.includes("SURVIVOR"); i++) {
+        screen = await client2.surface.padi.screen.state({ id });
+        if (!screen.includes("SURVIVOR")) await sleep(50);
+      }
+      expect(screen).toContain("SURVIVOR");
 
-    await reapStdioFront(front2);
-  }, 60000);
-});
+      await reapStdioFront(front2);
+    }, 60000);
+  },
+);
 
 /**
  * The dial kit's ONE compatibility judgement — pure, no process. Both transports

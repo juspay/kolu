@@ -4,6 +4,7 @@ import {
   isTerminalQueryResponse,
   SILENT_DEVICE_QUERIES,
 } from "@kolu/terminal-protocol";
+import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPtyHost,
@@ -129,7 +130,7 @@ async function firstEvent(
   return nextFrame(it, ms);
 }
 
-describe("createPtyHost", () => {
+describeDaemon("createPtyHost", () => {
   let host: PtyHost;
 
   afterEach(() => {
@@ -655,7 +656,7 @@ describe("createPtyHost", () => {
  *      querying these (colour reports, window geometry) carry their own
  *      timeout fallbacks; consistent silence beats per-client divergence.
  */
-describe("device-query contract — suppressed ⇄ answered pairing", () => {
+describeDaemon("device-query contract — suppressed ⇄ answered pairing", () => {
   function freshHeadless(): InstanceType<typeof Terminal> {
     return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
   }
@@ -756,7 +757,7 @@ describe("device-query contract — suppressed ⇄ answered pairing", () => {
 // defenses without bounding the snapshot (that's PR2, and would change what a
 // reload restores): an already-aborted attach does ZERO work, and a burst of
 // attaches within one publish-epoch shares a single serialize.
-describe("attach() reconnect-storm defenses", () => {
+describeDaemon("attach() reconnect-storm defenses", () => {
   let host: PtyHost;
 
   // These tests count serialize() calls, so they settle on output via

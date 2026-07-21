@@ -16,7 +16,11 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isHolderLive } from "@kolu/surface-daemon";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import {
   createEndpoint,
   type DaemonConnection,
@@ -59,6 +63,10 @@ function dir(): string {
  *  the gate-less squatter. Resolves its pid once the socket is accepting. The pid
  *  is tracked for teardown. */
 function spawnSocketHolder(socketPath: string): Promise<number> {
+  // The runtime spawn leash at the fork site itself (F5): this helper forks a real,
+  // long-lived child, so a gate-off vitest worker that reached it through indirection
+  // throws here rather than forking. A no-op under the gate (where these tests run).
+  assertDaemonSpawnAllowed("a gate-less socket squatter");
   const script = `
     const net = require("node:net");
     const srv = net.createServer(() => {});
@@ -110,7 +118,7 @@ const compatibleConn = (): DaemonConnection<string, Identity, Meta> => ({
   onClose() {},
 });
 
-describe("SQUAT1 — gate-less socket-squatter recovery", () => {
+describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
   it("THE squatter: a skewed gate-less holder is identified, recycled, and the fresh daemon binds", async () => {
     const d = dir();
     const socketPath = join(d, "pty.sock");

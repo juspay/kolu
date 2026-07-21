@@ -128,3 +128,6 @@ export {
   STATE_ROOT_MANIFEST_FILE,
   writeStateRootManifest,
 } from "./socketPath.ts";
+// The production-safe runtime spawn leash (juspay/kolu#1334 A8, F5) the REAL kolu
+// daemon-spawn funnels (localKavalDriver / localPadiDriver) wrap their spawn with.
+export { assertDaemonSpawnAllowed } from "./daemonSpawnGate.ts";
