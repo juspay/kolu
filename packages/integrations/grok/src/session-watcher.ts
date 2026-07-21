@@ -63,17 +63,14 @@ export function createGrokWatcher(
   }
 
   function watchPath(p: string): void {
-    // Watch the FILE inode directly — do NOT watch the parent dir instead.
-    // events.jsonl is append-only and is the primary state signal; a file
-    // watch catches its in-place writes on both platforms, but a *directory*
-    // watch does NOT on macOS: Node's fs.watch uses kqueue there, and a dir
-    // watch only fires on entry add/remove/rename, never on content appends to
-    // a file inside it (inotify on Linux does report those, which is why a
-    // dir-watch bug here passes linux CI yet freezes the tile on macOS). The
-    // trade-off — a direct watch on summary.json dies after Grok's temp+rename
-    // rewrite — is benign: deriveGrokInfo re-reads summary.json fresh on every
-    // events.jsonl tick, so model/title stay current without a live summary
-    // watch. Never mkdir.
+    // Edge-only file watch for summary.json / signals.json (events.jsonl goes
+    // through subscribeFileAppends below, not here). Watch the inode directly;
+    // when the file isn't there yet, bootstrap on the parent dir and re-arm
+    // when the basename appears. A direct inode watch dies after Grok's
+    // temp+rename rewrite of summary.json — that's benign: deriveGrokInfo
+    // re-reads summary.json / signals.json fresh on every events.jsonl tick, so
+    // a dropped edge here only stales the model/title/token display until the
+    // next events tick, never lies about state. Never mkdir.
     try {
       const w = fs.watch(p, () => schedule());
       watchers.push(w);
