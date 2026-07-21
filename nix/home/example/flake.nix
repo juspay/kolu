@@ -6,7 +6,7 @@
 # CI builders don't have a launchd session).
 {
   inputs = {
-    # In CI, localci builds this with --override-input kolu pointing to the repo root.
+    # CI overrides this to the repo root; nixpkgs remains owned by this flake's lock.
     kolu.url = "github:juspay/kolu";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     home-manager.url = "github:nix-community/home-manager";

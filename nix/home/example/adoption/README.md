@@ -104,9 +104,10 @@ nix build .#checks.x86_64-linux.adoption-adopt \
   --override-input kolu /path/to/kolu/repo -L
 ```
 
-In CI this is automatic: `ci::home-manager` runs `devour-flake` over this example
-flake (`--override-input flake/kolu .`), which realizes every
-`checks.x86_64-linux.*` — so all three VM tests build and run on the Linux lane.
+In CI this is automatic: `ci::home-manager` directly builds this example's
+outputs with kolu overridden to the checkout and nixpkgs fixed by the example's
+committed lock. That realizes every `checks.x86_64-linux.*`, so the service smoke
+and all adoption VM tests build and run on the Linux lane.
 
 > `adoption-skew` forces a **second full kolu build** (the contract-bumped
 > `koluNew` `postPatch`-seds a source constant), so it is the slow check. That
