@@ -14,6 +14,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
+import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
 import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
 import { createGrokWatcher } from "./session-watcher.ts";
 
@@ -70,7 +71,7 @@ describe("grok watcher — append-robust floor (#1754)", () => {
       session.eventsPath,
       `${JSON.stringify({ type: "turn_ended" })}\n`,
     );
-    await sleep(1400); // > one poll interval; edge dropped
+    await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval; edge dropped
 
     expect(states.at(-1)).toBe("waiting");
     watcher.destroy();

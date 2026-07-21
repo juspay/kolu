@@ -15,13 +15,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
 import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWalSubscription } from "./wal-subscription.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** > one poll interval (DEFAULT_APPEND_POLL_MS = 1000 ms) + margin. */
-const overOneInterval = () => sleep(1400);
+/** > one poll interval, derived from the primitive's own constant (not a
+ *  hardcoded copy) so it can never drift out of sync with the real default. */
+const overOneInterval = () => sleep(DEFAULT_APPEND_POLL_MS + 400);
 
 let tmp: string;
 let restoreWatch: () => void;

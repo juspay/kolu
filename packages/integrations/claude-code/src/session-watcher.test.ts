@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_APPEND_POLL_MS } from "kolu-io";
 import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
 
 // PROJECTS_DIR is captured at module load; setting it also disables the
@@ -88,7 +89,7 @@ describe("claude watcher — append-robust floor (#1754)", () => {
         },
       }),
     );
-    await sleep(1400); // > one poll interval
+    await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
 
     expect(states.at(-1)).toBe("waiting");
     watcher.destroy();
