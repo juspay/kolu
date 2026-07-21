@@ -21,6 +21,18 @@ export const CARDS_WIDTH_PX = 288;
 const DOCK_CARDS_MIN_WIDTH_PX = 200;
 const DOCK_CARDS_MAX_WIDTH_PX = 560;
 
+// Canvas width to keep reserved beside the maximized dock. The 560px ceiling
+// alone is a FIXED bound, blind to the room the dock actually has: the maximized
+// dock is a `shrink-0` flex sibling of the terminal canvas inside an
+// `overflow-hidden` host that the right-panel split can shrink well below 560px
+// (a 25% right panel on a narrow desktop leaves the canvas ~480px). Without this
+// reserve a stored-wide dock could squeeze the canvas to zero AND clip its own
+// right-edge handle off-screen — leaving no way to drag or double-click it back.
+// `effectiveDockCardsWidth` caps the RENDERED width to the host so the handle and
+// a usable canvas always stay on-screen; the stored preference is untouched, so
+// the dock re-widens when the host grows again.
+const DOCK_CARDS_MIN_CANVAS_PX = 320;
+
 /** Clamp a candidate cards width into the resize bounds. The drag setter and the
  *  stored-value parse both route through it, so a hand-edited `localStorage` value
  *  can't escape the range the drag handle enforces. */
@@ -31,17 +43,52 @@ export function clampDockCardsWidth(px: number): number {
   );
 }
 
-/** Per-device cards-mode width in pixels. Stored through `clampDockCardsWidth`
- *  on read so a corrupt/out-of-range value degrades to the clamped default
- *  rather than a zero- or canvas-wide dock. */
+/** The width the maximized dock should actually RENDER at, given the width of the
+ *  flex host it shares with the canvas. Caps the stored `preferred` so at least
+ *  `DOCK_CARDS_MIN_CANVAS_PX` stays for the canvas — which keeps the dock's
+ *  right-edge resize handle on-screen and recoverable. Never drops below the
+ *  width floor (an extremely narrow host is its own degenerate case, not the
+ *  persisted-width trap this guards). `hostWidth <= 0` (unmeasured, first paint)
+ *  falls back to the clamped preference. Pure, so the recoverability contract is
+ *  unit-testable without a DOM. */
+export function effectiveDockCardsWidth(
+  preferred: number,
+  hostWidth: number,
+): number {
+  const clamped = clampDockCardsWidth(preferred);
+  if (!Number.isFinite(hostWidth) || hostWidth <= 0) return clamped;
+  const maxByHost = Math.max(
+    DOCK_CARDS_MIN_WIDTH_PX,
+    hostWidth - DOCK_CARDS_MIN_CANVAS_PX,
+  );
+  return Math.min(clamped, maxByHost);
+}
+
+/** Per-device cards-mode width in pixels. The serializer writes a canonical
+ *  `JSON.stringify(number)` (e.g. `"288"`), so the parse is strict: an empty /
+ *  non-numeric stored value is REJECTED (falling back to the default via
+ *  `onInvalid`, which surfaces the corruption rather than swallowing it), while a
+ *  finite but out-of-range value is CLAMPED to the nearest bound. Two distinct
+ *  degradations — a hand-edited `"abc"` resets to `CARDS_WIDTH_PX`; a hand-edited
+ *  `"9999"` clamps to the ceiling. */
 const [dockCardsWidth, setDockCardsWidthRaw] = persistedPref<number>({
   name: "kolu-dock-cards-width",
   fallback: CARDS_WIDTH_PX,
   parse: (raw) => {
+    if (raw.trim() === "") throw new Error("empty dock width");
     const n = Number(raw);
     if (!Number.isFinite(n)) throw new Error(`invalid dock width: ${raw}`);
     return clampDockCardsWidth(n);
   },
+  // Surface the corruption instead of silently resetting — the repo's
+  // caught-error-must-not-collapse-to-empty rule. A benign per-device pref reset
+  // warrants a console diagnostic (matching `persistedPref`'s per-host default),
+  // not a toast.
+  onInvalid: (err, raw) =>
+    console.warn(
+      `[dockCardsWidth] ignoring invalid stored width ${JSON.stringify(raw)} — falling back to ${CARDS_WIDTH_PX}`,
+      err,
+    ),
 });
 
 export { dockCardsWidth };

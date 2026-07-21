@@ -70,8 +70,16 @@
 import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
@@ -97,6 +105,7 @@ import { chipInitials } from "./chipInitials";
 import {
   CARDS_WIDTH_PX,
   dockCardsWidth,
+  effectiveDockCardsWidth,
   resetDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
@@ -117,14 +126,12 @@ export type DockMode = "rail" | "cards";
 // right-panel rail via `RAIL_WIDTH_PX` in `ui/chromeSpacing.ts` so the
 // two collapsed surfaces stay visually paired across the canvas axis.
 
-/** Width in pixels for a given mode. Drives both the outer aside's
- *  inline `width` style and (in maximized posture) the dock's flex
- *  footprint as a left-panel sibling of the canvas. Reactive on
- *  `dockCardsWidth` for the maximized cards sidebar, so a drag reflows
- *  the aside live; the tiled cards float keeps its default width. */
-function dockWidth(mode: DockMode, maximized: boolean): number {
-  if (mode === "rail") return RAIL_WIDTH_PX;
-  return maximized ? dockCardsWidth() : CARDS_WIDTH_PX;
+/** Fixed width for the non-resizable dock surfaces: the rail (always) and the
+ *  tiled cards float (which keeps its default width). The maximized cards
+ *  sidebar is the ONE resizable case and is sized by `effectiveDockWidth` in the
+ *  component, not here — so a tiled float can never inherit a maximized resize. */
+function dockWidth(mode: DockMode): number {
+  return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
 }
 
 // Holding the platform modifier (Cmd on macOS, Ctrl elsewhere) reveals
@@ -190,16 +197,35 @@ const Dock: Component<{
   const tree = useDockOrder();
   const posture = useViewPosture();
 
+  // Width of the flex host the maximized dock shares with the canvas — its own
+  // parent. `effectiveDockWidth` caps the rendered width to it so a stored-wide
+  // dock can't squeeze the canvas to zero and clip its own handle off-screen
+  // (the right-panel split can shrink this host well below the 560px ceiling).
+  const [hostEl, setHostEl] = createSignal<HTMLElement | null>(null);
+  const hostSize = createElementSize(hostEl);
+
+  /** Rendered width for the maximized cards sidebar — the stored preference
+   *  capped to the live host width (handle stays reachable); other postures use
+   *  the plain `dockWidth`. */
+  const effectiveDockWidth = (): number =>
+    posture.mode() === "maximized" && dockMode() === "cards"
+      ? effectiveDockCardsWidth(dockCardsWidth(), hostSize.width ?? 0)
+      : dockWidth(dockMode());
+
   // Drag-to-resize the maximized cards dock — mirrors the right panel's
   // handle. A fresh `AbortController` per gesture; `capturePointerGesture`
-  // (shared with tile resize / canvas pan) wires window pointermove/up and
-  // auto-unwires on release. Width is clamped by `setDockCardsWidth` and
-  // reflows the aside live (canvas `flex-1` sibling gives back the space).
+  // (shared with tile resize / canvas pan) wires window pointermove/up+cancel
+  // and auto-unwires on release. The drag starts from the RENDERED width (not
+  // the raw stored value) so a host-capped dock doesn't jump on grab; the
+  // clamped preference persists via `setDockCardsWidth`.
   let abortDockResize: AbortController | null = null;
   function startDockResize(e: PointerEvent) {
+    // Primary button only — a right/middle-button drag on the edge shouldn't
+    // resize (and would fight the context menu / pan).
+    if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = dockCardsWidth();
+    const startWidth = effectiveDockWidth();
     abortDockResize?.abort();
     abortDockResize = new AbortController();
     capturePointerGesture(
@@ -212,10 +238,14 @@ const Dock: Component<{
       abortDockResize,
     );
   }
+  // The dock is app-lifetime chrome, so this rarely fires — but a disposal
+  // mid-drag must abort the in-flight gesture rather than leak window listeners.
+  onCleanup(() => abortDockResize?.abort());
 
   return (
     <aside
       data-testid="dock"
+      ref={(el) => setHostEl(el.parentElement)}
       data-mode={dockMode()}
       data-maximized={posture.mode() === "maximized" ? "" : undefined}
       class="flex flex-col select-none overflow-hidden bg-surface-1"
@@ -238,9 +268,7 @@ const Dock: Component<{
         "relative shrink-0 h-full border-r border-edge":
           posture.mode() === "maximized",
       }}
-      style={{
-        width: `${dockWidth(dockMode(), posture.mode() === "maximized")}px`,
-      }}
+      style={{ width: `${effectiveDockWidth()}px` }}
     >
       <RailOrCards
         mode={dockMode()}
