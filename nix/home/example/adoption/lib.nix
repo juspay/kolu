@@ -59,7 +59,7 @@ let
   # saved layout, and it lives under padi's STATE-ROOT, not kolu's config dir:
   # `Conf` with no `configName` → `config.json`, rooted at the default state-root
   # `$HOME/.local/state/padi` (packages/padi/src/stateRoot.ts:66
-  # defaultPadiStateRoot; the module sets no KOLU_PADI_STATE_DIR override, and
+  # productionPadiStateRoot; the module sets no KOLU_PADI_STATE_DIR override, and
   # padiBinding.test.ts reads exactly this `<stateRoot>/config.json`).
   configFile = ".local/state/padi/config.json";
 

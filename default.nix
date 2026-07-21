@@ -481,12 +481,19 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
+  # One shell snippet both production wrappers use for KOLU_PADI_STATE_DIR
+  # (juspay/kolu#1334): code never silently defaults the state-root; wrappers
+  # supply the well-known path with `:-` so an explicit override still wins.
+  # Twin of the KOLU_STATE_DIR export shape. Keep in lockstep with
+  # packages/padi/src/stateRoot.ts productionPadiStateRoot().
+  exportPadiStateDirRun =
+    ''export KOLU_PADI_STATE_DIR="''${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"'';
+
   # Production wrapper: koluBin + default KOLU_STATE_DIR + KOLU_PADI_STATE_DIR.
   # Used by `nix run .` and the NixOS service. Defaults the state dir to
   # ~/.config/kolu but honors an inherited KOLU_STATE_DIR (`:-` fallback) —
   # so a second production instance can relocate state without hijacking
-  # $HOME (juspay/kolu#1414). Same shape for padi's state-root (juspay/kolu#1334):
-  # code never silently defaults it; this wrapper supplies the well-known path.
+  # $HOME (juspay/kolu#1414). Same shape for padi's state-root (juspay/kolu#1334).
   # Restoring these fallbacks can NOT reintroduce the silent-production-
   # corruption bug #530/#531 fixed: tests build `.#koluBin` (justfile:122),
   # which has no KOLU_STATE_DIR / KOLU_PADI_STATE_DIR and crashes if unset, and
@@ -498,7 +505,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
-      --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; export KOLU_PADI_STATE_DIR="''${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"'
+      --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
   '';
 
   # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
@@ -563,10 +570,9 @@ let
   # kolu's own wrapper carries them. `--run (diagRunHook "padi-")` arms the same
   # opt-in heap capture as kaval/koluBin (the hook is defined once, above).
   #
-  # KOLU_PADI_STATE_DIR: code never silently defaults the state-root (#1334).
-  # This wrapper (the binary kolu ships and remotes provision) supplies the
-  # well-known production path with `:-` so an explicit override still wins —
-  # including remote `padi --stdio` with no `--state-root` on the argv.
+  # KOLU_PADI_STATE_DIR: see exportPadiStateDirRun. This wrapper (the binary
+  # kolu ships and remotes provision) supplies the production path so remote
+  # `padi --stdio` needs no `--state-root` on the argv.
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -581,7 +587,7 @@ let
       ${kavalIdentity.bakeArgs} \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
-      --run 'export KOLU_PADI_STATE_DIR="''${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"' \
+      --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
   '';
 
