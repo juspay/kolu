@@ -188,6 +188,104 @@ Test-first, on this branch, one draft PR closing #1754:
    token-delta), `claude-cli-real` `/compact` (`state="waiting"`), and
    session-end / sleeping daemon-restart wake (transient clear/appear window).
 
+## 9. Sequencing dependency **[DESIGN-BEARING]** — the four descoped asserts live in unmerged PR #1751
+
+Verified on this branch (reversible prep, no code): **PR #1751**
+(`e2e-ollama-real-agent`, "exercise real agent CLIs against ollama, delete all
+mocks") is **OPEN, not merged**, based on master. The four named real-agent
+feature files — `claude-real.feature`, `codex-real.feature`,
+`grok-real.feature`, `claude-cli-real.feature` — **do not exist on master**, so
+they are **absent from this branch** (which was cut from origin/master). What
+*does* exist here: `claude-code.feature` (a *mock* `/compact` "reads as idle,
+not stuck" scenario), `grok.feature`, `opencode.feature`,
+`sleeping-terminals.feature`.
+
+**Implication:** on this master-based branch there is nothing to "restore" for
+the `-real` asserts — the files aren't here yet. STEP 2 as literally specified
+("restore the four descoped e2e asserts") cannot touch those files from this
+branch.
+
+- **Recommended sequence:** land the **fix + primitive + primitive unit test +
+  the two INVERTED repro tests** (all of which live on/relative to this branch)
+  on master first; **PR #1751 then rebases** on the merged fix and un-descopes
+  its *own* real-agent asserts (thinking→waiting, working-bucket, token-delta,
+  the `/compact` `state="waiting"`) as part of #1751. Rationale: the fix must be
+  on master before #1751's full state asserts can be green, and #1751 owns those
+  feature files. `sleeping-terminals.feature` (on master) *can* be restored in
+  my PR.
+- **Alternative:** rebase this branch onto the unmerged #1751 and restore the
+  asserts here — couples two open PRs; messier.
+- **Ask (Q8):** rule the sequencing — fix-first-then-#1751-restores
+  (*recommended*) vs restore-here-on-a-#1751-rebase.
+
 ---
 
-*Design gate only. Awaiting the coordinator's ruling on §7 before any fix code.*
+*Design gate only. Awaiting the coordinator's ruling on §7 + §9 (Q8) before any fix code.*
+
+---
+
+## 10. RULING AMENDMENTS — binding as-built spec (RT-1754-D4TA)
+
+Ruling: `…/scratchpad/ruling-1754.md`; findings: `…/tasks/confirmed-1754.txt`.
+Core ratified (floor under fast path, one primitive, three seams, no knobs).
+Amendments below are **binding**.
+
+**B1 — the floor is Node's builtin `fs.watchFile`, not a hand-rolled loop.**
+`subscribeFileAppends(filePath, onChange, { intervalMs, log?, label? })`:
+- `fs.watch(filePath, () => onChange())` — fast path (tolerate ENOENT at
+  install: if the file isn't there yet, skip the edge; the floor still covers).
+- `fs.watchFile(filePath, { interval: intervalMs }, listener)`, `.unref()`'d —
+  the floor. libuv `uv_fs_poll` fires on any stat-record change (superset of
+  size/mtime incl. **ino**, closing WAL same-size-rewrite + rotation aliases),
+  tolerates absence, fires on absent→present and present→absent, never stacks.
+- listener feeds the **same** `onChange` (the consumer's existing 150ms-debounced,
+  change-gated handler) on every fire.
+- **On a zeroed-stats fire only** (`curr.ino === 0`) do ONE disambiguating
+  `fs.stat`: `ENOENT` → expected-absent, **silent** (wal-subscription precedent);
+  any other errno → **log at error**, keep polling. (The builtin's StatWatcher
+  has no errno channel — EACCES and ENOENT both surface as byte-identical zeroed
+  Stats, probe-proven — so this stat is the only way to honor
+  `caught-error-must-not-collapse`.)
+- teardown: `watcher.close()` + `fs.unwatchFile(filePath, listener)` behind a
+  `closed` guard (guard also rechecked after the async disambiguating stat).
+- **DELETED** vs §4: `lastObserved`, the `(size, mtimeMs)` key, the
+  self-rescheduling `setTimeout`, and the edge-updates-the-cell machinery (a
+  two-writer cell whose only job was a dedupe constraint 5 never needed — the
+  floor fires ≤1×/interval and the debounce+gate absorb it; refuter measured 6
+  fires across 279 rapid appends). §6 rejected-list must record **why the bare
+  builtin was insufficient** (the EACCES/ENOENT errno probe).
+
+**Q1 kolu-io ✓** — the Q5 wiring creates the **first `kolu-shared → kolu-io`
+workspace edge** (safe, leaf); **state it in the PR body**.
+**Q2 name ✓, signature amended** — `intervalMs` is a **required** opts field (no
+optional-default dead-knob); export `DEFAULT_APPEND_POLL_MS = 1000`, passed by
+every production call site; **no fake timers** — tests inject a short real
+interval (refcounted-dir-watcher.test.ts precedent).
+**Q3 always-subscribed ✓ · Q4 1000ms ✓** (probe recovered a dropped edge in
+903ms) **· Q5 one WAL seam ✓ · Q6 events.jsonl-only ✓** (record the signals.json
+edge-only display-freshness residual in doc + PR body).
+
+**Q7 — REVERSED: subscribe UNCONDITIONALLY** (file present or not) at all three
+seams. `fs.watchFile` tolerates absence and fires on absent→present, so the
+first successful stat IS the appearance reconcile. Dir watches stay **fast paths
+only**. Closes grok's never-re-arming macOS bootstrap hole, claude's
+dropped-projectDir-edge window, and the WAL startup window in one mechanism.
+
+**B2 — WAL:** keep the parent-dir inode-rearm (re-arms the fs.watch **edge** on a
+new inode — a different failure class; and its unconditional `runRearm` kick
+already covers the same-size checkpoint rewrite), but `armDirect`'s
+null-signaling protocol **simplifies** — the path-following floor no longer needs
+the WAL to pre-exist. Trace + state it.
+**B3 — teardown test:** unit test extends to "no fire AND no reschedule when
+unsubscribe races an in-flight tick".
+**B4 — first-observation pinned:** the first stat that FINDS the file fires
+`onChange` (the appearance reconcile); consumers' unconditional initial re-read
+on attach still covers the attach-window. State as a contract rule.
+**B5 — honest residual:** one module-doc paragraph — stat-sampling on
+coarse-mtime filesystems retains a narrow alias window no key fully closes (probe:
+SQLite rewinds the WAL to same-size same-inode after checkpoint); the edge path
+is primary, the floor is a floor.
+
+**Refuted (do not re-litigate):** issue fix-direction (2), `stop_reason`
+reconcile — out of this PR's scope; its own recorded trigger is a future #1751
+non-`end_turn` tail under ollama.
