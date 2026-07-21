@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-21T14:27:29.755860+00:00'
+generated_at: '2026-07-21T17:39:13.968636+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -67,7 +67,7 @@ dependencies:
     .agents/skills/kolu/TUI.md: sha256:5698f25429e7927e210ec5fe86e8420c429bb5d47387c29f977ed34145a890ad
     .agents/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .agents/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
-    .agents/skills/orchestrator/SKILL.md: sha256:bfcb64bf5f8e291abb53a6ce6d6c615f992e021d2d4f793adf6b25578d3e3b32
+    .agents/skills/orchestrator/SKILL.md: sha256:15ed0872a02c0af9407a8e080f2f017eedb450b6f614621e6d6fd03399f67fc0
     .agents/skills/orchestrator/dashboard/index.html: sha256:6d88b953cce0896839c343fedc5f48f08390f91a680850bb0ea0cee7902c0fd3
     .agents/skills/orchestrator/dashboard/index.js: sha256:2834c10f976f151fa81f44cb9cb7bb04f8b1b35c024b46db84438df227e7c44d
     .agents/skills/orchestrator/dashboard/red-alert.mp3: sha256:61a535db70bb68738df7929c29b11a3bcb11ca23bf5eb7793a0b84f3e699e0fb
@@ -82,7 +82,7 @@ dependencies:
     .claude/skills/kolu/TUI.md: sha256:5698f25429e7927e210ec5fe86e8420c429bb5d47387c29f977ed34145a890ad
     .claude/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .claude/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
-    .claude/skills/orchestrator/SKILL.md: sha256:bfcb64bf5f8e291abb53a6ce6d6c615f992e021d2d4f793adf6b25578d3e3b32
+    .claude/skills/orchestrator/SKILL.md: sha256:15ed0872a02c0af9407a8e080f2f017eedb450b6f614621e6d6fd03399f67fc0
     .claude/skills/orchestrator/dashboard/index.html: sha256:6d88b953cce0896839c343fedc5f48f08390f91a680850bb0ea0cee7902c0fd3
     .claude/skills/orchestrator/dashboard/index.js: sha256:2834c10f976f151fa81f44cb9cb7bb04f8b1b35c024b46db84438df227e7c44d
     .claude/skills/orchestrator/dashboard/red-alert.mp3: sha256:61a535db70bb68738df7929c29b11a3bcb11ca23bf5eb7793a0b84f3e699e0fb
@@ -1357,7 +1357,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:bfcb64bf5f8e291abb53a6ce6d6c615f992e021d2d4f793adf6b25578d3e3b32
+  content_hash: sha256:15ed0872a02c0af9407a8e080f2f017eedb450b6f614621e6d6fd03399f67fc0
 - kind: project-relative
   target: claude
   value: .claude/skills/orchestrator/dashboard/index.html
@@ -2086,7 +2086,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:bfcb64bf5f8e291abb53a6ce6d6c615f992e021d2d4f793adf6b25578d3e3b32
+  content_hash: sha256:15ed0872a02c0af9407a8e080f2f017eedb450b6f614621e6d6fd03399f67fc0
 - kind: project-relative
   target: codex
   value: .agents/skills/orchestrator/dashboard/index.html
