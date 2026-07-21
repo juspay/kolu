@@ -9,7 +9,7 @@
  *  fresh background finish and clears the moment you switch to the host. A
  *  module-level singleton store (created once) so a chip reads it reactively. */
 
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 
 export interface HostMarks {
   /** Finished-but-unvisited terminals on this host — the quiet host-tab dot. */
@@ -18,12 +18,18 @@ export interface HostMarks {
 
 const [marks, setMarks] = createStore<Record<string, HostMarks>>({});
 
-/** Write (or clear, with `undefined`) a host's marks — called by `useAttention`. */
+/** Write (or clear, with `undefined`) a host's marks — called by `useAttention`.
+ *  Clearing DELETES the key (not sets it to `undefined`), so the singleton store
+ *  can't grow unbounded across host add/remove churn. */
 export function writeHostMarks(
   encHost: string,
   value: HostMarks | undefined,
 ): void {
-  setMarks(encHost, value as HostMarks);
+  if (value === undefined) {
+    setMarks(produce((m) => delete m[encHost]));
+    return;
+  }
+  setMarks(encHost, value);
 }
 
 /** A host's unseen-finished count as a reactive read — the chip's dot fodder. */

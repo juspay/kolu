@@ -35,7 +35,6 @@
  *  Owned-by-caller: constructed once under the app owner (it holds a keyArray of
  *  per-host roots disposed on host removal). See `App.tsx`. */
 
-import type { PadiUrgency } from "@kolu/padi/surface";
 import {
   decodeHostKey,
   encodeHostKey,

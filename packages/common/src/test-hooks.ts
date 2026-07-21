@@ -17,9 +17,9 @@ export {};
 
 declare global {
   interface Window {
-    /** Triggers the activity-alert codepath. Set by `App.tsx` from
-     *  `useTerminalAlerts.simulateAlert` so e2e tests can fire alerts
-     *  without driving the underlying server-pushed event. */
+    /** Triggers the attention codepath. Set by `useAttention.simulateAlert`
+     *  so e2e tests can fire alerts without driving the underlying
+     *  server-pushed event. */
     __koluSimulateAlert?: (opts?: { target?: "active" | "inactive" }) => void;
 
     /** Stash for `setAppBadge` / `clearAppBadge` calls captured by the
@@ -84,7 +84,7 @@ declare global {
   }
 
   /** Badging API (Chrome/Edge PWAs) — not yet in TypeScript's lib.dom.
-   *  Used in production by `useTerminalAlerts.ts`; the e2e suite
+   *  Used in production by `useAttention.ts`; the e2e suite
    *  reassigns these stubs in `I stub the Badging API`. */
   interface Navigator {
     setAppBadge(count?: number): Promise<void>;

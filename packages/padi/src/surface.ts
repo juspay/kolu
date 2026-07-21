@@ -489,14 +489,17 @@ export const PadiUrgencySchema = z.object({
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 
-/** Two urgency readings are equal when they carry the same awaiting ids in the
- *  same order — the urgency cell's `equals`, so the ~150 ms agent firehose (the
- *  `terminals` collection's write-triggers, which the derived `urgency` cell
- *  recomputes off) can't re-publish an unchanged projection. The count is derived
- *  (`awaitingIds.length`), so comparing ids alone is already complete. Lives here
- *  beside the value schema (it is a property of the `PadiUrgency` VALUE) so the
- *  spec can declare it directly — the bridge's "equals lives at the member, once"
- *  law — without `surface.ts` reaching into the fold module. */
+/** Two urgency readings are equal when they carry the same awaiting AND finished
+ *  ids, each in the same order — the urgency cell's `equals`, so the ~150 ms agent
+ *  firehose (the `terminals` collection's write-triggers, which the derived
+ *  `urgency` cell recomputes off) can't re-publish an unchanged projection.
+ *  Comparing `finishedIds` too is load-bearing: a frame where only the finished
+ *  set changed must survive this ONE wire dedup point so the finish transition
+ *  reaches `useAttention` and fires. Both counts are derived (`.length`), so
+ *  comparing ids alone is already complete. Lives here beside the value schema (it
+ *  is a property of the `PadiUrgency` VALUE) so the spec can declare it directly —
+ *  the bridge's "equals lives at the member, once" law — without `surface.ts`
+ *  reaching into the fold module. */
 export function urgencyEqual(a: PadiUrgency, b: PadiUrgency): boolean {
   return (
     sameIds(a.awaitingIds, b.awaitingIds) &&
