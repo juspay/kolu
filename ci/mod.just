@@ -24,16 +24,6 @@ set working-directory := '..'
 # inside the shell so local invocations stay cheap.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-# devour-flake, pinned to an immutable rev. An UNPINNED `github:srid/devour-flake`
-# forces nix to resolve HEAD→rev via the unauthenticated GitHub REST API
-# (`GET api.github.com/repos/srid/devour-flake/commits/HEAD`, 60 req/hr per IP),
-# which 403s on a cold/shared CI egress IP and breaks the linux `nix` and
-# `home-manager` lanes (juspay/kolu#1204). Pinning the rev skips that REST call
-# entirely: nix fetches the source straight from the codeload archive
-# (`github.com/…/archive/<rev>.tar.gz`), which isn't REST-rate-limited. No token
-# on the box needed. Bump this SHA by hand to adopt a newer devour-flake.
-devour_flake := "github:srid/devour-flake/e65d15fd4ef46dbde90ac59be581b2a286c35d0f"
-
 # Pipeline root: every recipe listed here becomes a (recipe × platform) node.
 # Body is empty — the runner expands `depends_on` from this DAG and executes
 # each leaf via `just --no-deps <recipe>`. `just ci` (without the runner) still
@@ -44,7 +34,7 @@ devour_flake := "github:srid/devour-flake/e65d15fd4ef46dbde90ac59be581b2a286c35d
 # maximally, so the wall-clock is the *critical path* — the longest dependency
 # chain. We keep that path as short as honestly possible:
 #
-#   * `nix` (devour-flake, all outputs incl. the typecheck `checks.*`) is the
+#   * `nix` (all packages, checks, and dev shells incl. typecheck) is the
 #     big build, but `e2e`, `smoke`, and `home-manager` no longer wait on it.
 #     Each of those self-builds exactly the store path it needs (`just test`
 #     builds `.#koluBin`; `smoke.sh` builds `.#default`; `home-manager` builds
@@ -93,15 +83,43 @@ pnpm-hash-fresh:
     nix build .#pnpmDeps .#website-pnpm-deps --no-link
     nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link
 
-# Build all flake outputs via devour-flake. This includes `checks.*`, so the
-# workspace typecheck (checks.x86_64-linux.typecheck) runs here — it replaced
-# the standalone `typecheck` recipe (juspay/kolu#1049). The typecheck result
-# is content-addressed, so it only re-runs when a typechecked source changes.
+# Build every derivation output the flake exposes for the current system.
+# Per-system enumeration is deliberate: odu runs this recipe once in each
+# platform lane, and each lane proves its own packages, checks, and dev shells.
+# Names come from the flake itself so adding one cannot silently escape CI.
+# This includes `checks.*`, so the workspace typecheck
+# (checks.x86_64-linux.typecheck) runs here — it replaced the standalone
+# `typecheck` recipe (juspay/kolu#1049). The typecheck result is
+# content-addressed, so it only re-runs when a typechecked source changes.
 nix:
-    nix build {{ devour_flake }} -L --no-link --print-out-paths --override-input flake .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+    flake_outputs="$(nix flake show --json .)"
+    outputs=()
+    for kind in packages checks devShells; do
+      names="$(
+        jq -cer --arg kind "$kind" --arg system "$system" '
+          .[$kind][$system]
+          | if type == "object"
+            then keys
+            else error("ci::nix: flake output " + $kind + "." + $system + " is missing or is not an object")
+            end
+        ' <<< "$flake_outputs"
+      )"
+      count="$(jq -r 'length' <<< "$names")"
+      if (( count == 0 )); then
+        echo "ci::nix: flake exposed no $kind outputs for $system" >&2
+        exit 1
+      fi
+      while IFS= read -r name; do
+        outputs+=(".#$kind.$system.$name")
+      done < <(jq -r '.[]' <<< "$names")
+    done
+    nix build -L --no-link --print-out-paths "${outputs[@]}"
 
 # `nix flake check`: evaluate every flake output and run the flake's `checks.*`.
-# Complements the `nix` node (devour-flake builds the output drvs) with the
+# Complements the `nix` node (which builds the output drvs) with the
 # flake-schema + whole-output *evaluation* gate — it forces every output to
 # evaluate, so an eval-time regression like an import-from-derivation that can't
 # be realised mid-eval (juspay/kolu#1317) fails here even when a plain build of
@@ -112,12 +130,40 @@ flake-check:
     nix flake check --accept-flake-config -L
 
 # Builds the home-manager example flake, which pulls kolu in via
-# `--override-input flake/kolu .` — so it builds kolu from source itself. No
+# `--override-input kolu .` — so it builds kolu from source itself. Like
+# `ci::nix`, it enumerates the current system on purpose: the Linux lane builds
+# Linux checks/configurations and the Darwin lane builds Darwin checks. No
 # `nix` dep: store locking dedups the shared kolu drv with the `nix` node's
 # concurrent build, letting the home-manager VM work overlap the big build
-# instead of queuing behind every devour-flake output.
+# instead of queuing behind every flake output.
 home-manager:
-    nix build {{ devour_flake }} -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+    outputs=()
+    check_installables="$(
+      nix eval --raw "./nix/home/example#checks.$system" \
+        --override-input kolu . \
+        --apply "attrs: builtins.concatStringsSep \"\\n\" (map (name: \"./nix/home/example#checks.$system.\" + name) (builtins.attrNames attrs))"
+    )"
+    while IFS= read -r output; do
+      [[ -n "$output" ]] && outputs+=("$output")
+    done <<< "$check_installables"
+    if (( ${#outputs[@]} == 0 )); then
+      echo "ci::home-manager: example exposed no checks for $system" >&2
+      exit 1
+    fi
+    config_installables="$(
+      nix eval --raw ./nix/home/example#nixosConfigurations \
+        --override-input kolu . \
+        --apply "configs: builtins.concatStringsSep \"\\n\" (map (name: \"./nix/home/example#nixosConfigurations.\" + name + \".config.system.build.toplevel\") (builtins.filter (name: configs.\${name}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames configs)))"
+    )"
+    while IFS= read -r output; do
+      [[ -n "$output" ]] && outputs+=("$output")
+    done <<< "$config_installables"
+    nix build -L --no-link --print-out-paths \
+      --override-input kolu . \
+      "${outputs[@]}"
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
@@ -130,7 +176,7 @@ smoke:
 
 # No `nix` dep: `just test` builds `.#koluBin` itself (justfile `test`
 # recipe), so e2e needs only the pnpm deps `install` provides — not the full
-# devour-flake build. Dropping the `nix` edge lets the ~2-min suite run
+# full-output build. Dropping the `nix` edge lets the ~2-min suite run
 # concurrently with the big build (koluBin drv deduped via store locking)
 # instead of strictly after it. This is the single largest critical-path win.
 e2e: install

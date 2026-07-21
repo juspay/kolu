@@ -104,8 +104,8 @@ nix build .#checks.x86_64-linux.adoption-adopt \
   --override-input kolu /path/to/kolu/repo -L
 ```
 
-In CI this is automatic: `ci::home-manager` runs `devour-flake` over this example
-flake (`--override-input flake/kolu .`), which realizes every
+In CI this is automatic: `ci::home-manager` directly builds this example's outputs
+(`--override-input kolu .`), which realizes every
 `checks.x86_64-linux.*` — so all three VM tests build and run on the Linux lane.
 
 > `adoption-skew` forces a **second full kolu build** (the contract-bumped
