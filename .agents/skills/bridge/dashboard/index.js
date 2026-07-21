@@ -172,7 +172,9 @@ const collectBlockKeys = (d) => {
       if (n.state === "block") keys.add(k);
       if (n.lane?.nodes) walk(n.lane.nodes, `${k}~lane`);
     });
-  (d.tracks ?? []).forEach((t, i) => walk(t.nodes, `t:${t.name ?? i}`));
+  (d.tracks ?? []).forEach((t, i) => {
+    walk(t.nodes, `t:${t.name ?? i}`);
+  });
   (d.queue ?? []).forEach((n, i) => {
     if (n.state === "block") keys.add(`q/${n.label ?? i}`);
   });

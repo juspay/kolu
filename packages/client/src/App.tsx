@@ -471,11 +471,12 @@ const App: Component = () => {
             {(m) => <HostDownCanvas cause={m().cause} reason={m().reason} />}
           </Match>
           <Match when={bootStalledMode()}>
-            {/* #1763: a boot overlay held past its per-host ceiling — the membership /
-                session / (remote) daemon leg never delivered. Names the stalled leg +
-                the phase, with a [Reload] recovery verb. A hung LOCAL kaval takes the
-                down/dead arm above instead (byte-identical #1713). */}
-            {(m) => <BootStalledCanvas leg={m().leg} phase={m().phase} />}
+            {/* #1763 + #1908 D2: a boot overlay held past its per-host ceiling, rendered off the
+                resolver's honest {@link BootStalledRecovery} verdict — a warming-remote campaign
+                the server connector still owns (non-terminal copy, [Retry connection] → recheck())
+                vs a genuinely client-side leg ([Reload]). A hung LOCAL kaval takes the down/dead
+                arm above instead (byte-identical #1713). */}
+            {(m) => <BootStalledCanvas recovery={m().recovery} />}
           </Match>
           <Match when={warmingMode()}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold
