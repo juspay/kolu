@@ -125,12 +125,19 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
     // The R8a hole: PR1's retry cycle flaps a warming host's phase, so every class change
     // re-anchors the class cell (zero-credit) and it NEVER trips on its own. Every frame is the
     // connector-owned `provisioning` leg, so the campaign cell is armed ONCE at t=0 and HELD.
-    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
-    recordBootFrame("zest", boot("provisioning", "remote-handshake"), 100_000);
+    // `sinceMs` tracks `nowMs` (a campaign observed from ~its start, no reset).
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0, 0);
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-handshake"),
+      100_000,
+      100_000,
+    );
     // Re-anchor the class cell just BELOW the campaign ceiling (the flap keeps re-zeroing it):
     recordBootFrame(
       "zest",
       boot("provisioning", "remote-provisioning"),
+      CAMPAIGN_CEILING_MS - 2,
       CAMPAIGN_CEILING_MS - 2,
     );
     // Just under the campaign ceiling: campaign not yet past, class freshly re-anchored → neither.
@@ -144,19 +151,86 @@ describe("bootDeadline — campaign backstop (#1908 R8a, class-blind, client-mon
     // Arm at t=0, flap the class at 28m. If the campaign re-anchored on that flip it would need
     // another 30m; because it is HELD from t=0 it fires at 30m + a tick, while the class cell
     // (re-anchored at 28m, 120s handshake cell) is nowhere near its own ceiling.
-    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
-    recordBootFrame("zest", boot("provisioning", "remote-handshake"), 1_700_000);
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0, 0);
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-handshake"),
+      1_700_000,
+      1_700_000,
+    );
     expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
   });
 
+  it("a campaign first observed already-old (large `sinceMs` — a page reload mid-campaign) is anchored to its REAL start, firing soon — not granted a fresh full 30min (codex F1)", () => {
+    const alreadyOld = CAMPAIGN_CEILING_MS - 60_000; // the server says it has already run 29 min
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-provisioning"),
+      5_000,
+      alreadyOld,
+    );
+    // From its REAL start it has ~29 min on the clock, so it fires ~1 min after first observation…
+    expect(bootDeadlineExceeded("zest", 5_000 + 60_000 - 1)).toBe(false);
+    expect(bootDeadlineExceeded("zest", 5_000 + 60_000 + 1)).toBe(true);
+  });
+
+  it("a fresh server campaign (`sinceMs` reset — Retry connection / recheck) re-anchors, so the retry earns a FRESH window and the card dismisses (codex F1)", () => {
+    // A campaign observed from ~its start, run past the ceiling → the connector card is showing:
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-provisioning"),
+      1_000,
+      1_000,
+    );
+    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(true);
+    // The user hits Retry connection → recheck() begins a fresh server campaign → the next frame's
+    // `sinceMs` DROPS back to ~0 (below the last ~30 min). The client re-anchors on the reset, so
+    // the escape must DISMISS — the recovery verb genuinely recovers rather than re-showing at once.
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-handshake"),
+      CAMPAIGN_CEILING_MS + 2,
+      0,
+    );
+    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 3)).toBe(false);
+  });
+
   it("a `clear` (settle) releases the campaign anchor — a provision that connects never trips it", () => {
-    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0, 0);
     recordBootFrame("zest", cleared, 400_000); // connected well under the ceiling
     expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
   });
 
+  it("a `retain` frame (a CONNECTED-arm overlay — the connector campaign is over) clears the campaign anchor, so a later fresh warming campaign can't inherit the stale start (codex F7)", () => {
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0, 0);
+    // Class-flip near the ceiling so the class cell is freshly re-anchored (isolating the campaign):
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-handshake"),
+      CAMPAIGN_CEILING_MS - 100,
+      CAMPAIGN_CEILING_MS - 100,
+    );
+    // The connector connects into a records-awaited / restart-warming connected overlay → retain:
+    recordBootFrame("zest", retained, CAMPAIGN_CEILING_MS - 50);
+    // With the campaign cleared, one tick past the old 30-min mark does NOT fire (class still fresh);
+    // without the F7 fix the stale campaign start from t=0 would fire here.
+    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
+  });
+
+  it("a non-`provisioning` boot leg after a provisioning one clears the campaign anchor (the connector campaign ended)", () => {
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0, 0);
+    // Connected-but-session-pending near the 30-min mark → a client-side `session` leg (a class
+    // CHANGE, so its short class re-anchors fresh), and the campaign cell drops:
+    recordBootFrame(
+      "zest",
+      boot("session", "remote-handshake"),
+      CAMPAIGN_CEILING_MS - 100,
+    );
+    expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
+  });
+
   it("pruning a departed host drops its campaign anchor too", () => {
-    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0, 0);
     pruneBootAnchors(["local"]);
     expect(bootDeadlineExceeded("zest", CAMPAIGN_CEILING_MS + 1)).toBe(false);
   });

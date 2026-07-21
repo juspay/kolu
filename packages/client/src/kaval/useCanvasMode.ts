@@ -72,7 +72,8 @@ export function canvasMode(deps: {
   // (the narrated subset) at THIS boundary: a `connected`/`disconnected`/`failed` cell phase is
   // not a connect phase → `undefined` (no overlay), so the resolver's arm can carry only a real
   // connect phase and its routing is a plain `!== undefined`.
-  const phase = connectionInfo()?.phase;
+  const conn = connectionInfo();
+  const phase = conn?.phase;
   const connectPhase: ConnectPhase | undefined =
     phase !== undefined && isConnectPhase(phase) ? phase : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`
@@ -126,12 +127,13 @@ export function canvasMode(deps: {
   // elapsed to 0, and the ceiling could never fire — leaving "Connecting to local…" up forever.
   const members = hostKeys();
   if (members.length > 0) pruneBootAnchors(members.map(encodeHostKey));
-  // The #1908 R8a campaign backstop needs NO extra input here: `recordBootFrame` arms it off the
-  // frame's own tag (the connector-owned `provisioning` leg) and `bootDeadlineExceeded` reads it
-  // on the SAME monotonic `nowMs`. So the class ceiling and the class-blind campaign backstop are
-  // both folded by the one read below — no server `sinceMs` (frame-stamped + wall-clock) threaded in.
+  // The #1908 R8a campaign backstop: `bootDeadlineExceeded` folds the class ceiling AND the
+  // class-blind campaign cell on the one monotonic `nowMs`. `recordBootFrame` arms the campaign
+  // cell off the frame's own tag (the connector-owned `provisioning` leg); the server `sinceMs`
+  // is passed ONLY to place that anchor honestly (initial offset + reset detection), never as the
+  // running deadline clock — the elapsed stays client-monotonic (codex F1).
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
-  recordBootFrame(hostEnc, tag, nowMs);
+  recordBootFrame(hostEnc, tag, nowMs, conn?.sinceMs);
   return mode;
 }
