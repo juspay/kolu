@@ -31,4 +31,4 @@ packages/client/public/fonts
 # /self-improve skill: per-worktree scratch (mined transcript signals)
 .self-improve/
 .be-review-state/
-orchestrator-data.js
+bridge-data.js

@@ -1,0 +1,177 @@
+---
+title: "Host Isolation, in Plain Words: Lock 1 and Lock 3"
+description: "What the two low-risk locks of the #1334/#1375 fix actually do — why a bare dev command can no longer sit in production's chair, and why the test suite can no longer fork-bomb or even see your real kolu."
+parents: [analysis]
+status: proposed
+maturity: budding
+updated: 2026-07-21
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import Issue from "../../components/Issue.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import locks from "../../diagrams/host-isolation-locks.svg?raw";
+
+Twice, working on kolu killed the kolu being worked in: a dev run disrupted the
+production service (<Issue n={1334} />), and a bare `vitest` forked enough real
+daemons that the OOM killer reaped the production kaval — every terminal lost
+(<Issue n={1375} />). The fix (<PrLink pr={1911} />) is three independent locks.
+This note explains the two *low-risk* ones — Lock 1 and Lock 3 — in plain words.
+They are boot checks and test plumbing; the third, Lock 2, is the delicate one
+(it guards the daemon take-over/kill machinery itself) and is summarized at the
+end.<Footnote>Lock 2 puts a role check inside the supervisor endpoint so an
+adopt, kill, or drain first reads the target daemon's role marker and refuses to
+touch production. It touches kolu's most sensitive lifecycle code, which is why
+it carries most of the merge risk; the residual it deliberately does not cover
+(daemon wire verbs like `killAll` from interactive tools) is tracked in
+<Issue n={1912} />.</Footnote>
+
+<Svg
+  svg={locks}
+  caption="Lock 1: a process without the production badge that reaches for production's state folder crashes at bind time. Lock 3: a bare test run spawns no real daemons at all, and test processes have the real daemons' addresses scrubbed from their environment."
+/>
+
+## Lock 1 — a dev process can't use production's folder
+
+A kolu daemon's identity **is its state folder** — the path is hashed and that
+digest names its sockets and its gate. Your real kolu lives at the well-known
+default (`~/.local/state/padi`). The hole: a bare dev command — `pnpm dev`, a
+plain `padi` — that isn't told otherwise **defaults to the same folder**. Same
+folder, same digest, same daemon: the dev process is now entitled to take over
+or restart *your* kolu. Nothing refused the crossing.
+
+The lock, in three parts:
+
+1. **Production wears a badge.** The production launcher (the nix wrapper that
+   starts your daily kolu) sets `KOLU_ROLE=production`. Nothing else ever sets
+   it.
+2. **No badge → the default folder is off-limits.** A process without the badge
+   that tries to *bind* production's folder — by default, by explicit override,
+   or a folder persistently marked as production<Footnote>The persistent marker
+   covers a relocated production root (the #1414 second-instance case): a
+   production daemon stamps its state folder, and a dev process refuses to bind
+   a stamped folder even when pointed at it explicitly, even when no daemon is
+   running there.</Footnote> — **crashes immediately**, with a one-line remedy:
+   set `KOLU_PADI_STATE_DIR` to a folder of your own.
+3. **First-party dev flows already comply.** `pnpm dev` now sets a per-worktree
+   private folder automatically, and the e2e harness always did. Day-to-day you
+   notice nothing; only a truly bare launch that *would have collided* now
+   refuses loudly instead.
+
+The design law behind it: crash loudly rather than silently share — the same
+fail-fast shape `KOLU_STATE_DIR` already had on the server side. The asymmetry
+(server refused, padi silently defaulted) was the hole.
+
+## Lock 3 — tests can't fork-bomb the box, and can't see real daemons
+
+Nineteen test files spawn **real** daemon processes — real padi, real kaval,
+real PTYs. Two separate dangers: a bare `vitest` ran them all, uncapped (the
+incident left 182 abandoned daemon dirs and an OOM-reaped production kaval); and
+test processes **inherit your shell's environment**, which carries the socket
+addresses of your real daemons — so a buggy test could dial your actual kolu.
+
+The lock, in four parts:
+
+1. **Daemon tests are off by default.** Every real-spawn suite is wrapped in
+   `describeDaemon` (from the new zero-dep leaf `@kolu/daemon-test-gate`),
+   which skips unless `KOLU_DAEMON_TESTS=1`. A plain `vitest` on a workstation
+   spawns **nothing**.
+2. **CI still runs everything.** A dedicated `ci::daemon` DAG node sets the
+   flag, so coverage is a *distinct required check* — it cannot silently
+   disappear, and the fork-free `unit` lane keeps one meaning everywhere.
+3. **Opted-in runs are leashed.** `just test-daemon` binds every spawned daemon
+   to the run's lifetime (it dies with the run) and caps worker parallelism —
+   the fork-bomb shape is unrepresentable even when the gate is open.
+4. **Tests are blinded.** A per-worker scrub deletes the daemon-locator
+   environment (`KAVAL_SOCKET`, `PADI_SOCKET`, …) before any test runs, and a
+   runtime guard at the spawn spine throws if an ungated test tries to fork —
+   so helper indirection can't smuggle a spawn past the gate, and even a badly
+   written test **cannot see** your real kolu, let alone kill it.
+
+## The three ways of running kolu — and which identity each gets
+
+The locks only make sense against how kolu actually starts. There are three
+front doors; below, **every path each one uses**, before → after the fix. Two
+facts to read them with: a daemon's *identity* is the digest of its **padi
+state-root path** (that digest names its sockets and gates), and the runtime
+dirs live under `$XDG_RUNTIME_DIR` and are wiped on reboot — the state roots
+persist.
+
+### `nix run github:juspay/kolu` — the production front door
+
+<dl>
+  <dt><strong>Role badge</strong></dt>
+  <dd>before: <em>(no such concept)</em> → after: <code>KOLU_ROLE=production</code>, set by the wrapper — the only place that sets it.</dd>
+  <dt><strong>Server state</strong> (settings, remembered hosts, prefs)</dt>
+  <dd><code>~/.config/kolu/</code> (<code>state.json</code>) — unchanged. An inherited <code>KOLU_STATE_DIR</code> still wins (the relocated-second-instance case, #1414).</dd>
+  <dt><strong>Padi state-root</strong> (saved session, <code>padi.log</code>) — <em>the identity anchor</em></dt>
+  <dd><code>~/.local/state/padi/</code> — unchanged path; after, production also stamps <code>~/.local/state/padi/role</code> (the persistent marker dev refuses to cross, even with the daemon down).</dd>
+  <dt><strong>Daemon runtime</strong> (sockets · pid gates · manifests; boot-wiped)</dt>
+  <dd><code>$XDG_RUNTIME_DIR/padi-&lt;digest&gt;/</code> and <code>kaval-&lt;digest&gt;/</code>, where <code>&lt;digest&gt;</code> = sha256 of the state-root path — so production's digest is fixed by the path above. After: each dir also carries an ephemeral <code>role</code> file, written before the socket serves.</dd>
+</dl>
+
+This runs the flake's default package, which is a thin **production wrapper**
+around the real binary. The wrapper does exactly two things: it exports
+`KOLU_STATE_DIR`, defaulting to `~/.config/kolu` (an inherited value wins, so a
+second, relocated production instance stays possible<Footnote>The #1414 case: a
+second production instance sets its own `KOLU_STATE_DIR` before launch and the
+wrapper honors it via its `:-` fallback instead of hijacking `$HOME`. Lock 1's
+persistent marker is what keeps such a relocated root refusable by dev
+processes.</Footnote>), and — after Lock 1 — it sets the badge:
+`KOLU_ROLE=production`. Nothing else in the repo sets that variable. The server
+then binds the **default padi state root**, which is exactly what the badge
+entitles it to. Notably, the *base* binary underneath the wrapper deliberately
+has **no** state-dir default: anything that reaches it without going through
+this wrapper (tests do) crashes rather than silently landing in
+`~/.config/kolu`.
+
+### The home-manager module — the same door, supervised
+
+`services.kolu` doesn't invent a different kolu — it execs the package you point
+it at (normally that same production wrapper) as a **user service** (systemd unit
+on Linux, LaunchAgent on macOS) with your `--host`/`--port`,
+`Restart=on-failure`, and the TUI CLIs on PATH. So every path is **identical to
+`nix run` above** — production folder, production badge, same padi root, same
+runtime digest. One thing worth its own line:
+
+<dl>
+  <dt><strong>What the service manager owns vs. what outlives it</strong></dt>
+  <dd>systemd/launchd supervises only the <em>server</em>. The padi + kaval daemons it spawns live in the boot-wiped runtime dirs and <strong>outlive service restarts</strong> by design (the kaval-survivors feature) — which is exactly why a stray dev process able to adopt or kill them was so dangerous: they are long-lived and hold your terminals.</dd>
+</dl>
+
+### `just dev` — a private universe per worktree
+
+`just dev` (and `just dev-auto`, which picks two random free ports so a second
+worktree never collides) runs the dev server via the kolu-cli `dev` script.
+
+<dl>
+  <dt><strong>Role badge</strong></dt>
+  <dd>none — and none needed: nothing here ever reaches for production's folder.</dd>
+  <dt><strong>Server state</strong></dt>
+  <dd>before: <em>set</em> — <code>&lt;worktree&gt;/.kolu-dev/</code> (this half was already isolated). After: unchanged.</dd>
+  <dt><strong>Padi state-root</strong> — <em>the fix's crux</em></dt>
+  <dd>before: <strong>UNSET → silently defaulted to <code>~/.local/state/padi</code></strong> (production's root) — the #1334 hole. After: <code>&lt;worktree&gt;/.kolu-dev/padi/</code>, set explicitly by the dev script. A private root ⇒ a private digest ⇒ a wholly separate daemon identity.</dd>
+  <dt><strong>Daemon runtime</strong></dt>
+  <dd><code>$XDG_RUNTIME_DIR/padi-&lt;dev-digest&gt;/</code>, <code>kaval-&lt;dev-digest&gt;/</code> — namespaced to the worktree, structurally unable to collide with production's sockets/gates.</dd>
+</dl>
+
+The missing second export (`KOLU_PADI_STATE_DIR`) was the whole of #1334; Lock 1
+turns any future recurrence — a bare launch that resolves production's root
+without the badge — into a crash instead of a takeover.
+
+## What you feel afterwards
+
+- `vitest` on your machine: fast, harmless, forks nothing.
+- A bare launch that would have collided with production: one clear crash line
+  instead of a silent takeover.
+- CI: unchanged coverage, now structurally guaranteed.
+- Your live kolu: unreachable from the dev/test world by construction.
+
+<Callout kind="accent" title="Why these two are the low-risk pair">
+  Lock 1 is a boot-time check that can only *refuse*; Lock 3 is almost entirely
+  test-side. Neither touches the daemon take-over/kill machinery — that is
+  Lock 2's territory, and the reason <PrLink pr={1911} /> can be split if the
+  risk calculus favors landing the incident-closing pair first.
+</Callout>
