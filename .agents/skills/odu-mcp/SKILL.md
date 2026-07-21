@@ -12,6 +12,11 @@ that re-exposes a live CI run as agent tools (`run`, `node_rerun`,
 `surface://collections/logs/{id}`), so Claude Code / Codex / opencode / Gemini
 CLI drive CI with structured calls instead of scraping terminal output.
 
+`wait_for_settle` defaults to fail-fast: it returns the instant the first node
+goes red (`fail_fast_tripped: true`, `settled: false`), so the agent drills into
+the failure without blocking on the slow lanes — its `failed[]` is only what's
+red so far, and only `passed: true` (a fully settled run) is a trustworthy green.
+
 `cancel` stops the live run and waits until it's torn down; `run`'s `supersede`
 cancels a run already live here before starting (the "stop this, run the fixed
 commit" move), and `linger` keeps the coordinator serving past settle so a node
