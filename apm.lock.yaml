@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-21T19:56:12.312066+00:00'
+generated_at: '2026-07-21T20:55:48.957567+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -60,7 +60,7 @@ dependencies:
   deployed_file_hashes:
     .agents/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .agents/skills/be-review/SKILL.md: sha256:9dc6c1d05ebe50c5b11896da0c7e47e16726631ac9136c30e9ffcb7fe24d7773
-    .agents/skills/be/SKILL.md: sha256:7c44d9f207d14396cd8548ae20b65902bbd1c51ac76f27c48a88263ba745273c
+    .agents/skills/be/SKILL.md: sha256:53589b570e6c374388fe03446ac93e270486f29899b13ee0a626ef345392d727
     .agents/skills/bridge/SKILL.md: sha256:f9220d5e89b38bc6370cf9e601229992aa1f642fae3ef6d92d9c5a884d5b1cca
     .agents/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
     .agents/skills/bridge/dashboard/index.js: sha256:f58c4b996f6b9df7f13f30fbd061404cbc95ab3e5881f53066cde199f3501f38
@@ -75,7 +75,7 @@ dependencies:
     .agents/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
     .claude/skills/architecture-first-principles/SKILL.md: sha256:f91c89a3546235fb8f2e95489d9a943a540fb4477af37fe4512d731f9e9f312f
     .claude/skills/be-review/SKILL.md: sha256:9dc6c1d05ebe50c5b11896da0c7e47e16726631ac9136c30e9ffcb7fe24d7773
-    .claude/skills/be/SKILL.md: sha256:7c44d9f207d14396cd8548ae20b65902bbd1c51ac76f27c48a88263ba745273c
+    .claude/skills/be/SKILL.md: sha256:53589b570e6c374388fe03446ac93e270486f29899b13ee0a626ef345392d727
     .claude/skills/bridge/SKILL.md: sha256:f9220d5e89b38bc6370cf9e601229992aa1f642fae3ef6d92d9c5a884d5b1cca
     .claude/skills/bridge/dashboard/index.html: sha256:7289bb60245087ce5b57c833bd8bb2b766153cec31b92a413647547b3e9742b0
     .claude/skills/bridge/dashboard/index.js: sha256:f58c4b996f6b9df7f13f30fbd061404cbc95ab3e5881f53066cde199f3501f38
@@ -133,7 +133,7 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: 37fc20ea0f2dc6e15653c0b29759cfa923d4a79a
+  resolved_commit: c506b43e73473dd3a7dd9cf36cf75535130a784a
   version: 1.0.0
   package_type: apm_package
   deployed_files:
@@ -150,11 +150,11 @@ dependencies:
   deployed_file_hashes:
     .agents/skills/odu-mcp/SKILL.md: sha256:d704536fdd36cfd1298ffc1d0276734bbc177ea22c3c5f0bade95cc1abf54af2
     .agents/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-    .agents/skills/odu/SKILL.md: sha256:5b9e068002a0144e92c0ff1a60b5a0a6482d6f5b15a895903dcc5757ac5218d6
+    .agents/skills/odu/SKILL.md: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
     .claude/skills/odu-mcp/SKILL.md: sha256:d704536fdd36cfd1298ffc1d0276734bbc177ea22c3c5f0bade95cc1abf54af2
     .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-    .claude/skills/odu/SKILL.md: sha256:5b9e068002a0144e92c0ff1a60b5a0a6482d6f5b15a895903dcc5757ac5218d6
-  content_hash: sha256:a4ddd73ff1d7be157cdc6d798126117e33fcfb49fb79570839963c7f6db4ba12
+    .claude/skills/odu/SKILL.md: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
+  content_hash: sha256:ba06aebb6021366d32dd5d651568249eb765224522d0b7d8e8d24f50b170ce28
 - repo_url: juspay/project-unknown
   name: project-unknown
   host: github.com
@@ -844,7 +844,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:7c44d9f207d14396cd8548ae20b65902bbd1c51ac76f27c48a88263ba745273c
+  content_hash: sha256:53589b570e6c374388fe03446ac93e270486f29899b13ee0a626ef345392d727
 - kind: project-relative
   target: claude
   value: .claude/skills/blog-post
@@ -1384,7 +1384,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:5b9e068002a0144e92c0ff1a60b5a0a6482d6f5b15a895903dcc5757ac5218d6
+  content_hash: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
 - kind: project-relative
   target: claude
   value: .claude/skills/parcel
@@ -1681,7 +1681,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:7c44d9f207d14396cd8548ae20b65902bbd1c51ac76f27c48a88263ba745273c
+  content_hash: sha256:53589b570e6c374388fe03446ac93e270486f29899b13ee0a626ef345392d727
 - kind: project-relative
   target: codex
   value: .agents/skills/bridge
@@ -2113,7 +2113,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:5b9e068002a0144e92c0ff1a60b5a0a6482d6f5b15a895903dcc5757ac5218d6
+  content_hash: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
 - kind: project-relative
   target: codex
   value: .agents/skills/perfection-review
