@@ -224,6 +224,14 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("grok --always-approve --model grok-4.5")).toBe(
       "grok --always-approve --model grok-4.5",
     );
+    // `--no-alt-screen` is a launch-shape boolean (inline TUI); recent agents
+    // / resume must re-run with it, not drop it as an unknown flag.
+    expect(parseAgentCommand("grok --no-alt-screen fix the bug")).toBe(
+      "grok --no-alt-screen",
+    );
+    expect(
+      parseAgentCommand("grok --no-alt-screen -m grok-4.5 'ship it'"),
+    ).toBe("grok --no-alt-screen -m grok-4.5");
   });
 
   // Regression (living-clue): a BOOLEAN stable flag must never consume the
@@ -261,6 +269,9 @@ describe("parseAgentCommand", () => {
     );
     expect(parseAgentCommand("grok --no-plan 'fix the bug'")).toBe(
       "grok --no-plan",
+    );
+    expect(parseAgentCommand("grok --no-alt-screen 'fix the bug'")).toBe(
+      "grok --no-alt-screen",
     );
   });
 
