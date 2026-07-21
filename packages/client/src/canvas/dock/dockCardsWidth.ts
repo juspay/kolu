@@ -65,19 +65,22 @@ export function effectiveDockCardsWidth(
 }
 
 /** Per-device cards-mode width in pixels. The serializer writes a canonical
- *  `JSON.stringify(number)` (e.g. `"288"`), so the parse is strict: an empty /
- *  non-numeric stored value is REJECTED (falling back to the default via
- *  `onInvalid`, which surfaces the corruption rather than swallowing it), while a
- *  finite but out-of-range value is CLAMPED to the nearest bound. Two distinct
- *  degradations — a hand-edited `"abc"` resets to `CARDS_WIDTH_PX`; a hand-edited
- *  `"9999"` clamps to the ceiling. */
+ *  `JSON.stringify(number)` (e.g. `"288"`), so the parse mirrors it with
+ *  `JSON.parse` and accepts ONLY a finite JSON number — a hand-edited `""`,
+ *  `"abc"`, `"0x140"`, or `"12px"` all throw (they are not canonical JSON
+ *  numbers), so nothing the serializer never writes slips through as a coerced
+ *  `Number(...)` would (`Number("") === 0`). Two distinct degradations, both
+ *  surfaced rather than swallowed: a non-number falls back to `CARDS_WIDTH_PX`
+ *  via `onInvalid`; a finite but out-of-range number CLAMPS to the nearest
+ *  bound. */
 const [dockCardsWidth, setDockCardsWidthRaw] = persistedPref<number>({
   name: "kolu-dock-cards-width",
   fallback: CARDS_WIDTH_PX,
   parse: (raw) => {
-    if (raw.trim() === "") throw new Error("empty dock width");
-    const n = Number(raw);
-    if (!Number.isFinite(n)) throw new Error(`invalid dock width: ${raw}`);
+    const n: unknown = JSON.parse(raw);
+    if (typeof n !== "number" || !Number.isFinite(n)) {
+      throw new Error(`invalid dock width: ${raw}`);
+    }
     return clampDockCardsWidth(n);
   },
   // Surface the corruption instead of silently resetting — the repo's
@@ -95,14 +98,8 @@ export { dockCardsWidth };
 
 /** Set the cards width, clamped into bounds. The drag handle drives this on every
  *  pointer move; `persistedPref` writes each step to `localStorage` (cheap,
- *  per-device, no server round-trip). */
+ *  per-device, no server round-trip). Pass `CARDS_WIDTH_PX` to reset to default —
+ *  no dedicated wrapper (the repo's no-thin-wrapper-functions rule). */
 export function setDockCardsWidth(px: number): void {
   setDockCardsWidthRaw(clampDockCardsWidth(px));
-}
-
-/** Return the cards width to its default — the double-click-to-reset target.
- *  The default lives here (the `persistedPref` fallback), so 'reset' is named
- *  by the module that owns it rather than reconstituted at the call site. */
-export function resetDockCardsWidth(): void {
-  setDockCardsWidthRaw(CARDS_WIDTH_PX);
 }

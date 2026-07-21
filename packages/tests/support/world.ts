@@ -109,6 +109,9 @@ export class KoluWorld extends World {
   savedCodeTabPreviewHeight?: number;
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
+  /** Maximized-dock width (px) captured before a resize drag, so a follow-up
+   *  step can prove the drag widened it and that the width survives a reload. */
+  savedDockWidth?: number;
   /** Scroll position captured INSIDE the sandboxed HTML preview iframe by
    *  `When I scroll the file preview iframe to the bottom`, held across an
    *  identical-content rewrite to prove the content-hash `?v=<tag>` never

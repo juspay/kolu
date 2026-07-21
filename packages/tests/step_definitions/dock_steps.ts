@@ -133,6 +133,84 @@ When("I click the chrome-bar dock toggle", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+const DOCK_RESIZE_HANDLE_SELECTOR = '[data-testid="dock-resize-handle"]';
+
+/** Rendered width of the outer dock aside, in CSS px. */
+async function dockWidth(world: KoluWorld): Promise<number> {
+  const box = await world.page.locator(DOCK_SELECTOR).boundingBox();
+  if (!box) throw new Error("dock has no bounding box (not visible?)");
+  return box.width;
+}
+
+Then(
+  "the dock resize handle should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(DOCK_RESIZE_HANDLE_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I drag the dock resize handle right by {int} pixels",
+  async function (this: KoluWorld, dx: number) {
+    // Capture the pre-drag width so the follow-up can prove the drag widened
+    // the dock and that the width survives a reload.
+    this.savedDockWidth = await dockWidth(this);
+    const handle = this.page.locator(DOCK_RESIZE_HANDLE_SELECTOR);
+    const box = await handle.boundingBox();
+    if (!box) throw new Error("dock resize handle has no bounding box");
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await this.page.mouse.move(cx, cy);
+    await this.page.mouse.down();
+    // Stepped move so the pointermove listeners fire like a real drag.
+    await this.page.mouse.move(cx + dx, cy, { steps: 12 });
+    await this.page.mouse.up();
+    await this.waitForFrame();
+  },
+);
+
+Then("the dock should be wider than before", async function (this: KoluWorld) {
+  const before = this.savedDockWidth;
+  if (before === undefined) {
+    throw new Error("no pre-drag dock width captured");
+  }
+  await this.page.waitForFunction(
+    ({ selector, prev }) => {
+      const el = document.querySelector(selector);
+      if (!el) return false;
+      return el.getBoundingClientRect().width > prev + 20;
+    },
+    { selector: DOCK_SELECTOR, prev: before },
+    { timeout: POLL_TIMEOUT },
+  );
+  // Advance the remembered width to the widened value for the reload check.
+  this.savedDockWidth = await dockWidth(this);
+});
+
+Then(
+  "the dock should keep its widened width",
+  async function (this: KoluWorld) {
+    const widened = this.savedDockWidth;
+    if (widened === undefined) {
+      throw new Error("no widened dock width captured");
+    }
+    // Persistence is per-device (localStorage), so the width returns within a
+    // pixel or two of the pre-reload value — allow a small tolerance for
+    // sub-pixel layout rounding.
+    await this.page.waitForFunction(
+      ({ selector, target }) => {
+        const el = document.querySelector(selector);
+        if (!el) return false;
+        return Math.abs(el.getBoundingClientRect().width - target) <= 4;
+      },
+      { selector: DOCK_SELECTOR, target: widened },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then("the dock should be in maximized mode", async function (this: KoluWorld) {
   // `data-maximized=""` is set on the outer aside when posture is
   // maximized; the dock renders as a flex sibling of the canvas (real

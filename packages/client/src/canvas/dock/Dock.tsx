@@ -78,6 +78,7 @@ import {
   createSignal,
   For,
   onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
@@ -106,7 +107,6 @@ import {
   CARDS_WIDTH_PX,
   dockCardsWidth,
   effectiveDockCardsWidth,
-  resetDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
@@ -201,7 +201,12 @@ const Dock: Component<{
   // parent. `effectiveDockWidth` caps the rendered width to it so a stored-wide
   // dock can't squeeze the canvas to zero and clip its own handle off-screen
   // (the right-panel split can shrink this host well below the 560px ceiling).
+  // Resolved in `onMount`, NOT the `ref` callback: Solid runs `ref` before the
+  // element is inserted, so `parentElement` is still null there — reading it then
+  // would leave the host unmeasured and the cap silently inert.
+  let asideEl!: HTMLElement;
   const [hostEl, setHostEl] = createSignal<HTMLElement | null>(null);
+  onMount(() => setHostEl(asideEl.parentElement));
   const hostSize = createElementSize(hostEl);
 
   /** Rendered width for the maximized cards sidebar — the stored preference
@@ -225,7 +230,11 @@ const Dock: Component<{
     if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
+    // Delta rides the RENDERED width (so a host-capped dock doesn't jump on
+    // grab); `startStored` is the pre-drag preference to restore if the gesture
+    // is cancelled (a completed drag keeps whatever the last move persisted).
     const startWidth = effectiveDockWidth();
+    const startStored = dockCardsWidth();
     abortDockResize?.abort();
     abortDockResize = new AbortController();
     capturePointerGesture(
@@ -234,8 +243,15 @@ const Dock: Component<{
         onEnd: () => {
           abortDockResize = null;
         },
+        onCancel: () => {
+          setDockCardsWidth(startStored);
+          abortDockResize = null;
+        },
       },
       abortDockResize,
+      // Bind to the initiating pointer so a second touch/pen can't drive or end
+      // this resize.
+      e.pointerId,
     );
   }
   // The dock is app-lifetime chrome, so this rarely fires — but a disposal
@@ -245,7 +261,7 @@ const Dock: Component<{
   return (
     <aside
       data-testid="dock"
-      ref={(el) => setHostEl(el.parentElement)}
+      ref={asideEl}
       data-mode={dockMode()}
       data-maximized={posture.mode() === "maximized" ? "" : undefined}
       class="flex flex-col select-none overflow-hidden bg-surface-1"
@@ -295,7 +311,7 @@ const Dock: Component<{
           class="absolute inset-y-0 right-0 z-40 w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors"
           title="Drag to resize · double-click to reset"
           onPointerDown={startDockResize}
-          onDblClick={resetDockCardsWidth}
+          onDblClick={() => setDockCardsWidth(CARDS_WIDTH_PX)}
         />
       </Show>
     </aside>

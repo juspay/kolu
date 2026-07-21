@@ -158,3 +158,19 @@ Feature: Dock
     When the dock is expanded
     Then the dock hidden footer should use the "cards" layout
     And there should be no page errors
+
+  Scenario: Resize the maximized dock by dragging its right edge, and it persists
+    # In maximized mode the dock is a real sidebar beside the canvas, and its
+    # right edge is a drag handle (like the right panel). Dragging widens it
+    # live; the width is remembered per device across a reload. The handle only
+    # exists in the maximized cards sidebar — not the rail, not the tiled float.
+    Given I create a terminal
+    When I click the chrome-bar maximize toggle
+    Then the dock should be in maximized mode
+    And the dock resize handle should be visible
+    When I drag the dock resize handle right by 140 pixels
+    Then the dock should be wider than before
+    When I reload the page and wait for ready
+    Then the dock should be in maximized mode
+    And the dock should keep its widened width
+    And there should be no page errors
