@@ -102,7 +102,10 @@ holds the session — differs.
 kolu asks each terminal for its foreground process id (`tcgetpgrp`, POSIX — Linux
 and macOS alike), matches it against the known agents, and reads that agent's
 session from disk — tailing a JSONL transcript, or querying a SQLite database and
-watching its write-ahead log. In a normal shell terminal that's enough: the shell
+watching its write-ahead log. Those file-change watches are backed by a low-rate
+stat reconciliation, so if the OS drops the change notification for a fast turn's
+final write, the state self-heals within about a second instead of stranding on
+its last reading. In a normal shell terminal that's enough: the shell
 prints a marker naming each command as it runs, and the agent's process becomes
 the foreground. When an agent is launched **as the terminal's root process** — no
 shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print

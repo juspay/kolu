@@ -382,7 +382,7 @@ record name="": install
 
 # Boot the packaged Kolu and verify /api/health — production-like runtime smoke
 smoke:
-    {{ nix_shell }} bash ci/smoke.sh
+    {{ nix_shell }} bash .apm/skills/ci/smoke.sh
 
 # Typing-echo latency baseline (padi W1 / #1652). Boots a private nix-built
 # kolu, measures keystroke→echo p50/p95/p99 over kolu-server's /rpc/ws, tears
