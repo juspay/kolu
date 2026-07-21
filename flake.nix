@@ -87,9 +87,9 @@
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
       # so each platform's `tsc`/`astro check` is its own proof — a darwin-only
       # type error wouldn't surface from a linux-only check. CI's
-      # `nix`/devour-flake node realizes each platform's checks on that
-      # platform. Rationale: workspace gate in nix/pnpm-typecheck.nix, website
-      # gate in website/default.nix.
+      # `ci::nix` realizes each platform's checks on that platform. Rationale:
+      # workspace gate in nix/pnpm-typecheck.nix, website gate in
+      # website/default.nix.
       checks = eachSystem (pkgs:
         let system = pkgs.stdenv.hostPlatform.system;
         in {
