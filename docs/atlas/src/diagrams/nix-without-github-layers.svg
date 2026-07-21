@@ -1,0 +1,89 @@
+<svg viewBox="0 0 940 400" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12.5">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6472"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c0392b"/>
+    </marker>
+    <marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2e7d4f"/>
+    </marker>
+  </defs>
+
+  <style>
+    .box{rx:9;ry:9;stroke-width:1.6}
+    .safe{fill:#e3f6e9;stroke:#2e7d4f}
+    .bad{fill:#fbe2e2;stroke:#c0392b}
+    .host{fill:#e9eefb;stroke:#5a6fa0}
+    .cache{fill:#fff3d4;stroke:#b8860b}
+    .t{fill:#1c2430}
+    .sub{fill:#5b6472;font-size:11px}
+    .subG{fill:#2e7d4f;font-size:11px;font-weight:600}
+    .subR{fill:#c0392b;font-size:11px;font-weight:600}
+    .h{font-weight:700}
+  </style>
+
+  <!-- Row A: the already-pinned path -->
+  <rect class="box safe" x="16"  y="30" width="176" height="56"/>
+  <text class="t h" x="104" y="53" text-anchor="middle">kolu flake.nix</text>
+  <text class="sub" x="104" y="70" text-anchor="middle">ZERO inputs — by design</text>
+
+  <rect class="box safe" x="256" y="30" width="176" height="56"/>
+  <text class="t h" x="344" y="53" text-anchor="middle">npins</text>
+  <text class="sub" x="344" y="70" text-anchor="middle">sources.json · rev + narHash</text>
+
+  <rect class="box host" x="496" y="30" width="176" height="56"/>
+  <text class="t h" x="584" y="53" text-anchor="middle">codeload.github.com</text>
+  <text class="sub" x="584" y="70" text-anchor="middle">archive tarballs (no API)</text>
+
+  <rect class="box cache" x="736" y="30" width="188" height="56"/>
+  <text class="t h" x="830" y="49" text-anchor="middle">Binary cache</text>
+  <text class="sub" x="830" y="65" text-anchor="middle">cache.nixos.asia/oss</text>
+  <text class="sub" x="830" y="79" text-anchor="middle">— the lever —</text>
+
+  <line x1="192" y1="58" x2="252" y2="58" stroke="#2e7d4f" stroke-width="1.6" marker-end="url(#arG)"/>
+  <line x1="432" y1="58" x2="492" y2="58" stroke="#2e7d4f" stroke-width="1.6" marker-end="url(#arG)"/>
+  <text class="subG" x="462" y="50" text-anchor="middle">rev tarball</text>
+  <line x1="672" y1="58" x2="732" y2="58" stroke="#5b6472" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- cache substitutes back into the build (dashed, the escape from GitHub) -->
+  <path d="M830 86 C 830 150, 104 150, 104 90" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+  <text class="sub" x="467" y="145" text-anchor="middle" fill="#b8860b">substitute the built closure — no source fetch reaches GitHub</text>
+
+  <!-- Row B: the residual API hole -->
+  <rect class="box safe" x="16"  y="214" width="176" height="56"/>
+  <text class="t h" x="104" y="237" text-anchor="middle">ci::nix / ci::home-manager</text>
+  <text class="sub" x="104" y="254" text-anchor="middle">ci/mod.just:101,120</text>
+
+  <rect class="box safe" x="256" y="214" width="176" height="56"/>
+  <text class="t h" x="344" y="237" text-anchor="middle">devour-flake</text>
+  <text class="sub" x="344" y="254" text-anchor="middle">PINNED to a rev · #1917</text>
+
+  <rect class="box bad" x="496" y="300" width="196" height="56"/>
+  <text class="t h" x="594" y="323" text-anchor="middle">nixpkgs-unstable</text>
+  <text class="sub" x="594" y="340" text-anchor="middle">UNPINNED branch ref</text>
+
+  <rect class="box bad" x="736" y="300" width="188" height="56"/>
+  <text class="t h" x="830" y="323" text-anchor="middle">api.github.com</text>
+  <text class="sub" x="830" y="340" text-anchor="middle">REST · 60/hr anon → 403</text>
+
+  <line x1="192" y1="242" x2="252" y2="242" stroke="#2e7d4f" stroke-width="1.6" marker-end="url(#arG)"/>
+  <!-- devour → codeload (pinned, safe, goes up-right) -->
+  <path d="M432 232 C 470 210, 470 70, 494 62" fill="none" stroke="#2e7d4f" stroke-width="1.6" marker-end="url(#arG)"/>
+  <text class="subG" x="470" y="180" text-anchor="middle">pinned rev → codeload</text>
+  <!-- devour → transitive (the override re-resolve, red) -->
+  <path d="M370 270 C 400 300, 460 322, 492 328" fill="none" stroke="#c0392b" stroke-width="1.6" marker-end="url(#arR)"/>
+  <text class="subR" x="392" y="312" text-anchor="middle">--override-input re-resolves</text>
+  <!-- transitive → api (red) -->
+  <line x1="692" y1="328" x2="732" y2="328" stroke="#c0392b" stroke-width="1.6" marker-end="url(#arR)"/>
+  <text class="subR" x="712" y="320" text-anchor="middle">resolve HEAD</text>
+
+  <!-- legend -->
+  <g transform="translate(16,372)">
+    <rect x="0" y="-9" width="13" height="13" class="box safe"/><text class="sub" x="19" y="1">pinned — no API</text>
+    <rect x="150" y="-9" width="13" height="13" class="box bad"/><text class="sub" x="169" y="1">live REST API (rate-limited)</text>
+    <rect x="360" y="-9" width="13" height="13" class="box host"/><text class="sub" x="379" y="1">source host</text>
+    <rect x="480" y="-9" width="13" height="13" class="box cache"/><text class="sub" x="499" y="1">binary cache — the lever</text>
+  </g>
+</svg>
