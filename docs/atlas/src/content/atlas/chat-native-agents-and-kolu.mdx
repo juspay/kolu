@@ -204,7 +204,7 @@ half of the product** does not: live conversation in the Inspector over a
 
 | Do first | Why |
 | --- | --- |
-| **CT1+CH1** (one PR) | Stream + Inspector Conversation + **windowed memory** — no XS |
+| **CT1+CH1** (one PR) | Live **read-only chat log** in Inspector (same filter as export) + windowed stream |
 | **PE0** | Chat can create/drive a terminal from XS (half duplex still useful) |
 | **PE1** | Same stream, second consumer (post into XS) |
 
@@ -213,7 +213,7 @@ Not in this tree: multi-agent campaign board / bridge dashboard as product UI
 we only productize the **1:1 conversation** that pesu will also use.
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · stream + Inspector Conversation (one PR)", m: "windowed · no XS", h: "#ct1-ch1" },
+  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · live read-only chat log in Inspector (one PR)", m: "same filter as export · windowed", h: "#ct1-ch1" },
   { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CT1+CH1 · XS", h: "#pe0" },
   { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — stream → postMessage", m: "needs CT1+CH1 + PE0", h: "#pe1" },
   { d: 0, g: "○", c: "last", l: "PE2 · deep link + turn UX", m: "needs PE0", h: "#pe2" },
@@ -225,84 +225,83 @@ export const PT = [
 <a id="ct1"></a>
 <a id="ch1"></a>
 
-### CT1+CH1 — one PR: stream + Inspector Conversation
+### CT1+CH1 — one PR: live read-only chat log
 
-<Phase id="CT1+CH1" name="streams.transcriptChat + Conversation in Inspector (windowed, not unbounded)" status="next" />
+<Phase id="CT1+CH1" name="streams.transcriptChat + read-only Conversation in Inspector" status="next" />
 
-**One PR.** A stream with no consumer is not shippable product; a Conversation
-section with no stream is a poll hack. Ship both together.
+**One PR.** Product first: the **same thing as Export → Chat log**, but live in
+the Inspector — human + AI messages only, **read-only**. Not a second agent
+UI, not a write path redesign.
 
-#### Wire (CT1 half)
+Compose already exists above/below it and stays as-is (insert, not submit).
+No “chat Send = submit” decision in this PR.
 
-**Today:** `procedures.transcript.exportHtml` — one-shot HTML. Loaders already
-produce a vendor-neutral IR.
+#### What the user gets
 
-**Ship:** `streams.transcriptChat` (name TBD) on `padiSurface`:
-
-```
-input:  { id: terminalId }
-output: { kind: "snapshot" | "delta", … }   // attach-style, not full-list every frame
-```
-
-- Filter = HTML **chat log** mode: `user` + `assistant` only.
-- **Snapshot-then-deltas**; reconnect replaces state.
-- Forwarding: **`delta`** (fail-through).
-- **Not** “full message list every yield” — that re-bloats every frame and
-  fights windowing. Prefer an attach-style snapshot of a **bounded tail**
-  (last *N* chat events, *N* fixed in the contract) plus small deltas
-  (append / grow last assistant). Older history is optional later (scroll-up
-  page procedure) — not required for v1 if the tail is useful.
-
-`exportHtml` stays the unbounded export path (offline document). Live UI must
-not load that whole document into a Solid store.
-
-#### UI (CH1 half) — real kolu chrome only
-
-Real shell, as shipped:
-
-- **Canvas tile** = the PTY. Agent TUI stays **here**.
-- Right panel tabs = **Inspector | Code** only.
-- Inspector already has **Compose** (`ComposeSection`: insert, not submit).
-
-**Add:** **Conversation** section **above Compose** — live chat-filtered
-messages for *this* terminal. No Terminal|Chat on the tile.
+You already have an agent in a tile. Open the right panel → **Inspector**.
+Above Compose, a **Conversation** section shows the session as a chat log —
+exactly the cut export’s chat mode uses. As the agent works, the log follows
+the live edge (windowed). Tools and edits stay on the **tile** PTY and out of
+this list.
 
 <KoluShellMockup />
 
 | You do | What happens |
 | --- | --- |
-| Open **Inspector** | Same tab bar as now |
-| Read **Conversation** | Human / AI only — tools omitted |
-| **Compose** + **Send →** | Existing `sendInput` into the tile’s PTY |
-| Watch the **tile** | Full agent TUI when you want depth |
+| Open **Inspector** | Same **Inspector \| Code** tabs as today |
+| Read **Conversation** | Human / AI only — same filter as HTML chat log |
+| Leave it open while the agent runs | Tail updates live; stick-to-bottom when at the edge |
+| **Compose** / tile | Unchanged — write path is not this PR’s job |
+
+#### Why read-only first
+
+| In | Out of this PR |
+| --- | --- |
+| See the conversation without export or tool spam | Changing Compose submit semantics |
+| Prove stream + Inspector placement + memory bounds | “Chat face replaces the tile” |
+| Same mental model as chat-log export | Multi-worker / bridge board |
+
+Write-from-chat (submit-on-send, etc.) can come later once the read path is
+honest. Compose remains available for insert as today.
+
+#### Wire (CT1)
+
+**Today:** loaders → IR; `transcript.exportHtml` with `mode: "chat"` is the
+offline document of the same filter.
+
+**Ship:** `streams.transcriptChat` on `padiSurface`:
+
+```
+input:  { id: terminalId }
+output: { kind: "snapshot" | "delta", … }   // attach-style; bounded tail snapshot
+```
+
+- Filter = **chat log** IR: `user` + `assistant` only (share the filter with
+  export’s chat mode — one source of truth, not a second definition).
+- Snapshot-then-deltas; reconnect replaces the window.
+- Forwarding: **`delta`** (fail-through).
+- Bounded tail *N* in the snapshot contract — not full-list every frame.
+
+`exportHtml` remains the path for a full offline document (and optional full
+history). The live panel must not materialize that whole document in a store.
 
 #### Memory: live tail, not an archive in RAM
 
-Long agent sessions must not grow the client’s heap without bound.
-
 | Rule | Detail |
 | --- | --- |
-| **Bounded client buffer** | Conversation state is a **ring / tail window** (same *N* as the stream snapshot, or a fixed pixel/message budget) — not an append-only array of the whole session |
-| **Virtualized list** | Only rows in (or near) the viewport mount DOM; scroll recycles rows |
-| **Stick to bottom** | When the user is at the live edge (like xterm’s follow), new deltas auto-scroll; scrolling up pauses follow |
-| **Reconnect** | Snapshot replaces the window; do not concatenate onto a stale accumulator |
-| **Export stays separate** | Full history → existing HTML export, not the live panel |
-
-Rejected: holding every message ever for the terminal in `createStore` “because
-the stream sent them.”
-
-#### Open product call (Compose)
-
-Compose today **inserts, does not submit**. Chat feel may want submit — decide
-in this PR; must not break Compose’s paste-race rule.
+| **Bounded client buffer** | Ring / tail window — not every message of the session |
+| **Virtualized list** | Only near-viewport rows mount DOM |
+| **Stick to bottom** | Follow live edge when at bottom; scroll up pauses follow |
+| **Reconnect** | Snapshot **replaces** the window; never concat onto stale state |
+| **Export stays separate** | Full archive → HTML export, not the panel |
 
 #### Done when (this one PR)
 
-- Subscribe to `transcriptChat` for the focused terminal.
-- Inspector **Conversation** shows a live, **windowed** chat log (no tool spam).
-- Client memory stays bounded under multi-hour sessions (tail + virtualize).
-- Reconnect does not double-paint or grow without bound.
-- Tile remains the real PTY; Compose still works.
+- Focused terminal’s chat log is **readable live** in Inspector (human + AI only).
+- Same filter semantics as export chat log (one definition).
+- Windowed + virtualized — multi-hour sessions do not unbounded-grow client heap.
+- Reconnect does not double-paint.
+- Tile stays the PTY; Compose behavior unchanged.
 
 <a id="pe0"></a>
 
