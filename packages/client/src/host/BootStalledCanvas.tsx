@@ -21,7 +21,7 @@
  * byte-identical down/dead DegradedCanvas — #1713 preserved — via the resolver's down arm).
  */
 
-import type { Component } from "solid-js";
+import { createMemo, type Component } from "solid-js";
 import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   type BootStalledCopy,
@@ -51,7 +51,7 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
   // Narrow the recovery ONCE per read (a discriminated union), then build the card's copy,
   // phase detail, data attributes, and primary recovery verb off the narrowed arm — so neither
   // the connector's `phase` nor the client's `leg` is ever read on the wrong arm.
-  const view = (): BootStalledView => {
+  const view = createMemo((): BootStalledView => {
     const r = props.recovery;
     if (r.via === "connector") {
       return {
@@ -79,7 +79,7 @@ const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
         onClick: () => location.reload(),
       },
     };
-  };
+  });
   const actions = (): CanvasFailureAction[] => [
     view().recovery,
     ...switchToLocalAction(),
