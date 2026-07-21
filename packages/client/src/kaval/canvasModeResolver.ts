@@ -41,7 +41,7 @@ import type {
   ConnectPhase,
   EntryFailedCause,
 } from "kolu-common/surfacesWithPadi";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
 
@@ -387,16 +387,31 @@ function escapeSurface(
   tag: Extract<BootTag, { accrual: "accrue" }>,
   facts: CanvasFacts,
 ): CanvasMode {
-  if (tag.leg === "daemon" && facts.isLocalHost) {
-    return { kind: "down", down: { state: "dead" } };
-  }
-  if (tag.leg === "provisioning") {
-    return {
-      kind: "boot-stalled",
-      recovery: { via: "connector", phase: tag.phase },
-    };
-  }
-  return { kind: "boot-stalled", recovery: { via: "client", leg: tag.leg } };
+  // Dispatch on the leg (+ host-locality for the down/dead route) with `.exhaustive()`
+  // (prefer-ts-pattern), matching `resolvePrecedence` above — a future `StalledLeg` must be
+  // handled here or fail the build. The `membership | session | daemon` arm is exactly
+  // {@link ClientStalledLeg} (`provisioning` is consumed by the connector arm), so `leg` narrows
+  // to it cast-free for the client recovery.
+  return match({ leg: tag.leg, isLocalHost: facts.isLocalHost })
+    .with(
+      { leg: "daemon", isLocalHost: true },
+      (): CanvasMode => ({ kind: "down", down: { state: "dead" } }),
+    )
+    .with(
+      { leg: "provisioning" },
+      (): CanvasMode => ({
+        kind: "boot-stalled",
+        recovery: { via: "connector", phase: tag.phase },
+      }),
+    )
+    .with(
+      { leg: P.union("membership", "session", "daemon") },
+      ({ leg }): CanvasMode => ({
+        kind: "boot-stalled",
+        recovery: { via: "client", leg },
+      }),
+    )
+    .exhaustive();
 }
 
 /** THE ONE exported resolver (#1763). Computes the raw precedence, then — off ONE
