@@ -235,6 +235,30 @@ function probePolicy(): LifetimePolicy {
   return { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS };
 }
 
+/** Shape the `ProvisionResult` for a step that went silent and got killed
+ *  (`lifetime-expired`) — the SHARED derivation both the copy and build steps use (#1908
+ *  C5). Charges the step's budget: `recordExpiry()` returns `true` when the budget is
+ *  EXHAUSTED, making the step GENUINELY TERMINAL (`terminal: true`) so the session gives
+ *  up NOW, decoupled from the retry counter — a permanently-silent copy/build can't loop
+ *  forever. The `cause` stays honest `"network"` (a silent-then-killed step is a transport
+ *  fault); `terminal` is the orthogonal give-up axis the session's gate keys off. */
+function expiredResult(
+  host: string,
+  cmdLabel: string,
+  budget: StepBudget,
+  res: ExitResult,
+): ProvisionResult {
+  const terminal = budget.recordExpiry();
+  return {
+    ok: false,
+    reason: `${host}: '${cmdLabel}' ${describeExit(res)}${
+      terminal ? " — giving up (silent too many times)" : ""
+    }`,
+    cause: "network",
+    ...(terminal ? { terminal: true } : {}),
+  };
+}
+
 /** Pin `target` behind the indirect per-agent GC root at `rootPath` — the SHARED
  *  best-effort step both the warm-HIT path and the cold step-4 use (#1908 R5d: one
  *  pin, one failure semantics). Re-realising an already-valid path is instant and
@@ -393,22 +417,12 @@ export async function provisionAgent(
       },
     );
     if (copyRes.kind === "lifetime-expired") {
-      // A silent copy — killed. Retryable (`network`) UNLESS the per-step budget is
-      // exhausted, in which case the step is GENUINELY TERMINAL (`terminal: true`, #1908
-      // C5) — the session gives up NOW, decoupled from the retry counter, so a
-      // permanently-silent copy can't loop forever.
-      const terminal = budgets.copy.recordExpiry();
-      return {
-        ok: false,
-        reason: `${opts.host}: 'nix copy --derivation' ${describeExit(copyRes)}${
-          terminal ? " — giving up (silent too many times)" : ""
-        }`,
-        // A silent-then-killed step is a transport fault (`network`); the `terminal` flag
-        // is the give-up axis, orthogonal to `cause`. The session's give-up gate keys off
-        // `terminal` directly, so the cause stays honest.
-        cause: "network",
-        ...(terminal ? { terminal: true } : {}),
-      };
+      return expiredResult(
+        opts.host,
+        "nix copy --derivation",
+        budgets.copy,
+        copyRes,
+      );
     }
     if (!copyRes.ok) {
       return {
@@ -445,18 +459,12 @@ export async function provisionAgent(
     signal,
   });
   if (realiseRes.kind === "lifetime-expired") {
-    const terminal = budgets.build.recordExpiry();
-    return {
-      ok: false,
-      reason: `${opts.host}: 'nix-store --realise' ${describeExit(realiseRes)}${
-        terminal ? " — giving up (silent too many times)" : ""
-      }`,
-      // A silent-then-killed step is a transport fault (`network`); the `terminal` flag
-      // is the give-up axis, orthogonal to `cause`. The session's give-up gate keys off
-      // `terminal` directly, so the cause stays honest.
-      cause: "network",
-      ...(terminal ? { terminal: true } : {}),
-    };
+    return expiredResult(
+      opts.host,
+      "nix-store --realise",
+      budgets.build,
+      realiseRes,
+    );
   }
   if (!realiseRes.ok) {
     return {
