@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 320" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="High-level communication: Xyne Spaces, pesu, and kolu. Xyne Spaces sends signed webhooks to pesu and receives postMessage replies. pesu creates terminals and writes input into kolu, and reads assistant transcript events back.">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <style>
+      .t  { fill:#0f172a; font-size:15px; font-weight:700; }
+      .s  { fill:#64748b; font-size:11.5px; }
+      .box-xs   { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
+      .box-pesu { fill:#F3E8FF; stroke:#6D28D9; stroke-width:2; }
+      .box-kolu { fill:#EDF0FD; stroke:#0D32B2; stroke-width:2; }
+      .ht { fill:#92400E; font-size:13px; font-weight:700; }
+      .hs { fill:#7a4f00; font-size:10.5px; }
+      .pt { fill:#5B21B6; font-size:13px; font-weight:700; }
+      .ps { fill:#6B21A8; font-size:10.5px; }
+      .bt { fill:#0D32B2; font-size:13px; font-weight:700; }
+      .bs { fill:#4A5072; font-size:10.5px; }
+      .edge { stroke:#475569; stroke-width:1.75; fill:none; }
+      .el   { fill:#334155; font-size:10.5px; font-weight:600; }
+      .dim  { fill:#94a3b8; font-size:10.5px; font-style:italic; }
+      .mono { font-family:ui-monospace, "SF Mono", Menlo, monospace; font-size:10px; }
+    </style>
+  </defs>
+
+  <text class="t" x="24" y="28">pesu bridges Xyne Spaces and kolu</text>
+  <text class="s" x="24" y="48">one thread &#8596; one terminal &#183; messages only</text>
+
+  <!-- Xyne Spaces -->
+  <rect class="box-xs" x="24" y="80" width="190" height="170" rx="12"/>
+  <text class="ht" x="119" y="112" text-anchor="middle">Xyne Spaces</text>
+  <text class="hs" x="119" y="134" text-anchor="middle">chat app</text>
+  <text class="hs mono" x="119" y="168" text-anchor="middle">threads</text>
+  <text class="hs mono" x="119" y="188" text-anchor="middle">identity</text>
+  <text class="hs mono" x="119" y="208" text-anchor="middle">@mention / DM</text>
+
+  <!-- pesu -->
+  <rect class="box-pesu" x="285" y="80" width="190" height="170" rx="12"/>
+  <text class="pt" x="380" y="112" text-anchor="middle">pesu</text>
+  <text class="ps" x="380" y="134" text-anchor="middle">pipe daemon</text>
+  <text class="ps mono" x="380" y="168" text-anchor="middle">thread &#8594; terminal</text>
+  <text class="ps mono" x="380" y="188" text-anchor="middle">author gate</text>
+  <text class="ps mono" x="380" y="208" text-anchor="middle">filter: assistant</text>
+
+  <!-- kolu -->
+  <rect class="box-kolu" x="546" y="80" width="190" height="170" rx="12"/>
+  <text class="bt" x="641" y="112" text-anchor="middle">kolu</text>
+  <text class="bs" x="641" y="134" text-anchor="middle">terminals + agents</text>
+  <text class="bs mono" x="641" y="168" text-anchor="middle">create / input</text>
+  <text class="bs mono" x="641" y="188" text-anchor="middle">transcript</text>
+  <text class="bs mono" x="641" y="208" text-anchor="middle">real files / PTY</text>
+
+  <!-- XS ↔ pesu -->
+  <path class="edge" d="M224 130 L275 130" marker-end="url(#arr)"/>
+  <text class="el" x="249" y="120" text-anchor="middle">webhook</text>
+  <path class="edge" d="M275 200 L224 200" marker-end="url(#arr)"/>
+  <text class="el" x="249" y="220" text-anchor="middle">postMessage</text>
+
+  <!-- pesu ↔ kolu -->
+  <path class="edge" d="M485 130 L536 130" marker-end="url(#arr)"/>
+  <text class="el" x="510" y="120" text-anchor="middle">create + type</text>
+  <path class="edge" d="M536 200 L485 200" marker-end="url(#arr)"/>
+  <text class="el" x="510" y="220" text-anchor="middle">assistant events</text>
+
+  <text class="dim" x="380" y="290" text-anchor="middle">XS and kolu never connect directly</text>
+</svg>
