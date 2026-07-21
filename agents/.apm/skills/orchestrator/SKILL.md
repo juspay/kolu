@@ -94,6 +94,17 @@ data file in the project. Grown practice, each line paid for:
   (click = read the plan, atlas-branch fresh since the path resolves in the
   coordinator's worktree); a PR station → the GitHub URL (external arm,
   untouched). The board is a control surface, not a mirror. Link badges are DERIVED from href shape in the renderer (never data): ❯ terminal · ▤ note/file (a /code?path= deep link) · ↗ external — the icon tells the target class before the click, with a legend line under the masthead.
+- **Red-alert sound.** A single TNG red-alert chime (`dashboard/red-alert.mp3`)
+  fires the moment a `block` station FIRST appears anywhere in the tree — a new
+  alert — and NEVER re-fires on the 30s data reload for a still-standing block:
+  `index.js` is not reloaded (only the data script is re-inserted), so the
+  module-level `seenBlocks` set survives every refresh and the first paint seeds
+  it silently (opening the board never blares). A `🔊/🔇` mute pill in the
+  masthead toggles it — **unmuted by default**, persisted in `localStorage`
+  (`ob-muted`) when the sandbox allows, module-var otherwise. Autoplay policy:
+  the chime is primed on the first click (a one-shot `unlockAudio`), so a brand
+  new alert may render its red pulse before sound is permitted — the visual
+  alert never depends on audio.
 - **The standing atlas/docs PR is AMBIENT, not a queue item**: the human
   tracks the coordinator's atlas branch himself — the board and reports never
   nag it into the merge queue; only NON-docs deliverables occupy the waiting
