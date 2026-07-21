@@ -80,7 +80,15 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       }
     }
 
-    prevByHost.set(encHost, cur);
+    // SNAPSHOT the frame — never keep a reference. The live surface delivers this
+    // value via SolidJS `reconcile`, mutating ONE object in place across frames;
+    // storing the reference would make the next frame's `prev` and `cur` the SAME
+    // mutated object, so no transition is ever seen and nothing fires. Copy the id
+    // arrays so the diff compares a frozen prior frame against the live current one.
+    prevByHost.set(encHost, {
+      awaitingIds: [...cur.awaitingIds],
+      finishedIds: [...cur.finishedIds],
+    });
   };
 
   const forgetHost = (encHost: string): void => {

@@ -73,6 +73,20 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     ]);
   });
 
+  it("REPRO (deploy bug): detects a transition even when the cell REUSES one mutated object", () => {
+    // The live surface delivers cell values via SolidJS `reconcile` — ONE object
+    // mutated in place across frames. If the engine keeps a REFERENCE to it as
+    // `prev`, then `prev` and `cur` are the same mutated object and no transition
+    // is ever seen. The engine must snapshot. (Unit tests that pass fresh objects
+    // each frame never hit this — the exact gap that let the deploy bug through.)
+    const { core, delivered } = harness();
+    const frame = u([], []); // ONE object, reused + mutated (reconcile)
+    core.observe("h", frame); // baseline
+    frame.finishedIds = ["B"] as TerminalId[]; // mutate in place
+    core.observe("h", frame); // same object, now finished
+    expect(delivered).toEqual([{ id: "B", asking: false }]);
+  });
+
   it("an asking gate fires with asking=true", () => {
     const { core, delivered } = harness();
     core.observe("h", u([], []));
