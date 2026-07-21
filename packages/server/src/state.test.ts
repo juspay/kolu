@@ -120,9 +120,20 @@ describe("migratePreferences_1_34_0", () => {
     expect(migrated).not.toHaveProperty("activityAlerts");
   });
 
-  it("leaves a record with no activityAlerts untouched (fresh ≥1.34 install)", () => {
+  it("leaves an already-migrated record (has attentionAlerts) untouched", () => {
     const fresh = { attentionAlerts: false, scrollLock: true };
     expect(migratePreferences_1_34_0(fresh)).toEqual(fresh);
+  });
+
+  it("REPRO: a pre-1.34 blob that never set activityAlerts still gets attentionAlerts", () => {
+    // The latent deploy bug: `confStore` reads the raw stored object with NO
+    // schema-default back-fill, so a blob that relied on the old default (no
+    // `activityAlerts` key) must NOT migrate to a MISSING `attentionAlerts` — that
+    // surfaces as `undefined` on the client and silently disables every alert.
+    const migrated = migratePreferences_1_34_0({ scrollLock: true });
+    expect(typeof migrated.attentionAlerts).toBe("boolean");
+    expect(migrated.attentionAlerts).toBe(DEFAULT_PREFERENCES.attentionAlerts);
+    expect(migrated.scrollLock).toBe(true);
   });
 });
 

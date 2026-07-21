@@ -48,10 +48,7 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
-import {
-  attentionTransitions,
-  nextUnseenFinished,
-} from "./attentionTransitions";
+import { createAttentionCore } from "./attentionCore";
 import { writeHostMarks } from "./attentionMarks";
 import { createStore } from "solid-js/store";
 import { match } from "ts-pattern";
@@ -117,18 +114,6 @@ export function useAttention(deps: AttentionDeps): {
   // the badge.
   const [summary, setSummary] = createStore<Record<string, HostAttention>>({});
 
-  // The fire-once latch, keyed `${encHost}/${id}` — cross-host by construction, so
-  // a session-imported id that lives on two hosts can't share one episode. Cleared
-  // when a terminal leaves the attention class (its agent goes back to work).
-  const latched = new Set<string>();
-  const keyOf = (encHost: string, id: TerminalId): string => `${encHost}/${id}`;
-
-  // Per-host "unseen finished" ids — the quiet host-tab dot. A finished agent
-  // idles in `waiting` forever, so this is the UNSEEN subset (see
-  // `nextUnseenFinished`), not "has any finished agent": it accrues on a fresh
-  // background finish and clears when you look at the host.
-  const unseenFin = new Map<string, Set<TerminalId>>();
-
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
 
   // "Seen with your eyes": the active host's focused tile while kolu has focus. A
@@ -139,7 +124,7 @@ export function useAttention(deps: AttentionDeps): {
 
   /** Actually reach the user for one terminal: sound + OS popup, plus the dock
    *  unread when it's an active-host background tile. The `WHEN` gate lives in the
-   *  caller (`process`); this is the delivery, shared with the simulate hook. */
+   *  engine; this is the delivery, shared with the simulate hook. */
   function deliver(host: HostKey, id: TerminalId, asking: boolean): void {
     playSound();
     const encHost = encodeHostKey(host);
@@ -152,7 +137,7 @@ export function useAttention(deps: AttentionDeps): {
         ? `An agent needs your input on ${hostLabel(host)}`
         : `An agent finished on ${hostLabel(host)}`;
     void notify.show({
-      tag: keyOf(encHost, id),
+      tag: `${encHost}/${id}`,
       title,
       body: rich?.description,
       icon: "/favicon.svg",
@@ -161,47 +146,19 @@ export function useAttention(deps: AttentionDeps): {
     if (isActiveHost(host) && id !== deps.activeId()) deps.markUnread(id);
   }
 
-  /** Diff one host's cell frame-to-frame and apply the rules. `prev === null` is
-   *  the baseline (first frame), which never fires — attention is a TRANSITION,
-   *  not a discovery. The WHICH-transitions decision is the pure `attentionTransitions`
-   *  (unit-tested); this wraps it with the stateful latch / watched / deliver. */
-  function process(
-    host: HostKey,
-    prev: PadiUrgency | null,
-    cur: PadiUrgency,
-  ): void {
-    const encHost = encodeHostKey(host);
-    const { candidates, ended } = attentionTransitions(prev, cur);
-
-    // The quiet host-tab dot: fold this host's unseen-finished set and publish it.
-    // Runs on EVERY frame (incl. baseline) so the dot tracks work back to zero,
-    // never latches on. `nextUnseenFinished` owns the rule (unit-tested).
-    const unseen = nextUnseenFinished(
-      unseenFin.get(encHost) ?? new Set(),
-      prev,
-      cur,
-      isActiveHost(host),
-    );
-    unseenFin.set(encHost, unseen);
-    writeHostMarks(encHost, { unseenFinished: unseen.size });
-
-    // Episode end: a terminal that left BOTH sets went back to work — clear its
-    // latch so its NEXT finish/ask is a fresh episode that fires again.
-    for (const id of ended) latched.delete(keyOf(encHost, id));
-    if (prev === null) return; // baseline — record only, never fire.
-
-    for (const { id, asking } of candidates) {
-      const key = keyOf(encHost, id);
-      if (latched.has(key)) continue;
-      const seen = watched(host, id);
-      const alerted = alertsEnabled() && !seen;
-      if (alerted) deliver(host, id, asking);
-      // Latch once the user has been MADE AWARE — by an actual alert, OR by looking
-      // right at a live gate (eyes work with sound off). A `finished` seen while
-      // watched is NOT latched, so a later real gate still fires (#1177).
-      if (alerted || (asking && seen)) latched.add(key);
-    }
-  }
+  // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
+  // the per-host prev-frame, the fire-once latch, and the unseen-finished sets;
+  // we hand it the wire-facing side-effects. Hooks take the ENCODED host string
+  // (the engine's key) and decode where they need the `HostKey`.
+  const core = createAttentionCore({
+    alertsEnabled,
+    isActiveHost: (encHost) => isActiveHost(decodeHostKey(encHost)),
+    isWatched: (encHost, id) => watched(decodeHostKey(encHost), id),
+    deliver: (encHost, id, asking) =>
+      deliver(decodeHostKey(encHost), id, asking),
+    writeMark: (encHost, unseenFinished) =>
+      writeHostMarks(encHost, { unseenFinished }),
+  });
 
   // Eager per-host roots over the FULL member set (a background host is precisely
   // the one you must hear from), each disposed when its host leaves the pool.
@@ -227,16 +184,14 @@ export function useAttention(deps: AttentionDeps): {
           !(sub.complete?.() ?? false),
       );
 
-      // Transitions ride the reactive `value()` with a manually-tracked prev — so it
-      // is independent of whether the cell's `updated` fires an initial frame: the
-      // first DEFINED value is the baseline (no fire), every later change diffs. The
-      // upstream `equals` (`urgencyEqual`) means `value()` only ticks on real change.
-      let prev: PadiUrgency | null = null;
+      // Feed every urgency frame to the engine. The engine holds the prev-frame,
+      // so this effect is a thin bridge: the FIRST defined value is its baseline
+      // (no fire), every later change diffs and may fire. The upstream `equals`
+      // (`urgencyEqual`) means `value()` only ticks on a real change.
       createEffect(() => {
         const v = value();
         if (v === undefined) return; // no frame yet — the mirror is silent.
-        process(host, prev, v);
-        prev = v;
+        core.observe(encHost, v);
       });
       // Reflect this host's asking-count + liveness for the badge fold. Separate from
       // the transition effect so a link flap (live changes, value doesn't) still
@@ -246,13 +201,7 @@ export function useAttention(deps: AttentionDeps): {
         setSummary(encHost, { asking, live: live() });
       });
       onCleanup(() => {
-        for (const id of prev?.awaitingIds ?? []) {
-          latched.delete(keyOf(encHost, id));
-        }
-        for (const id of prev?.finishedIds ?? []) {
-          latched.delete(keyOf(encHost, id));
-        }
-        unseenFin.delete(encHost);
+        core.forgetHost(encHost);
         setSummary(encHost, undefined as unknown as HostAttention);
         writeHostMarks(encHost, undefined);
       });
@@ -263,16 +212,9 @@ export function useAttention(deps: AttentionDeps): {
   createEffect(() => void roots());
 
   // Clear a host's unseen-finished dot the moment you switch TO it — "you looked".
-  // `nextUnseenFinished` also zeroes it on any active-host cell tick, but a switch
-  // with no accompanying cell change still needs this to clear the mark.
-  createEffect(() => {
-    const enc = encodeHostKey(activeHost());
-    const set = unseenFin.get(enc);
-    if (set && set.size > 0) {
-      set.clear();
-      writeHostMarks(enc, { unseenFinished: 0 });
-    }
-  });
+  // The engine also zeroes it on any active-host cell tick, but a switch with no
+  // accompanying cell change still needs this to clear the mark.
+  createEffect(() => core.markHostSeen(encodeHostKey(activeHost())));
 
   // App badge = Σ ASKING over LIVE hosts. A dead host's held count never inflates
   // it; the active host is live, so its asking agents are counted too. Serialised

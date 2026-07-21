@@ -479,8 +479,13 @@ export const PadiUrgencySchema = z.object({
    *  cross-host attention owner (`useAttention`) applies the SAME rules to a
    *  finished agent on a background host as on the active one (fire once if
    *  unseen, quiet host-tab mark), instead of a finish being legible only on the
-   *  host you're looking at. Recency-free like `awaitingIds`. */
-  finishedIds: z.array(TerminalIdSchema),
+   *  host you're looking at. Recency-free like `awaitingIds`.
+   *
+   *  `.default([])` for ROLLING-DEPLOY safety: a newer client reading an OLDER
+   *  padi's `urgency` frame (which predates this field) parses it as `[]` rather
+   *  than failing validation and breaking the whole cell — asking keeps working,
+   *  and finishes light up the moment that host's padi catches up. */
+  finishedIds: z.array(TerminalIdSchema).default([]),
 });
 export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
 

@@ -119,19 +119,22 @@ export function migratePreferences_1_32_0(
 export function migratePreferences_1_34_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!("activityAlerts" in current)) return current;
+  // Already migrated (a fresh ≥1.34 record) — just drop any stray legacy key.
+  if ("attentionAlerts" in current) {
+    const { activityAlerts: _drop, ...rest } = current;
+    return rest;
+  }
   const { activityAlerts, ...rest } = current;
-  // The existing `attentionAlerts` wins if both keys somehow coexist; otherwise
-  // carry the legacy boolean forward (default only if it wasn't a boolean). The
-  // spread below drops the legacy `activityAlerts` key so the blob matches the
-  // schema exactly.
-  const attentionAlerts = (
-    "attentionAlerts" in current
-      ? current.attentionAlerts
-      : typeof activityAlerts === "boolean"
-        ? activityAlerts
-        : DEFAULT_PREFERENCES.attentionAlerts
-  ) as unknown;
+  // ALWAYS produce a boolean `attentionAlerts` — carry the legacy value forward
+  // when present, else the default. A blob that never explicitly set
+  // `activityAlerts` (relied on the old default) must NOT migrate to a MISSING
+  // `attentionAlerts`: `confStore` reads the raw object with no schema-default
+  // back-fill, so an absent key surfaces as `undefined` on the client and
+  // silently disables ALL attention alerts.
+  const attentionAlerts =
+    typeof activityAlerts === "boolean"
+      ? activityAlerts
+      : DEFAULT_PREFERENCES.attentionAlerts;
   return { ...rest, attentionAlerts };
 }
 
