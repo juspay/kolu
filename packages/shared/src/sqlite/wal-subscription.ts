@@ -21,21 +21,27 @@
  * the next listener unaffected. See the fault-isolation snapshot in
  * the dispatch loop for the why.
  *
- * The parent-directory watcher handles two concerns:
+ * The direct subscription is `subscribeFileAppends` (an `fs.watch` edge
+ * over an `fs.watchFile` floor, juspay/kolu#1754). Its floor follows the
+ * PATH, not an inode, so that one subscription already covers WAL
+ * **appearance** (the startup window between a row landing in the main DB
+ * and the first WAL frame flushing), every subsequent **append**, and
+ * **inode replacement** (after the last writer closes SQLite can
+ * checkpoint, delete, and recreate the `-wal` under a new inode) — the
+ * floor re-stats the path and recovers each within one interval.
  *
- *   1. The startup window between a row being inserted in the main DB
- *      file and the first WAL frame being flushed (so the WAL file
- *      exists). The directory watcher sees the WAL appear and arms a
- *      direct `fs.watch` on it.
- *   2. SQLite WAL inode replacement. After the last writer closes,
- *      SQLite can checkpoint, delete, and recreate the `-wal` file
- *      under a new inode. A direct `fs.watch` on the *old* inode
- *      silently never fires again. The directory watcher detects the
- *      recreate and re-arms the direct watch on the new inode.
+ * The parent-directory watcher is retained for two narrower jobs the floor
+ * alone can't do promptly:
  *
- * The directory watcher therefore stays alive for the lifetime of the
- * subscription, alongside the direct watcher — never torn down on
- * promotion.
+ *   1. Refresh the fast-path EDGE onto a recreated inode faster than the
+ *      floor's poll interval, so a post-checkpoint WAL regains sub-interval
+ *      latency (see `armDirect`).
+ *   2. Fire the unconditional kick that recovers a same-size same-inode
+ *      checkpoint rewrite — a write no stat key (nor a coarse-mtime key)
+ *      can see (see `runRearm`).
+ *
+ * It therefore stays alive for the lifetime of the subscription, alongside
+ * the direct subscription — never torn down on promotion.
  */
 
 import fs from "node:fs";
