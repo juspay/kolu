@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Build every derivation a flake exposes for the current system.
+#
+# Discovery is dynamic (attrNames of the flake's own outputs) so a new
+# package/check/devShell is picked up with no recipe edit — the same
+# auto-coverage property devour-flake had, without a GitHub-hosted helper.
+# Kinds listed under --require are fail-loud when empty for this system.
+#
+# Usage:
+#   ci/flake-build [options] FLAKE [-- NIX_ARGS...]
+#
+# Options:
+#   --kinds KIND[,KIND...]     Output kinds to build (default: packages,checks,devShells)
+#   --require KIND[,KIND...]   Kinds that must be non-empty (default: same as --kinds)
+#   --nixos-toplevels          Also build same-system nixosConfigurations.*.config.system.build.toplevel
+#                              (optional; empty is fine — Darwin has none)
+#
+# NIX_ARGS (after --, or any --override-input / --accept-flake-config style flag
+# once FLAKE is set) are passed to every `nix eval` and the final `nix build`.
+#
+# Examples:
+#   ci/flake-build .
+#   ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .
+
+set -euo pipefail
+
+kinds=(packages checks devShells)
+require=()
+require_set=0
+nixos_toplevels=0
+flake=""
+nix_args=()
+
+die() {
+  echo "ci/flake-build: $*" >&2
+  exit 1
+}
+
+usage() {
+  sed -n '2,24p' "$0" | sed 's/^# \?//'
+  exit 2
+}
+
+split_csv() {
+  local csv=$1
+  local -n _out=$2
+  _out=()
+  local IFS=,
+  # shellcheck disable=SC2206
+  _out=($csv)
+}
+
+while (( $# > 0 )); do
+  case "$1" in
+    -h|--help) usage ;;
+    --kinds)
+      [[ $# -ge 2 ]] || die "--kinds needs an argument"
+      split_csv "$2" kinds
+      shift 2
+      ;;
+    --require)
+      [[ $# -ge 2 ]] || die "--require needs an argument"
+      split_csv "$2" require
+      require_set=1
+      shift 2
+      ;;
+    --nixos-toplevels)
+      nixos_toplevels=1
+      shift
+      ;;
+    --)
+      shift
+      nix_args+=("$@")
+      break
+      ;;
+    -*)
+      die "unknown option: $1 (pass nix flags after --)"
+      ;;
+    *)
+      if [[ -z $flake ]]; then
+        flake=$1
+        shift
+      else
+        die "unexpected argument: $1 (pass nix flags after --)"
+      fi
+      ;;
+  esac
+done
+
+[[ -n $flake ]] || die "FLAKE is required (see --help)"
+if (( require_set == 0 )); then
+  require=("${kinds[@]}")
+fi
+
+system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+
+# Installable prefix: ".#foo" for the current flake, else "path#foo".
+installable() {
+  local attr=$1
+  if [[ $flake == . ]]; then
+    printf '.#%s\n' "$attr"
+  else
+    printf '%s#%s\n' "$flake" "$attr"
+  fi
+}
+
+kind_required() {
+  local kind=$1 r
+  for r in "${require[@]}"; do
+    [[ $r == "$kind" ]] && return 0
+  done
+  return 1
+}
+
+outputs=()
+
+for kind in "${kinds[@]}"; do
+  names="$(
+    nix eval --raw "${flake}#${kind}.${system}" \
+      "${nix_args[@]}" \
+      --apply 'attrs: builtins.concatStringsSep "\n" (builtins.attrNames attrs)'
+  )"
+  count=0
+  while IFS= read -r name; do
+    [[ -z $name ]] && continue
+    outputs+=("$(installable "${kind}.${system}.${name}")")
+    ((count += 1))
+  done <<< "$names"
+  if (( count == 0 )) && kind_required "$kind"; then
+    die "flake exposed no ${kind} outputs for ${system} (${flake})"
+  fi
+done
+
+if (( nixos_toplevels )); then
+  config_installables="$(
+    nix eval --raw "${flake}#nixosConfigurations" \
+      "${nix_args[@]}" \
+      --apply "configs: builtins.concatStringsSep \"\\n\" (map (name: \"nixosConfigurations.\" + name + \".config.system.build.toplevel\") (builtins.filter (name: configs.\${name}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames configs)))"
+  )"
+  while IFS= read -r attr; do
+    [[ -z $attr ]] && continue
+    outputs+=("$(installable "$attr")")
+  done <<< "$config_installables"
+fi
+
+(( ${#outputs[@]} > 0 )) || die "nothing to build for ${system} (${flake})"
+
+nix build -L --no-link --print-out-paths \
+  "${nix_args[@]}" \
+  "${outputs[@]}"

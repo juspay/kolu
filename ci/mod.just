@@ -86,33 +86,13 @@ pnpm-hash-fresh:
 # Build every derivation output the flake exposes for the current system.
 # Per-system enumeration is deliberate: odu runs this recipe once in each
 # platform lane, and each lane proves its own packages, checks, and dev shells.
-# Names come from the flake itself so adding one cannot silently escape CI.
-# This includes `checks.*`, so the workspace typecheck
+# Names come from the flake itself so adding one cannot silently escape CI
+# (see ci/flake-build). This includes `checks.*`, so the workspace typecheck
 # (checks.x86_64-linux.typecheck) runs here — it replaced the standalone
 # `typecheck` recipe (juspay/kolu#1049). The typecheck result is
 # content-addressed, so it only re-runs when a typechecked source changes.
 nix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    outputs=()
-    for kind in packages checks devShells; do
-      names="$(
-        nix eval --raw ".#$kind.$system" \
-          --apply 'attrs: builtins.concatStringsSep "\n" (builtins.attrNames attrs)'
-      )"
-      count=0
-      while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
-        outputs+=(".#$kind.$system.$name")
-        ((count += 1))
-      done <<< "$names"
-      if (( count == 0 )); then
-        echo "ci::nix: flake exposed no $kind outputs for $system" >&2
-        exit 1
-      fi
-    done
-    nix build -L --no-link --print-out-paths "${outputs[@]}"
+    bash ci/flake-build .
 
 # `nix flake check`: evaluate every flake output and run the flake's `checks.*`.
 # Complements the `nix` node (which builds the output drvs) with the
@@ -133,33 +113,7 @@ flake-check:
 # concurrent build, letting the home-manager VM work overlap the big build
 # instead of queuing behind every flake output.
 home-manager:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    outputs=()
-    check_installables="$(
-      nix eval --raw "./nix/home/example#checks.$system" \
-        --override-input kolu . \
-        --apply "attrs: builtins.concatStringsSep \"\\n\" (map (name: \"./nix/home/example#checks.$system.\" + name) (builtins.attrNames attrs))"
-    )"
-    while IFS= read -r output; do
-      [[ -n "$output" ]] && outputs+=("$output")
-    done <<< "$check_installables"
-    if (( ${#outputs[@]} == 0 )); then
-      echo "ci::home-manager: example exposed no checks for $system" >&2
-      exit 1
-    fi
-    config_installables="$(
-      nix eval --raw ./nix/home/example#nixosConfigurations \
-        --override-input kolu . \
-        --apply "configs: builtins.concatStringsSep \"\\n\" (map (name: \"./nix/home/example#nixosConfigurations.\" + name + \".config.system.build.toplevel\") (builtins.filter (name: configs.\${name}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames configs)))"
-    )"
-    while IFS= read -r output; do
-      [[ -n "$output" ]] && outputs+=("$output")
-    done <<< "$config_installables"
-    nix build -L --no-link --print-out-paths \
-      --override-input kolu . \
-      "${outputs[@]}"
+    bash ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
