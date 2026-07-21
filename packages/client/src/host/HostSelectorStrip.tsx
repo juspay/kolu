@@ -230,7 +230,11 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
           <Show when={unseenFinished() > 0 && !isActive()}>
             <span
               role="img"
-              class="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-fg-3/70"
+              // The quieter tier of the SAME amber "needs you" language the asking
+              // pill and the unread badge speak (`bg-amber-500`) — dimmed, so
+              // finished reads as lesser attention than a full asking pill, not a
+              // different (grey) vocabulary.
+              class="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/50"
               title={`${unseenFinished()} finished, unseen, on ${hostLabel(props.host)}`}
               aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(props.host)}`}
             />
