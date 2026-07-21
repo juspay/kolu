@@ -27,7 +27,6 @@ export {
   encodeProjectPath,
   extractTasks,
   fetchSessionSummary,
-  findTranscriptPath,
   FORK_TRANSCRIPT_STALE_MS,
   liveOutstandingTasks,
   liveWorkflowRuns,

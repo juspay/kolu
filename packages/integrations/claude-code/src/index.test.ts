@@ -1081,61 +1081,6 @@ describe("firstTranscriptTimestampMs", () => {
   });
 });
 
-describe("findTranscriptPath", () => {
-  let tmpDir: string;
-  let findTranscriptPathFn: typeof import("./index.ts").findTranscriptPath;
-
-  beforeAll(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-find-test-"));
-    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
-    vi.resetModules();
-    const mod = await import("./index.ts");
-    findTranscriptPathFn = mod.findTranscriptPath;
-  });
-
-  afterAll(() => {
-    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("returns exact match by session ID", () => {
-    const cwd = "/home/user/myproject";
-    const sessionId = "test-session-123";
-    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
-    fs.mkdirSync(projectDir, { recursive: true });
-    const transcriptPath = path.join(projectDir, `${sessionId}.jsonl`);
-    fs.writeFileSync(transcriptPath, `${JSON.stringify({ type: "user" })}\n`);
-
-    const result = findTranscriptPathFn({ pid: 1, sessionId, cwd });
-    expect(result).toBe(transcriptPath);
-  });
-
-  it("returns null when session JSONL doesn't exist, ignoring other files in dir", () => {
-    const cwd = "/home/user/multi-session-project";
-    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
-    fs.mkdirSync(projectDir, { recursive: true });
-
-    const otherPath = path.join(projectDir, "other-session.jsonl");
-    fs.writeFileSync(otherPath, `${JSON.stringify({ type: "user" })}\n`);
-
-    const result = findTranscriptPathFn({
-      pid: 1,
-      sessionId: "current-session-id",
-      cwd,
-    });
-    expect(result).toBeNull();
-  });
-
-  it("returns null when project dir does not exist", () => {
-    const result = findTranscriptPathFn({
-      pid: 1,
-      sessionId: "any",
-      cwd: "/nonexistent/path",
-    });
-    expect(result).toBeNull();
-  });
-});
-
 describe("extractTasks", () => {
   const mockLog = { error: vi.fn() };
 

@@ -9,3 +9,9 @@ export {
   type DirFilenameWatcher,
   type DirFilenameWatcherConfig,
 } from "./refcounted-dir-watcher.ts";
+
+export {
+  DEFAULT_APPEND_POLL_MS,
+  subscribeFileAppends,
+  type SubscribeFileAppendsOpts,
+} from "./file-append-watcher.ts";

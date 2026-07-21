@@ -511,7 +511,7 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // Every candidate file carries the SAME `pid` field (a stable sessionKey =
         // `${sessionId}:${pid}:${startedAt}`), so whichever candidate the daemon's
         // foreground pid matches resolves to one identical session (no watcher
-        // churn). cwd MUST equal the terminal's cwd so `findTranscriptPath` resolves
+        // churn). cwd MUST equal the terminal's cwd so `transcriptPathFor` resolves
         // the transcript above.
         const startedAt = Date.now();
         for (const pid of candidates) {
