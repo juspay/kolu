@@ -199,7 +199,7 @@ describe("subscribeFileAppends — a deletion is expected-absent, not an error",
     unsub();
   });
 
-  it("surfaces a hard stat error (EACCES) instead of collapsing to absent", async () => {
+  it("logs a hard stat error (EACCES) but does NOT emit a false transition (F6)", async () => {
     // Root bypasses directory permissions, so EACCES can't be provoked there.
     if (process.getuid?.() === 0) return;
     suppressEdge();
@@ -208,7 +208,8 @@ describe("subscribeFileAppends — a deletion is expected-absent, not an error",
     const file = path.join(subdir, "f.jsonl");
     fs.writeFileSync(file, "a\n");
     const log = makeLog();
-    const unsub = subscribeFileAppends(file, vi.fn(), {
+    const onChange = vi.fn();
+    const unsub = subscribeFileAppends(file, onChange, {
       intervalMs: INTERVAL,
       log,
       label: "test",
@@ -217,9 +218,42 @@ describe("subscribeFileAppends — a deletion is expected-absent, not an error",
     fs.chmodSync(subdir, 0o000); // now statSync(file) throws EACCES (no dir x-bit)
     await settle();
     fs.chmodSync(subdir, 0o755); // restore so afterEach cleanup succeeds
+    await settle(); // let a recovery tick run too
 
-    // A real errno must surface, never be read as "absent, stay silent".
+    // The errno surfaces (never collapses to a silent "absent")...
     expect(log.error).toHaveBeenCalled();
+    // ...but it must NOT read as a state change: an unreadable file is not
+    // evidence the state moved, so the consumer is never told to re-derive it
+    // (which through grok would flip a waiting tile to `thinking`). Nothing
+    // changed across the whole window, so no emit at all.
+    expect(onChange).not.toHaveBeenCalled();
     unsub();
+  });
+});
+
+describe("subscribeFileAppends — reentrant unsubscribe (F7)", () => {
+  it("does not re-arm the poll when onChange unsubscribes reentrantly", async () => {
+    suppressEdge();
+    const file = path.join(tmp, "reentrant.jsonl");
+    fs.writeFileSync(file, "a\n");
+    let unsub = (): void => {};
+    let calls = 0;
+    unsub = subscribeFileAppends(
+      file,
+      () => {
+        calls++;
+        unsub(); // reentrant teardown from inside the poll's emit
+      },
+      { intervalMs: INTERVAL, label: "test" },
+    );
+
+    fs.appendFileSync(file, "b\n"); // drives one poll emit → reentrant unsub
+    await settle();
+    fs.appendFileSync(file, "c\n"); // a further change must reach nothing
+    await settle();
+
+    // Exactly one emit; the running tick did not schedule another poll past the
+    // reentrant unsubscribe, so the second append is never observed.
+    expect(calls).toBe(1);
   });
 });

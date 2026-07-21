@@ -85,26 +85,45 @@ export interface SubscribeFileAppendsOpts {
   label: string;
 }
 
-/** Full stat identity (`size:mtimeMs:ino`) — the poll's authoritative baseline
- *  key. Returns null when the file is absent (ENOENT — expected under
- *  unconditional subscribe), so an absent↔present transition registers as a
- *  change. Any OTHER errno (EACCES, EMFILE, …) is a real fault and surfaces at
- *  `error` — `statSync` hands us the errno directly, so no separate
- *  disambiguating stat is needed (fail-fast: surface, never collapse to absent). */
-function statKey(
+/** A poll observation — deliberately THREE-valued, never two. Collapsing a hard
+ *  error into "absent" would let a transient EACCES read as a real state
+ *  transition (the consumer re-derives an unreadable file — e.g. grok reads an
+ *  unreadable `events.jsonl` as `thinking`, flipping a waiting tile). So `error`
+ *  is its own arm: it is logged but NEVER becomes the authoritative
+ *  observation and NEVER emits — a stat we couldn't take is not evidence the
+ *  file's state changed. `present` carries the full identity `size:mtimeMs:ino`
+ *  (ino closes the same-size WAL-rewrite / rotation aliases). */
+type Observation =
+  | { kind: "present"; key: string }
+  | { kind: "absent" }
+  | { kind: "error" };
+
+/** `statSync` the path into a three-valued observation. ENOENT → `absent`
+ *  (expected under unconditional subscribe); any other errno → logged and
+ *  `error` (surface, never collapse to absent — repo fail-fast law). */
+function observe(
   filePath: string,
   log: Logger | undefined,
   tag: string,
-): string | null {
+): Observation {
   try {
     const s = fs.statSync(filePath);
-    return `${s.size}:${s.mtimeMs}:${s.ino}`;
+    return { kind: "present", key: `${s.size}:${s.mtimeMs}:${s.ino}` };
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error({ err, path: filePath }, `${tag}: stat failed`);
-    }
-    return null;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
+    log?.error({ err, path: filePath }, `${tag}: stat failed`);
+    return { kind: "error" };
   }
+}
+
+/** True when two observations are the same authoritative state (both absent, or
+ *  both present with the same identity). `error` never reaches here — it is
+ *  filtered before comparison — so it can never read as "equal to" or "different
+ *  from" a known state. */
+function sameState(a: Observation, b: Observation): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "present" && b.kind === "present") return a.key === b.key;
+  return true; // both absent
 }
 
 /**
@@ -151,20 +170,26 @@ export function subscribeFileAppends(
     }
   };
 
-  // Floor — the hand-rolled `statSync` poll. `observed` is the baseline stat
-  // identity, captured **synchronously at subscribe** (no async gap can swallow
-  // a startup change — the fs.watchFile failure this replaces). The poll is the
-  // SOLE writer of `observed` (single-writer, P3): it re-stats each interval and
-  // emits + advances only on a change. Self-rescheduling so a slow stat never
-  // stacks; `.unref()`'d so it never holds the process alive.
-  let observed = statKey(filePath, log, tag);
+  // Floor — the hand-rolled `statSync` poll. `observed` is the last authoritative
+  // (present|absent) observation, captured **synchronously at subscribe** (no
+  // async gap can swallow a startup change — the fs.watchFile failure this
+  // replaces). The poll is the SOLE writer of `observed` (single-writer, P3): it
+  // re-stats each interval and emits + advances only on a real state change. A
+  // hard-`error` observation is logged but left OUT of `observed` and emits
+  // nothing (F6 — an unreadable stat is not evidence the state changed). Self-
+  // rescheduling so a slow stat never stacks; `.unref()`'d so it never holds the
+  // process alive.
+  let observed = observe(filePath, log, tag);
   let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
     if (closed) return;
-    const cur = statKey(filePath, log, tag);
-    if (cur !== observed) {
+    const cur = observe(filePath, log, tag);
+    if (cur.kind !== "error" && !sameState(cur, observed)) {
       observed = cur;
       emit();
     }
+    // Recheck AFTER emit: a reentrant `unsubscribe()` from inside onChange sets
+    // `closed`, and this running tick must not re-arm the timer past it (F7).
+    if (closed) return;
     pollTimer = setTimeout(poll, intervalMs);
     pollTimer.unref();
   }, intervalMs);
