@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" node --watch --import tsx src/main.ts --allow-nix-shell-with-env-whitelist default",
+    "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" KOLU_PADI_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev/padi\" node --watch --import tsx src/main.ts --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
@@ -21,6 +21,7 @@
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^22.0.0",
     "kolu-common": "workspace:*",

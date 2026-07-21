@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describeDaemon } from "@kolu/daemon-test-gate";
+import { expect, it } from "vitest";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
-describe("waitForPidGone", () => {
+describeDaemon("waitForPidGone", () => {
   it("resolves true immediately for a pid that is already gone", async () => {
     // A pid we just reaped: spawn `true`, wait for exit, then probe.
     const child = spawn("true", { stdio: "ignore" });

@@ -169,9 +169,22 @@ server:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
-# Run unit tests (vitest) across server and client packages
+# Run unit tests (vitest) — FORK-FREE by default. The daemon-forking suites are
+# gated OFF (`describeDaemon` keys on KOLU_DAEMON_TESTS); this is the safe reach a
+# workstation can run beside a live kolu. Use `test-daemon` for the gated suites.
 test-unit: install
     {{ nix_shell }} pnpm test:unit
+
+# CI/pu-ONLY: the daemon-forking unit suites (KOLU_DAEMON_TESTS=1). These fork real
+# kaval/padi daemons + PTYs; a bare run on a workstation OOM-reaped the production
+# kaval (juspay/kolu#1375). NEVER run this on a machine hosting a live kolu — it
+# belongs on CI or a `pu` box. Leash (Q4 — reuse the shipped run-bind, no new
+# rlimit): KOLU_DAEMON_BIND_PID binds every spawned daemon's lifetime to THIS run so
+# none can leak past it (the 182-leaked-dirs state becomes unrepresentable), and
+# `--workspace-concurrency=1` runs one package's suite at a time so a fork storm
+# can't pile up across packages. `test-unit` stays the fork-free default.
+test-daemon: install
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
 # bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no

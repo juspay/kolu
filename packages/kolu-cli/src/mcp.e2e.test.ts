@@ -48,7 +48,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { serveKoluMcp } from "kolu-mcp";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { assertPadiSurfaceCompatible } from "@kolu/padi/dial";
 import { mountStreamRetry } from "./connect.ts";
 import { guardedMcpConnect } from "./mcp.ts";
@@ -107,6 +111,7 @@ function daemonEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 }
 
 function spawnPadi(stateRoot: string): Padi {
+  assertDaemonSpawnAllowed("a real padi daemon (node --import loader bin.ts)");
   const child = spawn(
     process.execPath,
     [
@@ -283,7 +288,7 @@ async function driveTerminalRoundTrip(mcp: Client): Promise<void> {
 
 // ── Leg 1: the unix socket, through the REAL `kolu mcp` subprocess ────────
 
-describe("kolu mcp — the headless graduation pin", () => {
+describeDaemon("kolu mcp — the headless graduation pin", () => {
   it("unix socket: the full round-trip through a real `kolu mcp` process", {
     timeout: 120000,
   }, async () => {

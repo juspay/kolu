@@ -15,6 +15,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
   cleanEnv,
@@ -37,8 +41,10 @@ const shellSubprocessHome = mkdtempSync(
 );
 
 afterAll(() => {
-  bashRunner.close();
-  zshRunner.close();
+  // Close only if a gated describe actually constructed them (they are LAZY now —
+  // no module-load fork on a bare vitest, F4).
+  bashRunner?.close();
+  zshRunner?.close();
   rmSync(shellSubprocessHome, { recursive: true, force: true });
 });
 
@@ -166,18 +172,34 @@ class ShellRunner {
   }
 }
 
-const bashRunner = new ShellRunner("bash", ["--noprofile", "--norc"]);
-const zshRunner = new ShellRunner("zsh", ["-f"]);
+// LAZY runners (F4): the pair used to be constructed at MODULE LOAD, so `new
+// ShellRunner(...)` forked a real bash AND zsh even when every describe was skipped
+// (a module-load fork runs regardless of `describe.skip`). Construct on first use
+// instead, behind the daemon-spawn leash (`assertDaemonSpawnAllowed`), so a gate-off
+// bare vitest never forks a shell — and only the gated `describeDaemon` blocks below
+// (KOLU_DAEMON_TESTS=1) ever reach them.
+let bashRunner: ShellRunner | undefined;
+let zshRunner: ShellRunner | undefined;
+function bash(): ShellRunner {
+  assertDaemonSpawnAllowed("a bash shell subprocess");
+  bashRunner ??= new ShellRunner("bash", ["--noprofile", "--norc"]);
+  return bashRunner;
+}
+function zshShell(): ShellRunner {
+  assertDaemonSpawnAllowed("a zsh shell subprocess");
+  zshRunner ??= new ShellRunner("zsh", ["-f"]);
+  return zshRunner;
+}
 
 /** Run a script in a clean bash subshell and return stdout. */
 function runBash(script: string, cwd = "/tmp"): Promise<string> {
-  return bashRunner.run(script, cwd);
+  return bash().run(script, cwd);
 }
 
 /** Run a script in a clean zsh subshell and return stdout. Skips if zsh unavailable. */
 async function runZsh(script: string, cwd = "/tmp"): Promise<string | null> {
   try {
-    return await zshRunner.run(script, cwd);
+    return await zshShell().run(script, cwd);
   } catch (err) {
     // zsh not installed — skip
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -364,7 +386,7 @@ describe("cleanEnv — composes from the allowlist; identity/leaked/arbitrary en
   });
 });
 
-describe("OSC7_FN", () => {
+describeDaemon("OSC7_FN", () => {
   const hostnameStub = "hostname() { printf test-host; }\n";
 
   it("emits OSC 7 with file:// URL containing hostname and cwd", async () => {
@@ -389,7 +411,7 @@ describe("OSC7_FN", () => {
   });
 });
 
-describe("OSC2_PREEXEC_FN", () => {
+describeDaemon("OSC2_PREEXEC_FN", () => {
   // __kolu_preexec emits TWO sequences per invocation:
   //   1. OSC 2 title change (for terminal title + event-driven reconcile)
   //   2. OSC 633 ; E ; <command>  (VS Code semantic command mark, for
@@ -426,7 +448,7 @@ describe("OSC2_PREEXEC_FN", () => {
   });
 });
 
-describe("OSC2_PRECMD_BASH", () => {
+describeDaemon("OSC2_PRECMD_BASH", () => {
   it("emits OSC 2 with the current directory from dirs", async () => {
     const out = await runBash(
       `${OSC2_PRECMD_BASH}; __kolu_title_precmd`,
@@ -438,7 +460,7 @@ describe("OSC2_PRECMD_BASH", () => {
   });
 });
 
-describe("OSC2_PREEXEC_BASH_GUARD", () => {
+describeDaemon("OSC2_PREEXEC_BASH_GUARD", () => {
   /** Common prelude that sets up preexec fn + guard. */
   const prelude = `${OSC2_PREEXEC_FN}\n${OSC2_PREEXEC_BASH_GUARD}\n`;
 
@@ -695,7 +717,7 @@ describe("prepareShellInit — fully-specified plan (B0)", () => {
   });
 });
 
-describe("prepareShellInit zsh wrapper", () => {
+describeDaemon("prepareShellInit zsh wrapper", () => {
   // Behavioral regression for #800: spawn zsh against the wrapper rcfile
   // with a fake ~/.zshenv that exports a marker, then verify the marker
   // survives. Stronger than a string-match on the generated rcfile —
@@ -730,7 +752,7 @@ describe("prepareShellInit zsh wrapper", () => {
   });
 });
 
-describe("OSC2_PRECMD_ZSH", () => {
+describeDaemon("OSC2_PRECMD_ZSH", () => {
   it("emits OSC 2 with compact zsh prompt path", async () => {
     const out = await runZsh(`${OSC2_PRECMD_ZSH}; __kolu_title_precmd`, "/tmp");
     if (out === null) return; // zsh unavailable — skip
