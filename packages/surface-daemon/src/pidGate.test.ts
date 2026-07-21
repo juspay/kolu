@@ -17,7 +17,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
+import { afterEach, expect, it } from "vitest";
 import { acquirePidGate, gatePid, isHolderLive } from "./pidGate.ts";
 
 /** The supervisor's read, composed from the shared primitives: the live
@@ -34,6 +38,7 @@ afterEach(() => {
 
 /** A live child process whose pid we can plant in a gate. */
 function liveChild(): number {
+  assertDaemonSpawnAllowed("a short-lived liveness-probe child");
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
     stdio: "ignore",
   });
@@ -44,6 +49,7 @@ function liveChild(): number {
 
 /** A pid that is definitely dead — spawn a child, kill it, await its exit. */
 async function deadPid(): Promise<number> {
+  assertDaemonSpawnAllowed("a short-lived liveness-probe child");
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
   const pid = child.pid;
   if (pid === undefined) throw new Error("child failed to start");
@@ -58,7 +64,7 @@ function gateIn(): string {
   return join(mkdtempSync(join(tmpdir(), "kaval-gate-")), "daemon.pid");
 }
 
-describe("acquirePidGate", () => {
+describeDaemon("acquirePidGate", () => {
   it("acquires a free gate, records this pid, and release removes it", () => {
     const path = gateIn();
     const gate = acquirePidGate(path);
@@ -134,7 +140,7 @@ describe("acquirePidGate", () => {
   });
 });
 
-describe("liveHolder (supervisor read)", () => {
+describeDaemon("liveHolder (supervisor read)", () => {
   it("returns undefined for an absent gate", () => {
     expect(liveHolder(gateIn())).toBeUndefined();
   });

@@ -11,6 +11,10 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DAEMON_BIND_PID_ENV,
@@ -46,6 +50,7 @@ afterEach(() => {
 });
 
 function liveChild(): ChildProcess & { pid: number } {
+  assertDaemonSpawnAllowed("a short-lived liveness-probe child");
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
     stdio: "ignore",
   });
@@ -74,7 +79,7 @@ function paths(): { dir: string; gatePath: string; socketPath: string } {
   };
 }
 
-describe("daemonMain", () => {
+describeDaemon("daemonMain", () => {
   it("yields to a live instance without serving (already-running)", async () => {
     const { gatePath, socketPath } = paths();
     const otherPid = liveChild().pid;

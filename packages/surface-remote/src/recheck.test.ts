@@ -33,7 +33,10 @@ import {
 } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 
-vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
+vi.mock("./nixCopy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./nixCopy")>()),
+  provisionAgent: vi.fn(),
+}));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
 const contract = {

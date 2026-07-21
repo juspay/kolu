@@ -23,7 +23,8 @@ import {
   type PtyHostSpawnInput,
   servePtyHostOverUnixSocket,
 } from "kaval";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describeDaemon } from "@kolu/daemon-test-gate";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { type AttachOutcome, type AttachTty, runAttach } from "./attach.ts";
 import {
   type Connection,
@@ -155,7 +156,7 @@ afterAll(async () => {
   listener.close();
 });
 
-describe("runAttach — over a real unix socket", () => {
+describeDaemon("runAttach — over a real unix socket", () => {
   it("returns not-found for an id no PTY has (before any screen takeover)", async () => {
     const { tty, out } = fakeTty();
     const outcome = await runAttach(
@@ -418,7 +419,7 @@ describe("runAttach — over a real unix socket", () => {
   });
 });
 
-describe("send — over the same real unix socket", () => {
+describeDaemon("send — over the same real unix socket", () => {
   it("writes the planned bytes to the PTY so the shell runs the input", {
     timeout: 30_000,
   }, async () => {
@@ -464,206 +465,213 @@ describe("send — over the same real unix socket", () => {
   });
 });
 
-describe("send — canonical two-command submit against a real paste-debounce TUI", () => {
-  // A real PTY running the scripted TUI that reproduces Claude Code's #1 failure
-  // mode: an Enter within FIXTURE_DEBOUNCE_MS of a bracketed paste is DROPPED, a
-  // later one submits. There is NO grace baked into `send` — the caller submits
-  // as a SEPARATE command AFTER observing the TUI settle (`wait --until idle`).
-  // The fixture's debounce is deliberately short; the observed-settle wait below
-  // clears it with a wide margin, while a same-breath Enter falls inside it.
-  const FIXTURE = fileURLToPath(
-    new URL("./paste-debounce-tui.fixture.mjs", import.meta.url),
-  );
-  const DEBOUNCE_MS = 120;
-  // Stands in for the caller's `kaval-tui wait <id> --until idle:<ms>` — the
-  // OBSERVE step. `kaval` can't know when the TUI settled, but the caller can:
-  // after the paste the fixture emits nothing, so an idle window this wide is a
-  // real "no output for IDLE_MS" signal, and (being > DEBOUNCE_MS) it guarantees
-  // the follow-up Enter lands PAST the debounce. Only baking a sleep into `send`
-  // itself is forbidden — the caller waiting is the whole model.
-  const IDLE_MS = 400;
+describeDaemon(
+  "send — canonical two-command submit against a real paste-debounce TUI",
+  () => {
+    // A real PTY running the scripted TUI that reproduces Claude Code's #1 failure
+    // mode: an Enter within FIXTURE_DEBOUNCE_MS of a bracketed paste is DROPPED, a
+    // later one submits. There is NO grace baked into `send` — the caller submits
+    // as a SEPARATE command AFTER observing the TUI settle (`wait --until idle`).
+    // The fixture's debounce is deliberately short; the observed-settle wait below
+    // clears it with a wide margin, while a same-breath Enter falls inside it.
+    const FIXTURE = fileURLToPath(
+      new URL("./paste-debounce-tui.fixture.mjs", import.meta.url),
+    );
+    const DEBOUNCE_MS = 120;
+    // Stands in for the caller's `kaval-tui wait <id> --until idle:<ms>` — the
+    // OBSERVE step. `kaval` can't know when the TUI settled, but the caller can:
+    // after the paste the fixture emits nothing, so an idle window this wide is a
+    // real "no output for IDLE_MS" signal, and (being > DEBOUNCE_MS) it guarantees
+    // the follow-up Enter lands PAST the debounce. Only baking a sleep into `send`
+    // itself is forbidden — the caller waiting is the whole model.
+    const IDLE_MS = 400;
 
-  /** Spawn the fixture in a real PTY and wait until it's listening. `extraEnv`
-   *  lets a test tune the fixture — e.g. hold the busy burst open (FIXTURE_BUSY_TICKS)
-   *  so the "mid-turn" case is deterministic rather than racing a ~500ms window. */
-  async function spawnFixture(
-    extraEnv: Record<string, string> = {},
-  ): Promise<string> {
-    const dir = mkdtempSync(join(tmpdir(), "kolu-submit-"));
-    const { id } = await conn.client.surface.terminal.spawn(
-      buildCreateInput({
-        id: newPtyId(),
-        // `env` is mined for the canonical base (PATH, so `node` resolves); the
-        // fixture's own config vars are NOT canonical, so they ride the explicit
-        // `--env` escape hatch (extraEnv) — the same path a real caller uses to add
-        // a var the clean base drops. This also exercises extraEnv over a real spawn.
-        cwd: dir,
-        env: process.env,
-        extraEnv: {
-          FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
-          // The fixture recognizes the SAME bracketed-paste markers `planSend`
-          // wraps text with — pass the protocol constants so it can't drift.
-          FIXTURE_PASTE_START: BRACKETED_PASTE_START,
-          FIXTURE_PASTE_END: BRACKETED_PASTE_END,
-          ...extraEnv,
+    /** Spawn the fixture in a real PTY and wait until it's listening. `extraEnv`
+     *  lets a test tune the fixture — e.g. hold the busy burst open (FIXTURE_BUSY_TICKS)
+     *  so the "mid-turn" case is deterministic rather than racing a ~500ms window. */
+    async function spawnFixture(
+      extraEnv: Record<string, string> = {},
+    ): Promise<string> {
+      const dir = mkdtempSync(join(tmpdir(), "kolu-submit-"));
+      const { id } = await conn.client.surface.terminal.spawn(
+        buildCreateInput({
+          id: newPtyId(),
+          // `env` is mined for the canonical base (PATH, so `node` resolves); the
+          // fixture's own config vars are NOT canonical, so they ride the explicit
+          // `--env` escape hatch (extraEnv) — the same path a real caller uses to add
+          // a var the clean base drops. This also exercises extraEnv over a real spawn.
+          cwd: dir,
+          env: process.env,
+          extraEnv: {
+            FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
+            // The fixture recognizes the SAME bracketed-paste markers `planSend`
+            // wraps text with — pass the protocol constants so it can't drift.
+            FIXTURE_PASTE_START: BRACKETED_PASTE_START,
+            FIXTURE_PASTE_END: BRACKETED_PASTE_END,
+            ...extraEnv,
+          },
+          command: ["node", FIXTURE],
+          kavalSocket: KAVAL_SOCK,
+        }),
+      );
+      await untilScreen(id, (s) => s.includes("READY"), "fixture READY");
+      return id;
+    }
+
+    /** The FULL scrollback (not the viewport) so a marker can't scroll away behind
+     *  the fixture's busy-stream output. */
+    async function screenOf(id: string): Promise<string> {
+      const { text } = await conn.client.surface.terminal.getScreenText({
+        id,
+        extent: { kind: "full" },
+      });
+      return text;
+    }
+
+    async function untilScreen(
+      id: string,
+      ok: (screen: string) => boolean,
+      what: string,
+    ): Promise<string> {
+      let screen = "";
+      await until(
+        () => ok(screen),
+        what,
+        async () => {
+          screen = await screenOf(id);
         },
-        command: ["node", FIXTURE],
-        kavalSocket: KAVAL_SOCK,
-      }),
-    );
-    await untilScreen(id, (s) => s.includes("READY"), "fixture READY");
-    return id;
-  }
+      );
+      return screen;
+    }
 
-  /** The FULL scrollback (not the viewport) so a marker can't scroll away behind
-   *  the fixture's busy-stream output. */
-  async function screenOf(id: string): Promise<string> {
-    const { text } = await conn.client.surface.terminal.getScreenText({
-      id,
-      extent: { kind: "full" },
+    /** Drive a send byte-plan against the PTY through the SHIPPED executor —
+     *  `executeSendPlan` (the same function `cmdSend` runs), over this suite's
+     *  socket write — so the acceptance test validates the real sequencing. */
+    const runPlan = (id: string, plan: SendPlan): Promise<void> =>
+      executeSendPlan(
+        plan,
+        async (data) => {
+          await conn.client.surface.terminal.write({ id, data });
+        },
+        shortId(id),
+      );
+
+    /** Send just the text (a bracketed paste, no Enter) — step 1 of the flow. */
+    const sendText = (id: string, text: string, fromStream = false) =>
+      runPlan(
+        id,
+        planSend({ kind: "text", text, paste: undefined, fromStream }),
+      );
+
+    /** Submit as its OWN command — step 3, after the observed settle. */
+    const sendEnter = (id: string) =>
+      runPlan(id, planSend({ kind: "keys", keyData: "\r" }));
+
+    it("CONTROL: a same-breath paste+Enter is DROPPED — the exact combination the CLI now forbids", {
+      timeout: 30_000,
+    }, async () => {
+      const id = await spawnFixture();
+      // The raw bytes of `send <id> "text" --key Enter` — paste then Enter written
+      // back-to-back, no gap. The Enter races into the debounce and is dropped,
+      // leaving the prompt staged. `resolveSendInput` makes this UNSPELLABLE at the
+      // CLI (text + --key is a hard error), and `planSend` now makes it unspellable
+      // at the plan boundary too — so we compose the two writes the old combined
+      // plan emitted (the bracketed paste, then the Enter) to reproduce the
+      // forbidden same-breath byte sequence at the wire and prove WHY it's dropped.
+      const pastePlan = planSend({
+        kind: "text",
+        text: "start the turn",
+        paste: true,
+        fromStream: false,
+      });
+      const enterPlan = planSend({ kind: "keys", keyData: "\r" });
+      await runPlan(id, pastePlan);
+      await runPlan(id, enterPlan);
+      const screen = await untilScreen(
+        id,
+        (s) => s.includes("DROPPED"),
+        "the same-breath Enter to be dropped",
+      );
+      // The whole point: the turn did NOT start — the prompt sat staged, unsent.
+      expect(screen).not.toContain("SUBMITTED");
     });
-    return text;
-  }
 
-  async function untilScreen(
-    id: string,
-    ok: (screen: string) => boolean,
-    what: string,
-  ): Promise<string> {
-    let screen = "";
-    await until(
-      () => ok(screen),
-      what,
-      async () => {
-        screen = await screenOf(id);
-      },
-    );
-    return screen;
-  }
-
-  /** Drive a send byte-plan against the PTY through the SHIPPED executor —
-   *  `executeSendPlan` (the same function `cmdSend` runs), over this suite's
-   *  socket write — so the acceptance test validates the real sequencing. */
-  const runPlan = (id: string, plan: SendPlan): Promise<void> =>
-    executeSendPlan(
-      plan,
-      async (data) => {
-        await conn.client.surface.terminal.write({ id, data });
-      },
-      shortId(id),
-    );
-
-  /** Send just the text (a bracketed paste, no Enter) — step 1 of the flow. */
-  const sendText = (id: string, text: string, fromStream = false) =>
-    runPlan(id, planSend({ kind: "text", text, paste: undefined, fromStream }));
-
-  /** Submit as its OWN command — step 3, after the observed settle. */
-  const sendEnter = (id: string) =>
-    runPlan(id, planSend({ kind: "keys", keyData: "\r" }));
-
-  it("CONTROL: a same-breath paste+Enter is DROPPED — the exact combination the CLI now forbids", {
-    timeout: 30_000,
-  }, async () => {
-    const id = await spawnFixture();
-    // The raw bytes of `send <id> "text" --key Enter` — paste then Enter written
-    // back-to-back, no gap. The Enter races into the debounce and is dropped,
-    // leaving the prompt staged. `resolveSendInput` makes this UNSPELLABLE at the
-    // CLI (text + --key is a hard error), and `planSend` now makes it unspellable
-    // at the plan boundary too — so we compose the two writes the old combined
-    // plan emitted (the bracketed paste, then the Enter) to reproduce the
-    // forbidden same-breath byte sequence at the wire and prove WHY it's dropped.
-    const pastePlan = planSend({
-      kind: "text",
-      text: "start the turn",
-      paste: true,
-      fromStream: false,
+    it("(a) idle agent: paste → observe settle → separate Enter → the turn STARTS", {
+      timeout: 30_000,
+    }, async () => {
+      const id = await spawnFixture();
+      // 1. the text (paste, no Enter).
+      await sendText(id, "explain the architecture of this repo");
+      // 2. observe the TUI settle (the `wait --until idle` step).
+      await delay(IDLE_MS);
+      // 3. submit as its own command — now past the debounce, so it lands.
+      await sendEnter(id);
+      await untilScreen(
+        id,
+        (s) => s.includes("SUBMITTED#1"),
+        "the prompt to submit (turn started)",
+      );
     });
-    const enterPlan = planSend({ kind: "keys", keyData: "\r" });
-    await runPlan(id, pastePlan);
-    await runPlan(id, enterPlan);
-    const screen = await untilScreen(
-      id,
-      (s) => s.includes("DROPPED"),
-      "the same-breath Enter to be dropped",
-    );
-    // The whole point: the turn did NOT start — the prompt sat staged, unsent.
-    expect(screen).not.toContain("SUBMITTED");
-  });
 
-  it("(a) idle agent: paste → observe settle → separate Enter → the turn STARTS", {
-    timeout: 30_000,
-  }, async () => {
-    const id = await spawnFixture();
-    // 1. the text (paste, no Enter).
-    await sendText(id, "explain the architecture of this repo");
-    // 2. observe the TUI settle (the `wait --until idle` step).
-    await delay(IDLE_MS);
-    // 3. submit as its own command — now past the debounce, so it lands.
-    await sendEnter(id);
-    await untilScreen(
-      id,
-      (s) => s.includes("SUBMITTED#1"),
-      "the prompt to submit (turn started)",
-    );
-  });
+    it("(b) BUSY agent (mid-turn, streaming): the two-command submit still lands, never lost", {
+      timeout: 30_000,
+    }, async () => {
+      // Hold the first turn's busy burst open (200 × 25ms ≈ 5s) so it is STILL
+      // streaming when the second prompt lands — otherwise a slow CI loop could let
+      // the first turn print DONE T1 first, and the test would no longer prove the
+      // mid-turn case it claims. The assertion below pins that determinism.
+      const id = await spawnFixture({ FIXTURE_BUSY_TICKS: "200" });
+      await sendText(id, "first prompt");
+      await delay(IDLE_MS);
+      await sendEnter(id);
+      // Wait until the first turn is UNDERWAY (the fixture is streaming busy output).
+      const midTurn = await untilScreen(
+        id,
+        (s) => s.includes("SUBMITTED#1"),
+        "first turn to start",
+      );
+      // The first turn must still be mid-stream — DONE T1 not yet printed — so the
+      // second submit genuinely lands at a BUSY agent, not a quiesced one.
+      expect(midTurn).not.toContain("DONE T1");
+      // Second prompt while it's mid-stream. For a busy agent the settle signal is
+      // the paste's own debounce clearing (output isn't idle — the agent is
+      // streaming), so wait past DEBOUNCE_MS, then submit as its own command.
+      await sendText(id, "second prompt while busy");
+      await delay(IDLE_MS);
+      await sendEnter(id);
+      await untilScreen(
+        id,
+        (s) => s.includes("SUBMITTED#2"),
+        "the second (busy) prompt to submit",
+      );
+    });
 
-  it("(b) BUSY agent (mid-turn, streaming): the two-command submit still lands, never lost", {
-    timeout: 30_000,
-  }, async () => {
-    // Hold the first turn's busy burst open (200 × 25ms ≈ 5s) so it is STILL
-    // streaming when the second prompt lands — otherwise a slow CI loop could let
-    // the first turn print DONE T1 first, and the test would no longer prove the
-    // mid-turn case it claims. The assertion below pins that determinism.
-    const id = await spawnFixture({ FIXTURE_BUSY_TICKS: "200" });
-    await sendText(id, "first prompt");
-    await delay(IDLE_MS);
-    await sendEnter(id);
-    // Wait until the first turn is UNDERWAY (the fixture is streaming busy output).
-    const midTurn = await untilScreen(
-      id,
-      (s) => s.includes("SUBMITTED#1"),
-      "first turn to start",
-    );
-    // The first turn must still be mid-stream — DONE T1 not yet printed — so the
-    // second submit genuinely lands at a BUSY agent, not a quiesced one.
-    expect(midTurn).not.toContain("DONE T1");
-    // Second prompt while it's mid-stream. For a busy agent the settle signal is
-    // the paste's own debounce clearing (output isn't idle — the agent is
-    // streaming), so wait past DEBOUNCE_MS, then submit as its own command.
-    await sendText(id, "second prompt while busy");
-    await delay(IDLE_MS);
-    await sendEnter(id);
-    await untilScreen(
-      id,
-      (s) => s.includes("SUBMITTED#2"),
-      "the second (busy) prompt to submit",
-    );
-  });
+    it("(c) a multi-KB paste + two-command submit submits INTACT past the DEBOUNCE", {
+      timeout: 30_000,
+    }, async () => {
+      const id = await spawnFixture();
+      // ~4KB, arriving in several socket chunks — the fixture reassembles the paste
+      // across chunk boundaries; a unique tail proves nothing was truncated. NOTE:
+      // this fixture models the paste-DEBOUNCE (an Enter too soon is dropped), which
+      // the two-command flow beats. It does NOT model Claude Code's large-paste
+      // COLLAPSE (folding a big paste into a "[Pasted text +N lines]" placeholder
+      // that then won't submit on Enter) — that is Bug A, which survives the
+      // canonical flow against a real claude and is tracked open (issue #1702).
+      const big = `${"X".repeat(4000)}ENDMARK-c0ffee`;
+      await sendText(id, big, /* fromStream */ true); // a stream payload auto-pastes
+      await delay(IDLE_MS);
+      await sendEnter(id);
+      await untilScreen(
+        id,
+        (s) =>
+          s.includes(`SUBMITTED#1 len=${big.length} tail=${big.slice(-8)}`),
+        "the full multi-KB paste to submit intact",
+      );
+    });
+  },
+);
 
-  it("(c) a multi-KB paste + two-command submit submits INTACT past the DEBOUNCE", {
-    timeout: 30_000,
-  }, async () => {
-    const id = await spawnFixture();
-    // ~4KB, arriving in several socket chunks — the fixture reassembles the paste
-    // across chunk boundaries; a unique tail proves nothing was truncated. NOTE:
-    // this fixture models the paste-DEBOUNCE (an Enter too soon is dropped), which
-    // the two-command flow beats. It does NOT model Claude Code's large-paste
-    // COLLAPSE (folding a big paste into a "[Pasted text +N lines]" placeholder
-    // that then won't submit on Enter) — that is Bug A, which survives the
-    // canonical flow against a real claude and is tracked open (issue #1702).
-    const big = `${"X".repeat(4000)}ENDMARK-c0ffee`;
-    await sendText(id, big, /* fromStream */ true); // a stream payload auto-pastes
-    await delay(IDLE_MS);
-    await sendEnter(id);
-    await untilScreen(
-      id,
-      (s) => s.includes(`SUBMITTED#1 len=${big.length} tail=${big.slice(-8)}`),
-      "the full multi-KB paste to submit intact",
-    );
-  });
-});
-
-describe("runKill — over the same real unix socket", () => {
+describeDaemon("runKill — over the same real unix socket", () => {
   it("resolves a short id, kills via the real command body, confirms, and the terminal leaves the list", {
     timeout: 30_000,
   }, async () => {

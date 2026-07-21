@@ -10,7 +10,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
-import { daemonEnv, resolveKavalLaunch } from "./localDriver.ts";
+import {
+  daemonEnv,
+  localKavalDriver,
+  resolveKavalLaunch,
+} from "./localDriver.ts";
 
 describe("kaval launch resolution", () => {
   let savedBin: string | undefined;
@@ -33,6 +37,21 @@ describe("kaval launch resolution", () => {
       binPath: "/nix/store/abc/bin/kaval",
       args: ["--socket", socketPath],
     });
+  });
+});
+
+describe("localKavalDriver — the A8 runtime spawn leash at the real funnel (F5)", () => {
+  const savedGate = process.env.KOLU_DAEMON_TESTS;
+  afterEach(() => {
+    restore("KOLU_DAEMON_TESTS", savedGate);
+  });
+
+  it("REFUSES to spawn in a gate-off vitest worker (helper indirection can't smuggle a real kaval fork)", () => {
+    // Force the gate OFF regardless of the lane this test runs in — the property is
+    // "a bare vitest never forks a real kaval". VITEST is already set in every worker.
+    delete process.env.KOLU_DAEMON_TESTS;
+    const driver = localKavalDriver("/run/user/1000/kaval-x/pty-host.sock");
+    expect(() => driver.spawn()).toThrow(/KOLU_DAEMON_TESTS/);
   });
 });
 

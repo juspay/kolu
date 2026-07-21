@@ -26,6 +26,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@kolu/daemon-test-gate": "workspace:*",
     "@orpc/server": "^1.13.13",
     "@types/node": "^22.0.0",
     "tsx": "^4.21.0",

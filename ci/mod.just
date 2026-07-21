@@ -55,7 +55,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix flake-check home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix flake-check home-manager e2e smoke fmt biome unit daemon surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -190,9 +190,19 @@ e2e: install
     # See the funnel rule at the top of this file and the `test` recipe comment.
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
-# Run vitest unit tests (server + client).
+# Run vitest unit tests — FORK-FREE (the daemon suites are gated OFF by default;
+# `describeDaemon` keys on KOLU_DAEMON_TESTS). Keeps ONE meaning: no real daemon fork.
 unit: install
     {{ nix_shell }} pnpm test:unit
+
+# The daemon-forking unit suites as their OWN required node (juspay/kolu#1375 A7).
+# Default-OFF gating means `unit` alone would silently skip every daemon suite
+# forever with CI still green; making `daemon` a distinct DAG node (asserted present
+# by daemon-node.test.ts) is what keeps that coverage from evaporating in a recipe
+# refactor. Sets the gate + the run-bind leash (a spawned daemon dies with the run);
+# CI boxes are leased/contained, so the fork storm cannot reach production.
+daemon: install
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
 
 # Build EVERY @kolu/surface example client (the base example, remote-process-monitor,
 # and the fleet-top tutorial parts) — the `@kolu/surface-example*` filter runs

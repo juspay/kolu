@@ -22,6 +22,7 @@ import {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "kaval";
+import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
@@ -184,73 +185,76 @@ describe("waitResultJson — the --json frame the driver consumes (pure)", () =>
   });
 });
 
-describe("awaitOutputCondition — idle quiescence over a real socket", () => {
-  it("resolves `idle` after the window once a terminal goes quiet", async () => {
-    const id = await spawnCat(); // cat is silent with no input
-    const outcome = await awaitOutputCondition(conn.client, {
-      id,
-      condition: { kind: "idle", ms: 300 },
-      timeoutMs: 5000,
-    });
-    expect(outcome.kind).toBe("met");
-    if (outcome.kind === "met") {
-      expect(outcome.fired).toBe("idle");
-      // It waited out the quiet window rather than firing instantly.
-      expect(outcome.elapsedMs).toBeGreaterThanOrEqual(250);
-    }
-  });
-
-  it("resolves `idle` after output STOPS (emits, then pauses > window)", async () => {
-    const id = await spawnCat();
-    const p = awaitOutputCondition(conn.client, {
-      id,
-      condition: { kind: "idle", ms: 400 },
-      timeoutMs: 8000,
-    });
-    // Emit three bursts ~120ms apart (each resets the window), then stay quiet.
-    await sleep(100); // let the subscription + snapshot settle first
-    for (let i = 0; i < 3; i++) {
-      await write(id, `burst-${i}\n`);
-      await sleep(120);
-    }
-    const outcome = await p;
-    expect(outcome.kind).toBe("met");
-    if (outcome.kind === "met") {
-      expect(outcome.fired).toBe("idle");
-      // It fired only AFTER the bursts stopped: ~360ms of emitting + the 400ms
-      // window, so the window was reset by each delta rather than firing at 400ms.
-      expect(outcome.elapsedMs).toBeGreaterThanOrEqual(600);
-    }
-  });
-
-  it("BLOCKS until --timeout while output keeps coming", async () => {
-    const id = await spawnCat();
-    let writing = true;
-    // Drive a delta every 100ms — well inside the 500ms idle window, so idle can
-    // never accumulate and the wait must run to the 1500ms timeout.
-    const pump = (async () => {
-      while (writing) {
-        await write(id, "x\n");
-        await sleep(100);
-      }
-    })();
-    try {
-      const t0 = Date.now();
+describeDaemon(
+  "awaitOutputCondition — idle quiescence over a real socket",
+  () => {
+    it("resolves `idle` after the window once a terminal goes quiet", async () => {
+      const id = await spawnCat(); // cat is silent with no input
       const outcome = await awaitOutputCondition(conn.client, {
         id,
-        condition: { kind: "idle", ms: 500 },
-        timeoutMs: 1500,
+        condition: { kind: "idle", ms: 300 },
+        timeoutMs: 5000,
       });
-      expect(outcome.kind).toBe("timeout");
-      expect(Date.now() - t0).toBeGreaterThanOrEqual(1400); // ran to the cap
-    } finally {
-      writing = false;
-      await pump;
-    }
-  });
-});
+      expect(outcome.kind).toBe("met");
+      if (outcome.kind === "met") {
+        expect(outcome.fired).toBe("idle");
+        // It waited out the quiet window rather than firing instantly.
+        expect(outcome.elapsedMs).toBeGreaterThanOrEqual(250);
+      }
+    });
 
-describe("awaitOutputCondition — match, exit, and interrupt", () => {
+    it("resolves `idle` after output STOPS (emits, then pauses > window)", async () => {
+      const id = await spawnCat();
+      const p = awaitOutputCondition(conn.client, {
+        id,
+        condition: { kind: "idle", ms: 400 },
+        timeoutMs: 8000,
+      });
+      // Emit three bursts ~120ms apart (each resets the window), then stay quiet.
+      await sleep(100); // let the subscription + snapshot settle first
+      for (let i = 0; i < 3; i++) {
+        await write(id, `burst-${i}\n`);
+        await sleep(120);
+      }
+      const outcome = await p;
+      expect(outcome.kind).toBe("met");
+      if (outcome.kind === "met") {
+        expect(outcome.fired).toBe("idle");
+        // It fired only AFTER the bursts stopped: ~360ms of emitting + the 400ms
+        // window, so the window was reset by each delta rather than firing at 400ms.
+        expect(outcome.elapsedMs).toBeGreaterThanOrEqual(600);
+      }
+    });
+
+    it("BLOCKS until --timeout while output keeps coming", async () => {
+      const id = await spawnCat();
+      let writing = true;
+      // Drive a delta every 100ms — well inside the 500ms idle window, so idle can
+      // never accumulate and the wait must run to the 1500ms timeout.
+      const pump = (async () => {
+        while (writing) {
+          await write(id, "x\n");
+          await sleep(100);
+        }
+      })();
+      try {
+        const t0 = Date.now();
+        const outcome = await awaitOutputCondition(conn.client, {
+          id,
+          condition: { kind: "idle", ms: 500 },
+          timeoutMs: 1500,
+        });
+        expect(outcome.kind).toBe("timeout");
+        expect(Date.now() - t0).toBeGreaterThanOrEqual(1400); // ran to the cap
+      } finally {
+        writing = false;
+        await pump;
+      }
+    });
+  },
+);
+
+describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
   it("resolves `match` when new output matches the regex", async () => {
     const id = await spawnCat();
     let resolved = false;

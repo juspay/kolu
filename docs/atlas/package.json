@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@astrojs/mdx": "^7.0.0",
-    "astro": "^7.0.0",
+    "astro": "^7.1.0",
     "d3-force": "^3.0.0"
   },
   "devDependencies": {

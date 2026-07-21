@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   decayTransientState,
@@ -210,7 +211,9 @@ describe("hasNoDescendants", () => {
   });
 });
 
-describe("snapshotProcessTree", () => {
+// Gated (F4): the descendant-detection case forks a real `sleep` child. A bare
+// vitest must fork nothing, so this whole block runs only under KOLU_DAEMON_TESTS=1.
+describeDaemon("snapshotProcessTree", () => {
   const children: ReturnType<typeof spawn>[] = [];
   afterEach(() => {
     for (const c of children.splice(0)) c.kill("SIGKILL");

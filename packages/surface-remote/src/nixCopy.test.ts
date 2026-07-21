@@ -1,16 +1,29 @@
 /**
- * Coverage for the GC-root pinning step (`provisionAgent` step 4) and
- * the `agentGcRootPath` "latest"-link derivation. Keeps off real ssh /
- * nix by mocking `./process`; the real `./host` builds the argv so the
- * assertions see exactly what would hit the wire.
+ * Coverage for `provisionAgent`'s cold path: GC-root pinning (step 4), the
+ * ControlMaster/keepalive env on the copy, cause classification, and the #1908
+ * lifetime-policy handling (a `lifetime-expired`/`aborted` step is retryable and
+ * budget-aware). Keeps off real ssh / nix by mocking `./process`; the real `./host`
+ * builds the argv so the assertions see exactly what would hit the wire. The
+ * ask-only warm-check SHAPE (D1a) is pinned in `warmProbeCheck.test.ts`.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import { agentGcRootPath, provisionAgent } from "./nixCopy";
-import { runCapture, runProgress } from "./process";
+import {
+  agentGcRootPath,
+  makeProvisionBudgets,
+  makeStepBudget,
+  type ProvisionBudgets,
+  provisionAgent,
+} from "./nixCopy";
+import {
+  type CaptureResult,
+  type ExitResult,
+  runCapture,
+  runProgress,
+} from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
   // Keep the real pure helpers (`describeExit`) and mock only the two
@@ -23,40 +36,52 @@ vi.mock("./process", async (importOriginal) => ({
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
 
-/** Wire up the cold-provision happy path: the warm fast-path probe misses
- *  (the closure isn't on the host yet), then copy ok, realise prints the
- *  store path, pin prints the link path. Returns the `vi.fn()` handles for
- *  assertions. */
-function mockHappyPath() {
-  vi.mocked(runProgress).mockResolvedValue({ ok: true, kind: "exit", code: 0 });
-  vi.mocked(runCapture)
-    .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // warm probe: not on host yet
-    .mockResolvedValueOnce({
-      ok: true,
-      kind: "exit",
-      code: 0,
-      stdout: `${STORE}\n`,
-    }) // realise
-    .mockResolvedValueOnce({
-      ok: true,
-      kind: "exit",
-      code: 0,
-      stdout: "/home/u/link\n",
-    }); // pin
+const okExit: ExitResult = { ok: true, kind: "exit", code: 0 };
+const okOut = (stdout: string): CaptureResult => ({
+  ok: true,
+  kind: "exit",
+  code: 0,
+  stdout,
+});
+const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
+
+/** The fused budgets a `provisionAgent` call needs (the connector reconciles the
+ *  campaign reset itself, so `provisionAgent` takes no epoch). Pass a custom `budgets`
+ *  (e.g. a tight-terminal one) to override. */
+function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
+  return { budgets };
+}
+
+/** Route the mocked `runCapture` by the command it was handed (robust to call
+ *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
+ *  `--realise … --add-root` pin, and the bare `--realise` build. `runProgress` is
+ *  the single `nix copy`. Each arm defaults to the cold happy path; override any. */
+function mockNix(over?: {
+  outputs?: CaptureResult;
+  checkValidity?: CaptureResult;
+  realise?: CaptureResult;
+  pin?: CaptureResult;
+  copy?: ExitResult;
+}): void {
+  vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+    if (args.includes("--outputs")) return over?.outputs ?? okOut(`${STORE}\n`);
+    if (args.includes("--check-validity"))
+      return over?.checkValidity ?? failOut; // cold: not on host yet
+    if (args.includes("--add-root"))
+      return over?.pin ?? okOut("/home/u/link\n");
+    if (args.includes("--realise")) return over?.realise ?? okOut(`${STORE}\n`);
+    return failOut;
+  });
+  vi.mocked(runProgress).mockImplementation(async () => over?.copy ?? okExit);
 }
 
 const tmpDirs: string[] = [];
 beforeEach(() => {
-  // The copy step builds NIX_SSHOPTS via nixSshOpts(), which mkdirs the P2.8
-  // control dir. Point it at a throwaway *private* runtime dir per test so the
-  // control opts render deterministically (a real $XDG_RUNTIME_DIR may not be
-  // owner-only on a given box) and the suite leaves no /tmp residue.
   const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-nixcopy-test-"));
   tmpDirs.push(xdg);
   vi.stubEnv("XDG_RUNTIME_DIR", xdg);
   __resetControlMemo();
 });
-
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
@@ -65,55 +90,42 @@ afterEach(() => {
     rmSync(d, { recursive: true, force: true });
 });
 
-describe("provisionAgent GC-root pinning", () => {
+describe("provisionAgent GC-root pinning (cold path)", () => {
   it("pins the realised output with an indirect per-agent root", async () => {
-    mockHappyPath();
+    mockNix();
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...provArgs(),
     });
-
     expect(res).toEqual({ ok: true, agentPath: STORE });
 
-    // After the warm-probe miss, the pin is the third runCapture; it
-    // re-realises the *store path* (not the .drv) and registers an indirect
-    // root.
-    expect(runCapture).toHaveBeenCalledTimes(3);
-    const pinArgs = vi.mocked(runCapture).mock.calls[2]![1];
+    // The pin re-realises the *store path* (not the .drv) and registers an indirect
+    // root — find that call among the mocked runCaptures.
+    const pinArgs = vi
+      .mocked(runCapture)
+      .mock.calls.map((c) => c[1])
+      .find((args) => args.includes("--add-root"));
+    expect(pinArgs).toBeDefined();
     expect(pinArgs).toContain("--realise");
     expect(pinArgs).toContain(STORE);
-    expect(pinArgs).toContain("--add-root");
     expect(pinArgs).toContain("--indirect");
     expect(pinArgs).toContain(".local/state/kolu/surface-remote/gcroots/agent");
-    // …and it must not re-realise the derivation in the pin step.
     expect(pinArgs).not.toContain(DRV);
   });
 
   it("rides the P2.8 ControlMaster in nix copy's NIX_SSHOPTS env", async () => {
-    // Locks the call-site integration: `nix copy --to ssh-ng://` forks its own
-    // ssh out of reach of our argv, so the ssh-ng fork only joins the shared
-    // master through the NIX_SSHOPTS env `provisionAgent` hands `runProgress`.
-    // host.test.ts asserts `nixSshOpts()` *renders* these opts; this asserts
-    // the cold copy step actually *passes* its value — so a regression that
-    // reverts to the keepalive-only const (dropping multiplexing for the fork)
-    // is caught here, not silently green there.
-    mockHappyPath();
+    mockNix();
     await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...provArgs(),
     });
-
-    // The copy is the sole runProgress call; its 4th arg is the env overlay.
     expect(runProgress).toHaveBeenCalledTimes(1);
-    const env = vi.mocked(runProgress).mock.calls[0]![3] as Record<
-      string,
-      string
-    >;
-    const nixSshOpts = env.NIX_SSHOPTS ?? "";
-    // The fork rides the same master (auto + the %C-addressed socket, 10m
-    // persist) AND keeps the dead-peer keepalive — all through this one env.
+    const opts = vi.mocked(runProgress).mock.calls[0]![2];
+    const nixSshOpts = opts.env?.NIX_SSHOPTS ?? "";
     expect(nixSshOpts).toContain("-o ControlMaster=auto");
     expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
     expect(nixSshOpts).toContain("-o ControlPersist=10m");
@@ -121,200 +133,200 @@ describe("provisionAgent GC-root pinning", () => {
   });
 
   it("returns the immutable store path, not the moving root link", async () => {
-    mockHappyPath();
+    mockNix();
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...provArgs(),
     });
     expect(res.ok && res.agentPath).toBe(STORE);
   });
 
   it("treats a pin failure as non-fatal — the agent still provisions", async () => {
-    vi.mocked(runProgress).mockResolvedValue({
-      ok: true,
-      kind: "exit",
-      code: 0,
-    });
-    vi.mocked(runCapture)
-      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // warm probe: not on host
-      .mockResolvedValueOnce({
-        ok: true,
-        kind: "exit",
-        code: 0,
-        stdout: `${STORE}\n`,
-      }) // realise
-      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }); // pin fails
-
     const lines: string[] = [];
-    const res = await provisionAgent({
-      host: "testhost",
-      drvPath: DRV,
-      onProgress: (l) => lines.push(l),
-    });
-
+    const res = await (() => {
+      mockNix({ pin: failOut });
+      return provisionAgent({
+        host: "testhost",
+        drvPath: DRV,
+        onProgress: (l) => lines.push(l),
+        ...provArgs(),
+      });
+    })();
     expect(res).toEqual({ ok: true, agentPath: STORE });
     expect(lines.some((l) => l.includes("unpinned"))).toBe(true);
   });
 
   it("does not pin when the realise itself fails", async () => {
-    vi.mocked(runProgress).mockResolvedValue({
-      ok: true,
-      kind: "exit",
-      code: 0,
-    });
-    vi.mocked(runCapture)
-      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }) // warm probe: not on host
-      .mockResolvedValueOnce({ ok: false, kind: "exit", code: 1, stdout: "" }); // realise fails
-
+    mockNix({ realise: failOut });
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...provArgs(),
     });
-
     expect(res.ok).toBe(false);
-    expect(runCapture).toHaveBeenCalledTimes(2); // warm probe + realise, no pin
+    // No pin call was issued.
+    const pinned = vi
+      .mocked(runCapture)
+      .mock.calls.some((c) => c[1].includes("--add-root"));
+    expect(pinned).toBe(false);
   });
 });
 
-describe("provisionAgent warm fast-path", () => {
-  it("skips the nix copy when the closure is already realisable on the host", async () => {
-    // Warm host: the fused realise + add-root probe succeeds (the .drv's
-    // closure is already on the host), returning the out path — so no copy,
-    // no separate realise/pin. This is the redundant work the fast-path removes.
-    vi.mocked(runCapture).mockResolvedValueOnce({
-      ok: true,
-      kind: "exit",
-      code: 0,
-      stdout: `${STORE}\n`,
-    });
-
+describe("provisionAgent cause classification", () => {
+  it("classifies a transport 255 on the build as network", async () => {
+    mockNix({ realise: { ok: false, kind: "exit", code: 255, stdout: "" } });
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...provArgs(),
     });
-
-    expect(res).toEqual({ ok: true, agentPath: STORE });
-    // The whole point: a warm host never re-ships the closure.
-    expect(runProgress).not.toHaveBeenCalled();
-    // One ssh: the fused realise-the-drv + register-the-root probe.
-    expect(runCapture).toHaveBeenCalledTimes(1);
-    const probeArgs = vi.mocked(runCapture).mock.calls[0]![1];
-    expect(probeArgs).toContain("--realise");
-    expect(probeArgs).toContain(DRV); // realises the .drv (can rebuild), not the out
-    expect(probeArgs).toContain("--add-root");
-    expect(probeArgs).toContain("--indirect");
-  });
-
-  it("does not leak the expected probe-miss error into the progress ring", async () => {
-    // On a cold host the probe fails because the `.drv` isn't there yet, and
-    // nix emits a real `error: …` line on stderr. That line must NOT reach the
-    // user-visible progress callback, or a clean first-time provision would
-    // read as if it errored.
-    vi.mocked(runProgress).mockResolvedValue({
-      ok: true,
-      kind: "exit",
-      code: 0,
-    });
-    vi.mocked(runCapture).mockImplementation(
-      async (_cmd, _args, onProgress) => {
-        // Probe (call #1): nix's expected miss-on-cold-host stderr.
-        if (vi.mocked(runCapture).mock.calls.length === 1) {
-          onProgress?.(`error: path '${DRV}' is not valid`);
-          return { ok: false, kind: "exit", code: 1, stdout: "" };
-        }
-        // realise (#2), pin (#3): succeed.
-        return { ok: true, kind: "exit", code: 0, stdout: `${STORE}\n` };
-      },
-    );
-
-    const lines: string[] = [];
-    const res = await provisionAgent({
-      host: "testhost",
-      drvPath: DRV,
-      onProgress: (l) => lines.push(l),
-    });
-
-    expect(res).toEqual({ ok: true, agentPath: STORE });
-    // The scary-but-expected probe error is swallowed.
-    expect(lines.some((l) => l.includes("is not valid"))).toBe(false);
-    expect(lines.some((l) => l.includes("error:"))).toBe(false);
-  });
-
-  it("still classifies a transport failure on the probe as network", async () => {
-    // The probe's stderr is suppressed from the progress ring, but it must
-    // still be SCANNED: a network-looking line on the probe has to flip the
-    // fall-through's cause to `"network"` so an unreachable host keeps
-    // retrying instead of failing terminally.
-    vi.mocked(runProgress).mockResolvedValue({
-      ok: true,
-      kind: "exit",
-      code: 0,
-    });
-    vi.mocked(runCapture).mockImplementation(
-      async (_cmd, _args, onProgress) => {
-        if (vi.mocked(runCapture).mock.calls.length === 1) {
-          // A transport failure during the probe (ssh's own 255 path).
-          onProgress?.(
-            "ssh: connect to host testhost port 22: No route to host",
-          );
-          return { ok: false, kind: "exit", code: 255, stdout: "" };
-        }
-        // The fall-through copy then also fails on the unreachable host.
-        return { ok: false, kind: "exit", code: 1, stdout: "" };
-      },
-    );
-    vi.mocked(runProgress).mockResolvedValue({
-      ok: false,
-      kind: "exit",
-      code: 1,
-    });
-
-    const res = await provisionAgent({
-      host: "testhost",
-      drvPath: DRV,
-      onProgress: () => {},
-    });
-
-    expect(res.ok).toBe(false);
     expect(res.ok === false && res.cause).toBe("network");
   });
 
   it("clears a stale probe network blip once the copy succeeds", async () => {
-    // A speculative probe can hit a transient network error that has cleared by
-    // the time the copy runs. If the copy then SUCCEEDS (host reachable) but a
-    // later realise fails for a genuine REMOTE reason, the cause must be
-    // "remote" (bounded give-up) — not "network" (retry forever) leaked from
-    // the now-stale probe blip.
-    vi.mocked(runProgress).mockResolvedValue({
-      ok: true,
-      kind: "exit",
-      code: 0,
-    }); // copy succeeds
-    vi.mocked(runCapture).mockImplementation(
-      async (_cmd, _args, onProgress) => {
-        if (vi.mocked(runCapture).mock.calls.length === 1) {
-          // Probe (#1): a transient transport blip.
-          onProgress?.(
-            "ssh: connect to host testhost port 22: No route to host",
-          );
-          return { ok: false, kind: "exit", code: 255, stdout: "" };
-        }
-        // Realise (#2): a genuine remote failure, no network signal.
-        return { ok: false, kind: "exit", code: 1, stdout: "" };
-      },
-    );
-
+    // A network-looking line on the (suppressed) check, but the copy then SUCCEEDS
+    // (host reachable) and a later realise fails for a genuine REMOTE reason → remote.
+    vi.mocked(runCapture).mockImplementation(async (_cmd, args, opts) => {
+      if (args.includes("--outputs")) return okOut(`${STORE}\n`);
+      if (args.includes("--check-validity")) {
+        opts?.onProgress?.(
+          "ssh: connect to host testhost port 22: No route to host",
+        );
+        return { ok: false, kind: "exit", code: 255, stdout: "" };
+      }
+      if (args.includes("--realise")) return failOut; // genuine remote failure
+      return failOut;
+    });
+    vi.mocked(runProgress).mockResolvedValue(okExit); // copy succeeds
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...provArgs(),
     });
-
-    expect(res.ok).toBe(false);
     expect(res.ok === false && res.cause).toBe("remote");
+  });
+});
+
+const EXPIRED_COPY = {
+  ok: false as const,
+  kind: "lifetime-expired" as const,
+  policy: { kind: "progress-liveness" as const, silenceMs: 120_000 },
+  signal: "SIGTERM" as const,
+};
+
+/** A fused ProvisionBudgets with an overridable copy step (default: normal). */
+function budgetsWithCopy(
+  copy: ReturnType<typeof makeStepBudget>,
+): ProvisionBudgets {
+  return {
+    copy,
+    build: makeStepBudget(120_000, 4),
+    onCampaign: () => {},
+  };
+}
+
+describe("provisionAgent lifetime-policy handling (#1908)", () => {
+  it("a lifetime-expired copy is retryable (network) and records the budget", async () => {
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.copy, "recordExpiry");
+    mockNix({ copy: EXPIRED_COPY });
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBeFalsy();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a budget-EXHAUSTED silent copy becomes GENUINELY TERMINAL (terminal:true)", async () => {
+    // A tight budget: one expiry exhausts it.
+    const b = budgetsWithCopy(makeStepBudget(120_000, 1));
+    mockNix({ copy: EXPIRED_COPY });
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    // A silent-then-killed step is a transport fault, so `cause` stays `network`; the
+    // give-up axis is the orthogonal `terminal` flag the session's gate keys off.
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.terminal).toBe(true);
+    expect(res.ok === false && res.reason).toMatch(/giving up/i);
+  });
+
+  it("an aborted copy is retryable (network) and does NOT touch the budget", async () => {
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.copy, "recordExpiry");
+    mockNix({ copy: { ok: false, kind: "aborted" } });
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("a successful copy RESETS the copy budget's doubling", async () => {
+    const b = makeProvisionBudgets();
+    const spy = vi.spyOn(b.copy, "reset");
+    mockNix();
+    await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(b),
+    });
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("onCampaign is MONOTONIC — a stale older epoch does not reset a newer campaign (F6)", () => {
+    const b = makeProvisionBudgets();
+    const copyReset = vi.spyOn(b.copy, "reset");
+    b.onCampaign(2); // establish campaign 2
+    copyReset.mockClear();
+    b.onCampaign(1); // a STALE dial from campaign 1 resolving late → must be IGNORED
+    expect(copyReset).not.toHaveBeenCalled();
+    b.onCampaign(3); // a genuinely newer campaign still resets
+    expect(copyReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("an abort DURING the GC-root pin is a retryable failure, not a false success (F9)", async () => {
+    // Cold path succeeds through realise; the user aborts during the final pin.
+    mockNix({ pin: { ok: false, kind: "aborted", stdout: "" } });
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(),
+    });
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("network");
+    expect(res.ok === false && res.reason).toMatch(/aborted/i);
+  });
+
+  it("provisioning aborted before it starts does no work and returns network (F6)", async () => {
+    mockNix();
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...provArgs(),
+      signal: AbortSignal.abort(),
+    });
+    expect(res.ok === false && res.cause).toBe("network");
+    // No work done — the already-aborted dial spawns nothing.
+    expect(runCapture).not.toHaveBeenCalled();
   });
 });
 
@@ -323,9 +335,9 @@ const drvOf = (name: string) => `/nix/store/${"a".repeat(32)}-${name}.drv`;
 
 describe("agentGcRootPath", () => {
   it("strips the store hash so versions of one agent share a link", () => {
-    const a = agentGcRootPath(false, drvOf("agent")); // hash all a's
+    const a = agentGcRootPath(false, drvOf("agent"));
     const b = agentGcRootPath(false, `/nix/store/${"b".repeat(32)}-agent.drv`);
-    expect(a).toBe(b); // same agent name → one moving "latest" link
+    expect(a).toBe(b);
     expect(a).toBe(".local/state/kolu/surface-remote/gcroots/agent");
   });
 
@@ -344,8 +356,6 @@ describe("agentGcRootPath", () => {
   });
 
   it("returns null for localhost when $HOME is unset (no cwd-relative root)", () => {
-    // Better unpinned than rooted in the wrong place — the caller skips
-    // the best-effort pin on null rather than rooting under the cwd.
     vi.stubEnv("HOME", undefined);
     expect(agentGcRootPath(true, DRV)).toBeNull();
   });

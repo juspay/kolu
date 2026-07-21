@@ -16,7 +16,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
+import { afterEach, expect, it } from "vitest";
 import { ESCAPE_EXIT, MARKER } from "./tenure.contract.testlib.ts";
 
 // `.testlib.ts` is the repo's "test-only, never hashed" suffix — it keeps the
@@ -49,6 +53,7 @@ afterEach(() => {
 });
 
 function spawnBin(mode: string): ChildProcessWithoutNullStreams {
+  assertDaemonSpawnAllowed("a real daemon bin (node --import tsx fixture)");
   const dir = mkdtempSync(join(tmpdir(), "tenure-pin-"));
   tmpDirs.push(dir);
   const child = spawn(
@@ -124,32 +129,35 @@ async function waitExit(
   }
 }
 
-describe("the naive bin shape — the red daemonProcessMain exists to kill", () => {
-  it("lingers after its tenure ended: DaemonExit resolved, release ran, process still alive", async () => {
-    // The red control for every pin below: it proves the fixture's live
-    // interval REALLY holds the event loop (were it unref'd — or Node's
-    // semantics to shift — the --tenured pin's "despite a live interval"
-    // premise would be silently void and this test would fail first).
-    const child = spawnBin("--naive");
-    const stderr = watchStderr(child);
-    await stderr.waitFor(MARKER.listening);
+describeDaemon(
+  "the naive bin shape — the red daemonProcessMain exists to kill",
+  () => {
+    it("lingers after its tenure ended: DaemonExit resolved, release ran, process still alive", async () => {
+      // The red control for every pin below: it proves the fixture's live
+      // interval REALLY holds the event loop (were it unref'd — or Node's
+      // semantics to shift — the --tenured pin's "despite a live interval"
+      // premise would be silently void and this test would fail first).
+      const child = spawnBin("--naive");
+      const stderr = watchStderr(child);
+      await stderr.waitFor(MARKER.listening);
 
-    child.kill("SIGTERM");
-    await stderr.waitFor(MARKER.releaseRan);
+      child.kill("SIGTERM");
+      await stderr.waitFor(MARKER.releaseRan);
 
-    // The bin believes it is done — but nothing owns the exit, so the live
-    // interval keeps the process alive past any healthy-exit horizon.
-    let closed = false;
-    child.once("close", () => {
-      closed = true;
+      // The bin believes it is done — but nothing owns the exit, so the live
+      // interval keeps the process alive past any healthy-exit horizon.
+      let closed = false;
+      child.once("close", () => {
+        closed = true;
+      });
+      await delay(1_000);
+      expect(closed).toBe(false);
+      // afterEach reaps the immortal child by its exact handle.
     });
-    await delay(1_000);
-    expect(closed).toBe(false);
-    // afterEach reaps the immortal child by its exact handle.
-  });
-});
+  },
+);
 
-describe("daemonProcessMain — the process IS the daemon", () => {
+describeDaemon("daemonProcessMain — the process IS the daemon", () => {
   it("exits 0 when the tenure ends (signal), despite a live interval — release stages strictly before the exit", async () => {
     const child = spawnBin("--tenured");
     const stderr = watchStderr(child);

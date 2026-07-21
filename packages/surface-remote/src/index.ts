@@ -50,13 +50,20 @@ export {
   type RemotePoolOptions,
 } from "./hostFanout";
 export {
+  makeProvisionBudgets,
+  makeStepBudget,
+  type ProvisionBudgets,
   type ProvisionOptions,
   type ProvisionResult,
   provisionAgent,
+  type StepBudget,
 } from "./nixCopy";
 export {
   type CaptureResult,
   type ExitResult,
+  type LifetimePolicy,
+  type RunOptions,
+  type RunProgressOptions,
   runCapture,
   runProgress,
 } from "./process";
@@ -106,7 +113,7 @@ export {
 export {
   type AgentClient,
   type SshConnectorOptions,
-  sshConnector,
   type SshProv,
+  sshConnector,
 } from "./sshConnector";
 export { type ClientCursor, makeClientCursor } from "./waitForNextClient";

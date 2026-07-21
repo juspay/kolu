@@ -102,7 +102,10 @@ holds the session — differs.
 kolu asks each terminal for its foreground process id (`tcgetpgrp`, POSIX — Linux
 and macOS alike), matches it against the known agents, and reads that agent's
 session from disk — tailing a JSONL transcript, or querying a SQLite database and
-watching its write-ahead log. In a normal shell terminal that's enough: the shell
+watching its write-ahead log. Those file-change watches are backed by a low-rate
+stat reconciliation, so if the OS drops the change notification for a fast turn's
+final write, the state self-heals within about a second instead of stranding on
+its last reading. In a normal shell terminal that's enough: the shell
 prints a marker naming each command as it runs, and the agent's process becomes
 the foreground. When an agent is launched **as the terminal's root process** — no
 shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print
@@ -196,7 +199,10 @@ _awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "runnin
 tools".
 
 **Resume** uses `grok -c` (most recent in the directory) or `grok --resume <uuid>`
-(an exact conversation). **Context tokens** come from `signals.json`
+(an exact conversation). Launch-shape flags such as `--model` / `-m`,
+`--always-approve`, `--no-plan`, `--no-subagents`, and **`--no-alt-screen`**
+(inline TUI instead of the alternate screen) are kept on the **recent agents**
+list and on sleep/wake resume. **Context tokens** come from `signals.json`
 (`contextTokensUsed`); **task progress** stays null until Grok's plan checklist
 is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
 (unwraps Grok's `<user_query>` harness so the HTML shows the human prompt).

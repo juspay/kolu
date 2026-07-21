@@ -347,11 +347,11 @@ type SessionState<Prov extends string = never> = {
 } & (
   | { phase: "connecting" | "connected" | Prov }                  // up — error fields don't exist
   | { phase: "disconnected"; error: string; cause: "network" | "remote" }
-  | { phase: "failed";       error: string; cause: "remote" }     // network is never terminal — by type
+  | { phase: "failed";       error: string; cause: "network" | "remote" } // terminality is the phase, not the cause: a budget-exhausted silent step gives up "network" (#1908)
 );
 
 type SshProv = "probing" | "copying" | "building";
-//  probing  = the warm realise-probe (is padi already there?) — presented calmly, no build UI
+//  probing  = the ask-only warm check (nix-store -q --outputs + --check-validity — is padi already there?, never a substituting realise) — presented calmly, no build UI
 //  copying  = nix copy --derivation …  (the .drv push — fast)
 //  building = ssh $host nix-store --realise …  (the remote compile — the minutes)
 // sshConnector: SessionState<SshProv> · local endpoint: SessionState<never>
