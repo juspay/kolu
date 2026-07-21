@@ -96,14 +96,15 @@ const [dockCardsWidth, setDockCardsWidthRaw] = persistedPref<number>({
 
 export { dockCardsWidth };
 
-/** Set the cards width, clamped into bounds. The drag handle drives this on every
- *  pointer move, so it guards against a no-op write: the clamp pins a drag past
- *  either bound to the same value every frame, and `makePersisted` would
- *  otherwise `localStorage.setItem` on each of those unchanged frames (the
- *  primitive has no equality check). Skipping them keeps the at-the-bound drag
- *  from re-writing the same string 60–120×/s — the epsilon/coalesce guard the
- *  right panel's persisted size has, at this leaf's scale. Pass `CARDS_WIDTH_PX`
- *  to reset to default — no dedicated wrapper (the repo's no-thin-wrapper rule). */
+/** Set the cards width, clamped into bounds. The drag handle commits this ONCE
+ *  per gesture (in `onEnd`, via Dock.tsx's local, unpersisted `dragWidth` signal
+ *  — `makePersisted` has no debounce of its own, so writing on every
+ *  `pointermove` would `localStorage.setItem` at 60-120×/s for the drag's
+ *  duration), plus once for the double-click reset. The equality guard below
+ *  still matters for both: a no-motion drag commits the unchanged start width,
+ *  and a double-click at the already-default width is a no-op. Pass
+ *  `CARDS_WIDTH_PX` to reset to default — no dedicated wrapper (the repo's
+ *  no-thin-wrapper rule). */
 export function setDockCardsWidth(px: number): void {
   const next = clampDockCardsWidth(px);
   if (next === dockCardsWidth()) return;

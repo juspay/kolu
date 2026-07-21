@@ -105,6 +105,7 @@ import { capturePointerGesture } from "../viewport/capturePointerGesture";
 import { chipInitials } from "./chipInitials";
 import {
   CARDS_WIDTH_PX,
+  clampDockCardsWidth,
   dockCardsWidth,
   effectiveDockCardsWidth,
   setDockCardsWidth,
@@ -216,20 +217,32 @@ const Dock: Component<{
   const isResizableDock = (): boolean =>
     posture.mode() === "maximized" && dockMode() === "cards";
 
-  /** Rendered width for the maximized cards sidebar — the stored preference
-   *  capped to the live host width (handle stays reachable); other postures use
-   *  the plain `dockWidth`. */
+  // Live drag-in-progress width — NOT persisted. Every `pointermove` during a
+  // drag would otherwise call `setDockCardsWidth`, which writes straight
+  // through to `localStorage` on each call (no debounce in `persistedPref` /
+  // `makePersisted` — see `dockCardsWidth.ts`), a synchronous disk write at
+  // 60-120×/s for the drag's duration. Mirrors `CanvasTile`'s resize gesture
+  // (`TerminalCanvas.tsx`): `onMove` only updates this local signal, and the
+  // stored preference is written exactly once, in `onEnd`.
+  const [dragWidth, setDragWidth] = createSignal<number | null>(null);
+
+  /** Rendered width for the maximized cards sidebar — the in-progress drag
+   *  width while dragging, else the stored preference; both capped to the
+   *  live host width (handle stays reachable). Other postures use the plain
+   *  `dockWidth`. */
   const effectiveDockWidth = (): number =>
     isResizableDock()
-      ? effectiveDockCardsWidth(dockCardsWidth(), hostSize.width ?? 0)
+      ? effectiveDockCardsWidth(
+          dragWidth() ?? dockCardsWidth(),
+          hostSize.width ?? 0,
+        )
       : dockWidth(dockMode());
 
   // Drag-to-resize the maximized cards dock — mirrors the right panel's
   // handle. A fresh `AbortController` per gesture; `capturePointerGesture`
   // (shared with tile resize / canvas pan) wires window pointermove/up+cancel
   // and auto-unwires on release. The drag starts from the RENDERED width (not
-  // the raw stored value) so a host-capped dock doesn't jump on grab; the
-  // clamped preference persists via `setDockCardsWidth`.
+  // the raw stored value) so a host-capped dock doesn't jump on grab.
   let abortDockResize: AbortController | null = null;
   function startDockResize(e: PointerEvent) {
     // Primary button only — a right/middle-button drag on the edge shouldn't
@@ -242,21 +255,29 @@ const Dock: Component<{
     e.preventDefault();
     const startX = e.clientX;
     // Delta rides the RENDERED width (so a host-capped dock doesn't jump on
-    // grab); `startStored` is the pre-drag preference to restore if the gesture
-    // is cancelled (a completed drag keeps whatever the last move persisted).
+    // grab).
     const startWidth = effectiveDockWidth();
-    const startStored = dockCardsWidth();
     // No prior gesture to abort — the `if (abortDockResize) return` guard above
     // already established it's null.
     abortDockResize = new AbortController();
     capturePointerGesture(
       {
-        onMove: (ev) => setDockCardsWidth(startWidth + (ev.clientX - startX)),
+        onMove: (ev) =>
+          setDragWidth(clampDockCardsWidth(startWidth + (ev.clientX - startX))),
         onEnd: () => {
+          // Commit exactly once. `dragWidth` stays null on a pointerdown with
+          // no motion (a bare click on the handle) — skip the write, same as
+          // CanvasTile's "no motion — skip commit" resize path.
+          const width = dragWidth();
+          if (width !== null) setDockCardsWidth(width);
+          setDragWidth(null);
           abortDockResize = null;
         },
         onCancel: () => {
-          setDockCardsWidth(startStored);
+          // The stored preference was never touched during the drag, so
+          // reverting is just dropping the local drag width — the render
+          // falls back to `dockCardsWidth()`, untouched since before the drag.
+          setDragWidth(null);
           abortDockResize = null;
         },
       },

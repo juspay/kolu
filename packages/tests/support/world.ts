@@ -112,6 +112,13 @@ export class KoluWorld extends World {
   /** Maximized-dock width (px) captured before a resize drag, so a follow-up
    *  step can prove the drag widened it and that the width survives a reload. */
   savedDockWidth?: number;
+  /** The PERSISTED `kolu-dock-cards-width` value (distinct from the rendered
+   *  `savedDockWidth` above) captured before a resize drag that gets cancelled.
+   *  A cancelled drag never writes to storage (only a completed drag commits),
+   *  so this is `null` whenever no earlier drag in the test has persisted a
+   *  value yet — the cancel step compares against THIS, not a hardcoded
+   *  non-null expectation. */
+  savedStoredDockWidth?: number | null;
   /** Scroll position captured INSIDE the sandboxed HTML preview iframe by
    *  `When I scroll the file preview iframe to the bottom`, held across an
    *  identical-content rewrite to prove the content-hash `?v=<tag>` never

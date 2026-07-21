@@ -242,8 +242,14 @@ Then(
 When(
   "I start a dock resize drag and the browser cancels it",
   async function (this: KoluWorld) {
-    // Pre-drag rendered width — the value the cancel must restore.
+    // Pre-drag rendered AND persisted width — the values the cancel must
+    // restore. A cancelled drag never writes to storage (the commit only
+    // happens on a completed drag), so `savedStoredDockWidth` may legitimately
+    // be `null` here (no earlier drag in this scenario has persisted a value
+    // yet) — the follow-up step compares against whatever this actually was,
+    // not a hardcoded non-null expectation.
     this.savedDockWidth = await dockWidth(this);
+    this.savedStoredDockWidth = await storedDockWidth(this);
     // Synthetic pointerdown → pointermove → pointercancel (same deterministic
     // pattern as mobile_soft_keyboard_steps.ts). pointerdown starts the gesture
     // on the handle; move/cancel go to `window`, where capturePointerGesture
@@ -300,16 +306,25 @@ Then(
       { selector: DOCK_SELECTOR, target: before },
       { timeout: POLL_TIMEOUT },
     );
-    // ...and so does the persisted value (the cancel wrote the pre-drag width
-    // back through setDockCardsWidth).
+    // ...and the persisted value is UNTOUCHED — a cancelled drag never wrote
+    // to storage (only a completed drag commits, once, in onEnd), so this must
+    // equal whatever was stored (or absent) before the drag started, not a
+    // fresh write of the pre-drag width.
+    const beforeStored = this.savedStoredDockWidth;
+    if (beforeStored === undefined) {
+      throw new Error("no pre-drag stored dock width captured");
+    }
     const stored = await storedDockWidth(this);
-    if (
-      stored === null ||
-      Number.isNaN(stored) ||
-      Math.abs(stored - before) > 4
-    ) {
+    const bothAbsent = stored === null && beforeStored === null;
+    const bothMatch =
+      stored !== null &&
+      beforeStored !== null &&
+      !Number.isNaN(stored) &&
+      !Number.isNaN(beforeStored) &&
+      Math.abs(stored - beforeStored) <= 4;
+    if (!bothAbsent && !bothMatch) {
       throw new Error(
-        `expected persisted width to revert to ~${before}, got ${stored}`,
+        `expected persisted width to stay at pre-drag ${beforeStored}, got ${stored}`,
       );
     }
   },
