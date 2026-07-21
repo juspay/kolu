@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 380" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+  <rect width="940" height="380" fill="#0d1117"/>
+
+  <!-- ============ NOW ============ -->
+  <text x="24" y="34" fill="#f0883e" font-weight="700" font-size="14">Now — split by which host you're looking at</text>
+
+  <rect x="24" y="52" width="270" height="70" rx="8" fill="#1f2937" stroke="#f0883e"/>
+  <text x="159" y="76" fill="#e6edf3" text-anchor="middle" font-weight="600">useTerminalAlerts</text>
+  <text x="159" y="96" fill="#9aa4b2" text-anchor="middle" font-size="11.5">active host only</text>
+  <text x="159" y="112" fill="#9aa4b2" text-anchor="middle" font-size="11.5">sound · popup · unread · "finished"</text>
+
+  <rect x="24" y="134" width="270" height="70" rx="8" fill="#1f2937" stroke="#f0883e"/>
+  <text x="159" y="158" fill="#e6edf3" text-anchor="middle" font-weight="600">useHostAttention</text>
+  <text x="159" y="178" fill="#9aa4b2" text-anchor="middle" font-size="11.5">other hosts only</text>
+  <text x="159" y="194" fill="#9aa4b2" text-anchor="middle" font-size="11.5">popup · app badge · "asking" ONLY</text>
+
+  <rect x="24" y="216" width="270" height="58" rx="8" fill="#1f2937" stroke="#f0883e"/>
+  <text x="159" y="240" fill="#e6edf3" text-anchor="middle" font-weight="600">unread ledger</text>
+  <text x="159" y="259" fill="#9aa4b2" text-anchor="middle" font-size="11.5">active host only</text>
+
+  <text x="159" y="304" fill="#6e7681" text-anchor="middle" font-size="11">Same terminal, different rules depending on focus.</text>
+  <text x="159" y="322" fill="#6e7681" text-anchor="middle" font-size="11">A finish on another host tells you nothing.</text>
+
+  <!-- arrow -->
+  <path d="M320 190 H400" stroke="#3fb950" stroke-width="2" fill="none"/>
+  <polygon points="400,190 388,183 388,197" fill="#3fb950"/>
+  <text x="360" y="180" fill="#3fb950" text-anchor="middle" font-size="11">tidy up</text>
+
+  <!-- ============ TARGET ============ -->
+  <text x="440" y="34" fill="#3fb950" font-weight="700" font-size="14">Target — one owner, same rules everywhere</text>
+
+  <rect x="440" y="56" width="240" height="52" rx="8" fill="#161b22" stroke="#58a6ff"/>
+  <text x="560" y="79" fill="#e6edf3" text-anchor="middle" font-weight="600">every host's agent states</text>
+  <text x="560" y="97" fill="#9aa4b2" text-anchor="middle" font-size="11.5">(one shared fact)</text>
+
+  <rect x="440" y="146" width="240" height="72" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+  <text x="560" y="176" fill="#e6edf3" text-anchor="middle" font-weight="700">useAttention</text>
+  <text x="560" y="196" fill="#9aa4b2" text-anchor="middle" font-size="11.5">one place for the rules;</text>
+  <text x="560" y="211" fill="#9aa4b2" text-anchor="middle" font-size="11.5">"seen?" is the only host check</text>
+
+  <rect x="440" y="256" width="240" height="44" rx="8" fill="#161b22" stroke="#8b949e"/>
+  <text x="560" y="283" fill="#c9d1d9" text-anchor="middle" font-size="12">attentionNotify (delivery, unchanged)</text>
+
+  <path d="M560 108 V146" stroke="#58a6ff" fill="none"/><polygon points="560,146 553,136 567,136" fill="#58a6ff"/>
+  <path d="M560 218 V256" stroke="#8b949e" fill="none"/><polygon points="560,256 553,246 567,246" fill="#8b949e"/>
+
+  <!-- outputs -->
+  <rect x="716" y="120" width="200" height="30" rx="6" fill="#1f2937" stroke="#e6a23c"/>
+  <text x="816" y="140" fill="#e6edf3" text-anchor="middle" font-size="11.5">sound + popup</text>
+  <rect x="716" y="158" width="200" height="30" rx="6" fill="#1f2937" stroke="#e6a23c"/>
+  <text x="816" y="178" fill="#e6edf3" text-anchor="middle" font-size="11.5">host-tab marks</text>
+  <rect x="716" y="196" width="200" height="30" rx="6" fill="#1f2937" stroke="#e6a23c"/>
+  <text x="816" y="216" fill="#e6edf3" text-anchor="middle" font-size="11.5">dock dots</text>
+  <rect x="716" y="234" width="200" height="30" rx="6" fill="#1f2937" stroke="#e6a23c"/>
+  <text x="816" y="254" fill="#e6edf3" text-anchor="middle" font-size="11.5">app icon badge</text>
+
+  <path d="M680 182 H716 V135" stroke="#e6a23c" fill="none"/><polygon points="716,135 709,145 723,145" fill="#e6a23c"/>
+  <path d="M680 182 H716 V173" stroke="#e6a23c" fill="none"/><polygon points="716,173 709,183 723,183" fill="#e6a23c"/>
+  <path d="M680 182 H716 V211" stroke="#e6a23c" fill="none"/><polygon points="716,211 709,221 723,221" fill="#e6a23c"/>
+  <path d="M680 182 H716 V249" stroke="#e6a23c" fill="none"/><polygon points="716,249 709,259 723,259" fill="#e6a23c"/>
+
+  <text x="678" y="336" fill="#6e7681" text-anchor="middle" font-size="11">One set of rules feeds every screen cue, on every host.</text>
+</svg>
