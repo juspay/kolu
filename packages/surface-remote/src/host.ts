@@ -95,14 +95,22 @@ export function forEachLine(
  *  degrades mid-flight (network drop, sshd wedge, box overload), an ssh
  *  with no keepalive parks on the half-open socket until the OS TCP
  *  stack gives up — effectively forever — and wedges the caller's spawn
- *  cycle in `copying`/`connecting` with no recovery. The keepalive turns
- *  that eternity into a bounded ~Interval×CountMax (≈30s) failure the
- *  reconnect loop can retry.
+ *  cycle in `copying`/`connecting` with no recovery. For a dead TRANSPORT
+ *  (the whole connection gone) the keepalive turns that eternity into a
+ *  bounded ~Interval×CountMax (≈30s) failure the reconnect loop can retry.
  *
  *  Crucially this does NOT cap a healthy-but-slow build: ssh keepalives
  *  ride the protocol layer independently of channel data, so a
  *  responsive sshd answers them no matter how long the build's stdout
  *  stays quiet. Only an actually-unresponsive peer trips the limit.
+ *
+ *  The blind spot this keepalive CANNOT close (#1908): a healthy transport
+ *  with a single dead exec CHANNEL. The sshd answered keepalives fine while
+ *  one channel's remote side was gone, so the local child parked in `poll()`
+ *  forever with no keepalive to trip. That is why keepalive is necessary but
+ *  NOT sufficient — the child lifetime policies in `process.ts` (a hard
+ *  deadline or progress-liveness kill of the exact child) are what actually
+ *  bound this case.
  *
  *  Declared once as `(key, value)` pairs — the single source of truth —
  *  then rendered into the two shapes its consumers need: an ssh `-o`

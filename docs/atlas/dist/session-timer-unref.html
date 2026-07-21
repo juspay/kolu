@@ -33,7 +33,7 @@ a single turn.</span></span></span></p>
 <tbody>
 <tr>
 <td><code>pendingTimer</code> — reconnect backoff (<code>scheduleReconnect</code> → <code>armTimer</code>)</td>
-<td>after every failed dial / link death; ≤60s each, re-armed forever on <code>&quot;network&quot;</code> cause</td>
+<td>after every failed dial / link death; ≤60s each, re-armed on a retrying <code>&quot;network&quot;</code> cause (a budget-exhausted silent step instead takes the give-up branch and arms NO timer, #1908)</td>
 <td><strong>YES — the immortalizer.</strong> Between dials it is often the <em>sole</em> handle; an abandoned pinned session re-arms it eternally</td>
 <td><strong>unref</strong></td>
 </tr>

@@ -7,9 +7,9 @@
  * `SessionState<SshProv>`, both directions.
  *
  * So a drift — add a phase (e.g. `probing`) or a field (e.g. `sinceMs`) to the session
- * sum without matching the schema, or change the `failed`⇒`cause:"remote"` invariant on
- * one side only — is now a COMPILE error in this file, not a runtime zod throw at the
- * cell write. `tsc` GREEN over this file ⇒ the schema and the type agree.
+ * sum without matching the schema, or change a down arm's `cause` shape (both carry
+ * `"network" | "remote"`) on one side only — is now a COMPILE error in this file, not a
+ * runtime zod throw at the cell write. `tsc` GREEN over this file ⇒ the schema and the type agree.
  */
 
 import type { z } from "zod";

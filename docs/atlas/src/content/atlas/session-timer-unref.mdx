@@ -38,7 +38,7 @@ a single turn.</Footnote>
 
 | Timer | Armed when | Holds the loop today | Verdict |
 | --- | --- | --- | --- |
-| `pendingTimer` — reconnect backoff (`scheduleReconnect` → `armTimer`) | after every failed dial / link death; ≤60s each, re-armed forever on `"network"` cause | **YES — the immortalizer.** Between dials it is often the *sole* handle; an abandoned pinned session re-arms it eternally | **unref** |
+| `pendingTimer` — reconnect backoff (`scheduleReconnect` → `armTimer`) | after every failed dial / link death; ≤60s each, re-armed on a retrying `"network"` cause (a budget-exhausted silent step instead takes the give-up branch and arms NO timer, #1908) | **YES — the immortalizer.** Between dials it is often the *sole* handle; an abandoned pinned session re-arms it eternally | **unref** |
 | `pendingTimer` — connect watchdog (`attempt`, non-admit path, same slot) | transport up, awaiting first RPC; ≤`connectTimeoutMs` (30s), fires once | transiently; while it's armed the live transport (ssh child / socket) usually holds the loop anyway | **unref** |
 | `clockProbeTimer` — clock-offset retry cadence | after a genuine `system.clockNow` probe failure while `connected`; 10s, repeating | yes while armed | **unref** |
 | `clockProbeDeadlineTimer` — in-flight clock-probe deadline | while a clock probe RPC is in flight; ≤8s, self-clearing | yes while in flight (bounded) | **unref** |

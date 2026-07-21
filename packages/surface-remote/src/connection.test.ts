@@ -54,8 +54,9 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
     expect(() =>
       ConnectionInfoSchema.parse({ phase: "connected", log: [], sinceMs: 0 }),
     ).toThrow();
-    // `disconnected` requires error + cause (network | remote); `failed` pins cause
-    // to the `"remote"` literal — a `failed`+`network` value is rejected.
+    // `disconnected` requires error + cause (network | remote); `failed` now accepts
+    // cause `network | remote` too — terminality is the phase, orthogonal to the transport
+    // cause (a budget-exhausted silent copy fails `"network"`; #1908 F3).
     expect(() =>
       ConnectionInfoSchema.parse({
         phase: "disconnected",
@@ -72,11 +73,21 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         sinceMs: 0,
       }),
     ).toMatchObject({ phase: "failed", cause: "remote" });
-    expect(() =>
+    expect(
       ConnectionInfoSchema.parse({
         phase: "failed",
         error: "x",
         cause: "network",
+        log: [],
+        sinceMs: 0,
+      }),
+    ).toMatchObject({ phase: "failed", cause: "network" });
+    // …but a bogus cause is still rejected.
+    expect(() =>
+      ConnectionInfoSchema.parse({
+        phase: "failed",
+        error: "x",
+        cause: "banana",
         log: [],
         sinceMs: 0,
       }),

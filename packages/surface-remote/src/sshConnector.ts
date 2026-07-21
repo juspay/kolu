@@ -24,7 +24,7 @@ import {
   isLocalHost,
   ResolveDrvError,
 } from "./host";
-import { provisionAgent } from "./nixCopy";
+import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
   ConnectError,
@@ -48,8 +48,10 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
  *  ACTUALLY happening, split at the real command boundaries `nixCopy.ts` runs:
  *   - `"probing"`  — the OPENING phase: the ssh arch probe (`resolveDrvPath`) plus
- *                     the warm realise-probe (`nix-store --realise` — "does the host
- *                     already have the closure?"). No copy exists yet; on a WARM host
+ *                     the ASK-ONLY warm check (a sender-local `nix-store -q --outputs`
+ *                     then a bounded `nix-store --check-validity` — "does the host already
+ *                     have the closure?", never a substituting `--realise`). No copy
+ *                     exists yet; on a WARM host
  *                     this is the whole provisioning story and it never enters
  *                     `copying`. This is why the warm path stays CALM — a warm dial
  *                     goes `probing → connecting → connected` with no build UI.
@@ -100,7 +102,18 @@ export interface SshConnectorOptions {
 export function sshConnector<C extends AnyContractRouter>(
   opts: SshConnectorOptions,
 ): Connector<AgentClient<C>, SshProv> {
+  // The fused per-step progress-liveness budgets, owned HERE (the connector closure) so
+  // their doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). The
+  // campaign reset lives INSIDE the budgets (`onCampaign`, called by `provisionAgent`),
+  // so the connector holds ONE object and keeps no `lastCampaignEpoch` of its own.
+  const budgets = makeProvisionBudgets();
+
   return async (ctx): Promise<Connection<AgentClient<C>>> => {
+    // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
+    // campaign generation is known — so `provisionAgent` stays campaign-ignorant. Monotonic
+    // (`onCampaign` ignores an epoch `<= last`), so a stale/superseded dial can't roll a
+    // newer campaign's budget back (#1908 F6).
+    budgets.onCampaign(ctx.campaignEpoch);
     // Resolve the derivation first — where the arch probe (or any deferred per-host
     // drv lookup) runs. A host unreachable at probe time rejects here and is
     // classified `"network"` (retry forever) unless it is a `ResolveDrvError`
@@ -123,15 +136,24 @@ export function sshConnector<C extends AnyContractRouter>(
       // Advance the phase at the REAL command boundaries (cold path only), so the
       // overlay names what is actually happening: `probing → copying` when `nix copy`
       // starts, `copying → building` at the realise boundary. A WARM host skips both
-      // (the fused realise-probe short-circuits) and stays `probing` → connecting.
+      // (the ask-only check short-circuits) and stays `probing` → connecting.
       onCopying: () => ctx.provisioning("copying"),
       onBuilding: () => ctx.provisioning("building"),
+      budgets,
+      // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
+      // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
+      signal: ctx.signal,
     });
     if (!provision.ok) {
       // `provisionAgent` classifies why: a `"remote"` rejection (e.g. `trusted-users`
       // won't accept the closure) is bounded → terminal; a `"network"` failure (the
-      // host went unreachable mid-copy, after the probe succeeded) keeps retrying.
-      throw new ConnectError(provision.reason, provision.cause);
+      // host went unreachable mid-copy, after the probe succeeded) keeps retrying; a
+      // budget-EXHAUSTED silent step is `terminal` → give up NOW (#1908 C5).
+      throw new ConnectError(
+        provision.reason,
+        provision.cause,
+        provision.terminal ?? false,
+      );
     }
     const realisedAgentPath = provision.agentPath;
 
@@ -192,6 +214,14 @@ export function sshConnector<C extends AnyContractRouter>(
     );
 
     if (child.stdin === null || child.stdout === null) {
+      // Tear the just-spawned child down before throwing — a bare `throw` here would
+      // leak the ssh process with no owner (ironic in the #1908 lifetime-ownership
+      // lane; the one-hop debt R10 names).
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* best-effort — a child already exiting is fine */
+      }
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
     const client = stdioLink<C>({

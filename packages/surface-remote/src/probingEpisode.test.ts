@@ -1,38 +1,48 @@
 /**
- * Red-first pins for the W6 remediation, items 3 + 4:
+ * Phase-sequence + episode-clock pins.
  *
- *  - THE PROBING SEQUENCE (item 3): an ssh session opens at `probing` (the arch probe +
- *    warm check, where nothing is being shipped) and advances through the connector's
- *    OWN provisioning vocabulary — `probing → copying → building → connecting → connected`
- *    — each step driven by the connector at a real command boundary (`ctx.provisioning`).
- *    A WARM host that short-circuits from `probing` never enters `copying` (calm path).
+ *  - THE PROBING SEQUENCE: an ssh session opens at `probing` (the arch probe + the
+ *    ask-only warm check, where nothing is being shipped) and advances through the
+ *    connector's OWN vocabulary — `probing → copying → building → connecting →
+ *    connected` — each step driven by the connector at a real command boundary
+ *    (`ctx.provisioning`). A WARM host short-circuits from `probing` (calm path).
  *
- *  - THE EPISODE MARKER (item 4): `sinceMs` (the published episode duration) and the
- *    `log` tail reset ONLY on a down→up crossing (a fresh dial after disconnect/failed),
- *    NOT on a phase-flip within one episode. So the overlay's timer + tail are scoped to
- *    the current provisioning episode, never showing a prior episode's lines under a
- *    fresh timer.
+ *  - THE EPISODE CLOCK (#1908 D3/R7, REWRITTEN): `sinceMs` (the published episode
+ *    duration) and the `log` tail are stamped/reset at CAMPAIGN BIRTH (`startEpisode`),
+ *    NOT per dial. A backoff RETRY within an ongoing connect campaign does NOT reset
+ *    them — so a 10-minute wedge reads 10 minutes, not the per-attempt ~1s the incident
+ *    showed, and the log survives retries (D2's attempt display depends on it). A
+ *    connected-link drop begins a fresh campaign whose clock spans from the drop. (This
+ *    file previously pinned the OLD per-attempt reset; R7 rewrites it deliberately.)
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { silentLogger } from "./loggerStubs.testutil";
-import type { ClosedInfo, ConnectContext, Connection } from "./session";
-import { makeSession } from "./session";
+import {
+  type ClosedInfo,
+  type ConnectContext,
+  ConnectError,
+  type Connection,
+  makeSession,
+} from "./session";
 import type { SshProv } from "./sshConnector";
 
 /** A connector the test drives by hand: it captures the loop's `ctx` (to advance phases
  *  + push log lines the way `nixCopy`'s hooks / stderr forwarding would) and hands back a
- *  {@link Connection} whose death the test can trigger. */
+ *  {@link Connection} whose death the test can trigger — or REJECTS the dial (a failed
+ *  provision, never-connected). */
 function harness() {
   let ctx: ConnectContext<SshProv> | undefined;
   let resolveDial: ((c: Connection<unknown>) => void) | undefined;
+  let rejectDial: ((e: unknown) => void) | undefined;
   let settleClosed: ((i: ClosedInfo) => void) | undefined;
   const connectOnce = (
     c: ConnectContext<SshProv>,
   ): Promise<Connection<unknown>> => {
     ctx = c;
-    return new Promise((res) => {
+    return new Promise((res, rej) => {
       resolveDial = res;
+      rejectDial = rej;
     });
   };
   return {
@@ -41,7 +51,6 @@ function harness() {
       if (!ctx) throw new Error("connector not dialed yet");
       return ctx;
     },
-    /** Hand the loop a live connection (transport up). */
     connect() {
       const closed = new Promise<ClosedInfo>((res) => {
         settleClosed = res;
@@ -53,7 +62,10 @@ function harness() {
         teardown: () => settleClosed?.({ kind: "exit", code: 0, signal: null }),
       });
     },
-    /** Kill the live link (a dropped connection → the loop reconnects). */
+    /** Reject the current dial (a classified provision failure, never-connected). */
+    failDial(reason: string, cause: "network" | "remote") {
+      rejectDial?.(new ConnectError(reason, cause));
+    },
     killLink() {
       settleClosed?.({ kind: "exit", code: null, signal: "SIGTERM" });
     },
@@ -62,7 +74,7 @@ function harness() {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-describe("ssh session phase sequence (item 3 — probing)", () => {
+describe("ssh session phase sequence (probing)", () => {
   it("opens at `probing` and advances probing → copying → building → connecting → connected", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
@@ -76,13 +88,11 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
 
     const pinned = session.pin();
     await flush();
-    // The connector advances at each real command boundary (as `nixCopy`'s
-    // `onCopying`/`onBuilding` hooks do). `probing` is NEVER re-entered from a copy.
     h.ctx().provisioning("copying");
     h.ctx().provisioning("building");
     h.ctx().connecting();
     h.connect();
-    await pinned; // the dial resolved — the transport is up, phase `connecting`
+    await pinned;
     session.markConnected();
     await flush();
 
@@ -110,7 +120,7 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
 
     const pinned = session.pin();
     await flush();
-    // Warm path: the fused realise-probe hits, so the connector NEVER calls
+    // Warm path: the ask-only check hits, so the connector NEVER calls
     // `provisioning("copying")` — it goes straight to `connecting`.
     h.ctx().connecting();
     h.connect();
@@ -126,7 +136,7 @@ describe("ssh session phase sequence (item 3 — probing)", () => {
   });
 });
 
-describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () => {
+describe("episode clock spans the CAMPAIGN, not the dial (#1908 D3/R7)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
@@ -135,7 +145,20 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
     vi.useRealTimers();
   });
 
-  it("log accumulates across phase-flips WITHIN an episode, and sinceMs grows from the episode start", async () => {
+  const snapOf = (session: ReturnType<typeof makeSession>) => () => {
+    let s!: {
+      phase: string;
+      log: readonly { line: string }[];
+      sinceMs: number;
+    };
+    const off = session.onState((v) => {
+      s = v as typeof s;
+    });
+    off();
+    return s;
+  };
+
+  it("log accumulates across phase-flips within a campaign, and sinceMs grows from campaign start", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
@@ -143,22 +166,10 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       liveness: false,
       log: silentLogger,
     });
-    const latest = () => {
-      let s!: {
-        phase: string;
-        log: readonly { line: string }[];
-        sinceMs: number;
-      };
-      const off = session.onState((v) => {
-        s = v;
-      });
-      off();
-      return s;
-    };
+    const latest = snapOf(session);
 
     session.pin().catch(() => {});
     await Promise.resolve();
-    // Episode 1 starts at t=1_000_000. Advance + push log lines across phases.
     vi.setSystemTime(1_000_500);
     h.ctx().provisioning("copying");
     h.ctx().localProgress("copying path a");
@@ -167,17 +178,15 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
     h.ctx().remoteProgress("configurePhase");
 
     const mid = latest();
-    // Log carried across probing→copying→building (NOT reset per phase-flip).
     expect(mid.log.map((e) => e.line)).toEqual([
       "copying path a",
       "configurePhase",
     ]);
-    // sinceMs = now − episodeStart, on the server clock.
     expect(mid.sinceMs).toBe(2_000);
     session.destroy();
   });
 
-  it("a down→up crossing (reconnect) RESETS the log and sinceMs — a fresh episode", async () => {
+  it("a never-connected RETRY does NOT reset the clock — sinceMs spans the wedge, log carries (the incident's 10-min-reads-10-min)", async () => {
     const h = harness();
     const session = makeSession<unknown, SshProv>({
       connectOnce: h.connectOnce,
@@ -186,18 +195,42 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
       reconnectDelayMs: 10,
       log: silentLogger,
     });
-    const snap = () => {
-      let s!: {
-        phase: string;
-        log: readonly { line: string }[];
-        sinceMs: number;
-      };
-      const off = session.onState((v) => {
-        s = v;
-      });
-      off();
-      return s;
-    };
+    const snap = snapOf(session);
+
+    session.pin().catch(() => {});
+    await Promise.resolve();
+    h.ctx().localProgress("checking for a cached agent…");
+    // First dial fails, host unreachable — NEVER connected.
+    vi.setSystemTime(1_000_100);
+    h.failDial("unreachable", "network");
+    await Promise.resolve();
+    expect(snap().phase).toBe("disconnected");
+
+    // The retry fires later. The campaign clock was stamped at the FIRST dial
+    // (1_000_000), so the retry's probing frame reads time-since-campaign-start (NOT
+    // reset to ~0), and the log carries the prior attempt's tail.
+    vi.setSystemTime(1_000_500);
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    const retry = snap();
+    expect(retry.phase).toBe("probing");
+    expect(retry.sinceMs).toBeGreaterThanOrEqual(500);
+    expect(retry.log.map((e) => e.line)).toContain(
+      "checking for a cached agent…",
+    );
+    session.destroy();
+  });
+
+  it("a connected-link DROP begins a fresh campaign whose clock spans from the drop", async () => {
+    const h = harness();
+    const session = makeSession<unknown, SshProv>({
+      connectOnce: h.connectOnce,
+      initialConnection: "probing",
+      liveness: false,
+      reconnectDelayMs: 10,
+      log: silentLogger,
+    });
+    const snap = snapOf(session);
 
     session.pin().catch(() => {});
     await Promise.resolve();
@@ -209,21 +242,23 @@ describe("episode marker: sinceMs + log reset on down→up ONLY (item 4)", () =>
     session.markConnected();
     expect(snap().log.length).toBeGreaterThan(0);
 
-    // Link dies → disconnected. The failed episode's log is STILL readable (down doesn't
-    // reset it — the dialAgentOnce failure-read depends on that).
+    // Link dies at a known time → a fresh campaign is stamped at the DROP. The
+    // just-dropped episode's log is still readable on the down frame.
+    vi.setSystemTime(1_005_000);
     h.killLink();
     await Promise.resolve();
     expect(snap().phase).toBe("disconnected");
     expect(snap().log.length).toBeGreaterThan(0);
 
-    // Reconnect (fresh dial, down→up) — a NEW episode: log reset to empty, sinceMs ~0.
-    vi.setSystemTime(2_000_000);
+    // Reconnect fires later; the clock was stamped at the drop (1_005_000), so the fresh
+    // probing frame reads time-since-drop (NOT ~0) and its log is reset.
+    vi.setSystemTime(1_006_000);
     await vi.advanceTimersByTimeAsync(20);
     await Promise.resolve();
     const fresh = snap();
     expect(fresh.phase).toBe("probing");
     expect(fresh.log).toEqual([]);
-    expect(fresh.sinceMs).toBe(0);
+    expect(fresh.sinceMs).toBeGreaterThanOrEqual(1_000);
     session.destroy();
   });
 });
