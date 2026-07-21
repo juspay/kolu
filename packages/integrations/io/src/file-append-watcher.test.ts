@@ -1,12 +1,12 @@
 /**
  * Unit matrix for `subscribeFileAppends` (juspay/kolu#1754).
  *
- * The point of the primitive is that the `fs.watchFile` FLOOR recovers a change
- * even when the `fs.watch` EDGE never fires. To test the floor in isolation we
- * shim `fs.watch` to a no-op that never delivers an edge (modeling the OS
- * dropping/coalescing it, exactly the #1754 failure), leaving the real
- * `fs.watchFile` to do the recovery. Timing uses a short REAL interval — never
- * fake timers, which cannot drive libuv's real stat (the ruling's Q2 note).
+ * The point of the primitive is that the hand-rolled `statSync` FLOOR recovers a
+ * change even when the `fs.watch` EDGE never fires. To test the floor in
+ * isolation we shim `fs.watch` to a no-op that never delivers an edge (modeling
+ * the OS dropping/coalescing it, exactly the #1754 failure), leaving the real
+ * poll to do the recovery. Timing uses a short REAL interval — never fake
+ * timers, which cannot drive the real `statSync`.
  */
 
 import fs from "node:fs";
@@ -23,8 +23,8 @@ const settle = () => sleep(INTERVAL * 3 + 60);
 let tmp: string;
 let realWatch: typeof fs.watch;
 
-/** Replace `fs.watch` with a no-op so the EDGE never fires — only the
- *  `fs.watchFile` floor can recover. Returns nothing; restored in afterEach. */
+/** Replace `fs.watch` with a no-op so the EDGE never fires — only the `statSync`
+ *  poll floor can recover. Restored in afterEach. */
 function suppressEdge(): void {
   realWatch = fs.watch;
   fs.watch = (() => ({
@@ -103,16 +103,14 @@ describe("subscribeFileAppends — the floor recovers a dropped edge", () => {
       label: "test",
     });
 
-    await settle();
-    onChange.mockClear(); // ignore the initial absent observation
-    fs.writeFileSync(file, "hello\n"); // the file appears
+    fs.writeFileSync(file, "hello\n"); // the file appears (absent→present)
     await settle();
 
     expect(onChange).toHaveBeenCalled(); // the appearance reconcile
     unsub();
   });
 
-  it("recovers an append that lands in the fs.watchFile startup-baseline window (#1754 F1)", async () => {
+  it("recovers an append that lands in the attach→baseline window (#1754 F1)", async () => {
     suppressEdge();
     const file = path.join(tmp, "startup.jsonl");
     fs.writeFileSync(file, "a\n");
@@ -121,11 +119,10 @@ describe("subscribeFileAppends — the floor recovers a dropped edge", () => {
       intervalMs: INTERVAL,
       label: "test",
     });
-    // Append SYNCHRONOUSLY, before fs.watchFile's asynchronous first stat can
-    // establish its comparison baseline — the losing ordering, where the floor
-    // folds this write into its baseline and would never fire it. With the edge
-    // suppressed, ONLY the startup reconciliation (at intervalMs) can recover
-    // this, so a green assertion here proves it does.
+    // Append SYNCHRONOUSLY right after subscribe — the losing ordering that a
+    // baseline captured on an async first stat (fs.watchFile) would fold in and
+    // never fire. The hand-rolled floor captures its baseline SYNCHRONOUSLY at
+    // subscribe, so this window does not exist and the poll recovers it.
     fs.appendFileSync(file, "b\n");
     await settle();
 
@@ -155,7 +152,7 @@ describe("subscribeFileAppends — the edge fast path", () => {
 });
 
 describe("subscribeFileAppends — teardown (B3)", () => {
-  it("does not fire after an immediate unsubscribe", async () => {
+  it("does not fire after unsubscribe, even with a change pending", async () => {
     suppressEdge();
     const file = path.join(tmp, "torn.jsonl");
     fs.writeFileSync(file, "a\n");
@@ -167,61 +164,20 @@ describe("subscribeFileAppends — teardown (B3)", () => {
       label: "test",
     });
 
-    fs.rmSync(file);
+    // A change lands, then teardown races the very next poll tick — clearTimeout
+    // + the closed guard must beat it, so nothing fires and nothing logs.
+    fs.appendFileSync(file, "b\n");
     unsub();
     await settle();
 
     expect(onChange).not.toHaveBeenCalled();
     expect(log.error).not.toHaveBeenCalled();
-    expect(() => unsub()).not.toThrow();
-  });
-
-  it("suppresses a late disambiguating stat that resolves AFTER unsubscribe (the real B3 race)", async () => {
-    suppressEdge();
-    // Hold the disambiguating fs.stat so its callback lands AFTER unsubscribe —
-    // the exact in-flight-async-stat race the closed guard must survive.
-    type StatCb = (err: NodeJS.ErrnoException | null) => void;
-    const realStat = fs.stat;
-    const held: { cb: StatCb | null } = { cb: null };
-    fs.stat = ((_p: fs.PathLike, cb: StatCb) => {
-      held.cb = cb;
-    }) as unknown as typeof fs.stat;
-
-    try {
-      const file = path.join(tmp, "held.jsonl");
-      fs.writeFileSync(file, "a\n");
-      const log = makeLog();
-      const onChange = vi.fn();
-      const unsub = subscribeFileAppends(file, onChange, {
-        intervalMs: INTERVAL,
-        log,
-        label: "test",
-      });
-
-      // Delete → the floor fires with zeroed stats → the listener launches the
-      // (held) disambiguating fs.stat and emits the deletion transition once.
-      fs.rmSync(file);
-      await sleep(INTERVAL * 3 + 60);
-      expect(held.cb).not.toBeNull(); // the async stat is genuinely in flight
-      const onChangeAtTeardown = onChange.mock.calls.length;
-
-      // Tear down WHILE the stat is in flight, then let it resolve with a hard
-      // (non-ENOENT) errno — the closed guard must swallow both the late log and
-      // any late onChange.
-      unsub();
-      held.cb?.({ code: "EACCES" } as NodeJS.ErrnoException);
-      await sleep(60);
-
-      expect(log.error).not.toHaveBeenCalled(); // closed guard beat the late stat
-      expect(onChange.mock.calls.length).toBe(onChangeAtTeardown); // no post-teardown fire
-    } finally {
-      fs.stat = realStat;
-    }
+    expect(() => unsub()).not.toThrow(); // idempotent
   });
 });
 
 describe("subscribeFileAppends — a deletion is expected-absent, not an error", () => {
-  it("does not log an error when the file is deleted mid-session (ENOENT silent)", async () => {
+  it("emits the deletion transition but logs no error (ENOENT stays silent)", async () => {
     suppressEdge();
     const file = path.join(tmp, "gone.jsonl");
     fs.writeFileSync(file, "a\n");
@@ -233,14 +189,37 @@ describe("subscribeFileAppends — a deletion is expected-absent, not an error",
       label: "test",
     });
 
-    fs.rmSync(file); // present → absent: a zeroed-stats fire, ENOENT on restat
+    fs.rmSync(file); // present → absent: statSync throws ENOENT → key becomes null
     await settle();
 
-    // The consumer is told to re-read (a real transition), but ENOENT is
-    // expected-absent — no error log (caught-error-must-not-collapse still holds
-    // for a REAL errno, which is probe-proven EACCES → zeroed stats → error).
+    // The poll sees the key move (present→absent) and emits so the consumer
+    // re-reads; but ENOENT is expected-absent, so nothing is logged.
     expect(onChange).toHaveBeenCalled();
     expect(log.error).not.toHaveBeenCalled();
+    unsub();
+  });
+
+  it("surfaces a hard stat error (EACCES) instead of collapsing to absent", async () => {
+    // Root bypasses directory permissions, so EACCES can't be provoked there.
+    if (process.getuid?.() === 0) return;
+    suppressEdge();
+    const subdir = path.join(tmp, "noaccess");
+    fs.mkdirSync(subdir);
+    const file = path.join(subdir, "f.jsonl");
+    fs.writeFileSync(file, "a\n");
+    const log = makeLog();
+    const unsub = subscribeFileAppends(file, vi.fn(), {
+      intervalMs: INTERVAL,
+      log,
+      label: "test",
+    });
+
+    fs.chmodSync(subdir, 0o000); // now statSync(file) throws EACCES (no dir x-bit)
+    await settle();
+    fs.chmodSync(subdir, 0o755); // restore so afterEach cleanup succeeds
+
+    // A real errno must surface, never be read as "absent, stay silent".
+    expect(log.error).toHaveBeenCalled();
     unsub();
   });
 });

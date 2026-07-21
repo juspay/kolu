@@ -14,42 +14,46 @@
  * because nothing ever re-reads. That is #1754.
  *
  * The fix is a **level-triggered floor** under the edge fast path: poll the
- * file's stat record on a bounded cadence and re-read whenever it changed,
- * even when no edge arrived. The edge stays the fast path (sub-interval latency
- * in the common case); the poll is the floor that makes a dropped edge
- * self-heal within one interval.
+ * file's stat identity on a bounded cadence against a baseline this module
+ * controls, and re-read whenever it changed — even when no edge arrived. The
+ * edge stays the fast path (sub-interval latency in the common case); the poll
+ * is the floor that makes a dropped edge self-heal within one interval.
  *
- * ## Why `fs.watchFile`, not a hand-rolled poll loop
+ * ## The floor is a hand-rolled `statSync` poll — NOT `fs.watchFile`
  *
- * Node's builtin `fs.watchFile(path, { interval }, listener)` IS this floor:
- * libuv's `uv_fs_poll` re-stats the path on `interval` (re-arming only after
- * each stat completes, so slow stats never stack) and invokes the listener
- * whenever the **full stat record** changes — a strict superset of a
- * `(size, mtime)` key that includes `ino`, closing the same-size WAL-rewrite and
- * temp+rename rotation aliases a size/mtime key would miss. It tolerates a
- * not-yet-existing file and fires on `absent→present` (appearance) and
- * `present→absent` (deletion) transitions. Hand-rolling a `setTimeout` poll with
- * a `(size, mtime)` cell would re-implement — worse — what the runtime ships;
- * repo law (`conventions.md`: prefer external/builtin, reuse the source of
- * truth) makes reaching for the builtin mandatory.
+ * The obvious "reuse the builtin" move is `fs.watchFile(path, { interval })`,
+ * and an earlier revision of this fix used it. It was **tried and rejected** —
+ * the record is kept here so it is not re-attempted:
  *
- * **Considered and rejected — the *bare* builtin, `fs.watchFile` alone.** It
- * cannot honor the repo's `caught-error-must-not-collapse-to-empty` law on its
- * own: the `StatWatcher` exposes **no errno channel**, and a permission fault
- * (EACCES) surfaces to the listener as a byte-identical **zeroed `Stats`** —
- * indistinguishable from an expected-absent (ENOENT) file (probe-verified on
- * Node v24). Reading a zeroed fire as "absent, stay silent" would swallow a real
- * EACCES. So the floor is the **composition**: the builtin poll PLUS one
- * disambiguating `fs.stat` on a zeroed-stats fire, whose only job is to pick the
- * log level — ENOENT stays silent (the `wal-subscription.ts` precedent), any
- * other errno logs at `error`. (Also rejected earlier: `@parcel/watcher` — still
- * edge-based, no delivery guarantee, larger blast radius;
- * `decayTransientState` re-arm — semantically de-escalation, not re-read, and
- * disarmed for a live `thinking` by design.)
+ * - **`fs.watchFile` — REJECTED: async, un-observable baseline (a P5 / guarantee
+ *   violation).** `fs.watchFile` fires only relative to a baseline it captures
+ *   on an **asynchronous first stat**, and exposes **no event** for when that
+ *   baseline is established. So a change landing between the consumer's
+ *   attach-time read and that (threadpool-delayable) baseline is folded INTO the
+ *   baseline and never fires — the exact lying-state strand #1754 exists to
+ *   kill, merely narrower. codex-debate reproduced it deterministically
+ *   (`UV_THREADPOOL_SIZE=1`: a change at 180 ms was lost to a baseline that
+ *   didn't land until ~1.3 s). A layer cannot guarantee a startup ordering it
+ *   cannot observe. No startup reconciliation closes it, because there is no
+ *   readiness edge to schedule against.
+ * - **Hand-rolled `statSync` poll — CHOSEN.** Capturing the baseline
+ *   `statKey` **synchronously at subscribe** makes that window non-existent *by
+ *   construction*: every change after subscribe is compared against a key this
+ *   module owns. `statSync` also throws the **real errno** directly, so ENOENT
+ *   (expected-absent) stays silent and any other errno (EACCES) surfaces — with
+ *   no second disambiguating stat (which `fs.watchFile`'s errno-less StatWatcher
+ *   would have forced). The full key `size:mtimeMs:ino` keeps everything
+ *   `fs.watchFile` was credited with (ino closes the same-size WAL-rewrite and
+ *   temp+rename rotation aliases). Self-rescheduling `setTimeout` (never
+ *   `setInterval`) re-arms only after each stat, so slow stats never stack.
+ *
+ * (Also rejected earlier: `@parcel/watcher` — still edge-based, no delivery
+ * guarantee, larger blast radius; `decayTransientState` re-arm — de-escalation,
+ * not re-read, and disarmed for a live `thinking` by design.)
  *
  * ## Honest residual
  *
- * Stat-sampling can only distinguish states the stat record encodes. On a
+ * Stat-sampling can only distinguish states the stat identity encodes. On a
  * coarse-mtime filesystem (1 s ext3/HFS+, 2 s FAT, many network mounts) a
  * same-size same-inode overwrite within one mtime granule is invisible to any
  * stat key — and SQLite's normal post-checkpoint pattern is exactly a same-size
@@ -61,12 +65,11 @@
 import fs from "node:fs";
 import type { Logger } from "@kolu/log";
 
-/** Poll interval (ms) for the `fs.watchFile` floor that every production call
- *  site passes. A module constant, never a per-call knob (`conventions.md`:
- *  "being able to override is never a feature") — the recovery latency this
- *  buys is uniform across providers. The refuter's probe recovered a dropped
- *  terminal edge in 903 ms at this interval. Tests inject a shorter real
- *  interval (never fake timers — a fake clock cannot drive libuv's real stat). */
+/** Poll interval (ms) for the floor that every production call site passes. A
+ *  module constant, never a per-call knob (`conventions.md`: "being able to
+ *  override is never a feature") — the recovery latency this buys is uniform
+ *  across providers. Tests inject a shorter real interval (never fake timers —
+ *  a fake clock cannot drive the real `statSync`). */
 export const DEFAULT_APPEND_POLL_MS = 1000;
 
 export interface SubscribeFileAppendsOpts {
@@ -82,39 +85,47 @@ export interface SubscribeFileAppendsOpts {
   label: string;
 }
 
-/**
- * Watch `filePath` for content changes with an append-robust guarantee, and
- * call `onChange` (the consumer's own debounced, change-gated handler) whenever
- * it may have changed. Subscribe **unconditionally** — the file need not exist
- * yet; the floor tolerates absence and fires `onChange` on the **absent→present
- * transition** (a session file that appears after attach) and on every
- * subsequent append.
- *
- * **The consumer must perform its own initial read on attach** for immediate
- * state — the primitive emits no *synchronous* on-attach `onChange`, because
- * `fs.watchFile` fires only on a change from the stat it samples at watch-start.
- * A one-shot **startup reconciliation** (below) fires `onChange` once after
- * `intervalMs` **only if** the file's stat moved since attach — closing the
- * async-baseline race without disturbing a genuinely idle file. It is a
- * gap-closer, not the initial read (too late for that): consumer reads now.
- *
- * Returns an idempotent unsubscribe that closes both watchers and the startup
- * timer behind a `closed` guard rechecked after the async disambiguating stat,
- * so no late callback fires on a torn-down watcher. A throwing `onChange` is
- * caught and logged, never escaping the watcher callback.
- */
-/** Full stat identity (`size:mtimeMs:ino`) for the one-shot startup
- *  reconciliation, or null when the file is absent/unstattable — so an
- *  absent→present appearance in the startup window also registers as a change. */
-function statKey(filePath: string): string | null {
+/** Full stat identity (`size:mtimeMs:ino`) — the poll's authoritative baseline
+ *  key. Returns null when the file is absent (ENOENT — expected under
+ *  unconditional subscribe), so an absent↔present transition registers as a
+ *  change. Any OTHER errno (EACCES, EMFILE, …) is a real fault and surfaces at
+ *  `error` — `statSync` hands us the errno directly, so no separate
+ *  disambiguating stat is needed (fail-fast: surface, never collapse to absent). */
+function statKey(
+  filePath: string,
+  log: Logger | undefined,
+  tag: string,
+): string | null {
   try {
     const s = fs.statSync(filePath);
     return `${s.size}:${s.mtimeMs}:${s.ino}`;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.error({ err, path: filePath }, `${tag}: stat failed`);
+    }
     return null;
   }
 }
 
+/**
+ * Watch `filePath` for content changes with an append-robust guarantee, and
+ * call `onChange` (the consumer's own debounced, change-gated handler) whenever
+ * it may have changed. Subscribe **unconditionally** — the file need not exist
+ * yet; the poll tolerates absence and fires `onChange` on the **absent→present
+ * transition** (a session file that appears after attach) and on every
+ * subsequent append.
+ *
+ * **The consumer must perform its own initial read on attach** for immediate
+ * state — the primitive emits no *synchronous* on-attach `onChange`; the poll's
+ * synchronously-captured baseline means the FIRST post-attach change is what
+ * fires, at most one interval later. So: consumer reads now, the floor recovers
+ * anything the edge drops thereafter.
+ *
+ * Returns an idempotent unsubscribe that cancels the poll and closes the edge
+ * watcher behind a `closed` guard, so no late callback fires on a torn-down
+ * watcher. A throwing `onChange` is caught and logged, never escaping the
+ * watcher callback to crash the host.
+ */
 export function subscribeFileAppends(
   filePath: string,
   onChange: () => void,
@@ -124,13 +135,13 @@ export function subscribeFileAppends(
   const tag = label;
   let closed = false;
 
-  // Single guarded funnel for BOTH emission paths (the `fs.watch` edge and the
-  // `fs.watchFile` floor). A watcher callback that throws would otherwise escape
-  // as an uncaught exception and take down the whole host process — one session's
-  // consumer bug must not kill every other session's watcher. Rechecks `closed`
-  // so no late tick fires after unsubscribe, and isolates a throwing consumer to
-  // the error log (the repo's guarded-watcher-callback convention, e.g.
-  // wal-subscription's per-listener fault isolation).
+  // Single guarded funnel for BOTH emission paths (the poll and the edge). A
+  // watcher callback that throws would otherwise escape as an uncaught exception
+  // and take down the whole host process — one session's consumer bug must not
+  // kill every other session's watcher. Rechecks `closed` so no late tick fires
+  // after unsubscribe, and isolates a throwing consumer to the error log (the
+  // repo's guarded-watcher-callback convention, e.g. wal-subscription's
+  // per-listener fault isolation).
   const emit = (): void => {
     if (closed) return;
     try {
@@ -140,10 +151,30 @@ export function subscribeFileAppends(
     }
   };
 
-  // Fast path — the OS edge. `fs.watch` throws synchronously if the file is not
-  // there yet (unconditional subscribe): that is expected, the floor covers
-  // appearance and every subsequent append. A non-ENOENT throw (EACCES, EMFILE)
-  // is a real fault and must surface.
+  // Floor — the hand-rolled `statSync` poll. `observed` is the baseline stat
+  // identity, captured **synchronously at subscribe** (no async gap can swallow
+  // a startup change — the fs.watchFile failure this replaces). The poll is the
+  // SOLE writer of `observed` (single-writer, P3): it re-stats each interval and
+  // emits + advances only on a change. Self-rescheduling so a slow stat never
+  // stacks; `.unref()`'d so it never holds the process alive.
+  let observed = statKey(filePath, log, tag);
+  let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
+    if (closed) return;
+    const cur = statKey(filePath, log, tag);
+    if (cur !== observed) {
+      observed = cur;
+      emit();
+    }
+    pollTimer = setTimeout(poll, intervalMs);
+    pollTimer.unref();
+  }, intervalMs);
+  pollTimer.unref();
+
+  // Fast path — the OS edge, a pure pass-through to `emit` (it never touches
+  // `observed`; a poll/edge double-fire is benign — the consumer's debounce +
+  // change-gate absorb it to one re-derive). `fs.watch` throws ENOENT if the
+  // file isn't there yet (expected under unconditional subscribe — the poll
+  // covers appearance); a non-ENOENT throw (EACCES, EMFILE) is a real fault.
   let watcher: fs.FSWatcher | null = null;
   try {
     watcher = fs.watch(filePath, emit);
@@ -153,51 +184,10 @@ export function subscribeFileAppends(
     }
   }
 
-  // Floor — Node's builtin interval stat-poller (libuv `uv_fs_poll`). Fires on
-  // any stat-record change, tolerates absence, and never stacks slow stats.
-  const listener = (curr: fs.Stats): void => {
-    if (closed) return;
-    // A zeroed `Stats` (ino 0) is either an absent file (ENOENT — expected) or a
-    // hard stat error (EACCES — must surface); the StatWatcher can't tell them
-    // apart, so one disambiguating `fs.stat` picks the log level. It does NOT
-    // gate `onChange`: a transition (append / appearance / deletion) always
-    // re-reads; the consumer's read is idempotent and change-gated downstream.
-    if (curr.ino === 0) {
-      fs.stat(filePath, (err) => {
-        if (closed) return;
-        if (err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
-          log?.error({ err, path: filePath }, `${tag}: stat failed`);
-        }
-      });
-    }
-    emit();
-  };
-  const statWatcher = fs.watchFile(filePath, { interval: intervalMs }, listener);
-  // Don't keep the process alive for the poll — it's a background floor.
-  statWatcher.unref();
-
-  // Startup reconciliation (juspay/kolu#1754). `fs.watchFile` establishes its
-  // comparison baseline on an ASYNCHRONOUS first stat, so a change that lands
-  // between the consumer's attach-time read and that baseline is folded INTO the
-  // baseline and would never fire — the attach-window re-strand a fast turn can
-  // still hit. Capture a baseline stat-key synchronously now (before that async
-  // baseline), then once after `intervalMs` (by which the floor's baseline is
-  // long since captured) re-stat and `emit` ONLY if the key moved — recovering
-  // anything the startup window swallowed, without a spurious fire on a
-  // genuinely idle file (constraint 5 intact). This is a one-shot gap-closer,
-  // not a second poll loop — the floor still owns the ongoing polling. Cleared
-  // on unsubscribe; `.unref()`'d so it never holds the process.
-  const startupKey = statKey(filePath);
-  const startupReconcile: NodeJS.Timeout = setTimeout(() => {
-    if (!closed && statKey(filePath) !== startupKey) emit();
-  }, intervalMs);
-  startupReconcile.unref();
-
   return () => {
     if (closed) return;
     closed = true;
-    clearTimeout(startupReconcile);
+    clearTimeout(pollTimer);
     watcher?.close();
-    fs.unwatchFile(filePath, listener);
   };
 }

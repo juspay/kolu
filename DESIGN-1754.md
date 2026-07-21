@@ -230,30 +230,37 @@ Ruling: `…/scratchpad/ruling-1754.md`; findings: `…/tasks/confirmed-1754.txt
 Core ratified (floor under fast path, one primitive, three seams, no knobs).
 Amendments below are **binding**.
 
-**B1 — the floor is Node's builtin `fs.watchFile`, not a hand-rolled loop.**
-`subscribeFileAppends(filePath, onChange, { intervalMs, log?, label? })`:
-- `fs.watch(filePath, () => onChange())` — fast path (tolerate ENOENT at
-  install: if the file isn't there yet, skip the edge; the floor still covers).
-- `fs.watchFile(filePath, { interval: intervalMs }, listener)`, `.unref()`'d —
-  the floor. libuv `uv_fs_poll` fires on any stat-record change (superset of
-  size/mtime incl. **ino**, closing WAL same-size-rewrite + rotation aliases),
-  tolerates absence, fires on absent→present and present→absent, never stacks.
-- listener feeds the **same** `onChange` (the consumer's existing 150ms-debounced,
-  change-gated handler) on every fire.
-- **On a zeroed-stats fire only** (`curr.ino === 0`) do ONE disambiguating
-  `fs.stat`: `ENOENT` → expected-absent, **silent** (wal-subscription precedent);
-  any other errno → **log at error**, keep polling. (The builtin's StatWatcher
-  has no errno channel — EACCES and ENOENT both surface as byte-identical zeroed
-  Stats, probe-proven — so this stat is the only way to honor
-  `caught-error-must-not-collapse`.)
-- teardown: `watcher.close()` + `fs.unwatchFile(filePath, listener)` behind a
-  `closed` guard (guard also rechecked after the async disambiguating stat).
-- **DELETED** vs §4: `lastObserved`, the `(size, mtimeMs)` key, the
-  self-rescheduling `setTimeout`, and the edge-updates-the-cell machinery (a
-  two-writer cell whose only job was a dedupe constraint 5 never needed — the
-  floor fires ≤1×/interval and the debounce+gate absorb it; refuter measured 6
-  fires across 279 rapid appends). §6 rejected-list must record **why the bare
-  builtin was insufficient** (the EACCES/ENOENT errno probe).
+**B1 — SUPERSEDED (reverted). The floor is a hand-rolled `statSync` poll, NOT
+`fs.watchFile`.** B1 originally amended the floor to Node's builtin
+`fs.watchFile` on ecosystem-reuse (C1) grounds. The codex-debate (xhigh) found —
+and the coordinator independently verified (`ruling-1754-B1.md`) — that this
+**buys a defect**: `fs.watchFile` fires only relative to a baseline it captures
+on an **asynchronous first stat**, with **no readiness event**, so a change
+between the consumer's attach read and that (threadpool-delayable) baseline is
+folded in and never fires — a **P5 guarantee violation**, the exact #1754 strand
+class merely narrower (codex reproduced it deterministically at
+`UV_THREADPOOL_SIZE=1`). No startup reconciliation closes it — there is no
+ordering edge to schedule against.
+
+**As-built** `subscribeFileAppends(filePath, onChange, { intervalMs, log?, label })`:
+- `observed = statKey(filePath)` captured **synchronously at subscribe** — the
+  attach→baseline race is non-existent *by construction*.
+- a self-rescheduling `setTimeout` poll (never `setInterval`, no stacking), the
+  **sole writer** of `observed` (single-writer, P3): re-stats each interval,
+  `emit`s + advances only on change. Full key **`size:mtimeMs:ino`** (ino closes
+  the WAL same-size-rewrite / rotation aliases B1 credited the builtin with).
+- `statSync` throws the **real errno** directly — ENOENT stays silent (keep
+  polling), any other errno logs at `error`. The disambiguating `fs.stat` B1
+  needed (for the builtin's errno-less StatWatcher) is **deleted**.
+- `fs.watch` stays the fast-path edge, a pure pass-through to `emit` (never
+  touches `observed`; a poll/edge double-fire is absorbed by the debounce+gate).
+- teardown: `clearTimeout(pollTimer)` + `watcher.close()` behind the `closed`
+  guard. No async stat to race.
+
+This is the single-writer poll the design-gate lens run (wf_f8093c1f) already
+approved before B1; the module doc's §"floor is a hand-rolled poll" carries the
+`fs.watchFile`-REJECTED record so it is not re-attempted. (Also rejected earlier:
+`@parcel/watcher`, `decayTransientState` re-arm.)
 
 **Q1 kolu-io ✓** — the Q5 wiring creates the **first `kolu-shared → kolu-io`
 workspace edge** (safe, leaf); **state it in the PR body**.
@@ -266,9 +273,9 @@ interval (refcounted-dir-watcher.test.ts precedent).
 edge-only display-freshness residual in doc + PR body).
 
 **Q7 — REVERSED: subscribe UNCONDITIONALLY** (file present or not) at all three
-seams. `fs.watchFile` tolerates absence and fires on absent→present, so the
-first successful stat IS the appearance reconcile. Dir watches stay **fast paths
-only**. Closes grok's never-re-arming macOS bootstrap hole, claude's
+seams. The poll tolerates absence and fires on absent→present, so the first
+stat that finds the file IS the appearance reconcile. Dir watches stay **fast
+paths only**. Closes grok's never-re-arming macOS bootstrap hole, claude's
 dropped-projectDir-edge window, and the WAL startup window in one mechanism.
 
 **B2 — WAL:** keep the parent-dir inode-rearm (re-arms the fs.watch **edge** on a

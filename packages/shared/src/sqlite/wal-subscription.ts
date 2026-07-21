@@ -22,7 +22,7 @@
  * the dispatch loop for the why.
  *
  * The direct subscription is `subscribeFileAppends` (an `fs.watch` edge
- * over an `fs.watchFile` floor, juspay/kolu#1754). Its floor follows the
+ * over a `statSync` poll floor, juspay/kolu#1754). Its floor follows the
  * PATH, not an inode, so that one subscription already covers WAL
  * **appearance** (the startup window between a row landing in the main DB
  * and the first WAL frame flushing), every subsequent **append**, and
@@ -191,7 +191,7 @@ function installWalWatcher(
 ): () => void {
   // The direct WAL subscription and the inode identity it was armed on. The
   // subscription is `subscribeFileAppends` (an `fs.watch` edge + an
-  // `fs.watchFile` floor, juspay/kolu#1754): the floor follows the PATH, so a
+  // `statSync` poll floor, juspay/kolu#1754): the floor follows the PATH, so a
   // single subscription already survives the WAL's appearance, appends, AND
   // inode replacement — the `identity` is kept only to refresh the fast-path
   // EDGE when a checkpoint recreates the WAL under a new inode. `identity` may

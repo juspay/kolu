@@ -24,7 +24,7 @@ let realWatch: typeof fs.watch;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-floor-"));
   realWatch = fs.watch;
-  // Drop every fs.watch edge so only the fs.watchFile floor can recover.
+  // Drop every fs.watch edge so only the statSync poll floor can recover.
   fs.watch = (() => ({
     close: () => {},
     on() {

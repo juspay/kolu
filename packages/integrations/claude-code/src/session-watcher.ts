@@ -86,7 +86,7 @@ const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
 // --- Transcript watching lifecycle ---
 
 // The transcript is watched by `subscribeFileAppends` (kolu-io): an `fs.watch`
-// fast path plus an `fs.watchFile` floor that survives a dropped/coalesced
+// fast path plus a `statSync` poll floor that survives a dropped/coalesced
 // terminal-append edge (juspay/kolu#1754). It subscribes on the DETERMINISTIC
 // transcript path unconditionally — the file need not exist yet — so the old
 // none/waiting/watching state machine and its dir-watch appearance bootstrap

@@ -7,7 +7,7 @@
  * append: if its `fs.watch` edge is dropped/coalesced and no further write
  * follows, the codex/opencode tile strands on its last state. Here we suppress
  * ALL `fs.watch` edges (both the direct WAL watch and the parent-dir rearm
- * watch) with a no-op shim, leaving the real `fs.watchFile` floor inside
+ * watch) with a no-op shim, leaving the real `statSync` poll floor inside
  * `subscribeFileAppends` as the only recovery path — and prove it fires
  * `onChange` after a dropped WAL append with no edge.
  */
@@ -73,7 +73,7 @@ describe("createWalSubscription — floor recovers a dropped WAL append", () => 
     fs.appendFileSync(walPath, "frame1\n");
     await overOneInterval();
 
-    expect(onChange).toHaveBeenCalled(); // the fs.watchFile floor recovered it
+    expect(onChange).toHaveBeenCalled(); // the statSync poll floor recovered it
     unsubscribe();
   });
 
