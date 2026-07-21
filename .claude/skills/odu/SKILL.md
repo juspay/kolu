@@ -146,6 +146,8 @@ nix run github:juspay/odu -- dump            # resolved pipeline as JSON
 nix run github:juspay/odu -- graph           # dependency graph (Mermaid)
 nix run github:juspay/odu -- protect --dry-run   # the (recipe × platform) contexts
 nix run github:juspay/odu -- protect             # PATCH branch protection to them
+# --platform P (repeatable) pins the repo's platform set with no hosts config;
+# omitted, the set derives from the machine's hosts file (warned on stderr).
 ```
 
 ## Live introspection (attach to a run in progress)
