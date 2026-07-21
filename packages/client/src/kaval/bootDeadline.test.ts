@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { BootTag, CeilingClass, StalledLeg } from "./canvasModeResolver";
 import {
   bootDeadlineExceeded,
+  CAMPAIGN_CEILING_MS,
   CEILING_MS,
   LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS,
   pruneBootAnchors,
@@ -106,6 +107,59 @@ describe("bootDeadline — ceiling-class transition re-anchors (R4 accrual per c
         590_000 + CEILING_MS["remote-handshake"] + 1,
       ),
     ).toBe(true);
+  });
+});
+
+describe("bootDeadline — campaign backstop (#1908 R8a, class-blind)", () => {
+  it("the campaign ceiling is finite and comfortably above the per-class table", () => {
+    expect(Number.isFinite(CAMPAIGN_CEILING_MS)).toBe(true);
+    // Above the 600s remote-provisioning cell (and every other class cell) with real margin —
+    // a genuinely-progressing provision settles + clears well under it.
+    for (const ms of Object.values(CEILING_MS)) {
+      expect(CAMPAIGN_CEILING_MS).toBeGreaterThan(ms);
+    }
+    expect(CAMPAIGN_CEILING_MS).toBeGreaterThan(600_000);
+  });
+
+  it("no campaignMs → only the class anchor decides (back-compat)", () => {
+    recordBootFrame("zest", boot("session", "remote-handshake"), 0);
+    expect(
+      bootDeadlineExceeded("zest", CEILING_MS["remote-handshake"] - 1),
+    ).toBe(false);
+    expect(
+      bootDeadlineExceeded("zest", CEILING_MS["remote-handshake"] + 1),
+    ).toBe(true);
+  });
+
+  it("a flapping phase that re-zeros the class anchor FOREVER still escapes once the campaign clock passes the backstop", () => {
+    // The R8a hole: PR1's retry cycle flaps a warming host's phase, so every class change
+    // re-anchors the class cell (zero-credit) and it NEVER trips on its own…
+    recordBootFrame("zest", boot("provisioning", "remote-provisioning"), 0);
+    recordBootFrame("zest", boot("provisioning", "remote-handshake"), 100_000);
+    recordBootFrame(
+      "zest",
+      boot("provisioning", "remote-provisioning"),
+      200_000,
+    );
+    // …the class anchor was last (re)set at 200_000, so at 250_000 only 50s have accrued
+    // against the 600s cell — the class ceiling is NOT exceeded, no matter how long this runs:
+    expect(bootDeadlineExceeded("zest", 250_000)).toBe(false);
+    expect(bootDeadlineExceeded("zest", 250_000, CAMPAIGN_CEILING_MS - 1)).toBe(
+      false,
+    );
+    // …but the class-BLIND campaign clock (the server `sinceMs`) has run past the backstop —
+    // the escape fires regardless of the flap. This is what makes the card reachable at all
+    // for a persistently-wedged host.
+    expect(bootDeadlineExceeded("zest", 250_000, CAMPAIGN_CEILING_MS + 1)).toBe(
+      true,
+    );
+  });
+
+  it("the campaign backstop fires even with NO class anchor at all (a warming host the class cell never anchored)", () => {
+    expect(bootDeadlineExceeded("zest", 0, CAMPAIGN_CEILING_MS + 1)).toBe(true);
+    expect(bootDeadlineExceeded("zest", 0, CAMPAIGN_CEILING_MS - 1)).toBe(
+      false,
+    );
   });
 });
 

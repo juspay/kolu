@@ -1,27 +1,31 @@
 // @vitest-environment happy-dom
-/** #1763 — the boot-stalled escape surface renders NON-BLANK for every leg. Renders
- *  `BootStalledCanvas` through `solid-js/web`'s `render` (the `dialogLiveness.test.tsx`
- *  idiom) and asserts the leg's copy, the Reload recovery verb, and — for a remote host —
- *  the Switch-to-local escape hatch, all appear. `../wire` is mocked so the surface stack /
- *  socket never boots in the test.
+/** #1763 + #1908 D2 — the boot-stalled escape surface renders NON-BLANK for both recovery
+ *  shapes. Renders `BootStalledCanvas` through `solid-js/web`'s `render` (the
+ *  `dialogLiveness.test.tsx` idiom) and asserts, per shape, the copy, the recovery verb, and —
+ *  for a remote host — the Switch-to-local escape hatch, all appear. `../wire` is mocked so the
+ *  surface stack / socket never boots in the test.
  *
- *  SCOPE (codex-debate F2): this is a COMPONENT render pin, not an App-`<Switch>` integration
- *  test — it would stay green if App.tsx's `boot-stalled` `<Match>` were deleted. The two facts
- *  that surface can't render blank are pinned elsewhere: `useCanvasMode.test.ts` proves the
- *  `boot-stalled` MODE is produced, and this proves the component renders non-blank from it. The
- *  one-line `<Match when={bootStalledMode()}>{(m) => <BootStalledCanvas .../>}</Match>` wiring
- *  between them is deliberately NOT integration-tested here: rendering App.tsx drags the whole
- *  live `wire` socket stack, disproportionate to a one-line reviewed arm. */
+ * SCOPE (codex-debate F2): this is a COMPONENT render pin, not an App-`<Switch>` integration
+ * test — it would stay green if App.tsx's `boot-stalled` `<Match>` were deleted. That the
+ * `boot-stalled` MODE (with its honest recovery verdict) is produced is pinned in
+ * `useCanvasMode.test.ts` / `canvasModeResolver.test.ts`; this proves the component renders
+ * non-blank from it. The one-line `<Match>` wiring between them is deliberately NOT
+ * integration-tested here (rendering App.tsx drags the whole live `wire` socket stack).
+ */
 
 import type { HostKey } from "kolu-common/hostKey";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootStalledCopy } from "../kaval/bootStalledCopy";
+import {
+  bootStalledCopy,
+  CONNECTOR_STALLED_COPY,
+} from "../kaval/bootStalledCopy";
 
 const h = vi.hoisted(() => ({ host: { kind: "local" } as HostKey }));
 vi.mock("../wire", () => ({
   activeHost: () => h.host,
   setActiveHost: () => {},
+  client: { hosts: { reconnect: () => Promise.resolve() } },
 }));
 
 // Imported AFTER the mock so it binds the mocked `../wire`.
@@ -36,9 +40,9 @@ afterEach(() => {
 });
 
 describe("BootStalledCanvas renders non-blank (component render pin)", () => {
-  it("a local session-leg stall shows its copy + a Reload verb, no Switch-to-local", () => {
+  it("a local client session-leg stall shows its copy + a Reload verb, no Switch-to-local", () => {
     dispose = render(
-      () => <BootStalledCanvas leg="session" phase={undefined} />,
+      () => <BootStalledCanvas recovery={{ via: "client", leg: "session" }} />,
       document.body,
     );
     expect(
@@ -59,22 +63,25 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     ).toBeNull();
   });
 
-  it("a remote provisioning stall names the phase and offers Switch-to-local", () => {
+  it("a remote connector stall shows the non-terminal copy, names the phase, offers Reconnect + Switch-to-local", () => {
     h.host = { kind: "remote", target: "zest" };
     dispose = render(
-      () => <BootStalledCanvas leg="provisioning" phase="building" />,
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
       document.body,
     );
     expect(
       document.querySelector('[data-testid="boot-stalled-canvas"]'),
     ).not.toBeNull();
-    expect(document.body.textContent).toContain(
-      bootStalledCopy("provisioning").title,
-    );
-    // C4 phase render — the wedged build names WHERE it is stuck.
+    expect(
+      document.querySelector('[data-recovery="connector"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain(CONNECTOR_STALLED_COPY.title);
+    // Phase detail — the wedged-but-retrying build names WHERE it is.
     expect(document.body.textContent).toContain("building");
     expect(
-      document.querySelector('[data-testid="boot-stalled-reload"]'),
+      document.querySelector('[data-testid="boot-stalled-reconnect"]'),
     ).not.toBeNull();
     expect(
       document.querySelector('[data-testid="switch-to-local"]'),

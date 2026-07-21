@@ -53,6 +53,18 @@ export const CEILING_MS: Record<CeilingClass, number> = {
   "remote-handshake": 120_000,
 };
 
+/** The CAMPAIGN backstop ceiling (#1908 R8a) — a SECOND, class-BLIND cell above the per-class
+ *  table. PR1's D1 retry cycle can flap a warming host's phase (probing→copying→building→retry)
+ *  fast enough that the class anchor above re-zeros on every class change and so NEVER trips —
+ *  the escape card would never fire for a persistently-wedged host. This bound is anchored on the
+ *  campaign itself (the server's `sinceMs` — the whole-campaign duration D3 shipped in PR1, which
+ *  is class-blind and resets per campaign), so a flapping class can't dodge it. 30min: comfortably
+ *  above the 600s remote-provisioning cell AND above the server's own retry grants (R8b's 20min
+ *  pre-connected no-progress backstop; R4's ≤16min per-step budget) — so a genuinely-progressing
+ *  cold provision (which settles to `connected` and CLEARS well under this) never false-fires;
+ *  only a campaign that has NOT settled for a solid half hour reaches it. */
+export const CAMPAIGN_CEILING_MS = 1_800_000;
+
 interface Anchor {
   /** Monotonic ms when THIS ceiling-class episode began for this host. */
   anchorMs: number;
@@ -64,14 +76,29 @@ interface Anchor {
 /** The per-host episode anchors — module-lifetime, keyed by encoded active host. */
 const anchors = new Map<string, Anchor>();
 
-/** Step 1 (read): is the active host's boot overlay past its ceiling? Computed from the
- *  PRIOR frame's stored anchor (C1 — the class is last frame's; the ≤1-tick lag is the
- *  accepted, self-correcting edge). A host with no stored anchor (never a boot overlay, or
- *  already settled+cleared) is never exceeded — so a brief overlay under the ceiling holds
- *  the neutral surface, exactly as before. */
-export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
+/** Step 1 (read): is the active host's boot overlay past EITHER ceiling? Two independent cells,
+ *  OR-ed (#1908 R8a):
+ *   - the per-CLASS anchor (C1 — computed from the PRIOR frame's stored class; the ≤1-tick lag
+ *     is the accepted, self-correcting edge). A host with no stored anchor (never a boot overlay,
+ *     or already settled+cleared) is not exceeded this way — a brief overlay under the ceiling
+ *     holds the neutral surface, exactly as before.
+ *   - the class-BLIND CAMPAIGN backstop: `campaignMs` (the server's whole-campaign `sinceMs`,
+ *     passed ONLY for a warming entry — a connector-owned provisioning campaign) past
+ *     {@link CAMPAIGN_CEILING_MS}. This is what still fires when a flapping phase re-zeros the
+ *     class anchor forever. `undefined` (a non-warming entry, or before the first connection
+ *     frame) contributes nothing, so the campaign cell is naturally "cleared on connected/settled"
+ *     — the caller stops passing it once the entry is no longer warming. */
+export function bootDeadlineExceeded(
+  hostEnc: string,
+  nowMs: number,
+  campaignMs?: number,
+): boolean {
   const a = anchors.get(hostEnc);
-  return a !== undefined && nowMs - a.anchorMs > CEILING_MS[a.ceiling];
+  const classExceeded =
+    a !== undefined && nowMs - a.anchorMs > CEILING_MS[a.ceiling];
+  const campaignExceeded =
+    campaignMs !== undefined && campaignMs > CAMPAIGN_CEILING_MS;
+  return classExceeded || campaignExceeded;
 }
 
 /** Step 3 (write): fold this frame's resolved tag into the host's anchor (C2) — a pure switch

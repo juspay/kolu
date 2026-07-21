@@ -11,13 +11,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   now: 0,
-  entryKind: "not-a-member" as "not-a-member" | "connected",
+  entryKind: "not-a-member" as "not-a-member" | "connected" | "warming",
   members: [] as { kind: "local" }[],
+  local: true,
+  connInfo: undefined as { phase?: string; sinceMs?: number } | undefined,
 }));
 
 vi.mock("../wire", () => ({
   activeHost: () => LOCAL_HOST,
-  connectionInfo: () => undefined,
+  connectionInfo: () => h.connInfo,
   hostKeys: () => h.members,
 }));
 vi.mock("../time/clock", () => ({
@@ -26,7 +28,7 @@ vi.mock("../time/clock", () => ({
 vi.mock("./useDaemonStatus", () => ({
   activeEntryState: () => ({ kind: h.entryKind }),
   daemonStatusPending: () => true,
-  isActiveHostLocal: () => true,
+  isActiveHostLocal: () => h.local,
   // connected-arm-only accessors — unread on the not-a-member arm, benign stubs:
   daemonChannelLive: () => true,
   daemonWarming: () => false,
@@ -35,7 +37,9 @@ vi.mock("./useDaemonStatus", () => ({
 }));
 
 const { canvasMode } = await import("./useCanvasMode");
-const { resetBootAnchors, CEILING_MS } = await import("./bootDeadline");
+const { resetBootAnchors, CEILING_MS, CAMPAIGN_CEILING_MS } = await import(
+  "./bootDeadline"
+);
 
 const deps = {
   isLoading: () => true,
@@ -53,6 +57,8 @@ beforeEach(() => {
   h.now = 0;
   h.entryKind = "not-a-member";
   h.members = [];
+  h.local = true;
+  h.connInfo = undefined;
 });
 
 describe("canvasMode — Hole A membership stall escapes past the deadline (codex-debate F1)", () => {
@@ -67,8 +73,7 @@ describe("canvasMode — Hole A membership stall escapes past the deadline (code
     const escaped = frameAt(CEILING_MS.local + 1_000);
     expect(escaped).toEqual({
       kind: "boot-stalled",
-      leg: "membership",
-      phase: undefined,
+      recovery: { via: "client", leg: "membership" },
     });
   });
 
@@ -77,5 +82,25 @@ describe("canvasMode — Hole A membership stall escapes past the deadline (code
       expect(frameAt(t).kind).toBe("connecting");
     }
     expect(frameAt(31_000).kind).toBe("boot-stalled");
+  });
+});
+
+describe("canvasMode — #1908 R8a campaign backstop escapes a persistently-wedged warming host", () => {
+  it("holds `warming` under the campaign ceiling, then reaches the NON-terminal connector card once the server sinceMs passes it — even though the monotonic clock is nowhere near the class cell", () => {
+    h.entryKind = "warming";
+    h.local = false;
+    // A warming REMOTE build: under the campaign ceiling (and only 1s of monotonic time, so the
+    // 600s remote-provisioning class cell is nowhere near firing) → still narrating warming.
+    h.connInfo = { phase: "building", sinceMs: CAMPAIGN_CEILING_MS - 1 };
+    expect(frameAt(1_000)).toEqual({ kind: "warming", daemonState: undefined });
+    // The server's whole-campaign sinceMs crosses the backstop — the class-blind escape fires
+    // and routes to the connector-owned card (Retry connection), never the reload lie.
+    h.connInfo = { phase: "building", sinceMs: CAMPAIGN_CEILING_MS + 1 };
+    expect(frameAt(2_000)).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "connector", phase: "building" },
+    });
+    // Sanity: the class cell really was idle — remote-provisioning is 600s, we are at 2s.
+    expect(CEILING_MS["remote-provisioning"]).toBeGreaterThan(2_000);
   });
 });

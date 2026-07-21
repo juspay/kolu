@@ -1,63 +1,105 @@
 /**
- * BootStalledCanvas — the #1763 boot-deadline escape surface.
+ * BootStalledCanvas — the #1763 boot-deadline escape surface, now HONEST about who owns the
+ * wedged leg (#1908 D2). The resolver decides the {@link BootStalledRecovery} verdict in
+ * `escapeSurface`; this component just renders it, so the recovery is never re-derived here.
  *
- * The connect overlay ("Connecting to <host>…") used to spin forever when a boot leg hung
- * (membership / session / daemon), because the only timeout escape was fed by the daemon leg
- * alone. `resolveCanvasMode` now escapes a boot overlay held past its per-host ceiling to a
- * `boot-stalled` mode that NAMES the stalled leg; this component renders it — honest copy from
- * {@link bootStalledCopy} plus, for a wedged remote provision, the live `phase` (copying /
- * building) — over the shared {@link CanvasFailureCard} shell.
+ * Two shapes, one per recovery arm:
+ *   - `via: "connector"` — a warming REMOTE campaign the server ssh connector is STILL retrying
+ *     (probing / copying / building / connecting). NON-TERMINAL copy from {@link CONNECTOR_STALLED_COPY}
+ *     plus the live `phase` detail, and the recovery verb **[Retry connection]** calls
+ *     `client.hosts.reconnect` — which PR1 gave a real abort-in-flight `recheck()` that recycles
+ *     the held server session into a fresh dial. `location.reload()` could not recycle a
+ *     server-side connector, so it would be a lie over a still-retrying campaign (the field
+ *     bewilderment this fixes: the old card read as a terminal wedge over a self-healing dial).
+ *   - `via: "client"` — a genuinely client-side leg (a connected host's session/daemon
+ *     subscription, or a membership stall). Its own {@link bootStalledCopy} plus the **[Reload]**
+ *     verb (`location.reload()` — a fresh boot re-runs every leg's subscription from a clean
+ *     context, the honest "try again" for a hung client-side boot).
  *
- * Recovery verb is **[Reload]** (`location.reload()` — a fresh boot re-runs every leg's
- * subscription from a clean context, the honest "try again" for a hung boot, distinct from
- * HostDownCanvas's `hosts.reconnect` re-dial of a PROVEN-failed binding). **[Switch to local]**
- * is offered when the wedged host is remote — the same escape hatch to the unremovable default.
- *
- * NOTE the local kaval leg never reaches here: a hung LOCAL daemon escapes to the byte-identical
- * `down`/`dead` DegradedCanvas (#1713 preserved), so `leg === "daemon"` here is only a REMOTE
- * daemon stall.
+ * **[Switch to local]** is offered on either shape when the wedged host is remote — the escape
+ * hatch to the unremovable default. A hung LOCAL kaval never reaches here (it takes the
+ * byte-identical down/dead DegradedCanvas — #1713 preserved — via the resolver's down arm).
  */
 
-import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
-import type { StalledLeg } from "../kaval/canvasModeResolver";
+import { toast } from "solid-sonner";
+import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
+  type BootStalledCopy,
   bootStalledCopy,
   bootStalledPhaseDetail,
+  CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
+import { activeHost, client } from "../wire";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
   switchToLocalAction,
 } from "./CanvasFailureCard";
 
-const BootStalledCanvas: Component<{
-  leg: StalledLeg;
-  phase: ConnectPhase | undefined;
-}> = (props) => {
-  const copy = () => bootStalledCopy(props.leg);
-  // Render the live provisioning phase beside the static copy (C4) — so a wedged remote build
-  // names WHERE it is stuck ("Still copying" / "Still building") rather than a bare title. The
-  // phase→detail wording lives in the copy authority (`bootStalledCopy.ts`), not inline here.
-  const detail = () => bootStalledPhaseDetail(props.phase);
+/** The card's rendered view for a resolved recovery arm — copy, the live phase detail
+ *  (connector arm only), the outer data attributes, and the primary recovery verb. */
+interface BootStalledView {
+  copy: BootStalledCopy;
+  detail: string | undefined;
+  dataAttrs: Record<string, string>;
+  recovery: CanvasFailureAction;
+}
+
+const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
+  props,
+) => {
+  // Narrow the recovery ONCE per read (a discriminated union), then build the card's copy,
+  // phase detail, data attributes, and primary recovery verb off the narrowed arm — so neither
+  // the connector's `phase` nor the client's `leg` is ever read on the wrong arm.
+  const view = (): BootStalledView => {
+    const r = props.recovery;
+    if (r.via === "connector") {
+      return {
+        copy: CONNECTOR_STALLED_COPY,
+        detail: bootStalledPhaseDetail(r.phase),
+        dataAttrs: { "data-recovery": "connector" },
+        // The RECOVERY verb: recycle the SERVER connector for this host (PR1's recheck()),
+        // NOT `location.reload()` (which recycles only the browser and can't touch the dial).
+        recovery: {
+          label: "Retry connection",
+          testid: "boot-stalled-reconnect",
+          tone: "primary" as const,
+          onClick: () => {
+            client.hosts
+              .reconnect({ host: activeHost() })
+              .catch((err: Error) =>
+                toast.error(`Couldn't reconnect: ${err.message}`),
+              );
+          },
+        },
+      };
+    }
+    return {
+      copy: bootStalledCopy(r.leg),
+      detail: undefined,
+      dataAttrs: { "data-recovery": "client", "data-stalled-leg": r.leg },
+      // A fresh boot re-runs every leg's subscription from a clean context — the honest "try
+      // again" for a hung client-side boot (the app has no per-leg re-subscribe from here).
+      recovery: {
+        label: "Reload",
+        testid: "boot-stalled-reload",
+        tone: "primary" as const,
+        onClick: () => location.reload(),
+      },
+    };
+  };
   const actions = (): CanvasFailureAction[] => [
-    // A fresh boot re-runs every leg's subscription from a clean context — the honest "try
-    // again" for a hung boot (the app has no per-leg re-subscribe from here).
-    {
-      label: "Reload",
-      testid: "boot-stalled-reload",
-      tone: "primary",
-      onClick: () => location.reload(),
-    },
+    view().recovery,
     ...switchToLocalAction(),
   ];
   return (
     <CanvasFailureCard
       dataTestid="boot-stalled-canvas"
-      dataAttrs={{ "data-stalled-leg": props.leg }}
-      title={copy().title}
-      body={copy().body}
-      detail={detail()}
+      dataAttrs={view().dataAttrs}
+      title={view().copy.title}
+      body={view().copy.body}
+      detail={view().detail}
       actions={actions()}
     />
   );

@@ -17,10 +17,10 @@
  *      pattern (`HostDownCanvas.tsx`), and IS the path that force-cycles the
  *      server session.
  *
- * `it.fails` per the repo's RED convention: today the provisioning copy carries no
- * retry truth and the verb is `location.reload()`, so each body throws and
- * `it.fails` is GREEN on the RED commit. Phase C makes the copy non-terminal and
- * routes the verb through `client.hosts.reconnect`, then flips `it.fails` → `it`.
+ * Flipped GREEN in PR2 (#1908 D2): the connector-owned card now carries non-terminal
+ * "still retrying" copy and routes its recovery verb through `client.hosts.reconnect`.
+ * The escape mode is `{ via: "connector", phase }` — a warming REMOTE campaign the
+ * resolver hands this component; the old `location.reload()` provisioning card is gone.
  *
  * Mirrors `BootStalledCanvas.test.tsx` (render through `solid-js/web`, mock
  * `../wire` so the socket stack never boots).
@@ -66,26 +66,33 @@ function primaryRecoveryButton(): HTMLButtonElement {
   return primary;
 }
 
-describe("D2 — boot-stalled provisioning card is honest + recovers via the connector (#1908)", () => {
-  it.fails("provisioning-leg copy is non-terminal while the connector still retries", () => {
+describe("D2 — boot-stalled connector card is honest + recovers via the connector (#1908)", () => {
+  it("connector-card copy is non-terminal while the connector still retries", () => {
     dispose = render(
-      () => <BootStalledCanvas leg="provisioning" phase="building" />,
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
       document.body,
     );
     // Honest that the server connector is still working, not a terminal wedge:
     // names the ongoing retry (attempt / still-retrying), from the stream it
-    // already reads. Today the copy offers only "reload to keep watching".
+    // already reads. NOT the old "reload to keep watching / isn't responding".
     expect(document.body.textContent ?? "").toMatch(
       /retry|retrying|still trying|attempt/i,
     );
+    expect(document.body.textContent ?? "").not.toMatch(
+      /isn't responding|failed/i,
+    );
   });
 
-  it.fails("the recovery verb reaches the server connector (hosts.reconnect), not location.reload()", () => {
+  it("the recovery verb reaches the server connector (hosts.reconnect), not location.reload()", () => {
     const reload = vi
       .spyOn(window.location, "reload")
       .mockImplementation(() => {});
     dispose = render(
-      () => <BootStalledCanvas leg="provisioning" phase="building" />,
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
       document.body,
     );
     primaryRecoveryButton().click();
