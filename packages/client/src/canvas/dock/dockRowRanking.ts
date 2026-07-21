@@ -29,6 +29,7 @@ import {
 } from "@kolu/padi/surface";
 import {
   type AgentPaintClass,
+  agentBucket,
   agentPaintClass,
   agentUrgency,
   type TerminalId,
@@ -46,7 +47,12 @@ import {
  *  tile reads "asleep" with its ☾ row. But staleness wins over it: once a slept
  *  tile's last activity falls outside the window it routes to `parked` and is
  *  dropped, so the activity-window selector compresses old dormant tiles too. */
-export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
+export type DockRowBucket =
+  | AgentPaintClass
+  | "blocked"
+  | "idle"
+  | "sleeping"
+  | "parked";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
  *  shells whose `lastActivityAt === null`). Pure-recency sort dominates
@@ -57,6 +63,10 @@ export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
  *  drift from the shared `agentProjection` ordering; `sleeping`/`parked`/`none`
  *  are the dock's own quieter tail below them. */
 export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+  // `blocked` is a PIP (colour) bucket only — the ORDER fold (`classifyDockRow`,
+  // via `agentUrgency`) never emits it, ranking a blocked agent as `awaiting`
+  // (`need`). It shares that rank here so the total `Record` stays honest.
+  blocked: URGENCY_RANK.need,
   awaiting: URGENCY_RANK.need,
   working: URGENCY_RANK.work,
   idle: URGENCY_RANK.idle,
@@ -107,11 +117,13 @@ function classifyDockRow(
 
 /** The PIP bucket a row paints — separate from the ORDER bucket above so a row's
  *  pip COLOUR is decided once and reads identically across the dock row and the
- *  tile title (both render through `StatePip`). For a live-agent row it is the
- *  shared `agentPaintClass` — the SAME fold `TerminalMeta` feeds its title pip —
- *  so a fresh `waiting` agent paints `awaiting` (the lingering dim-alert dot) in
- *  BOTH places, even though `classifyDockRow` ranks it `idle` for ORDERING. The
- *  dock-only triage buckets that have no agent to paint — `sleeping` (☾),
+ *  tile title (both render through `StatePip`). For a live-agent row a
+ *  genuinely-blocked `awaiting_user` agent paints the loud `blocked` core, and
+ *  every other state folds through the shared `agentPaintClass` — so a fresh
+ *  `waiting` agent paints the dim lingering `awaiting` dot, even though
+ *  `classifyDockRow` ranks it `idle` for ORDERING. `TerminalMeta` makes the SAME
+ *  `blocked` promotion for its title pip (`agentPipVariant`), so the two agree.
+ *  The dock-only triage buckets that have no agent to paint — `sleeping` (☾),
  *  `parked` (hidden) and the never-touched `none`/`idle` shells — keep the order
  *  bucket, since the title shows no pip for them at all (it gates on a live
  *  agent). Order (rank) and colour (paint) are thus decoupled: the row sorts by
@@ -126,6 +138,13 @@ function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
   // No live agent → no pip colour to share with the title; keep the order
   // bucket's plain-shell triage (`idle` if touched, else `none`).
   if (!agent) return meta.lastActivityAt !== null ? "idle" : "none";
+  // A genuinely-blocked agent (`awaiting_user`) paints the LOUD `blocked` core —
+  // it's asking you right now. `waiting` (the post-turn lull) stays the dim
+  // lingering `awaiting` dot below. `agentBucket` is the shared fence that already
+  // separates the two (`awaiting_user`→"awaiting", `waiting`→"waiting"), so this
+  // reads it rather than a hand-rolled state check — the SAME promotion the tile
+  // title makes in `agentPipVariant` (parity pinned by the ranking test).
+  if (agentBucket(agent.state) === "awaiting") return "blocked";
   const paint = agentPaintClass(agent.state);
   // An unknown state paints `none`; surface it as `idle` (a quiet dot) when the
   // row has activity rather than an empty cell, matching the order fold.
@@ -139,8 +158,9 @@ export type RankedDockRow = {
    *  is `idle` here (it does not float into the needs-you order). */
   bucket: DockRowBucket;
   /** The PIP bucket — drives the row's `StatePip` colour, decoupled from order
-   *  so it reads identically to the tile title's pip. Reads `agentPaintClass`,
-   *  so a fresh `waiting` agent is `awaiting` here (it keeps its glow). */
+   *  so it reads identically to the tile title's pip. A genuinely-blocked
+   *  `awaiting_user` agent is `blocked` (loud); a fresh `waiting` agent is the
+   *  dim `awaiting` (it keeps its lingering glow). */
   pip: DockRowBucket;
   ts: number | null;
 };

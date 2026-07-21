@@ -49,6 +49,7 @@
 import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
 
 export type PipVariant =
+  | "blocked" // genuinely blocked on YOU now (awaiting_user): loud pulsing dot
   | "awaiting" // awaiting, already seen: quiet dim dot (lingering)
   | "working" // hollow spinning ring
   | "idle" // muted small dot
@@ -89,6 +90,15 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
 export type PipBody = { class: string; glyph?: string };
 
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
+  // genuinely blocked on you RIGHT NOW (awaiting_user): the loud end of the amber
+  // scale — full-opacity, larger, and gently pulsing, so an agent asking you a
+  // question reads at a glance instead of whispering at the same volume as the
+  // dim lingering `awaiting` dot below. `motion-reduce:animate-none` holds it
+  // still under a reduced-motion preference, like the working spinner.
+  blocked: {
+    class:
+      "w-2 h-2 rounded-full bg-alert animate-pulse motion-reduce:animate-none",
+  },
   // awaiting, already seen: quiet dim dot (lingering)
   awaiting: { class: "w-1.5 h-1.5 rounded-full bg-alert/55" },
   // working: hollow spinning ring
@@ -108,6 +118,7 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
 export const PIP_TITLES: Record<PipVariant, string> = {
+  blocked: "Awaiting your input",
   awaiting: "Awaiting input",
   working: "Working",
   idle: "Idle",

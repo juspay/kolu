@@ -97,7 +97,7 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
-import { useHostAwaiting } from "./useHostAwaiting";
+import { useFocusAwaiting, useHostAwaiting } from "./useHostAwaiting";
 import { useHostMembers } from "./useHostMembers";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { activeHost, client, padiMap, setActiveHost } from "../wire";
@@ -143,6 +143,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
   const awaiting = useHostAwaiting(props.host);
+  const focusAwaiting = useFocusAwaiting(props.host, awaiting);
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -214,11 +215,19 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             host={props.host}
             labelClass="truncate max-w-[5rem] lg:max-w-[10rem] font-medium"
           />
-          {/* Urgency badge — the host's awaiting count, hidden at zero. The
-           *  shared `HostAwaitingPill` owns the amber token; only the sizing is
-           *  local. */}
-          <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
         </button>
+        {/* Urgency badge — the host's awaiting count, hidden at zero. It sits as a
+         *  SIBLING of the tab-select button (not inside it) so it can be its own
+         *  `<button>` that jumps to the awaiting terminal — a button nested inside
+         *  the tab button would be invalid HTML, the same reason the remove-`✕`
+         *  is a sibling too. `useFocusAwaiting` switches host + activates (and
+         *  cycles) the waiting terminals; the shared pill owns the amber token. */}
+        <HostAwaitingPill
+          count={awaiting().length}
+          sizeClass="min-w-4 px-1 h-4"
+          onActivate={focusAwaiting}
+          hostLabel={hostLabel(props.host)}
+        />
         <div
           class="flex h-8 items-center transition-colors"
           classList={{ "rounded-tr-xl": isLocal() }}
@@ -316,7 +325,10 @@ const HostSwitcherRow: Component<{
             {statusLabel(host)}
           </span>
         </span>
-        <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
+        <HostAwaitingPill
+          count={awaiting().length}
+          sizeClass="min-w-4 px-1 h-4"
+        />
       </button>
       <button
         type="button"

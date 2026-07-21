@@ -8,6 +8,7 @@ import { pipVariant } from "./pipVariant";
 // quiet lingering dot; working is the spinning ring; idle is muted; none/parked
 // render empty; sleeping is its own moonlit ☾ (never folded into idle/empty).
 const cases: Array<[DockRowBucket, PipVariant]> = [
+  ["blocked", "blocked"], // genuinely-blocked agent → the loud core
   ["awaiting", "awaiting"],
   ["working", "working"],
   ["idle", "idle"],

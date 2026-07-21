@@ -11,13 +11,14 @@ import {
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { isStale } from "../../terminal/staleness";
-import { paintBucket } from "../dockModel";
+import { agentPipVariant } from "../dockModel";
 import {
   DOCK_ROW_BUCKET_PRIORITY,
   type DockRowBucket,
   rankDockRows,
   rowRecencyAt,
 } from "./dockRowRanking";
+import { pipVariant } from "./pipVariant";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -230,10 +231,22 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
       lastActivityAt: Date.now(),
     });
     expect(bucket(meta, false)).toBe("idle"); // ORDER: not needs-you
-    expect(pip(meta, false)).toBe("awaiting"); // COLOUR: still glowing
+    expect(pip(meta, false)).toBe("awaiting"); // COLOUR: still glowing, but dim
   });
 
-  it("the row pip equals the tile-title paint fold for every fresh agent state", () => {
+  it("a fresh awaiting_user agent paints the LOUD blocked pip — it's asking you now", () => {
+    // The point of the `blocked` split: a genuinely-blocked agent gets the loud
+    // core, NOT the dim lingering `awaiting` dot the just-finished `waiting` agent
+    // above keeps. Both sort into the needs-you order; only the colour diverges.
+    const meta = makeMeta({
+      agent: makeAgent("awaiting_user"),
+      lastActivityAt: Date.now(),
+    });
+    expect(bucket(meta, false)).toBe("awaiting"); // ORDER: needs-you (rank unchanged)
+    expect(pip(meta, false)).toBe("blocked"); // COLOUR: loud
+  });
+
+  it("the row pip renders the SAME variant the tile title paints for every fresh agent state", () => {
     const STATES: AgentInfo["state"][] = [
       "thinking",
       "tool_use",
@@ -246,9 +259,12 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
         agent: makeAgent(state),
         lastActivityAt: Date.now(),
       });
-      // `paintBucket` is the fold `TerminalMeta` feeds its title pip — the dock
-      // row pip must agree so one state never shows two colours.
-      expect(pip(meta, false)).toBe(paintBucket(makeAgent(state)));
+      // `agentPipVariant` is what `TerminalMeta` feeds its title pip — the dock
+      // row pip, once mapped through `pipVariant`, must render the SAME variant so
+      // one state never shows two colours (the `blocked` promotion included).
+      expect(pipVariant(pip(meta, false))).toBe(
+        agentPipVariant(makeAgent(state)),
+      );
     }
   });
 

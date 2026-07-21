@@ -23,6 +23,13 @@ import type { DockRowBucket } from "./dockRowRanking";
 
 export function pipVariant(bucket: DockRowBucket): PipVariant {
   switch (bucket) {
+    // A genuinely-blocked agent (`awaiting_user`) is loud — its own core, NOT the
+    // shared paint class (which has no `blocked` slot, so the tile aura / minimap /
+    // switcher columns that also read `AgentPaintClass` stay untouched). Promoted
+    // upstream in `paintDockRow` (for the dock rows) and `agentPipVariant` (for the
+    // tile title), both off the same `agentBucket` fence.
+    case "blocked":
+      return "blocked";
     // The agent-paint subset (`DockRowBucket` extends `AgentPaintClass`) folds
     // through the shared definition.
     case "awaiting":

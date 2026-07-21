@@ -61,6 +61,9 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
 // `@kolu/theme` tokens it names (`bg-alert`/`border-accent`/`bg-fg-3`/
 // `text-moonlit`) are what make the two surfaces resolve the same colour.
 const bodyCases: Array<[PipVariant, string[]]> = [
+  // `blocked` is the LOUD end — full-opacity `bg-alert` (not the dim `/55`),
+  // larger, and pulsing — for an agent genuinely blocked on you (`awaiting_user`).
+  ["blocked", ["bg-alert", "animate-pulse"]],
   ["awaiting", ["bg-alert/55"]],
   ["working", ["border-accent", "border-t-transparent", "animate-spin"]],
   ["idle", ["bg-fg-3/55"]],
@@ -78,13 +81,21 @@ describe("PIP_BODY — the rendered class set per variant", () => {
     });
   }
 
-  it("the working spin animation is reduced-motion safe", () => {
+  it("the working spin + blocked pulse animations are reduced-motion safe", () => {
     expect(PIP_BODY.working?.class).toContain("motion-reduce:animate-none");
+    expect(PIP_BODY.blocked?.class).toContain("motion-reduce:animate-none");
+  });
+
+  it("blocked is louder than the dim awaiting dot (full-opacity alert, not /55)", () => {
+    // The whole point of the split: `blocked` must NOT reuse the dim `bg-alert/55`
+    // the lingering `awaiting` dot wears, or the loud/quiet distinction collapses.
+    expect(PIP_BODY.blocked?.class.split(/\s+/)).toContain("bg-alert");
+    expect(PIP_BODY.blocked?.class).not.toContain("bg-alert/55");
   });
 
   it("sleeping is the only variant with a glyph (the ☾)", () => {
     expect(PIP_BODY.sleeping?.glyph).toBe("☾");
-    for (const v of ["awaiting", "working", "idle"] as const) {
+    for (const v of ["blocked", "awaiting", "working", "idle"] as const) {
       expect(PIP_BODY[v]?.glyph).toBeUndefined();
     }
   });

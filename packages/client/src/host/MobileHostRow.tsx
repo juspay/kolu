@@ -118,7 +118,10 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       {/* Unread pill — the shared `HostAwaitingPill` (roomier mobile sizing),
        *  the same token the desktop chip and switcher row render, hidden at
        *  zero. */}
-      <HostAwaitingPill count={awaiting()} sizeClass="h-5 min-w-5 px-1.5" />
+      <HostAwaitingPill
+        count={awaiting().length}
+        sizeClass="h-5 min-w-5 px-1.5"
+      />
     </button>
   );
 };

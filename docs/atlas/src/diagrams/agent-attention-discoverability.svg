@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 396" font-family="ui-monospace, Menlo, monospace" font-size="13">
+  <rect width="940" height="396" fill="#0d1117"/>
+
+  <!-- ============ LANE AD1 — "which agent?" (the actionable pill) ============ -->
+  <text x="24" y="30" fill="#58a6ff" font-weight="bold" font-size="12">AD1 · which agent — the awaiting pill becomes a jump button</text>
+
+  <rect x="24" y="44" width="196" height="52" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="122" y="66" fill="#e6edf3" text-anchor="middle" font-weight="bold">padi urgency cell</text>
+  <text x="122" y="84" fill="#8b949e" text-anchor="middle" font-size="11">{ awaitingIds: TerminalId[] }</text>
+
+  <rect x="272" y="44" width="196" height="52" rx="8" fill="#1f2937" stroke="#58a6ff"/>
+  <text x="370" y="66" fill="#c9d1d9" text-anchor="middle">useHostAwaiting</text>
+  <text x="370" y="84" fill="#8b949e" text-anchor="middle" font-size="11">now returns the ids</text>
+
+  <rect x="520" y="44" width="196" height="52" rx="8" fill="#1f2937" stroke="#58a6ff"/>
+  <text x="618" y="66" fill="#c9d1d9" text-anchor="middle">HostAwaitingPill</text>
+  <text x="618" y="84" fill="#8b949e" text-anchor="middle" font-size="11">span → button (onActivate)</text>
+
+  <rect x="768" y="44" width="148" height="52" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+  <text x="842" y="63" fill="#e6edf3" text-anchor="middle" font-weight="bold" font-size="12">click</text>
+  <text x="842" y="80" fill="#8b949e" text-anchor="middle" font-size="10.5">setActiveHost +</text>
+  <text x="842" y="92" fill="#8b949e" text-anchor="middle" font-size="10.5">tileStore.activate (cycle)</text>
+
+  <path d="M220 70 H272" stroke="#58a6ff" fill="none"/><polygon points="272,70 262,65 262,75" fill="#58a6ff"/>
+  <path d="M468 70 H520" stroke="#58a6ff" fill="none"/><polygon points="520,70 510,65 510,75" fill="#58a6ff"/>
+  <path d="M716 70 H768" stroke="#d29922" fill="none"/><polygon points="768,70 758,65 758,75" fill="#d29922"/>
+
+  <text x="470" y="120" fill="#6e7681" text-anchor="middle" font-size="10.5">reuses the exact switch-then-activate seam the cross-host notification click already runs (useHostAttention)</text>
+
+  <line x1="24" y1="150" x2="916" y2="150" stroke="#21262d"/>
+
+  <!-- ============ LANE AD2 — "make it loud" (the blocked pip) ============ -->
+  <text x="24" y="184" fill="#f0883e" font-weight="bold" font-size="12">AD2 · make it loud — a genuinely-blocked agent gets its own pip</text>
+
+  <rect x="24" y="200" width="196" height="66" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="122" y="222" fill="#e6edf3" text-anchor="middle" font-weight="bold">agentBucket (shared fence)</text>
+  <text x="122" y="240" fill="#8b949e" text-anchor="middle" font-size="11">awaiting_user → "awaiting"</text>
+  <text x="122" y="256" fill="#8b949e" text-anchor="middle" font-size="11">waiting → "waiting" (lull)</text>
+
+  <rect x="272" y="200" width="212" height="66" rx="8" fill="#1f2937" stroke="#f0883e"/>
+  <text x="378" y="221" fill="#c9d1d9" text-anchor="middle">paintDockRow · agentPipVariant</text>
+  <text x="378" y="240" fill="#8b949e" text-anchor="middle" font-size="11">awaiting_user → blocked</text>
+  <text x="378" y="256" fill="#8b949e" text-anchor="middle" font-size="11">else → shared paint class</text>
+
+  <rect x="536" y="200" width="180" height="66" rx="8" fill="#1f2937" stroke="#f0883e"/>
+  <text x="626" y="228" fill="#c9d1d9" text-anchor="middle">StatePip core</text>
+  <text x="626" y="248" fill="#8b949e" text-anchor="middle" font-size="11">+ "blocked" variant</text>
+
+  <rect x="768" y="194" width="148" height="34" rx="6" fill="#161b22" stroke="#d29922"/>
+  <text x="842" y="215" fill="#e6edf3" text-anchor="middle" font-size="11.5">dock row · rail</text>
+  <rect x="768" y="238" width="148" height="34" rx="6" fill="#161b22" stroke="#d29922"/>
+  <text x="842" y="259" fill="#e6edf3" text-anchor="middle" font-size="11.5">tile-title pip</text>
+
+  <path d="M220 233 H272" stroke="#f0883e" fill="none"/><polygon points="272,233 262,228 262,238" fill="#f0883e"/>
+  <path d="M484 233 H536" stroke="#f0883e" fill="none"/><polygon points="536,233 526,228 526,238" fill="#f0883e"/>
+  <path d="M716 224 H742 V211 H768" stroke="#d29922" fill="none"/><polygon points="768,211 758,206 758,216" fill="#d29922"/>
+  <path d="M716 244 H742 V255 H768" stroke="#d29922" fill="none"/><polygon points="768,255 758,250 758,260" fill="#d29922"/>
+
+  <text x="470" y="292" fill="#6e7681" text-anchor="middle" font-size="10.5">the parity invariant (row pip ≡ tile-title pip) holds by construction — both promote through the same agentBucket check</text>
+
+  <!-- ============ boundary strip ============ -->
+  <rect x="24" y="318" width="892" height="54" rx="8" fill="#161b22" stroke="#f85149"/>
+  <text x="470" y="341" fill="#f85149" text-anchor="middle" font-size="12">SCOPE — the shared AgentPaintClass is NOT split, so tile aura · minimap · switcher columns are untouched.</text>
+  <text x="470" y="360" fill="#8b949e" text-anchor="middle" font-size="11">"blocked" lives dock-local (DockRowBucket) + the tile-title pip only; option 3 (the question TEXT) is out of scope — see below.</text>
+</svg>

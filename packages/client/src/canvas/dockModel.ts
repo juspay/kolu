@@ -1,6 +1,11 @@
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import {
+  type PipVariant,
+  pipForPaintClass,
+} from "@kolu/solid-statepip/pipVariant";
+import {
   type AgentInfo,
+  agentBucket,
   type AgentPaintClass,
   agentPaintClass,
   type PrResult,
@@ -250,6 +255,25 @@ export function paintBucket(
 ): Exclude<AgentBucketKind, "idle"> {
   if (!agent) return "none";
   return agentPaintClass(agent.state);
+}
+
+/** The pip a LIVE agent paints — the tile-title's counterpart to the dock row's
+ *  `paintDockRow` → `pipVariant(pip)` path. A genuinely-blocked `awaiting_user`
+ *  agent is promoted to the loud `blocked` core (it's asking you NOW); every other
+ *  state folds through the shared paint class, so a just-finished `waiting` agent
+ *  keeps the dim lingering `awaiting` dot — order≠colour still holds.
+ *
+ *  The promotion reads `agentBucket` (the shared schema-fenced fold), the SAME
+ *  `agentBucket(state) === "awaiting"` decision `paintDockRow` makes for the dock
+ *  rows — so the row pip and the title pip agree by construction (pinned by the
+ *  dockRowRanking parity test), and a new agent state can't slip past a hand-rolled
+ *  `state === "awaiting_user"`. The non-blocked fold goes through the pure
+ *  `pipForPaintClass` (identical to `pipVariant(paintBucket(agent))` for the
+ *  agent-paint buckets), so this stays free of the dock's `pipVariant` module. */
+export function agentPipVariant(agent: AgentInfo): PipVariant {
+  return agentBucket(agent.state) === "awaiting"
+    ? "blocked"
+    : pipForPaintClass(paintBucket(agent));
 }
 
 /** Bucket a terminal by its live agent — `paintBucket` over the active arm. A

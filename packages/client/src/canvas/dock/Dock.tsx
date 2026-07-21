@@ -831,7 +831,13 @@ const RailChip: Component<{
              *  it does in cards mode and on its tile title. Only the two paint
              *  buckets render it; the CSS in index.css picks breath (awaiting) vs
              *  orbit (working). */}
-            <Show when={props.pip === "awaiting" || props.pip === "working"}>
+            <Show
+              when={
+                props.pip === "blocked" ||
+                props.pip === "awaiting" ||
+                props.pip === "working"
+              }
+            >
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>
           </button>
