@@ -2,7 +2,7 @@
 title: Agent Attention — Which One Is Asking?
 description: When an agent asks a question, kolu shows a "1" on the host tab and a faint dot on the dock entry — but you still have to hunt for which agent needs you, and the "asking" dot is the quietest mark in the palette. This note ships two small fixes that use state the client already holds, and scopes the one that doesn't (surfacing the question text) as a separate, brittler pass.
 parents: [feature]
-status: proposed
+status: accepted
 maturity: seedling
 updated: 2026-07-21
 ---
@@ -118,7 +118,8 @@ bolted onto this one.
 
 ## What ships here
 
-One PR, two tracks, both grounded in state the client already receives:
+Shipped together in <PrLink pr={1926} /> — one PR, two tracks, both grounded in
+state the client already receives:
 
 | Track | Change | Blast radius |
 | --- | --- | --- |
