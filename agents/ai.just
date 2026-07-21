@@ -29,9 +29,11 @@ apm-compile:
 # Refresh all APM-managed artifacts needed by Claude, Codex, and OpenCode.
 apm: apm-install apm-compile
 
-# Advance locked APM dependencies to latest refs (all, or specific packages)
+# Advance locked APM dependencies to latest refs (all, or specific packages).
+# `apm update` supersedes the deprecated `apm deps update`; `--yes` skips its
+# interactive confirmation so the recipe stays non-interactive.
 apm-update *packages:
-    {{ apm_cmd }} deps update --target {{ apm_targets }} {{ packages }}
+    {{ apm_cmd }} update --yes --target {{ apm_targets }} {{ packages }}
     {{ just_executable() }} ai apm
 
 # Install APM config and launch coding agent (AI_AGENT overrides default)

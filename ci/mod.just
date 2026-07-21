@@ -24,6 +24,16 @@ set working-directory := '..'
 # inside the shell so local invocations stay cheap.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
+# devour-flake, pinned to an immutable rev. An UNPINNED `github:srid/devour-flake`
+# forces nix to resolve HEAD→rev via the unauthenticated GitHub REST API
+# (`GET api.github.com/repos/srid/devour-flake/commits/HEAD`, 60 req/hr per IP),
+# which 403s on a cold/shared CI egress IP and breaks the linux `nix` and
+# `home-manager` lanes (juspay/kolu#1204). Pinning the rev skips that REST call
+# entirely: nix fetches the source straight from the codeload archive
+# (`github.com/…/archive/<rev>.tar.gz`), which isn't REST-rate-limited. No token
+# on the box needed. Bump this SHA by hand to adopt a newer devour-flake.
+devour_flake := "github:srid/devour-flake/e65d15fd4ef46dbde90ac59be581b2a286c35d0f"
+
 # Pipeline root: every recipe listed here becomes a (recipe × platform) node.
 # Body is empty — the runner expands `depends_on` from this DAG and executes
 # each leaf via `just --no-deps <recipe>`. `just ci` (without the runner) still
@@ -88,7 +98,7 @@ pnpm-hash-fresh:
 # the standalone `typecheck` recipe (juspay/kolu#1049). The typecheck result
 # is content-addressed, so it only re-runs when a typechecked source changes.
 nix:
-    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
+    nix build {{ devour_flake }} -L --no-link --print-out-paths --override-input flake .
 
 # `nix flake check`: evaluate every flake output and run the flake's `checks.*`.
 # Complements the `nix` node (devour-flake builds the output drvs) with the
@@ -107,7 +117,7 @@ flake-check:
 # concurrent build, letting the home-manager VM work overlap the big build
 # instead of queuing behind every devour-flake output.
 home-manager:
-    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
+    nix build {{ devour_flake }} -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
@@ -116,7 +126,7 @@ home-manager:
 # builds the `.#default` drv directly, deduped against `nix`'s concurrent
 # build via store locking, and boots as soon as that one path is ready.
 smoke:
-    {{ nix_shell }} bash ci/smoke.sh
+    {{ nix_shell }} bash .apm/skills/ci/smoke.sh
 
 # No `nix` dep: `just test` builds `.#koluBin` itself (justfile `test`
 # recipe), so e2e needs only the pnpm deps `install` provides — not the full
@@ -187,7 +197,7 @@ atlas-sync:
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're
 # unreachable from `default` and the runner never schedules them. They manage
-# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that ci/pu/lease.sh
+# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that .apm/skills/ci/pu/lease.sh
 # leases per run (the box is pinned into the run via the odu MCP's `hosts`
 # argument), replacing the old fork-a-golden-per-run model. See .agency/do.md
 # and docs/pu-box-ci-ralph-report.md.
@@ -195,8 +205,8 @@ atlas-sync:
 # Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
 # healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
 pool-ensure:
-    bash ci/pu/pool.sh
+    bash .apm/skills/ci/pu/pool.sh
 
 # Report pool health without changing anything.
 pool-status:
-    bash ci/pu/pool.sh status
+    bash .apm/skills/ci/pu/pool.sh status
