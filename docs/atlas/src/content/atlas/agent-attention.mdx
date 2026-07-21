@@ -2,14 +2,15 @@
 title: Agent Attention — One Model, One Place
 description: When an agent finishes or asks a question, kolu can play a sound, show a popup, badge the app icon, and mark the dock and host tab. Today those rules live in three modules split by which host you're looking at, so the same terminal behaves differently depending on focus. This note picks one word for it — attention — writes down the rules kolu should follow, and puts them in one place.
 parents: [analysis]
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-07-21
 ---
 
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import diagram from "../../diagrams/agent-attention.svg?raw";
 
@@ -95,8 +96,14 @@ the popup/sound delivery — is *already* its own file (`attentionNotify`). So t
 tidying, not new infrastructure.
 </Callout>
 
-## Next
+## Built
 
-This note is the plan. The build is a follow-up: add `useAttention`, move the rules
-in, delete the two old modules, and — falling out for free — give background
-"finished" agents a quiet host-tab mark, since every host now runs the same rules.
+Shipped in <PrLink pr={1931} />. The three rule-fragments now live in one
+`packages/client/src/attention/useAttention.ts`, wired once in `App.tsx`;
+`useTerminalAlerts`, `useHostAttention`, and the old activity-alert delivery module
+are gone. Every host runs the same rules off its `urgency` cell (now carrying
+`finishedIds` too), so — falling out for free — a background host's finished agent
+now pings and shows a quiet host-tab mark, exactly like the active host's. The
+`activityAlerts` setting was renamed `attentionAlerts` (with a migration), and the
+"needs you now / just finished" decision is the pure, unit-tested
+`attentionTransitions`.
