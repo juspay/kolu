@@ -90,20 +90,31 @@ export interface SubscribeFileAppendsOpts {
  * transition** (a session file that appears after attach) and on every
  * subsequent append.
  *
- * **The consumer must perform its own initial read on attach.** No *synthetic*
- * initial `onChange` is emitted for a file that already exists and is unchanged
- * at subscribe time — `fs.watchFile` fires only on a change from the stat it
- * samples at watch-start, so a present-unchanged file stays silent. (This is the
- * opposite of the sibling `createDirFilenameWatcher`, which fires one
- * reconciliation tick on attach — the two subscribe-shaped primitives have
- * deliberately opposite initial-fire contracts.) Every consumer here already
- * reads on attach, so the file-present-at-attach window is covered by the
- * consumer, not by a primitive-emitted fire.
+ * **The consumer must perform its own initial read on attach** for immediate
+ * state — the primitive emits no *synchronous* on-attach `onChange`, because
+ * `fs.watchFile` fires only on a change from the stat it samples at watch-start.
+ * A one-shot **startup reconciliation** (below) fires `onChange` once after
+ * `intervalMs` **only if** the file's stat moved since attach — closing the
+ * async-baseline race without disturbing a genuinely idle file. It is a
+ * gap-closer, not the initial read (too late for that): consumer reads now.
  *
- * Returns an idempotent unsubscribe that closes both watchers behind a `closed`
- * guard rechecked after the async disambiguating stat, so no late callback fires
- * on a torn-down watcher.
+ * Returns an idempotent unsubscribe that closes both watchers and the startup
+ * timer behind a `closed` guard rechecked after the async disambiguating stat,
+ * so no late callback fires on a torn-down watcher. A throwing `onChange` is
+ * caught and logged, never escaping the watcher callback.
  */
+/** Full stat identity (`size:mtimeMs:ino`) for the one-shot startup
+ *  reconciliation, or null when the file is absent/unstattable — so an
+ *  absent→present appearance in the startup window also registers as a change. */
+function statKey(filePath: string): string | null {
+  try {
+    const s = fs.statSync(filePath);
+    return `${s.size}:${s.mtimeMs}:${s.ino}`;
+  } catch {
+    return null;
+  }
+}
+
 export function subscribeFileAppends(
   filePath: string,
   onChange: () => void,
@@ -113,15 +124,29 @@ export function subscribeFileAppends(
   const tag = label;
   let closed = false;
 
+  // Single guarded funnel for BOTH emission paths (the `fs.watch` edge and the
+  // `fs.watchFile` floor). A watcher callback that throws would otherwise escape
+  // as an uncaught exception and take down the whole host process — one session's
+  // consumer bug must not kill every other session's watcher. Rechecks `closed`
+  // so no late tick fires after unsubscribe, and isolates a throwing consumer to
+  // the error log (the repo's guarded-watcher-callback convention, e.g.
+  // wal-subscription's per-listener fault isolation).
+  const emit = (): void => {
+    if (closed) return;
+    try {
+      onChange();
+    } catch (err) {
+      log?.error({ err, path: filePath }, `${tag}: onChange threw`);
+    }
+  };
+
   // Fast path — the OS edge. `fs.watch` throws synchronously if the file is not
   // there yet (unconditional subscribe): that is expected, the floor covers
   // appearance and every subsequent append. A non-ENOENT throw (EACCES, EMFILE)
   // is a real fault and must surface.
   let watcher: fs.FSWatcher | null = null;
   try {
-    watcher = fs.watch(filePath, () => {
-      if (!closed) onChange();
-    });
+    watcher = fs.watch(filePath, emit);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error({ err, path: filePath }, `${tag}: fs.watch failed`);
@@ -145,19 +170,33 @@ export function subscribeFileAppends(
         }
       });
     }
-    onChange();
+    emit();
   };
-  const statWatcher = fs.watchFile(
-    filePath,
-    { interval: intervalMs },
-    listener,
-  );
+  const statWatcher = fs.watchFile(filePath, { interval: intervalMs }, listener);
   // Don't keep the process alive for the poll — it's a background floor.
   statWatcher.unref();
+
+  // Startup reconciliation (juspay/kolu#1754). `fs.watchFile` establishes its
+  // comparison baseline on an ASYNCHRONOUS first stat, so a change that lands
+  // between the consumer's attach-time read and that baseline is folded INTO the
+  // baseline and would never fire — the attach-window re-strand a fast turn can
+  // still hit. Capture a baseline stat-key synchronously now (before that async
+  // baseline), then once after `intervalMs` (by which the floor's baseline is
+  // long since captured) re-stat and `emit` ONLY if the key moved — recovering
+  // anything the startup window swallowed, without a spurious fire on a
+  // genuinely idle file (constraint 5 intact). This is a one-shot gap-closer,
+  // not a second poll loop — the floor still owns the ongoing polling. Cleared
+  // on unsubscribe; `.unref()`'d so it never holds the process.
+  const startupKey = statKey(filePath);
+  const startupReconcile: NodeJS.Timeout = setTimeout(() => {
+    if (!closed && statKey(filePath) !== startupKey) emit();
+  }, intervalMs);
+  startupReconcile.unref();
 
   return () => {
     if (closed) return;
     closed = true;
+    clearTimeout(startupReconcile);
     watcher?.close();
     fs.unwatchFile(filePath, listener);
   };

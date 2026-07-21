@@ -111,6 +111,27 @@ describe("subscribeFileAppends — the floor recovers a dropped edge", () => {
     expect(onChange).toHaveBeenCalled(); // the appearance reconcile
     unsub();
   });
+
+  it("recovers an append that lands in the fs.watchFile startup-baseline window (#1754 F1)", async () => {
+    suppressEdge();
+    const file = path.join(tmp, "startup.jsonl");
+    fs.writeFileSync(file, "a\n");
+    const onChange = vi.fn();
+    const unsub = subscribeFileAppends(file, onChange, {
+      intervalMs: INTERVAL,
+      label: "test",
+    });
+    // Append SYNCHRONOUSLY, before fs.watchFile's asynchronous first stat can
+    // establish its comparison baseline — the losing ordering, where the floor
+    // folds this write into its baseline and would never fire it. With the edge
+    // suppressed, ONLY the startup reconciliation (at intervalMs) can recover
+    // this, so a green assertion here proves it does.
+    fs.appendFileSync(file, "b\n");
+    await settle();
+
+    expect(onChange).toHaveBeenCalled();
+    unsub();
+  });
 });
 
 describe("subscribeFileAppends — the edge fast path", () => {
@@ -134,7 +155,7 @@ describe("subscribeFileAppends — the edge fast path", () => {
 });
 
 describe("subscribeFileAppends — teardown (B3)", () => {
-  it("does not fire after unsubscribe, even when a change races teardown", async () => {
+  it("does not fire after an immediate unsubscribe", async () => {
     suppressEdge();
     const file = path.join(tmp, "torn.jsonl");
     fs.writeFileSync(file, "a\n");
@@ -146,17 +167,56 @@ describe("subscribeFileAppends — teardown (B3)", () => {
       label: "test",
     });
 
-    // Delete (would drive a zeroed-stats fire + disambiguating stat) then tear
-    // down immediately — the closed guard must suppress both the onChange and
-    // any late error log.
     fs.rmSync(file);
     unsub();
     await settle();
 
     expect(onChange).not.toHaveBeenCalled();
     expect(log.error).not.toHaveBeenCalled();
-    // Idempotent unsubscribe never throws.
     expect(() => unsub()).not.toThrow();
+  });
+
+  it("suppresses a late disambiguating stat that resolves AFTER unsubscribe (the real B3 race)", async () => {
+    suppressEdge();
+    // Hold the disambiguating fs.stat so its callback lands AFTER unsubscribe —
+    // the exact in-flight-async-stat race the closed guard must survive.
+    type StatCb = (err: NodeJS.ErrnoException | null) => void;
+    const realStat = fs.stat;
+    const held: { cb: StatCb | null } = { cb: null };
+    fs.stat = ((_p: fs.PathLike, cb: StatCb) => {
+      held.cb = cb;
+    }) as unknown as typeof fs.stat;
+
+    try {
+      const file = path.join(tmp, "held.jsonl");
+      fs.writeFileSync(file, "a\n");
+      const log = makeLog();
+      const onChange = vi.fn();
+      const unsub = subscribeFileAppends(file, onChange, {
+        intervalMs: INTERVAL,
+        log,
+        label: "test",
+      });
+
+      // Delete → the floor fires with zeroed stats → the listener launches the
+      // (held) disambiguating fs.stat and emits the deletion transition once.
+      fs.rmSync(file);
+      await sleep(INTERVAL * 3 + 60);
+      expect(held.cb).not.toBeNull(); // the async stat is genuinely in flight
+      const onChangeAtTeardown = onChange.mock.calls.length;
+
+      // Tear down WHILE the stat is in flight, then let it resolve with a hard
+      // (non-ENOENT) errno — the closed guard must swallow both the late log and
+      // any late onChange.
+      unsub();
+      held.cb?.({ code: "EACCES" } as NodeJS.ErrnoException);
+      await sleep(60);
+
+      expect(log.error).not.toHaveBeenCalled(); // closed guard beat the late stat
+      expect(onChange.mock.calls.length).toBe(onChangeAtTeardown); // no post-teardown fire
+    } finally {
+      fs.stat = realStat;
+    }
   });
 });
 
