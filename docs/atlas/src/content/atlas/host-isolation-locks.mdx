@@ -93,15 +93,24 @@ The lock, in four parts:
 ## The three ways of running kolu — and which identity each gets
 
 The locks only make sense against how kolu actually starts. There are three
-front doors, and after Lock 1 each has an unambiguous identity:
-
-| How you run it | State folder | Role | What that means |
-| --- | --- | --- | --- |
-| `nix run github:juspay/kolu` | `~/.config/kolu` (+ default padi root) | **production** | The real thing — badge set, allowed in production's chair |
-| home-manager module | same production wrapper, as a service | **production** | The managed real thing — restarts survive, daemons persist |
-| `just dev` | `<worktree>/.kolu-dev` (private) | **dev** | Its own private universe — *cannot* touch production |
+front doors; below, **every path each one uses**, before → after the fix. Two
+facts to read them with: a daemon's *identity* is the digest of its **padi
+state-root path** (that digest names its sockets and gates), and the runtime
+dirs live under `$XDG_RUNTIME_DIR` and are wiped on reboot — the state roots
+persist.
 
 ### `nix run github:juspay/kolu` — the production front door
+
+<dl>
+  <dt><strong>Role badge</strong></dt>
+  <dd>before: <em>(no such concept)</em> → after: <code>KOLU_ROLE=production</code>, set by the wrapper — the only place that sets it.</dd>
+  <dt><strong>Server state</strong> (settings, remembered hosts, prefs)</dt>
+  <dd><code>~/.config/kolu/</code> (<code>state.json</code>) — unchanged. An inherited <code>KOLU_STATE_DIR</code> still wins (the relocated-second-instance case, #1414).</dd>
+  <dt><strong>Padi state-root</strong> (saved session, <code>padi.log</code>) — <em>the identity anchor</em></dt>
+  <dd><code>~/.local/state/padi/</code> — unchanged path; after, production also stamps <code>~/.local/state/padi/role</code> (the persistent marker dev refuses to cross, even with the daemon down).</dd>
+  <dt><strong>Daemon runtime</strong> (sockets · pid gates · manifests; boot-wiped)</dt>
+  <dd><code>$XDG_RUNTIME_DIR/padi-&lt;digest&gt;/</code> and <code>kaval-&lt;digest&gt;/</code>, where <code>&lt;digest&gt;</code> = sha256 of the state-root path — so production's digest is fixed by the path above. After: each dir also carries an ephemeral <code>role</code> file, written before the socket serves.</dd>
+</dl>
 
 This runs the flake's default package, which is a thin **production wrapper**
 around the real binary. The wrapper does exactly two things: it exports
