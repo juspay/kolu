@@ -1,17 +1,17 @@
 ---
-name: orchestrator
+name: bridge
 description: >-
-  Running memory of the coordination rules for an orchestrator agent driving
+  Running memory of the bridge — the coordination rules for a supervising agent driving
   implementing agents on kolu terminals — authorization boundaries, the
   dispatch protocol (MCP-first via the kolu skill, with its TUI fallback),
   verification discipline, and how to communicate with the human. Load whenever coordinating a multi-agent campaign
   (dispatching briefs to agents in kolu PTYs, tracking their PRs, verifying
   their claims), or when acting as the coordinator in a padi/surface-style
-  campaign. Triggers on "orchestrate the agents", "coordinate the campaign",
+  campaign. Triggers on "/bridge", "orchestrate the agents", "coordinate the campaign",
   "dispatch to the agents", "act as coordinator", or driving multiple
   implementing agents from one supervising session.
 ---
-# Orchestrator
+# Bridge
 
 Coordination rules for a supervising agent driving implementing agents on kolu
 terminals. Hard-won; follow exactly. Format: rule + `[recorded: incident]` —
@@ -91,7 +91,7 @@ The live board = versioned skill assets `dashboard/{index.html,index.js}` +
 ONE data file. Implementation specifics (layout, badges, the data-script
 reload, the CORS-by-design sandbox) live in those files — read them there.
 
-- **Data file**: `$PWD/orchestrator-data.js` — one `window.BOARD = {…}`
+- **Data file**: `$PWD/bridge-data.js` — one `window.BOARD = {…}`
   assignment **ending with `window.dispatchEvent(new Event("board-data"))`**
   (the renderer paints only on that event; a bare assignment leaves the shell
   on "loading…" forever [recorded]). Git-untracked; never stage it [recorded: a
