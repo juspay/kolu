@@ -128,3 +128,18 @@ export {
   STATE_ROOT_MANIFEST_FILE,
   writeStateRootManifest,
 } from "./socketPath.ts";
+// Host-isolation role storage (juspay/kolu#1334) — the pure read/write primitives
+// both daemons use to stamp/read their role marker (the guard lives in @kolu/padi).
+export {
+  type DaemonRole,
+  ephemeralRolePath,
+  KOLU_ROLE_ENV,
+  persistentRoleMarkerPath,
+  readPersistentRoleResult,
+  type RoleRead,
+  ROLE_MARKER_FILE,
+  selfRole,
+  stampPersistentRole,
+  writeEphemeralRole,
+  writePersistentProductionMarker,
+} from "./role.ts";

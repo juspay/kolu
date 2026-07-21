@@ -63,10 +63,15 @@ import { publisher } from "./publisher.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
 import {
+  resolveBoundStateRoot,
+  selfRole,
+  stampPersistentRole,
+  writeEphemeralRole,
+} from "./role.ts";
+import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
-  resolvePadiStateRoot,
   writeStateRootManifest,
 } from "./stateRoot.ts";
 import { openPadiStateStores } from "./stateStore.ts";
@@ -347,12 +352,18 @@ export async function runPadiDaemon(
   opts: PadiDaemonOptions,
 ): Promise<DaemonExit> {
   const { log } = opts;
+  // RESOLVE + GUARD the state root FIRST (F6, juspay/kolu#1334): Lock 1
+  // (`resolveBoundStateRoot`) must run BEFORE `configureDaemonLog`, because the logger
+  // independently mkdir's + opens `padi.log` under its root — so a bare dev launch that
+  // Lock 1 will refuse must throw HERE, before it can create a log dir in production's
+  // default root. Threading the resolved root into the logger also makes an explicit
+  // `--state-root` the logger's ONE root (daemon state and logs can't diverge).
+  const stateRoot = resolveBoundStateRoot(opts.stateRoot);
   // A DAEMON boot: route padi's domain pino stream (the `@kolu/padi` `log` this module and its
-  // domain code share) to the rolled-file + stderr multistream (P0). Unconditional at the ONE
-  // entrypoint every spawn path runs, so no spawn path can forget it; fails loud here if the
-  // state root is unwritable. The `--stdio` front never reaches this, so it keeps stdout.
-  configureDaemonLog();
-  const stateRoot = resolvePadiStateRoot(opts.stateRoot);
+  // domain code share) to the rolled-file + stderr multistream (P0), under the guarded root.
+  // Unconditional at the ONE entrypoint every spawn path runs, so no spawn path can forget it;
+  // fails loud here if the state root is unwritable. The `--stdio` front never reaches this.
+  configureDaemonLog(stateRoot);
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   const gatePath = padiGatePath(socketPath);
   const kavalSocket = padiKavalSocketPath(stateRoot);
@@ -380,59 +391,94 @@ export async function runPadiDaemon(
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
 
-  // Gate → stores → identity: each phase takes the prior's token, so none can run
-  // before the gate is claimed above (a lost gate-race returns before reaching here).
-  const stores = openStateStores(gate, stateRoot, log);
-  const identity = configureDaemonIdentity(stores, opts, socketPath);
-
-  // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
-  // harness/smoke run set `KOLU_DAEMON_BIND_PID`. Seeded into the padiSurface
-  // `identity` cell (via `serveDaemonSurfaces` → `buildPadiSurfaceDeps`) AND handed
-  // to `daemonMain` below — the same value, reused so the readout and the actual
-  // policy can't drift.
-  const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
-
-  // ── The drain trigger ── control-core `drain` persists + exits; the caller observes
-  // the socket close. Built HERE (not in a phase) so `onDrain` closes over
-  // `drainController` — which the spine's `daemonMain` also aborts on — and can be
-  // handed to the serve phase; composed with any external stop signal.
-  const drainController = new AbortController();
-  if (opts.signal) {
-    if (opts.signal.aborted) drainController.abort();
-    else
-      opts.signal.addEventListener("abort", () => drainController.abort(), {
-        once: true,
-      });
-  }
-  const onDrain = (): void => {
-    // Persist the live layout so a re-spawn restores it; the PTYs stay alive in
-    // kaval. `setSavedSessionFromSnapshot` is the EMPTY-PRESERVE receptacle: a drain
-    // while the registry is empty or parked-only must NOT null a non-empty saved blob
-    // (the W1 zest-loss class) — an empty snapshot leaves the existing session intact,
-    // and the write cancels any pending autosave that could re-null it afterward.
-    const snap = snapshotSession();
-    // A control-core drain is why padi is about to exit — logged HERE (the spine only
-    // logs the generic "daemon shutting down {reason: abort}", which can't be told from
-    // a plain signal). This is the newer-binder convergence / "restart" endpoint; the
-    // kaval + PTYs survive it, so name that so an operator reads a graceful handover,
-    // not a crash.
-    log.info(
-      { terminals: snap.terminals.length },
-      "control-core drain received — persisting session and exiting; kaval + PTYs survive",
-    );
-    setSavedSessionFromSnapshot(snap);
-    drainController.abort();
-  };
-
-  // Serve → boot the endpoint: the reconcile publishes onto the ctx the serve phase
-  // wires, so `bootLocalEndpoint` takes the served token.
-  const served = serveDaemonSurfaces(identity, {
-    stateRoot,
-    onDrain,
-    log,
-    lifetime: lifetimeInfo(lifetime),
-  });
+  // ── Hold the gate + role stamps + any partial runtime under try/catch until the
+  // spine's `daemonMain` takes cleanup ownership (F17, juspay/kolu#1334) ── Claiming the
+  // gate up top (before any boot side effect) opened an ownership GAP: a throw AFTER the
+  // acquire but BEFORE `daemonMain` is handed the gate — an EACCES/EIO/ENOSPC role write,
+  // a malformed `KOLU_DAEMON_BIND_PID` in `daemonLifetimeFromEnv`, an `openStateStores` /
+  // `configureDaemonIdentity` / `serveDaemonSurfaces` fault, a `bootLocalEndpoint` (kaval
+  // adopt/spawn) fault, a manifest write — would leak the gate (still naming THIS live
+  // pid) plus a half-built served surface runtime. In production a crashed pid is
+  // dead-pid-reclaimed, but an IN-PROCESS boot (padi is booted in-process by
+  // `daemonMain.test.ts`) that catches the error could never retry: the next launch reads
+  // the gate as "already running". Release the IDEMPOTENT gate and AWAIT the partial
+  // runtime's teardown on any pre-transfer throw, then re-raise (aggregated if the
+  // cleanup itself throws). Once `daemonMain` is handed the gate it owns release +
+  // teardown, so the transfer is the try's final `return` (no `await` — see below).
+  // Mirrors kaval's `runKavalDaemon`.
+  let servedForCleanup: SurfacesServed | undefined;
   try {
+    // Lock 2 role stamp (juspay/kolu#1334), the instant we own the gate and BEFORE the
+    // socket serves (so no adopter can act on this daemon before its role is legible):
+    //  - A3a: the EPHEMERAL role beside the gate in the boot-wiped runtime dir, written
+    //    unconditionally with this daemon's ACTUAL role — one writer, the holder's own
+    //    clock, so the adopt/kill guard reads the true role of the live holder;
+    //  - A3c: a PRODUCTION daemon additionally stamps the PERSISTENT marker on its
+    //    state-root, so a RELOCATED prod root (#1414) is refused on the BIND path even
+    //    when no daemon is live.
+    // Both run INSIDE the ownership try (F17): a role-write throw (EACCES/EIO/ENOSPC)
+    // must release the gate, not leak it still naming this live pid.
+    writeEphemeralRole(dirname(socketPath), selfRole());
+    stampPersistentRole(stateRoot, selfRole());
+
+    // Gate → stores → identity: each phase takes the prior's token, so none can run
+    // before the gate is claimed above (a lost gate-race returns before reaching here).
+    const stores = openStateStores(gate, stateRoot, log);
+    const identity = configureDaemonIdentity(stores, opts, socketPath);
+
+    // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
+    // harness/smoke run set `KOLU_DAEMON_BIND_PID`. Seeded into the padiSurface
+    // `identity` cell (via `serveDaemonSurfaces` → `buildPadiSurfaceDeps`) AND handed
+    // to `daemonMain` below — the same value, reused so the readout and the actual
+    // policy can't drift. A MALFORMED value throws here — inside the gate-owning try,
+    // so the gate is freed (F17).
+    const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
+
+    // ── The drain trigger ── control-core `drain` persists + exits; the caller observes
+    // the socket close. Built HERE (not in a phase) so `onDrain` closes over
+    // `drainController` — which the spine's `daemonMain` also aborts on — and can be
+    // handed to the serve phase; composed with any external stop signal.
+    const drainController = new AbortController();
+    if (opts.signal) {
+      if (opts.signal.aborted) drainController.abort();
+      else
+        opts.signal.addEventListener("abort", () => drainController.abort(), {
+          once: true,
+        });
+    }
+    const onDrain = (): void => {
+      // Persist the live layout so a re-spawn restores it; the PTYs stay alive in
+      // kaval. `setSavedSessionFromSnapshot` is the EMPTY-PRESERVE receptacle: a drain
+      // while the registry is empty or parked-only must NOT null a non-empty saved blob
+      // (the W1 zest-loss class) — an empty snapshot leaves the existing session intact,
+      // and the write cancels any pending autosave that could re-null it afterward.
+      const snap = snapshotSession();
+      // A control-core drain is why padi is about to exit — logged HERE (the spine only
+      // logs the generic "daemon shutting down {reason: abort}", which can't be told from
+      // a plain signal). This is the newer-binder convergence / "restart" endpoint; the
+      // kaval + PTYs survive it, so name that so an operator reads a graceful handover,
+      // not a crash.
+      log.info(
+        { terminals: snap.terminals.length },
+        "control-core drain received — persisting session and exiting; kaval + PTYs survive",
+      );
+      setSavedSessionFromSnapshot(snap);
+      drainController.abort();
+    };
+
+    // Serve → boot the endpoint: the reconcile publishes onto the ctx the serve phase
+    // wires, so `bootLocalEndpoint` takes the served token.
+    const served = serveDaemonSurfaces(identity, {
+      stateRoot,
+      onDrain,
+      log,
+      lifetime: lifetimeInfo(lifetime),
+    });
+    // Record the built runtime for the catch: a throw in `bootLocalEndpoint` / the
+    // manifest writes below must dispose THIS partial served runtime before releasing
+    // the gate (F17). Guarded in the catch — `serveDaemonSurfaces` may itself throw,
+    // leaving `servedForCleanup` undefined (nothing to close).
+    servedForCleanup = served;
     const endpoint = await bootLocalEndpoint(served, {
       kavalSocket,
       legacyKavalSocket: opts.legacyKavalSocket,
@@ -458,7 +504,13 @@ export async function runPadiDaemon(
     // is needed. The serving padi still reports ITSELF by construction — see
     // `withSelfPadi` — reading padi's serve socket from the module global.)
 
-    return await daemonMain({
+    // Ownership TRANSFERS to the spine here: it serves under the gate and releases it on
+    // teardown (F17, juspay/kolu#1334). Returned WITHOUT `await` so a later `daemonMain`
+    // rejection is NOT caught below — past this point the spine owns gate release +
+    // shutdown, and the catch must never double-release. The `.finally` disposes the
+    // served surface runtime (the happy-path teardown that used to live in this try's
+    // `finally`), keeping the existing `served.close()` semantics.
+    return daemonMain({
       gatePath,
       socketPath,
       // The router is the serve phase's output — read it straight off `served` rather
@@ -475,12 +527,48 @@ export async function runPadiDaemon(
       // The gate claimed at the top, threaded through the pipeline — the spine serves
       // under it and releases it on teardown, rather than acquiring it here (too late).
       gate: endpoint.gate,
+    }).finally(() => {
+      // Own the surface runtime's shutdown: once the daemon has stopped serving,
+      // release its owned sources. Awaited via `.finally` (it waits on the returned
+      // promise) so the release is deterministic rather than left to process death;
+      // disposition unchanged (loud-not-fatal — close resolves cleanly and never faults
+      // `done`).
+      return served.close();
     });
-  } finally {
-    // Own the surface runtime's shutdown: once the daemon has stopped serving (or a
-    // boot step above threw), release its owned sources. Awaited here so the release
-    // is deterministic rather than left to process death; disposition unchanged
-    // (loud-not-fatal — close resolves cleanly and never faults `done`).
-    await served.close();
+  } catch (err) {
+    // A PRE-TRANSFER boot failure (F17, juspay/kolu#1334): a throw between the gate
+    // acquire and the `daemonMain` handoff above. Dispose whatever partial served
+    // runtime was built, then release the idempotent gate so a retry in THIS process
+    // finds it available (else the leaked gate — still naming this live pid — wedges
+    // every later in-process launch as "already running").
+    //
+    // AWAIT the partial runtime's `close()` BEFORE releasing the gate: a fire-and-forget
+    // close would let an in-process retry re-acquire the gate and start a new runtime
+    // while the OLD partial surface runtime was still closing. A cleanup-path rejection
+    // is PRESERVED (aggregated with the boot error), never swallowed — a caught error
+    // must surface, not collapse to an empty state. The outcome is a DISCRIMINATED
+    // result, not a nullable `cleanupErr`: a Promise can legally `reject(undefined)`, so
+    // overloading `undefined` as "no cleanup error" would silently DROP that rejection.
+    // `caught` decides; `reason` is aggregated even when it is `undefined`.
+    // `servedForCleanup` is GUARDED — `serveDaemonSurfaces` may have thrown before it was
+    // assigned, leaving nothing to close. This async `catch` throws directly (unlike
+    // kaval's non-async `runKavalDaemon`, whose IIFE returned a rejected promise); the
+    // rejection reaches an `await runPadiDaemon(...)` caller identically.
+    let cleanup: { caught: false } | { caught: true; reason: unknown } = {
+      caught: false,
+    };
+    try {
+      await servedForCleanup?.close();
+    } catch (e) {
+      cleanup = { caught: true, reason: e };
+    }
+    gate.release();
+    if (cleanup.caught) {
+      throw new AggregateError(
+        [err, cleanup.reason],
+        "padi boot failed and its partial-runtime cleanup also failed",
+      );
+    }
+    throw err;
   }
 }

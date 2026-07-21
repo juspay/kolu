@@ -30,11 +30,8 @@ import {
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
 } from "@kolu/surface-daemon";
-import {
-  padiSocketPath,
-  padiStderrLogPath,
-  resolvePadiStateRoot,
-} from "./stateRoot.ts";
+import { resolveBoundStateRoot } from "./role.ts";
+import { padiSocketPath, padiStderrLogPath } from "./stateRoot.ts";
 
 export interface RunPadiStdioBridgeOptions {
   /** The value of `--state-root`, threaded straight from `bin.ts`'s argv parse,
@@ -60,10 +57,16 @@ export interface RunPadiStdioBridgeOptions {
 export function runPadiStdioBridge(
   opts: RunPadiStdioBridgeOptions = {},
 ): Promise<void> {
-  const socketPath = padiSocketPath(
-    resolvePadiStateRoot(opts.stateRoot),
-    opts.socketOverride,
-  );
+  // Lock 1 FIRST (juspay/kolu#1334 F6): resolve the bound root through the GUARDED
+  // resolver before probing/spawning/opening ANY log. The `--stdio` front's detached-
+  // spawn path opens `padi.stderr.log` under the resolved root, and a bare dev `--stdio`
+  // with no isolated state-root would otherwise resolve production's DEFAULT root through
+  // the unguarded read-only resolver and open that log there — mutating production's root
+  // before the re-exec'd child ever reaches its own Lock 1. `resolveBoundStateRoot` THROWS
+  // (StateRootIsolationError) on a refused launch here, before the default root is touched.
+  // Every downstream path (socket, crash log) is derived from this ONE approved value.
+  const boundRoot = resolveBoundStateRoot(opts.stateRoot);
+  const socketPath = padiSocketPath(boundRoot, opts.socketOverride);
   return frontDaemonOverStdio({
     socketPath,
     // Start padi's own durable daemon: re-exec this binary minus `--stdio`. Any
@@ -71,13 +74,14 @@ export function runPadiStdioBridge(
     // resolves the SAME path the front just did — load-bearing, and why this shim
     // is CLI-only (see the docstring). P0: this call site is DETACHING (nobody will hold the
     // child's stderr), so a crash-catcher file is mandatory here — `stderrLog` gives its raw
-    // stderr a home (`padi.stderr.log`). The daemon's own entrypoint routes its pino stream to
-    // `padi.log`; no flag to set. Without these a remote padi's whole log stream — incl. the
-    // WAL-watcher lines — went to /dev/null, undiagnosable.
+    // stderr a home (`padi.stderr.log`), derived from the APPROVED bound root (F6). The
+    // daemon's own entrypoint routes its pino stream to `padi.log`; no flag to set. Without
+    // these a remote padi's whole log stream — incl. the WAL-watcher lines — went to
+    // /dev/null, undiagnosable.
     spawnDaemon: () =>
       reExecAsDetachedDaemon({
         stripArgs: ["--stdio"],
-        stderrLog: padiStderrLogPath(opts.stateRoot),
+        stderrLog: padiStderrLogPath(boundRoot),
       }),
     log: (msg) => process.stderr.write(`padi --stdio: ${msg}\n`),
   });

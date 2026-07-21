@@ -102,6 +102,20 @@ export {
   residentPadiSocket,
   resolvePadiStateRoot,
 } from "./stateRoot.ts";
+// Host isolation (juspay/kolu#1334) — the role signal + the bind-time guard.
+// Re-exported through the assembly so kolu-server reaches them via @kolu/padi's
+// published entry points (the package-boundary seal), never a deep `@kolu/padi/role`
+// import.
+export {
+  type DaemonRole,
+  KOLU_ROLE_ENV,
+  resolveBoundStateRoot,
+  selfRole,
+  stampPersistentRole,
+  StateRootIsolationError,
+  writeEphemeralRole,
+  writePersistentProductionMarker,
+} from "./role.ts";
 export type {
   ActiveTerminalProcess,
   TerminalProcess,

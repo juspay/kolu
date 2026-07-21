@@ -39,11 +39,14 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   currentPadiBuildId,
+  KOLU_ROLE_ENV,
   padiGatePath,
   padiSocketPath,
   padiStderrLogPath,
   residentPadiSocket,
   resolvePadiStateRoot,
+  selfRole,
+  stampPersistentRole,
 } from "@kolu/padi/assembly";
 // The client-side dial kit — carved out of THIS module in W2.3 so `padi-tui` and
 // the binder share it (`@kolu/padi/dial`). What stays here is SUPERVISION: the
@@ -145,6 +148,15 @@ export function daemonEnv(
   // Pin padi's state-root explicitly so the digest (socket + kaval) is stable and
   // matches what the binder dials.
   env.KOLU_PADI_STATE_DIR = resolvedStateRoot;
+  // Forward the isolation ROLE daemon-to-daemon (juspay/kolu#1334): a production
+  // server hands `KOLU_ROLE=production` to the padi it spawns so padi (and the
+  // kaval padi spawns) stamp the production role beside their gates and are allowed
+  // on the production state-root. Threaded EXPLICITLY here — never via the PTY
+  // spawn allowlist (`composeSpawnEnv`), so it can NEVER leak into a child shell
+  // where a dev process would wrongly inherit the production role. Absent (dev/test)
+  // → padi defaults to `dev`.
+  if (process.env[KOLU_ROLE_ENV])
+    env[KOLU_ROLE_ENV] = process.env[KOLU_ROLE_ENV];
   if (process.env.KOLU_KAVAL_SPAWN)
     env.KOLU_KAVAL_SPAWN = process.env.KOLU_KAVAL_SPAWN;
   // Forward the run-bind pid so a harness/smoke-spawned padi binds its lifetime to
@@ -577,6 +589,11 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     return outcome;
   };
 
+  // A3b's persistent-marker stamp is a once-per-binding fact, not a per-dial one: the
+  // `stateRoot` never moves across a session's life, so re-stamping on every reconnect
+  // (network blip, watchdog cycle, drain-respawn) would rewrite the identical marker.
+  // Latched here so the production binder stamps at the first held connection and never again.
+  let roleStamped = false;
   // The LOCAL transport CONNECTOR (`endpointConnector`, a kolu-server leaf): self-
   // converge, then hand the loop the endpoint's held connection, scoped to the padi
   // sibling (the pump mirrors `/surface/padi/*`; `identity()` reads its `system.identity`).
@@ -597,6 +614,16 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
       // otherwise swallow this throw silently (see `onAdoptionRefused`'s doc).
       reportAdoptionRefusal(err, opts.onAdoptionRefused);
       throw err;
+    }
+    // A3b (juspay/kolu#1334): the production BINDER stamps the persistent role marker
+    // on the state-root it now holds — so a RELOCATED prod root (#1414) is marked even
+    // when the server ADOPTED a pre-fix padi that never wrote one, closing the rollout
+    // window at the first production restart rather than the next rare padi recycle.
+    // Once per binding (the `stateRoot` is fixed for the session); a dev binder never
+    // marks (selfRole is `dev`).
+    if (!roleStamped) {
+      stampPersistentRole(stateRoot, selfRole());
+      roleStamped = true;
     }
     // The far-end clock offset is no longer hand-measured here: `makeSession` samples
     // it off the framework-reserved `system.clockNow` at admit and carries it on the

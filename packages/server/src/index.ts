@@ -12,7 +12,7 @@ import {
   previewFile,
   probeKavalStatus,
   publisherSize,
-  resolvePadiStateRoot,
+  resolveBoundStateRoot,
 } from "@kolu/padi/assembly";
 import {
   PADI_FORWARDING_POLICY,
@@ -280,7 +280,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // predecessor pid) reaps the stale gate and claims `self`, so it still drains. The
   // REMOTE arm's twin is `remotePadiBinding.ts`'s anti-livelock fight-detection →
   // `cross-supervisor` cause (D3), with `KOLU_REMOTE_PADI_STATE_DIR` the isolation lever.
-  const localSupervisorStateRoot = resolvePadiStateRoot();
+  // Lock 1 (juspay/kolu#1334): the BINDER resolution. A non-production kolu-server
+  // (KOLU_ROLE unset) with no explicit KOLU_PADI_STATE_DIR would otherwise silently
+  // adopt production's default state-root and could steal/SIGTERM the live kolu's
+  // terminals — so `resolveBoundStateRoot` fails fast here instead (the padi twin of
+  // state.ts's KOLU_STATE_DIR refusal). Production sets KOLU_ROLE via its wrapper;
+  // `pnpm dev` / `just server` / the e2e harness each set KOLU_PADI_STATE_DIR.
+  const localSupervisorStateRoot = resolveBoundStateRoot();
   const supervisorClaim = claimLocalSupervisor(localSupervisorStateRoot);
   if (supervisorClaim.kind !== "self") {
     const err = supervisorConflictError(

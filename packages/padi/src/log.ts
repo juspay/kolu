@@ -44,8 +44,8 @@ function buildDefaultLogger(): Logger {
  *  a detached daemon's crash-catcher file wired by the spawn spine) still works, and every
  *  daemon leaves a bounded, readable file instead of `/dev/null`. Fails LOUD at boot if the
  *  state root is unwritable — never a silently log-less daemon. */
-function buildDaemonLogger(): Logger {
-  const file = padiLogPath();
+function buildDaemonLogger(stateRoot?: string): Logger {
+  const file = padiLogPath(stateRoot);
   // Fail-fast writability probe (synchronous, so an unwritable state root crashes the boot
   // loudly rather than the pino-roll worker failing async and the daemon logging nowhere).
   // `mode: 0o700` keeps a freshly-created state root owner-only (consistent with the daemon's
@@ -71,9 +71,14 @@ let active: Logger = buildDefaultLogger();
 
 /** Reconfigure padi's logs for a DAEMON boot — the rolled file + stderr multistream. Called
  *  UNCONDITIONALLY by the daemon entrypoint (`runPadiDaemon`); because EVERY spawn path runs
- *  that same entrypoint, no spawn path can forget it and silently discard logs. Idempotent. */
-export function configureDaemonLog(): void {
-  active = buildDaemonLogger();
+ *  that same entrypoint, no spawn path can forget it and silently discard logs. Idempotent.
+ *
+ *  Takes the ALREADY-RESOLVED-AND-GUARDED state root (F6): `runPadiDaemon` calls
+ *  `resolveBoundStateRoot` FIRST, so a refused (Lock-1) launch throws before this ever
+ *  creates a log dir in production's default root, and an explicit `--state-root` is the
+ *  logger's ONE root — daemon state and logging can no longer diverge onto two roots. */
+export function configureDaemonLog(stateRoot?: string): void {
+  active = buildDaemonLogger(stateRoot);
 }
 
 /** A stable handle forwarding to the ACTIVE logger, so {@link configureDaemonLog} can swap the

@@ -24,6 +24,7 @@ import { parseArgs } from "node:util";
 import { daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
 import { runPadiDaemon } from "./daemonMain.ts";
 import { log as padiDaemonLog } from "./log.ts";
+import { KOLU_ROLE_ENV } from "./role.ts";
 import { runPadiStdioBridge } from "./stdioBridge.ts";
 import { installUnhandledRejectionBoundary } from "./unhandledRejectionBoundary.ts";
 
@@ -61,6 +62,12 @@ Options:
                       If padi has no digest kaval yet but a compatible pre-W2.2 kaval
                       is alive here, it is ADOPTED (its PTYs survive the upgrade), not
                       leaked. Standalone (no flag), padi never adopts a stray port kaval.
+  --role ROLE         the isolation role this padi runs under: 'production' | 'dev'
+                      (juspay/kolu#1334). Sets KOLU_ROLE before boot. A REMOTE durable
+                      padi is production on its host, so kolu-server's ssh binding
+                      passes '--role production' (it rides the --stdio re-exec to the
+                      durable daemon). Omitted → padi defaults to 'dev'. Only the local
+                      production wrapper sets KOLU_ROLE via env instead.
   -h, --help          show this help
 
 Bind a running padi from kolu-server, or drive its kaval with \`kaval-tui\`.`;
@@ -73,6 +80,7 @@ const { values } = parseArgs({
     "allow-nix-shell-with-env-whitelist": { type: "string" },
     "spawn-version": { type: "string" },
     "legacy-kaval-socket": { type: "string" },
+    role: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -80,6 +88,23 @@ const { values } = parseArgs({
 if (values.help) {
   process.stdout.write(`${USAGE}\n`);
   process.exit(0);
+}
+
+// Thread the isolation ROLE from the CLI into the env BEFORE any boot code reads it
+// (juspay/kolu#1334, F1): `selfRole()` + `resolveBoundStateRoot` read `KOLU_ROLE`, so a
+// remote durable padi launched with `--role production` (which kolu-server's ssh binding
+// passes, and which the `--stdio` re-exec carries through to the durable daemon in argv)
+// resolves its own default state-root instead of being refused. Set for BOTH branches:
+// the `--stdio` front context is also production on the remote host. A malformed value
+// fails fast rather than silently degrading.
+if (values.role !== undefined) {
+  if (values.role !== "production" && values.role !== "dev") {
+    process.stderr.write(
+      `padi: --role must be 'production' or 'dev'; got ${JSON.stringify(values.role)}\n`,
+    );
+    process.exit(1);
+  }
+  process.env[KOLU_ROLE_ENV] = values.role;
 }
 
 if (values.stdio) {

@@ -35,7 +35,7 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import { KAVAL_GATE_FILE, kavalLogPath } from "kaval";
+import { KAVAL_GATE_FILE, KOLU_ROLE_ENV, kavalLogPath } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
 
 /** The single-instance gate kaval claims, beside its socket — the same path
@@ -110,6 +110,14 @@ export function daemonEnv(): Record<string, string> {
   // via `daemonLifetimeFromEnv`'s fail-fast, never silently dropped back to `forever`.
   if (process.env[DAEMON_BIND_PID_ENV] !== undefined)
     env[DAEMON_BIND_PID_ENV] = process.env[DAEMON_BIND_PID_ENV];
+  // Forward the isolation ROLE one hop further (server → padi → kaval, #1334): a
+  // production padi hands `KOLU_ROLE=production` to the kaval it spawns so kaval
+  // stamps the production role beside its OWN gate (`kaval-<digest>/role`) — without
+  // this, production's kaval would self-stamp `dev` and the adopt/kill guard would
+  // wrongly permit a dev process to SIGTERM it. Threaded EXPLICITLY (never via the
+  // PTY allowlist) so it can't leak into a child shell. Absent → kaval defaults `dev`.
+  if (process.env[KOLU_ROLE_ENV])
+    env[KOLU_ROLE_ENV] = process.env[KOLU_ROLE_ENV];
   // Forward the diagnostics base dir so the SPAWNED kaval — the actual heap-OOM
   // site (kaval-heap-oom.mdx) — arms its OWN heap-snapshot hooks + periodic
   // heap/terms log under it. We scrub the server's `--heapsnapshot*` from

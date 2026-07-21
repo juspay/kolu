@@ -23,7 +23,11 @@
  * the host's terminals.
  */
 
-import { currentPadiBuildId } from "@kolu/padi/assembly";
+import {
+  currentPadiBuildId,
+  type DaemonRole,
+  selfRole,
+} from "@kolu/padi/assembly";
 import {
   type PadiDaemonClient,
   type PadiSurfaceClient,
@@ -260,9 +264,26 @@ export interface RemotePadiSessionDeps {
  * re-add `--stdio`. Carries `--spawn-version` (the kolu app version) and, when this
  * kolu-server isolates its remote padis ({@link KOLU_REMOTE_PADI_STATE_DIR_ENV}),
  * `--state-root <dir>` — so two kolus binding one host reach two distinct remote padis.
+ *
+ * Carries `--role <role>` threaded from the BINDER's own {@link selfRole} (juspay/kolu#1334,
+ * F1) — the remote durable padi INHERITS the binder's role, it is never hard-coded. This is
+ * the isolation boundary the CLI channel exists to carry, in both directions:
+ *   - a PRODUCTION binder → `--role production`: the remote padi IS the production daemon on
+ *     its host, so it may bind its own default root (the common default-remote-host case
+ *     still boots after a reboot/drain), and a dev/test process on that box must never adopt
+ *     or SIGTERM it.
+ *   - a DEV/test binder → `--role dev`: the remote padi is NON-production. With an isolated
+ *     {@link KOLU_REMOTE_PADI_STATE_DIR_ENV} it binds that per-workspace root as dev; WITHOUT
+ *     one it would silently inherit the remote host's default (production) root, so
+ *     `resolveBoundStateRoot` on the re-exec'd durable daemon REFUSES — correct: a dev binder
+ *     must isolate a remote root, never stamp the host's default production.
+ * The `--stdio` re-exec re-runs `process.argv` (minus `--stdio`), so this rides through to the
+ * durable daemon automatically. Threaded over the daemon-only COMMAND LINE (there is no env
+ * channel over the ssh exec), never a PTY spawn env, so it can't leak into a child shell.
  */
 export function composePadiExtraArgs(
   spawnVersion: string | null | undefined,
+  role: DaemonRole,
   remoteStateDir?: string | null,
 ): string[] {
   const args: string[] = [];
@@ -271,6 +292,8 @@ export function composePadiExtraArgs(
   if (remoteStateDir != null && remoteStateDir !== "")
     args.push("--state-root", remoteStateDir);
   if (spawnVersion != null) args.push("--spawn-version", spawnVersion);
+  // The remote durable padi inherits the BINDER's role (F1) — never hard-coded.
+  args.push("--role", role);
   return args;
 }
 
@@ -303,6 +326,10 @@ export function ensureRemotePadiBinding(
   // is missing.
   const extraArgs = composePadiExtraArgs(
     opts.spawnVersion,
+    // Thread THIS kolu-server's own role to the remote durable padi (F1): a production
+    // binder makes its remote padi production; a dev/test binder makes it dev (and must
+    // supply an isolated KOLU_REMOTE_PADI_STATE_DIR or the remote refuses its default root).
+    selfRole(),
     process.env[KOLU_REMOTE_PADI_STATE_DIR_ENV],
   );
 

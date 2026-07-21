@@ -962,33 +962,74 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
   });
 });
 
-describe("composePadiExtraArgs (F2: the remote front never re-adds --stdio)", () => {
-  it("passes --spawn-version through, and NEVER includes --stdio (host.ts already runs `padi --stdio`)", () => {
-    const args = composePadiExtraArgs("1.2.3");
-    expect(args).toEqual(["--spawn-version", "1.2.3"]);
+describe("composePadiExtraArgs (F2: never re-adds --stdio; F1: threads the binder's role)", () => {
+  it("passes --spawn-version through, marks the binder's --role, and NEVER includes --stdio", () => {
+    const args = composePadiExtraArgs("1.2.3", "production");
+    expect(args).toEqual(["--spawn-version", "1.2.3", "--role", "production"]);
     expect(args).not.toContain("--stdio");
   });
 
-  it("is EMPTY when no spawn version is set — and still carries no --stdio", () => {
-    expect(composePadiExtraArgs(null)).toEqual([]);
-    expect(composePadiExtraArgs(undefined)).toEqual([]);
+  it("F1: a PRODUCTION binder's COMMON (no state-dir) remote front carries --role production so its default-root cold boot is not refused", () => {
+    // A production binder's remote durable padi IS production on its host: the --stdio
+    // re-exec'd durable daemon resolves production's DEFAULT root as a PRODUCTION launch
+    // → `resolveBoundStateRoot` allows it → the host boots padi after a reboot/drain.
+    expect(composePadiExtraArgs(null, "production")).toEqual([
+      "--role",
+      "production",
+    ]);
+    expect(composePadiExtraArgs(undefined, "production")).toEqual([
+      "--role",
+      "production",
+    ]);
+  });
+
+  it("F1: a DEV binder threads --role dev, NOT production (the CLI channel carries the real role both ways)", () => {
+    // A dev/test kolu binding a remote host must NOT stamp its remote padi production. It
+    // inherits `dev`, so a bare (no KOLU_REMOTE_PADI_STATE_DIR) remote front re-execs
+    // `--role dev` with no --state-root → the durable daemon's `resolveBoundStateRoot`
+    // REFUSES its own default root (a dev binder must isolate a remote root).
+    expect(composePadiExtraArgs("1.2.3", "dev")).toEqual([
+      "--spawn-version",
+      "1.2.3",
+      "--role",
+      "dev",
+    ]);
+    // A dev binder WITH an isolated state-dir → binds that per-workspace root as dev.
+    expect(composePadiExtraArgs("1.2.3", "dev", "/tmp/kolu-dev/padi")).toEqual([
+      "--state-root",
+      "/tmp/kolu-dev/padi",
+      "--spawn-version",
+      "1.2.3",
+      "--role",
+      "dev",
+    ]);
   });
 
   it("D3: forwards KOLU_REMOTE_PADI_STATE_DIR as --state-root so two kolus isolate their remote padis", () => {
     // The primary defense against a remote cross-supervisor war: a per-kolu remote
     // state-root → distinct digest → distinct socket → no shared padi to fight over.
-    expect(composePadiExtraArgs("1.2.3", "/srv/kolu-a/padi")).toEqual([
+    expect(
+      composePadiExtraArgs("1.2.3", "production", "/srv/kolu-a/padi"),
+    ).toEqual([
       "--state-root",
       "/srv/kolu-a/padi",
       "--spawn-version",
       "1.2.3",
+      "--role",
+      "production",
     ]);
-    // Unset / empty → omitted (single-kolu common case: the remote padi picks its own default).
-    expect(composePadiExtraArgs("1.2.3", undefined)).toEqual([
+    // Unset / empty → --state-root omitted (single-kolu common case: the remote padi
+    // picks its own default), but the binder's --role still rides for the cold boot.
+    expect(composePadiExtraArgs("1.2.3", "production", undefined)).toEqual([
       "--spawn-version",
       "1.2.3",
+      "--role",
+      "production",
     ]);
-    expect(composePadiExtraArgs(null, "")).toEqual([]);
+    expect(composePadiExtraArgs(null, "production", "")).toEqual([
+      "--role",
+      "production",
+    ]);
   });
 });
 
