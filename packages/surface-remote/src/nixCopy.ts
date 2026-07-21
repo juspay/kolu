@@ -11,12 +11,13 @@
  *      .#packages.<system>.<agent>.drvPath` is the typical recipe
  *      (use `resolveSystem(host)` to get the remote's `<system>` first,
  *      so the derivation is for the *remote's* architecture).
- *   1. (Remote, warm) `ssh $host nix-store --realise $drvPath --add-root
- *      $link --indirect`. If the closure is already on the host this one
- *      fused command confirms presence (realise fast-fails when the
- *      closure is absent and unsubstitutable), refreshes the GC root, and
- *      returns the out-path — so a warm host short-circuits here, skipping
- *      the redundant copy/realise/pin below. On a miss we fall through.
+ *   1. (Remote, warm) an ASK-ONLY check (#1908 D1a): compute the `.drv`'s
+ *      output path(s) LOCALLY on the sender (`nix-store -q --outputs`, no
+ *      network), then ask the host, bounded, whether they are already valid
+ *      there (`nix-store --check-validity`). Present ⇒ warm hit: refresh the
+ *      GC root and short-circuit, skipping the redundant copy/realise/pin.
+ *      The check NEVER substitutes (the old fused `--realise` did — the
+ *      #1908 wedge); substitution belongs to step 3, narrated as a build.
  *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
  *      .drv (plus its inputs' .drvs and source paths the remote
  *      doesn't have).
@@ -28,16 +29,22 @@
  *      under a live session (or force a rebuild on the next reconnect).
  *      See `agentGcRootPath` for the "latest"-link semantics.
  *   Spawn: the output path becomes `agentPath`; the caller then spawns
- *      `ssh $host $agentPath/bin/<binary> --stdio` via `HostSession`.
+ *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
  *
  * Localhost shortcut: the .drv is already in the local store, so
  * `nix-store --realise` is a local build. The copy step is a no-op.
  *
+ * **Lifetime ownership (#1908 D1b/D1c).** Every child spawns through
+ * `process.ts` with a REQUIRED {@link LifetimePolicy}: the quick steps
+ * (arch probe, warm check, pin) get a hard `deadline`; the minutes-long
+ * `copy`/`build` get `progress-liveness` (killed only on real silence),
+ * with a per-step doubling + kill budget ({@link StepBudget}) the CALLER
+ * owns across retries so a healthy slow transfer is never livelocked. A
+ * per-dial abort `signal` (recheck's abort-in-flight, R6b) group-kills any
+ * in-flight child.
+ *
  * **Nix is the contract, not the implementation.** No tarball, Docker,
- * or prebuilt-binary fallback exists or will. The whole point of this
- * package is "use Nix for cross-arch deployment of typed stdio
- * agents"; consumers that don't want Nix should pick a different
- * transport layer.
+ * or prebuilt-binary fallback exists or will.
  */
 
 import {
@@ -49,9 +56,68 @@ import {
 import {
   describeExit,
   type ExitResult,
+  type LifetimePolicy,
   runCapture,
   runProgress,
 } from "./process";
+
+/** Hard deadline for the QUICK ssh/local steps — the arch probe, the warm
+ *  `check-validity`, the GC-root pin. A genuine round-trip; generous so a slow
+ *  link doesn't false-fail, far short of the 10-minute wedge this bounds. */
+export const PROVISION_PROBE_DEADLINE_MS = 30_000;
+
+/** Base progress-silence bound for the minutes-long `copy`/`build` steps (#1908
+ *  R4/C1). nix's stderr is per-path, so one large NAR on a slow link is legitimately
+ *  silent for a while — MINUTES-scale, not seconds. Doubles per consecutive expiry
+ *  (see {@link StepBudget}). */
+export const PROVISION_STEP_SILENCE_BASE_MS = 120_000;
+
+/** How many consecutive `lifetime-expired` kills of the SAME step before it is
+ *  genuinely terminal (#1908 R4c/C5). With base 120s and N=4 the last budgeted
+ *  silence is 120×2³ = 960s (16 min); the session-level backstop (R8b) sits above
+ *  that so R4 always fires first on a copy/build step. */
+export const PROVISION_STEP_MAX_EXPIRIES = 4;
+
+/** A per-step progress-liveness budget owned by the CONNECTOR (persists across a
+ *  campaign's retries; #1908 C5). It carves the "silent-forever step" terminal OUT
+ *  of the give-up counter (a `lifetime-expired` is retryable/`network`, which never
+ *  gives up — so without this a wedged-then-killed step would loop forever):
+ *
+ *   - `policy()`       — the current `progress-liveness` policy; `silenceMs = base ×
+ *                        2^(consecutive expiries)`, so a genuinely slow path gets more
+ *                        room each retry.
+ *   - `recordExpiry()` — count one expiry; returns `true` when the budget is EXHAUSTED
+ *                        (the step is now terminal). Doubles the next bound.
+ *   - `reset()`        — on step SUCCESS or CAMPAIGN BIRTH (a fresh episode / a user
+ *                        verb). Deliberately NOT reset by a user abort (C3).
+ */
+export interface StepBudget {
+  policy(): LifetimePolicy;
+  recordExpiry(): boolean;
+  reset(): void;
+}
+
+/** Build a {@link StepBudget}. `baseMs` doubles per consecutive expiry; `maxExpiries`
+ *  is the terminal count. */
+export function makeStepBudget(
+  baseMs: number,
+  maxExpiries: number,
+): StepBudget {
+  let expiries = 0;
+  return {
+    policy: () => ({
+      kind: "progress-liveness",
+      silenceMs: baseMs * 2 ** expiries,
+    }),
+    recordExpiry: () => {
+      expiries += 1;
+      return expiries >= maxExpiries;
+    },
+    reset: () => {
+      expiries = 0;
+    },
+  };
+}
 
 export interface ProvisionOptions {
   host: string;
@@ -61,29 +127,29 @@ export interface ProvisionOptions {
   drvPath: string;
   onProgress: (line: string) => void;
   /** Fired ONCE, on the COLD path, right before `nix copy --derivation` starts —
-   *  the moment a real copy actually begins (the warm realise-probe has already
-   *  MISSED). The connector uses it to advance its session phase from the opening
-   *  `probing` (the arch probe + warm check, where nothing is being shipped) to
-   *  `copying`, so a WARM host — which returns from the probe and never reaches
-   *  here — stays `probing` and its overlay stays calm, while a genuine cold copy
-   *  narrates honestly. Optional. */
+   *  the moment a real copy actually begins (the warm check has already MISSED). The
+   *  connector uses it to advance its phase `probing → copying`. Optional. */
   onCopying?: () => void;
-  /** Fired ONCE, on the COLD path, at the copy→realise command boundary —
-   *  right before `nix-store --realise` starts the remote (or local) BUILD, the
-   *  minutes-long step. The connector uses it to advance its session phase from
-   *  `copying` (the `.drv` push) to `building` (the compile), so the overlay
-   *  narrates the two honestly. NOT fired on the warm short-circuit (the fused
-   *  realise probe already returned) — a warm reconnect never shows a build UI.
-   *  Optional: a caller with no phase to advance omits it. */
+  /** Fired ONCE, on the COLD path, at the copy→realise boundary — right before
+   *  `nix-store --realise` starts the BUILD. Advances `copying → building`. Optional. */
   onBuilding?: () => void;
+  /** The copy step's progress-liveness budget (#1908 R4/C5) — CONNECTOR-owned so its
+   *  doubling/terminal state persists across a campaign's retries. */
+  copyBudget: StepBudget;
+  /** The build step's progress-liveness budget — same ownership as `copyBudget`. */
+  buildBudget: StepBudget;
+  /** Per-dial abort (recheck's abort-in-flight, #1908 R6b): aborting group-kills the
+   *  in-flight provisioning child and settles the run as `"aborted"` — a retryable,
+   *  budget-EXEMPT fault. Threaded into every child. */
+  signal?: AbortSignal;
 }
 
 export type ProvisionResult =
   | { ok: true; agentPath: string }
-  // `cause` lets `HostSession` keep retrying a host that went unreachable
-  // *mid-provision* (asleep/roaming after the arch probe succeeded) instead
-  // of burning the give-up budget — while a genuine `"remote"` rejection
-  // (e.g. `trusted-users`) still fails loudly.
+  // `cause` lets the session keep retrying a host that went unreachable
+  // *mid-provision* (asleep/roaming after the arch probe) instead of burning the
+  // give-up budget — while a genuine `"remote"` rejection (`trusted-users`, or a
+  // budget-EXHAUSTED silent step) still fails loudly.
   | { ok: false; reason: string; cause: "network" | "remote" };
 
 /** Per-agent GC-root path for the realised output, or `null` when one
@@ -91,16 +157,11 @@ export type ProvisionResult =
  *  name with its store hash stripped, so every version of the *same*
  *  agent maps to one fixed symlink: each realise overwrites it, the
  *  previous output drops out of the root set and becomes GC-eligible.
- *  "Pin the latest, release older hashes" — the moving-`result`
- *  behaviour `nix build` gives you, but on the target's store.
  *
  *  Remote: the path is relative, so it resolves against the ssh login
- *  user's home dir (sshd runs the command from `$HOME`). Local: there's
- *  no ssh chdir, so anchor to this process's `$HOME` explicitly — and if
- *  `$HOME` is unset we return `null` rather than a cwd-relative path
- *  that would silently root the agent in the wrong place; the caller
- *  then skips the (best-effort) pin. Parent dirs don't need
- *  pre-creating — `nix-store --add-root` makes them. */
+ *  user's home dir. Local: anchor to this process's `$HOME` explicitly —
+ *  and if `$HOME` is unset we return `null` rather than a cwd-relative
+ *  path; the caller then skips the (best-effort) pin. */
 export function agentGcRootPath(
   isLocal: boolean,
   drvPath: string,
@@ -115,13 +176,26 @@ export function agentGcRootPath(
   return home ? `${home}/${rel}` : null;
 }
 
-/** Realise `target` on `$host` AND register an indirect GC root at
- *  `rootPath` in one ssh command — the single shape both the warm probe
- *  (target = the `.drv`) and the cold pin (target = the realised out-path)
- *  share. Defined once so the root flags, option ordering, and
- *  `--indirect` semantics live in exactly one place. */
-function realiseAndPin(host: string, target: string, rootPath: string) {
-  return buildSshProbeCommand(
+/** A hard-`deadline` {@link LifetimePolicy} for the quick steps, carrying the
+ *  per-dial abort. One place so the probe/pin/check all share it. */
+function probePolicy(): LifetimePolicy {
+  return { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS };
+}
+
+/** Pin `target` behind the indirect per-agent GC root at `rootPath` — the SHARED
+ *  best-effort step both the warm-HIT path and the cold step-4 use (#1908 R5d: one
+ *  pin, one failure semantics). Re-realising an already-valid path is instant and
+ *  cannot substitute; a `deadline` expiry here is ALSO non-fatal (the agent still
+ *  runs, unpinned). Best-effort throughout. */
+async function pinGcRoot(
+  host: string,
+  target: string,
+  rootPath: string,
+  onProgress: (line: string) => void,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  onProgress(`${host}: pinning GC root at '${rootPath}'…`);
+  const pin = buildSshProbeCommand(
     host,
     "nix-store",
     "--realise",
@@ -130,6 +204,16 @@ function realiseAndPin(host: string, target: string, rootPath: string) {
     rootPath,
     "--indirect",
   );
+  const pinRes = await runCapture(pin.command, pin.args, {
+    onProgress,
+    policy: probePolicy(),
+    signal,
+  });
+  if (!pinRes.ok) {
+    onProgress(
+      `${host}: GC-root pin ${describeExit(pinRes)}; agent runs but is unpinned`,
+    );
+  }
 }
 
 /** Ship the `.drv` to `$host` and realise it there. Returns the
@@ -139,15 +223,12 @@ export async function provisionAgent(
   opts: ProvisionOptions,
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
+  const { signal } = opts;
 
-  // Watch the streamed output for ssh/nix connection errors as it flows by,
-  // so a host that went unreachable mid-`nix copy` (which exits with nix's
-  // code, not ssh's 255) is still classified `"network"`. We only flip a
-  // flag — no buffering of the (potentially large) transfer log.
+  // Watch the streamed output for ssh/nix connection errors as it flows by, so a
+  // host that went unreachable mid-`nix copy` (which exits with nix's code, not
+  // ssh's 255) is still classified `"network"`. We only flip a flag.
   let sawNetworkError = false;
-  // Scan a line for a transport failure so an unreachable host is classified
-  // `"network"` no matter which step's stderr first carries the error. Shared
-  // by the visible progress wrapper and the suppressed probe callback below.
   const scanForNetworkError = (line: string): void => {
     if (looksLikeNetworkError(line)) sawNetworkError = true;
   };
@@ -155,105 +236,118 @@ export async function provisionAgent(
     scanForNetworkError(line);
     opts.onProgress(line);
   };
-  // The warm probe is *speculative*: on a cold host it's expected to fail
-  // (the `.drv` isn't there yet), and nix writes a real `error: …` line to
-  // stderr before we fall through and provision successfully. Forwarding that
-  // line into the user-visible progress ring would make a clean first-time
-  // provision read as if it errored. So the probe's stderr is scanned for the
-  // network classification (a transport failure here must still flip
-  // `sawNetworkError` so the fall-through's `causeFor` calls an unreachable
-  // host `"network"`) but NOT echoed to `opts.onProgress`. The real
-  // copy/realise path below reports its own errors verbatim if provisioning
-  // ultimately fails.
+  // The warm check's stderr is scanned for the network classification but NOT echoed
+  // to the user-visible ring (a cold miss can write a scary line).
   const onProbeProgress = scanForNetworkError;
-  // A direct-ssh command (realise/pin) surfaces ssh's own 255 on a transport
-  // failure; combined with the stderr scan this covers both the copy step
-  // (nix-wrapped ssh) and the realise step (bare ssh). Keys on the EXIT arm's
-  // numeric code — a signal-kill or a spawn failure is never ssh's 255, so both
-  // fall through to the bounded `"remote"` default (correct: neither is a
-  // transport blip), rather than being read off an overloaded `code: null`.
-  const causeFor = (res: ExitResult): "network" | "remote" =>
-    sawNetworkError || (res.kind === "exit" && res.code === 255)
+  // A direct-ssh command surfaces ssh's own 255 on a transport failure. Keys on the
+  // EXIT arm's numeric code; a `lifetime-expired` (our kill) and an `aborted` (user
+  // verb) are RETRYABLE `"network"` — never the bounded `"remote"` default — so a
+  // wedged-then-killed step retries and a user abort never burns the give-up budget.
+  // A `signal`/`spawn-error`/plain non-255 exit falls to the bounded `"remote"`.
+  const causeFor = (res: ExitResult): "network" | "remote" => {
+    if (res.kind === "lifetime-expired" || res.kind === "aborted")
+      return "network";
+    return sawNetworkError || (res.kind === "exit" && res.code === 255)
       ? "network"
       : "remote";
+  };
 
   const rootPath = agentGcRootPath(isLocal, opts.drvPath);
 
-  // 1. Warm fast-path (remote only). If the .drv's closure is already on the
-  //    host, ONE fused `--realise <drv> --add-root … --indirect` both proves it
-  //    (realise fast-fails when the closure is absent and unsubstitutable) and
-  //    refreshes the GC root — so a warm host skips the redundant `nix copy`
-  //    (the wasteful "copying 0 paths" step) plus the separate realise/pin it
-  //    otherwise re-pays on every dial. On a miss (drv absent → fast-fail, or an
-  //    unwritable root) we fall through to the full provision below, whose pin
-  //    is best-effort, so a root issue degrades to "works, unpinned" rather than
-  //    a hard failure. Localhost never copies anyway (the .drv is already in the
-  //    local store), so the fast-path is remote-only — its one ssh would be pure
-  //    overhead locally. The probe's stderr is scanned for the network
-  //    classification (via `onProbeProgress`) but NOT echoed to the
-  //    user-visible progress ring — its expected miss on a cold host would
-  //    otherwise make a clean first-time provision read as an error — so a
-  //    transport failure here still classifies the fall-through as `"network"`.
+  // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a). Compute the
+  //    output path(s) LOCALLY (the sender holds the .drv it just resolved; no network,
+  //    instant), then ask the host whether they are already valid there. A HIT skips
+  //    the redundant copy/realise. A MISS (or the local compute failing — the sender
+  //    GC'd the .drv) falls through to the full provision, whose copy fails loudly if
+  //    the .drv is genuinely gone (#1908 R5c — the honest replacement for "no
+  //    regression"). Localhost never copies, so the fast-path is remote-only.
   if (!isLocal && rootPath !== null) {
-    // One SYNTHESIZED, truthful line at probe start (NOT the raw nix stderr, which is
-    // suppressed via `onProbeProgress` because a cold miss writes a scary `error: …`).
-    // This is the sign-of-life for stderr/TUI consumers during the otherwise-silent
-    // probe; the connect overlay stays calm on its own (the `probing` phase renders
-    // with no tail), so this line never reads as a build in flight.
+    // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
     onProgress(`${opts.host}: checking for a cached agent…`);
-    const warm = realiseAndPin(opts.host, opts.drvPath, rootPath);
-    const warmRes = await runCapture(warm.command, warm.args, onProbeProgress);
-    const warmPath = warmRes.stdout.trim();
-    if (warmRes.ok && warmPath.length > 0) {
-      onProgress(
-        `${opts.host}: already provisioned at ${warmPath} — skipped copy`,
+    // Local compute of the derivation's output path(s) — no ssh, no substitution.
+    const outsRes = await runCapture(
+      "nix-store",
+      ["-q", "--outputs", opts.drvPath],
+      { policy: probePolicy(), signal },
+    );
+    // `-q --outputs` prints ONE line PER OUTPUT (#1908 R5a) — handle the multi-line
+    // stdout; a single-output agent drv yields exactly one.
+    const outputs = outsRes.stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (outsRes.ok && outputs.length > 0) {
+      // Ask the host, bounded, whether ALL outputs are already valid there. This is a
+      // pure store query — it NEVER substitutes (verified: `--check-validity` on an
+      // absent path returns non-zero instantly, no fetch). A partial closure is a miss.
+      const check = buildSshProbeCommand(
+        opts.host,
+        "nix-store",
+        "--check-validity",
+        ...outputs,
       );
-      return { ok: true, agentPath: warmPath };
+      const checkRes = await runCapture(check.command, check.args, {
+        onProgress: onProbeProgress,
+        policy: probePolicy(),
+        signal,
+      });
+      if (checkRes.ok) {
+        // Warm hit. The primary output is the agent path (the agent drv is
+        // single-output; for a multi-output drv this is its first output). Refresh the
+        // GC root via the SHARED best-effort pin, then short-circuit.
+        const agentPath = outputs[0]!;
+        await pinGcRoot(
+          opts.host,
+          agentPath,
+          rootPath,
+          opts.onProgress,
+          signal,
+        );
+        onProgress(
+          `${opts.host}: already provisioned at ${agentPath} — skipped copy`,
+        );
+        return { ok: true, agentPath };
+      }
     }
   }
 
-  // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
-  //    for localhost — the .drv is already in /nix/store.
+  // 2. Copy the .drv (and its build-inputs) to the remote. Skipped for localhost.
   if (!isLocal) {
-    // The warm probe above MISSED (cold path), so a real copy is now starting —
-    // signal the `probing → copying` boundary so the overlay flips from the calm
-    // "checking" state to the honest "provisioning" narration. Localhost never
-    // copies, so it never enters `copying` — it goes `probing → building` directly.
+    // The warm check MISSED (cold path) — signal the `probing → copying` boundary.
     opts.onCopying?.();
     onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
     const copyRes = await runProgress(
       "nix",
       [
         "copy",
-        // We're shipping a derivation we built; the remote daemon's
-        // require-sigs policy still bites unless the sender is in
-        // trusted-users. `--no-check-sigs` lets the sender skip the
-        // local check; the remote still needs to trust us.
         "--no-check-sigs",
         "--derivation",
         "--to",
-        // Third host→ssh sink, alongside buildAgentCommand/buildSshProbeCommand,
-        // which both end ssh option parsing with `--` before the host. This one
-        // cannot carry that guard: the host is interpolated into a nix
-        // `ssh-ng://` URI authority, and nix parses that URI and forks its OWN
-        // ssh — the `--` end-of-options token is an ssh-argv construct that has
-        // no place in a URI, so there is no shared `sshDestination()` helper to
-        // factor (URI form and argv form share no rendering). Whether nix's
-        // URI-authority parser makes a leading-`-` host inert before it reaches
-        // ssh is provider-specific and unverified here; treat this as the
-        // residual gap in the host→ssh `--` guard rather than a proven-safe site.
         `ssh-ng://${opts.host}`,
         opts.drvPath,
       ],
-      onProgress,
-      // The copy is a remote transfer that can sit idle for minutes; the
-      // ssh it forks internally only honours dead-peer keepalive — and the
-      // P2.8 ControlMaster multiplexing — through NIX_SSHOPTS. Without the
-      // keepalive a degraded host wedges this step forever; with the control
-      // opts this fork rides the master the warm probe already opened
-      // instead of paying its own handshake. `nixSshOpts()` renders both.
-      { NIX_SSHOPTS: nixSshOpts() },
+      {
+        onProgress,
+        // The copy is a transfer that can sit idle for minutes; progress-liveness kills
+        // it only on real silence (#1908 R4). The ssh nix forks internally rides the
+        // shared master + dead-peer keepalive via NIX_SSHOPTS.
+        policy: opts.copyBudget.policy(),
+        env: { NIX_SSHOPTS: nixSshOpts() },
+        signal,
+      },
     );
+    if (copyRes.kind === "lifetime-expired") {
+      // A silent copy — killed. Retryable UNLESS the per-step budget is exhausted, in
+      // which case the step is genuinely terminal (#1908 C5) — do not loop forever.
+      const terminal = opts.copyBudget.recordExpiry();
+      return {
+        ok: false,
+        reason: `${opts.host}: 'nix copy --derivation' ${describeExit(copyRes)}${
+          terminal ? " — giving up (silent too many times)" : ""
+        }`,
+        cause: terminal ? "remote" : "network",
+      };
+    }
     if (!copyRes.ok) {
       return {
         ok: false,
@@ -261,33 +355,43 @@ export async function provisionAgent(
         cause: causeFor(copyRes),
       };
     }
+    opts.copyBudget.reset(); // success clears the doubling
     onProgress(`${opts.host}: derivation copy complete`);
-    // The copy reached the host, so it's provably reachable *now* — clear any
-    // network flag a speculative warm-probe blip set. Without this, a transient
-    // probe network error that cleared by the time we copied would make a
-    // subsequent genuine *remote* realise/pin failure misclassify as `"network"`
-    // (retrying forever instead of giving up). Each later step's own stderr scan
-    // re-sets the flag if the host goes unreachable again.
+    // The copy reached the host, so it's provably reachable *now* — clear any network
+    // flag a speculative check blip set, so a later genuine *remote* realise failure
+    // isn't misclassified `"network"`.
     sawNetworkError = false;
   }
 
-  // 3. Realise (build) the .drv on the target. Output is the agent's
-  //    nix-store path on that host. This is the minutes-long compile — signal
-  //    the copy→realise BOUNDARY so the connector advances `copying → building`
-  //    (only reached on the COLD path; a warm host returned at step 1 above).
+  // 3. Realise (build) the .drv on the target — the minutes-long compile. Signal the
+  //    `copying → building` boundary (cold path only; a warm host returned at step 1).
   opts.onBuilding?.();
   onProgress(
     isLocal
       ? `localhost: realising '${opts.drvPath}'…`
       : `${opts.host}: realising '${opts.drvPath}' on remote…`,
   );
-  const { command, args } = buildSshProbeCommand(
+  const build = buildSshProbeCommand(
     opts.host,
     "nix-store",
     "--realise",
     opts.drvPath,
   );
-  const realiseRes = await runCapture(command, args, onProgress);
+  const realiseRes = await runCapture(build.command, build.args, {
+    onProgress,
+    policy: opts.buildBudget.policy(),
+    signal,
+  });
+  if (realiseRes.kind === "lifetime-expired") {
+    const terminal = opts.buildBudget.recordExpiry();
+    return {
+      ok: false,
+      reason: `${opts.host}: 'nix-store --realise' ${describeExit(realiseRes)}${
+        terminal ? " — giving up (silent too many times)" : ""
+      }`,
+      cause: terminal ? "remote" : "network",
+    };
+  }
   if (!realiseRes.ok) {
     return {
       ok: false,
@@ -295,39 +399,31 @@ export async function provisionAgent(
       cause: causeFor(realiseRes),
     };
   }
-  const agentPath = realiseRes.stdout.trim();
-  if (agentPath.length === 0) {
+  opts.buildBudget.reset();
+  // `--realise` prints one line per output; the primary is the agent path.
+  const agentPath = realiseRes.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (agentPath === undefined) {
     return {
       ok: false,
       reason: `${opts.host}: realise returned no output path`,
-      // The build ran and returned cleanly but empty — a remote-state
-      // anomaly, not a transport failure.
+      // The build ran and returned cleanly but empty — a remote-state anomaly.
       cause: "remote",
     };
   }
   onProgress(`${opts.host}: agent realised at ${agentPath}`);
 
-  // 4. Pin the realised output behind a stable, per-agent GC root.
-  //    Re-realising an already-built store path is instant; the
-  //    `--add-root … --indirect` registers an *indirect* root — the
-  //    symlink itself — so the link can live under $HOME without write
-  //    access to /nix/var/nix/gcroots. Best-effort throughout: if the
-  //    root path can't be formed (local $HOME unset) or the command
-  //    fails, we warn and continue — the agent at `agentPath` still
-  //    runs, it's just collectable.
+  // 4. Pin the realised output behind a stable, per-agent GC root — the SHARED
+  //    best-effort pin (same as the warm-hit path). If the root path can't be formed
+  //    (local $HOME unset) we warn and continue.
   if (rootPath === null) {
     opts.onProgress(
       `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
     );
   } else {
-    opts.onProgress(`${opts.host}: pinning GC root at '${rootPath}'…`);
-    const pin = realiseAndPin(opts.host, agentPath, rootPath);
-    const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
-    if (!pinRes.ok) {
-      opts.onProgress(
-        `${opts.host}: GC-root pin ${describeExit(pinRes)}; agent runs but is unpinned`,
-      );
-    }
+    await pinGcRoot(opts.host, agentPath, rootPath, opts.onProgress, signal);
   }
 
   return { ok: true, agentPath };

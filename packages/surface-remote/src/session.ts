@@ -39,16 +39,14 @@
 
 import type { Logger } from "@kolu/log";
 import {
+  ClockNowUnavailableError,
+  measureSurfaceClockOffset,
+} from "@kolu/surface/clock-now";
+import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
-import { ORPCError } from "@orpc/client";
-import { monotonicNow } from "@kolu/surface/time";
-import {
-  ClockNowUnavailableError,
-  measureSurfaceClockOffset,
-} from "@kolu/surface/clock-now";
 import {
   probeSurfaceIdentity,
   type ServedIdentity,
@@ -57,6 +55,8 @@ import {
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
+import { monotonicNow } from "@kolu/surface/time";
+import { ORPCError } from "@orpc/client";
 import type { LogEntry } from "./connection";
 
 const MAX_PROGRESS_LINES = 20;
@@ -311,12 +311,34 @@ export interface ConnectContext<Prov extends string = never> {
   /** The transport is up and the client is built — move to `connecting`. Called by
    *  the connector before it returns the {@link Connection}. */
   connecting(): void;
+  /** Per-dial ABORT (#1908 R6b). The lifetime policies of every child the connector
+   *  spawns MUST subscribe to this — an abort group-kills the in-flight children so a
+   *  `recheck()` can redial NOW instead of waiting out a wedged dial. Aborted at
+   *  `recheck()` during an in-flight dial, on the pre-connected backstop, and on
+   *  `destroy()`. A connector with a non-child await (e.g. `resolveDrvPath`) should
+   *  wire it in too where it can; whatever it can't cover is caught by the session's
+   *  pre-connected liveness backstop (see {@link MakeSessionOptions.preConnectedLivenessMs}). */
+  signal: AbortSignal;
+  /** Monotonic CAMPAIGN generation, bumped at each campaign birth (a user verb, a
+   *  post-connected drop, the first/re-pin dial). A connector holding per-campaign
+   *  state — the ssh connector's provisioning step budgets (#1908 C5) — resets it when
+   *  this value changes, so a fresh campaign starts with fresh budgets. The same fact
+   *  drives the session's episode clock (D3). */
+  campaignEpoch: number;
 }
 
 /** A transport plug: dial ONCE and return a live {@link Connection}, or REJECT with
  *  a {@link ConnectError} classifying a provisioning/resolve failure (`network` =
  *  retry forever, `remote` = bounded → give up). The loop owns everything after.
- *  Parameterized by the connector's provisioning-phase vocabulary `Prov`. */
+ *  Parameterized by the connector's provisioning-phase vocabulary `Prov`.
+ *
+ *  LIVENESS CONTRACT (#1908 R8b): a dial must keep making progress — emit a
+ *  `localProgress`/`remoteProgress` line or advance a `provisioning` phase — or reach
+ *  `connecting`, within the session's {@link MakeSessionOptions.preConnectedLivenessMs}
+ *  bound. A dial that goes fully silent past it (a wedge in a non-child await like
+ *  `resolveDrvPath`, which `ctx.signal` cannot group-kill) is cycled by the session's
+ *  pre-connected backstop. This is liveness, not a deadline: a chatty minutes-long
+ *  build never trips it. */
 export type Connector<Client, Prov extends string = never> = (
   ctx: ConnectContext<Prov>,
 ) => Promise<Connection<Client>>;
@@ -409,6 +431,18 @@ export interface MakeSessionOptions<Client, Prov extends string = never> {
    *  treating `connecting` as wedged and tearing the connection down (routes
    *  through the normal reconnect path). Default 30s. */
   connectTimeoutMs?: number;
+  /** The pre-connected LIVENESS backstop bound (#1908 R8b). While a campaign is
+   *  coming up (any up-but-not-`connected` phase), if NO progress line arrives and NO
+   *  phase advances for this long, the session cycles the attempt (abort in-flight +
+   *  redial), narrated. It guards the seam the per-child lifetime policies can't — a
+   *  wedge in a non-helper await like `resolveDrvPath` — against a future connector,
+   *  and would have caught the #1908 incident on its own. LIVENESS, never a deadline:
+   *  a chatty build resets it every line, so it never caps a healthy slow provision.
+   *  MUST exceed the connector's own maximum budgeted silence (the ssh connector's
+   *  `PROVISION_STEP_SILENCE_BASE_MS × 2^(N-1)` = 960s) so the per-step budget always
+   *  fires first on copy/build and this only bites a genuinely silent campaign
+   *  (#1908 C1). Default 20min (1_200_000ms). */
+  preConnectedLivenessMs?: number;
   /** Disable the periodic liveness watchdog (default ON). While `connected`, the
    *  watchdog races the connection's `isAlive` probe against a timeout; a true
    *  non-answer force-cycles the link (a silently half-open socket). An object
@@ -453,6 +487,10 @@ export function makeSession<
   const label = opts.label ?? "session";
   const reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
   const connectTimeoutMs = opts.connectTimeoutMs ?? 30_000;
+  // The pre-connected liveness backstop bound (#1908 R8b) — 20min default, safely above
+  // the ssh connector's 960s max budgeted step-silence (C1) so the per-step budget
+  // always fires first on copy/build; this only bites a genuinely silent campaign.
+  const preConnectedLivenessMs = opts.preConnectedLivenessMs ?? 1_200_000;
   // Cadence for re-attempting a FAILED `system.clockNow` offset probe while the
   // session stays connected. Readiness is link-liveness (a failed probe leaves the
   // link `connected` with an honest `clockOffset: null`), so the probe is not on the
@@ -523,6 +561,23 @@ export function makeSession<
    *  probe from a dead link can't clobber a newer dial's identity if it resolves late
    *  (rather than rejecting). */
   let dialEpoch = 0;
+  /** Monotonic CAMPAIGN generation (#1908 R7/C5), bumped by {@link startEpisode} at each
+   *  campaign birth (first/re-pin dial, user `reconnect`/`recheck`, post-connected drop).
+   *  Passed to the connector (fresh budgets on change) and compared by `setUp` to reset
+   *  the log ONCE per campaign (not per retry dial — the log survives retries so D2's
+   *  attempt display has a tail). */
+  let campaignEpoch = 0;
+  /** The `campaignEpoch` the last `setUp` published under — a change means a fresh
+   *  campaign, so `setUp` drops the prior campaign's log tail exactly once. */
+  let lastSetUpEpoch = -1;
+  /** The CURRENT dial's abort controller (#1908 R6b). Aborting it group-kills the
+   *  in-flight provisioning children so `recheck()`/the backstop can redial NOW.
+   *  Recreated per `attempt()`; `null` before the first dial. */
+  let dialAbort: AbortController | null = null;
+  /** The pre-connected liveness backstop timer (#1908 R8b) — armed while a campaign is
+   *  coming up, reset on every progress line / phase advance, cleared on `connected` /
+   *  down / destroy. `null` when not armed. */
+  let preConnectedTimer: ReturnType<typeof setTimeout> | null = null;
   /** The periodic liveness watchdog handle (ONE `@kolu/surface/heartbeat`), or
    *  `null` until first connect / after teardown. */
   let liveness: { dispose: () => void } | null = null;
@@ -560,6 +615,20 @@ export function makeSession<
   let episodeStartedAt = Date.now();
   /** `now − episodeStartedAt` — the duration stamped on every published frame. */
   const since = (): number => Date.now() - episodeStartedAt;
+
+  /** Begin a fresh CAMPAIGN (#1908 R7/D3) — the ONE place the episode clock re-stamps
+   *  and the campaign generation bumps. Called at the four campaign-birth sites (first /
+   *  re-pin dial, `reconnect()`, `recheck()`, and `handleClosed` when a *connected* link
+   *  dropped), each of which already knows structurally that a new campaign begins.
+   *  `setUp` INFERS nothing — a backoff RETRY within an ongoing connect campaign does NOT
+   *  call this, so `sinceMs` spans the whole campaign (a 10-minute wedge reads 10
+   *  minutes, not the per-attempt ~1s the incident showed). The `campaignEpoch` bump also
+   *  resets the connector's step budgets and — via `setUp`'s epoch compare — drops the
+   *  prior campaign's log. Pure state (no publish); the imminent `setUp` publishes. */
+  const startEpisode = (): void => {
+    episodeStartedAt = Date.now();
+    campaignEpoch += 1;
+  };
 
   /** Adopt `conn` as the live connection and open a FRESH liveness episode for it.
    *  `current` and its `episode` share ONE lifetime, so every adopt site goes through
@@ -623,6 +692,37 @@ export function makeSession<
       clockProbeAbort.abort();
       clockProbeAbort = null;
     }
+  };
+
+  const clearPreConnected = (): void => {
+    if (preConnectedTimer !== null) {
+      clearTimeout(preConnectedTimer);
+      preConnectedTimer = null;
+    }
+  };
+
+  /** (Re)arm the pre-connected liveness backstop (#1908 R8b). Called on every progress
+   *  line and every phase change: a still-coming-up campaign that goes fully silent past
+   *  `preConnectedLivenessMs` is cycled. Self-guards on phase — a `connected` or down
+   *  frame clears it (nothing to back-stop) — so callers needn't pre-check. Because the
+   *  bound dominates the connector's per-step silence budget (C1), a healthy chatty
+   *  build resets it every line and it only bites a genuine wedge (e.g. `resolveDrvPath`
+   *  never resolving). */
+  const armPreConnected = (): void => {
+    const phase = stateCell.current().phase;
+    clearPreConnected();
+    if (phase === "connected" || phase === "disconnected" || phase === "failed")
+      return;
+    preConnectedTimer = armInternalTimer(preConnectedLivenessMs, () => {
+      preConnectedTimer = null;
+      if (destroyed) return;
+      const ph = stateCell.current().phase;
+      if (ph === "connected" || ph === "disconnected" || ph === "failed")
+        return;
+      forceCycle(
+        `no provisioning progress for ${preConnectedLivenessMs}ms — cycling the attempt (pre-connected backstop)`,
+      );
+    });
   };
 
   /** Arm a session-INTERNAL timer: always unref'd — a session's internal timers
@@ -715,17 +815,17 @@ export function makeSession<
 
   /** Transition to an UP arm (`connecting`/`connected`/a provisioning `Prov`, e.g.
    *  `"probing"`/`"copying"`/`"building"`) — constructed with EXACTLY its fields: no
-   *  `error`/`cause` (the up arm has none to carry, stale or otherwise). A down→up
-   *  crossing (`prev` is `disconnected`/`failed`) STARTS A FRESH EPISODE: it
-   *  re-stamps the episode clock (so `sinceMs` resets toward 0) and DROPS the prior
-   *  episode's `log` (so the overlay never shows stale lines under a fresh timer).
-   *  Within an episode (up→up phase-flips) the log carries forward and the clock
-   *  keeps running. */
+   *  `error`/`cause` (the up arm has none to carry, stale or otherwise). The episode
+   *  CLOCK is stamped by {@link startEpisode} at campaign birth, never here — so `setUp`
+   *  infers nothing (#1908 R7). The `log` drops ONCE per campaign: a `campaignEpoch`
+   *  change (a fresh campaign) resets it, so the overlay never shows a prior campaign's
+   *  stale lines under a fresh timer; WITHIN a campaign (retry dials and up→up
+   *  phase-flips) the log CARRIES FORWARD (capped), which D2's attempt display depends on. */
   const setUp = (phase: "connecting" | "connected" | Prov): void => {
     const prev = stateCell.current();
     disarmConnectWatchdog(prev.phase, phase);
-    const fresh = prev.phase === "disconnected" || prev.phase === "failed";
-    if (fresh) episodeStartedAt = Date.now();
+    const fresh = campaignEpoch !== lastSetUpEpoch;
+    lastSetUpEpoch = campaignEpoch;
     stateCell.set({
       phase,
       log: fresh ? [] : prev.log,
@@ -736,6 +836,9 @@ export function makeSession<
       // arms have no such field.
       ...(phase === "connected" ? { clockOffset: null } : {}),
     } as SessionState<Prov>);
+    // R8b: reset the pre-connected backstop on a coming-up phase (self-clears on
+    // `connected`) — a phase advance is a liveness signal.
+    armPreConnected();
   };
 
   /** Transition to a DOWN arm (`disconnected`/`failed`) — `error` + `cause` are
@@ -753,6 +856,8 @@ export function makeSession<
   ): void => {
     const prev = stateCell.current();
     disarmConnectWatchdog(prev.phase, phase);
+    // A down arm has nothing to back-stop — the reconnect/backoff machinery owns it now.
+    clearPreConnected();
     emit(`[${label}] error: ${error}`);
     stateCell.set(
       phase === "failed"
@@ -764,11 +869,14 @@ export function makeSession<
   const localProgress = (line: string): void => {
     emit(`[${label} local] ${line}`);
     pushLog("local", line);
+    // A progress line is a liveness signal — reset the pre-connected backstop (R8b).
+    armPreConnected();
   };
 
   const remoteProgress = (line: string): void => {
     emit(`[${label} remote] ${line}`);
     pushLog("remote", line);
+    armPreConnected();
   };
 
   /** The watchdog's force-cycle action — the ONE "give up on this link" step:
@@ -942,6 +1050,10 @@ export function makeSession<
     current = null;
     episode = null;
     const wasConnected = stateCell.current().phase === "connected";
+    // A CONNECTED link dropping begins a fresh reconnect CAMPAIGN (#1908 R7) — stamp a
+    // new episode so the clock/log start clean. Skip when `recheck()` drove this teardown
+    // (it already stamped the campaign at its entry — no double-bump).
+    if (wasConnected && !cyclingForRecheck) startEpisode();
     let reason: string;
     let cause: "network" | "remote";
     if (cyclingForRecheck) {
@@ -1002,6 +1114,12 @@ export function makeSession<
    *  the first spawn reopens a silent mid-dial exit for a held session. */
   const attempt = async (): Promise<Client> => {
     dialEpoch += 1;
+    const myEpoch = dialEpoch;
+    // A fresh per-dial abort (#1908 R6b) — `recheck()`/the pre-connected backstop abort
+    // THIS controller to group-kill the in-flight provisioning children, so a redial
+    // starts NOW instead of waiting out a wedged dial.
+    const abort = new AbortController();
+    dialAbort = abort;
     // A fresh dial reopens at the connector's opening phase — always an up arm
     // (no stale error to clear: there is no field for one).
     setUp(opts.initialConnection);
@@ -1012,8 +1130,17 @@ export function makeSession<
         remoteProgress,
         provisioning: (phase) => setUp(phase),
         connecting: () => setUp("connecting"),
+        signal: abort.signal,
+        campaignEpoch,
       });
     } catch (err) {
+      // C2 — a SUPERSEDED dial: `recheck()`/the backstop aborted this one and a fresh
+      // dial is already underway (`dialEpoch` moved past `myEpoch`), so this late
+      // rejection must NOT `setDown` over the new dial or arm a spurious backoff. The
+      // pre-connection analog of `handleClosed`'s `conn !== current` guard. Return inert.
+      if (myEpoch !== dialEpoch) {
+        throw err instanceof Error ? err : new Error(String(err));
+      }
       const cause: "network" | "remote" =
         err instanceof ConnectError ? err.failureCause : "network";
       const reason = err instanceof Error ? err.message : String(err);
@@ -1130,7 +1257,12 @@ export function makeSession<
   };
 
   const ensureSpawned = (): Promise<Client> => {
-    if (clientPromise === null) clientPromise = attempt();
+    // The first dial — or a re-pin after the ref count returned to zero and back (C8) —
+    // begins a fresh campaign (#1908 R7).
+    if (clientPromise === null) {
+      startEpisode();
+      clientPromise = attempt();
+    }
     return clientPromise;
   };
 
@@ -1371,6 +1503,10 @@ export function makeSession<
       clearTimer();
       clearClockProbeTimer();
       cancelInFlightClockProbe();
+      clearPreConnected();
+      // Abort any in-flight dial so its provisioning children are group-killed on
+      // teardown (no leaked ssh/nix child outliving the session).
+      dialAbort?.abort();
       stopLiveness();
       current?.teardown();
       current = null;
@@ -1385,16 +1521,21 @@ export function makeSession<
       if (destroyed || refCount === 0) return;
       if (clientPromise !== null || pendingTimer !== null) return;
       consecutiveFailures = 0;
+      startEpisode(); // user verb ⇒ fresh campaign (#1908 R7)
       launchAttempt();
     },
     recheck() {
       if (destroyed || refCount === 0) return;
+      // A user verb (or the pre-connected backstop) ⇒ ALWAYS a fresh campaign — fresh
+      // clock AND fresh connector budgets (#1908 R7/C5) — stamped before any dial.
+      startEpisode();
       consecutiveFailures = 0;
       if (current !== null) {
         // A live (connecting/connected) link whose socket may be stale after a
         // sleep. Clear the connect-watchdog and cycle it; `cyclingForRecheck` tells
         // the closed handler to schedule a `"network"` retry (a wake cycle is
-        // recovery, never a budget-consuming fault — even mid-`connecting`).
+        // recovery, never a budget-consuming fault — even mid-`connecting`) and to
+        // skip a second campaign stamp (we already stamped above).
         clearTimer();
         cyclingForRecheck = true;
         current.teardown();
@@ -1408,10 +1549,16 @@ export function makeSession<
         launchAttempt();
         return;
       }
-      // No connection, no pending timer: either a dial is genuinely in flight
-      // (`probing`/`copying`/`building`, `clientPromise` pending) — leave it — or the session is
-      // idle/`failed` (`clientPromise` null) — dial.
-      if (clientPromise !== null) return;
+      // No live link, no backoff timer: a dial is IN FLIGHT (`probing`/`copying`/
+      // `building`, `clientPromise` pending) OR the session is idle/`failed`
+      // (`clientPromise` null). Either way ABORT any in-flight dial — group-killing its
+      // provisioning children (#1908 R6b) — and dial fresh NOW with no backoff (C4). The
+      // aborted dial's late rejection is made inert by `attempt`'s C2 epoch guard, so it
+      // cannot `setDown` or arm a backoff over the fresh dial. This is the abort-path
+      // analog of `cyclingForRecheck` — a recheck during an in-flight dial no longer
+      // silently no-ops (the documented bug this fixes).
+      dialAbort?.abort();
+      clientPromise = null;
       launchAttempt();
     },
     identity(): SurfaceIdentity {

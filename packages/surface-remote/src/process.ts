@@ -1,46 +1,111 @@
-/** One-shot fire-and-collect subprocess helpers. The semantics worth
- *  centralising: use `"close"` (not `"exit"`) so the last stdio chunk
- *  is guaranteed to drain before the promise settles. Hand-rolling
- *  that against `node:child_process.spawn` and getting the event
- *  selection wrong is the failure mode these helpers exist to prevent.
+/** One-shot fire-and-collect subprocess helpers that OWN their child's
+ *  lifetime. Two semantics worth centralising:
  *
- *  Out of scope: the long-lived bidirectional spawn in `hostSession.ts`
- *  — that subprocess outlives a single round-trip, retains its
- *  `ChildProcess` handle for SIGTERM teardown, and uses different
- *  stdio + exit-event semantics. It is a distinct activity, not a
- *  fourth user of these helpers.
+ *  1. Drain-before-settle. Use `"close"` (not `"exit"`) so the last stdio
+ *     chunk is guaranteed to drain before the promise settles — EXCEPT on a
+ *     policy/abort kill, where we settle AT the kill and never depend on a
+ *     `close` that may never fire (see below).
  *
- *  New fire-and-collect callers should reach for `runCapture`/
- *  `runProgress` rather than open-coding a fresh `spawn` dance. */
+ *  2. Lifetime ownership (#1908). Every caller MUST pass a {@link LifetimePolicy}
+ *     — an unowned child is unspellable. The field incident: a `nix-store
+ *     --realise` ssh child wedged ~10 minutes because nothing killed it when its
+ *     remote channel died silently. The nix child forks its OWN ssh grandchild
+ *     that inherits the stderr pipe, so killing only the direct child can leave
+ *     `close` unfired — the eternal await would just relocate one process deeper.
+ *     So we spawn DETACHED (the child gets its own process group) and, on policy
+ *     expiry or a user abort, kill the whole GROUP (`-pid`, `SIGTERM` → grace →
+ *     `SIGKILL`) and settle the promise at THAT moment, never waiting for the
+ *     child's own `close`.
+ *
+ *  Out of scope: the long-lived bidirectional agent spawn in `sshConnector.ts`
+ *  — that subprocess outlives a single round-trip and is owned by `makeSession`
+ *  (teardown + watchdogs). It is a distinct activity, not a user of these
+ *  helpers.
+ *
+ *  New fire-and-collect callers should reach for `runCapture`/`runProgress`
+ *  rather than open-coding a fresh `spawn` dance. */
 
 import { spawn } from "node:child_process";
 import { forEachLine } from "./host";
 
-/** How a fire-and-collect child settled — a CLOSED union over the three ways
- *  `node:child_process` ends a run, so "killed by a signal" and "never spawned"
- *  stop sharing the one `code: null` inhabitant the old flat `{ code: number |
- *  null }` gave them (Node hands `close` a `signal` alongside a null `code`; the
- *  old shape dropped it, collapsing an OOM `SIGKILL` onto a spawn failure):
+/** The lifetime policy every fire-and-collect spawn MUST carry (#1908 D1b) — a
+ *  CLOSED union that carves a real joint (the gate PROVED it; do not collapse it):
  *
- *   - `exit`        — the child ran and exited with a numeric `code` (`ok` iff 0).
- *   - `signal`      — the OS killed the child (`close` fired with `code === null`
- *                     + a `signal`); there is no exit code.
- *   - `spawn-error` — the child never started (`error` event: bad exe, EACCES);
- *                     neither code nor signal exists, only a `message`.
+ *   - `deadline`          — a HARD seconds-scale bound for a genuinely quick child
+ *                           (an arch probe, the warm `check-validity`, the pin).
+ *                           Killed unconditionally `ms` after spawn.
+ *   - `progress-liveness` — UNBOUNDED-but-ALIVE for a child that legitimately runs
+ *                           for minutes (the `nix copy` transfer, the `nix-store
+ *                           --realise` build): killed only if it produces NO output
+ *                           (stdout OR stderr) for `silenceMs`. A responsive-but-slow
+ *                           build keeps its output flowing and is never capped; only a
+ *                           genuinely silent (wedged) child trips it. The CALLER owns
+ *                           the doubling / kill-budget across retries (R4) — this seam
+ *                           enforces exactly the one `silenceMs` it is handed. */
+export type LifetimePolicy =
+  | { kind: "deadline"; ms: number }
+  | { kind: "progress-liveness"; silenceMs: number };
+
+/** How a fire-and-collect child settled — a CLOSED union over the ways a run ends,
+ *  so each cause has ONE honest shape (no magic exit-code sentinel, no both-null
+ *  overload):
  *
- *  `ok` is the success gate every caller reads; the `kind`/`code`/`signal`/
- *  `message` carry the honest WHY (see {@link describeExit}). */
+ *   - `exit`             — the child ran and exited with a numeric `code` (`ok` iff 0).
+ *   - `signal`           — the OS killed the child (`close` with `code === null` + a
+ *                           `signal`), NOT by us: an external kill / OOM `SIGKILL`.
+ *                           Stays terminal-classified — its meaning is unchanged.
+ *   - `spawn-error`      — the child never started (`error` event: bad exe, EACCES).
+ *   - `lifetime-expired` — OUR {@link LifetimePolicy} killed it (deadline hit, or
+ *                           progress-silence past the bound). Its OWN arm — never
+ *                           `signal` — so `nixCopy`'s `causeFor` can classify it
+ *                           RETRYABLE without misreading an external OOM kill as ours
+ *                           (or permanently failing a host after five liveness kills).
+ *                           Carries the `policy` that fired and the `signal` we sent.
+ *   - `aborted`          — a USER verb (recheck's abort-in-flight, #1908 R6b) killed
+ *                           it. Its own arm so it never narrates as a policy expiry and
+ *                           NEVER counts toward the give-up / kill budgets (C3).
+ *
+ *  `ok` is the success gate; the other fields carry the honest WHY (see
+ *  {@link describeExit}). */
 export type ExitResult =
   | { ok: boolean; kind: "exit"; code: number }
   | { ok: false; kind: "signal"; signal: NodeJS.Signals }
-  | { ok: false; kind: "spawn-error"; message: string };
+  | { ok: false; kind: "spawn-error"; message: string }
+  | {
+      ok: false;
+      kind: "lifetime-expired";
+      policy: LifetimePolicy;
+      signal: NodeJS.Signals;
+    }
+  | { ok: false; kind: "aborted" };
 
 /** An {@link ExitResult} that also buffered stdout (from `runCapture`). */
 export type CaptureResult = ExitResult & { stdout: string };
 
-/** A human-readable tail describing how a run ended — honest across all three
- *  {@link ExitResult} arms (never "code null" for a signal kill or a spawn
- *  failure, the cosmetic lie the old flat `code: number | null` forced). */
+/** Shared options for both helpers: an optional progress sink for stderr lines, the
+ *  REQUIRED lifetime policy, and an optional user-abort signal (recheck's
+ *  abort-in-flight, #1908 R6b). */
+export interface RunOptions {
+  onProgress?: (line: string) => void;
+  /** REQUIRED — a caller cannot spawn without deciding who kills a stuck child. */
+  policy: LifetimePolicy;
+  /** Aborting this settles the run as `{ kind: "aborted" }` and group-kills the child
+   *  (and its ssh grandchild). Threaded from the connector's per-dial abort. */
+  signal?: AbortSignal;
+}
+
+/** `runProgress` additionally merges `env` onto the parent environment — the `nix
+ *  copy` caller injects `NIX_SSHOPTS` so the ssh it forks inherits the keepalive. */
+export interface RunProgressOptions extends RunOptions {
+  env?: Readonly<Record<string, string>>;
+}
+
+/** How long a group waits after `SIGTERM` before we escalate to `SIGKILL` — a child
+ *  that IGNORES `SIGTERM` (or whose ssh grandchild does) is still reaped. */
+const TERM_GRACE_MS = 2000;
+
+/** A human-readable tail describing how a run ended — honest across every
+ *  {@link ExitResult} arm (never "code null" for a signal/spawn/policy/abort case). */
 export function describeExit(res: ExitResult): string {
   switch (res.kind) {
     case "exit":
@@ -49,87 +114,207 @@ export function describeExit(res: ExitResult): string {
       return `killed by signal ${res.signal}`;
     case "spawn-error":
       return `failed to spawn: ${res.message}`;
+    case "lifetime-expired":
+      return res.policy.kind === "deadline"
+        ? `lifetime deadline (${res.policy.ms}ms) expired — killed by ${res.signal}`
+        : `no output for ${res.policy.silenceMs}ms — killed by ${res.signal}`;
+    case "aborted":
+      return "aborted by the caller";
   }
 }
 
-/** Map a `close` event's `(code, signal)` onto the honest {@link ExitResult}
- *  arm. Node guarantees EXACTLY ONE of the pair is non-null on `close`: a
- *  non-null `signal` means the OS killed the child (no exit code), otherwise the
- *  child exited with `code`. Shared by both `runProgress` and `runCapture` so the
- *  code/signal demux lives in one place. */
+/** Map a `close` event's `(code, signal)` onto the honest {@link ExitResult} arm.
+ *  Node guarantees EXACTLY ONE of the pair is non-null on `close`: a non-null
+ *  `signal` means the OS killed the child (no exit code), otherwise it exited with
+ *  `code`. Shared by both helpers so the demux lives in one place. NB a policy/abort
+ *  kill settles BEFORE this runs (the `settled` guard makes the later `close` inert),
+ *  so a `signal` here is always an EXTERNAL kill, honestly `kind: "signal"`. */
 function exitFromClose(
   code: number | null,
   signal: NodeJS.Signals | null,
 ): ExitResult {
   return signal !== null
     ? { ok: false, kind: "signal", signal }
-    : // Node guarantees a non-null `code` here (no signal killed the child).
-      { ok: code === 0, kind: "exit", code: code as number };
+    : { ok: code === 0, kind: "exit", code: code as number };
 }
 
-/** Run a child process with stdout ignored; forward stderr lines to
- *  `onProgress`. Used for `nix copy` where the only output the parent
- *  cares about is progress chatter on stderr. Pass no callback for
- *  silent-stderr behaviour (e.g. probe commands where there's no
- *  progress channel to forward into).
- *
- *  `env`, when given, is *merged onto* the parent environment (not a
- *  replacement) — the `nix copy` caller uses it to inject `NIX_SSHOPTS`
- *  so the ssh that copy forks internally inherits the same dead-peer
- *  keepalive as the ssh we spawn directly. */
+interface LifetimeSpawn {
+  cmd: string;
+  args: readonly string[];
+  /** `true` → pipe + buffer stdout (`runCapture`); `false` → ignore it (`runProgress`). */
+  captureStdout: boolean;
+  env?: Readonly<Record<string, string>>;
+  onProgress: (line: string) => void;
+  policy: LifetimePolicy;
+  signal?: AbortSignal;
+}
+
+/** Spawn a child that OWNS its lifetime: forward stderr lines to `onProgress`,
+ *  (optionally) buffer stdout, and enforce `policy` — killing the whole process
+ *  group and settling at the kill on expiry/abort, never on a post-kill `close`.
+ *  Both public helpers wrap this; they differ only in stdio + return shape. */
+function runWithLifetime(
+  o: LifetimeSpawn,
+): Promise<{ result: ExitResult; stdout: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn(o.cmd, [...o.args], {
+      // DETACHED so the child leads its OWN process group — a policy/abort kill then
+      // targets the whole group (`-pid`), reaping the ssh grandchild that inherited
+      // the stderr pipe. Without this, `process.kill(-pid)` would hit the PARENT's
+      // group. (#1908 R2.)
+      detached: true,
+      stdio: ["ignore", o.captureStdout ? "pipe" : "ignore", "pipe"],
+      env: o.env ? { ...process.env, ...o.env } : undefined,
+    });
+
+    let stdout = "";
+    let settled = false;
+    let policyTimer: ReturnType<typeof setTimeout> | null = null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearPolicyTimer = (): void => {
+      if (policyTimer !== null) {
+        clearTimeout(policyTimer);
+        policyTimer = null;
+      }
+    };
+
+    const settle = (result: ExitResult): void => {
+      if (settled) return;
+      settled = true;
+      clearPolicyTimer();
+      o.signal?.removeEventListener("abort", onAbort);
+      // Pair the arm with the buffered stdout — `runCapture` keeps it, `runProgress`
+      // drops it (so its declared `ExitResult` carries no stray `stdout` field).
+      resolve({ result, stdout });
+    };
+
+    // Kill the whole group: SIGTERM now, escalate to SIGKILL after a grace if the
+    // group is still alive (a child that ignores SIGTERM is still reaped — C8). The
+    // escalation timer is INDEPENDENT of `settle` (which already fired) and unref'd so
+    // it can't immortalize the process; it is cleared when the child actually exits.
+    const killGroup = (): void => {
+      const pid = proc.pid;
+      if (pid === undefined) return;
+      try {
+        process.kill(-pid, "SIGTERM");
+      } catch {
+        /* group already gone — nothing to escalate */
+        return;
+      }
+      killTimer = setTimeout(() => {
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {
+          /* group exited during the grace — done */
+        }
+      }, TERM_GRACE_MS);
+      killTimer.unref?.();
+    };
+
+    function onAbort(): void {
+      // A USER verb (recheck abort-in-flight): its own settle arm, exempt from every
+      // budget (C3), and a group-kill of the in-flight children + ssh grandchild.
+      killGroup();
+      settle({ ok: false, kind: "aborted" });
+    }
+
+    const armPolicyTimer = (): void => {
+      const ms =
+        o.policy.kind === "deadline" ? o.policy.ms : o.policy.silenceMs;
+      policyTimer = setTimeout(() => {
+        // Lifetime expired: group-kill and settle NOW — never wait for `close` (which
+        // may never fire while the ssh grandchild holds the pipe). Best-effort drain:
+        // whatever stderr already arrived was forwarded; `stdout` is what we have.
+        killGroup();
+        settle({
+          ok: false,
+          kind: "lifetime-expired",
+          policy: o.policy,
+          signal: "SIGTERM",
+        });
+      }, ms);
+    };
+
+    // progress-liveness resets on ANY child output (stdout OR stderr) — `runCapture`'s
+    // stdout never becomes a progress line, so a stderr-only reset would starve a
+    // stdout-only step (C1/R4d). A `deadline` policy is fixed and never bumped.
+    const bumpLiveness = (): void => {
+      if (settled || o.policy.kind !== "progress-liveness") return;
+      clearPolicyTimer();
+      armPolicyTimer();
+    };
+
+    armPolicyTimer();
+
+    if (o.captureStdout) {
+      proc.stdout?.setEncoding("utf-8");
+      proc.stdout?.on("data", (chunk: string) => {
+        stdout += chunk;
+        bumpLiveness();
+      });
+    }
+    proc.stderr?.setEncoding("utf-8");
+    proc.stderr?.on("data", (chunk: string) => {
+      forEachLine(chunk, o.onProgress);
+      bumpLiveness();
+    });
+
+    // The child actually exited — reap the escalation timer and settle (inert if a
+    // policy/abort kill already settled).
+    proc.on("close", (code, signal) => {
+      if (killTimer !== null) {
+        clearTimeout(killTimer);
+        killTimer = null;
+      }
+      settle(exitFromClose(code, signal));
+    });
+    proc.on("error", (err) => {
+      o.onProgress(`${o.cmd}: ${err.message}`);
+      settle({ ok: false, kind: "spawn-error", message: err.message });
+    });
+
+    // Wire the abort last so an already-aborted signal kills the just-spawned child.
+    if (o.signal !== undefined) {
+      if (o.signal.aborted) onAbort();
+      else o.signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
+/** Run a child with stdout ignored; forward stderr lines to `onProgress`. Used for
+ *  `nix copy` where the only output the parent cares about is progress chatter on
+ *  stderr. The lifetime `policy` is REQUIRED (see {@link LifetimePolicy}). */
 export function runProgress(
   cmd: string,
   args: readonly string[],
-  onProgress: (line: string) => void = () => {},
-  env?: Readonly<Record<string, string>>,
+  opts: RunProgressOptions,
 ): Promise<ExitResult> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, [...args], {
-      stdio: ["ignore", "ignore", "pipe"],
-      env: env ? { ...process.env, ...env } : undefined,
-    });
-    proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    // Use "close" (not "exit") so the last stderr chunk is guaranteed
-    // flushed before we resolve — "exit" fires before stdio streams drain.
-    proc.on("close", (code, signal) => resolve(exitFromClose(code, signal)));
-    proc.on("error", (err) => {
-      onProgress(`${cmd}: ${err.message}`);
-      resolve({ ok: false, kind: "spawn-error", message: err.message });
-    });
-  });
+  return runWithLifetime({
+    cmd,
+    args,
+    captureStdout: false,
+    env: opts.env,
+    onProgress: opts.onProgress ?? (() => {}),
+    policy: opts.policy,
+    signal: opts.signal,
+  }).then(({ result }) => result);
 }
 
-/** Run a child process and buffer its stdout; forward stderr lines to
- *  `onProgress`. Used for `nix-store --realise` (output path on stdout)
- *  and `nix-instantiate --eval` (system identifier on stdout). Pass no
- *  callback for silent-stderr behaviour. */
+/** Run a child and buffer its stdout; forward stderr lines to `onProgress`. Used for
+ *  `nix-store --realise` (output path on stdout) and `nix-instantiate --eval` (system
+ *  identifier on stdout). The lifetime `policy` is REQUIRED. */
 export function runCapture(
   cmd: string,
   args: readonly string[],
-  onProgress: (line: string) => void = () => {},
+  opts: RunOptions,
 ): Promise<CaptureResult> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, [...args], { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    proc.stdout?.setEncoding("utf-8");
-    proc.stdout?.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    // Use "close" (not "exit") so stdout/stderr are fully drained first.
-    proc.on("close", (code, signal) =>
-      resolve({ ...exitFromClose(code, signal), stdout }),
-    );
-    proc.on("error", (err) => {
-      onProgress(`${cmd}: ${err.message}`);
-      resolve({
-        ok: false,
-        kind: "spawn-error",
-        message: err.message,
-        stdout: "",
-      });
-    });
-  });
+  return runWithLifetime({
+    cmd,
+    args,
+    captureStdout: true,
+    onProgress: opts.onProgress ?? (() => {}),
+    policy: opts.policy,
+    signal: opts.signal,
+  }).then(({ result, stdout }) => ({ ...result, stdout }));
 }

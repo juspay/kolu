@@ -53,6 +53,12 @@ import { describeExit, runCapture } from "./process";
  *  system string (empty, a warning line, multi-token noise). */
 const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
+/** Hard deadline for the arch probe (#1908 D1b) — a quick `nix-instantiate --eval`
+ *  round-trip, never a build, so a fixed seconds-scale bound owns it. Without this the
+ *  probe could wedge forever on a dead ssh channel (the #1908 class), and it is the
+ *  first thing every dial runs. Generous so a slow link doesn't false-fail. */
+const ARCH_PROBE_DEADLINE_MS = 30_000;
+
 /** In-memory, per-process arch cache keyed by host. A host's nix-system is
  *  stable for the lifetime of this process, so the ssh round-trip the probe
  *  costs needn't be re-paid on every dial — the second redundant round-trip
@@ -97,7 +103,9 @@ async function probeSystem(host: string): Promise<string> {
     "--expr",
     "builtins.currentSystem",
   );
-  const res = await runCapture(command, args);
+  const res = await runCapture(command, args, {
+    policy: { kind: "deadline", ms: ARCH_PROBE_DEADLINE_MS },
+  });
   if (!res.ok) {
     throw new Error(
       `${host}: \`nix-instantiate --eval builtins.currentSystem\` ${describeExit(res)}`,

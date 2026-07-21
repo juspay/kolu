@@ -47,8 +47,12 @@ import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 /** How long the shared master lingers idle after its last channel closes.
  *  Deliberately CROSS-INVOCATION (~10m): a second `kaval-tui` within
  *  minutes reuses the still-warm master instead of re-handshaking. The
- *  idle master is reaped by this timer; a *wedged* master is reaped by the
- *  `ServerAlive` dead-peer keepalive in `SSH_OPT_PAIRS` (~30s). ssh's time
+ *  idle master is reaped by this timer. NB the `ServerAlive` keepalive in
+ *  `SSH_OPT_PAIRS` only reaps a master whose whole TRANSPORT died — it does
+ *  NOT catch a healthy master with a single dead exec CHANNEL (the #1908
+ *  incident: fresh channels through this same master ran instantly while one
+ *  channel's remote side was gone). That failure mode is owned by the child
+ *  lifetime policies in `process.ts`, not by ssh keepalive. ssh's time
  *  format; whitespace-free per the `SSH_OPT_PAIRS` value contract. */
 const CONTROL_PERSIST = "10m";
 

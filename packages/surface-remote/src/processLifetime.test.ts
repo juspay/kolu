@@ -1,119 +1,119 @@
 /**
- * D1b RED pin (#1908) — lifetime OWNERSHIP at the fire-and-collect spawn seam.
+ * D1b pins (#1908) — the fire-and-collect seam OWNS its child's lifetime.
  *
- * The field incident: a `nix-store --realise` ssh child (pid 76722) wedged ~10
- * minutes because NO layer owns its lifetime — `runProgress`/`runCapture`
- * (`process.ts:80-135`) spawn with no timeout, no AbortSignal, no kill path, and
- * resolve ONLY on the child's own `close`/`error`. A remote channel that dies
- * silently (the sshd was reachable, only the exec's channel was gone) leaves the
- * local child parked in `poll()` forever, and the run NEVER settles.
+ * The field incident: a `nix-store --realise` ssh child wedged ~10 minutes because
+ * `runProgress`/`runCapture` spawned with no timeout, no kill path, resolving only on
+ * the child's own `close`. These are the flipped RED bodies (R9: rewrites, not
+ * `it.fails → it`), exercising the REAL helpers against REAL children:
  *
- * These pins are the RED for D1b: `runProgress`/`runCapture` must take a REQUIRED
- * lifetime policy (a deadline / progress-liveness bound) so a caller cannot spawn
- * without deciding who kills a stuck child — and past that bound the run settles
- * with a KILL of the EXACT child (an `ExitResult` of `kind: "signal"`), not an
- * eternal await.
- *
- * `it.fails` per the repo's RED convention (see `canvasModeResolver.test.ts`'s
- * flipped Hole-B pin): the seam takes no policy today, so the child is never
- * killed and the run never settles within the bound — the body throws, and
- * `it.fails` is GREEN on the RED commit. Phase C adds the policy param and flips
- * each `it.fails` → `it`.
- *
- * NB the fixtures self-reap (`sleep 5`) rather than truly never closing: the
- * bound we assert (500ms) is far under 5s, so "did NOT settle within the bound"
- * is what the race captures today — while an unbounded run in production (a wedged
- * ssh channel) closes NEVER. The self-reap only keeps a today-unbounded run from
- * leaking a child forever inside the test worker; it does not weaken the pin.
+ *   - a `deadline` policy kills a never-closing child and settles `lifetime-expired`;
+ *   - a `progress-liveness` policy kills a SILENT child but never a chatty one, and
+ *     resets on ANY output (stdout too, not just stderr — R4d);
+ *   - a killed child that forked a grandchild inheriting the stderr pipe still settles
+ *     AT expiry (we group-kill and never await a `close` that may never fire — R2);
+ *   - a child that IGNORES SIGTERM is still reaped after the grace (C8);
+ *   - an abort settles as its own `aborted` arm.
  */
 import { describe, expect, it } from "vitest";
-import {
-  type CaptureResult,
-  type ExitResult,
-  runCapture,
-  runProgress,
-} from "./process";
+import { runCapture, runProgress } from "./process";
 
-/** The lifetime policy the fire-and-collect seam MUST require (D1b) — a hard
- *  deadline for the bounded probe case. Declared here as the RED's TARGET
- *  signature; Phase C bakes it into `process.ts` (making it required so an
- *  unowned child is unspellable) and drops these local casts. */
-type LifetimePolicy = { deadlineMs: number };
-type BoundedRunProgress = (
-  cmd: string,
-  args: readonly string[],
-  onProgress: (line: string) => void,
-  env: Readonly<Record<string, string>> | undefined,
-  policy: LifetimePolicy,
-) => Promise<ExitResult>;
-type BoundedRunCapture = (
-  cmd: string,
-  args: readonly string[],
-  onProgress: (line: string) => void,
-  policy: LifetimePolicy,
-) => Promise<CaptureResult>;
+// A never-closing child self-reaps at 5s so a REGRESSION (no bound) can't leak forever;
+// the bounds we assert (≤1s) are far under it, so only the policy can settle these runs.
+const SLEEP_5 = ["-c", "sleep 5"] as const;
 
-// The seam takes no policy today; the casts let the RED spell the target call
-// without a whole-package typecheck failure. Phase C replaces them with the real
-// (policy-carrying) `runProgress`/`runCapture` and deletes these aliases.
-const boundedRunProgress = runProgress as unknown as BoundedRunProgress;
-const boundedRunCapture = runCapture as unknown as BoundedRunCapture;
-
-/** Race a settling promise against a wall-clock ceiling so a today-unbounded run
- *  can't hang the suite: resolves `{ settled: true, res }` if the run settles
- *  first, `{ settled: false }` if the ceiling wins. */
-async function settlesWithin<T>(
-  run: Promise<T>,
-  ceilingMs: number,
-): Promise<{ settled: true; res: T } | { settled: false }> {
-  let timer: ReturnType<typeof setTimeout>;
-  const ceiling = new Promise<{ settled: false }>((resolve) => {
-    timer = setTimeout(() => resolve({ settled: false }), ceilingMs);
-  });
-  const settled = run.then((res) => ({ settled: true as const, res }));
-  const out = await Promise.race([settled, ceiling]);
-  clearTimeout(timer!);
-  return out;
-}
-
-// A child that does not close on its own within the bound we assert (500ms ≪ 5s),
-// so ONLY a lifetime policy can settle the run — the shape of the wedged ssh child.
-const NEVER_CLOSES = ["-c", "sleep 5"] as const;
-
-describe("D1b — the fire-and-collect seam owns its child's lifetime (#1908)", () => {
-  it.fails("runProgress kills a child that never closes once its deadline elapses", async () => {
+describe("D1b — deadline policy (#1908)", () => {
+  it("kills a never-closing child at its deadline and settles lifetime-expired", {
+    timeout: 10_000,
+  }, async () => {
     const start = Date.now();
-    const out = await settlesWithin(
-      boundedRunProgress("sh", NEVER_CLOSES, () => {}, undefined, {
-        deadlineMs: 500,
-      }),
-      3000,
-    );
-    // Today: no bound owns the child → the run never settles within the ceiling.
-    expect(out.settled, "runProgress never settled — no lifetime bound").toBe(
-      true,
-    );
-    if (out.settled) {
-      // Settled by a KILL of the exact child, not the child's own exit.
-      expect(out.res.ok).toBe(false);
-      expect(out.res.kind).toBe("signal");
-      expect(Date.now() - start).toBeLessThan(2000);
-    }
+    const res = await runProgress("sh", SLEEP_5, {
+      policy: { kind: "deadline", ms: 400 },
+    });
+    expect(res.kind).toBe("lifetime-expired");
+    expect(res.ok).toBe(false);
+    expect(Date.now() - start).toBeLessThan(2000);
   });
 
-  it.fails("runCapture kills a child that never closes once its deadline elapses", async () => {
+  it("settles AT expiry even when a grandchild inherits the stderr pipe (R2 group-kill)", {
+    timeout: 10_000,
+  }, async () => {
+    // The child forks a grandchild that inherits stderr and outlives a child-only
+    // kill — the eternal-await relocation the single-process stub couldn't catch. With
+    // a detached group-kill + settle-at-expiry, the run still settles in its bound.
     const start = Date.now();
-    const out = await settlesWithin(
-      boundedRunCapture("sh", NEVER_CLOSES, () => {}, { deadlineMs: 500 }),
-      3000,
+    const res = await runCapture("sh", ["-c", "sh -c 'sleep 30' & sleep 30"], {
+      policy: { kind: "deadline", ms: 400 },
+    });
+    expect(res.kind).toBe("lifetime-expired");
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it("still settles at the deadline when the child IGNORES SIGTERM (C8 → SIGKILL escalation)", {
+    timeout: 10_000,
+  }, async () => {
+    const start = Date.now();
+    const res = await runProgress("sh", ["-c", 'trap "" TERM; sleep 30'], {
+      policy: { kind: "deadline", ms: 400 },
+    });
+    // We settle at expiry (never waiting for the child to honour TERM); the grace
+    // SIGKILL reaps the trap-ignoring child in the background.
+    expect(res.kind).toBe("lifetime-expired");
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+});
+
+describe("D1b — progress-liveness policy (#1908)", () => {
+  it("kills a SILENT child once the silence bound passes", {
+    timeout: 10_000,
+  }, async () => {
+    const start = Date.now();
+    const res = await runCapture("sh", SLEEP_5, {
+      policy: { kind: "progress-liveness", silenceMs: 400 },
+    });
+    expect(res.kind).toBe("lifetime-expired");
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it("never kills a CHATTY child — output resets the silence bound (stderr)", {
+    timeout: 10_000,
+  }, async () => {
+    // Emits on stderr every 150ms for ~600ms — never 400ms silent → clean exit.
+    const res = await runProgress(
+      "sh",
+      ["-c", "for i in 1 2 3 4; do echo tick 1>&2; sleep 0.15; done"],
+      { policy: { kind: "progress-liveness", silenceMs: 400 } },
     );
-    expect(out.settled, "runCapture never settled — no lifetime bound").toBe(
-      true,
+    expect(res).toEqual({ ok: true, kind: "exit", code: 0 });
+  });
+
+  it("resets on ANY output — a STDOUT-only child is not killed (R4d)", {
+    timeout: 10_000,
+  }, async () => {
+    // runCapture's stdout never becomes a progress line, so a stderr-only reset would
+    // starve this child. Emits on stdout only, every 150ms.
+    const res = await runCapture(
+      "sh",
+      ["-c", "for i in 1 2 3 4; do echo out; sleep 0.15; done"],
+      { policy: { kind: "progress-liveness", silenceMs: 400 } },
     );
-    if (out.settled) {
-      expect(out.res.ok).toBe(false);
-      expect(out.res.kind).toBe("signal");
-      expect(Date.now() - start).toBeLessThan(2000);
-    }
+    expect(res.ok).toBe(true);
+    expect(res.stdout).toContain("out");
+  });
+});
+
+describe("D1b — abort (#1908 R6b)", () => {
+  it("settles as its own `aborted` arm and group-kills the child", {
+    timeout: 10_000,
+  }, async () => {
+    const ac = new AbortController();
+    const start = Date.now();
+    const p = runCapture("sh", SLEEP_5, {
+      policy: { kind: "deadline", ms: 5000 },
+      signal: ac.signal,
+    });
+    setTimeout(() => ac.abort(), 200);
+    const res = await p;
+    expect(res.kind).toBe("aborted");
+    expect(Date.now() - start).toBeLessThan(2000);
   });
 });

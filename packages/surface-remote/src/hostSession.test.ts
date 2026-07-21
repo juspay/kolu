@@ -33,7 +33,8 @@ import {
 } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
 
-vi.mock("./nixCopy", () => ({
+vi.mock("./nixCopy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./nixCopy")>()),
   provisionAgent: vi.fn(),
 }));
 

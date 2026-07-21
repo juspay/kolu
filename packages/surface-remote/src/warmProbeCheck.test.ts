@@ -1,34 +1,29 @@
 /**
- * D1a RED pin (#1908) — the warm probe must ASK, not DO.
+ * D1a pins (#1908) — the warm probe ASKS, never DOES.
  *
- * `provisionAgent`'s warm fast-path (`nixCopy.ts:197-213`) runs ONE fused
- * `ssh $host nix-store --realise $drv --add-root $link --indirect`, narrated as
- * `checking for a cached agent…`. The intent is a fast presence check — but
- * `nix-store --realise` of an ABSENT-yet-SUBSTITUTABLE closure performs the real
- * substitution (network fetch, observed live from cache.nixos.asia) INSIDE what
- * the copy promises is a check. On the incident that fused child wedged ~10
- * minutes under a label that read "checking".
+ * The old warm fast-path ran ONE fused `ssh $host nix-store --realise $drv
+ * --add-root $link --indirect` narrated as `checking for a cached agent…`. On an
+ * absent-but-SUBSTITUTABLE closure that `--realise` performed the substitution
+ * (network fetch) INSIDE the "check" — the field wedge (~10 min).
  *
- * The pin: the warm probe must be a bounded, seconds-scale TRUE check that neither
- * SUBSTITUTES (no bare `nix-store --realise <drv>` — the design picks a
- * non-substituting form: `--realise --dry-run` or `nix path-info`, chosen with
- * evidence at the gate) nor MUTATES the store (no `--add-root` GC-root
- * registration — a check doesn't pin). Substitution belongs to the provision step
- * and is narrated there as provisioning.
- *
- * Structured at the `provisionAgent` seam with the repo's injected-exec idiom
- * (mock `./process`, assert the exact probe argv). `it.fails` per the RED
- * convention: the fused realise substitutes today, so the assertions throw and
- * `it.fails` is GREEN on the RED commit; Phase C reshapes the probe and flips
- * `it.fails` → `it`.
+ * The fix (verified against real nix 2.34.7): compute the derivation's output
+ * path(s) LOCALLY on the sender (`nix-store -q --outputs`, no network), then ask the
+ * host, BOUNDED, whether they are already valid there (`nix-store --check-validity`)
+ * — a pure store query that NEVER substitutes and NEVER mutates the store. These are
+ * the flipped RED bodies (R9: body rewrites), now asserting the ask-only shape.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
-import { provisionAgent } from "./nixCopy";
-import { runCapture } from "./process";
+import {
+  makeStepBudget,
+  PROVISION_STEP_MAX_EXPIRIES,
+  PROVISION_STEP_SILENCE_BASE_MS,
+  provisionAgent,
+} from "./nixCopy";
+import { type CaptureResult, runCapture, runProgress } from "./process";
 
 vi.mock("./process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./process")>()),
@@ -37,13 +32,49 @@ vi.mock("./process", async (importOriginal) => ({
 }));
 
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
+const STORE2 = "/nix/store/y8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent-dev";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
+
+const okOut = (stdout: string): CaptureResult => ({
+  ok: true,
+  kind: "exit",
+  code: 0,
+  stdout,
+});
+const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
+
+function budgets() {
+  return {
+    copyBudget: makeStepBudget(
+      PROVISION_STEP_SILENCE_BASE_MS,
+      PROVISION_STEP_MAX_EXPIRIES,
+    ),
+    buildBudget: makeStepBudget(
+      PROVISION_STEP_SILENCE_BASE_MS,
+      PROVISION_STEP_MAX_EXPIRIES,
+    ),
+  };
+}
+
+/** A warm host: outputs computed locally, present on the host, pin ok. */
+function mockWarmHit(outputsStdout = `${STORE}\n`): void {
+  vi.mocked(runCapture).mockImplementation(async (_cmd, args) => {
+    if (args.includes("--outputs")) return okOut(outputsStdout);
+    if (args.includes("--check-validity")) return okOut("");
+    if (args.includes("--add-root")) return okOut("/home/u/link\n");
+    return failOut;
+  });
+}
+
+/** The argv + opts of the check-validity call (the ssh presence query), if made. */
+function checkValidityCall() {
+  return vi
+    .mocked(runCapture)
+    .mock.calls.find((c) => c[1].includes("--check-validity"));
+}
 
 const tmpDirs: string[] = [];
 beforeEach(() => {
-  // buildSshProbeCommand renders the P2.8 control opts, which mkdirs the control
-  // dir — point it at a throwaway private runtime dir so it renders
-  // deterministically and leaves no /tmp residue.
   const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-warmprobe-test-"));
   tmpDirs.push(xdg);
   vi.stubEnv("XDG_RUNTIME_DIR", xdg);
@@ -58,41 +89,64 @@ afterEach(() => {
 });
 
 describe("D1a — the warm probe asks, never substitutes (#1908)", () => {
-  it.fails("the warm 'cached agent' probe is a non-substituting, non-mutating check", async () => {
-    // Warm host: the probe answers "present" (returns the out-path) and
-    // provisioning short-circuits, so the probe is the sole runCapture call.
-    vi.mocked(runCapture).mockResolvedValueOnce({
-      ok: true,
-      kind: "exit",
-      code: 0,
-      stdout: `${STORE}\n`,
+  it("checks presence with --check-validity, never a substituting realise of the drv", async () => {
+    mockWarmHit();
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...budgets(),
     });
+    expect(res).toEqual({ ok: true, agentPath: STORE });
 
+    const check = checkValidityCall();
+    expect(check, "a --check-validity presence query must run").toBeDefined();
+    const args = check![1];
+    // Queries the OUTPUT path, never realises the DERIVATION (a bare `--realise
+    // <drv>` substitutes), never registers a GC root.
+    expect(args).toContain(STORE);
+    const realisesDrv = args.includes("--realise") && args.includes(DRV);
+    expect(realisesDrv, "the check must not realise the derivation").toBe(
+      false,
+    );
+    expect(args, "a check must not register a GC root").not.toContain(
+      "--add-root",
+    );
+  });
+
+  it("bounds the warm check with a hard deadline policy (R5e)", async () => {
+    mockWarmHit();
     await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
+      ...budgets(),
     });
+    expect(checkValidityCall()![2].policy.kind).toBe("deadline");
+  });
 
-    const probeArgs = vi.mocked(runCapture).mock.calls[0]![1];
+  it("a warm HIT short-circuits — no nix copy is issued", async () => {
+    mockWarmHit();
+    await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...budgets(),
+    });
+    expect(runProgress).not.toHaveBeenCalled();
+  });
 
-    // A bare `--realise <drv>` SUBSTITUTES (fetches/builds) — the wedge. The
-    // probe must not realise the derivation unless it is a dry run (which
-    // performs no substitution). Design-agnostic: a `nix path-info` probe has
-    // no `--realise` at all and passes trivially.
-    const realisesDrv =
-      probeArgs.includes("--realise") && probeArgs.includes(DRV);
-    const isDryRun = probeArgs.includes("--dry-run");
-    expect(
-      realisesDrv && !isDryRun,
-      "warm probe performs a substituting realise inside a 'check'",
-    ).toBe(false);
-
-    // A true CHECK does not register a GC root — pinning belongs to the
-    // provision step, not the probe.
-    expect(
-      probeArgs,
-      "warm check must not register a GC root (--add-root)",
-    ).not.toContain("--add-root");
+  it("handles a multi-output derivation — all outputs are checked (R5a)", async () => {
+    mockWarmHit(`${STORE}\n${STORE2}\n`);
+    await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+      ...budgets(),
+    });
+    const args = checkValidityCall()![1];
+    // Both outputs presence-checked; a partial closure is not a hit.
+    expect(args).toContain(STORE);
+    expect(args).toContain(STORE2);
   });
 });
