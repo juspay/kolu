@@ -45,10 +45,11 @@ const okOut = (stdout: string): CaptureResult => ({
 });
 const failOut: CaptureResult = { ok: false, kind: "exit", code: 1, stdout: "" };
 
-/** The fused budgets + campaign epoch a `provisionAgent` call needs. Pass a custom
- *  `budgets` (e.g. a tight-terminal one) to override. */
+/** The fused budgets a `provisionAgent` call needs (the connector reconciles the
+ *  campaign reset itself, so `provisionAgent` takes no epoch). Pass a custom `budgets`
+ *  (e.g. a tight-terminal one) to override. */
 function provArgs(budgets: ProvisionBudgets = makeProvisionBudgets()) {
-  return { budgets, campaignEpoch: 0 };
+  return { budgets };
 }
 
 /** Route the mocked `runCapture` by the command it was handed (robust to call
@@ -289,20 +290,6 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it("resets the budgets when the campaign epoch changes (onCampaign)", async () => {
-    const b = makeProvisionBudgets();
-    const onCampaign = vi.spyOn(b, "onCampaign");
-    mockNix();
-    await provisionAgent({
-      host: "testhost",
-      drvPath: DRV,
-      onProgress: () => {},
-      budgets: b,
-      campaignEpoch: 7,
-    });
-    expect(onCampaign).toHaveBeenCalledWith(7);
-  });
-
   it("onCampaign is MONOTONIC — a stale older epoch does not reset a newer campaign (F6)", () => {
     const b = makeProvisionBudgets();
     const copyReset = vi.spyOn(b.copy, "reset");
@@ -329,20 +316,16 @@ describe("provisionAgent lifetime-policy handling (#1908)", () => {
   });
 
   it("provisioning aborted before it starts does no work and returns network (F6)", async () => {
-    const b = makeProvisionBudgets();
-    const onCampaign = vi.spyOn(b, "onCampaign");
     mockNix();
     const res = await provisionAgent({
       host: "testhost",
       drvPath: DRV,
       onProgress: () => {},
-      budgets: b,
-      campaignEpoch: 1,
+      ...provArgs(),
       signal: AbortSignal.abort(),
     });
     expect(res.ok === false && res.cause).toBe("network");
-    // The shared budget was NOT touched by the already-aborted (superseded) dial.
-    expect(onCampaign).not.toHaveBeenCalled();
+    // No work done — the already-aborted dial spawns nothing.
     expect(runCapture).not.toHaveBeenCalled();
   });
 });

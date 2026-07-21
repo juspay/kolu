@@ -728,17 +728,19 @@ export function makeSession<
    *  bound dominates the connector's per-step silence budget (C1), a healthy chatty
    *  build resets it every line and it only bites a genuine wedge (e.g. `resolveDrvPath`
    *  never resolving). */
+  // The backstop only guards a still-COMING-UP campaign; a `connected` or down frame has
+  // nothing to back-stop. One predicate, checked both at arm time and when the timer fires
+  // (state can change in between).
+  const backstopInert = (): boolean => {
+    const ph = stateCell.current().phase;
+    return ph === "connected" || ph === "disconnected" || ph === "failed";
+  };
   const armPreConnected = (): void => {
-    const phase = stateCell.current().phase;
     clearPreConnected();
-    if (phase === "connected" || phase === "disconnected" || phase === "failed")
-      return;
+    if (backstopInert()) return;
     preConnectedTimer = armInternalTimer(preConnectedLivenessMs, () => {
       preConnectedTimer = null;
-      if (destroyed) return;
-      const ph = stateCell.current().phase;
-      if (ph === "connected" || ph === "disconnected" || ph === "failed")
-        return;
+      if (destroyed || backstopInert()) return;
       forceCycle(
         `no provisioning progress for ${preConnectedLivenessMs}ms — cycling the attempt (pre-connected backstop)`,
       );
@@ -1165,26 +1167,23 @@ export function makeSession<
     // (F4). Treating destroyed as not-current routes every late settle through the inert
     // teardown path.
     const isCurrent = (): boolean => myEpoch === dialEpoch && !destroyed;
+    // Gate a ctx callback on `isCurrent`: a superseded dial's straggling progress line /
+    // phase advance must not paint the live session's state. One wrapper for all four.
+    const gated = <A extends unknown[]>(fn: (...a: A) => void) => {
+      return (...a: A): void => {
+        if (isCurrent()) fn(...a);
+      };
+    };
     // A fresh dial reopens at the connector's opening phase — always an up arm
     // (no stale error to clear: there is no field for one).
     setUp(opts.initialConnection);
     let conn: Connection<Client>;
     try {
       conn = await opts.connectOnce({
-        // Gate the ctx callbacks on `isCurrent`: a superseded dial's straggling progress
-        // line / phase advance must not paint the live session's state.
-        localProgress: (line) => {
-          if (isCurrent()) localProgress(line);
-        },
-        remoteProgress: (line) => {
-          if (isCurrent()) remoteProgress(line);
-        },
-        provisioning: (phase) => {
-          if (isCurrent()) setUp(phase);
-        },
-        connecting: () => {
-          if (isCurrent()) setUp("connecting");
-        },
+        localProgress: gated(localProgress),
+        remoteProgress: gated(remoteProgress),
+        provisioning: gated((phase: Prov) => setUp(phase)),
+        connecting: gated(() => setUp("connecting")),
         signal: abort.signal,
         campaignEpoch,
       });

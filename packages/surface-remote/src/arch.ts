@@ -43,7 +43,7 @@
  */
 
 import { buildSshProbeCommand } from "./host";
-import { PROVISION_PROBE_DEADLINE_MS } from "./nixCopy";
+import { probePolicy } from "./nixCopy";
 import { describeExit, runCapture } from "./process";
 
 /** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
@@ -99,11 +99,11 @@ async function probeSystem(host: string): Promise<string> {
     "builtins.currentSystem",
   );
   const res = await runCapture(command, args, {
-    // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never
-    // a build — so it shares the QUICK-step deadline the warm check and pin ride: one
-    // constant for "how long a quick nix/ssh round-trip may run before the channel is
-    // called dead", tuned in a single place.
-    policy: { kind: "deadline", ms: PROVISION_PROBE_DEADLINE_MS },
+    // The arch probe (#1908 D1b) is a quick `nix-instantiate --eval` round-trip — never a
+    // build — so it rides the shared QUICK-step deadline `probePolicy()` (the warm check
+    // and pin use it too): the "how long a quick nix/ssh round-trip may run" policy shape
+    // lives in ONE place, not re-spelled here.
+    policy: probePolicy(),
   });
   if (!res.ok) {
     throw new Error(

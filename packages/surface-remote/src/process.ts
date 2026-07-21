@@ -301,12 +301,11 @@ function runWithLifetime(
       settle({ ok: false, kind: "spawn-error", message: err.message });
     });
 
-    // Wire the abort for aborts that occur AFTER launch (the pre-spawn case returned
-    // above). An abort group-kills the child and settles `aborted`.
-    if (o.signal !== undefined) {
-      if (o.signal.aborted) onAbort();
-      else o.signal.addEventListener("abort", onAbort, { once: true });
-    }
+    // Wire the abort for aborts that occur AFTER launch — the already-aborted case
+    // returned before `spawn` (no synchronous re-check needed: nothing between that guard
+    // and here yields, so the signal can't have flipped). An abort group-kills the child
+    // and settles `aborted`.
+    o.signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 

@@ -109,6 +109,11 @@ export function sshConnector<C extends AnyContractRouter>(
   const budgets = makeProvisionBudgets();
 
   return async (ctx): Promise<Connection<AgentClient<C>>> => {
+    // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
+    // campaign generation is known — so `provisionAgent` stays campaign-ignorant. Monotonic
+    // (`onCampaign` ignores an epoch `<= last`), so a stale/superseded dial can't roll a
+    // newer campaign's budget back (#1908 F6).
+    budgets.onCampaign(ctx.campaignEpoch);
     // Resolve the derivation first — where the arch probe (or any deferred per-host
     // drv lookup) runs. A host unreachable at probe time rejects here and is
     // classified `"network"` (retry forever) unless it is a `ResolveDrvError`
@@ -135,9 +140,6 @@ export function sshConnector<C extends AnyContractRouter>(
       onCopying: () => ctx.provisioning("copying"),
       onBuilding: () => ctx.provisioning("building"),
       budgets,
-      // The campaign generation — `provisionAgent` resets the budgets when it changes,
-      // so the connector does no reset bookkeeping.
-      campaignEpoch: ctx.campaignEpoch,
       // The per-dial abort — recheck's abort-in-flight group-kills any provisioning
       // child so the session can redial NOW instead of waiting out a wedge (#1908 R6b).
       signal: ctx.signal,
