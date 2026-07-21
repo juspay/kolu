@@ -1,6 +1,6 @@
 ---
 title: Agent Attention — Which One Is Asking?
-description: When an agent asks a question, kolu shows a "1" on the host tab and a faint dot on the dock entry — but you still have to hunt for which agent needs you, and the "asking" dot is the quietest mark in the palette. This note ships two small fixes that use state the client already holds, and scopes the one that doesn't (surfacing the question text) as a separate, brittler pass.
+description: When an agent asks a question, kolu shows a count on the host tab and a faint dot on the dock entry — but you must hunt for which agent, and the "asking" dot is the quietest mark in the palette. Two fixes off state the client already holds; the third (the question text) is scoped as a separate, brittler pass.
 parents: [feature]
 status: accepted
 maturity: seedling
@@ -14,117 +14,77 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import diagram from "../../diagrams/agent-attention-discoverability.svg?raw";
 
-When an agent stops to ask you something — a Claude Code `AskUserQuestion`, an
-`ExitPlanMode` — kolu already notices. The host tab grows a small amber **count**
-(a "1"), and the agent's dock entry gets an orange mark. So the signal exists. The
-problem is that the signal is *weak on both ends of the question you actually ask*:
+An agent asks a question (`AskUserQuestion`, `ExitPlanMode`); kolu shows an amber
+count on the host tab and an orange mark on the dock entry. The signal exists but is
+weak on both ends of what you ask:
 
-- **Which agent is asking?** The host-tab pill tells you *how many* terminals are
-  waiting, never *which*. To find the one blocked on you, you scan the dock for the
-  orange mark by eye.
-- **Is this even important?** The "asking" mark on the dock entry is the **faintest
-  pip in the whole palette** — a 6px dot at 55% opacity.<Footnote>`PIP_BODY.awaiting` is `w-1.5 h-1.5 rounded-full bg-alert/55` — <Cite file="packages/solid-statepip/src/pipVariant.ts" line={93} />. Meanwhile the *unread* corner badge (an agent that finished while you looked away — lower stakes) pulses. The loudness hierarchy is inverted.</Footnote>
+- **Which agent?** The pill gives a count, never *which* — you scan the dock by eye.
+- **Is it important?** The asking mark is the faintest pip in the palette (6px, 55%
+  opacity), while the lower-stakes *unread* badge pulses.<Footnote>`PIP_BODY.awaiting` is `w-1.5 h-1.5 rounded-full bg-alert/55` — <Cite file="packages/solid-statepip/src/pipVariant.ts" line={93} />. The loudness hierarchy is inverted.</Footnote>
 
-Both gaps are fixable with facts the client **already has on hand** — no new wire
-field, no new sensing. This note ships those two (**AD1**, **AD2**), and scopes the
-third idea (surface the question *text*) honestly as a bigger, brittler pass we are
-**not** taking here.
+Both fix off facts the client already holds — no wire field, no new sensing. This
+ships **AD1** + **AD2**; the question *text* (**option 3**) is deferred.
 
-<Svg svg={diagram} wide caption="AD1 turns the count pill into a jump button off the awaitingIds the client already receives; AD2 gives a genuinely-blocked agent its own loud pip, promoted through the existing agentBucket fence so the shared paint vocabulary — and every surface that reads it — stays untouched." />
+<Svg svg={diagram} wide caption="AD1 turns the count pill into a jump button off the awaitingIds the client already receives; AD2 gives a genuinely-blocked agent its own loud pip, promoted through the existing agentBucket fence so the shared paint vocabulary stays untouched." />
 
 ## AD1 — the awaiting pill becomes a jump button
 
-The host's `urgency` cell already carries the *identities* of the waiting
-terminals, not just a count: `{ awaitingIds: TerminalId[] }`, folded server-side by
-`recomputeUrgency`. <Cite file="packages/padi/src/urgency.ts" line={28} /> The UI
-throws that away today — `useHostAwaiting` projects it straight down to
-`.length`. <Cite file="packages/client/src/host/useHostAwaiting.ts" line={24} />
+The `urgency` cell already carries the waiting terminals' *ids*
+(`{ awaitingIds }`), <Cite file="packages/padi/src/urgency.ts" line={28} /> but the UI
+projects them down to `.length`. <Cite file="packages/client/src/host/useHostAwaiting.ts" line={24} /> So AD1 is wiring:
 
-So AD1 is pure wiring:
-
-- **`useHostAwaiting` returns the ids**, not the count. Its three readers
-  (`HostChip`, `HostSwitcherRow`, `MobileHostChip`) switch from `awaiting()` to
-  `awaiting().length` for the badge — one character of churn each.
-- **The pill turns into a button.** `HostAwaitingPill` gains an optional
-  `onActivate`; with it, the mark renders as a real `<button>` instead of a
-  `<span>`. In `HostChip` the pill moves **out** of the `role="tab"` select button
-  to sit beside it as a sibling — the same shape the remove-`✕` already uses — so we
-  never nest a button inside a button.<Footnote>Nested interactive elements (`<button>` inside `<button role="tab">`) are invalid HTML and produce unreliable keyboard / screen-reader behaviour. The existing remove-`✕` is already a sibling of the tab button inside the `host-tab` shell for exactly this reason — AD1 follows that precedent.</Footnote>
-- **Clicking jumps to the agent.** The handler runs `setActiveHost(host)` (if not
-  already there) then `tileStore.activate(id)`, **cycling** through `awaitingIds` on
-  repeated clicks. This is the *exact* switch-then-activate seam the cross-host
-  notification click already runs<Footnote>`useHostAttention`'s `notify.onClick` router does `setActiveHost(decodeHostKey(host))` then `focusTerminal(id)` — <Cite file="packages/client/src/host/useHostAttention.ts" line={144} />. `focusTerminal` is the terminal store's `activate`, which targets the now-active host after the switch. AD1 reuses this proven path rather than inventing a second one.</Footnote> — so a badge click and a notification click do the same thing, and there is no second focus path to keep in sync.
+- `useHostAwaiting` returns the ids; the three readers use `.length` for the badge.
+- `HostAwaitingPill` gains `onActivate` and renders as a `<button>`. In `HostChip` it
+  moves out of the `role="tab"` button to a sibling, so no button nests in a
+  button.<Footnote>The remove-`✕` is already a sibling of the tab button for the same reason (nested interactive elements are invalid HTML). AD1 follows that precedent.</Footnote>
+- Clicking runs `setActiveHost` then `tileStore.activate`, cycling `awaitingIds` — the
+  same switch-then-activate seam the cross-host notification click uses,<Footnote>`useHostAttention`'s `notify.onClick` does `setActiveHost` then `focusTerminal` (the store's `activate`) — <Cite file="packages/client/src/host/useHostAttention.ts" line={144} />. AD1 reuses it rather than inventing a second focus path.</Footnote> so a badge
+  click and a notification click behave identically.
 
 ## AD2 — a genuinely-blocked agent gets its own pip
 
-The dim dot is dim on purpose — but the purpose is being *over*-applied. kolu's
-paint fold deliberately collapses two different states into one amber dot: an agent
-**blocked on your answer** (`awaiting_user`) and an agent that **just finished its
-turn** (`waiting`, the post-turn lull). <Cite file="packages/terminal-vocab/src/agentProjection.ts" line={116} /> A
-just-finished agent keeping a quiet lingering glow is *correct*. The bug is that the
-agent asking you a question **right now** whispers at the same volume.
+The paint fold collapses two states into one amber dot: **blocked on your answer**
+(`awaiting_user`) and **just finished** (`waiting`). <Cite file="packages/terminal-vocab/src/agentProjection.ts" line={116} /> The
+lingering dim glow for a finished agent is correct; the bug is that the one asking
+*now* whispers at the same volume. AD2 splits only the loud end out:
 
-AD2 splits only the loud end back out:
+- A new `blocked` pip variant in `@kolu/solid-statepip` — full-opacity, larger,
+  pulsing — versus the unchanged dim `awaiting` dot.
+- Promoted through the existing `agentBucket` fence (`awaiting_user → "awaiting"`),
+  <Cite file="packages/terminal-vocab/src/agentProjection.ts" line={72} /> so
+  `paintDockRow` and `agentPipVariant` promote to `blocked` and everything else folds
+  through the shared paint class unchanged.
 
-- **A new `blocked` pip variant** in `@kolu/solid-statepip` — full-opacity, larger,
-  and pulsing, versus the dim lingering `awaiting` dot which stays exactly as it is.
-- **Promoted through the existing `agentBucket` fence, not a new paint class.**
-  `agentBucket` already distinguishes the two — `awaiting_user → "awaiting"`,
-  `waiting → "waiting"`. <Cite file="packages/terminal-vocab/src/agentProjection.ts" line={72} /> So
-  `paintDockRow` (for the dock rows) and `agentPipVariant` (for the tile-title pip)
-  each promote `agentBucket(state) === "awaiting"` to `blocked`, and everything else
-  folds through the shared paint class unchanged.
-
-<Callout kind="accent" title="Why not just split the shared AgentPaintClass?">
-Because that is the wrong-sized cut. `AgentPaintClass` is read by the tile aura,
-the minimap badge, **and** the expanded-switcher columns (via `AgentBucketKind` in
-`dockModel.ts`). Adding `blocked` there forces a new column in the switcher and a
-louder aura on every canvas tile — surfaces the user never complained about. Keeping
-`blocked` **dock-local** (an added member of `DockRowBucket`) plus the tile-title pip
-touches exactly the two surfaces in the complaint and leaves the rest alone. The
-codebase's parity invariant — *dock row pip ≡ tile-title pip* — still holds, because
-both promote through the *same* `agentBucket` check.<Footnote>Pinned by the parity test at <Cite file="packages/client/src/canvas/dock/dockRowRanking.test.ts" line={236} />, which AD2 updates to compare the two computed pip *variants* (both promoting) rather than the raw pre-promotion paint bucket.</Footnote>
+<Callout kind="accent" title="Why not split the shared AgentPaintClass?">
+Wrong-sized cut: `AgentPaintClass` also feeds the tile aura, minimap, and switcher
+columns, so `blocked` there forces a new switcher column and a louder aura on every
+tile. Keeping it **dock-local** (`DockRowBucket` + the tile-title pip) touches only
+the two surfaces in the complaint. The *dock row pip ≡ tile-title pip* parity holds,
+because both promote through the same `agentBucket` check.<Footnote>Pinned by the parity test at <Cite file="packages/client/src/canvas/dock/dockRowRanking.test.ts" line={236} />.</Footnote>
 </Callout>
 
-## Option 3 — surfacing the question text — is deliberately out of scope
+## Option 3 — the question text — is deferred
 
-The natural next wish is for the dock entry's subtitle to show the *question itself*
-("What would you like to work on?") instead of the stale session title. We scoped it,
-and it is a genuinely bigger, **brittler** pass — so it is not in this PR.
+Showing the question in the dock subtitle is a bigger, brittler pass. The plumbing is
+cheap (one nullable field + a one-line `rowSubline.ts` change), but **the text isn't
+readable while the question is pending**: kolu tails the JSONL transcript, and the
+Claude Agent SDK buffers the `AskUserQuestion` block off-disk until you
+answer. <Cite file="packages/integrations/claude-code/src/agent-adapter.ts" line={73} /> The
+only live source is the rendered screen, which the adapter scrapes for *footer chrome*
+only, no text. <Cite file="packages/integrations/claude-code/src/screen.ts" line={101} /> Extracting
+the body means a version-sensitive parser that buys only Claude Code.
 
-The wire plumbing would be cheap: one nullable field on `ClaudeCodeInfoSchema` rides
-the whole zod-driven surface for free, and the dock subtitle
-(`rowSubline.ts`) is a one-line change. The hard part is that **the question text is
-not anywhere kolu can cleanly read while the question is pending.** kolu senses
-Claude Code state by tailing the session's JSONL transcript — but the Claude Agent
-SDK buffers the `AskUserQuestion` tool-use block *off-disk* until you answer, so the
-transcript path (which does have a question decoder) is useless for a *live*
-question. <Cite file="packages/integrations/claude-code/src/agent-adapter.ts" line={73} /> The
-only live source is the **rendered screen**: today the adapter screen-scrapes the
-dialog's *footer chrome* to detect that a prompt is present, capturing no text. <Cite file="packages/integrations/claude-code/src/screen.ts" line={101} /> Surfacing
-the text means parsing the question body out of that screen region — stripping box
-characters, option lists, and soft-wrapping — a new, **version-sensitive** parser
-whose comments already warn the presence regexes drift across Claude Code releases,
-and which buys only Claude Code (Codex, opencode, grok each render prompts
-differently).
-
-<Callout kind="note" title="If we ever do option 3, do it through a hook, not a scraper">
-A Claude Code `PreToolUse` hook on `AskUserQuestion` could hand kolu the exact
-question text non-brittly. The adapter uses no hooks today, so that is its own new
-integration mechanism (with a "how does the hook config reach users' sessions"
-question attached) — which is precisely why it belongs in a separate note, not
-bolted onto this one.
+<Callout kind="note" title="If we ever do it, use a hook not a scraper">
+A `PreToolUse` hook on `AskUserQuestion` hands over the exact text non-brittly — but
+the adapter uses no hooks today, so it's a new integration mechanism, and its own
+note.
 </Callout>
 
 ## What ships here
 
-Shipped together in <PrLink pr={1926} /> — one PR, two tracks, both grounded in
-state the client already receives:
+Shipped in <PrLink pr={1926} /> — neither track adds a wire field or a sensing path:
 
 | Track | Change | Blast radius |
 | --- | --- | --- |
-| **AD1** | Awaiting pill → jump button (cycles `awaitingIds`) | `useHostAwaiting`, `HostAwaitingPill`, `HostChip` + the two other pill readers |
+| **AD1** | Awaiting pill → jump button (cycles `awaitingIds`) | `useHostAwaiting`, `HostAwaitingPill`, `HostChip` + two pill readers |
 | **AD2** | `blocked` pip for a genuinely-asking agent | `@kolu/solid-statepip`, `paintDockRow`, dock `pipVariant`, `TerminalMeta`, one `index.css` rule |
-
-Neither track adds a wire field or a new sensing path — that is the line that keeps
-them small, and the line **option 3** would have crossed.
