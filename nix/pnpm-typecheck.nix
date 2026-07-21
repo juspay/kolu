@@ -4,7 +4,7 @@
 # client/website are bundled by Vite/Astro (per-file) and the server runs
 # under tsx — so type errors are invisible to `nix build` and shipped green
 # once (juspay/kolu#1049, regression in #1034). This turns `pnpm typecheck`
-# into a derivation that fails on a type error; CI's `nix`/devour-flake node
+# into a derivation that fails on a type error; CI's `ci::nix` node
 # realizes it, and the result is content-addressed so it only re-runs when a
 # typechecked source changes. No node-gyp — `tsc`/`astro check` read the
 # .d.ts files, not node-pty's compiled .node.

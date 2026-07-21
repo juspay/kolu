@@ -1,4 +1,4 @@
-// Departure-board renderer for window.BOARD (from $PWD/orchestrator-data.js —
+// Departure-board renderer for window.BOARD (from $PWD/bridge-data.js —
 // see SKILL.md; the ../ climb is fixed by the skill's known depth and the
 // browser normalizes it before the request, so the preview route's wire-level
 // traversal guard is never involved). Each lane renders as a card with a
@@ -8,7 +8,7 @@
 // script (fetch() is CORS-blocked in the sandboxed preview BY DESIGN);
 // the entrance animation runs on first paint only, so the 30s reload never
 // re-plays it.
-const DATA_SRC = "../../../../orchestrator-data.js";
+const DATA_SRC = "../../../../bridge-data.js";
 
 const $ = (tag, cls, text) => {
   const el = document.createElement(tag);
@@ -126,6 +126,96 @@ const pill = (n) => {
   return el;
 };
 
+// ── Red-alert sound ────────────────────────────────────────────────────────
+// A single TNG red-alert chime fires when a `block` station FIRST appears
+// (a new alert), never on the 30s data reload for an already-standing block:
+// index.js is not reloaded (only the data script is re-inserted), so the
+// module-level `seenBlocks`/`muted` survive every refresh. Unmuted by default;
+// the toggle persists in localStorage when the sandbox allows it. Source chime:
+// trekcore.com tng_red_alert3.mp3, kept beside this file (served by the same
+// Code-tab preview route that serves index.js).
+const alertAudio = new Audio("./red-alert.mp3");
+alertAudio.preload = "auto";
+let muted = false;
+try {
+  muted = localStorage.getItem("ob-muted") === "1";
+} catch {} // sandboxed iframe (origin null) can throw on storage — default unmuted
+
+// Browsers block audio until a user gesture; prime it on the first click so a
+// later alert actually sounds. Harmless if it rejects (still-locked → no-op).
+const unlockAudio = () => {
+  alertAudio
+    .play()
+    .then(() => {
+      alertAudio.pause();
+      alertAudio.currentTime = 0;
+    })
+    .catch(() => {});
+  document.removeEventListener("click", unlockAudio);
+};
+document.addEventListener("click", unlockAudio, { once: true });
+
+const playChime = () => {
+  try {
+    alertAudio.currentTime = 0;
+    alertAudio.play().catch(() => {});
+  } catch {}
+};
+
+/** Stable keys for every `block` station anywhere in the tree — keyed by
+ *  track name + label (NOT position) so a reorder doesn't read as a new alert. */
+const collectBlockKeys = (d) => {
+  const keys = new Set();
+  const walk = (nodes, prefix) =>
+    (nodes ?? []).forEach((n, i) => {
+      const k = `${prefix}/${n.label ?? i}`;
+      if (n.state === "block") keys.add(k);
+      if (n.lane?.nodes) walk(n.lane.nodes, `${k}~lane`);
+    });
+  (d.tracks ?? []).forEach((t, i) => walk(t.nodes, `t:${t.name ?? i}`));
+  (d.queue ?? []).forEach((n, i) => {
+    if (n.state === "block") keys.add(`q/${n.label ?? i}`);
+  });
+  return keys;
+};
+
+let seenBlocks = null; // null until the first paint seeds it (no chime on open)
+const alertOnNewBlocks = (d) => {
+  const now = collectBlockKeys(d);
+  if (seenBlocks === null) {
+    seenBlocks = now; // seed silently — pre-existing alerts on load don't blare
+    return;
+  }
+  let fresh = false;
+  for (const k of now) if (!seenBlocks.has(k)) fresh = true;
+  seenBlocks = now;
+  if (fresh && !muted) playChime();
+};
+
+function mountMuteButton() {
+  const mast = document.querySelector(".mast");
+  if (!mast || document.getElementById("mute-btn")) return;
+  const b = $("button", "mute-btn");
+  b.id = "mute-btn";
+  const paint = () => {
+    b.textContent = muted ? "🔇 alert muted" : "🔊 alert sound";
+    b.classList.toggle("is-muted", muted);
+    b.title = muted
+      ? "Red-alert chime is muted — click to unmute"
+      : "A chime sounds when a new red alert appears — click to mute";
+  };
+  b.onclick = () => {
+    muted = !muted;
+    try {
+      localStorage.setItem("ob-muted", muted ? "1" : "0");
+    } catch {}
+    paint();
+    if (!muted) playChime(); // unmuting gives an audible confirmation
+  };
+  paint();
+  mast.appendChild(b);
+}
+
 let painted = false;
 
 function render(d) {
@@ -174,8 +264,13 @@ function render(d) {
   painted = true;
 }
 
-window.addEventListener("board-data", () => render(window.BOARD));
-if (window.BOARD) render(window.BOARD);
+const renderAll = () => {
+  render(window.BOARD);
+  mountMuteButton();
+  alertOnNewBlocks(window.BOARD);
+};
+window.addEventListener("board-data", renderAll);
+if (window.BOARD) renderAll();
 
 function reloadData() {
   const old = document.getElementById("board-data");
@@ -191,7 +286,7 @@ function reloadData() {
         $(
           "span",
           null,
-          "orchestrator-data.js not found at the project root — retrying in 30s",
+          "bridge-data.js not found at the project root — retrying in 30s",
         ),
       );
   };

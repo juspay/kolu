@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>orchestrator · bridge</title>
+<title>the bridge</title>
 <style>
   /* ── LCARS bridge ops — deliberately dark-only (the bridge has no light mode).
      Same DOM contract as the old departure board: index.js renders into
@@ -71,6 +71,15 @@
     letter-spacing:.14em; text-transform:uppercase; color:var(--orange);
   }
   .mast h1 em { font-style:normal; color:var(--lilac) }
+  /* mute toggle — an LCARS pill parked at the header's right end */
+  .mute-btn {
+    position:absolute; top:22px; right:16px; z-index:3;
+    font:700 11px/1 var(--cond); letter-spacing:.14em; text-transform:uppercase;
+    color:#000; background:var(--gold); border:0; border-radius:11px;
+    padding:6px 14px; cursor:pointer; transition:filter .15s, background .15s;
+  }
+  .mute-btn:hover { filter:brightness(1.15) }
+  .mute-btn.is-muted { background:var(--q); color:var(--dim) }
   .meta {
     margin-top:4px; font-size:12px; color:var(--dim); letter-spacing:.08em;
     text-transform:uppercase; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
@@ -233,8 +242,8 @@
 </head>
 <body>
 <div class="mast">
-  <h1>ORCHESTRATOR <em>·</em> BRIDGE</h1>
-  <div class="meta" id="meta"><span class="live-dot"></span><span>loading orchestrator-data.js…</span></div>
+  <h1>KOLU <em>·</em> BRIDGE</h1>
+  <div class="meta" id="meta"><span class="live-dot"></span><span>loading bridge-data.js…</span></div>
   <div class="meta" style="margin-top:2px"><span style="color:var(--lk-term)">❯ terminal</span><span style="color:var(--lk-note)">▤ note/file</span><span style="color:var(--lk-ext)">↗ external</span></div>
 </div>
 <div id="root"></div>
