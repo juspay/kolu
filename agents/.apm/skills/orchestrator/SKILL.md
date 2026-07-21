@@ -75,7 +75,12 @@ data file in the project. Grown practice, each line paid for:
   are one tree, never two sections. Plus `queue[]` (pills waiting on the
   human), `shipped[]` (collapsed), `strip` (venues + laws footer), `project` /
   `updated` / `coordinator`. States: `done` · `run` (pulsing) · `wait`
-  (on the human) · `block` · `q` (queued, dashed).
+  (on the human) · `block` · `q` (queued, dashed). **The merge `queue[]` holds
+  only PRs whose FULL forge check rollup has been verified all-green** — see
+  Verification's merge-READY rule; a PR with any `fail`/`pending` check (CodeQL
+  and the GitHub-native checks included, not just the odu lanes) does not enter
+  the queue. The queue IS the green-CI evidence; never place a merge item there
+  on the odu outcome alone.
 - **Format** (srid's ruling: "less words, more graph"): departure-board ops
   aesthetic, full-mono, dark-first + light via `prefers-color-scheme`; pill
   stations on hairline rails; detail lives in hover `title` attrs, never in
@@ -127,6 +132,7 @@ data file in the project. Grown practice, each line paid for:
 - Reproduce bugs first. Never skip tests. Never defer a fixable defect.
 - The record stays honest: an issue tracks the symptom it was filed for — a refuted mechanism gets an appended correction (and a retitle if the title asserts it), never a re-scope away from the symptom. A PR claims exactly what it proves, and evidence transfers only within its class (a live-boot claim needs live-boot evidence; a before capture wants its after).
 - Watchdog long-running agents; tear down ONLY by PIDs captured at spawn. Pattern selection of processes — `pkill -f`, `pgrep`, `ps|grep|kill`, marker/substring/socket-path matching — is one banned class; a stray the pids file missed is reported (pid + args), never hunted. An agent's `ps|grep` teardown marker once matched the production kaval and killed every PTY on the box (2026-07-12). Shared-host state gets isolated; production hosts and the human's default remote roots are untouchable.
+- **A merge-READY surfacing or a merge-queue item carries EVIDENCE of an ALL-GREEN forge check rollup — the WHOLE `gh pr checks <n>`, not just the odu lanes.** Before a PR is called merge-ready or placed in the board's merge queue, verify the complete rollup shows ZERO `fail` and ZERO `pending` — CodeQL, the SentinelOne scans, `build-and-push`, and every GitHub-native check included, not only the odu two-platform CI. A red check is DISQUALIFYING until investigated and resolved AT THE FORGE — never waved off as "probably infra" from its name or its 2-second duration. The recorded failure: a 2-second CodeQL "fail" was dismissed as an infra bail and the PR surfaced as merge-ready; it was **2 real high-severity security alerts in the PR's own new test files**, and CodeQL was green on sibling PRs so "pre-existing infra" was outright false. The odu outcome being `passed` is necessary, not sufficient — the odu lanes are a subset of the forge's checks. The merge queue is evidence of green **by construction**: an item in it means its full rollup was read and every check is green; a red or unverified check means the item does not belong there yet.
 
 ## The coordinator's own changes
 
