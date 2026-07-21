@@ -17,8 +17,15 @@ import locks from "../../diagrams/host-isolation-locks.svg?raw";
 Twice, working on kolu killed the kolu being worked in: a dev run disrupted the
 production service (<Issue n={1334} />), and a bare `vitest` forked enough real
 daemons that the OOM killer reaped the production kaval — every terminal lost
-(<Issue n={1375} />). The fix (<PrLink pr={1911} />) is three independent locks.
-This note explains the two *low-risk* ones — Lock 1 and Lock 3 — in plain words.
+(<Issue n={1375} />). The first fix attempt (<PrLink pr={1911} />, **closed
+after adversarial review** 2026-07-21) framed three independent locks. Of
+them: **Lock 3 shipped** (<PrLink pr={1921} />, closed #1375); **Lock 1 was
+superseded** — the live plan is [state
+isolation](./state-isolation.html): no badge, no guard; the state-root
+default is deleted outright and the production wrapper supplies the path, so
+the Lock-1 mechanism below is kept only as the #1911-era design record; **Lock 2 was rejected** to <Issue n={1912} />. This
+note explains the two *low-risk* ones — Lock 1 and Lock 3 — in plain words,
+as #1911 designed them.
 They are boot checks and test plumbing; the third, Lock 2, is the delicate one
 (it guards the daemon take-over/kill machinery itself) and is summarized at the
 end.<Footnote>Lock 2 puts a role check inside the supervisor endpoint so an
@@ -161,7 +168,7 @@ The missing second export (`KOLU_PADI_STATE_DIR`) was the whole of #1334; Lock 1
 turns any future recurrence — a bare launch that resolves production's root
 without the badge — into a crash instead of a takeover.
 
-## What you feel afterwards
+## What you feel afterwards (Lock 3 today; Lock 1 once its rebuild lands)
 
 - `vitest` on your machine: fast, harmless, forks nothing.
 - A bare launch that would have collided with production: one clear crash line

@@ -1,8 +1,8 @@
 ---
 title: "State Isolation — Plan of Record"
-description: "Dev/test can never sit in production's chair: the one bind-time lock, rebuilt lock-only after PR #1911 failed adversarial review. SI1 gate-leak fix → SI2 the lock → #1912 the wire verbs."
+description: "Dev/test can never sit in production's chair: delete the padi state-root default; the path is chosen out loud or the process dies. No role vocabulary. Rebuilt after PR #1911 was closed."
 parents: [bug]
-status: accepted
+status: proposed
 maturity: budding
 updated: 2026-07-21
 ---
@@ -14,139 +14,93 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import lockDiagram from "../../diagrams/state-isolation-lock.svg?raw";
 
-Kolu's own dev and test runs could silently compute the production daemon's
-identity and then adopt or SIGTERM the live kolu the user is sitting in
-(<Issue n={1334} />; [the incident class, in plain
-words](./host-isolation-locks.html)). The first attempt to close it,
-<PrLink pr={1911} />, was **closed after adversarial review**: the lock inside
-it was sound, but only about half the PR *was* the lock.<Footnote>The review —
-/perfection-review + /architecture-first-principles C1–C7, 11 hunters over the
-diff, every finding re-verified by an adversarial refuter — found: ~52% of the
-1,483 added lines served the lock; the ephemeral role stamps had no reader in
-the PR (their consumer, the adopt/kill guard, was rejected to #1912); all 584
-added kaval lines existed to write and protect that unread marker; both ssh e2e
-lanes were broken invisibly (CI has no ssh); and the README overclaimed a
-bind-time refusal into adopt/SIGTERM immunity. Full verdict on the closed
-PR.</Footnote> This note is the plan of record for the rebuild. Its work items carry the
-**SI** track prefix ("state isolation"): **SI1**, a small independent bug-fix
-PR that lands first, and **SI2**, the lock itself.
+A daemon's identity is the digest of its state-root, and
+`resolvePadiStateRoot()` silently defaults to production's root — so a bare
+`pnpm dev` / `vitest` / `padi` computes production's identity and the
+adopt/kill machinery can then act on the live kolu (<Issue n={1334} />;
+[background](./host-isolation-locks.html)). The first fix,
+<PrLink pr={1911} />, was closed after review for shipping the guard inside
+half a PR of machinery.<Footnote>Review scars this plan keeps: no role stamps
+without a reader (that killed #1911); zero kaval changes; both ssh e2e lanes
+broke invisibly because CI has no ssh. Full verdict on the closed
+PR.</Footnote> This is the rebuild — resized twice by srid/grok's challenges
+(PR #1930 thread): first lock-only, then **no lock at all where deleting the
+default suffices**. Work items carry the **SI** prefix for reference: SI1 a
+small prerequisite bug fix, SI2 the fix itself.
 
-## The lock
+## The fix — there is no default
 
-One rule, enforced at bind time: **the process that opens a state-root must
-prove it may.** Production self-declares (`KOLU_ROLE=production`, set only by
-the production nix wrapper locally and by `--role production` over ssh); every
-binder resolves its root through one guarded resolver that crashes a
-non-production launch before it can bind, spawn, adopt, or even create a log
-directory in production's root.
+**The path is chosen out loud, or the process dies.** Mirror the server's own
+`KOLU_STATE_DIR` pattern exactly: binding resolution **requires**
+`KOLU_PADI_STATE_DIR` / `--state-root` and crashes with one line when absent;
+the production nix wrapper supplies the default
+(`KOLU_PADI_STATE_DIR="${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"`,
+beside its existing `KOLU_STATE_DIR` line); dev and tests keep setting the
+private paths they already set. The remote padi is a nix-realised closure the
+binder ships, so the **same wrapper supplies the remote default remote-side**
+— no signal needs to cross the wire.
 
-<Svg svg={lockDiagram} wide caption="Every binder passes through one guard. Production binds as before; anything else crashes first. kaval is not a binder and stays untouched; the adopt/kill wire verbs are #1912's lock." />
+<Svg svg={lockDiagram} wide caption="No guard, no badge: the default is deleted from code. Whoever launches padi supplies the path — the production wrapper (locally and inside the shipped remote closure), or a dev/test's private dir — and an unsupplied path is a one-line crash." />
 
-The guard refuses a non-production binder three ways, all
-fail-closed:<Footnote>Fail-closed concretely: an empty, corrupt, or unreadable
-(EACCES/EIO) marker refuses — absence is only honest as a genuine ENOENT. The
-root comparison is canonical (realpath down to the deepest existing ancestor),
-so a symlink alias to the default root — even one whose leaf doesn't exist yet —
-is the same root, not a bypass.</Footnote>
+Why this beats #1911's guarded default: a guard refuses the accident at the
+three call sites it covers and relocates it to the fourth; deleting the
+default makes the accident **unspellable** — there is nothing left to
+inherit.<Footnote>Two mechanics verified at the tree: the PTY spawn allowlist
+wholesale-scrubs the `KOLU_*` namespace from hosted shells
+(`integrations/pty/src/shell.ts`, `koluInternalEnv`), so the wrapper's export
+cannot leak into a terminal kolu hosts; and the remote `padi` runs from a
+provisioned nix closure (`surface-remote/src/dialAgentOnce.ts` — "executable
+name inside the realised closure"), so wrapping it is entirely kolu's to do.
+With those two, `KOLU_ROLE` — and the role module, markers, `--role`
+threading — do no remaining work; the earlier "keep the env var" ruling
+compared the wrong alternative (deriving role from the config dir) and is
+superseded.</Footnote>
 
-1. **The default root** (`~/.local/state/padi`) — production's by definition,
-   refused with no marker consulted.
-2. **An explicit override that *is* the default root** — including symlink
-   aliases.
-3. **A relocated root carrying the persistent `production` marker** (<Issue
-   n={1414} />) — stamped by production daemons and binders; unreadable or
-   corrupt markers refuse.
-
-### Why an env var, and not the state dir itself
-
-srid's challenge — "the state dir should suffice" — was put through a
-three-lens run (state-and-time · adversary · ergonomics, each refuter-verified,
-2026-07-21). Verdict: **keep `KOLU_ROLE`**, for three grounded
-reasons.<Footnote>The derivation shape examined: production ⟺
-canonical(`KOLU_STATE_DIR`) == canonical(`~/.config/kolu`) — no wrapper var,
-role computed at server boot. Two lenses returned "keep the env var", one
-returned "derive"; all three verdicts were independently confirmed by
-adversarial refuters; the derive-lens's real findings are absorbed as the two
-SI2 refinements below rather than lost.</Footnote>
-
-- **Location and authority are different facts.** `KOLU_STATE_DIR` means
-  *where the server's config lives* (`state.ts` treats it as location only).
-  Deriving authority from it turns an innocent, already-common act — pointing
-  a dev build at your real config dir to debug it — into silent full
-  production authority over the padi root. The env var keeps the credential a
-  word whose *only* meaning is "I am production."
-- **It is the pattern the conventions prescribe, not a knob.** The wrapper
-  bakes it with `--set` (not `--set-default`) — a build fact no operator
-  types or tunes, with in-tree precedent naming exactly this distinction.
-- **Path-equality is env-sensitive identity computation the tree already
-  rejects.** `stateRoot.ts` documents why padi's identity anchor ignores
-  `$XDG_STATE_HOME`: env-derived paths resolve differently across login
-  shells, systemd units, and ssh execs. A derived role would inherit that
-  fragility on the config side; and the shipped <Issue n={1414} /> relocation
-  (`default.nix` honors an inherited `KOLU_STATE_DIR`) means
-  canonical-dir ⇏ production anyway.
-
-Two of the derive-lens's confirmed findings survive as **SI2 refinements**:
-`selfRole()` is read **once per process at its entry** and threaded as a value
-(never re-read ambiently mid-life); and a production launch with a
-**relocated** `KOLU_STATE_DIR` but **no** `KOLU_PADI_STATE_DIR` is refused at
-boot with a message naming both remedies — keep the default padi root by
-setting it explicitly, or isolate — instead of silently binding the default
-root (where a second same-`$HOME` production instance would collide with the
-first).
+**Named residuals, accepted (today's behavior, unchanged):** a *deliberate*
+`KOLU_PADI_STATE_DIR` pointed at production's path is the same footgun as
+`rm` on the real tree — out of the accident threat model; a dev kolu-server
+binding a *remote* host without `KOLU_REMOTE_PADI_STATE_DIR` reaches the
+remote wrapper's default — deferred with <Issue n={1912} />'s wire-verb work;
+a half-relocated production (relocated `KOLU_STATE_DIR`, unset padi root)
+silently keeps the default padi root — "wrapper sets both or refuses" is an
+optional later hardening.
 
 ## SI1 — padi releases its boot gate on a startup throw
 
-The one genuine treasure buried in #1911, extracted as its own small PR that
-lands **first**. On master today, padi acquires its single-instance gate before
-several throwable boot steps and never releases it on a pre-handoff throw — an
-in-process caller that catches the error can never retry (the gate still names
-a live pid).
+A normal small bug fix, listed only because SI2 touches the same startup code
+and lands on top of it. On master, padi acquires its single-instance gate,
+then runs several throwable boot steps; on a throw the gate is never
+released, so an in-process retry reads "already running" forever. Fix:
+release the gate in the catch after awaiting the partial runtime's close
+(`Promise.allSettled`, not a hand-rolled settle); test trigger
+master-reachable (e.g. malformed `KOLU_DAEMON_BIND_PID`). Done when a boot
+throw leaves the gate file gone and a same-process re-acquire succeeds.
 
-- Release the gate in the catch after awaiting the partial runtime's close;
-  use `Promise.allSettled` for the settle-capture rather than #1911's
-  hand-rolled discriminated local, and keep the cleanup-failure aggregation.
-- **Test trigger must be master-reachable** (e.g. a malformed
-  `KOLU_DAEMON_BIND_PID`), not a role write that only exists in SI2.
-- Done when: the gate file is gone after a boot throw and a same-process
-  re-acquire succeeds, proven by the test.
-
-## SI2 — the lock, rebuilt lock-only
-
-Padi + server + nix; **zero kaval changes**; roughly half of #1911's size.
-Rebased on SI1.
+## SI2 — delete the default
 
 | Piece | Contract |
 | --- | --- |
-| `packages/padi/src/role.ts` (new, ~250 lines) | Everything role-related in one module: `selfRole`/`KOLU_ROLE_ENV`; the fail-closed `RoleRead` marker read; `stampPersistentRole` exported, the raw production-marker writer **module-private**; `sameRootIdentity`; `resolveBoundStateRoot` + `StateRootIsolationError`. Refusal messages say "KOLU_ROLE is not 'production'", never "unset". |
-| `default.nix` | `--set KOLU_ROLE production` on the kolu wrapper. |
-| Server boot · padi `daemonMain` · `stdioBridge` | Each resolves through the guard; padi guards **before** the logger opens anything; the stdio bridge becomes `async` so a refusal reaches `bin.ts`'s one error channel as the clean one-line message. |
-| `--role` flag + role threading | `bin.ts` validates `--role`; the server forwards `KOLU_ROLE` daemon-to-daemon (never via the PTY allowlist) and threads its own role to remote padis. Each process reads `selfRole()` **once at entry** into a value — never ambiently at scattered call sites. |
-| Relocated-config refusal | A production launch with a relocated `KOLU_STATE_DIR` and no `KOLU_PADI_STATE_DIR` is refused at boot, message naming both remedies (pin the default padi root explicitly, or isolate) — closing the two-instances-one-`$HOME` padi collision. |
-| Persistent stamp | Padi stamps its root at boot; the server binder stamps once per binding (covers pre-fix daemons). **Add the missing test that a production boot actually stamps** — in #1911 deleting the stamp left the suite green. |
-| ssh lanes | `remotePadiSsh.test.ts` passes `--role production` (or an isolated `--state-root`); `e2e-ssh-2box` launches with `KOLU_ROLE=production`. |
-| Docs | `padi --help` says the default root is production-only; README claims exactly what the lock does — refuses *binding* — nothing about adopt/SIGTERM. |
+| `stateRoot.ts` | The **bind-path** resolution loses its default: unset + no override → one-line crash naming `KOLU_PADI_STATE_DIR` (the `state.ts` pattern). Read-only discovery (`resolveRunningPadiSocket`, the TUIs) is untouched. |
+| `default.nix` | The kolu wrapper exports `KOLU_PADI_STATE_DIR="${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"` beside its `KOLU_STATE_DIR` line; the padi package shipped to remotes gets the same wrapper. |
+| `stdioBridge` | Made `async` so the missing-path crash reaches `bin.ts`'s one error channel as the clean one-line message. |
+| Entrypoint sweep | Every dev/test/e2e path that boots a binder without the var gets it set (most already do: `kolu-cli` dev, `justfile`, server tests). The crash is the detector — any missed one fails loud, never binds production. |
+| Docs | `padi --help`: the root is required (the production wrapper supplies the default); README claims exactly what shipped — no adopt/SIGTERM language. |
 
 **Done when**, beyond green CI: `just e2e-ssh` **run once and passing** — CI
-has no ssh, so the lane the old PR silently broke is a named, mandatory local
-gate<Footnote>This is the path-not-feature rule: the two ssh recipes are the
-only executions of `remotePadiSsh.test.ts`, and #1911 shipped 38/38 green
-while both were broken. A done-criterion that can only be met by running the
-lane is the fix for that class.</Footnote> — and a bare `pnpm dev` / `vitest` /
-`padi` on a box with a live production kolu is refused (the <Issue n={1334} />
-repro, re-run).
+has no ssh; #1911 shipped 38/38 green with both ssh lanes broken (under this
+shape the lanes should pass via the remote closure's wrapper — prove it) —
+and the <Issue n={1334} /> repro re-run: a bare `pnpm dev` / `vitest` /
+`padi` beside a live production kolu dies naming the missing var.
 
-## Deferred, with its reader — <Issue n={1912} />
+## Deferred until a real residual shows
 
-The adopt/kill wire verbs (`kill`/`killAll`/`restart` on an already-running
-daemon's socket) bypass a bind-time lock by construction. The ephemeral
-role-stamp machinery #1911 carried — the write beside each gate, kaval's
-gate-reorder so the stamp is holder-only, the padi→kaval role forwarding —
-ships **there**, together with the guard that reads it. Shipping writers ahead
-of their reader is what made half of #1911 dead weight.
+- **Wire-verb guard** (<Issue n={1912} />): `kill`/`killAll`/`restart` on a
+  live socket, plus the remote-dev-binder residual above. Any role/badge
+  vocabulary, if ever needed, lands there **with** its reader.
+- **Persistent markers, relocated-root hardening** (<Issue n={1414} />): only
+  if the half-relocated footgun proves real.
 
 <Callout kind="accent" title="Sequencing">
-  SI1 (small, independent) → SI2 (the lock, closes <Issue n={1334} />) →
-  <Issue n={1912} /> (wire-verb guard + role stamps, its own review). srid
-  merges each; full /be arc per PR.
+  SI1 (plain bug fix) → SI2 (closes <Issue n={1334} />). srid merges each;
+  review depth per PR is srid's call.
 </Callout>
