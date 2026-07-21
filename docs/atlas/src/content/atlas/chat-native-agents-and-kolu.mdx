@@ -260,16 +260,51 @@ one terminal's chat frames live, and a reconnect delivers a coherent snapshot.
 
 <Phase id="CH1" name="UI: chat pane on one terminal — like driving via /bridge, but product" status="todo" needs={["CT1"]} />
 
-**What you get:** for the focused agent terminal, a **conversation view** —
-bubbles from `streams.transcriptChat`, compose box → `lifecycle.sendInput`.
-Toggle or split with the raw PTY. No tools, no edit spam.
+#### What you see (prototype)
 
-This is the `/bridge` human loop productized for **one** terminal: type a
-message, see the reply, without living in the agent TUI or an MCP skill. Not
-a multi-worker board.
+You open a tile that already has an agent. The title bar has **Terminal | Chat**.
+**Chat** is selected. You do not see the Claude TUI, tool cards, or file diffs —
+only the conversation.
 
-**Done when:** you can run a whole agent turn from the chat face on desktop and
-mobile; the PTY still works for depth; stream reconnect does not double-paint.
+<ChatFaceMockup />
+
+| You do | What happens |
+| --- | --- |
+| Type in the box, **Send** (or ⌘↵) | Your message appears as a **YOU** bubble; the same text goes into the agent as a prompt |
+| Wait | A single quiet line: *claude is working…* — not a live tool feed |
+| Agent finishes a turn | A **CLAUDE** bubble with the reply (links allowed; tools still hidden) |
+| Switch to **Terminal** | Same session, full PTY — for interactive prompts, debug, or when you want the noise |
+
+#### What you do not see
+
+Same tile, **Terminal** tab — the raw agent surface CH1 deliberately filters:
+
+<TerminalFaceContrast />
+
+That density is still one click away. Chat is not a second agent; it is a second
+**face** on the same terminal.
+
+#### How it feels on mobile
+
+Full-width Chat on a phone: bubbles + compose, no need to aim at an agent TUI.
+Terminal remains available when something interactive blocks.
+
+#### Not this
+
+| Already in kolu | CH1 difference |
+| --- | --- |
+| Inspector **Compose** | one-shot insert into the PTY input; no conversation history as chat |
+| **Export session as HTML** | offline document; not live, not the face you work in |
+| Dock pips | fleet glance; not a per-terminal conversation |
+
+#### Under the chrome (one line)
+
+Bubbles ← `streams.transcriptChat` (CT1). Send → `lifecycle.sendInput`. Toggle
+is local UI state on the tile; no second process.
+
+**Done when:** you can drive a whole turn from Chat on desktop and mobile
+without opening export or staring at tools; Terminal still works for depth;
+stream reconnect does not double-paint bubbles.
 
 <a id="pe0"></a>
 
@@ -312,3 +347,113 @@ DM the bot → terminal under padi/kaval → first prompt is yours → assistant
 replies in the XS thread (messages only) **and** the same conversation is
 live in kolu's chat face over **one** padi stream → deep link opens that
 terminal.
+
+export const CH = {
+  bg: "#0f1218",
+  chrome: "#161a22",
+  panel: "#1a1f29",
+  line: "#2a3140",
+  fg: "#e2e6ee",
+  dim: "#8b939f",
+  faint: "#5c6470",
+  you: "#3d4a63",
+  youBorder: "#5a6a88",
+  bot: "#1e2a24",
+  botBorder: "#3d6b52",
+  botTag: "#6cc070",
+  accent: "#7eb0e8",
+  amber: "#d6a35c",
+  input: "#12161e",
+};
+
+export const ChatFaceMockup = () => (
+  <div
+    role="img"
+    aria-label="Kolu tile in Chat view: Terminal versus Chat tabs with Chat selected, YOU and CLAUDE message bubbles, a quiet working line, compose box and Send."
+    style={`margin:1.25rem 0;max-width:28rem;border:1px solid ${CH.line};border-radius:12px;overflow:hidden;background:${CH.bg};box-shadow:0 8px 28px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif`}
+  >
+    <div style={`display:flex;align-items:center;gap:.5rem;padding:.55rem .75rem;background:${CH.chrome};border-bottom:1px solid ${CH.line}`}>
+      <span style={`width:8px;height:8px;border-radius:50%;background:${CH.amber};box-shadow:0 0 0 2px ${CH.amber}33`} />
+      <span style={`font:600 .72rem/1 ui-monospace,monospace;color:${CH.fg}`}>claude · kolu</span>
+      <span style={`font:.62rem/1 ui-sans-serif;color:${CH.dim}`}>working</span>
+      <div style={`margin-left:auto;display:flex;gap:0;border:1px solid ${CH.line};border-radius:7px;overflow:hidden`}>
+        <span style={`font:600 .62rem/1 ui-sans-serif;padding:.32rem .55rem;color:${CH.faint}`}>Terminal</span>
+        <span style={`font:600 .62rem/1 ui-sans-serif;padding:.32rem .55rem;color:${CH.bg};background:${CH.accent}`}>Chat</span>
+      </div>
+    </div>
+    <div style={`padding:.85rem .8rem 0;display:flex;flex-direction:column;gap:.7rem;min-height:22rem;background:${CH.panel}`}>
+      <div style="display:flex;justify-content:flex-end">
+        <div style={`max-width:88%;border:1px solid ${CH.youBorder};background:${CH.you};border-radius:12px 12px 4px 12px;padding:.55rem .7rem`}>
+          <div style={`font:700 .58rem/1 ui-sans-serif;letter-spacing:.06em;color:${CH.accent};margin-bottom:.28rem`}>YOU</div>
+          <div style={`font:.78rem/1.45 ui-sans-serif;color:${CH.fg}`}>
+            Make session export a lightweight chat log — picker for Chat log / Full / Both. No hidden tool payloads.
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-start">
+        <div style={`max-width:90%;border:1px solid ${CH.botBorder};background:${CH.bot};border-radius:12px 12px 12px 4px;padding:.55rem .7rem`}>
+          <div style={`font:700 .58rem/1 ui-sans-serif;letter-spacing:.06em;color:${CH.botTag};margin-bottom:.28rem`}>CLAUDE</div>
+          <div style={`font:.78rem/1.45 ui-sans-serif;color:${CH.fg}`}>
+            Got it. I will add the export picker, keep chat log as human + AI only, and open a PR when green.
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end">
+        <div style={`max-width:88%;border:1px solid ${CH.youBorder};background:${CH.you};border-radius:12px 12px 4px 12px;padding:.55rem .7rem`}>
+          <div style={`font:700 .58rem/1 ui-sans-serif;letter-spacing:.06em;color:${CH.accent};margin-bottom:.28rem`}>YOU</div>
+          <div style={`font:.78rem/1.45 ui-sans-serif;color:${CH.fg}`}>lgtm — open the PR when tests pass.</div>
+        </div>
+      </div>
+      <div style={`display:flex;align-items:center;gap:.4rem;padding:.15rem .2rem;font:.68rem/1 ui-sans-serif;color:${CH.faint}`}>
+        <span style={`width:6px;height:6px;border-radius:50%;background:${CH.amber}`} />
+        claude is working… · tools stay in Terminal
+      </div>
+      <div style="display:flex;justify-content:flex-start">
+        <div style={`max-width:90%;border:1px solid ${CH.botBorder};background:${CH.bot};border-radius:12px 12px 12px 4px;padding:.55rem .7rem`}>
+          <div style={`font:700 .58rem/1 ui-sans-serif;letter-spacing:.06em;color:${CH.botTag};margin-bottom:.28rem`}>CLAUDE</div>
+          <div style={`font:.78rem/1.45 ui-sans-serif;color:${CH.fg}`}>
+            Done. PR ready — chat log mode is clean, XSS fixed in review.
+          </div>
+          <div style={`display:inline-block;margin-top:.45rem;font:600 .7rem/1 ui-sans-serif;color:${CH.accent};border:1px solid ${CH.accent}44;background:${CH.accent}14;border-radius:6px;padding:.35rem .5rem`}>
+            #1544 · Make session export a lightweight chat log
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style={`padding:.65rem .7rem .75rem;background:${CH.chrome};border-top:1px solid ${CH.line}`}>
+      <div style={`border:1px solid ${CH.line};border-radius:10px;background:${CH.input};padding:.55rem .65rem;min-height:2.6rem`}>
+        <div style={`font:.76rem/1.4 ui-sans-serif;color:${CH.dim}`}>Message claude…</div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:.45rem">
+        <span style={`font:.62rem/1 ui-sans-serif;color:${CH.faint}`}>⌘↵ send · same terminal as the PTY</span>
+        <span style={`font:700 .68rem/1 ui-sans-serif;color:${CH.bg};background:${CH.accent};border-radius:7px;padding:.38rem .7rem`}>Send</span>
+      </div>
+    </div>
+  </div>
+);
+
+export const TerminalFaceContrast = () => (
+  <div
+    role="img"
+    aria-label="Same tile with Terminal tab selected: dense agent TUI with tool calls and file edits — the noise Chat view filters out."
+    style={`margin:1.25rem 0;max-width:28rem;border:1px solid ${CH.line};border-radius:12px;overflow:hidden;background:${CH.bg};box-shadow:0 8px 28px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif`}
+  >
+    <div style={`display:flex;align-items:center;gap:.5rem;padding:.55rem .75rem;background:${CH.chrome};border-bottom:1px solid ${CH.line}`}>
+      <span style={`width:8px;height:8px;border-radius:50%;background:${CH.amber}`} />
+      <span style={`font:600 .72rem/1 ui-monospace,monospace;color:${CH.fg}`}>claude · kolu</span>
+      <span style={`font:.62rem/1 ui-sans-serif;color:${CH.dim}`}>working</span>
+      <div style={`margin-left:auto;display:flex;gap:0;border:1px solid ${CH.line};border-radius:7px;overflow:hidden`}>
+        <span style={`font:600 .62rem/1 ui-sans-serif;padding:.32rem .55rem;color:${CH.bg};background:${CH.accent}`}>Terminal</span>
+        <span style={`font:600 .62rem/1 ui-sans-serif;padding:.32rem .55rem;color:${CH.faint}`}>Chat</span>
+      </div>
+    </div>
+    <div style={`padding:.7rem .75rem;background:#0a0c10;font:600 .68rem/1.65 ui-monospace,Menlo,monospace;color:#9aa3b2;min-height:11rem`}>
+      <div><span style="color:#64748b">●</span> Edit <span style="color:#93c5fd">ExportSessionDialog.tsx</span></div>
+      <div style="color:#64748b">{"  "}picker — Chat log · Full · Both</div>
+      <div><span style="color:#86efac">+</span> write <span style="color:#93c5fd">transcript-core/mode.ts</span></div>
+      <div><span style="color:#64748b">●</span> Bash <span style="color:#cbd5e1">just fmt && just check</span></div>
+      <div style="color:#34d399">✔ tests green</div>
+      <div style="color:#64748b;margin-top:.4rem">… 40 lines of tool noise you did not ask for …</div>
+    </div>
+  </div>
+);
