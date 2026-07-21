@@ -4,7 +4,7 @@
  * `file-append-watcher.test.ts`; this guards that the floor is reachable
  * THROUGH the real transcript watcher — a dropped `end_turn` edge on a fast
  * turn self-heals to `waiting`, without leaning on the (disarmed) live-thinking
- * decay path. (The narrative #1754 reproduction lives in `repro-1754/`.)
+ * decay path.
  */
 
 import fs from "node:fs";

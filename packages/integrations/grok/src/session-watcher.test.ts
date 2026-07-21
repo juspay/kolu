@@ -5,7 +5,7 @@
  * `file-append-watcher.test.ts`; this is the CI regression guard that the floor
  * is actually reachable THROUGH the real grok watcher — a dropped `turn_ended`
  * edge on `events.jsonl` self-heals to `waiting` with no edge and no further
- * write. (The narrative #1754 reproduction lives in `repro-1754/`.)
+ * write.
  */
 
 import fs from "node:fs";
