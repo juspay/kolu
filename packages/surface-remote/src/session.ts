@@ -881,7 +881,10 @@ export function makeSession<
     disarmConnectWatchdog(prev.phase, phase);
     // A down arm has nothing to back-stop — the reconnect/backoff machinery owns it now.
     clearPreConnected();
-    emit(`[${label}] error: ${error}`);
+    // A terminal `failed` (gave up) is a GENUINE failure → `"error"` severity, so an
+    // error-filtered operator sees it (`.agency/code-police.md` errors-must-log-at-error);
+    // a `disconnected` is transient (retrying) → `"info"`.
+    emit(`[${label}] error: ${error}`, phase === "failed" ? "error" : "info");
     // Both down arms are `Prov`-independent; the cast lets the generic construct the arm
     // (an unconstrained `Prov` defeats discriminated-union narrowing on `phase`).
     stateCell.set({

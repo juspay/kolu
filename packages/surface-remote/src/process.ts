@@ -17,6 +17,16 @@
  *     `SIGKILL`) and settle the promise at THAT moment, never waiting for the
  *     child's own `close`.
  *
+ *  Why hand-rolled and not a library (`execa`, `tree-kill`): none delivers this exact
+ *  shape. Node's own `spawn({ signal, timeout, killSignal })` and `execa` kill only the
+ *  DIRECT child — they leave the ssh grandchild (the relocated wedge) alive. `tree-kill`
+ *  DOES reach descendants, but by shelling out to `ps`/`pgrep` and matching a process
+ *  TREE — a pattern-match kill this lane's law forbids (exact recorded PIDs only, no
+ *  pattern kills). A detached process GROUP + `process.kill(-pid)` is the exact, no-`ps`
+ *  primitive that reaps the grandchild; and the settle-AT-expiry, the distinct
+ *  `lifetime-expired`/`aborted` arms, and the progress-liveness policy are ours regardless
+ *  of who spawns. So the ~90 lines below are irreducible, not an un-surveyed hand-roll.
+ *
  *  Out of scope: the long-lived bidirectional agent spawn in `sshConnector.ts`
  *  — that subprocess outlives a single round-trip and is owned by `makeSession`
  *  (teardown + watchdogs). It is a distinct activity, not a user of these

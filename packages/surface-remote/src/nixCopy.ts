@@ -414,8 +414,10 @@ export async function provisionAgent(
     if (outsRes.ok && outputs.length > 1) {
       return multiOutputError(opts.host, outputs.length);
     }
-    if (outsRes.ok && outputs.length === 1) {
-      const agentPath = outputs[0]!;
+    // The sole output (length ≤ 1 here — the multi-output case already returned), or
+    // `undefined` when the local query missed — both fall through to the cold provision.
+    const agentPath = outputs[0];
+    if (outsRes.ok && agentPath !== undefined) {
       // Ask the host, bounded, whether the output is already valid there. This is a pure
       // store query — it NEVER substitutes (verified: `--check-validity` on an absent path
       // returns non-zero instantly, no fetch).
