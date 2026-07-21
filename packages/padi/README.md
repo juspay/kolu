@@ -43,8 +43,10 @@ The package graduated to a **process**: `package = process = restart-hash`.
   the saved session → stay up until drained. The Nix wrapper runs it as
   `node --import <tsx loader> bin.ts` with a `PADI_BUILD_ID` staleKey (a content
   hash of padi's daemon source closure — pinned by `buildId.closure.test.ts`).
-- **Identity IS the state-root** (`./stateRoot`). The persistent state-root (the
-  binary spells the default on the host: `$XDG_STATE_HOME/padi`) holds padi's
+- **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
+  root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
+  (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
+  `$XDG_STATE_HOME`); dev/test pass a private dir. That folder holds padi's
   `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
   a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
   live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root

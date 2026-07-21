@@ -88,10 +88,10 @@ export function resolvePadiStateRoot(override?: string): string {
   const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
   if (!explicit) {
     throw new Error(
-      "KOLU_PADI_STATE_DIR must be set to an absolute directory (or pass " +
-        "--state-root). The nix-built kolu/padi wrappers, `pnpm dev`, and the " +
-        "test harness each set their own — bare launches are rejected to avoid " +
-        "clobbering production's padi state-root (juspay/kolu#1334).",
+      "KOLU_PADI_STATE_DIR must be set (or pass --state-root). Relative paths " +
+        "are resolved against cwd. The nix-built kolu/padi wrappers, `pnpm dev`, " +
+        "and the test harness each set their own — bare launches are rejected " +
+        "to avoid clobbering production's padi state-root (juspay/kolu#1334).",
     );
   }
   return resolve(explicit);
