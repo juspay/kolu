@@ -97,8 +97,8 @@
 
   <!-- transcript return dashed -->
   <path class="dash" d="M500 246 L430 246 L430 200 L420 200" marker-end="url(#arrd)"/>
-  <text class="eld" x="458" y="238" text-anchor="middle">assistant events</text>
-  <text class="eld" x="458" y="252" text-anchor="middle">(stream TBD)</text>
+  <text class="eld" x="458" y="238" text-anchor="middle">streams.transcriptChat</text>
+  <text class="eld" x="458" y="252" text-anchor="middle">snapshot → deltas</text>
 
   <!-- deep link -->
   <path class="dash" d="M100 260 L100 290" marker-end="url(#arrd)"/>

@@ -1,6 +1,6 @@
 ---
 title: Chat threads as terminals
-description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. Build the conversation face in kolu first; pesu reuses it."
+description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only. CT1 is a padi surface stream; kolu conversation face first, then pesu."
 parents: [feature, comparison]
 status: proposed
 maturity: seedling
@@ -31,24 +31,50 @@ browser PWA is **not** on the critical path — same class of client as
 | **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM delivery, message store |
 | **XS apps platform** | part of XS | Signed **webhook** out; **app API** in (`postMessage`, `updateMessage`, `user/info`) |
 | **pesu** | new daemon beside kolu (`packages/pesu`) | HTTP webhook receiver + bind store + padi client + XS API client |
-| **padi** | workspace daemon | `padiSurface`: `lifecycle.create`, `lifecycle.sendInput`, awareness, transcript load |
+| **padi** | workspace daemon | `padiSurface`: `lifecycle.*`, loaders, **new chat transcript stream** |
 | **kaval** | PTY daemon under padi | Owns the live PTY; serializes writes |
 | **agent CLI** | child in the PTY | claude / codex / opencode / grok — writes its own session files |
 | **transcript loaders** | in-process in padi today | Vendor file → `transcript-core` IR (`user` · `assistant` · `tool_*` · …) |
-| **kolu PWA** | browser | Depth only: open the bound terminal via deep link |
+| **kolu PWA** | browser | Conversation face (CH1) + depth (PTY / deep link) |
 
 ```
 Xyne Spaces ──HTTPS──► pesu ──unix socket──► padi ──unix socket──► kaval ──PTY──► agent
      ▲                   │                      │
      │                   │                      └── loaders ← session files on disk
-     └──── HTTPS API ────┘
+     └──── HTTPS API ────┘                      └── streams.transcriptChat → chat frames
 ```
 
 pesu dials padi with the same kit as other non-browser faces
 (`@kolu/padi/dial` → digest-keyed socket, control-core handshake, contract
 skew fail-fast). It does **not** go through kolu-server.
 
-<Svg svg={wire} caption="Process boundaries. Solid arrows are live product path; dashed is the transcript path (stream not shipped yet)." />
+<Svg svg={wire} caption="Process boundaries. Solid arrows: create + sendInput + postMessage. Dashed: chat transcript stream (CT1) from loaders through pesu." />
+
+## Surface primitives (why CT1 is a stream)
+
+`padiSurface` is declared with the five `@kolu/surface` member kinds. The live
+conversation path has to pick one deliberately — a one-shot is not a stream.
+
+| Primitive | Shape | Fit for chat log? |
+| --- | --- | --- |
+| **`streams`** | input → async iterator; **snapshot-then-deltas** (or full replace each frame); reconnect re-subscribes via `STREAM_RETRY` | **Yes — CT1.** Per-terminal `{ id }`, first frame = chat-filtered snapshot, later = new/growing messages |
+| **`procedures`** | request → one response | One-shot only. Today's `transcript.exportHtml`. Fine for export/dump; live only if a consumer polls+diffs — not the product path |
+| **`events`** | discrete fires | No backlog on subscribe — wrong for conversation history |
+| **`cells`** | standing single value | Not per-terminal append-heavy log |
+| **`collections`** | keyed set + deltas | `terminals` is already the entity set; the message list is not a second keyspace |
+
+**Client consume:**
+
+- Kolu UI (CH1): `client.streams.transcriptChat.use(() => ({ id: focusedTerminal() }))` — enrolled in surface health by default.
+- pesu (PE1): same stream over the dialed client (async iterator + stream-retry context). Unenrolled only if a single terminal's re-sub must not flicker a global health fact (same carve-out class as `terminalAttach`).
+
+**Re-serve forwarding:** **`delta`** (fail-through) — same class as `activity` / `terminalAttach`. A mid-chain disconnect must terminate the downstream stream so a snapshot is only ever the first frame of a *fresh* stream, never spliced into a half-open one.
+
+**Rejected alternatives (recorded):**
+
+- Procedure-first CT1 + poll — works as a stopgap, lies about the product (we want live).
+- Cell of “last assistant text” — loses history and multi-bubble turns.
+- Event of “assistant said X” — reconnect drops everything already spoken.
 
 ## Bind state (pesu-local)
 
@@ -96,26 +122,20 @@ Agent is unaware of chat. It only sees PTY input.
 
 No second terminal. No coordinator hop. Thread is the mailbox for one PTY.
 
-## Interaction: agent → thread (transcript path)
+## Interaction: agent → conversation (transcript stream)
 
-This is the return half. Today kolu can **load** a full transcript; it does
-**not** yet stream assistant events to a third party.
+Return half — **CT1 is the wire for this.** Today: loaders + `transcript.exportHtml`
+(procedure). Missing: a live surface stream of chat-filtered events.
 
 | Step | Component | What |
 | --- | --- | --- |
 | A | agent CLI | appends to vendor session store (Claude JSONL, Codex/OpenCode SQLite, …) |
-| B | padi sensors | already watch those files for **agent state** (working / waiting / awaiting_user) — not for chat text |
-| C | loaders | `loadClaudeCodeTranscript` / `loadCodexTranscript` / … → `Transcript` IR |
-| D | filter | keep `kind === "assistant"` only (same cut as HTML **chat log** mode — drop `tool_call`, `tool_result`, `reasoning`, edits) |
-| E | pesu → XS | `postMessage` / `updateMessage` with that text into the bound thread |
+| B | padi | loaders → IR; filter to chat (`user` / `assistant` — same cut as HTML chat-log mode) |
+| C | **`streams.transcriptChat`** | input `{ id }`; first yield = full chat snapshot; later = deltas (new messages or growing assistant text) |
+| D | CH1 / PE1 | UI paints bubbles; pesu `postMessage` / `updateMessage` into the XS thread |
 
-**Gap:** C–E need a live feed. Options, in order of honesty:
-
-1. **New padi stream** — e.g. `transcript.events({ id })` yields snapshot-then-deltas of IR events (or chat-filtered). pesu subscribes over the same socket. Preferred: one source of truth, reconnectable like other surface streams.
-2. **Poll loaders** — pesu re-loads transcript on a short interval, diffs assistant texts, posts new ones. Coarser; no padi API change; fine for a first slice.
-
-Until one of those exists, the outbound half is incomplete; inbound (create +
-`sendInput`) can still ship alone.
+Reconnect: client re-subscribes → fresh snapshot replaces stale state (surface
+stream invariant). No poll loop as the design.
 
 ## What each API is (and is not)
 
@@ -139,13 +159,14 @@ error into the thread).
 | `POST …/chat/agentProgress` | optional typing indicator during a turn |
 | `GET …/user/info` | resolve sender id → name |
 
-### pesu → padi (`padiSurface` over unix socket)
+### pesu / kolu → padi (`padiSurface`)
 
-| Procedure | Use |
-| --- | --- |
-| `lifecycle.create` | new terminal (optional `cwd`) |
-| `lifecycle.sendInput` | agent launch line + every user message |
-| *(future)* transcript stream or export | assistant text out |
+| Member | Kind | Use |
+| --- | --- | --- |
+| `lifecycle.create` | procedure | new terminal (optional `cwd`) |
+| `lifecycle.sendInput` | procedure | agent launch line + every user message |
+| **`transcriptChat`** (name TBD) | **stream** | chat-filtered frames for one terminal — CT1 |
+| `transcript.exportHtml` | procedure | unchanged export path; not the live face |
 
 pesu does **not** call kaval directly. padi owns the terminal id space and
 awareness; kaval is an implementation detail behind `lifecycle.*`.
@@ -154,7 +175,7 @@ awareness; kaval is an implementation detail behind `lifecycle.*`.
 
 - Fleet board / who-needs-me in chat  
 - Coordinator multi-worker campaigns  
-- Routing chat traffic through kolu-server or the PWA  
+- Routing chat traffic through kolu-server for pesu  
 - Bot secrets in the web UI  
 
 ## pesu internal shape
@@ -166,36 +187,36 @@ packages/pesu/
   xyneApi.ts      # postMessage · updateMessage · user/info
   binds.ts        # threadId → terminalId (+ author)
   turns.ts        # create-on-miss · author gate · sendInput
-  mirror.ts       # assistant events → postMessage (stream or poll)
+  mirror.ts       # subscribe transcriptChat → postMessage
   config.ts       # XS base URL, secrets via env, agent argv, cwd, allowlist
 ```
 
-Same layering idea as `padi-tui`: thin composition over existing padi verbs;
-no second terminal protocol.
+Same layering idea as `padi-tui`: thin composition over existing padi surface
+members; no second terminal protocol.
 
 ## Build order — not pesu first
 
 Full pesu needs XS credentials, webhooks, and a public URL. The **interesting
-half of the product** does not: a conversation face on one terminal, using
-transcript messages + `sendInput`. That is useful in kolu alone — and it is
+half of the product** does not: a conversation face on one terminal over the
+**transcript stream** + `sendInput`. That is useful in kolu alone — and it is
 what `/bridge` does by hand via MCP (`sendInput`, wait for agent state, read
 output), but as a real UI instead of a skill loop.
 
 | Do first | Why |
 | --- | --- |
-| **CT1 + CH1** | De-risk the message pipe; ship a nifty kolu feature with no XS |
-| **PE0** | Chat can create/drive a terminal from XS (half duplex is still useful) |
-| **PE1** | Reuse CT1's chat filter; XS becomes another consumer of the same path |
+| **CT1 + CH1** | Ship the live message pipe as a kolu feature; no XS |
+| **PE0** | Chat can create/drive a terminal from XS (half duplex still useful) |
+| **PE1** | Same stream, second consumer (post into XS) |
 
 Not in this tree: multi-agent campaign board / bridge dashboard as product UI
 — that is a different note ([campaign surface](campaign-surface.html)). Here
 we only productize the **1:1 conversation** that pesu will also use.
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "CT1 · chat transcript as data (padi)", m: "foundation · no XS", h: "#ct1" },
+  { d: 0, g: "▶", c: "prog", l: "CT1 · streams.transcriptChat (padi)", m: "surface stream · no XS", h: "#ct1" },
   { d: 0, g: "○", c: "last", l: "CH1 · conversation face in kolu UI", m: "needs CT1 · the nifty feature", h: "#ch1" },
   { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CH1 proven · XS", h: "#pe0" },
-  { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — assistant → thread", m: "needs CT1 (+ optional stream)", h: "#pe1" },
+  { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — stream → postMessage", m: "needs CT1 + PE0", h: "#pe1" },
   { d: 0, g: "○", c: "last", l: "PE2 · deep link + turn UX", m: "needs PE0", h: "#pe2" },
 ];
 
@@ -203,23 +224,35 @@ export const PT = [
 
 <a id="ct1"></a>
 
-### CT1 — chat transcript as data
+### CT1 — `streams.transcriptChat`
 
-<Phase id="CT1" name="padi: structured chat events, not only HTML export" status="next" />
+<Phase id="CT1" name="padi surface stream: chat-filtered transcript frames" status="next" />
 
-**Today:** `transcript.exportHtml` returns a document. Loaders already build a
-vendor-neutral IR (`user` · `assistant` · `tool_*` · …).
+**Today:** `procedures.transcript.exportHtml` — one-shot HTML. Loaders already
+produce a vendor-neutral IR.
 
-**Ship:** a padi procedure (name TBD, e.g. `transcript.chat` / `transcript.get`)
-that returns the **chat-filtered** event list for a live terminal — same cut as
-HTML chat-log mode. Consumers: kolu UI, MCP, later pesu.
+**Ship:** a new **`streams`** member on `padiSurface` (name TBD; call it
+`transcriptChat` here):
 
-*Optional follow-on inside CT1 if poll is painful:* stream
-`transcript.events({ id })` snapshot-then-deltas (surface stream invariants).
-Poll of the procedure is enough to start CH1.
+```
+input:  { id: terminalId }
+output: chat-filtered frames
+        // prefer explicit snapshot | delta (attach-style),
+        // or full message list each frame (activity-style)
+```
 
-**Done when:** client or MCP can fetch assistant/user messages for a terminal
-without rendering HTML.
+- Filter = HTML **chat log** mode: `user` + `assistant` only (no tools, edits,
+  reasoning dumps).
+- **Snapshot-then-deltas** so reconnect replaces state; never deltas-only.
+- Forwarding policy: **`delta`** (fail-through).
+- Implement by watching the same session files sensors already touch; re-run
+  (or incremental) loaders; emit when chat-visible text changes.
+
+`exportHtml` stays as the export procedure. A dump procedure is optional and
+is **not** CT1.
+
+**Done when:** a Solid consumer and a raw dial client can both subscribe to
+one terminal's chat frames live, and a reconnect delivers a coherent snapshot.
 
 <a id="ch1"></a>
 
@@ -228,16 +261,15 @@ without rendering HTML.
 <Phase id="CH1" name="UI: chat pane on one terminal — like driving via /bridge, but product" status="todo" needs={["CT1"]} />
 
 **What you get:** for the focused agent terminal, a **conversation view** —
-bubbles from CT1 (`assistant` in, your prompts as `user`), compose box that
-calls `lifecycle.sendInput`. Toggle or split with the raw PTY (depth still
-there). No tools, no edit spam — that is the point.
+bubbles from `streams.transcriptChat`, compose box → `lifecycle.sendInput`.
+Toggle or split with the raw PTY. No tools, no edit spam.
 
 This is the `/bridge` human loop productized for **one** terminal: type a
 message, see the reply, without living in the agent TUI or an MCP skill. Not
 a multi-worker board.
 
 **Done when:** you can run a whole agent turn from the chat face on desktop and
-mobile without opening the export dialog; the PTY still works for depth.
+mobile; the PTY still works for depth; stream reconnect does not double-paint.
 
 <a id="pe0"></a>
 
@@ -256,12 +288,14 @@ in kolu's conversation face.
 
 ### PE1 — pesu outbound
 
-<Phase id="PE1" name="assistant events → XS postMessage" status="todo" needs={["CT1", "PE0"]} />
+<Phase id="PE1" name="subscribe transcriptChat → XS postMessage" status="todo" needs={["CT1", "PE0"]} />
 
-Subscribe or poll CT1; post new `assistant` texts into the bound thread.
-`updateMessage` / `agentProgress` optional here or PE2.
+pesu subscribes to the **same** CT1 stream for the bound terminal; posts new
+`assistant` texts into the thread. `updateMessage` / `agentProgress` optional
+here or PE2. No second transcript path.
 
-**Done when:** agent replies appear in the XS thread without tools/edits.
+**Done when:** agent replies appear in the XS thread without tools/edits, and
+survive pesu reconnect without duplicate history storms (snapshot replace).
 
 <a id="pe2"></a>
 
@@ -276,4 +310,5 @@ while a turn streams; `agentProgress` while working.
 
 DM the bot → terminal under padi/kaval → first prompt is yours → assistant
 replies in the XS thread (messages only) **and** the same conversation is
-readable in kolu's chat face → deep link opens that terminal.
+live in kolu's chat face over **one** padi stream → deep link opens that
+terminal.
