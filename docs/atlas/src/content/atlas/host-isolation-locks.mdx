@@ -90,6 +90,63 @@ The lock, in four parts:
    so helper indirection can't smuggle a spawn past the gate, and even a badly
    written test **cannot see** your real kolu, let alone kill it.
 
+## The three ways of running kolu — and which identity each gets
+
+The locks only make sense against how kolu actually starts. There are three
+front doors, and after Lock 1 each has an unambiguous identity:
+
+| How you run it | State folder | Role | What that means |
+| --- | --- | --- | --- |
+| `nix run github:juspay/kolu` | `~/.config/kolu` (+ default padi root) | **production** | The real thing — badge set, allowed in production's chair |
+| home-manager module | same production wrapper, as a service | **production** | The managed real thing — restarts survive, daemons persist |
+| `just dev` | `<worktree>/.kolu-dev` (private) | **dev** | Its own private universe — *cannot* touch production |
+
+### `nix run github:juspay/kolu` — the production front door
+
+This runs the flake's default package, which is a thin **production wrapper**
+around the real binary. The wrapper does exactly two things: it exports
+`KOLU_STATE_DIR`, defaulting to `~/.config/kolu` (an inherited value wins, so a
+second, relocated production instance stays possible<Footnote>The #1414 case: a
+second production instance sets its own `KOLU_STATE_DIR` before launch and the
+wrapper honors it via its `:-` fallback instead of hijacking `$HOME`. Lock 1's
+persistent marker is what keeps such a relocated root refusable by dev
+processes.</Footnote>), and — after Lock 1 — it sets the badge:
+`KOLU_ROLE=production`. Nothing else in the repo sets that variable. The server
+then binds the **default padi state root**, which is exactly what the badge
+entitles it to. Notably, the *base* binary underneath the wrapper deliberately
+has **no** state-dir default: anything that reaches it without going through
+this wrapper (tests do) crashes rather than silently landing in
+`~/.config/kolu`.
+
+### The home-manager module — the same door, supervised
+
+`services.kolu` doesn't invent a different kolu — it execs the package you point
+it at (normally that same production wrapper) as a **user service**: a systemd
+unit on Linux, a LaunchAgent on macOS, with your configured `--host`/`--port`,
+`Restart=on-failure`, and the `kaval-tui`/`padi-tui` CLIs dropped onto your
+PATH. Identity-wise it is byte-for-byte the first row: production folder,
+production badge. The service manager only supervises the *server*; the padi and
+kaval daemons it spawns outlive service restarts by design (that is the
+kaval-survivors feature), which is precisely why a stray dev process being able
+to adopt or kill them was so dangerous — the daemons are long-lived and carry
+your terminals.
+
+### `just dev` — a private universe per worktree
+
+`just dev` (and `just dev-auto`, which picks two random free ports so a second
+worktree never collides) enters the nix shell and runs the dev server via the
+kolu-cli `dev` script — and that script's first act is the whole story: it sets
+`KOLU_STATE_DIR=<worktree>/.kolu-dev` **and**
+`KOLU_PADI_STATE_DIR=<worktree>/.kolu-dev/padi`. A private folder means a
+private digest, which means a **different daemon identity entirely**: dev padi,
+dev kaval, dev sockets, all namespaced to the worktree, structurally incapable
+of colliding with production's. No badge is set — and none is needed, because
+nothing here ever reaches for production's folder. Before the fix, only the
+*server* half of this isolation existed (`KOLU_STATE_DIR`); the padi half
+silently defaulted to production's root — that missing second export was the
+#1334 hole, and Lock 1 is what turns any future recurrence of it into a crash
+instead of a takeover.
+
 ## What you feel afterwards
 
 - `vitest` on your machine: fast, harmless, forks nothing.
