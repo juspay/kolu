@@ -14,33 +14,21 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GrokSession } from "./core.ts";
 import type { GrokInfo } from "./schemas.ts";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
 import { createGrokWatcher } from "./session-watcher.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let tmp: string;
-let realWatch: typeof fs.watch;
+let restoreWatch: () => void;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-grok-floor-"));
-  realWatch = fs.watch;
-  // Drop every fs.watch edge so only the statSync poll floor can recover.
-  fs.watch = (() => ({
-    close: () => {},
-    on() {
-      return this;
-    },
-    ref() {
-      return this;
-    },
-    unref() {
-      return this;
-    },
-  })) as unknown as typeof fs.watch;
+  restoreWatch = suppressFsWatchEdges(); // only the statSync poll floor recovers
 });
 
 afterEach(() => {
-  fs.watch = realWatch;
+  restoreWatch();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

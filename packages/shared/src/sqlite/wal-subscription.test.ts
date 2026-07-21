@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWalSubscription } from "./wal-subscription.ts";
 
@@ -23,28 +24,16 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const overOneInterval = () => sleep(1400);
 
 let tmp: string;
-let realWatch: typeof fs.watch;
+let restoreWatch: () => void;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-wal-floor-"));
-  realWatch = fs.watch;
-  // Drop every fs.watch edge — the floor must recover on its own.
-  fs.watch = (() => ({
-    close: () => {},
-    on() {
-      return this;
-    },
-    ref() {
-      return this;
-    },
-    unref() {
-      return this;
-    },
-  })) as unknown as typeof fs.watch;
+  // Drop every fs.watch edge — the statSync poll floor must recover on its own.
+  restoreWatch = suppressFsWatchEdges();
 });
 
 afterEach(() => {
-  fs.watch = realWatch;
+  restoreWatch();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

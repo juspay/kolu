@@ -37,9 +37,9 @@
  *   cannot observe. No startup reconciliation closes it, because there is no
  *   readiness edge to schedule against.
  * - **Hand-rolled `statSync` poll — CHOSEN.** Capturing the baseline
- *   `statKey` **synchronously at subscribe** makes that window non-existent *by
- *   construction*: every change after subscribe is compared against a key this
- *   module owns. `statSync` also throws the **real errno** directly, so ENOENT
+ *   observation **synchronously at subscribe** makes that window non-existent
+ *   *by construction*: every change after subscribe is compared against a stat
+ *   identity this module owns. `statSync` also throws the **real errno** directly, so ENOENT
  *   (expected-absent) stays silent and any other errno (EACCES) surfaces — with
  *   no second disambiguating stat (which `fs.watchFile`'s errno-less StatWatcher
  *   would have forced). The full key `size:mtimeMs:ino` keeps everything
@@ -60,6 +60,16 @@
  * same-inode WAL rewind (probe-verified). The edge path remains the primary
  * lane and the WAL's parent-dir inode-rearm fires an unconditional kick that
  * recovers that write; the poll is a *floor*, not a replacement for the edge.
+ *
+ * One edge-lifecycle note: the `fs.watch` edge is armed **once** and is not
+ * re-armed on inode replacement. The poll detects a rotation (its `ino` key
+ * moves), but the edge stays bound to the dead inode and goes silent, so a
+ * *rotated* file falls back to poll-latency recovery for its fast path. The two
+ * append-only session files (grok `events.jsonl`, claude transcript) don't
+ * rotate; the SQLite WAL does (checkpoint delete+recreate), and its consumer
+ * re-arms a fresh edge sub-interval via the parent-dir watcher rather than
+ * relying on this floor's cadence — so edge continuity across rotation is the
+ * consumer's concern where it matters, not the primitive's.
  */
 
 import fs from "node:fs";
@@ -110,7 +120,8 @@ function observe(
     const s = fs.statSync(filePath);
     return { kind: "present", key: `${s.size}:${s.mtimeMs}:${s.ino}` };
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
+    if ((err as NodeJS.ErrnoException).code === "ENOENT")
+      return { kind: "absent" };
     log?.error({ err, path: filePath }, `${tag}: stat failed`);
     return { kind: "error" };
   }
@@ -151,7 +162,6 @@ export function subscribeFileAppends(
   opts: SubscribeFileAppendsOpts,
 ): () => void {
   const { intervalMs, log, label } = opts;
-  const tag = label;
   let closed = false;
 
   // Single guarded funnel for BOTH emission paths (the poll and the edge). A
@@ -166,7 +176,7 @@ export function subscribeFileAppends(
     try {
       onChange();
     } catch (err) {
-      log?.error({ err, path: filePath }, `${tag}: onChange threw`);
+      log?.error({ err, path: filePath }, `${label}: onChange threw`);
     }
   };
 
@@ -179,10 +189,10 @@ export function subscribeFileAppends(
   // nothing (F6 — an unreadable stat is not evidence the state changed). Self-
   // rescheduling so a slow stat never stacks; `.unref()`'d so it never holds the
   // process alive.
-  let observed = observe(filePath, log, tag);
+  let observed = observe(filePath, log, label);
   let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
     if (closed) return;
-    const cur = observe(filePath, log, tag);
+    const cur = observe(filePath, log, label);
     if (cur.kind !== "error" && !sameState(cur, observed)) {
       observed = cur;
       emit();
@@ -205,7 +215,7 @@ export function subscribeFileAppends(
     watcher = fs.watch(filePath, emit);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error({ err, path: filePath }, `${tag}: fs.watch failed`);
+      log?.error({ err, path: filePath }, `${label}: fs.watch failed`);
     }
   }
 

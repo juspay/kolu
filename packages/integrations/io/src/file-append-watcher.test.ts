@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeFileAppends } from "./file-append-watcher.ts";
+import { suppressFsWatchEdges } from "./suppress-fs-watch.testutil.ts";
 
 const INTERVAL = 80;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -21,33 +22,19 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const settle = () => sleep(INTERVAL * 3 + 60);
 
 let tmp: string;
-let realWatch: typeof fs.watch;
+let restoreWatch: (() => void) | null = null;
 
-/** Replace `fs.watch` with a no-op so the EDGE never fires — only the `statSync`
- *  poll floor can recover. Restored in afterEach. */
 function suppressEdge(): void {
-  realWatch = fs.watch;
-  fs.watch = (() => ({
-    close: () => {},
-    on() {
-      return this;
-    },
-    ref() {
-      return this;
-    },
-    unref() {
-      return this;
-    },
-  })) as unknown as typeof fs.watch;
+  restoreWatch = suppressFsWatchEdges();
 }
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-append-watch-"));
-  realWatch = fs.watch;
 });
 
 afterEach(() => {
-  fs.watch = realWatch;
+  restoreWatch?.();
+  restoreWatch = null;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

@@ -149,27 +149,11 @@ export function transcriptPathFor(session: SessionFile): string {
   return path.join(projectDir, `${session.sessionId}.jsonl`);
 }
 
-/**
- * Find the JSONL transcript path for a session — exact match by session ID,
- * or null if the file doesn't exist yet.
- *
- * Returns null if the file doesn't exist yet (common: claude creates the
- * JSONL lazily on the first user↔assistant exchange, not at session start).
- * Callers should treat null as "wait and retry", not as "give up".
- *
- * No MRU fallback: picking the most recently modified file in the project
- * dir leads to attaching to a stale previous-session transcript while the
- * current session's file is still being created. Better to wait.
- */
-export function findTranscriptPath(session: SessionFile): string | null {
-  const exactPath = transcriptPathFor(session);
-  try {
-    fs.accessSync(exactPath);
-    return exactPath;
-  } catch {
-    return null;
-  }
-}
+// (The old `findTranscriptPath` existence-probe is retired: the session watcher
+// now subscribes unconditionally on `transcriptPathFor` (juspay/kolu#1754), so
+// the "wait for the file to exist" probe has no caller. Its no-MRU-fallback
+// contract is now structurally impossible to violate — `transcriptPathFor` is a
+// pure `path.join` that never scans a directory.)
 
 // --- JSONL reading ---
 

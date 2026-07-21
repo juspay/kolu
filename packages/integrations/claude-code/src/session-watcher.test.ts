@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { suppressFsWatchEdges } from "kolu-io/suppress-fs-watch.testutil";
 
 // PROJECTS_DIR is captured at module load; setting it also disables the
 // summary-fetch CLI spawn. Point it at a temp dir before importing the watcher.
@@ -36,29 +37,17 @@ const BASE = Date.parse("2026-07-20T00:00:00.000Z");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let transcriptPath: string;
-let realWatch: typeof fs.watch;
+let restoreWatch: () => void;
 
 beforeEach(() => {
-  realWatch = fs.watch;
-  fs.watch = (() => ({
-    close: () => {},
-    on() {
-      return this;
-    },
-    ref() {
-      return this;
-    },
-    unref() {
-      return this;
-    },
-  })) as unknown as typeof fs.watch;
+  restoreWatch = suppressFsWatchEdges();
   const dir = path.join(projectsDir, encodeProjectPath(CWD));
   fs.mkdirSync(dir, { recursive: true });
   transcriptPath = path.join(dir, `${SESSION_ID}.jsonl`);
 });
 
 afterEach(() => {
-  fs.watch = realWatch;
+  restoreWatch();
   fs.rmSync(transcriptPath, { force: true });
 });
 
