@@ -1,6 +1,6 @@
 ---
-title: Agent Notifications — One Model, One Place
-description: When an agent finishes or asks a question, kolu can play a sound, show a popup, badge the app icon, and mark the dock and host tab. Today those rules live in three modules split by which host you're looking at, so the same terminal behaves differently depending on focus. This note writes down the rules kolu should follow, and puts them in one place.
+title: Agent Attention — One Model, One Place
+description: When an agent finishes or asks a question, kolu can play a sound, show a popup, badge the app icon, and mark the dock and host tab. Today those rules live in three modules split by which host you're looking at, so the same terminal behaves differently depending on focus. This note picks one word for it — attention — writes down the rules kolu should follow, and puts them in one place.
 parents: [analysis]
 status: proposed
 maturity: seedling
@@ -11,11 +11,12 @@ import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import Footnote from "../../components/Footnote.astro";
 import Svg from "../../components/Svg.astro";
-import diagram from "../../diagrams/agent-notifications.svg?raw";
+import diagram from "../../diagrams/agent-attention.svg?raw";
 
 When an agent finishes a turn, or stops to ask you a question, kolu can react in
 several ways: play a sound, show an OS popup, badge the app icon, put a mark on the
-host tab, and color the dot in the dock. All of that is "notifications."
+host tab, and color the dot in the dock. All of that is one thing: getting your
+**attention**.
 
 The reactions themselves are fine. The problem is **where the rules live**. They're
 spread across three modules, split by one thing that shouldn't matter: **whether
@@ -30,6 +31,21 @@ on the host you're looking at plays a sound. That split is why the whole thing i
 hard to reason about.
 
 <Svg svg={diagram} wide caption="Today three modules hold the rules, split by whether you're looking at the host. The fix is one module that applies the same rules everywhere, sitting on top of the existing delivery code." />
+
+## One word: attention
+
+The code calls this three different things — *alerts*, *attention*, *notifications*
+— which is half the confusion. Pick one: **attention** (the system that decides when
+a terminal needs you, and how to show it). The renames that follow:
+
+- `useTerminalAlerts` + `useHostAttention` → fold into one `useAttention`.
+- the `activityAlerts` setting → `attention` (a stored key, so it needs a small
+  rename-with-migration).
+- `fireActivityAlert` → an internal step inside `useAttention`.
+
+Keep the word **notification** for one thing only: the OS/browser popup — that's the
+platform's own word (the `Notification` API). It's a *channel* attention uses, not
+the concept.
 
 ## What you should experience
 
