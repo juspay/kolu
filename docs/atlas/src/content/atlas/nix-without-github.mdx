@@ -1,0 +1,141 @@
+---
+title: "Nix Without GitHub"
+description: "How kolu's Nix builds can stop depending on GitHub — the four dependency layers, why we're already most of the way there, and the small moves that close the gap."
+parents: [analysis]
+status: proposed
+maturity: seedling
+updated: 2026-07-21
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import Svg from "../../components/Svg.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import layers from "../../diagrams/nix-without-github-layers.svg?raw";
+
+A night of CI kept dying on GitHub: an unauthenticated `api.github.com` call
+hit its 60-request/hour ceiling on a shared CI egress IP and 403'd
+`ci::nix`/`ci::home-manager` across every cold pool box.<Footnote>2026-07-21. The
+pool's shared egress IP `219.65.110.2` exhausted the anonymous GitHub REST limit;
+a leased box read "healthy" (it probes the Nix cache, not GitHub) yet 403'd the
+moment Nix's fetcher resolved a `github:` ref. Tracked in <Issue n={1204} />.</Footnote>
+The reflex fix is "add a token." The better question is the one that removes the
+failure class: **what does it take for a kolu build to not touch GitHub at all?**
+
+The good news is that kolu is already most of the way there — by deliberate
+design decisions that predate this incident. The gap is small and nameable.
+
+## The four layers of GitHub dependency
+
+"Depending on GitHub" is not one thing. A Nix build touches GitHub in up to four
+distinct ways, each with a different failure mode and a different fix. Tonight's
+outage was **only the first** — the one kolu is closest to eliminating.
+
+<Svg
+  svg={layers}
+  wide
+  caption="Where a kolu build reaches GitHub today. Green = already pinned to an immutable value (no live API call). Red = the one residual live dependency (a transitive unpinned ref inside devour-flake). The binary cache (gold) is the lever that makes every source fetch optional."
+/>
+
+### The REST API (Layer 1 — tonight's outage)
+
+Nix resolves an **unpinned** `github:owner/repo` ref by asking
+`api.github.com/repos/owner/repo/commits/HEAD` for the current revision — the
+rate-limited call. A ref **pinned to a full 40-hex commit SHA** skips that call
+entirely and pulls the tarball from `codeload.github.com` instead, which is not
+the rate-limited API.<Footnote>Verified by an empty-store `nix build … -vvvv`
+trace during <PrLink pr={1917} />: a rev-pinned `github:` ref made zero
+`api.github.com` requests; an unpinned one made the HEAD-resolution call that
+403'd. This is why <PrLink pr={1917} /> — pinning `devour-flake` to a rev — was
+the right instinct, and why a full SHA (not a branch/tag) is load-bearing.</Footnote>
+
+**kolu's own builds already make no REST-API calls.** The flake has *zero
+inputs* on purpose,<Footnote>Documented in `flake.nix`: each flake input adds
+~1.5s of fetcher-cache verification to a cold `nix develop`, so nixpkgs is
+imported via npins in `nix/nixpkgs.nix` rather than as a flake input. The perf
+decision bought API-independence for free.</Footnote> and every external source
+is pinned by rev **and** `narHash` through **npins** (`npins/sources.json` —
+`nixpkgs`, `odu`, colour schemes). npins resolves nothing at build time; it
+fetches an immutable tarball.
+
+The single residual REST call is **not kolu's** — it is *inside* `devour-flake`.
+`ci::home-manager` passes `--override-input flake/kolu .`, which forces Nix to
+re-resolve `devour-flake`'s own lockfile, and `devour-flake` pins its `nixpkgs`
+to the **unpinned branch** `github:nixos/nixpkgs/nixpkgs-unstable` — so that
+branch's HEAD is resolved via the REST API.
+
+### GitHub as a source host (Layer 2)
+
+Even with every ref pinned, the *tarballs* still come from `codeload.github.com`.
+A build only reaches it when the **binary cache misses** — a cold box with an
+empty store. A warm box, or any box whose substituter already holds the built
+closure, never fetches source from GitHub at all.
+
+### GitHub as the code-of-truth (Layer 3)
+
+The repository itself (and `odu`) live on GitHub; remote CI lanes `git fetch` the
+pushed SHA. Removing this means self-hosting a forge mirror — a larger
+organizational move, named here for completeness but out of scope for the Nix
+layer.
+
+### The binary cache is the real lever (Layer 4)
+
+The cache — `cache.nixos.asia/oss` (kolu's `nixConfig` substituter) plus Nix's
+default `cache.nixos.org` — is **not GitHub**, but it *is* the dependency that
+actually decides whether a build touches GitHub. If the cache holds the complete
+closure, Layers 1–2 never fire. Tonight's *second* failure proves the point: a
+cold box's `ci::nix` also stalled on `cache.nixos.org` egress (`<1 byte/sec for
+300s`) — a cache-CDN fault that has nothing to do with GitHub and that a complete,
+reliable private cache would have absorbed.
+
+## The plan
+
+Three moves, independent, in leverage order. `GH1` is a one-line change that
+closes tonight's exact failure; `GH2` is the durable fix; `GH3` is the optional
+end-state.
+
+| Id | Move | What it removes | Size |
+| --- | --- | --- | --- |
+| **GH1** | Pin `devour-flake`'s transitive nixpkgs | The last live REST-API call → the 403 class | One recipe flag |
+| **GH2** | Complete + primary private binary cache | Every source fetch to GitHub (Layers 1–2) *and* the `cache.nixos.org` egress fragility | Infra |
+| **GH3** | Self-hosted forge + source mirror | GitHub as source host & code-of-truth (Layer 3) | Org-level |
+
+### GH1 — close the transitive REST call
+
+`ci::nix` and `ci::home-manager` already override `devour-flake`'s `flake` input
+(`ci/mod.just:101,120`). Add a second override so `devour-flake`'s `nixpkgs`
+resolves to kolu's **already-pinned** npins nixpkgs rev instead of the unpinned
+`nixpkgs-unstable` branch — e.g. `--override-input nixpkgs <pinned>`.<Footnote>The
+exact input name (`nixpkgs`) should be confirmed against `nix flake metadata
+github:srid/devour-flake` before writing the flag; the mechanism is the point.
+An alternative is a token in the CI boxes' `nix.conf` (`access-tokens =
+github.com=…`), which raises the anon limit — but it *mitigates* rather than
+*eliminates* the dependency, and provisions a secret onto shared boxes, so it is
+the weaker option.</Footnote> Net: zero `api.github.com` calls in CI. This is the
+cheapest move and it directly retires <Issue n={1204} />'s failure class.
+
+### GH2 — make the private cache complete and authoritative
+
+The binary cache is what makes GitHub optional. To get there: ensure every CI
+build **pushes** its outputs to `cache.nixos.asia/oss` for every platform, so a
+cold box substitutes the full closure instead of source-building; and treat that
+cache as primary so a `cache.nixos.org` hiccup can't stall a lane. A warm,
+complete, self-owned cache collapses Layers 1 and 2 to a cold-start fallback and
+removes the CDN-egress fragility in one stroke — the highest-leverage move here.
+
+### GH3 — self-host the forge (optional end-state)
+
+Only self-hosting the git forge (and mirroring the npins/`devour-flake` sources
+to it or to the cache) removes GitHub as the source-of-truth and the CI trigger.
+This is an organizational decision beyond the Nix layer; it is the *only* piece
+that makes the dependency literally zero, and it is not required to end the
+incident class — GH1 + GH2 already do that.
+
+<Callout kind="accent" title="The one-line takeaway">
+  kolu already makes **no GitHub REST calls of its own** — zero flake inputs plus
+  npins rev-pinning bought that. The remaining GitHub dependence is one
+  unpinned transitive ref (**GH1**, a one-line fix) and source-fetch on a cache
+  miss (**GH2**, a complete private cache). The lever is the **binary cache**,
+  not GitHub itself.
+</Callout>
