@@ -32,9 +32,9 @@ export function createGrokWatcher(
   let destroyed = false;
   let lastInfo: GrokInfo | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const watchers: fs.FSWatcher[] = [];
-  // Unsubscribes for the append-robust floor (juspay/kolu#1754), torn down
-  // alongside the raw watchers.
+  // One teardown collection for every "run on destroy" concern: raw fs.watch
+  // handles wrap to `() => w.close()`, and the append-robust floor
+  // (juspay/kolu#1754) already returns an unsubscribe of the same shape.
   const cleanups: Array<() => void> = [];
 
   function emitIfChanged(): void {
@@ -73,7 +73,7 @@ export function createGrokWatcher(
     // next events tick, never lies about state. Never mkdir.
     try {
       const w = fs.watch(p, () => schedule());
-      watchers.push(w);
+      cleanups.push(() => w.close());
       return;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -98,7 +98,7 @@ export function createGrokWatcher(
           schedule();
         }
       });
-      watchers.push(w);
+      cleanups.push(() => w.close());
     } catch (err2) {
       log?.debug(
         { err: err2, path: p },
@@ -150,18 +150,10 @@ export function createGrokWatcher(
         try {
           c();
         } catch {
-          /* ignore unsubscribe races */
+          /* ignore teardown races */
         }
       }
       cleanups.length = 0;
-      for (const w of watchers) {
-        try {
-          w.close();
-        } catch {
-          /* ignore close races */
-        }
-      }
-      watchers.length = 0;
       log?.info({ session: session.id }, "grok: session watcher retired");
     },
   };
