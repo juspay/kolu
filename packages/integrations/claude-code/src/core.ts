@@ -411,6 +411,46 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
   return classifyByAwaiting(awaiting, total);
 }
 
+/** Stop reasons on a *finalized* assistant message that mean the turn is NOT
+ *  done — the harness will resume it — so the pill stays a working state rather
+ *  than clearing to `waiting`. This is deliberately a small, bounded
+ *  CONTINUATION set, NOT an open terminal allow-list: any OTHER populated
+ *  `stop_reason` — `end_turn`, `max_tokens`, `stop_sequence`, `refusal`, or an
+ *  emulated Messages-API provider's own marker (ollama's `"stop"`, …) — means
+ *  the turn yielded → `waiting`. Tracking the small continuation set is robust
+ *  to new emulator vocab; the next SDK continuation reason is added HERE (a
+ *  discoverable extension point), from the canonical union
+ *  `@anthropic-ai/sdk`'s `StopReason`
+ *  (`end_turn | max_tokens | stop_sequence | tool_use | pause_turn | refusal`).
+ *
+ *  Failure-direction trade-off (disclosed, #1754): the pre-fix bug failed
+ *  CLOSED — a non-`end_turn` reason stranded on a *working* state (annoying but
+ *  safe). This deny-list fails OPEN — a future continuation reason not listed
+ *  here would clear the pill EARLY ("done" while the agent still works, so a
+ *  user could type over a live turn). Accepted because the continuation set is
+ *  small and rarely grows, but it is precisely why a new continuation reason
+ *  must be added to this set. `tool_use` is included for semantic completeness
+ *  though it never reaches the fallthrough (it has its own explicit derive arm
+ *  → `tool_use`/`awaiting_user` upstream). */
+const CONTINUATION_STOP_REASONS: ReadonlySet<string> = new Set([
+  "tool_use",
+  "pause_turn",
+]);
+
+/** State for a trailing `assistant` entry whose `stop_reason` was neither
+ *  `end_turn` nor `tool_use` (both handled by explicit arms upstream). A
+ *  populated `stop_reason` means the message finalized: unless it is a
+ *  CONTINUATION reason (`pause_turn` — the turn will resume), the turn has
+ *  yielded → `waiting`. A `null`/absent `stop_reason` is a not-yet-finalized
+ *  message (mid-stream, or a `claude -c` synthetic replay) → still `thinking`.
+ *  Exported for the #1754 fold pins. */
+export function assistantTailState(
+  stopReason: string | null,
+): "waiting" | "thinking" {
+  if (stopReason === null) return "thinking";
+  return CONTINUATION_STOP_REASONS.has(stopReason) ? "thinking" : "waiting";
+}
+
 /** Derive Claude Code state from the last relevant JSONL message.
  *
  *  Walks backwards once, tracking two independent signals with different
@@ -505,8 +545,13 @@ export function deriveState(
             state: toolUseOrAwaitingUser(entry.message?.content),
             model,
           }))
-          .with({ type: "assistant" }, () => ({
-            state: "thinking" as const,
+          // #1754: a finalized assistant tail that yielded (any populated
+          // non-`tool_use`/non-`pause_turn` stop_reason — `end_turn` is matched
+          // above; `max_tokens`/`stop_sequence`/`refusal`/emulator `"stop"`
+          // land here) reads `waiting`, not stuck `thinking`. `pause_turn` and a
+          // null/streaming stop_reason stay `thinking` (see `assistantTailState`).
+          .with({ type: "assistant" }, ({ stopReason }) => ({
+            state: assistantTailState(stopReason),
             model,
           }))
           .with({ type: "user" }, () => ({
@@ -1174,6 +1219,54 @@ export function outstandingForkRuns(
  *  decay. A false positive self-heals: the next transcript write fires the
  *  watcher and re-derives the true state. */
 export const TRANSIENT_STALE_MS = 2 * 60 * 1000;
+
+/** M1 (#1754) append-robust re-poll cadence. While a stranding-prone working
+ *  state is published, re-read the transcript tail off our OWN timer this often
+ *  — so a completion append whose `fs.watch` event was coalesced/dropped is
+ *  picked up within one interval instead of stranding the pill for the whole
+ *  poll window. Below user-perceptible lag (the field strand was ~60 s), above
+ *  `TRANSCRIPT_DEBOUNCE_MS` (150 ms) so it can't thrash the debounce. */
+export const APPEND_REPOLL_MS = 750;
+
+/** M1 (#1754) settle window: the re-poll only runs while the transcript was
+ *  written within this window (measured by `transcriptQuietMs`), and the window
+ *  RESETS on every observed write. Correctness bound (not merely cost): an
+ *  `fs.watch` event can only be dropped *near* a write, so polling long after
+ *  the last transcript activity cannot recover an event that was never going to
+ *  fire — it is pure waste. A genuinely long turn keeps emitting real appends
+ *  that fire `fs.watch` and reset this window, so the re-poll is the quiet-tail
+ *  backstop, not a standing poll. Generous (comfortably above the debounce and
+ *  any normal inter-write gap) so the practical strand-gap is nil. */
+export const APPEND_SETTLE_WINDOW_MS = 10 * 1000;
+
+/** M1 (#1754) policy: when (if ever) to arm the append-robust re-poll, given the
+ *  state about to be published and how long the transcript has been quiet. Pure
+ *  — the watcher folds the returned deadline into its existing one-shot recheck
+ *  timer (`min` with any decay/workflow-stale deadline).
+ *
+ *   - not a stranding-prone working state (`thinking`/`tool_use`) → no re-poll
+ *     (a terminal `waiting`/`running_background`/`awaiting_user` can't be
+ *     stranded by a missed *completion* append, so this is self-terminating).
+ *   - quiet unknown (stat failed) or past the settle window → no re-poll (the
+ *     drop is unrecoverable this far from a write; see `APPEND_SETTLE_WINDOW_MS`).
+ *   - otherwise → re-poll at `now + repollMs`.
+ *
+ *  Interaction with `decayTransientState`: for `thinking` (non-orphaned) decay
+ *  returns `recheckAt: null`, so this re-poll is the ONLY recheck (the genuine
+ *  net-new coverage). For `tool_use`, decay already re-arms at
+ *  `TRANSIENT_STALE_MS` (2 min); folding this in tightens that recheck to the
+ *  re-poll cadence within the window (a large factor sooner). */
+export function appendRepollDeadline(
+  state: ClaudeCodeInfo["state"],
+  quietMs: number | null,
+  now: number,
+  repollMs: number = APPEND_REPOLL_MS,
+  windowMs: number = APPEND_SETTLE_WINDOW_MS,
+): number | null {
+  if (state !== "thinking" && state !== "tool_use") return null;
+  if (quietMs === null || quietMs >= windowMs) return null;
+  return now + repollMs;
+}
 
 /** One process-table row: a pid and its parent pid. */
 export interface ProcEntry {

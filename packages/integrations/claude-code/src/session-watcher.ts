@@ -13,6 +13,7 @@ import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
+  appendRepollDeadline,
   completedBackgroundTaskIds,
   decayTransientState,
   deriveState,
@@ -84,6 +85,16 @@ const TRANSCRIPT_DEBOUNCE_MS = 150;
  *  over V8's 4 GB ceiling. 1 MB bounds peak transient memory regardless
  *  of file size. */
 const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
+
+/** Soonest of two one-shot recheck deadlines, either possibly null ("no
+ *  deadline"). Used to fold the M1 append re-poll into the existing
+ *  decay/workflow-stale deadline so `scheduleStaleRecheck` always arms the
+ *  earliest — one never suppresses the other. */
+function earliestDeadline(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.min(a, b);
+}
 
 // --- Transcript watching lifecycle ---
 
@@ -429,6 +440,18 @@ export function createSessionWatcher(
         );
         publishedState = decayed.state;
         staleDeadline = decayed.recheckAt;
+        // M1 (#1754): append-robust re-poll. A completion append landing AFTER
+        // attach whose fs.watch event is coalesced/dropped would otherwise
+        // strand a working state (the fs.watch fire is today the sole re-derive
+        // trigger, and a non-orphaned trailing `thinking` arms no decay
+        // recheck). While a stranding-prone working state is published and the
+        // transcript was written within the settle window, arm a short re-poll
+        // that re-reads the tail off our own timer — folded (soonest wins) with
+        // any decay/stale deadline so it never delays a sooner recheck.
+        staleDeadline = earliestDeadline(
+          staleDeadline,
+          appendRepollDeadline(publishedState, quietMs, now),
+        );
       }
     }
     scheduleStaleRecheck(staleDeadline);
