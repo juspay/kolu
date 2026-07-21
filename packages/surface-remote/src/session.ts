@@ -62,6 +62,13 @@ import type { LogEntry } from "./connection";
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
+/** Default pre-connected LIVENESS backstop bound (#1908 R8b) — 20min. Exported so the
+ *  cross-module ordering invariant (this MUST exceed the ssh connector's max budgeted
+ *  step silence, `PROVISION_STEP_SILENCE_BASE_MS × 2^(PROVISION_STEP_MAX_EXPIRIES − 1)`,
+ *  so the per-step budget always fires first on copy/build) can be asserted by a test
+ *  that binds the REAL value rather than a copy. See `MakeSessionOptions.preConnectedLivenessMs`. */
+export const DEFAULT_PRE_CONNECTED_LIVENESS_MS = 1_200_000;
+
 /** The dead-man ceiling for a LOCAL arm's liveness watchdog (see
  *  {@link Connection.processAlive}). When the same-box process oracle reports the padi
  *  ALIVE but its heartbeat has stayed silent this long, the process is
@@ -496,7 +503,8 @@ export function makeSession<
   // The pre-connected liveness backstop bound (#1908 R8b) — 20min default, safely above
   // the ssh connector's 960s max budgeted step-silence (C1) so the per-step budget
   // always fires first on copy/build; this only bites a genuinely silent campaign.
-  const preConnectedLivenessMs = opts.preConnectedLivenessMs ?? 1_200_000;
+  const preConnectedLivenessMs =
+    opts.preConnectedLivenessMs ?? DEFAULT_PRE_CONNECTED_LIVENESS_MS;
   // Cadence for re-attempting a FAILED `system.clockNow` offset probe while the
   // session stays connected. Readiness is link-liveness (a failed probe leaves the
   // link `connected` with an honest `clockOffset: null`), so the probe is not on the
