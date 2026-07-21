@@ -200,6 +200,14 @@ atlas-sync:
     {{ nix_shell }} just atlas::check-sync
 
 
+# ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
+# Thin wrappers over `nix run .#odu` so the live dashboard is one just away.
+# Unreachable from `default`, so the runner never schedules them.
+
+# Attach a live dashboard to a run in progress (paints over `.ci/odu.sock`).
+attach:
+    nix run .#odu -- attach
+
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're
 # unreachable from `default` and the runner never schedules them. They manage
