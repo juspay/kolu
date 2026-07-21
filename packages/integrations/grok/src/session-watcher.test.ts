@@ -76,4 +76,49 @@ describe("grok watcher — append-robust floor (#1754)", () => {
     expect(states.at(-1)).toBe("waiting");
     watcher.destroy();
   });
+
+  it("picks up events.jsonl appearing after the watcher subscribes (Q7 unconditional)", async () => {
+    // Session dir + summary.json exist (Grok made the session), but
+    // events.jsonl hasn't been flushed yet — the old dir-watch bootstrap never
+    // re-armed a file watch once it appeared (the macOS kqueue hole this PR
+    // closes). Subscribe unconditionally instead and prove the floor's
+    // absent→present reconcile fires with no fs.watch edge at all.
+    const dir = path.join(tmp, "sessions", "cwd", "sess2");
+    fs.mkdirSync(dir, { recursive: true });
+    const eventsPath = path.join(dir, "events.jsonl");
+    const summaryPath = path.join(dir, "summary.json");
+    fs.writeFileSync(
+      summaryPath,
+      JSON.stringify({
+        info: { id: "sess2", cwd: "/cwd" },
+        current_model_id: "grok-4.5",
+        generated_title: "T",
+        created_at: "2026-07-20T00:00:00.000Z",
+        updated_at: "2026-07-20T00:00:01.000Z",
+      }),
+    );
+    const session: GrokSession = {
+      id: "sess2",
+      cwd: "/cwd",
+      eventsPath,
+      summaryPath,
+      signalsPath: path.join(dir, "signals.json"),
+      startedAt: Date.parse("2026-07-20T00:00:00.000Z"),
+    };
+    expect(fs.existsSync(eventsPath)).toBe(false);
+
+    const states: GrokInfo["state"][] = [];
+    const watcher = createGrokWatcher(session, (i) => states.push(i.state));
+
+    // No events.jsonl yet — deriveGrokInfo's documented missing-file default.
+    expect(states.at(-1)).toBe("thinking");
+
+    // events.jsonl appears with a turn already ended — a real state, distinct
+    // from the missing-file default, so the transition is observable.
+    fs.writeFileSync(eventsPath, `${JSON.stringify({ type: "turn_ended" })}\n`);
+    await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
+
+    expect(states.at(-1)).toBe("waiting");
+    watcher.destroy();
+  });
 });

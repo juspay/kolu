@@ -94,4 +94,37 @@ describe("claude watcher — append-robust floor (#1754)", () => {
     expect(states.at(-1)).toBe("waiting");
     watcher.destroy();
   });
+
+  it("picks up a transcript that appears after the watcher subscribes (Q7 unconditional)", async () => {
+    // No transcript file yet — the old `findTranscriptPath`/none-waiting-watching
+    // machinery would have deferred watching until the projectDir bootstrap
+    // fired. The new wiring subscribes on `transcriptPathFor` unconditionally,
+    // so nothing should be emitted until the file exists.
+    expect(fs.existsSync(transcriptPath)).toBe(false);
+
+    const states: string[] = [];
+    const watcher = createSessionWatcher(
+      { pid: process.pid, sessionId: SESSION_ID, cwd: CWD, startedAt: BASE },
+      (info: ClaudeCodeInfo) => states.push(info.state),
+      silentLog,
+    );
+    await sleep(50);
+    expect(states).toEqual([]); // absent file: reads as [], derives nothing
+
+    // The transcript appears (Claude lazily creates it after the first
+    // message) with no fs.watch edge (suppressed in beforeEach) — only the
+    // poll floor's absent→present reconcile can pick this up.
+    fs.writeFileSync(
+      transcriptPath,
+      line({
+        type: "user",
+        timestamp: new Date(BASE + 1000).toISOString(),
+        message: { role: "user", content: "quick thing" },
+      }),
+    );
+    await sleep(DEFAULT_APPEND_POLL_MS + 400); // > one poll interval
+
+    expect(states.at(-1)).toBe("thinking");
+    watcher.destroy();
+  });
 });
