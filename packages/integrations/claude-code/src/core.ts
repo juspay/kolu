@@ -411,16 +411,21 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
   return classifyByAwaiting(awaiting, total);
 }
 
-/** Stop reasons on a *finalized* assistant message that mean the turn is NOT
- *  done — the harness will resume it — so the pill stays a working state rather
- *  than clearing to `waiting`. This is deliberately a small, bounded
- *  CONTINUATION set, NOT an open terminal allow-list: any OTHER populated
- *  `stop_reason` — `end_turn`, `max_tokens`, `stop_sequence`, `refusal`, or an
- *  emulated Messages-API provider's own marker (ollama's `"stop"`, …) — means
- *  the turn yielded → `waiting`. Tracking the small continuation set is robust
- *  to new emulator vocab; the next SDK continuation reason is added HERE (a
- *  discoverable extension point), from the canonical union
- *  `@anthropic-ai/sdk`'s `StopReason`
+/** Continuation `stop_reason`s that reach the assistant *fallthrough* arm and
+ *  mean the turn is NOT done — the harness will resume it — so the pill stays
+ *  `thinking` rather than clearing to `waiting`. Today that is only `pause_turn`
+ *  (Anthropic's server-tool pause). `tool_use` is ALSO a continuation reason but
+ *  is handled by its own explicit arm upstream (→ `tool_use`/`awaiting_user`),
+ *  so it never reaches here and is deliberately NOT listed — listing it would be
+ *  dead and would invite deleting that upstream arm.
+ *
+ *  This is deliberately a small, bounded DENY-list, NOT an open terminal
+ *  allow-list: any OTHER populated `stop_reason` — `end_turn`, `max_tokens`,
+ *  `stop_sequence`, `refusal`, or an emulated Messages-API provider's own marker
+ *  (ollama's `"stop"`, …) — means the turn yielded → `waiting`. Tracking the
+ *  small continuation set is robust to new emulator vocab; the next SDK
+ *  continuation reason is added HERE (a discoverable extension point), from the
+ *  canonical union `@anthropic-ai/sdk`'s `StopReason`
  *  (`end_turn | max_tokens | stop_sequence | tool_use | pause_turn | refusal`).
  *
  *  Failure-direction trade-off (disclosed, #1754): the pre-fix bug failed
@@ -429,13 +434,8 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
  *  here would clear the pill EARLY ("done" while the agent still works, so a
  *  user could type over a live turn). Accepted because the continuation set is
  *  small and rarely grows, but it is precisely why a new continuation reason
- *  must be added to this set. `tool_use` is included for semantic completeness
- *  though it never reaches the fallthrough (it has its own explicit derive arm
- *  → `tool_use`/`awaiting_user` upstream). */
-const CONTINUATION_STOP_REASONS: ReadonlySet<string> = new Set([
-  "tool_use",
-  "pause_turn",
-]);
+ *  must be added to this set. */
+const CONTINUATION_STOP_REASONS: ReadonlySet<string> = new Set(["pause_turn"]);
 
 /** State for a trailing `assistant` entry whose `stop_reason` was neither
  *  `end_turn` nor `tool_use` (both handled by explicit arms upstream). A
@@ -541,6 +541,11 @@ export function deriveState(
             state: "waiting" as const,
             model,
           }))
+          // `tool_use` is a continuation reason too, but it resolves to a
+          // richer state (`tool_use`/`awaiting_user`) than the fallthrough's
+          // `thinking`, so it keeps its own explicit arm and is intentionally
+          // absent from `CONTINUATION_STOP_REASONS` (which only lists reasons
+          // that reach the fallthrough below).
           .with({ type: "assistant", stopReason: "tool_use" }, () => ({
             state: toolUseOrAwaitingUser(entry.message?.content),
             model,
@@ -1220,6 +1225,18 @@ export function outstandingForkRuns(
  *  watcher and re-derives the true state. */
 export const TRANSIENT_STALE_MS = 2 * 60 * 1000;
 
+/** The published states that self-clear ONLY via kolu's own recheck timer — no
+ *  fs event announces their end: a trailing `thinking` prompt or a dangling
+ *  `tool_use`. BOTH timer policies key off this one set —
+ *  `decayTransientState` (is the transient abandoned?) and `appendRepollDeadline`
+ *  (recover a dropped completion event) — so a new state that needs
+ *  timer-driven reconciliation is added HERE once, and the two can't diverge and
+ *  silently reintroduce the stranding-pill bug (#1754). */
+const TRANSIENT_WORKING_STATES: ReadonlySet<ClaudeCodeInfo["state"]> = new Set([
+  "thinking",
+  "tool_use",
+]);
+
 /** M1 (#1754) append-robust re-poll cadence. While a stranding-prone working
  *  state is published, re-read the transcript tail off our OWN timer this often
  *  — so a completion append whose `fs.watch` event was coalesced/dropped is
@@ -1263,7 +1280,7 @@ export function appendRepollDeadline(
   repollMs: number = APPEND_REPOLL_MS,
   windowMs: number = APPEND_SETTLE_WINDOW_MS,
 ): number | null {
-  if (state !== "thinking" && state !== "tool_use") return null;
+  if (!TRANSIENT_WORKING_STATES.has(state)) return null;
   if (quietMs === null || quietMs >= windowMs) return null;
   return now + repollMs;
 }
@@ -1351,7 +1368,7 @@ export function decayTransientState(
   staleMs: number = TRANSIENT_STALE_MS,
   now: number = Date.now(),
 ): { state: ClaudeCodeInfo["state"]; recheckAt: number | null } {
-  if (state !== "tool_use" && state !== "thinking") {
+  if (!TRANSIENT_WORKING_STATES.has(state)) {
     return { state, recheckAt: null };
   }
   // A `thinking` turn is childless and quiet whether live or abandoned; only an
