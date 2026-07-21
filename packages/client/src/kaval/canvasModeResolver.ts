@@ -53,7 +53,10 @@ export type CeilingClass = "local" | "remote-provisioning" | "remote-handshake";
 
 /** Which boot leg is still unsettled when the deadline fires — carried on the escape
  *  surface so the failure card can NAME what never arrived (not a mute spinner).
- *  `provisioning` = a remote host binding still copying/building; `membership` = the
+ *  `provisioning` = a remote host binding still coming up — the WHOLE connector-owned warming
+ *  campaign in ANY phase (probing / copying / building / connecting), the ssh connector still
+ *  retrying. So it does NOT imply the `remote-provisioning` {@link CeilingClass}: a probing
+ *  remote is `leg=provisioning` under the `remote-handshake` ceiling. `membership` = the
  *  `entries` snapshot never grounded the active host; `session` = the session/list
  *  subscription hung; `daemon` = the kaval status never reported. There is deliberately NO
  *  `unknown`/catch-all: the `accrue` tag REQUIRES a `leg`, so every overlay return is forced
