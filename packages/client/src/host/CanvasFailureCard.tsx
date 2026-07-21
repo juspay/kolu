@@ -20,9 +20,11 @@
  *  so it sits beside the shell it always renders into instead of forcing each caller to
  *  import a third file. */
 
+import { encodeHostKey } from "kolu-common/hostKey";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { resetBootDeadline } from "../kaval/bootDeadline";
 import { WarningIcon } from "../ui/Icons";
 import { activeHost, client, setActiveHost } from "../wire";
 
@@ -57,7 +59,14 @@ export function switchToLocalAction(): CanvasFailureAction[] {
  *  dial" (`client.hosts.reconnect`, PR1's abort-in-flight `recheck()`). Both failure canvases
  *  (`HostDownCanvas` / `BootStalledCanvas`) plug into this factory rather than hand-wiring the
  *  same `reconnect` call + error toast, so the one connector-recovery verb lives beside the
- *  shared card it renders into (only `label`/`testid` differ per caller). */
+ *  shared card it renders into (only `label`/`testid` differ per caller).
+ *
+ *  It also RESETS this host's boot deadline ({@link resetBootDeadline}) — the deliberate
+ *  user-recovery reset (#1908 R8a): a Retry that recycles the connector must earn a fresh
+ *  class + campaign window at once, so the boot-stalled card dismisses immediately even on a
+ *  same-class retry (where the class anchor would otherwise stay exceeded and the verb would
+ *  look broken). On the host-down card the host is `failed` (its anchor already cleared), so
+ *  the reset is a harmless no-op there. */
 export function reconnectAction(opts: {
   label: string;
   testid: string;
@@ -67,8 +76,10 @@ export function reconnectAction(opts: {
     testid: opts.testid,
     tone: "primary",
     onClick: () => {
+      const host = activeHost();
+      resetBootDeadline(encodeHostKey(host));
       client.hosts
-        .reconnect({ host: activeHost() })
+        .reconnect({ host })
         .catch((err: Error) =>
           toast.error(`Couldn't reconnect: ${err.message}`),
         );

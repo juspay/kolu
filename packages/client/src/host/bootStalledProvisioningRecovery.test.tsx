@@ -25,18 +25,23 @@
  * Mirrors `BootStalledCanvas.test.tsx` (render through `solid-js/web`, mock
  * `../wire` so the socket stack never boots).
  */
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   host: { kind: "remote", target: "zest" } as HostKey,
   reconnect: vi.fn(() => Promise.resolve()),
+  resetBootDeadline: vi.fn(),
 }));
 vi.mock("../wire", () => ({
   activeHost: () => h.host,
   setActiveHost: () => {},
   client: { hosts: { reconnect: h.reconnect } },
+}));
+// The recovery verb resets THIS host's boot deadline (the deliberate user-retry reset, #1908 R8a).
+vi.mock("../kaval/bootDeadline", () => ({
+  resetBootDeadline: h.resetBootDeadline,
 }));
 
 // Imported AFTER the mock so it binds the mocked `../wire`.
@@ -48,6 +53,7 @@ afterEach(() => {
   dispose = undefined;
   document.body.innerHTML = "";
   h.reconnect.mockClear();
+  h.resetBootDeadline.mockClear();
 });
 
 /** The card's primary recovery button (tone: "primary") — the one action that is
@@ -100,6 +106,9 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     // reload the browser page.
     expect(h.reconnect).toHaveBeenCalledWith({ host: h.host });
     expect(reload).not.toHaveBeenCalled();
+    // …and it resets THIS host's boot deadline so the card dismisses at once (a fresh window),
+    // rather than staying up on a same-class retry (#1908 R8a, codex F1).
+    expect(h.resetBootDeadline).toHaveBeenCalledWith(encodeHostKey(h.host));
     reload.mockRestore();
   });
 });

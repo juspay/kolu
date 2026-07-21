@@ -72,8 +72,7 @@ export function canvasMode(deps: {
   // (the narrated subset) at THIS boundary: a `connected`/`disconnected`/`failed` cell phase is
   // not a connect phase → `undefined` (no overlay), so the resolver's arm can carry only a real
   // connect phase and its routing is a plain `!== undefined`.
-  const conn = connectionInfo();
-  const phase = conn?.phase;
+  const phase = connectionInfo()?.phase;
   const connectPhase: ConnectPhase | undefined =
     phase !== undefined && isConnectPhase(phase) ? phase : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`
@@ -128,12 +127,12 @@ export function canvasMode(deps: {
   const members = hostKeys();
   if (members.length > 0) pruneBootAnchors(members.map(encodeHostKey));
   // The #1908 R8a campaign backstop: `bootDeadlineExceeded` folds the class ceiling AND the
-  // class-blind campaign cell on the one monotonic `nowMs`. `recordBootFrame` arms the campaign
-  // cell off the frame's own tag (the connector-owned `provisioning` leg); the server `sinceMs`
-  // is passed ONLY to place that anchor honestly (initial offset + reset detection), never as the
-  // running deadline clock — the elapsed stays client-monotonic (codex F1).
+  // class-blind campaign cell on the one monotonic `nowMs`; `recordBootFrame` arms the campaign
+  // cell off the frame's own tag (the connector-owned `provisioning` leg). Both are pure client-
+  // monotonic — no server `sinceMs` (frame-stamped + wall-clock). A user Retry connection resets
+  // this host's deadline explicitly via `resetBootDeadline` (in the card), not read here.
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
-  recordBootFrame(hostEnc, tag, nowMs, conn?.sinceMs);
+  recordBootFrame(hostEnc, tag, nowMs);
   return mode;
 }
