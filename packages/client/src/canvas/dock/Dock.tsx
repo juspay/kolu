@@ -70,8 +70,17 @@
 import { activeArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
@@ -92,7 +101,15 @@ import {
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
+import { capturePointerGesture } from "../viewport/capturePointerGesture";
 import { chipInitials } from "./chipInitials";
+import {
+  CARDS_WIDTH_PX,
+  clampDockCardsWidth,
+  dockCardsWidth,
+  effectiveDockCardsWidth,
+  setDockCardsWidth,
+} from "./dockCardsWidth";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
@@ -104,14 +121,16 @@ import { useDockOrder } from "./useDockOrder";
 
 export type DockMode = "rail" | "cards";
 
-// Rail width is shared with the right-panel rail via
-// `RAIL_WIDTH_PX` in `ui/chromeSpacing.ts` so the two collapsed
-// surfaces stay visually paired across the canvas axis.
-const CARDS_WIDTH_PX = 288;
+// Cards-mode width (default + resize bounds + the persisted per-device
+// pref) lives in its own leaf module so the pure clamp is testable
+// without the whole Dock graph. Rail width is shared with the
+// right-panel rail via `RAIL_WIDTH_PX` in `ui/chromeSpacing.ts` so the
+// two collapsed surfaces stay visually paired across the canvas axis.
 
-/** Width in pixels for a given mode. Drives both the outer aside's
- *  inline `width` style and (in maximized posture) the dock's flex
- *  footprint as a left-panel sibling of the canvas. */
+/** Fixed width for the non-resizable dock surfaces: the rail (always) and the
+ *  tiled cards float (which keeps its default width). The maximized cards
+ *  sidebar is the ONE resizable case and is sized by `effectiveDockWidth` in the
+ *  component, not here — so a tiled float can never inherit a maximized resize. */
 function dockWidth(mode: DockMode): number {
   return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
 }
@@ -179,9 +198,103 @@ const Dock: Component<{
   const tree = useDockOrder();
   const posture = useViewPosture();
 
+  // Width of the flex host the maximized dock shares with the canvas — its own
+  // parent. `effectiveDockWidth` caps the rendered width to it so a stored-wide
+  // dock can't squeeze the canvas to zero and clip its own handle off-screen
+  // (the right-panel split can shrink this host well below the 560px ceiling).
+  // Resolved in `onMount`, NOT the `ref` callback: Solid runs `ref` before the
+  // element is inserted, so `parentElement` is still null there — reading it then
+  // would leave the host unmeasured and the cap silently inert.
+  let asideEl!: HTMLElement;
+  const [hostEl, setHostEl] = createSignal<HTMLElement | null>(null);
+  onMount(() => setHostEl(asideEl.parentElement));
+  const hostSize = createElementSize(hostEl);
+
+  /** The one resizable dock surface: the maximized cards sidebar. Named once so
+   *  the width computation and the resize-handle gate stay provably
+   *  co-extensive — a handle can't render on a dock that isn't host-capped, nor
+   *  vice versa. */
+  const isResizableDock = (): boolean =>
+    posture.mode() === "maximized" && dockMode() === "cards";
+
+  // Live drag-in-progress width — NOT persisted. Every `pointermove` during a
+  // drag would otherwise call `setDockCardsWidth`, which writes straight
+  // through to `localStorage` on each call (no debounce in `persistedPref` /
+  // `makePersisted` — see `dockCardsWidth.ts`), a synchronous disk write at
+  // 60-120×/s for the drag's duration. Mirrors `CanvasTile`'s resize gesture
+  // (`TerminalCanvas.tsx`): `onMove` only updates this local signal, and the
+  // stored preference is written exactly once, in `onEnd`.
+  const [dragWidth, setDragWidth] = createSignal<number | null>(null);
+
+  /** Rendered width for the maximized cards sidebar — the in-progress drag
+   *  width while dragging, else the stored preference; both capped to the
+   *  live host width (handle stays reachable). Other postures use the plain
+   *  `dockWidth`. */
+  const effectiveDockWidth = (): number =>
+    isResizableDock()
+      ? effectiveDockCardsWidth(
+          dragWidth() ?? dockCardsWidth(),
+          hostSize.width ?? 0,
+        )
+      : dockWidth(dockMode());
+
+  // Drag-to-resize the maximized cards dock — mirrors the right panel's
+  // handle. A fresh `AbortController` per gesture; `capturePointerGesture`
+  // (shared with tile resize / canvas pan) wires window pointermove/up+cancel
+  // and auto-unwires on release. The drag starts from the RENDERED width (not
+  // the raw stored value) so a host-capped dock doesn't jump on grab.
+  let abortDockResize: AbortController | null = null;
+  function startDockResize(e: PointerEvent) {
+    // Primary button only — a right/middle-button drag on the edge shouldn't
+    // resize (and would fight the context menu / pan).
+    if (e.button !== 0) return;
+    // A resize is already in flight — ignore further pointerdowns rather than
+    // abort-and-replace, so a second touch/pen (which also reports button 0)
+    // can't hijack the active gesture from the pointer that owns it.
+    if (abortDockResize) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    // Delta rides the RENDERED width (so a host-capped dock doesn't jump on
+    // grab).
+    const startWidth = effectiveDockWidth();
+    // No prior gesture to abort — the `if (abortDockResize) return` guard above
+    // already established it's null.
+    abortDockResize = new AbortController();
+    capturePointerGesture(
+      {
+        onMove: (ev) =>
+          setDragWidth(clampDockCardsWidth(startWidth + (ev.clientX - startX))),
+        onEnd: () => {
+          // Commit exactly once. `dragWidth` stays null on a pointerdown with
+          // no motion (a bare click on the handle) — skip the write, same as
+          // CanvasTile's "no motion — skip commit" resize path.
+          const width = dragWidth();
+          if (width !== null) setDockCardsWidth(width);
+          setDragWidth(null);
+          abortDockResize = null;
+        },
+        onCancel: () => {
+          // The stored preference was never touched during the drag, so
+          // reverting is just dropping the local drag width — the render
+          // falls back to `dockCardsWidth()`, untouched since before the drag.
+          setDragWidth(null);
+          abortDockResize = null;
+        },
+      },
+      abortDockResize,
+      // Bind to the initiating pointer so a second touch/pen can't drive or end
+      // this resize.
+      e.pointerId,
+    );
+  }
+  // The dock is app-lifetime chrome, so this rarely fires — but a disposal
+  // mid-drag must abort the in-flight gesture rather than leak window listeners.
+  onCleanup(() => abortDockResize?.abort());
+
   return (
     <aside
       data-testid="dock"
+      ref={asideEl}
       data-mode={dockMode()}
       data-maximized={posture.mode() === "maximized" ? "" : undefined}
       class="flex flex-col select-none overflow-hidden bg-surface-1"
@@ -204,7 +317,7 @@ const Dock: Component<{
         "relative shrink-0 h-full border-r border-edge":
           posture.mode() === "maximized",
       }}
-      style={{ width: `${dockWidth(dockMode())}px` }}
+      style={{ width: `${effectiveDockWidth()}px` }}
     >
       <RailOrCards
         mode={dockMode()}
@@ -212,6 +325,28 @@ const Dock: Component<{
         onCreate={props.onCreate}
         onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
       />
+      {/* Right-edge resize handle — only in the maximized cards sidebar,
+       *  where the dock is a real flex sibling of the canvas (the request:
+       *  resize it "just like the right panel"). Rail is a fixed chip strip
+       *  and the tiled float is a card, so neither offers the handle.
+       *  Invisible until hover; the col-resize cursor is the affordance —
+       *  a plain interactive div, matching the canvas tile resize handles
+       *  (CanvasTile) rather than a `role="separator"` widget (that path is
+       *  Corvu's, which owns its own keyboard/aria contract; a hand-rolled
+       *  separator would need a focusable aria-value range this drag has
+       *  no keyboard step for). Double-click resets to the default width.
+       *  `w-1.5` stays inside the aside's `overflow-hidden`, so no clipped
+       *  pseudo hit-area. */}
+      <Show when={isResizableDock()}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: pointer-only resize affordance, same as CanvasTile's edge/corner handles — the cursor is the affordance, keyboard resize isn't offered for this drag */}
+        <div
+          data-testid="dock-resize-handle"
+          class="absolute inset-y-0 right-0 z-40 w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors"
+          title="Drag to resize · double-click to reset"
+          onPointerDown={startDockResize}
+          onDblClick={() => setDockCardsWidth(CARDS_WIDTH_PX)}
+        />
+      </Show>
     </aside>
   );
 };
@@ -397,12 +532,11 @@ const RepoSection: Component<{
      *  reclaimed the old `pl-6` row indent). */}
     <div
       data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-y border-edge/30`}
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-b border-edge/30`}
     >
       <span
         data-testid="dock-section-name"
-        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-        style={{ color: "var(--repo-color)" }}
+        class="dock-cards-section-name font-mono text-[0.6rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
         title={props.group.name}
       >
         {props.group.name}

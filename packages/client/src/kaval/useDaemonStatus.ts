@@ -355,6 +355,45 @@ export function daemonConnected(): boolean {
   return daemonChannelLive() && localDaemonStatus()?.state === "connected";
 }
 
+/** Whether the ACTIVE host's terminal LIST can be trusted as a COMPLETE census —
+ *  its membership has reconciled, not merely "a first frame arrived". The one
+ *  named fact two consumers gate on: `useDeepLinks`'s gone-verdict (a terminal
+ *  absent from a non-authoritative list is NOT-YET, never "gone" — #1900) and
+ *  `useActiveReconcile`'s promote-on-departure eviction (a departure seen while
+ *  the list isn't authoritative is the server's doing, not a user close).
+ *
+ *  Today it IS `daemonConnected()`, but the NAME states the meaning and this
+ *  docstring — not the callers — carries the ordering argument, so the honest
+ *  scope of the fact lives in one place:
+ *
+ *  - The daemon reports `connected` BEFORE boot adoption/reconcile runs
+ *    (`ptyHost/index.ts` maps the converge outcome to `adopted` only after the
+ *    endpoint is up; `reattach.ts` — "By the time adoption runs the endpoint has
+ *    already reported connected"; `daemonStatus.ts` folds the adopted count on
+ *    AFTER connect). So `connected` alone does NOT prove the list reconciled.
+ *  - What makes it authoritative on the MAIN paths anyway: at BOOT, padi's serve
+ *    socket starts listening only after `bootLocalEndpoint` (which adopts)
+ *    completes (`daemonMain.ts`), so a browser never observes a pre-adoption
+ *    `connected`; and on a SUPERVISED restart, `holdRestarting` masks
+ *    capture→reattach as one `restarting` (`surface-daemon-supervisor/restart.ts`),
+ *    so the client sees `connected` only once reattach finished.
+ *  - RESIDUAL (not covered here — needs a padi-side registry-reconciled marker,
+ *    tracked as follow-up #1902): a kaval that HUNG at a padi restart so `converge`
+ *    threw (its catch only logs — `ptyHost/index.ts`), then recovered, flips
+ *    `connected` before the 2s inventory-reconcile loop re-adopts; and
+ *    out-of-band (`kaval-tui`-created) terminals appear the same way. In those
+ *    windows this fact reads `true` over a still-stale list, so an absent id reads
+ *    authoritative-but-gone and the deep-link gone-verdict fires IMMEDIATELY — a
+ *    false gone the 8s backstop does NOT catch (the backstop bounds only the OTHER
+ *    case, where this fact stays `false` and the route waits). #1900's primary
+ *    boot-gate fix already removes the dominant trigger; closing this last window
+ *    honestly needs the #1902 marker.
+ *
+ *  A reactive accessor; read it inside a tracking scope. */
+export function listIsAuthoritative(): boolean {
+  return daemonConnected();
+}
+
 /** The single warming-refusal gate for terminal creation: if the daemon is
  *  warming, toast the one shared message and report `true` (refused). Both
  *  create paths in `useTerminalCrud` call this so the predicate AND the copy

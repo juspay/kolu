@@ -98,12 +98,11 @@ function DockListSection(props: {
     >
       <div
         data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2 border-b border-edge/30"
       >
         <span
           data-testid="mobile-dock-section-name"
-          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{ color: "var(--repo-color)" }}
+          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
         >
           {props.group.name}
         </span>

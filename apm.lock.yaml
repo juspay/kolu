@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-20T22:35:30.788303+00:00'
+generated_at: '2026-07-21T13:58:57.145662+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -66,7 +66,7 @@ dependencies:
     .agents/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .agents/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
     .agents/skills/orchestrator/SKILL.md: sha256:67e0ffab12ead4611b1b4a9d559a7cf821327d4bc05c89f427dd7d8ec1db0d5d
-    .agents/skills/orchestrator/dashboard/index.html: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
+    .agents/skills/orchestrator/dashboard/index.html: sha256:41642b15084c05ebed1cd1ebf60f53d885e1ffb0df670cf86d6d19b178ea9164
     .agents/skills/orchestrator/dashboard/index.js: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
     .agents/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .agents/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
@@ -80,7 +80,7 @@ dependencies:
     .claude/skills/lens-debate/SKILL.md: sha256:34638d461c9341ff433360dcddc8d20a82b15a8307cb894b9c638b644a5b12c5
     .claude/skills/lens-debate/debate.workflow.js: sha256:52f3c6e85209e5204f06fe39f7191aa5b37f05b6b29dd71f6a28ed09192ba10b
     .claude/skills/orchestrator/SKILL.md: sha256:67e0ffab12ead4611b1b4a9d559a7cf821327d4bc05c89f427dd7d8ec1db0d5d
-    .claude/skills/orchestrator/dashboard/index.html: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
+    .claude/skills/orchestrator/dashboard/index.html: sha256:41642b15084c05ebed1cd1ebf60f53d885e1ffb0df670cf86d6d19b178ea9164
     .claude/skills/orchestrator/dashboard/index.js: sha256:c9326eb0d419444e6e2c3b298c05c2d10bf2063969bc5cb702e5bc21bfdb332a
     .claude/skills/perfection-review/SKILL.md: sha256:81e96416552beaa8a59299007bfd0280e008c2b41290cb2f9b7e8efa20ec0056
     .claude/skills/surface/SKILL.md: sha256:2bb20756fe7292b5b6f00ed77cb7f9d4239c41d6751bf460a93266927f112eea
@@ -1362,7 +1362,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
+  content_hash: sha256:41642b15084c05ebed1cd1ebf60f53d885e1ffb0df670cf86d6d19b178ea9164
 - kind: project-relative
   target: claude
   value: .claude/skills/orchestrator/dashboard/index.js
@@ -2082,7 +2082,7 @@ deployments:
   owners:
   - ./agents
   active_owner: ./agents
-  content_hash: sha256:c9d5de52f7ed29f3585d67ac3e128c914e2bb59c3cbc5fa47f2abcb525cf6ff9
+  content_hash: sha256:41642b15084c05ebed1cd1ebf60f53d885e1ffb0df670cf86d6d19b178ea9164
 - kind: project-relative
   target: codex
   value: .agents/skills/orchestrator/dashboard/index.js
