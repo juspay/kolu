@@ -197,21 +197,118 @@ Then("the dock should be wider than before", async function (this: KoluWorld) {
     { selector: DOCK_SELECTOR, prev: before },
     { timeout: POLL_TIMEOUT },
   );
+  // Remember the post-drag RENDERED width so the persistence step can prove the
+  // stored value matches what's on screen (not just "> default").
+  this.savedDockWidth = await dockWidth(this);
 });
 
 Then(
   "the resized dock width should be persisted",
   async function (this: KoluWorld) {
-    // `persistedPref` writes the width to localStorage on every drag step — the
-    // same value a reload reads back (identical mechanism to dockMode). Assert
-    // the persisted value is a finite number wider than the default (288),
-    // proving the drag wrote through to per-device storage.
+    const rendered = this.savedDockWidth;
+    if (rendered === undefined) {
+      throw new Error("no post-drag dock width captured");
+    }
+    // Parse localStorage EXACTLY as production does (JSON.parse + a strict
+    // `typeof === "number"` check — a stored JSON string like `"428"` that the
+    // real parser rejects must fail here too, not be coerced with `Number(...)`).
+    // The canonical value a reload consumes must equal the width on screen.
     const stored = await this.page.evaluate(() => {
       const raw = localStorage.getItem("kolu-dock-cards-width");
-      return raw === null ? null : Number(JSON.parse(raw));
+      if (raw === null) return null;
+      const v: unknown = JSON.parse(raw);
+      return typeof v === "number" && Number.isFinite(v) ? v : NaN;
     });
-    if (stored === null || !Number.isFinite(stored) || stored <= 288) {
-      throw new Error(`expected persisted dock width > 288, got ${stored}`);
+    if (stored === null || Number.isNaN(stored)) {
+      throw new Error(
+        `persisted dock width is not a finite JSON number: ${stored}`,
+      );
+    }
+    if (Math.abs(stored - rendered) > 4) {
+      throw new Error(
+        `persisted dock width ${stored} does not match rendered ${rendered}`,
+      );
+    }
+  },
+);
+
+When(
+  "I start a dock resize drag and the browser cancels it",
+  async function (this: KoluWorld) {
+    // Pre-drag rendered width — the value the cancel must restore.
+    this.savedDockWidth = await dockWidth(this);
+    // Synthetic pointerdown → pointermove → pointercancel (same deterministic
+    // pattern as mobile_soft_keyboard_steps.ts). pointerdown starts the gesture
+    // on the handle; move/cancel go to `window`, where capturePointerGesture
+    // listens. A live cancel branch reverts to the pre-drag width; a broken one
+    // would leave the widened width.
+    // No nested function declaration inside page.evaluate — swc injects
+    // `__name(...)` for named function expressions, which is undefined in the
+    // browser context (the same pitfall mobile_soft_keyboard_steps.ts avoids).
+    // Drive the sequence with a plain array + inline `new PointerEvent`.
+    await this.page.evaluate((sel) => {
+      const handle = document.querySelector(sel);
+      if (!handle) throw new Error(`no handle matches ${sel}`);
+      const box = handle.getBoundingClientRect();
+      const y = box.y + box.height / 2;
+      const x0 = box.x + box.width / 2;
+      const steps: Array<{ type: string; target: EventTarget; x: number }> = [
+        { type: "pointerdown", target: handle, x: x0 },
+        { type: "pointermove", target: window, x: x0 + 140 },
+        { type: "pointercancel", target: window, x: x0 + 140 },
+      ];
+      for (const s of steps) {
+        s.target.dispatchEvent(
+          new PointerEvent(s.type, {
+            clientX: s.x,
+            clientY: y,
+            pointerId: 1,
+            pointerType: "mouse",
+            isPrimary: true,
+            button: 0,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }
+    }, DOCK_RESIZE_HANDLE_SELECTOR);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the dock width should return to its pre-drag value",
+  async function (this: KoluWorld) {
+    const before = this.savedDockWidth;
+    if (before === undefined) {
+      throw new Error("no pre-drag dock width captured");
+    }
+    // Rendered width reverts...
+    await this.page.waitForFunction(
+      ({ selector, target }) => {
+        const el = document.querySelector(selector);
+        if (!el) return false;
+        return Math.abs(el.getBoundingClientRect().width - target) <= 4;
+      },
+      { selector: DOCK_SELECTOR, target: before },
+      { timeout: POLL_TIMEOUT },
+    );
+    // ...and so does the persisted value (the cancel wrote the pre-drag width
+    // back through setDockCardsWidth).
+    const stored = await this.page.evaluate(() => {
+      const raw = localStorage.getItem("kolu-dock-cards-width");
+      if (raw === null) return null;
+      const v: unknown = JSON.parse(raw);
+      return typeof v === "number" && Number.isFinite(v) ? v : NaN;
+    });
+    if (
+      stored === null ||
+      Number.isNaN(stored) ||
+      Math.abs(stored - before) > 4
+    ) {
+      throw new Error(
+        `expected persisted width to revert to ~${before}, got ${stored}`,
+      );
     }
   },
 );

@@ -195,3 +195,15 @@ Feature: Dock
     Then the dock resize handle should stay within the viewport
     And the canvas beside the dock should stay at least 150 pixels wide
     And there should be no page errors
+
+  Scenario: A cancelled dock resize drag reverts to the pre-drag width
+    # pointercancel (a touch/pen the platform reclaims mid-drag) must revert,
+    # not commit — the dock's onCancel restores the pre-drag width in both the
+    # rendered aside and per-device storage.
+    Given I create a terminal
+    When I click the chrome-bar maximize toggle
+    Then the dock should be in maximized mode
+    And the dock resize handle should be visible
+    When I start a dock resize drag and the browser cancels it
+    Then the dock width should return to its pre-drag value
+    And there should be no page errors
