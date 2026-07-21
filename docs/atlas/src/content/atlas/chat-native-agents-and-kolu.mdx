@@ -1,46 +1,176 @@
 ---
 title: Chat threads as terminals
-description: "One XS thread ↔ one kolu terminal, with pesu as the pipe between Xyne Spaces and kolu."
+description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one thread per terminal, messages only."
 parents: [feature, comparison]
 status: proposed
 maturity: seedling
 updated: 2026-07-21
 ---
 
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
 import Svg from "../../components/Svg.astro";
 import wire from "../../diagrams/chat-native-agents-loop.svg?raw";
 
-**One chat thread ↔ one kolu terminal.** First message to the bot creates both.
-User text goes into the terminal; agent **messages** (not tools/edits) come back
-into the thread from the transcript.
+**One Xyne Spaces thread ↔ one kolu terminal.** First message creates both.
+User text → terminal input; agent **messages** (not tools/edits) → thread.
+pesu is the only bridge; config is env/systemd next to pesu, not the web app.
 
-**pesu** is a small daemon beside kolu. It is the only thing that talks to both
-sides. Config lives next to pesu (env / systemd) — not in the kolu web app.
+## Components
 
-## The three parties
+Three processes on the chat side of the wall; four on the machine side. The
+browser PWA is **not** on the critical path — same class of client as
+`padi-tui` / `kolu mcp`.
 
-| | Owns | Talks via |
+| Component | Process | Job in this design |
 | --- | --- | --- |
-| **Xyne Spaces** | identity, threads, who may write | apps platform (webhook + app API) |
-| **pesu** | thread → terminal map, the pipe | webhook server · XS API client · kolu client |
-| **kolu** | PTY, agent, files, transcript | lifecycle create · input · transcript events |
+| **Xyne Spaces** | XS cloud | Threads, identity, @mention/DM delivery, message store |
+| **XS apps platform** | part of XS | Signed **webhook** out; **app API** in (`postMessage`, `updateMessage`, `user/info`) |
+| **pesu** | new daemon beside kolu (`packages/pesu`) | HTTP webhook receiver + bind store + padi client + XS API client |
+| **padi** | workspace daemon | `padiSurface`: `lifecycle.create`, `lifecycle.sendInput`, awareness, transcript load |
+| **kaval** | PTY daemon under padi | Owns the live PTY; serializes writes |
+| **agent CLI** | child in the PTY | claude / codex / opencode / grok — writes its own session files |
+| **transcript loaders** | in-process in padi today | Vendor file → `transcript-core` IR (`user` · `assistant` · `tool_*` · …) |
+| **kolu PWA** | browser | Depth only: open the bound terminal via deep link |
 
-<Svg svg={wire} caption="Xyne Spaces and kolu never talk to each other. pesu is the only bridge." />
+```
+Xyne Spaces ──HTTPS──► pesu ──unix socket──► padi ──unix socket──► kaval ──PTY──► agent
+     ▲                   │                      │
+     │                   │                      └── loaders ← session files on disk
+     └──── HTTPS API ────┘
+```
 
-## Traffic
+pesu dials padi with the same kit as other non-browser faces
+(`@kolu/padi/dial` → digest-keyed socket, control-core handshake, contract
+skew fail-fast). It does **not** go through kolu-server.
 
-**Xyne Spaces → pesu**  
-Signed webhook on mention / DM: *who said what, in which thread*.
+<Svg svg={wire} caption="Process boundaries. Solid arrows are live product path; dashed is the transcript path (stream not shipped yet)." />
 
-**pesu → kolu**  
-- first message: create terminal + agent; store `threadId → terminalId`  
-- later messages (author only): write text into that terminal  
+## Bind state (pesu-local)
 
-**kolu → pesu**  
-New `assistant` events from the live transcript (same filter as chat-log export).
+pesu holds the only new durable fact:
 
-**pesu → Xyne Spaces**  
-`postMessage` / `updateMessage` into the thread. Optional deep link to the
-terminal in kolu.
+```
+threadId  →  { terminalId, authorUserId, hostKey? }
+```
 
-That's the whole protocol. No fleet board, no coordinator, no second bot.
+- **Create on miss** — first webhook for an unbound thread runs
+  `lifecycle.create` (+ agent launch), then stores the row.
+- **Author gate** — later webhooks must match `authorUserId` (v1: one
+  allowlisted operator). Mismatch → visible decline via `postMessage`, never
+  silence, never `sendInput`.
+- Not in kolu's conf store; not in XS. Survives pesu restart if persisted
+  next to pesu (file/env scope TBD; start with on-disk JSON beside the daemon).
+
+## Interaction: first message
+
+End-to-end create + first prompt.
+
+| Step | From → to | What moves |
+| --- | --- | --- |
+| 1 | User → XS | DM or `@bot` text in a channel |
+| 2 | XS → pesu | `POST` webhook: `APP_MENTIONED` or `DIRECT_MESSAGE`. Payload: `conversationId`, `userId`, `cleanContent`, `messageId`. Header: `X-Xyne-Signature` (HMAC of raw body) |
+| 3 | pesu | Verify HMAC (constant-time) → **200 immediately** → work async (XS does not retry) |
+| 4 | pesu → XS | optional `user/info` to resolve display name; cache |
+| 5 | pesu → padi | `lifecycle.create({ cwd? })` → `{ id: terminalId }` |
+| 6 | padi → kaval | spawn PTY (shell) |
+| 7 | pesu → padi | `lifecycle.sendInput({ id, data: "<agent argv>\\r" })` — same initial-command path as `padi-tui create -- claude …` |
+| 8 | pesu → padi | `lifecycle.sendInput({ id, data: "<user text>\\r" })` — first agent prompt |
+| 9 | pesu | persist bind `conversationId → { terminalId, authorUserId }` |
+| 10 | pesu → XS | `postMessage` into `conversationId`: ack + deep link to open that terminal in kolu |
+
+Agent is unaware of chat. It only sees PTY input.
+
+## Interaction: later user messages
+
+| Step | From → to | What moves |
+| --- | --- | --- |
+| 1 | XS → pesu | same webhook shape |
+| 2 | pesu | lookup bind by `conversationId`; reject if author ≠ stored |
+| 3 | pesu → padi | `lifecycle.sendInput({ id: terminalId, data: "<text>\\r" })` |
+| 4 | kaval | write bytes into that PTY (last-writer-wins at kaval) |
+
+No second terminal. No coordinator hop. Thread is the mailbox for one PTY.
+
+## Interaction: agent → thread (transcript path)
+
+This is the return half. Today kolu can **load** a full transcript; it does
+**not** yet stream assistant events to a third party.
+
+| Step | Component | What |
+| --- | --- | --- |
+| A | agent CLI | appends to vendor session store (Claude JSONL, Codex/OpenCode SQLite, …) |
+| B | padi sensors | already watch those files for **agent state** (working / waiting / awaiting_user) — not for chat text |
+| C | loaders | `loadClaudeCodeTranscript` / `loadCodexTranscript` / … → `Transcript` IR |
+| D | filter | keep `kind === "assistant"` only (same cut as HTML **chat log** mode — drop `tool_call`, `tool_result`, `reasoning`, edits) |
+| E | pesu → XS | `postMessage` / `updateMessage` with that text into the bound thread |
+
+**Gap:** C–E need a live feed. Options, in order of honesty:
+
+1. **New padi stream** — e.g. `transcript.events({ id })` yields snapshot-then-deltas of IR events (or chat-filtered). pesu subscribes over the same socket. Preferred: one source of truth, reconnectable like other surface streams.
+2. **Poll loaders** — pesu re-loads transcript on a short interval, diffs assistant texts, posts new ones. Coarser; no padi API change; fine for a first slice.
+
+Until one of those exists, the outbound half is incomplete; inbound (create +
+`sendInput`) can still ship alone.
+
+## What each API is (and is not)
+
+### Xyne Spaces → pesu (webhook)
+
+| Event | When |
+| --- | --- |
+| `APP_MENTIONED` | explicit @bot in a channel |
+| `DIRECT_MESSAGE` | every message in the bot DM |
+
+Plain channel messages without @ are **not** delivered to installed apps.
+pesu answers 200 first; failures after that are pesu's problem (post a visible
+error into the thread).
+
+### pesu → Xyne Spaces (app API, bearer JWT)
+
+| Call | Use |
+| --- | --- |
+| `POST …/chat/postMessage` | new bot turn (or first ack) |
+| `POST …/chat/updateMessage` | grow one message while an assistant turn streams |
+| `POST …/chat/agentProgress` | optional typing indicator during a turn |
+| `GET …/user/info` | resolve sender id → name |
+
+### pesu → padi (`padiSurface` over unix socket)
+
+| Procedure | Use |
+| --- | --- |
+| `lifecycle.create` | new terminal (optional `cwd`) |
+| `lifecycle.sendInput` | agent launch line + every user message |
+| *(future)* transcript stream or export | assistant text out |
+
+pesu does **not** call kaval directly. padi owns the terminal id space and
+awareness; kaval is an implementation detail behind `lifecycle.*`.
+
+### Out of scope for this wire
+
+- Fleet board / who-needs-me in chat  
+- Coordinator multi-worker campaigns  
+- Routing chat traffic through kolu-server or the PWA  
+- Bot secrets in the web UI  
+
+## pesu internal shape
+
+```
+packages/pesu/
+  bin.ts          # listen + dial padi + load binds
+  webhook.ts      # HMAC verify, parse, 200, enqueue
+  xyneApi.ts      # postMessage · updateMessage · user/info
+  binds.ts        # threadId → terminalId (+ author)
+  turns.ts        # create-on-miss · author gate · sendInput
+  mirror.ts       # assistant events → postMessage (stream or poll)
+  config.ts       # XS base URL, secrets via env, agent argv, cwd, allowlist
+```
+
+Same layering idea as `padi-tui`: thin composition over existing padi verbs;
+no second terminal protocol.
+
+## Done criterion
+
+DM the bot → terminal appears under padi/kaval with the agent running → your
+words are the first prompt → assistant replies show up in the same XS thread
+without tool noise → deep link opens that terminal in the PWA.

@@ -1,65 +1,108 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 320" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="High-level communication: Xyne Spaces, pesu, and kolu. Xyne Spaces sends signed webhooks to pesu and receives postMessage replies. pesu creates terminals and writes input into kolu, and reads assistant transcript events back.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 400" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Architecture: Xyne Spaces talks HTTPS to pesu. pesu dials padi over a unix socket. padi owns kaval PTYs and loaders that read agent session files. Agent assistant events return through pesu to Xyne Spaces via postMessage. The kolu PWA is off the critical path and only used via deep link.">
   <defs>
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10z" fill="#475569"/>
     </marker>
+    <marker id="arrd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#94a3b8"/>
+    </marker>
     <style>
-      .t  { fill:#0f172a; font-size:15px; font-weight:700; }
-      .s  { fill:#64748b; font-size:11.5px; }
-      .box-xs   { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
-      .box-pesu { fill:#F3E8FF; stroke:#6D28D9; stroke-width:2; }
-      .box-kolu { fill:#EDF0FD; stroke:#0D32B2; stroke-width:2; }
-      .ht { fill:#92400E; font-size:13px; font-weight:700; }
-      .hs { fill:#7a4f00; font-size:10.5px; }
-      .pt { fill:#5B21B6; font-size:13px; font-weight:700; }
-      .ps { fill:#6B21A8; font-size:10.5px; }
-      .bt { fill:#0D32B2; font-size:13px; font-weight:700; }
-      .bs { fill:#4A5072; font-size:10.5px; }
-      .edge { stroke:#475569; stroke-width:1.75; fill:none; }
-      .el   { fill:#334155; font-size:10.5px; font-weight:600; }
-      .dim  { fill:#94a3b8; font-size:10.5px; font-style:italic; }
-      .mono { font-family:ui-monospace, "SF Mono", Menlo, monospace; font-size:10px; }
+      .t   { fill:#0f172a; font-size:14px; font-weight:700; }
+      .s   { fill:#64748b; font-size:11px; }
+      .box { stroke-width:2; }
+      .xs  { fill:#FBF1DC; stroke:#B45309; }
+      .pe  { fill:#F3E8FF; stroke:#6D28D9; }
+      .pa  { fill:#EDF0FD; stroke:#0D32B2; }
+      .kv  { fill:#E0E7FF; stroke:#3730A3; }
+      .ag  { fill:#ECFDF5; stroke:#047857; }
+      .pw  { fill:#F8FAFC; stroke:#94a3b8; stroke-dasharray:4 3; }
+      .h   { font-size:12.5px; font-weight:700; }
+      .hx  { fill:#92400E; }
+      .hp  { fill:#5B21B6; }
+      .hb  { fill:#0D32B2; }
+      .hk  { fill:#312E81; }
+      .ha  { fill:#065F46; }
+      .hw  { fill:#64748b; }
+      .d   { fill:#475569; font-size:10px; }
+      .edge { stroke:#475569; stroke-width:1.6; fill:none; }
+      .dash { stroke:#94a3b8; stroke-width:1.4; fill:none; stroke-dasharray:5 3; }
+      .el  { fill:#334155; font-size:10px; font-weight:600; }
+      .eld { fill:#64748b; font-size:9.5px; font-style:italic; }
+      .mono { font-family:ui-monospace, Menlo, monospace; font-size:9.5px; fill:#475569; }
     </style>
   </defs>
 
-  <text class="t" x="24" y="28">pesu bridges Xyne Spaces and kolu</text>
-  <text class="s" x="24" y="48">one thread &#8596; one terminal &#183; messages only</text>
+  <text class="t" x="20" y="24">component wire — messages only, one thread per terminal</text>
+  <text class="s" x="20" y="42">pesu is a padi client (like padi-tui / kolu mcp), not a path through kolu-server</text>
 
   <!-- Xyne Spaces -->
-  <rect class="box-xs" x="24" y="80" width="190" height="170" rx="12"/>
-  <text class="ht" x="119" y="112" text-anchor="middle">Xyne Spaces</text>
-  <text class="hs" x="119" y="134" text-anchor="middle">chat app</text>
-  <text class="hs mono" x="119" y="168" text-anchor="middle">threads</text>
-  <text class="hs mono" x="119" y="188" text-anchor="middle">identity</text>
-  <text class="hs mono" x="119" y="208" text-anchor="middle">@mention / DM</text>
+  <rect class="box xs" x="20" y="70" width="160" height="180" rx="10"/>
+  <text class="h hx" x="100" y="96" text-anchor="middle">Xyne Spaces</text>
+  <text class="mono" x="100" y="118" text-anchor="middle">apps platform</text>
+  <text class="d" x="100" y="148" text-anchor="middle">threads · identity</text>
+  <text class="d" x="100" y="168" text-anchor="middle">webhook out</text>
+  <text class="d" x="100" y="188" text-anchor="middle">postMessage in</text>
+  <text class="d" x="100" y="218" text-anchor="middle">@mention / DM</text>
 
   <!-- pesu -->
-  <rect class="box-pesu" x="285" y="80" width="190" height="170" rx="12"/>
-  <text class="pt" x="380" y="112" text-anchor="middle">pesu</text>
-  <text class="ps" x="380" y="134" text-anchor="middle">pipe daemon</text>
-  <text class="ps mono" x="380" y="168" text-anchor="middle">thread &#8594; terminal</text>
-  <text class="ps mono" x="380" y="188" text-anchor="middle">author gate</text>
-  <text class="ps mono" x="380" y="208" text-anchor="middle">filter: assistant</text>
+  <rect class="box pe" x="240" y="70" width="170" height="180" rx="10"/>
+  <text class="h hp" x="325" y="96" text-anchor="middle">pesu</text>
+  <text class="mono" x="325" y="118" text-anchor="middle">packages/pesu</text>
+  <text class="d" x="325" y="148" text-anchor="middle">HMAC webhook</text>
+  <text class="d" x="325" y="168" text-anchor="middle">binds: thread→term</text>
+  <text class="d" x="325" y="188" text-anchor="middle">author gate</text>
+  <text class="d" x="325" y="208" text-anchor="middle">assistant filter</text>
+  <text class="d" x="325" y="228" text-anchor="middle">XS API + padi dial</text>
 
-  <!-- kolu -->
-  <rect class="box-kolu" x="546" y="80" width="190" height="170" rx="12"/>
-  <text class="bt" x="641" y="112" text-anchor="middle">kolu</text>
-  <text class="bs" x="641" y="134" text-anchor="middle">terminals + agents</text>
-  <text class="bs mono" x="641" y="168" text-anchor="middle">create / input</text>
-  <text class="bs mono" x="641" y="188" text-anchor="middle">transcript</text>
-  <text class="bs mono" x="641" y="208" text-anchor="middle">real files / PTY</text>
+  <!-- host cluster -->
+  <rect class="box pa" x="480" y="58" width="320" height="250" rx="12"/>
+  <text class="h hb" x="640" y="80" text-anchor="middle">host — padi surface</text>
 
-  <!-- XS ↔ pesu -->
-  <path class="edge" d="M224 130 L275 130" marker-end="url(#arr)"/>
-  <text class="el" x="249" y="120" text-anchor="middle">webhook</text>
-  <path class="edge" d="M275 200 L224 200" marker-end="url(#arr)"/>
-  <text class="el" x="249" y="220" text-anchor="middle">postMessage</text>
+  <rect class="box pa" x="500" y="96" width="130" height="88" rx="8"/>
+  <text class="h hb" x="565" y="122" text-anchor="middle">padi</text>
+  <text class="mono" x="565" y="144" text-anchor="middle">lifecycle.*</text>
+  <text class="mono" x="565" y="162" text-anchor="middle">loaders</text>
 
-  <!-- pesu ↔ kolu -->
-  <path class="edge" d="M485 130 L536 130" marker-end="url(#arr)"/>
-  <text class="el" x="510" y="120" text-anchor="middle">create + type</text>
-  <path class="edge" d="M536 200 L485 200" marker-end="url(#arr)"/>
-  <text class="el" x="510" y="220" text-anchor="middle">assistant events</text>
+  <rect class="box kv" x="650" y="96" width="130" height="88" rx="8"/>
+  <text class="h hk" x="715" y="122" text-anchor="middle">kaval</text>
+  <text class="mono" x="715" y="144" text-anchor="middle">PTY</text>
+  <text class="mono" x="715" y="162" text-anchor="middle">serialize write</text>
 
-  <text class="dim" x="380" y="290" text-anchor="middle">XS and kolu never connect directly</text>
+  <rect class="box ag" x="500" y="204" width="280" height="84" rx="8"/>
+  <text class="h ha" x="640" y="232" text-anchor="middle">agent + session files</text>
+  <text class="mono" x="640" y="254" text-anchor="middle">claude · codex · opencode · grok</text>
+  <text class="d" x="640" y="274" text-anchor="middle">JSONL / SQLite on disk</text>
+
+  <!-- PWA off path -->
+  <rect class="box pw" x="20" y="300" width="160" height="64" rx="10"/>
+  <text class="h hw" x="100" y="326" text-anchor="middle">kolu PWA</text>
+  <text class="d" x="100" y="348" text-anchor="middle">depth via deep link only</text>
+
+  <!-- XS <-> pesu -->
+  <path class="edge" d="M190 120 L230 120" marker-end="url(#arr)"/>
+  <text class="el" x="210" y="110" text-anchor="middle">webhook</text>
+  <path class="edge" d="M230 190 L190 190" marker-end="url(#arr)"/>
+  <text class="el" x="210" y="210" text-anchor="middle">postMessage</text>
+
+  <!-- pesu -> padi -->
+  <path class="edge" d="M420 130 L490 130" marker-end="url(#arr)"/>
+  <text class="el" x="455" y="118" text-anchor="middle">create</text>
+  <text class="el" x="455" y="146" text-anchor="middle">sendInput</text>
+
+  <!-- padi -> kaval -->
+  <path class="edge" d="M630 140 L650 140" marker-end="url(#arr)"/>
+
+  <!-- kaval down to agent -->
+  <path class="edge" d="M715 184 L715 204" marker-end="url(#arr)"/>
+
+  <!-- transcript return dashed -->
+  <path class="dash" d="M500 246 L430 246 L430 200 L420 200" marker-end="url(#arrd)"/>
+  <text class="eld" x="458" y="238" text-anchor="middle">assistant events</text>
+  <text class="eld" x="458" y="252" text-anchor="middle">(stream TBD)</text>
+
+  <!-- deep link -->
+  <path class="dash" d="M100 260 L100 290" marker-end="url(#arrd)"/>
+  <text class="eld" x="118" y="280">deep link</text>
+
+  <text class="s" x="410" y="385" text-anchor="middle">threadId maps only inside pesu · agent never sees XS</text>
 </svg>
