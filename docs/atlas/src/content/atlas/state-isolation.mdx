@@ -1,0 +1,106 @@
+---
+title: "State Isolation — Plan of Record"
+description: "Dev/test can never sit in production's chair: delete the padi state-root default; the path is chosen out loud or the process dies. No role vocabulary. Rebuilt after PR #1911 was closed."
+parents: [bug]
+status: proposed
+maturity: budding
+updated: 2026-07-21
+---
+
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import Issue from "../../components/Issue.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import lockDiagram from "../../diagrams/state-isolation-lock.svg?raw";
+
+A daemon's identity is the digest of its state-root, and
+`resolvePadiStateRoot()` silently defaults to production's root — so a bare
+`pnpm dev` / `vitest` / `padi` computes production's identity and the
+adopt/kill machinery can then act on the live kolu (<Issue n={1334} />;
+[background](./host-isolation-locks.html)). The first fix,
+<PrLink pr={1911} />, was closed after review for shipping the guard inside
+half a PR of machinery.<Footnote>Review scars this plan keeps: no role stamps
+without a reader (that killed #1911); zero kaval changes; both ssh e2e lanes
+broke invisibly because CI has no ssh. Full verdict on the closed
+PR.</Footnote> This is the rebuild — resized twice by srid/grok's challenges
+(PR #1930 thread): first lock-only, then **no lock at all where deleting the
+default suffices**. Work items carry the **SI** prefix for reference: SI1 a
+small prerequisite bug fix, SI2 the fix itself.
+
+## The fix — there is no default
+
+**The path is chosen out loud, or the process dies.** Mirror the server's own
+`KOLU_STATE_DIR` pattern exactly: binding resolution **requires**
+`KOLU_PADI_STATE_DIR` / `--state-root` and crashes with one line when absent;
+the production nix wrapper supplies the default
+(`KOLU_PADI_STATE_DIR="${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"`,
+beside its existing `KOLU_STATE_DIR` line); dev and tests keep setting the
+private paths they already set. The remote padi is a nix-realised closure the
+binder ships, so the **same wrapper supplies the remote default remote-side**
+— no signal needs to cross the wire.
+
+<Svg svg={lockDiagram} wide caption="No guard, no badge: the default is deleted from code. Whoever launches padi supplies the path — the production wrapper (locally and inside the shipped remote closure), or a dev/test's private dir — and an unsupplied path is a one-line crash." />
+
+Why this beats #1911's guarded default: a guard refuses the accident at the
+three call sites it covers and relocates it to the fourth; deleting the
+default makes the accident **unspellable** — there is nothing left to
+inherit.<Footnote>Two mechanics verified at the tree: the PTY spawn allowlist
+wholesale-scrubs the `KOLU_*` namespace from hosted shells
+(`integrations/pty/src/shell.ts`, `koluInternalEnv`), so the wrapper's export
+cannot leak into a terminal kolu hosts; and the remote `padi` runs from a
+provisioned nix closure (`surface-remote/src/dialAgentOnce.ts` — "executable
+name inside the realised closure"), so wrapping it is entirely kolu's to do.
+With those two, `KOLU_ROLE` — and the role module, markers, `--role`
+threading — do no remaining work; the earlier "keep the env var" ruling
+compared the wrong alternative (deriving role from the config dir) and is
+superseded.</Footnote>
+
+**Named residuals, accepted (today's behavior, unchanged):** a *deliberate*
+`KOLU_PADI_STATE_DIR` pointed at production's path is the same footgun as
+`rm` on the real tree — out of the accident threat model; a dev kolu-server
+binding a *remote* host without `KOLU_REMOTE_PADI_STATE_DIR` reaches the
+remote wrapper's default — deferred with <Issue n={1912} />'s wire-verb work;
+a half-relocated production (relocated `KOLU_STATE_DIR`, unset padi root)
+silently keeps the default padi root — "wrapper sets both or refuses" is an
+optional later hardening.
+
+## SI1 — padi releases its boot gate on a startup throw
+
+A normal small bug fix, listed only because SI2 touches the same startup code
+and lands on top of it. On master, padi acquires its single-instance gate,
+then runs several throwable boot steps; on a throw the gate is never
+released, so an in-process retry reads "already running" forever. Fix:
+release the gate in the catch after awaiting the partial runtime's close
+(`Promise.allSettled`, not a hand-rolled settle); test trigger
+master-reachable (e.g. malformed `KOLU_DAEMON_BIND_PID`). Done when a boot
+throw leaves the gate file gone and a same-process re-acquire succeeds.
+
+## SI2 — delete the default
+
+| Piece | Contract |
+| --- | --- |
+| `stateRoot.ts` | The **bind-path** resolution loses its default: unset + no override → one-line crash naming `KOLU_PADI_STATE_DIR` (the `state.ts` pattern). Read-only discovery (`resolveRunningPadiSocket`, the TUIs) is untouched. |
+| `default.nix` | The kolu wrapper exports `KOLU_PADI_STATE_DIR="${KOLU_PADI_STATE_DIR:-$HOME/.local/state/padi}"` beside its `KOLU_STATE_DIR` line; the padi package shipped to remotes gets the same wrapper. |
+| `stdioBridge` | Made `async` so the missing-path crash reaches `bin.ts`'s one error channel as the clean one-line message. |
+| Entrypoint sweep | Every dev/test/e2e path that boots a binder without the var gets it set (most already do: `kolu-cli` dev, `justfile`, server tests). The crash is the detector — any missed one fails loud, never binds production. |
+| Docs | `padi --help`: the root is required (the production wrapper supplies the default); README claims exactly what shipped — no adopt/SIGTERM language. |
+
+**Done when**, beyond green CI: `just e2e-ssh` **run once and passing** — CI
+has no ssh; #1911 shipped 38/38 green with both ssh lanes broken (under this
+shape the lanes should pass via the remote closure's wrapper — prove it) —
+and the <Issue n={1334} /> repro re-run: a bare `pnpm dev` / `vitest` /
+`padi` beside a live production kolu dies naming the missing var.
+
+## Deferred until a real residual shows
+
+- **Wire-verb guard** (<Issue n={1912} />): `kill`/`killAll`/`restart` on a
+  live socket, plus the remote-dev-binder residual above. Any role/badge
+  vocabulary, if ever needed, lands there **with** its reader.
+- **Persistent markers, relocated-root hardening** (<Issue n={1414} />): only
+  if the half-relocated footgun proves real.
+
+<Callout kind="accent" title="Sequencing">
+  SI1 (plain bug fix) → SI2 (closes <Issue n={1334} />). srid merges each;
+  review depth per PR is srid's call.
+</Callout>

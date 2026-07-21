@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 330" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arr-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#16a34a"/>
+    </marker>
+    <marker id="arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <!-- who supplies the path -->
+  <g>
+    <rect x="30" y="36" width="250" height="60" rx="8" fill="#f59e0b" fill-opacity="0.12" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="155" y="60" text-anchor="middle" fill="#b45309" font-weight="600">production: the nix wrapper</text>
+    <text x="155" y="80" text-anchor="middle" fill="#b45309" font-size="11">KOLU_PADI_STATE_DIR=&#36;{…:-~/.local/state/padi}</text>
+
+    <rect x="30" y="112" width="250" height="60" rx="8" fill="#f59e0b" fill-opacity="0.12" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="155" y="136" text-anchor="middle" fill="#b45309" font-weight="600">remote: same wrapper, in the</text>
+    <text x="155" y="156" text-anchor="middle" fill="#b45309" font-size="11">nix closure the binder ships (remote $HOME)</text>
+
+    <rect x="30" y="188" width="250" height="60" rx="8" fill="#f59e0b" fill-opacity="0.12" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="155" y="212" text-anchor="middle" fill="#b45309" font-weight="600">dev / tests: private paths</text>
+    <text x="155" y="232" text-anchor="middle" fill="#b45309" font-size="11">.kolu-dev/padi · tmp dirs · --state-root</text>
+  </g>
+
+  <line x1="280" y1="66" x2="366" y2="130" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="280" y1="142" x2="366" y2="146" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="280" y1="218" x2="366" y2="162" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- the resolution -->
+  <rect x="370" y="100" width="290" height="92" rx="10" fill="#8b5cf6" fill-opacity="0.10" stroke="#8b5cf6" stroke-width="2"/>
+  <text x="515" y="130" text-anchor="middle" fill="#6d28d9" font-weight="700">binding resolution</text>
+  <text x="515" y="152" text-anchor="middle" fill="#6d28d9" font-size="12">REQUIRES a path — there is no default</text>
+  <text x="515" y="171" text-anchor="middle" fill="#6d28d9" font-size="12">in the code (mirrors KOLU_STATE_DIR)</text>
+
+  <!-- outcomes -->
+  <rect x="700" y="70" width="250" height="60" rx="8" fill="#16a34a" fill-opacity="0.10" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="825" y="94" text-anchor="middle" fill="#15803d" font-weight="600">path supplied → binds</text>
+  <text x="825" y="114" text-anchor="middle" fill="#15803d" font-size="12">the path was chosen out loud</text>
+  <line x1="660" y1="126" x2="694" y2="106" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr-g)"/>
+
+  <rect x="700" y="162" width="250" height="60" rx="8" fill="#dc2626" fill-opacity="0.10" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="825" y="186" text-anchor="middle" fill="#b91c1c" font-weight="600">no path → CRASH</text>
+  <text x="825" y="206" text-anchor="middle" fill="#b91c1c" font-size="12">one line naming KOLU_PADI_STATE_DIR</text>
+  <line x1="660" y1="166" x2="694" y2="186" stroke="#dc2626" stroke-width="1.8" marker-end="url(#arr-r)"/>
+
+  <!-- out of scope -->
+  <rect x="30" y="276" width="920" height="38" rx="8" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="490" y="299" text-anchor="middle" fill="#64748b" font-size="12">no KOLU_ROLE · no role.ts · no markers · kaval untouched — deferred: wire verbs (#1912) · remote-dev residual · half-relocated refusal</text>
+</svg>
