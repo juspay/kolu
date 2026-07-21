@@ -72,7 +72,7 @@ let
         libc: ["glibc", "musl"]
       }' package.json | sponge package.json
     '';
-    hash = "sha256-6dUNrMV7eQPk6+b+3vGhSvXzeBpEZjTvJYUKbLU1fNE=";
+    hash = "sha256-x1NKPI1+K37XA10aiJ5flq7TSNQnM4ifdvZ/Y0slDiU=";
     fetcherVersion = 3;
   };
 

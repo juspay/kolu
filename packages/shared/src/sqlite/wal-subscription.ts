@@ -21,25 +21,32 @@
  * the next listener unaffected. See the fault-isolation snapshot in
  * the dispatch loop for the why.
  *
- * The parent-directory watcher handles two concerns:
+ * The direct subscription is `subscribeFileAppends` (an `fs.watch` edge
+ * over a `statSync` poll floor, juspay/kolu#1754). Its floor follows the
+ * PATH, not an inode, so that one subscription already covers WAL
+ * **appearance** (the startup window between a row landing in the main DB
+ * and the first WAL frame flushing), every subsequent **append**, and
+ * **inode replacement** (after the last writer closes SQLite can
+ * checkpoint, delete, and recreate the `-wal` under a new inode) — the
+ * floor re-stats the path and recovers each within one interval.
  *
- *   1. The startup window between a row being inserted in the main DB
- *      file and the first WAL frame being flushed (so the WAL file
- *      exists). The directory watcher sees the WAL appear and arms a
- *      direct `fs.watch` on it.
- *   2. SQLite WAL inode replacement. After the last writer closes,
- *      SQLite can checkpoint, delete, and recreate the `-wal` file
- *      under a new inode. A direct `fs.watch` on the *old* inode
- *      silently never fires again. The directory watcher detects the
- *      recreate and re-arms the direct watch on the new inode.
+ * The parent-directory watcher is retained for two narrower jobs the floor
+ * alone can't do promptly:
  *
- * The directory watcher therefore stays alive for the lifetime of the
- * subscription, alongside the direct watcher — never torn down on
- * promotion.
+ *   1. Refresh the fast-path EDGE onto a recreated inode faster than the
+ *      floor's poll interval, so a post-checkpoint WAL regains sub-interval
+ *      latency (see `armDirect`).
+ *   2. Fire the unconditional kick that recovers a same-size same-inode
+ *      checkpoint rewrite — a write no stat key (nor a coarse-mtime key)
+ *      can see (see `runRearm`).
+ *
+ * It therefore stays alive for the lifetime of the subscription, alongside
+ * the direct subscription — never torn down on promotion.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_APPEND_POLL_MS, subscribeFileAppends } from "kolu-io";
 import type { Logger } from "../log.ts";
 
 /** Debounce window for parent-directory events before stat'ing the WAL
@@ -148,30 +155,6 @@ export function createWalSubscription(
   return { subscribe };
 }
 
-/** Try to attach an fs.watch directly to the WAL file. Returns the
- *  watcher's cleanup function, or null if the file doesn't exist yet. */
-function tryWatchWal(
-  onChange: () => void,
-  config: WalSubscriptionConfig,
-  log?: Logger,
-): (() => void) | null {
-  try {
-    const w = fs.watch(config.walPath, () => onChange());
-    return () => w.close();
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      // Non-ENOENT (EACCES, EMFILE, etc.) means state detection for
-      // this DB is broken until resolved — a real failure, not an
-      // expected-absent condition. Log at error.
-      log?.error(
-        { err, path: config.walPath, label: config.label },
-        "WAL fs.watch failed",
-      );
-    }
-    return null;
-  }
-}
-
 /** Stat the WAL file and return its `dev:inode` identity, or null if the
  *  file doesn't exist. Used by the directory watcher to detect inode
  *  replacement — a fresh WAL file with the same path but a different
@@ -206,36 +189,35 @@ function installWalWatcher(
   config: WalSubscriptionConfig,
   log?: Logger,
 ): () => void {
-  // The currently armed direct `fs.watch` on the WAL inode, or null
-  // if no live direct watcher (WAL gone, or never armed). The `cleanup`
-  // and `identity` fields are always set and cleared together — keeping
-  // them in one nullable structure makes "armed vs not-armed" structural
-  // rather than a paired-field convention.
-  let direct: { cleanup: () => void; identity: string } | null = null;
+  // The direct WAL subscription and the inode identity it was armed on. The
+  // subscription is `subscribeFileAppends` (an `fs.watch` edge + an
+  // `statSync` poll floor, juspay/kolu#1754): the floor follows the PATH, so a
+  // single subscription already survives the WAL's appearance, appends, AND
+  // inode replacement — the `identity` is kept only to refresh the fast-path
+  // EDGE when a checkpoint recreates the WAL under a new inode. `identity` may
+  // be null (WAL absent): the floor tolerates that and fires on appearance, so
+  // — unlike the old direct `fs.watch` — arming never has to wait for the file.
+  let direct: { cleanup: () => void; identity: string | null } | null = null;
 
   function closeDirect(): void {
     direct?.cleanup();
     direct = null;
   }
 
-  /** Ensure the direct WAL watcher is attached to the current inode.
-   *  Returns true if a watcher is now active, false if the WAL is
-   *  gone (the directory watcher will pick the next recreate up). */
-  function armDirect(): boolean {
+  /** Arm (or refresh) the direct WAL subscription. Subscribes unconditionally
+   *  — the floor covers an absent-then-appearing WAL — and re-subscribes only
+   *  when the inode changed, so the fast-path edge re-binds to the recreated
+   *  WAL after a checkpoint. A same-inode call is a no-op. */
+  function armDirect(): void {
     const nextIdentity = walIdentity(config, log);
-    if (!nextIdentity) {
-      closeDirect();
-      return false;
-    }
-    if (direct && direct.identity === nextIdentity) return true;
-    const nextCleanup = tryWatchWal(onChange, config, log);
-    if (!nextCleanup) {
-      closeDirect();
-      return false;
-    }
+    if (direct && direct.identity === nextIdentity) return;
     closeDirect();
-    direct = { cleanup: nextCleanup, identity: nextIdentity };
-    return true;
+    const cleanup = subscribeFileAppends(config.walPath, onChange, {
+      intervalMs: DEFAULT_APPEND_POLL_MS,
+      log,
+      label: `${config.label}: wal`,
+    });
+    direct = { cleanup, identity: nextIdentity };
   }
 
   armDirect();
@@ -251,12 +233,13 @@ function installWalWatcher(
   let rearmTimer: NodeJS.Timeout | null = null;
   function runRearm(): void {
     rearmTimer = null;
-    const hadDirect = direct !== null;
-    const hasDirect = armDirect();
-    // Kick — between the prior watcher closing and the new one
-    // arming, WAL writes may have been missed. The integration-level
-    // debounce absorbs duplicates if the direct watcher also fires.
-    if (hadDirect || hasDirect) onChange();
+    // Refresh the edge if the inode changed (a no-op otherwise), then kick:
+    // a WAL-named parent-dir event means the WAL may have changed — and on a
+    // same-size same-inode checkpoint rewrite this unconditional kick is what
+    // recovers it (proven), since neither the stat identity nor a coarse-mtime
+    // key would. The integration-level debounce + change gate absorb duplicates.
+    armDirect();
+    onChange();
   }
   function scheduleRearm(): void {
     if (rearmTimer) clearTimeout(rearmTimer);

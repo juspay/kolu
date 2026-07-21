@@ -409,14 +409,12 @@ When(
     mockCwd = `/tmp/claude-test-${pid}-${Date.now()}`;
     const encodedCwd = mockCwd.replace(/[/.]/g, "-");
 
-    // ORDER MATTERS — write the JSONL transcript and project dir BEFORE the
-    // session file. The session file is the "trigger": when the server's
-    // SESSIONS_DIR watcher fires on its creation, it immediately calls
-    // findTranscriptPath(session). If the JSONL doesn't exist yet, the
-    // server enters a "waiting on project dir" state that depends on a
-    // *second* fs.watch event firing — and under parallel-worker inotify
-    // pressure that second event is exactly the one most likely to drop.
-    // Writing data-then-trigger removes the second-event dependency.
+    // Write the JSONL transcript and project dir BEFORE the session file (the
+    // "trigger"). As of juspay/kolu#1754 the watcher subscribes unconditionally
+    // on the deterministic transcript path and the append-robust floor recovers
+    // a late-appearing JSONL, so the old "waiting on project dir + a second
+    // fs.watch event" fragility is gone — but writing data-then-trigger stays the
+    // clean setup (the tile lights up on the session file without a poll wait).
     fs.mkdirSync(projectsDir, { recursive: true });
     mockProjectDir = path.join(projectsDir, encodedCwd);
     fs.mkdirSync(mockProjectDir, { recursive: true });
@@ -477,10 +475,12 @@ async function paintLinesToTerminal(
 When(
   "a newer stale previous-session JSONL exists in the same project dir",
   async function (this: KoluWorld) {
-    // Regression guard: previously `findTranscriptPath` had an MRU fallback
-    // that picked the most recently modified JSONL in the project dir — so a
-    // previous session's transcript could capture the watcher while the
-    // current session's JSONL was still being created.
+    // Regression guard: the transcript lookup once had an MRU fallback that
+    // picked the most recently modified JSONL in the project dir — so a previous
+    // session's transcript could capture the watcher while the current session's
+    // JSONL was still being created. It is now `transcriptPathFor`, a pure
+    // deterministic `path.join` that never scans the dir, so an MRU fallback is
+    // structurally impossible; this scenario keeps it that way.
     //
     // This step bumps the stale file's mtime into the future so an MRU
     // scan would always prefer it over the mock's current-session JSONL.
