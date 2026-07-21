@@ -4,7 +4,7 @@
 #
 # Sources:
 #   .ci/pu-lease.env        — PU_BOX / PU_EPHEMERAL / PU_SHA (sidecar written by
-#                             ci/pu/lease.sh when it leases the box for the run)
+#                             .apm/skills/ci/pu/lease.sh when it leases the box for the run)
 #   .ci/<sha7>/timings.jsonl — odu's per-node timing sidecar (one JSON line per
 #                             node: {node, recipe, platform, status, durationMs,
 #                             exitCode}); source for per-recipe timing AND the
@@ -15,14 +15,14 @@
 #                             sidecar is absent (so an old run still reports).
 #
 # Usage:
-#   ci/pu/report.sh <pr>                 # read the sidecar, post the comment
-#   ci/pu/report.sh <pr> --box kolu-ci-3 # override the box (post-hoc)
-#   ci/pu/report.sh <pr> --dry-run       # print the markdown, don't post
+#   .apm/skills/ci/pu/report.sh <pr>                 # read the sidecar, post the comment
+#   .apm/skills/ci/pu/report.sh <pr> --box kolu-ci-3 # override the box (post-hoc)
+#   .apm/skills/ci/pu/report.sh <pr> --dry-run       # print the markdown, don't post
 #
 # Best-effort: a missing timing source or sidecar degrades the comment, never errors out.
 set -uo pipefail
 
-pr="${1:?usage: ci/pu/report.sh <pr> [--box NAME] [--dry-run]}"; shift || true
+pr="${1:?usage: .apm/skills/ci/pu/report.sh <pr> [--box NAME] [--dry-run]}"; shift || true
 box_override=""; dry=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -171,7 +171,7 @@ lane_md="$(lane_table x86_64-linux 3>/tmp/.lanewall.$$)"; lane_wall="$(cat /tmp/
   echo
   pool_status
   echo
-  echo "<sub>Posted by \`ci/pu/report.sh\`. Lane timings from \`$TIMING_SRC\`; pool state is a live \`flock\` probe.</sub>"
+  echo "<sub>Posted by \`.apm/skills/ci/pu/report.sh\`. Lane timings from \`$TIMING_SRC\`; pool state is a live \`flock\` probe.</sub>"
 } >/tmp/pu-ci-report.$$.md
 
 if [ -n "$dry" ]; then
