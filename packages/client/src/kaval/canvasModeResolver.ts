@@ -41,7 +41,7 @@ import type {
   ConnectPhase,
   EntryFailedCause,
 } from "kolu-common/surfacesWithPadi";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
 import type { DaemonDownState } from "./daemonPresentation";
 
@@ -53,13 +53,38 @@ export type CeilingClass = "local" | "remote-provisioning" | "remote-handshake";
 
 /** Which boot leg is still unsettled when the deadline fires — carried on the escape
  *  surface so the failure card can NAME what never arrived (not a mute spinner).
- *  `provisioning` = a remote host binding still copying/building; `membership` = the
+ *  `provisioning` = a remote host binding still coming up — the WHOLE connector-owned warming
+ *  campaign in ANY phase (probing / copying / building / connecting), the ssh connector still
+ *  retrying. So it does NOT imply the `remote-provisioning` {@link CeilingClass}: a probing
+ *  remote is `leg=provisioning` under the `remote-handshake` ceiling. `membership` = the
  *  `entries` snapshot never grounded the active host; `session` = the session/list
  *  subscription hung; `daemon` = the kaval status never reported. There is deliberately NO
  *  `unknown`/catch-all: the `accrue` tag REQUIRES a `leg`, so every overlay return is forced
  *  to name a real one at compile time — a generic fallback would only be a silent-degradation
  *  path the repo's fail-fast philosophy forbids, insuring against a compile-time impossibility. */
 export type StalledLeg = "provisioning" | "membership" | "session" | "daemon";
+
+/** The CLIENT-owned stalled legs — every {@link StalledLeg} EXCEPT `provisioning`. A
+ *  `provisioning` stall is the SERVER-side ssh connector's own retry loop (a warming REMOTE
+ *  entry — PR1's abort-in-flight `recheck()`); the other three legs are genuinely client-side
+ *  (a fresh boot re-runs their subscription). This split is what the boot-stalled card's
+ *  recovery verb turns on, so it is named ONCE here rather than re-spelled at the card. */
+export type ClientStalledLeg = Exclude<StalledLeg, "provisioning">;
+
+/** How a boot-stalled card recovers (#1908 D2) — the honest verb for WHO owns the wedged leg:
+ *   - `connector`: a warming REMOTE entry whose ssh connector is STILL retrying (it has NOT
+ *     reached its own terminal `failed` verdict — that flips the entry to `failed` → the
+ *     host-down card, so this arm is always non-terminal). Recovery RECYCLES the server
+ *     connector (`client.hosts.reconnect`, the verb PR1 gave a real abort-in-flight `recheck()`),
+ *     and the copy stays NON-TERMINAL; `phase` narrates where the campaign is (probing / copying /
+ *     building / connecting). `location.reload()` cannot recycle a server-side dial, so it would
+ *     be a lie here.
+ *   - `client`: a genuinely client-side leg (a connected host's session / daemon subscription, a
+ *     membership stall). A fresh boot re-runs that subscription, so the verb is `location.reload()`
+ *     and the copy is the leg's own {@link bootStalledCopy}. */
+export type BootStalledRecovery =
+  | { via: "connector"; phase: ConnectPhase | undefined }
+  | { via: "client"; leg: ClientStalledLeg };
 
 /** The per-frame anchor VERDICT, declared AT the resolver's return site (never inferred
  *  from `kind`) — a 3-way discriminant the boot-deadline anchor switches on directly:
@@ -92,7 +117,9 @@ export type BootTag =
  *  the Skew-UX addition: the ACTIVE host's map-membership entry itself failed
  *  (an ssh/contract-level fault, cause-typed), distinct from `down` (a CONNECTED
  *  host whose kaval daemon died). `boot-stalled` is the #1763 boot-deadline escape:
- *  a boot overlay held past its ceiling, naming the stalled leg + the phase. */
+ *  a boot overlay held past its ceiling, carrying its honest {@link BootStalledRecovery}
+ *  verdict — a `connector` arm (a warming-remote campaign, with its live phase) or a `client`
+ *  arm (a client-side leg), never both. */
 export type CanvasMode =
   | { kind: "connecting" }
   // `down` carries the payload-bearing verdict (SK4): dead/degraded render the
@@ -100,10 +127,12 @@ export type CanvasMode =
   // versions and the renew action — the affordance is a total function of it.
   | { kind: "down"; down: DaemonDownState }
   | { kind: "host-failed"; cause: EntryFailedCause; reason: string }
-  // The #1763 boot-deadline escape: a boot overlay wedged past its ceiling. `leg`
-  // names what never delivered (its copy authority is `bootStalledCopy.ts`); `phase`
-  // is rendered beside the copy so a wedged remote provisioning names copying/building.
-  | { kind: "boot-stalled"; leg: StalledLeg; phase: ConnectPhase | undefined }
+  // The #1763 boot-deadline escape: a boot overlay wedged past its ceiling, carrying its
+  // honest {@link BootStalledRecovery} — `connector` (a warming-remote campaign the server ssh
+  // connector still owns → recycle it, non-terminal copy, phase narrated) vs `client` (a
+  // genuinely client-side leg → `location.reload()`, the leg's own `bootStalledCopy`). The
+  // recovery verdict is DECIDED here (in `escapeSurface`), never re-derived at the card.
+  | { kind: "boot-stalled"; recovery: BootStalledRecovery }
   // NO presentation string: the warming surface's copy is derived at RENDER (ConnectCanvas —
   // the connection-cell phase via the ONE copy authority, or the kaval-restart label from the
   // daemon-presentation table keyed on `daemonState`). With no string field on any mode arm, a
@@ -253,17 +282,20 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
         { entry: "warming" },
         { entry: "not-a-member" },
         (f): Precedence => {
-          // The boot overlay's leg + ceiling, declared here (C3): a not-a-member entry is a
-          // MEMBERSHIP stall even when it reaches the bindingUp `warming` return; a warming
-          // binding is `provisioning` while nix-copy/build runs, else the binding/`daemon` leg
-          // (a LOCAL restart-drain rides this arm and so carries the 30s local ceiling — a hung
-          // one escapes to down/dead, a normal one clears via the next `workspace` frame).
+          // The boot overlay's leg + ceiling, declared here (C3). A not-a-member entry is a
+          // MEMBERSHIP stall (even when it reaches the bindingUp `warming` return). A REMOTE
+          // warming entry is the connector-owned `provisioning` leg for its WHOLE coming-up
+          // campaign — ANY phase (probing / copying / building / connecting), not just nix-copy/
+          // build (#1908 D2): the ssh connector still owns the retry loop, so its escape routes to
+          // the NON-TERMINAL connector card, never the reload lie. A LOCAL warming entry is a
+          // kaval restart-drain (`daemon`, 30s local ceiling) — a hung one escapes to the
+          // byte-identical down/dead card, a normal one clears via the next `workspace` frame.
           const leg: StalledLeg =
             f.entry === "not-a-member"
               ? "membership"
-              : isProvisioningPhase(f.connectPhase)
-                ? "provisioning"
-                : "daemon";
+              : f.isLocalHost
+                ? "daemon"
+                : "provisioning";
           const tag: BootTag = {
             accrual: "accrue",
             leg,
@@ -339,19 +371,47 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
   );
 }
 
-/** The honest escape surface for a boot overlay held past its ceiling (#1763). A hung
- *  LOCAL kaval leg reuses the byte-identical down/dead DegradedCanvas (#1713 preserved);
- *  every other stalled leg gets the boot-stalled card, which names the leg (its copy) +
- *  the phase (rendered beside it). Reachable only via an `accrue` tag, so a kaval-restart
- *  warming (tagged `retain`) can never mislabel-escape into the daemon-dead cell. */
+/** The honest escape surface for a boot overlay held past its ceiling (#1763), carrying the
+ *  {@link BootStalledRecovery} verdict DECIDED here (never re-derived at the card). Reachable
+ *  only via an `accrue` tag, so a kaval-restart warming (tagged `retain`) can never
+ *  mislabel-escape. Three routes:
+ *   - A hung LOCAL binding leg reuses the byte-identical down/dead DegradedCanvas (#1713
+ *     preserved) — covers a connected LOCAL daemon-pending and a LOCAL warming restart-drain
+ *     (both leg `daemon`, local).
+ *   - The `provisioning` leg is the CONNECTOR-owned warming-remote campaign: the server ssh
+ *     connector still owns the retry loop (PR1's `recheck()`), so recovery recycles IT and the
+ *     copy stays non-terminal — never the reload lie (#1908 D2). `phase` names where it is.
+ *   - Every remaining leg (now narrowed to {@link ClientStalledLeg}) is genuinely client-side —
+ *     a connected host's session/daemon subscription or a membership stall a fresh boot re-runs. */
 function escapeSurface(
   tag: Extract<BootTag, { accrual: "accrue" }>,
   facts: CanvasFacts,
 ): CanvasMode {
-  if (tag.leg === "daemon" && facts.isLocalHost) {
-    return { kind: "down", down: { state: "dead" } };
-  }
-  return { kind: "boot-stalled", leg: tag.leg, phase: tag.phase };
+  // Dispatch on the leg (+ host-locality for the down/dead route) with `.exhaustive()`
+  // (prefer-ts-pattern), matching `resolvePrecedence` above — a future `StalledLeg` must be
+  // handled here or fail the build. The `membership | session | daemon` arm is exactly
+  // {@link ClientStalledLeg} (`provisioning` is consumed by the connector arm), so `leg` narrows
+  // to it cast-free for the client recovery.
+  return match({ leg: tag.leg, isLocalHost: facts.isLocalHost })
+    .with(
+      { leg: "daemon", isLocalHost: true },
+      (): CanvasMode => ({ kind: "down", down: { state: "dead" } }),
+    )
+    .with(
+      { leg: "provisioning" },
+      (): CanvasMode => ({
+        kind: "boot-stalled",
+        recovery: { via: "connector", phase: tag.phase },
+      }),
+    )
+    .with(
+      { leg: P.union("membership", "session", "daemon") },
+      ({ leg }): CanvasMode => ({
+        kind: "boot-stalled",
+        recovery: { via: "client", leg },
+      }),
+    )
+    .exhaustive();
 }
 
 /** THE ONE exported resolver (#1763). Computes the raw precedence, then — off ONE

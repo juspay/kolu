@@ -126,6 +126,11 @@ export function canvasMode(deps: {
   // elapsed to 0, and the ceiling could never fire — leaving "Connecting to local…" up forever.
   const members = hostKeys();
   if (members.length > 0) pruneBootAnchors(members.map(encodeHostKey));
+  // The #1908 R8a campaign backstop: `bootDeadlineExceeded` folds the class ceiling AND the
+  // class-blind campaign cell on the one monotonic `nowMs`; `recordBootFrame` arms the campaign
+  // cell off the frame's own tag (the connector-owned `provisioning` leg). Both are pure client-
+  // monotonic — no server `sinceMs` (frame-stamped + wall-clock). A user Retry connection resets
+  // this host's deadline explicitly via `resetBootDeadline` (in the card), not read here.
   const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
   recordBootFrame(hostEnc, tag, nowMs);

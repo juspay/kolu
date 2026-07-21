@@ -17,26 +17,31 @@
  *      pattern (`HostDownCanvas.tsx`), and IS the path that force-cycles the
  *      server session.
  *
- * `it.fails` per the repo's RED convention: today the provisioning copy carries no
- * retry truth and the verb is `location.reload()`, so each body throws and
- * `it.fails` is GREEN on the RED commit. Phase C makes the copy non-terminal and
- * routes the verb through `client.hosts.reconnect`, then flips `it.fails` → `it`.
+ * Flipped GREEN in PR2 (#1908 D2): the connector-owned card now carries non-terminal
+ * "still retrying" copy and routes its recovery verb through `client.hosts.reconnect`.
+ * The escape mode is `{ via: "connector", phase }` — a warming REMOTE campaign the
+ * resolver hands this component; the old `location.reload()` provisioning card is gone.
  *
  * Mirrors `BootStalledCanvas.test.tsx` (render through `solid-js/web`, mock
  * `../wire` so the socket stack never boots).
  */
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   host: { kind: "remote", target: "zest" } as HostKey,
   reconnect: vi.fn(() => Promise.resolve()),
+  resetBootDeadline: vi.fn(),
 }));
 vi.mock("../wire", () => ({
   activeHost: () => h.host,
   setActiveHost: () => {},
   client: { hosts: { reconnect: h.reconnect } },
+}));
+// The recovery verb resets THIS host's boot deadline (the deliberate user-retry reset, #1908 R8a).
+vi.mock("../kaval/bootDeadline", () => ({
+  resetBootDeadline: h.resetBootDeadline,
 }));
 
 // Imported AFTER the mock so it binds the mocked `../wire`.
@@ -48,6 +53,7 @@ afterEach(() => {
   dispose = undefined;
   document.body.innerHTML = "";
   h.reconnect.mockClear();
+  h.resetBootDeadline.mockClear();
 });
 
 /** The card's primary recovery button (tone: "primary") — the one action that is
@@ -66,26 +72,33 @@ function primaryRecoveryButton(): HTMLButtonElement {
   return primary;
 }
 
-describe("D2 — boot-stalled provisioning card is honest + recovers via the connector (#1908)", () => {
-  it.fails("provisioning-leg copy is non-terminal while the connector still retries", () => {
+describe("D2 — boot-stalled connector card is honest + recovers via the connector (#1908)", () => {
+  it("connector-card copy is non-terminal while the connector still retries", () => {
     dispose = render(
-      () => <BootStalledCanvas leg="provisioning" phase="building" />,
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
       document.body,
     );
     // Honest that the server connector is still working, not a terminal wedge:
     // names the ongoing retry (attempt / still-retrying), from the stream it
-    // already reads. Today the copy offers only "reload to keep watching".
+    // already reads. NOT the old "reload to keep watching / isn't responding".
     expect(document.body.textContent ?? "").toMatch(
       /retry|retrying|still trying|attempt/i,
     );
+    expect(document.body.textContent ?? "").not.toMatch(
+      /isn't responding|failed/i,
+    );
   });
 
-  it.fails("the recovery verb reaches the server connector (hosts.reconnect), not location.reload()", () => {
+  it("the recovery verb reaches the server connector (hosts.reconnect), not location.reload(), and resets the deadline only ON SUCCESS", async () => {
     const reload = vi
       .spyOn(window.location, "reload")
       .mockImplementation(() => {});
     dispose = render(
-      () => <BootStalledCanvas leg="provisioning" phase="building" />,
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
       document.body,
     );
     primaryRecoveryButton().click();
@@ -93,6 +106,28 @@ describe("D2 — boot-stalled provisioning card is honest + recovers via the con
     // reload the browser page.
     expect(h.reconnect).toHaveBeenCalledWith({ host: h.host });
     expect(reload).not.toHaveBeenCalled();
+    // …and once the reconnect RESOLVES it resets THIS host's boot deadline, so the card dismisses
+    // (a fresh window) rather than staying up on a same-class retry (#1908 R8a, codex F1). Gated on
+    // success — a rejected reconnect must NOT reset (codex F9), which the `.then()` chaining ensures.
+    await vi.waitFor(() =>
+      expect(h.resetBootDeadline).toHaveBeenCalledWith(encodeHostKey(h.host)),
+    );
     reload.mockRestore();
+  });
+
+  it("a REJECTED reconnect does NOT reset the boot deadline (the card must stay — codex F9)", async () => {
+    h.reconnect.mockImplementationOnce(() => Promise.reject(new Error("nope")));
+    dispose = render(
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
+      document.body,
+    );
+    primaryRecoveryButton().click();
+    expect(h.reconnect).toHaveBeenCalledWith({ host: h.host });
+    // Let the rejected promise settle; the reset must NOT have fired.
+    await vi.waitFor(() => expect(h.reconnect).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(h.resetBootDeadline).not.toHaveBeenCalled();
   });
 });

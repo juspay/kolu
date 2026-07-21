@@ -122,14 +122,27 @@ The host's chip dot tells you where it is:
   real output, and the clock. A **warm** reconnect (the closure is already on the host)
   skips straight to connected, with no build UI at all.
 
-  And if a connect **genuinely stalls** — the host list or your saved session never
-  arriving, or a **remote** machine's agent never reporting — the canvas stops narrating
-  past a **finite deadline** (a short one for your local machine; a generously longer one
-  while a remote is still copying or building, so a real cold connect is never cut short)
-  and shows an honest **stalled** card that **names what didn't arrive**, with a **Reload**
-  to try again and — on a remote machine — **Switch to local**. It never sits at
-  "Connecting…" forever. (A **local** machine whose own agent fails to start is a different
-  case with its own ["kaval didn't start" card](/kaval) and a **Restart** action, unchanged.)
+  And if a connect **genuinely stalls**, the canvas stops narrating past a **finite deadline**
+  (a short one for your local machine; a generously longer one while a remote is still copying
+  or building, so a real cold connect is never cut short) and shows an honest card — but the
+  card tells the truth about **who can fix it**:
+
+  - While a **remote** machine is still **setting itself up** — probing, copying, or building
+    its agent over ssh — the card stays **non-terminal**: it says kolu is **still retrying**
+    (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
+    the **server-side** connection — the only thing that can move a stuck dial, where a browser
+    reload can't. There's also a **campaign backstop**: after about half an hour of a setup that
+    never connects **on screen**, kolu shows the escape card even while the phase keeps flapping
+    (that half-hour is measured from when this tab started watching, so a page reload starts it
+    fresh). **Switch to local** is offered alongside.
+  - When the stall is a **client-side delivery** problem instead — the host list or your saved
+    session never arriving, or a **connected** remote's agent never reporting its status — the
+    card **names what didn't arrive** and offers **Reload** (a fresh boot re-runs that
+    subscription) and, on a remote machine, **Switch to local**.
+
+  It never sits at "Connecting…" forever. (A **local** machine whose own agent fails to start is
+  a different case with its own ["kaval didn't start" card](/kaval) and a **Restart** action,
+  unchanged.)
 
   The canvas shows a **tail**; the full firehose still lives in the **kolu server logs** —
   the complete `nix copy` and build output, and the actual reason if a connect genuinely

@@ -102,7 +102,10 @@ describe("resolveCanvasMode loading guard (#1340)", () => {
     // daemon leg). Pre-#1763 this whole class had no escape at all.
     expect(
       mode(connected({ isLoading: true, terminalCount: 0 }), true),
-    ).toEqual({ kind: "boot-stalled", leg: "session", phase: undefined });
+    ).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "session" },
+    });
   });
 
   it("a REMOTE binding coming up (connectPhase copying/building) resolves to `warming` off its OWN connection cell — never a mute 'Connecting…' (W6 items 3+5)", () => {
@@ -311,26 +314,32 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
 
 describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the leg map)", () => {
   // Hole B — flipped RED (was `it.fails` pinning the no-escape hole).
-  it("Hole B — a CONNECTED host stuck on the session leg past the boot deadline escapes to boot-stalled(session)", () => {
+  it("Hole B — a CONNECTED host stuck on the session leg past the boot deadline escapes to boot-stalled(client/session)", () => {
     expect(
       mode(
         connected({ isLoading: true, daemonPending: false, terminalCount: 0 }),
         true,
       ),
-    ).toEqual({ kind: "boot-stalled", leg: "session", phase: undefined });
+    ).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "session" },
+    });
   });
 
   // Hole A — flipped RED. Membership never grounded ⇒ not-a-member ⇒ escapes.
-  it("Hole A — a NOT-A-MEMBER active host past the boot deadline escapes to boot-stalled(membership)", () => {
+  it("Hole A — a NOT-A-MEMBER active host past the boot deadline escapes to boot-stalled(client/membership)", () => {
     expect(
       mode(
         { ...liveness, entry: "not-a-member", connectPhase: undefined },
         true,
       ),
-    ).toEqual({ kind: "boot-stalled", leg: "membership", phase: undefined });
+    ).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "membership" },
+    });
   });
 
-  it("a hung REMOTE provisioning binding past its (generous) ceiling escapes to boot-stalled(provisioning) carrying the phase (C4 phase-render)", () => {
+  it("D2 — a hung REMOTE provisioning binding escapes to the NON-terminal CONNECTOR card carrying the phase (never the reload lie)", () => {
     expect(
       mode(
         {
@@ -341,10 +350,30 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         },
         true,
       ),
-    ).toEqual({ kind: "boot-stalled", leg: "provisioning", phase: "building" });
+    ).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "connector", phase: "building" },
+    });
   });
 
-  it("a hung REMOTE connected daemon leg escapes to boot-stalled(daemon) — only the LOCAL daemon leg takes down/dead", () => {
+  it("D2 — ANY warming-remote phase (probing/connecting), not just copying/building, escapes to the CONNECTOR card (the #1898 daemon-copy lie is gone)", () => {
+    // Pre-D2 a warming-remote handshake phase mislabeled `daemon` and rendered the TERMINAL
+    // "agent isn't responding — Reload" card over a connector still retrying. Now every warming
+    // REMOTE phase is the connector-owned campaign → the non-terminal Reconnect card.
+    for (const connectPhase of ["probing", "connecting"] as const) {
+      expect(
+        mode(
+          { ...liveness, entry: "warming", connectPhase, isLocalHost: false },
+          true,
+        ),
+      ).toEqual({
+        kind: "boot-stalled",
+        recovery: { via: "connector", phase: connectPhase },
+      });
+    }
+  });
+
+  it("a hung REMOTE connected daemon leg escapes to boot-stalled(client/daemon) — genuinely client-side (Reload); only the LOCAL daemon leg takes down/dead", () => {
     expect(
       mode(
         connected({
@@ -354,12 +383,15 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         }),
         true,
       ),
-    ).toEqual({ kind: "boot-stalled", leg: "daemon", phase: undefined });
+    ).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "daemon" },
+    });
   });
 
-  it("C3(a) — a not-a-member entry that reaches the bindingUp warming return is still leg `membership`", () => {
+  it("C3(a) — a not-a-member entry that reaches the bindingUp warming return is still leg `membership` (client card)", () => {
     // A not-a-member with a defined connectPhase reaches the `bindingUp` warming return in the
-    // shared block; its leg must stay `membership`, not `daemon`.
+    // shared block; its leg must stay `membership`, not `provisioning`/`daemon`.
     expect(
       tag({ ...liveness, entry: "not-a-member", connectPhase: "connecting" }),
     ).toEqual({
@@ -373,7 +405,10 @@ describe("resolveCanvasMode — #1763 boot-deadline escape (flipped REDs + the l
         { ...liveness, entry: "not-a-member", connectPhase: "connecting" },
         true,
       ),
-    ).toEqual({ kind: "boot-stalled", leg: "membership", phase: "connecting" });
+    ).toEqual({
+      kind: "boot-stalled",
+      recovery: { via: "client", leg: "membership" },
+    });
   });
 
   it("C3(c) — a HUNG local kaval-restart drain (entry warming, local) escapes to down/dead", () => {
@@ -485,6 +520,8 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
 
   it("a remote handshake (probing/connecting/undefined) and a remote connected/not-a-member accrue against `remote-handshake`", () => {
     for (const connectPhase of ["probing", "connecting", undefined] as const) {
+      // D2: a warming REMOTE entry is the connector-owned `provisioning` leg for EVERY phase
+      // (its ceiling still keys on the phase → remote-handshake for a non-copying/building one).
       expect(
         tag({
           ...liveness,
@@ -492,7 +529,11 @@ describe("resolveCanvasMode — #1763 R4 ceiling-class × leg table (exhaustive)
           connectPhase,
           isLocalHost: false,
         }),
-      ).toMatchObject({ accrual: "accrue", ceiling: "remote-handshake" });
+      ).toMatchObject({
+        accrual: "accrue",
+        leg: "provisioning",
+        ceiling: "remote-handshake",
+      });
     }
     expect(
       tag({
