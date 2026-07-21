@@ -56,9 +56,14 @@ export const CEILING_MS: Record<CeilingClass, number> = {
 /** The CAMPAIGN backstop ceiling (#1908 R8a) — a SECOND, class-BLIND cell above the per-class
  *  table. PR1's D1 retry cycle can flap a warming host's phase (probing→copying→building→retry)
  *  fast enough that the class anchor above re-zeros on every class change and so NEVER trips —
- *  the escape card would never fire for a persistently-wedged host. This bound is anchored on the
- *  campaign itself (the server's `sinceMs` — the whole-campaign duration D3 shipped in PR1, which
- *  is class-blind and resets per campaign), so a flapping class can't dodge it. 30min: comfortably
+ *  the escape card would never fire for a persistently-wedged host. This bound is anchored ONCE
+ *  per connector campaign (the `provisioning` leg — the whole warming-remote coming-up campaign),
+ *  held across every class flip, and measured on the SAME client MONOTONIC clock the per-class
+ *  cell uses — NOT the server's `sinceMs`. `sinceMs` is unfit as a deadline source: it is
+ *  stamped only when `makeSession` publishes a frame (so it FREEZES during a silent wedge — the
+ *  very case this must catch) and it is `Date.now()`-derived (so an NTP step could false-fire it,
+ *  the exact wall-clock hazard the per-class cell's monotonic clock deliberately avoids). A
+ *  client-monotonic campaign anchor has neither flaw and needs no wire fact. 30min: comfortably
  *  above the 600s remote-provisioning cell AND above the server's own retry grants (R8b's 20min
  *  pre-connected no-progress backstop; R4's ≤16min per-step budget) — so a genuinely-progressing
  *  cold provision (which settles to `connected` and CLEARS well under this) never false-fires;
@@ -76,43 +81,49 @@ interface Anchor {
 /** The per-host episode anchors — module-lifetime, keyed by encoded active host. */
 const anchors = new Map<string, Anchor>();
 
+/** The per-host CAMPAIGN anchors (#1908 R8a): monotonic ms when this host's connector-owned
+ *  (`provisioning` leg) warming campaign began. Set ONCE when the campaign starts and HELD across
+ *  every class flip (unlike {@link anchors}, which re-anchors per class), so a flapping phase
+ *  cannot re-zero it; deleted the instant the entry stops being a connector campaign (settles, or
+ *  any non-`provisioning` boot leg). Separate from {@link anchors} so the two lifecycles — per-class
+ *  re-anchoring vs held-once-per-campaign — never entangle. */
+const campaignAnchors = new Map<string, number>();
+
 /** Step 1 (read): is the active host's boot overlay past EITHER ceiling? Two independent cells,
- *  OR-ed (#1908 R8a):
+ *  OR-ed (#1908 R8a), both on the SAME monotonic `nowMs`:
  *   - the per-CLASS anchor (C1 — computed from the PRIOR frame's stored class; the ≤1-tick lag
  *     is the accepted, self-correcting edge). A host with no stored anchor (never a boot overlay,
  *     or already settled+cleared) is not exceeded this way — a brief overlay under the ceiling
  *     holds the neutral surface, exactly as before.
- *   - the class-BLIND CAMPAIGN backstop: `campaignMs` (the server's whole-campaign `sinceMs`,
- *     passed ONLY for a warming entry — a connector-owned provisioning campaign) past
+ *   - the class-BLIND CAMPAIGN backstop: the connector campaign's monotonic start
+ *     ({@link campaignAnchors}, armed by {@link recordBootFrame} off the `provisioning` leg) past
  *     {@link CAMPAIGN_CEILING_MS}. This is what still fires when a flapping phase re-zeros the
- *     class anchor forever. `undefined` (a non-warming entry, or before the first connection
- *     frame) contributes nothing, so the campaign cell is naturally "cleared on connected/settled"
- *     — the caller stops passing it once the entry is no longer warming. */
-export function bootDeadlineExceeded(
-  hostEnc: string,
-  nowMs: number,
-  campaignMs?: number,
-): boolean {
+ *     class anchor forever — and, being client-monotonic, it keeps advancing even if the server
+ *     stops publishing frames (a silent wedge) and can't be jolted by a wall-clock step. */
+export function bootDeadlineExceeded(hostEnc: string, nowMs: number): boolean {
   const a = anchors.get(hostEnc);
   const classExceeded =
     a !== undefined && nowMs - a.anchorMs > CEILING_MS[a.ceiling];
+  const campaignStart = campaignAnchors.get(hostEnc);
   const campaignExceeded =
-    campaignMs !== undefined && campaignMs > CAMPAIGN_CEILING_MS;
+    campaignStart !== undefined && nowMs - campaignStart > CAMPAIGN_CEILING_MS;
   return classExceeded || campaignExceeded;
 }
 
 /** Step 3 (write): fold this frame's resolved tag into the host's anchor (C2) — a pure switch
  *  on the tag's 3-way `accrual` verdict, which the resolver already decided at its return site
  *  (no `kind`-based re-derivation here).
- *   - `accrue` → (re)anchor on the FIRST boot frame of a class, and re-anchor on a class CHANGE
- *     (zero-credit); otherwise keep the running anchor. This includes the escaped down/
- *     boot-stalled frames (their raw tag stays `accrue`), so an escape keeps accruing (stays
- *     escaped) until the hung leg delivers.
- *   - `clear` → release the anchor: a SETTLED surface (workspace/empty/down/host-failed).
- *   - `retain` → no-op: a non-boot OVERLAY the deadline must ignore (kaval-restart warming, a
- *     records-awaited / `!channelLive` connecting) — so an overlay-flavored flap can't dodge the
- *     ceiling by momentarily settling. A boot LEG flapping delivered↔undelivered clears each
- *     cycle and so never accrues — that is the hung-subscription TRIGGER class, out of scope. */
+ *   - `accrue` → (re)anchor the CLASS cell on the FIRST boot frame of a class, and re-anchor on a
+ *     class CHANGE (zero-credit); otherwise keep the running class anchor. This includes the
+ *     escaped down/boot-stalled frames (their raw tag stays `accrue`), so an escape keeps accruing
+ *     (stays escaped) until the hung leg delivers. Independently, the CAMPAIGN cell is ARMED (once,
+ *     then held) for a connector-owned `provisioning` leg and CLEARED for any other leg — so it
+ *     tracks the whole warming-remote campaign across class flips but never a client-side leg.
+ *   - `clear` → release BOTH cells: a SETTLED surface (workspace/empty/down/host-failed).
+ *   - `retain` → no-op on both: a non-boot OVERLAY the deadline must ignore (kaval-restart warming,
+ *     a records-awaited / `!channelLive` connecting) — so an overlay-flavored flap can't dodge the
+ *     ceiling by momentarily settling. A boot LEG flapping delivered↔undelivered clears each cycle
+ *     and so never accrues — that is the hung-subscription TRIGGER class, out of scope. */
 export function recordBootFrame(
   hostEnc: string,
   tag: BootTag,
@@ -126,23 +137,38 @@ export function recordBootFrame(
       if (a === undefined || a.ceiling !== t.ceiling) {
         anchors.set(hostEnc, { anchorMs: nowMs, ceiling: t.ceiling });
       }
+      // The campaign cell tracks the connector-owned (`provisioning`) campaign ONLY: arm it once
+      // at the campaign's first frame and HOLD it across class flips; a non-connector boot leg is
+      // not a connector campaign, so it clears the cell (a later `provisioning` frame re-arms fresh).
+      if (t.leg === "provisioning") {
+        if (!campaignAnchors.has(hostEnc)) campaignAnchors.set(hostEnc, nowMs);
+      } else {
+        campaignAnchors.delete(hostEnc);
+      }
     })
-    .with({ accrual: "clear" }, () => anchors.delete(hostEnc))
+    .with({ accrual: "clear" }, () => {
+      anchors.delete(hostEnc);
+      campaignAnchors.delete(hostEnc);
+    })
     .with({ accrual: "retain" }, () => {})
     .exhaustive();
 }
 
 /** Prune anchors for hosts no longer in membership — a genuine re-add earns a FRESH episode
  *  (its stale anchor must not carry over), while a switch-away-and-back (still a member)
- *  keeps its anchor (no fresh grace for a revisited wedged host). */
+ *  keeps its anchor (no fresh grace for a revisited wedged host). Prunes BOTH cells together. */
 export function pruneBootAnchors(memberEncs: readonly string[]): void {
   const keep = new Set(memberEncs);
   for (const k of [...anchors.keys()]) {
     if (!keep.has(k)) anchors.delete(k);
+  }
+  for (const k of [...campaignAnchors.keys()]) {
+    if (!keep.has(k)) campaignAnchors.delete(k);
   }
 }
 
 /** Test-only: clear all episode anchors so each test accrues fresh. */
 export function resetBootAnchors(): void {
   anchors.clear();
+  campaignAnchors.clear();
 }

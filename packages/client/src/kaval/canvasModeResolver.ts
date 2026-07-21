@@ -117,7 +117,9 @@ export type BootTag =
  *  the Skew-UX addition: the ACTIVE host's map-membership entry itself failed
  *  (an ssh/contract-level fault, cause-typed), distinct from `down` (a CONNECTED
  *  host whose kaval daemon died). `boot-stalled` is the #1763 boot-deadline escape:
- *  a boot overlay held past its ceiling, naming the stalled leg + the phase. */
+ *  a boot overlay held past its ceiling, carrying its honest {@link BootStalledRecovery}
+ *  verdict — a `connector` arm (a warming-remote campaign, with its live phase) or a `client`
+ *  arm (a client-side leg), never both. */
 export type CanvasMode =
   | { kind: "connecting" }
   // `down` carries the payload-bearing verdict (SK4): dead/degraded render the

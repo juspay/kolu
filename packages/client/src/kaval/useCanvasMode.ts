@@ -72,8 +72,7 @@ export function canvasMode(deps: {
   // (the narrated subset) at THIS boundary: a `connected`/`disconnected`/`failed` cell phase is
   // not a connect phase → `undefined` (no overlay), so the resolver's arm can carry only a real
   // connect phase and its routing is a plain `!== undefined`.
-  const info = connectionInfo();
-  const phase = info?.phase;
+  const phase = connectionInfo()?.phase;
   const connectPhase: ConnectPhase | undefined =
     phase !== undefined && isConnectPhase(phase) ? phase : undefined;
   // The active entry's connection state is the discriminant. A non-`connected`
@@ -127,16 +126,11 @@ export function canvasMode(deps: {
   // elapsed to 0, and the ceiling could never fire — leaving "Connecting to local…" up forever.
   const members = hostKeys();
   if (members.length > 0) pruneBootAnchors(members.map(encodeHostKey));
-  // The campaign backstop (#1908 R8a): the server's whole-campaign `sinceMs` for a WARMING entry
-  // — the connector-owned provisioning campaign whose flapping phase can re-zero the class anchor
-  // forever. Passed ONLY on the warming arm (a connected/failed/not-a-member entry's `sinceMs`
-  // measures a different clock, and the class ceilings own those), so the campaign cell is
-  // naturally cleared the instant the entry settles.
-  const campaignMs =
-    state.kind === "warming" && !liveness.isLocalHost
-      ? info?.sinceMs
-      : undefined;
-  const exceeded = bootDeadlineExceeded(hostEnc, nowMs, campaignMs);
+  // The #1908 R8a campaign backstop needs NO extra input here: `recordBootFrame` arms it off the
+  // frame's own tag (the connector-owned `provisioning` leg) and `bootDeadlineExceeded` reads it
+  // on the SAME monotonic `nowMs`. So the class ceiling and the class-blind campaign backstop are
+  // both folded by the one read below — no server `sinceMs` (frame-stamped + wall-clock) threaded in.
+  const exceeded = bootDeadlineExceeded(hostEnc, nowMs);
   const { mode, tag } = resolveCanvasMode(facts, { exceeded });
   recordBootFrame(hostEnc, tag, nowMs);
   return mode;

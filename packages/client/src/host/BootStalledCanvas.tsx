@@ -19,12 +19,18 @@
  * **[Switch to local]** is offered on either shape when the wedged host is remote — the escape
  * hatch to the unremovable default. A hung LOCAL kaval never reaches here (it takes the
  * byte-identical down/dead DegradedCanvas — #1713 preserved — via the resolver's down arm).
+ *
+ * REACTIVITY (#1908 D2, codex F2): `canvasMode` returns a FRESH `recovery` object every ~1s
+ * monotonic re-resolve, so both recovery verbs are built ONCE per instance and selected through a
+ * PRIMITIVE `via` memo (deduped on value). That keeps each action object's identity stable across
+ * ticks, so `CanvasFailureCard`'s identity-keyed `<For>` never tears down and recreates a button —
+ * a keyboard user focused on Retry connection / Switch to local keeps focus. Copy + phase detail
+ * are derived separately, so a phase change narrates without churning the buttons.
  */
 
-import { createMemo, type Component } from "solid-js";
+import { type Component, createMemo } from "solid-js";
 import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
-  type BootStalledCopy,
   bootStalledCopy,
   bootStalledPhaseDetail,
   CONNECTOR_STALLED_COPY,
@@ -36,61 +42,63 @@ import {
   switchToLocalAction,
 } from "./CanvasFailureCard";
 
-/** The card's rendered view for a resolved recovery arm — copy, the live phase detail
- *  (connector arm only), the outer data attributes, and the primary recovery verb. */
-interface BootStalledView {
-  copy: BootStalledCopy;
-  detail: string | undefined;
-  dataAttrs: Record<string, string>;
-  recovery: CanvasFailureAction;
-}
-
 const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
   props,
 ) => {
-  // Narrow the recovery ONCE per read (a discriminated union), then build the card's copy,
-  // phase detail, data attributes, and primary recovery verb off the narrowed arm — so neither
-  // the connector's `phase` nor the client's `leg` is ever read on the wrong arm.
-  const view = createMemo((): BootStalledView => {
-    const r = props.recovery;
-    if (r.via === "connector") {
-      return {
-        copy: CONNECTOR_STALLED_COPY,
-        detail: bootStalledPhaseDetail(r.phase),
-        dataAttrs: { "data-recovery": "connector" },
-        // The RECOVERY verb: recycle the SERVER connector for this host (PR1's recheck()),
-        // NOT `location.reload()` (which recycles only the browser and can't touch the dial).
-        recovery: reconnectAction({
-          label: "Retry connection",
-          testid: "boot-stalled-reconnect",
-        }),
-      };
-    }
-    return {
-      copy: bootStalledCopy(r.leg),
-      detail: undefined,
-      dataAttrs: { "data-recovery": "client", "data-stalled-leg": r.leg },
-      // A fresh boot re-runs every leg's subscription from a clean context — the honest "try
-      // again" for a hung client-side boot (the app has no per-leg re-subscribe from here).
-      recovery: {
-        label: "Reload",
-        testid: "boot-stalled-reload",
-        tone: "primary" as const,
-        onClick: () => location.reload(),
-      },
-    };
+  // The two recovery verbs, built ONCE per instance so their identity is stable across every
+  // 1s canvas re-resolve (see the REACTIVITY note above) — the connector recycles the SERVER
+  // connector (PR1's recheck()), the client one reloads the browser.
+  const connectorRecovery = reconnectAction({
+    label: "Retry connection",
+    testid: "boot-stalled-reconnect",
   });
-  const actions = (): CanvasFailureAction[] => [
-    view().recovery,
-    ...switchToLocalAction(),
-  ];
+  const clientRecovery: CanvasFailureAction = {
+    label: "Reload",
+    testid: "boot-stalled-reload",
+    tone: "primary",
+    onClick: () => location.reload(),
+  };
+
+  // Primitive discriminant — deduped on value, so the action selection below only re-runs when
+  // the ARM actually flips, not on every tick that hands us a fresh-but-equal recovery object.
+  const via = createMemo(() => props.recovery.via);
+  const recovery = createMemo<CanvasFailureAction>(() =>
+    via() === "connector" ? connectorRecovery : clientRecovery,
+  );
+  // switch-to-local, memoized on the active host so its action object is stable across ticks too.
+  const switchActions = createMemo(() => switchToLocalAction());
+  const actions = createMemo<CanvasFailureAction[]>(() => [
+    recovery(),
+    ...switchActions(),
+  ]);
+
+  // Copy + the live phase detail — derived off the recovery arm, SEPARATELY from the actions so a
+  // phase change narrates without re-keying the buttons. Cheap constants (the copy maps), so a
+  // tick that leaves the arm/phase unchanged re-reads the same reference and paints nothing new.
+  const copy = createMemo(() =>
+    props.recovery.via === "connector"
+      ? CONNECTOR_STALLED_COPY
+      : bootStalledCopy(props.recovery.leg),
+  );
+  const detail = createMemo(() =>
+    props.recovery.via === "connector"
+      ? bootStalledPhaseDetail(props.recovery.phase)
+      : undefined,
+  );
+  const dataAttrs = createMemo((): Record<string, string> => {
+    const r = props.recovery;
+    return r.via === "connector"
+      ? { "data-recovery": "connector" }
+      : { "data-recovery": "client", "data-stalled-leg": r.leg };
+  });
+
   return (
     <CanvasFailureCard
       dataTestid="boot-stalled-canvas"
-      dataAttrs={view().dataAttrs}
-      title={view().copy.title}
-      body={view().copy.body}
-      detail={view().detail}
+      dataAttrs={dataAttrs()}
+      title={copy().title}
+      body={copy().body}
+      detail={detail()}
       actions={actions()}
     />
   );

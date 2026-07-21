@@ -14,8 +14,10 @@
  */
 
 import type { HostKey } from "kolu-common/hostKey";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   bootStalledCopy,
   CONNECTOR_STALLED_COPY,
@@ -86,5 +88,40 @@ describe("BootStalledCanvas renders non-blank (component render pin)", () => {
     expect(
       document.querySelector('[data-testid="switch-to-local"]'),
     ).not.toBeNull();
+  });
+
+  it("keeps each button's DOM identity + focus across a fresh-but-equal recovery object and a phase change (codex F2 — no per-tick focus loss)", () => {
+    // `canvasMode` hands this component a FRESH `recovery` object every ~1s monotonic re-resolve.
+    // If the card rebuilt its buttons each time, a keyboard user would lose focus every second.
+    h.host = { kind: "remote", target: "zest" };
+    const [rec, setRec] = createSignal<BootStalledRecovery>({
+      via: "connector",
+      phase: "building",
+    });
+    dispose = render(
+      () => <BootStalledCanvas recovery={rec()} />,
+      document.body,
+    );
+    const btn = document.querySelector<HTMLButtonElement>(
+      '[data-testid="boot-stalled-reconnect"]',
+    );
+    if (!btn) throw new Error("no reconnect button rendered");
+    btn.focus();
+    expect(document.activeElement).toBe(btn);
+
+    // A fresh-but-EQUAL recovery object (the every-tick case): same DOM node, focus intact.
+    setRec({ via: "connector", phase: "building" });
+    expect(
+      document.querySelector('[data-testid="boot-stalled-reconnect"]'),
+    ).toBe(btn);
+    expect(document.activeElement).toBe(btn);
+
+    // A phase change narrates a new detail but must NOT rebuild the button.
+    setRec({ via: "connector", phase: "connecting" });
+    expect(
+      document.querySelector('[data-testid="boot-stalled-reconnect"]'),
+    ).toBe(btn);
+    expect(document.activeElement).toBe(btn);
+    expect(document.body.textContent).toContain("connecting");
   });
 });
