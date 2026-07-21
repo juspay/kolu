@@ -121,7 +121,7 @@ remote host — so identity, login, and presence stay in XS.
 The **coordinator** is an orchestrator agent running in an ordinary kolu terminal — the
 same shape kolu's own development runs on: one agent that provisions worker terminals,
 dispatches briefs, answers the workers' questions, and verifies their claims at the tree.
-Its behavioral contract is the `/orchestrator` skill: rulings run through the review
+Its behavioral contract is the `/bridge` skill: rulings run through the review
 lenses with named grounding, teardown kills only recorded PIDs, the human merges every
 PR. The chat bot is a **mirror of that coordinator**: it binds one thread to that one
 terminal, renders the coordinator's reports into the thread, and relays the thread's
@@ -355,7 +355,7 @@ with a `conversationId` and the transcript relay switched on for between-message
 no new wire, which is why it is the roadmap's smallest PR.
 
 The discussion-assist patterns — the coordinator contributing grounded answers to a
-debate between humans — are coordinator behavior, the `/orchestrator` skill's
+debate between humans — are coordinator behavior, the `/bridge` skill's
 territory, and deliberately not a pesu PR.
 
 **The milestone is concrete: run kolu's own development from a thread (B0 + B1).**<PesuStyles />

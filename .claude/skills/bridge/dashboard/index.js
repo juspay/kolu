@@ -1,4 +1,4 @@
-// Departure-board renderer for window.BOARD (from $PWD/orchestrator-data.js —
+// Departure-board renderer for window.BOARD (from $PWD/bridge-data.js —
 // see SKILL.md; the ../ climb is fixed by the skill's known depth and the
 // browser normalizes it before the request, so the preview route's wire-level
 // traversal guard is never involved). Each lane renders as a card with a
@@ -8,7 +8,7 @@
 // script (fetch() is CORS-blocked in the sandboxed preview BY DESIGN);
 // the entrance animation runs on first paint only, so the 30s reload never
 // re-plays it.
-const DATA_SRC = "../../../../orchestrator-data.js";
+const DATA_SRC = "../../../../bridge-data.js";
 
 const $ = (tag, cls, text) => {
   const el = document.createElement(tag);
@@ -286,7 +286,7 @@ function reloadData() {
         $(
           "span",
           null,
-          "orchestrator-data.js not found at the project root — retrying in 30s",
+          "bridge-data.js not found at the project root — retrying in 30s",
         ),
       );
   };
