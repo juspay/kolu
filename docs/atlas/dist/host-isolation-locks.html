@@ -133,38 +133,15 @@ written test <strong>cannot see</strong> your real kolu, let alone kill it.</li>
 </ol>
 <h2 id="the-three-ways-of-running-kolu--and-which-identity-each-gets">The three ways of running kolu — and which identity each gets</h2>
 <p>The locks only make sense against how kolu actually starts. There are three
-front doors, and after Lock 1 each has an unambiguous identity:</p>
-<table>
-<thead>
-<tr>
-<th>How you run it</th>
-<th>State folder</th>
-<th>Role</th>
-<th>What that means</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>nix run github:juspay/kolu</code></td>
-<td><code>~/.config/kolu</code> (+ default padi root)</td>
-<td><strong>production</strong></td>
-<td>The real thing — badge set, allowed in production’s chair</td>
-</tr>
-<tr>
-<td>home-manager module</td>
-<td>same production wrapper, as a service</td>
-<td><strong>production</strong></td>
-<td>The managed real thing — restarts survive, daemons persist</td>
-</tr>
-<tr>
-<td><code>just dev</code></td>
-<td><code>&lt;worktree&gt;/.kolu-dev</code> (private)</td>
-<td><strong>dev</strong></td>
-<td>Its own private universe — <em>cannot</em> touch production</td>
-</tr>
-</tbody>
-</table>
+front doors; below, <strong>every path each one uses</strong>, before → after the fix. Two
+facts to read them with: a daemon’s <em>identity</em> is the digest of its <strong>padi
+state-root path</strong> (that digest names its sockets and gates), and the runtime
+dirs live under <code>$XDG_RUNTIME_DIR</code> and are wiped on reboot — the state roots
+persist.</p>
 <h3 id="nix-run-githubjuspaykolu--the-production-front-door"><code>nix run github:juspay/kolu</code> — the production front door</h3>
+<dl><dt><strong>Role badge</strong></dt><dd>before: <em>(no such concept)</em> → after: <code>KOLU_ROLE=production</code>, set by the wrapper — the only place that sets it.</dd><dt><strong>Server state</strong> (settings, remembered hosts, prefs)</dt><dd><code><del>/.config/kolu/</del> (<code>state.json</code>) — unchanged. An inherited <code>KOLU_STATE_DIR</code> still wins (the relocated-second-instance case, #1414).</code>
+<dt><strong>Padi state-root</strong> (saved session, <code>padi.log</code>) — <em>the identity anchor</em></dt>
+<dd><code></code>/.local/state/padi/</dd> — unchanged path; after, production also stamps <code>~/.local/state/padi/role</code> (the persistent marker dev refuses to cross, even with the daemon down).</dd><dt><strong>Daemon runtime</strong> (sockets · pid gates · manifests; boot-wiped)</dt><dd><code>$XDG_RUNTIME_DIR/padi-&lt;digest&gt;/</code> and <code>kaval-&lt;digest&gt;/</code>, where <code>&lt;digest&gt;</code> = sha256 of the state-root path — so production’s digest is fixed by the path above. After: each dir also carries an ephemeral <code>role</code> file, written before the socket serves.</dd></dl>
 <p>This runs the flake’s default package, which is a thin <strong>production wrapper</strong>
 around the real binary. The wrapper does exactly two things: it exports
 <code>KOLU_STATE_DIR</code>, defaulting to <code>~/.config/kolu</code> (an inherited value wins, so a
@@ -181,29 +158,19 @@ this wrapper (tests do) crashes rather than silently landing in
 <code>~/.config/kolu</code>.</p>
 <h3 id="the-home-manager-module--the-same-door-supervised">The home-manager module — the same door, supervised</h3>
 <p><code>services.kolu</code> doesn’t invent a different kolu — it execs the package you point
-it at (normally that same production wrapper) as a <strong>user service</strong>: a systemd
-unit on Linux, a LaunchAgent on macOS, with your configured <code>--host</code>/<code>--port</code>,
-<code>Restart=on-failure</code>, and the <code>kaval-tui</code>/<code>padi-tui</code> CLIs dropped onto your
-PATH. Identity-wise it is byte-for-byte the first row: production folder,
-production badge. The service manager only supervises the <em>server</em>; the padi and
-kaval daemons it spawns outlive service restarts by design (that is the
-kaval-survivors feature), which is precisely why a stray dev process being able
-to adopt or kill them was so dangerous — the daemons are long-lived and carry
-your terminals.</p>
+it at (normally that same production wrapper) as a <strong>user service</strong> (systemd unit
+on Linux, LaunchAgent on macOS) with your <code>--host</code>/<code>--port</code>,
+<code>Restart=on-failure</code>, and the TUI CLIs on PATH. So every path is <strong>identical to
+<code>nix run</code> above</strong> — production folder, production badge, same padi root, same
+runtime digest. One thing worth its own line:</p>
+<dl><dt><strong>What the service manager owns vs. what outlives it</strong></dt><dd>systemd/launchd supervises only the <em>server</em>. The padi + kaval daemons it spawns live in the boot-wiped runtime dirs and <strong>outlive service restarts</strong> by design (the kaval-survivors feature) — which is exactly why a stray dev process able to adopt or kill them was so dangerous: they are long-lived and hold your terminals.</dd></dl>
 <h3 id="just-dev--a-private-universe-per-worktree"><code>just dev</code> — a private universe per worktree</h3>
 <p><code>just dev</code> (and <code>just dev-auto</code>, which picks two random free ports so a second
-worktree never collides) enters the nix shell and runs the dev server via the
-kolu-cli <code>dev</code> script — and that script’s first act is the whole story: it sets
-<code>KOLU_STATE_DIR=&lt;worktree&gt;/.kolu-dev</code> <strong>and</strong>
-<code>KOLU_PADI_STATE_DIR=&lt;worktree&gt;/.kolu-dev/padi</code>. A private folder means a
-private digest, which means a <strong>different daemon identity entirely</strong>: dev padi,
-dev kaval, dev sockets, all namespaced to the worktree, structurally incapable
-of colliding with production’s. No badge is set — and none is needed, because
-nothing here ever reaches for production’s folder. Before the fix, only the
-<em>server</em> half of this isolation existed (<code>KOLU_STATE_DIR</code>); the padi half
-silently defaulted to production’s root — that missing second export was the
-#1334 hole, and Lock 1 is what turns any future recurrence of it into a crash
-instead of a takeover.</p>
+worktree never collides) runs the dev server via the kolu-cli <code>dev</code> script.</p>
+<dl><dt><strong>Role badge</strong></dt><dd>none — and none needed: nothing here ever reaches for production’s folder.</dd><dt><strong>Server state</strong></dt><dd>before: <em>set</em> — <code>&lt;worktree&gt;/.kolu-dev/</code> (this half was already isolated). After: unchanged.</dd><dt><strong>Padi state-root</strong> — <em>the fix’s crux</em></dt><dd>before: <strong>UNSET → silently defaulted to <code>~/.local/state/padi</code></strong> (production’s root) — the #1334 hole. After: <code>&lt;worktree&gt;/.kolu-dev/padi/</code>, set explicitly by the dev script. A private root ⇒ a private digest ⇒ a wholly separate daemon identity.</dd><dt><strong>Daemon runtime</strong></dt><dd><code>$XDG_RUNTIME_DIR/padi-&lt;dev-digest&gt;/</code>, <code>kaval-&lt;dev-digest&gt;/</code> — namespaced to the worktree, structurally unable to collide with production’s sockets/gates.</dd></dl>
+<p>The missing second export (<code>KOLU_PADI_STATE_DIR</code>) was the whole of #1334; Lock 1
+turns any future recurrence — a bare launch that resolves production’s root
+without the badge — into a crash instead of a takeover.</p>
 <h2 id="what-you-feel-afterwards">What you feel afterwards</h2>
 <ul>
 <li><code>vitest</code> on your machine: fast, harmless, forks nothing.</li>
