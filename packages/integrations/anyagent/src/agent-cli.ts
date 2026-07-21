@@ -124,6 +124,9 @@ const STABLE_FLAGS: ReadonlyMap<
       ["--agent", "value"],
       ["--no-plan", "boolean"],
       ["--no-subagents", "boolean"],
+      // Inline (scrollback) TUI instead of the alternate screen — a launch-shape
+      // choice users re-pick deliberately; must survive recent-agents / resume.
+      ["--no-alt-screen", "boolean"],
       ["--reasoning-effort", "value"],
       ["--effort", "value"],
     ]),
