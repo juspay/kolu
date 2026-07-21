@@ -642,9 +642,13 @@ body {
     SFMono-Regular, Menlo, monospace;
   font-size: 11px;
 }
-.dock-rail-chip[data-bucket="blocked"],
 .dock-rail-chip[data-bucket="awaiting"] {
   border-color: var(--color-alert);
+}
+/* Blocked wears the loud amber "needs you" border (the unread/attention token),
+ * NOT the dim violet `--color-alert` — matching its amber StatePip core. */
+.dock-rail-chip[data-bucket="blocked"] {
+  border-color: var(--color-attention);
 }
 .dock-rail-chip[data-bucket="working"] {
   border-color: var(--color-accent);
@@ -681,7 +685,8 @@ body {
  * `awaiting`: a thicker, fuller-opacity alert ring that never breathes down to the
  * quiet floor — the rail counterpart of the loud `blocked` StatePip core. */
 .dock-rail-chip[data-bucket="blocked"] .dock-rail-chip-glow {
-  box-shadow: 0 0 0 4px color-mix(in oklch, var(--color-alert) 92%, transparent);
+  box-shadow: 0 0 0 4px
+    color-mix(in oklch, var(--color-attention) 92%, transparent);
   will-change: opacity, transform;
   animation: dock-chip-breathe-blocked 1.4s ease-in-out infinite;
 }

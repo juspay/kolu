@@ -61,9 +61,10 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
 // `@kolu/theme` tokens it names (`bg-alert`/`border-accent`/`bg-fg-3`/
 // `text-moonlit`) are what make the two surfaces resolve the same colour.
 const bodyCases: Array<[PipVariant, string[]]> = [
-  // `blocked` is the LOUD end — full-opacity `bg-alert` (not the dim `/55`),
-  // larger, and pulsing — for an agent genuinely blocked on you (`awaiting_user`).
-  ["blocked", ["bg-alert", "animate-pulse"]],
+  // `blocked` is the LOUD attention cue — the amber `bg-amber-500` "needs you"
+  // language of the host pill / unread badge, larger + pulsing — for an agent
+  // genuinely blocked on you (`awaiting_user`), NOT the dim violet awaiting dot.
+  ["blocked", ["bg-amber-500", "animate-pulse"]],
   ["awaiting", ["bg-alert/55"]],
   ["working", ["border-accent", "border-t-transparent", "animate-spin"]],
   ["idle", ["bg-fg-3/55"]],
@@ -86,11 +87,12 @@ describe("PIP_BODY — the rendered class set per variant", () => {
     expect(PIP_BODY.blocked?.class).toContain("motion-reduce:animate-none");
   });
 
-  it("blocked is louder than the dim awaiting dot (full-opacity alert, not /55)", () => {
-    // The whole point of the split: `blocked` must NOT reuse the dim `bg-alert/55`
-    // the lingering `awaiting` dot wears, or the loud/quiet distinction collapses.
-    expect(PIP_BODY.blocked?.class.split(/\s+/)).toContain("bg-alert");
-    expect(PIP_BODY.blocked?.class).not.toContain("bg-alert/55");
+  it("blocked speaks the loud amber attention language, NOT the dim violet awaiting dot", () => {
+    // The whole point of the split: `blocked` must be the bright amber "needs you"
+    // cue (a dark violet dot on a dark dock barely reads), never the dim
+    // `bg-alert/55` the lingering `awaiting` dot wears — or the fix is invisible.
+    expect(PIP_BODY.blocked?.class.split(/\s+/)).toContain("bg-amber-500");
+    expect(PIP_BODY.blocked?.class).not.toContain("bg-alert");
   });
 
   it("sleeping is the only variant with a glyph (the ☾)", () => {

@@ -90,14 +90,16 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
 export type PipBody = { class: string; glyph?: string };
 
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // genuinely blocked on you RIGHT NOW (awaiting_user): the loud end of the amber
-  // scale — full-opacity, larger, and gently pulsing, so an agent asking you a
-  // question reads at a glance instead of whispering at the same volume as the
-  // dim lingering `awaiting` dot below. `motion-reduce:animate-none` holds it
-  // still under a reduced-motion preference, like the working spinner.
+  // genuinely blocked on you RIGHT NOW (awaiting_user): the LOUD attention cue.
+  // It speaks the amber "needs you" language of the host-tab count pill and the
+  // unread badge (`bg-amber-500`, ATTENTION_PILL_CLASS's colour) — NOT the dim
+  // violet `--color-alert` the lingering `awaiting` dot wears, which is a dark
+  // dot on a dark dock that barely reads. Larger + pulsing so an agent asking a
+  // question pops; `motion-reduce:animate-none` holds it still under a
+  // reduced-motion preference, like the working spinner.
   blocked: {
     class:
-      "w-2 h-2 rounded-full bg-alert animate-pulse motion-reduce:animate-none",
+      "w-2 h-2 rounded-full bg-amber-500 animate-pulse motion-reduce:animate-none",
   },
   // awaiting, already seen: quiet dim dot (lingering)
   awaiting: { class: "w-1.5 h-1.5 rounded-full bg-alert/55" },
