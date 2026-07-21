@@ -149,7 +149,9 @@ describe("resolvePadiStateRoot — override wins, always absolute, no silent def
     try {
       resolvePadiStateRoot();
     } catch (e) {
-      expect((e as Error).message).toMatch(/Relative paths are resolved against cwd/);
+      expect((e as Error).message).toMatch(
+        /Relative paths are resolved against cwd/,
+      );
       expect((e as Error).message).not.toMatch(/absolute directory/);
     }
   });
