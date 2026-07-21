@@ -68,6 +68,7 @@ describe("subscribeFileAppends — the floor recovers a dropped edge", () => {
     const onChange = vi.fn();
     const unsub = subscribeFileAppends(file, onChange, {
       intervalMs: INTERVAL,
+      label: "test",
     });
 
     fs.appendFileSync(file, "b\n"); // the dropped-edge append
@@ -84,6 +85,7 @@ describe("subscribeFileAppends — the floor recovers a dropped edge", () => {
     const onChange = vi.fn();
     const unsub = subscribeFileAppends(file, onChange, {
       intervalMs: INTERVAL,
+      label: "test",
     });
 
     await settle();
@@ -98,6 +100,7 @@ describe("subscribeFileAppends — the floor recovers a dropped edge", () => {
     const onChange = vi.fn();
     const unsub = subscribeFileAppends(file, onChange, {
       intervalMs: INTERVAL,
+      label: "test",
     });
 
     await settle();
@@ -116,7 +119,10 @@ describe("subscribeFileAppends — the edge fast path", () => {
     const file = path.join(tmp, "fast.jsonl");
     fs.writeFileSync(file, "a\n");
     const onChange = vi.fn();
-    const unsub = subscribeFileAppends(file, onChange, { intervalMs: 5000 });
+    const unsub = subscribeFileAppends(file, onChange, {
+      intervalMs: 5000,
+      label: "test",
+    });
 
     await sleep(30);
     fs.appendFileSync(file, "b\n");
@@ -137,6 +143,7 @@ describe("subscribeFileAppends — teardown (B3)", () => {
     const unsub = subscribeFileAppends(file, onChange, {
       intervalMs: INTERVAL,
       log,
+      label: "test",
     });
 
     // Delete (would drive a zeroed-stats fire + disambiguating stat) then tear
@@ -163,6 +170,7 @@ describe("subscribeFileAppends — a deletion is expected-absent, not an error",
     const unsub = subscribeFileAppends(file, onChange, {
       intervalMs: INTERVAL,
       log,
+      label: "test",
     });
 
     fs.rmSync(file); // present → absent: a zeroed-stats fire, ENOENT on restat

@@ -76,8 +76,10 @@ export interface SubscribeFileAppendsOpts {
    *  real interval, exactly as `createDirFilenameWatcher` takes `debounceMs`. */
   intervalMs: number;
   log?: Logger;
-  /** Lifecycle log label for error lines, e.g. `"grok: events"`. */
-  label?: string;
+  /** Lifecycle log label for error lines, e.g. `"grok: events"`. **Required**
+   *  — not optional-with-default, mirroring `intervalMs`: an optional-with-default
+   *  is the dead knob the fail-fast law forbids. All call sites pass it. */
+  label: string;
 }
 
 /**
@@ -108,7 +110,7 @@ export function subscribeFileAppends(
   opts: SubscribeFileAppendsOpts,
 ): () => void {
   const { intervalMs, log, label } = opts;
-  const tag = label ?? "file-append";
+  const tag = label;
   let closed = false;
 
   // Fast path — the OS edge. `fs.watch` throws synchronously if the file is not
