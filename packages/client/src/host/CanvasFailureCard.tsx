@@ -61,12 +61,13 @@ export function switchToLocalAction(): CanvasFailureAction[] {
  *  same `reconnect` call + error toast, so the one connector-recovery verb lives beside the
  *  shared card it renders into (only `label`/`testid` differ per caller).
  *
- *  It also RESETS this host's boot deadline ({@link resetBootDeadline}) — the deliberate
- *  user-recovery reset (#1908 R8a): a Retry that recycles the connector must earn a fresh
- *  class + campaign window at once, so the boot-stalled card dismisses immediately even on a
- *  same-class retry (where the class anchor would otherwise stay exceeded and the verb would
- *  look broken). On the host-down card the host is `failed` (its anchor already cleared), so
- *  the reset is a harmless no-op there. */
+ *  On SUCCESS it RESETS this host's boot deadline ({@link resetBootDeadline}) — the deliberate
+ *  user-recovery reset (#1908 R8a): a Retry that actually recycles the connector earns a fresh
+ *  class + campaign window, so the boot-stalled card dismisses even on a same-class retry (where
+ *  the class anchor would otherwise stay exceeded and the verb would look broken). The reset is
+ *  gated on the RPC RESOLVING — a REJECTED reconnect must NOT dismiss the card or grant fresh
+ *  grace (the retry didn't happen), it surfaces the error and the card stays (codex F9). On the
+ *  host-down card the host is `failed` (its anchor already cleared), so the reset is a no-op there. */
 export function reconnectAction(opts: {
   label: string;
   testid: string;
@@ -77,9 +78,9 @@ export function reconnectAction(opts: {
     tone: "primary",
     onClick: () => {
       const host = activeHost();
-      resetBootDeadline(encodeHostKey(host));
       client.hosts
         .reconnect({ host })
+        .then(() => resetBootDeadline(encodeHostKey(host)))
         .catch((err: Error) =>
           toast.error(`Couldn't reconnect: ${err.message}`),
         );

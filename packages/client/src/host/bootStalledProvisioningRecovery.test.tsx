@@ -91,7 +91,7 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     );
   });
 
-  it("the recovery verb reaches the server connector (hosts.reconnect), not location.reload()", () => {
+  it("the recovery verb reaches the server connector (hosts.reconnect), not location.reload(), and resets the deadline only ON SUCCESS", async () => {
     const reload = vi
       .spyOn(window.location, "reload")
       .mockImplementation(() => {});
@@ -106,9 +106,28 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     // reload the browser page.
     expect(h.reconnect).toHaveBeenCalledWith({ host: h.host });
     expect(reload).not.toHaveBeenCalled();
-    // …and it resets THIS host's boot deadline so the card dismisses at once (a fresh window),
-    // rather than staying up on a same-class retry (#1908 R8a, codex F1).
-    expect(h.resetBootDeadline).toHaveBeenCalledWith(encodeHostKey(h.host));
+    // …and once the reconnect RESOLVES it resets THIS host's boot deadline, so the card dismisses
+    // (a fresh window) rather than staying up on a same-class retry (#1908 R8a, codex F1). Gated on
+    // success — a rejected reconnect must NOT reset (codex F9), which the `.then()` chaining ensures.
+    await vi.waitFor(() =>
+      expect(h.resetBootDeadline).toHaveBeenCalledWith(encodeHostKey(h.host)),
+    );
     reload.mockRestore();
+  });
+
+  it("a REJECTED reconnect does NOT reset the boot deadline (the card must stay — codex F9)", async () => {
+    h.reconnect.mockImplementationOnce(() => Promise.reject(new Error("nope")));
+    dispose = render(
+      () => (
+        <BootStalledCanvas recovery={{ via: "connector", phase: "building" }} />
+      ),
+      document.body,
+    );
+    primaryRecoveryButton().click();
+    expect(h.reconnect).toHaveBeenCalledWith({ host: h.host });
+    // Let the rejected promise settle; the reset must NOT have fired.
+    await vi.waitFor(() => expect(h.reconnect).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(h.resetBootDeadline).not.toHaveBeenCalled();
   });
 });

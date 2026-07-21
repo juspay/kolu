@@ -131,9 +131,10 @@ The host's chip dot tells you where it is:
     its agent over ssh — the card stays **non-terminal**: it says kolu is **still retrying**
     (naming the phase it's on), and its recovery verb is **Retry connection**, which recycles
     the **server-side** connection — the only thing that can move a stuck dial, where a browser
-    reload can't. There's also a **campaign backstop**: if a setup churns for a solid half hour
-    without ever connecting, the escape card is guaranteed to appear even when the phase keeps
-    flapping. **Switch to local** is offered alongside.
+    reload can't. There's also a **campaign backstop**: after about half an hour of a setup that
+    never connects **on screen**, kolu shows the escape card even while the phase keeps flapping
+    (that half-hour is measured from when this tab started watching, so a page reload starts it
+    fresh). **Switch to local** is offered alongside.
   - When the stall is a **client-side delivery** problem instead — the host list or your saved
     session never arriving, or a **connected** remote's agent never reporting its status — the
     card **names what didn't arrive** and offers **Reload** (a fresh boot re-runs that
