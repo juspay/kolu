@@ -45,3 +45,31 @@ export function attentionTransitions(
   }
   return { candidates, ended };
 }
+
+/** The next "unseen finished" set for ONE host — the quiet host-tab dot's meaning.
+ *  A finished agent idles in `waiting` ~forever, so "has any finished agent" would
+ *  light the dot permanently (the bug); this is the UNSEEN subset instead:
+ *    • while the host is ACTIVE (you're looking) it is empty — you've seen it;
+ *    • it keeps only ids still finished (a finish that goes back to work, or
+ *      escalates to asking, drops out);
+ *    • it grows only by a FRESH background finish (a `waiting` a terminal just
+ *      entered), never by the baseline discovery of already-finished agents.
+ *  Pure and stateful-by-fold: the caller threads the previous set back in. */
+export function nextUnseenFinished(
+  unseen: ReadonlySet<TerminalId>,
+  prev: PadiUrgency | null,
+  cur: PadiUrgency,
+  isActiveHost: boolean,
+): Set<TerminalId> {
+  if (isActiveHost) return new Set(); // you're looking at it → nothing unseen.
+  const finishedNow = new Set(cur.finishedIds);
+  // Keep only ids still finished (drops ended + finished→asking).
+  const next = new Set<TerminalId>(
+    [...unseen].filter((id) => finishedNow.has(id)),
+  );
+  if (prev === null) return next; // baseline discovery is not "unseen".
+  for (const { id, asking } of attentionTransitions(prev, cur).candidates) {
+    if (!asking) next.add(id); // a fresh background finish is unseen.
+  }
+  return next;
+}

@@ -95,6 +95,7 @@ import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
+import { hostUnseenFinished } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostAwaiting } from "./useHostAwaiting";
@@ -143,6 +144,9 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
   const counts = useHostAwaiting(props.host);
+  // The quiet "finished, unseen" dot reads the cross-host mark `useAttention`
+  // publishes — NOT the raw finished count (a finished agent idles forever).
+  const unseenFinished = () => hostUnseenFinished(encodeHostKey(props.host));
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -223,12 +227,12 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
             count={counts.awaiting()}
             sizeClass="min-w-4 px-1 h-4"
           />
-          <Show when={counts.finished() > 0 && !isActive()}>
+          <Show when={unseenFinished() > 0 && !isActive()}>
             <span
               role="img"
               class="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-fg-3/70"
-              title={`${counts.finished()} finished on ${hostLabel(props.host)}`}
-              aria-label={`${counts.finished()} finished terminals on ${hostLabel(props.host)}`}
+              title={`${unseenFinished()} finished, unseen, on ${hostLabel(props.host)}`}
+              aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(props.host)}`}
             />
           </Show>
         </button>

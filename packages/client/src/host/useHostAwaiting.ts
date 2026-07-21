@@ -18,16 +18,14 @@
 import type { HostKey } from "kolu-common/hostKey";
 import { padiMap } from "../wire";
 
-/** A host's attention counts as reactive accessors — hidden-at-zero mark fodder.
- *  The urgency cell's declared `hostToast` policy (host-prefixed: `Host <host>
- *  urgency error: …`) routes through the ONE interpreter, so this use-site is bare. */
-export function useHostAwaiting(host: HostKey): {
-  awaiting: () => number;
-  finished: () => number;
-} {
+/** A host's asking count as a reactive accessor — hidden-at-zero amber-pill
+ *  fodder. (The quiet "finished" host-tab dot is NOT derived from the raw
+ *  `finishedIds` here — a finished agent idles in `waiting` ~forever, so that
+ *  would light every host permanently; it reads the UNSEEN-finished mark that
+ *  `useAttention` computes and `attentionMarks` publishes.) The urgency cell's
+ *  declared `hostToast` policy routes errors through the ONE interpreter, so this
+ *  use-site is bare. */
+export function useHostAwaiting(host: HostKey): { awaiting: () => number } {
   const urgency = padiMap.entry(host).cells.urgency.use();
-  return {
-    awaiting: () => urgency.value()?.awaitingIds.length ?? 0,
-    finished: () => urgency.value()?.finishedIds.length ?? 0,
-  };
+  return { awaiting: () => urgency.value()?.awaitingIds.length ?? 0 };
 }

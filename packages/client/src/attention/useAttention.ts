@@ -48,7 +48,11 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
-import { attentionTransitions } from "./attentionTransitions";
+import {
+  attentionTransitions,
+  nextUnseenFinished,
+} from "./attentionTransitions";
+import { writeHostMarks } from "./attentionMarks";
 import { createStore } from "solid-js/store";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
@@ -119,6 +123,12 @@ export function useAttention(deps: AttentionDeps): {
   const latched = new Set<string>();
   const keyOf = (encHost: string, id: TerminalId): string => `${encHost}/${id}`;
 
+  // Per-host "unseen finished" ids — the quiet host-tab dot. A finished agent
+  // idles in `waiting` forever, so this is the UNSEEN subset (see
+  // `nextUnseenFinished`), not "has any finished agent": it accrues on a fresh
+  // background finish and clears when you look at the host.
+  const unseenFin = new Map<string, Set<TerminalId>>();
+
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
 
   // "Seen with your eyes": the active host's focused tile while kolu has focus. A
@@ -162,6 +172,18 @@ export function useAttention(deps: AttentionDeps): {
   ): void {
     const encHost = encodeHostKey(host);
     const { candidates, ended } = attentionTransitions(prev, cur);
+
+    // The quiet host-tab dot: fold this host's unseen-finished set and publish it.
+    // Runs on EVERY frame (incl. baseline) so the dot tracks work back to zero,
+    // never latches on. `nextUnseenFinished` owns the rule (unit-tested).
+    const unseen = nextUnseenFinished(
+      unseenFin.get(encHost) ?? new Set(),
+      prev,
+      cur,
+      isActiveHost(host),
+    );
+    unseenFin.set(encHost, unseen);
+    writeHostMarks(encHost, { unseenFinished: unseen.size });
 
     // Episode end: a terminal that left BOTH sets went back to work — clear its
     // latch so its NEXT finish/ask is a fresh episode that fires again.
@@ -230,13 +252,27 @@ export function useAttention(deps: AttentionDeps): {
         for (const id of prev?.finishedIds ?? []) {
           latched.delete(keyOf(encHost, id));
         }
+        unseenFin.delete(encHost);
         setSummary(encHost, undefined as unknown as HostAttention);
+        writeHostMarks(encHost, undefined);
       });
       return null;
     },
   );
   // Instantiate the roots (mapArray is lazy until read).
   createEffect(() => void roots());
+
+  // Clear a host's unseen-finished dot the moment you switch TO it — "you looked".
+  // `nextUnseenFinished` also zeroes it on any active-host cell tick, but a switch
+  // with no accompanying cell change still needs this to clear the mark.
+  createEffect(() => {
+    const enc = encodeHostKey(activeHost());
+    const set = unseenFin.get(enc);
+    if (set && set.size > 0) {
+      set.clear();
+      writeHostMarks(enc, { unseenFinished: 0 });
+    }
+  });
 
   // App badge = Σ ASKING over LIVE hosts. A dead host's held count never inflates
   // it; the active host is live, so its asking agents are counted too. Serialised

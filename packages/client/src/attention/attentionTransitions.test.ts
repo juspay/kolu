@@ -5,7 +5,10 @@
 import type { PadiUrgency } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { attentionTransitions } from "./attentionTransitions";
+import {
+  attentionTransitions,
+  nextUnseenFinished,
+} from "./attentionTransitions";
 
 const u = (awaiting: string[], finished: string[] = []): PadiUrgency => ({
   awaitingIds: awaiting as TerminalId[],
@@ -57,5 +60,45 @@ describe("attentionTransitions", () => {
     expect(attentionTransitions(u([], []), u([], ["a"])).candidates).toEqual([
       { id: "a", asking: false },
     ]);
+  });
+});
+
+const S = (...ids: string[]) => new Set(ids as TerminalId[]);
+
+describe("nextUnseenFinished (the host-tab dot's meaning — the #<this-PR> dot bug)", () => {
+  // THE BUG: the dot showed for any host with a finished agent, and a finished
+  // agent idles in `waiting` ~forever — so the dot was on every host, always.
+  it("a STEADY finished agent is NOT unseen (same frame twice)", () => {
+    expect(nextUnseenFinished(S(), u([], ["a"]), u([], ["a"]), false)).toEqual(
+      S(),
+    );
+  });
+
+  it("a finished agent present at BASELINE (discovery) is NOT unseen", () => {
+    expect(nextUnseenFinished(S(), null, u([], ["a"]), false)).toEqual(S());
+  });
+
+  it("a FRESH background finish IS unseen", () => {
+    expect(nextUnseenFinished(S(), u([], []), u([], ["a"]), false)).toEqual(
+      S("a"),
+    );
+  });
+
+  it("an unseen finish on the ACTIVE host clears (you're looking at it)", () => {
+    expect(
+      nextUnseenFinished(S("a"), u([], ["a"]), u([], ["a"]), true),
+    ).toEqual(S());
+  });
+
+  it("an unseen finish that goes back to work drops out", () => {
+    expect(nextUnseenFinished(S("a"), u([], ["a"]), u([], []), false)).toEqual(
+      S(),
+    );
+  });
+
+  it("an unseen finish that escalates to asking drops out (it's now the amber pill)", () => {
+    expect(
+      nextUnseenFinished(S("a"), u([], ["a"]), u(["a"], []), false),
+    ).toEqual(S());
   });
 });
