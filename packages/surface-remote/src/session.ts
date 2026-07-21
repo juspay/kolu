@@ -98,9 +98,14 @@ const LOCAL_LIVENESS_DEAD_MAN_CEILING_MS = 60_000;
  *     ALWAYS has a real reason, so a consumer needs no `?? "disconnected"`
  *     invented-text fallback. `cause` is `"network"` (unreachable; retries forever)
  *     or `"remote"` (host reached, rejected us).
- *   - `failed` — terminal, and `cause` is the `"remote"` LITERAL: a `"network"`
- *     fault never gives up (it retries forever), so `failed`+`network` is a COMPILE
- *     error by type, not a runtime convention.
+ *   - `failed` — TERMINAL. `cause` is `"network" | "remote"` — the HONEST transport
+ *     class, orthogonal to terminality: a give-up on `MAX_CONSECUTIVE_FAILURES` bounded
+ *     remote rejections is `"remote"`, but a give-up from a budget-EXHAUSTED silent
+ *     provisioning step (#1908 — a wedged transport killed enough times) is honestly
+ *     `"network"`. Terminality is the `failed` PHASE; the cause never lies to satisfy it
+ *     (a silent copy that gave up was never "reached and rejected"). (`"network"` no
+ *     longer means "retries forever" — it means "transport-class fault"; the budget is
+ *     what bounds a silent transport, #1908 codex-debate F3.)
  *
  *  `Prov` is the connector's OWN provisioning-phase vocabulary (`= never` for a
  *  non-provisioning endpoint — the local arm, whose up phases are exactly
@@ -128,7 +133,7 @@ export type SessionState<Prov extends string = never> = {
   | { phase: "connecting" | Prov }
   | { phase: "connected"; clockOffset: number | null }
   | { phase: "disconnected"; error: string; cause: "network" | "remote" }
-  | { phase: "failed"; error: string; cause: "remote" }
+  | { phase: "failed"; error: string; cause: "network" | "remote" }
 );
 
 /** The DOWN arms of {@link SessionState} (`disconnected`/`failed`) — the frames
@@ -851,10 +856,11 @@ export function makeSession<
    *  REQUIRED parameters, supplied EXPLICITLY by the caller (never spread-inherited
    *  from `prev`, which may itself be an up arm with no error fields to inherit, or
    *  carry a stale reason from an earlier episode) — so a down transition can never
-   *  omit or invent a reason. `failed`'s `cause` is forced to the `"remote"`
-   *  literal the type demands (a `"network"` fault never gives up); the `log` tail
-   *  carries forward (the failed episode's lines stay readable until the next dial
-   *  resets them). */
+   *  omit or invent a reason. Both `disconnected` and `failed` carry the HONEST
+   *  `cause` the caller supplies — `failed` no longer forces `"remote"` (terminality
+   *  is the phase, not the cause: a budget-exhausted silent copy fails `"network"`,
+   *  #1908 F3); the `log` tail carries forward (the failed episode's lines stay
+   *  readable until the next dial resets them). */
   const setDown = (
     phase: "disconnected" | "failed",
     error: string,
@@ -865,11 +871,15 @@ export function makeSession<
     // A down arm has nothing to back-stop — the reconnect/backoff machinery owns it now.
     clearPreConnected();
     emit(`[${label}] error: ${error}`);
-    stateCell.set(
-      phase === "failed"
-        ? { phase, error, cause: "remote", log: prev.log, sinceMs: since() }
-        : { phase, error, cause, log: prev.log, sinceMs: since() },
-    );
+    // Both down arms are `Prov`-independent; the cast lets the generic construct the arm
+    // (an unconstrained `Prov` defeats discriminated-union narrowing on `phase`).
+    stateCell.set({
+      phase,
+      error,
+      cause,
+      log: prev.log,
+      sinceMs: since(),
+    } as SessionState<Prov>);
   };
 
   const localProgress = (line: string): void => {
@@ -1027,15 +1037,12 @@ export function makeSession<
           : `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
       clientPromise = null;
-      // `failed` is always the `"remote"` cause by DESIGN — a give-up (a terminal
-      // budget-exhaustion OR `MAX_CONSECUTIVE_FAILURES` bounded remote faults) is a
-      // BOUNDED TERMINAL verdict, which is exactly the `"remote"` class ("we reached the
-      // host / tried enough and stopped"), never the retry-forever `"network"` class. So
-      // pass `"remote"` EXPLICITLY here rather than the incoming `cause` (which is the
-      // honest per-attempt classification — `"network"` for a silent copy while it was
-      // still retrying): the terminal frame states the give-up honestly, and this is not a
-      // silent rewrite of `network → remote` (F3). `reason` carries the real failure text.
-      setDown("failed", reason, "remote");
+      // `failed` carries the HONEST transport cause, orthogonal to terminality (F3): a
+      // `MAX_CONSECUTIVE_FAILURES` give-up arrives here as `"remote"` (bounded remote
+      // rejections), a budget-EXHAUSTED silent step as `"network"` (a wedged transport
+      // killed enough times — never "reached and rejected"). Pass the incoming `cause`
+      // straight through; terminality is the `failed` phase, not a rewrite of the cause.
+      setDown("failed", reason, cause);
       return;
     }
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);

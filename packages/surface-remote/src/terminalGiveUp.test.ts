@@ -81,7 +81,12 @@ describe("#1908 — a permanently-silent copy reaches `failed`, bounded", () => 
       await vi.advanceTimersByTimeAsync(5);
     }
 
-    expect(session.currentState().phase).toBe("failed");
+    const final = session.currentState();
+    expect(final.phase).toBe("failed");
+    // The terminal `failed` carries the HONEST transport cause — a silent copy is
+    // `"network"` (a wedged transport killed enough times), never rewritten to `"remote"`
+    // to satisfy terminality (F3).
+    expect(final.phase === "failed" && final.cause).toBe("network");
     // Bounded: the copy budget terminalises at PROVISION_STEP_MAX_EXPIRIES expiries, so
     // `nix copy` (runProgress) ran that many times, never unbounded.
     expect(vi.mocked(runProgress).mock.calls.length).toBe(

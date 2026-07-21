@@ -17,9 +17,9 @@
  * contradiction that once misled `session.provisions`'s runtime derivation.
  */
 
-import type { SshProv } from "./sshConnector";
 import type { Connector, SessionState } from "./session";
 import { makeSession } from "./session";
+import type { SshProv } from "./sshConnector";
 
 declare const localConnector: Connector<unknown, never>;
 declare const sshConnector: Connector<unknown, SshProv>;
@@ -93,8 +93,9 @@ makeSession<unknown, SshProv>({
  * (`connecting`/`connected`/the provisioning `Prov`) that carries NO `error`/`cause`
  * FIELDS, and a DOWN arm (`disconnected`/`failed`) that carries them as REQUIRED
  * (never nullable) — so "down with no reason" and "live with a stale error" are both
- * UNCONSTRUCTIBLE. `failed` additionally pins `cause` to the `"remote"` LITERAL: a
- * `"network"` fault never gives up, so `failed`+`network` is a COMPILE error.
+ * UNCONSTRUCTIBLE. Both down arms carry `cause: "network" | "remote"` — terminality is
+ * the `failed` PHASE, orthogonal to the transport cause (a budget-exhausted silent copy
+ * gives up honestly `"network"`, #1908 F3); a bogus cause is still a compile error.
  */
 declare const upState: SessionState<never>;
 if (upState.phase === "connecting") {
@@ -126,19 +127,29 @@ const missingReason: SessionState<never> = {
 };
 void missingReason;
 
-// THE W6 PIN: `failed` + `"network"` is unrepresentable — a network fault retries
-// forever and never reaches the terminal `failed` state, so the type forbids it.
+// `failed` + `"network"` is now REPRESENTABLE (#1908 F3): terminality is the `failed`
+// phase, orthogonal to the transport cause — a budget-exhausted SILENT provisioning step
+// gives up honestly `"network"` (never rewritten to `"remote"` to satisfy terminality).
 const failedNetwork: SessionState<never> = {
   phase: "failed",
-  error: "gave up",
-  // @ts-expect-error — `failed`'s `cause` is the `"remote"` literal; `"network"` is
-  // a compile error. If this line ever compiles, a terminal-give-up-on-a-transport-
-  // blip state is representable again.
+  error: "gave up — silent copy killed too many times",
   cause: "network",
   log: [],
   sinceMs: 0,
 };
 void failedNetwork;
+
+// …but the cause is still CONSTRAINED to the two transport classes — a bogus cause is a
+// compile error.
+const failedBadCause: SessionState<never> = {
+  phase: "failed",
+  error: "gave up",
+  // @ts-expect-error — `cause` is `"network" | "remote"`; anything else is illegal.
+  cause: "banana",
+  log: [],
+  sinceMs: 0,
+};
+void failedBadCause;
 
 // An UP arm carrying an error field is equally illegal — the split cuts both ways.
 const upWithStaleError: SessionState<never> = {
