@@ -1,60 +1,99 @@
 /**
- * BootStalledCanvas — the #1763 boot-deadline escape surface.
+ * BootStalledCanvas — the #1763 boot-deadline escape surface, now HONEST about who owns the
+ * wedged leg (#1908 D2). The resolver decides the {@link BootStalledRecovery} verdict in
+ * `escapeSurface`; this component just renders it, so the recovery is never re-derived here.
  *
- * The connect overlay ("Connecting to <host>…") used to spin forever when a boot leg hung
- * (membership / session / daemon), because the only timeout escape was fed by the daemon leg
- * alone. `resolveCanvasMode` now escapes a boot overlay held past its per-host ceiling to a
- * `boot-stalled` mode that NAMES the stalled leg; this component renders it — honest copy from
- * {@link bootStalledCopy} plus, for a wedged remote provision, the live `phase` (copying /
- * building) — over the shared {@link CanvasFailureCard} shell.
+ * Two shapes, one per recovery arm:
+ *   - `via: "connector"` — a warming REMOTE campaign the server ssh connector is STILL retrying
+ *     (probing / copying / building / connecting). NON-TERMINAL copy from {@link CONNECTOR_STALLED_COPY}
+ *     plus the live `phase` detail, and the recovery verb **[Retry connection]** calls
+ *     `client.hosts.reconnect` — which PR1 gave a real abort-in-flight `recheck()` that recycles
+ *     the held server session into a fresh dial. `location.reload()` could not recycle a
+ *     server-side connector, so it would be a lie over a still-retrying campaign (the field
+ *     bewilderment this fixes: the old card read as a terminal wedge over a self-healing dial).
+ *   - `via: "client"` — a genuinely client-side leg (a connected host's session/daemon
+ *     subscription, or a membership stall). Its own {@link bootStalledCopy} plus the **[Reload]**
+ *     verb (`location.reload()` — a fresh boot re-runs every leg's subscription from a clean
+ *     context, the honest "try again" for a hung client-side boot).
  *
- * Recovery verb is **[Reload]** (`location.reload()` — a fresh boot re-runs every leg's
- * subscription from a clean context, the honest "try again" for a hung boot, distinct from
- * HostDownCanvas's `hosts.reconnect` re-dial of a PROVEN-failed binding). **[Switch to local]**
- * is offered when the wedged host is remote — the same escape hatch to the unremovable default.
+ * **[Switch to local]** is offered on either shape when the wedged host is remote — the escape
+ * hatch to the unremovable default. A hung LOCAL kaval never reaches here (it takes the
+ * byte-identical down/dead DegradedCanvas — #1713 preserved — via the resolver's down arm).
  *
- * NOTE the local kaval leg never reaches here: a hung LOCAL daemon escapes to the byte-identical
- * `down`/`dead` DegradedCanvas (#1713 preserved), so `leg === "daemon"` here is only a REMOTE
- * daemon stall.
+ * REACTIVITY (#1908 D2, codex F2): `canvasMode` returns a FRESH `recovery` object every ~1s
+ * monotonic re-resolve, so both recovery verbs are built ONCE per instance and selected through a
+ * PRIMITIVE `via` memo (deduped on value). That keeps each action object's identity stable across
+ * ticks, so `CanvasFailureCard`'s identity-keyed `<For>` never tears down and recreates a button —
+ * a keyboard user focused on Retry connection / Switch to local keeps focus. Copy + phase detail
+ * are derived separately, so a phase change narrates without churning the buttons.
  */
 
-import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
-import type { Component } from "solid-js";
-import type { StalledLeg } from "../kaval/canvasModeResolver";
+import { type Component, createMemo } from "solid-js";
+import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,
+  CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
 
-const BootStalledCanvas: Component<{
-  leg: StalledLeg;
-  phase: ConnectPhase | undefined;
-}> = (props) => {
-  const copy = () => bootStalledCopy(props.leg);
-  // Render the live provisioning phase beside the static copy (C4) — so a wedged remote build
-  // names WHERE it is stuck ("Still copying" / "Still building") rather than a bare title. The
-  // phase→detail wording lives in the copy authority (`bootStalledCopy.ts`), not inline here.
-  const detail = () => bootStalledPhaseDetail(props.phase);
-  const actions = (): CanvasFailureAction[] => [
-    // A fresh boot re-runs every leg's subscription from a clean context — the honest "try
-    // again" for a hung boot (the app has no per-leg re-subscribe from here).
-    {
-      label: "Reload",
-      testid: "boot-stalled-reload",
-      tone: "primary",
-      onClick: () => location.reload(),
-    },
+const BootStalledCanvas: Component<{ recovery: BootStalledRecovery }> = (
+  props,
+) => {
+  // The two recovery verbs, built ONCE per instance so their identity is stable across every
+  // 1s canvas re-resolve (see the REACTIVITY note above) — the connector recycles the SERVER
+  // connector (PR1's recheck()), the client one reloads the browser.
+  const connectorRecovery = reconnectAction({
+    label: "Retry connection",
+    testid: "boot-stalled-reconnect",
+  });
+  const clientRecovery: CanvasFailureAction = {
+    label: "Reload",
+    testid: "boot-stalled-reload",
+    tone: "primary",
+    onClick: () => location.reload(),
+  };
+
+  // The recovery arm, as two VALUE-deduped payload memos: exactly one is defined at a time — a
+  // client leg (Reload card) XOR a connector phase (Retry card). EVERY derivation below reads
+  // these, never the fresh-per-tick `props.recovery` object, so a tick that changed nothing
+  // re-reads the same primitive and rebuilds nothing (no button churn, no per-second DOM writes).
+  // The card can still flip arm/phase IN PLACE — a warming-remote leg can settle to a connected
+  // session without the mode leaving `boot-stalled` — which these track by value.
+  const clientLeg = createMemo(() =>
+    props.recovery.via === "client" ? props.recovery.leg : undefined,
+  );
+  const connectorPhase = createMemo(() =>
+    props.recovery.via === "connector" ? props.recovery.phase : undefined,
+  );
+
+  const actions = createMemo<CanvasFailureAction[]>(() => [
+    clientLeg() === undefined ? connectorRecovery : clientRecovery,
     ...switchToLocalAction(),
-  ];
+  ]);
+  const copy = createMemo(() => {
+    const leg = clientLeg();
+    return leg === undefined ? CONNECTOR_STALLED_COPY : bootStalledCopy(leg);
+  });
+  // The live phase detail — the connector card's only per-phase narration (the client arm's
+  // `connectorPhase` is `undefined`, and `bootStalledPhaseDetail(undefined)` is `undefined`).
+  const detail = createMemo(() => bootStalledPhaseDetail(connectorPhase()));
+  const dataAttrs = createMemo((): Record<string, string> => {
+    const leg = clientLeg();
+    return leg === undefined
+      ? { "data-recovery": "connector" }
+      : { "data-recovery": "client", "data-stalled-leg": leg };
+  });
+
   return (
     <CanvasFailureCard
       dataTestid="boot-stalled-canvas"
-      dataAttrs={{ "data-stalled-leg": props.leg }}
+      dataAttrs={dataAttrs()}
       title={copy().title}
       body={copy().body}
       detail={detail()}

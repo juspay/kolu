@@ -21,13 +21,12 @@
 
 import type { EntryFailedCause } from "kolu-common/surfacesWithPadi";
 import type { Component } from "solid-js";
-import { toast } from "solid-sonner";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,
+  reconnectAction,
   switchToLocalAction,
 } from "./CanvasFailureCard";
-import { activeHost, client } from "../wire";
 import { hostDownCopy } from "./hostDownCopy";
 
 const HostDownCanvas: Component<{
@@ -41,18 +40,7 @@ const HostDownCanvas: Component<{
     // named above, THIS is the path back: `hosts.reconnect` force-cycles the held
     // session (recheck()) into a fresh dial. NOT the inert-retry we forbade — the failed
     // arm never auto-retries, so this genuinely re-dials.
-    {
-      label: "Reconnect",
-      testid: "host-reconnect",
-      tone: "primary",
-      onClick: () => {
-        client.hosts
-          .reconnect({ host: activeHost() })
-          .catch((err: Error) =>
-            toast.error(`Couldn't reconnect: ${err.message}`),
-          );
-      },
-    },
+    reconnectAction({ label: "Reconnect", testid: "host-reconnect" }),
     ...switchToLocalAction(),
   ];
   return (

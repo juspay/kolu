@@ -20,10 +20,13 @@
  *  so it sits beside the shell it always renders into instead of forcing each caller to
  *  import a third file. */
 
+import { encodeHostKey } from "kolu-common/hostKey";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { For, type JSX, Show } from "solid-js";
+import { toast } from "solid-sonner";
+import { resetBootDeadline } from "../kaval/bootDeadline";
 import { WarningIcon } from "../ui/Icons";
-import { activeHost, setActiveHost } from "../wire";
+import { activeHost, client, setActiveHost } from "../wire";
 
 /** One action button in the card's vertical stack. `tone: "primary"` is the warning-accented
  *  recovery verb (Reconnect / Reload); `"secondary"` is the neutral escape hatch (Switch to
@@ -50,6 +53,39 @@ export function switchToLocalAction(): CanvasFailureAction[] {
       onClick: () => setActiveHost(LOCAL_HOST),
     },
   ];
+}
+
+/** The shared recovery action — "recycle the SERVER ssh connector for this host into a fresh
+ *  dial" (`client.hosts.reconnect`, PR1's abort-in-flight `recheck()`). Both failure canvases
+ *  (`HostDownCanvas` / `BootStalledCanvas`) plug into this factory rather than hand-wiring the
+ *  same `reconnect` call + error toast, so the one connector-recovery verb lives beside the
+ *  shared card it renders into (only `label`/`testid` differ per caller).
+ *
+ *  On SUCCESS it RESETS this host's boot deadline ({@link resetBootDeadline}) — the deliberate
+ *  user-recovery reset (#1908 R8a): a Retry that actually recycles the connector earns a fresh
+ *  class + campaign window, so the boot-stalled card dismisses even on a same-class retry (where
+ *  the class anchor would otherwise stay exceeded and the verb would look broken). The reset is
+ *  gated on the RPC RESOLVING — a REJECTED reconnect must NOT dismiss the card or grant fresh
+ *  grace (the retry didn't happen), it surfaces the error and the card stays (codex F9). On the
+ *  host-down card the host is `failed` (its anchor already cleared), so the reset is a no-op there. */
+export function reconnectAction(opts: {
+  label: string;
+  testid: string;
+}): CanvasFailureAction {
+  return {
+    label: opts.label,
+    testid: opts.testid,
+    tone: "primary",
+    onClick: () => {
+      const host = activeHost();
+      client.hosts
+        .reconnect({ host })
+        .then(() => resetBootDeadline(encodeHostKey(host)))
+        .catch((err: Error) =>
+          toast.error(`Couldn't reconnect: ${err.message}`),
+        );
+    },
+  };
 }
 
 /** The shared failure-card shell. `detail` is an optional verbatim line (a raw `reason`, a

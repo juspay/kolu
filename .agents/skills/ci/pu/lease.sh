@@ -10,7 +10,7 @@
 # is held by keeping a file descriptor open, and an fd cannot span an agent's
 # separate Bash tool-calls. The odu MCP inverts that: `mcp__odu__run` spawns its
 # OWN background `odu run` coordinator and the agent drives it with discrete
-# tool-calls (wait_for_settle / tail_log). There is no seam for a wrapper to
+# tool-calls (wait_for_settle / the log resources). There is no seam for a wrapper to
 # enclose that run, so the lease can no longer live in the run's process.
 #
 # The fix is to decouple lease-lifetime from run-lifetime. `acquire` leases a box
