@@ -68,22 +68,32 @@ describe("#1754 self-heal (grok, real watcher, edge dropped)", () => {
       log(`onChange fired  →  state = ${i.state.toUpperCase()}`);
     });
 
-    log(`open turn observed        →  state = ${states.at(-1)?.toUpperCase()}   (the fast turn is running)`);
-    log(`terminal 'turn_ended' appended  →  fs.watch EDGE DROPPED (the shim delivers no callback)`);
+    log(
+      `open turn observed        →  state = ${states.at(-1)?.toUpperCase()}   (the fast turn is running)`,
+    );
+    log(
+      `terminal 'turn_ended' appended  →  fs.watch EDGE DROPPED (the shim delivers no callback)`,
+    );
     fs.appendFileSync(
       session.eventsPath,
       `${JSON.stringify({ type: "turn_ended" })}\n`,
     );
-    log(`...turn is over, agent idle, NO further write. Pre-fix: stranded 'thinking' forever.`);
+    log(
+      `...turn is over, agent idle, NO further write. Pre-fix: stranded 'thinking' forever.`,
+    );
     log(`...waiting on the statSync poll floor (interval = 1000ms)...`);
 
     await sleep(1400);
 
-    log(`state = ${states.at(-1)?.toUpperCase()}   ←  RECONCILED, with no edge and no further write`);
+    log(
+      `state = ${states.at(-1)?.toUpperCase()}   ←  RECONCILED, with no edge and no further write`,
+    );
     expect(states.at(-1)).toBe("waiting");
     // Prove the edge never fired — recovery was purely the poll floor.
     expect(shim.forSuffix("events.jsonl").length).toBeGreaterThan(0);
-    log(`✓ SELF-HEAL VERIFIED — the #1754 strand is gone (poll floor recovered the dropped edge)`);
+    log(
+      `✓ SELF-HEAL VERIFIED — the #1754 strand is gone (poll floor recovered the dropped edge)`,
+    );
 
     watcher.destroy();
   });
