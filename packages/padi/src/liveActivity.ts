@@ -74,19 +74,23 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
         // recycle so a long watch survives a daemon restart.
         void (async () => {
           while (!sig.aborted) {
-            try {
-              await bridgeStream(
-                ptyHostClient.surface.activity.get({}, { signal: sig }),
-                sig,
-                (edge) => tracker.noteOutput(edge.id as TerminalId),
-              );
-            } catch (err) {
-              if (sig.aborted) return;
-              log.debug(
-                { err },
-                "kaval activity subscribe failed; will re-subscribe",
-              );
-            }
+            // `bridgeStream` RESOLVES on a non-abort stream failure (it does not
+            // reject), so the re-subscribe hangs off the resolve, not a catch. The
+            // `onError` supplies the intended debug note — an EXPECTED kaval recycle
+            // (e.g. the 5.2->5.3 daemon force-recycle), which must NOT surface as
+            // bridgeStream's generic ERROR "tap subscription failed". Same reason the
+            // foreground/exit taps pass an `onError`: the default error log is wrong
+            // for them.
+            await bridgeStream(
+              ptyHostClient.surface.activity.get({}, { signal: sig }),
+              sig,
+              (edge) => tracker.noteOutput(edge.id as TerminalId),
+              (err) =>
+                log.debug(
+                  { err },
+                  "kaval activity subscribe ended; will re-subscribe",
+                ),
+            );
             if (sig.aborted) return;
             await new Promise<void>((resolve) => {
               const t = setTimeout(resolve, ACTIVITY_RESUBSCRIBE_DELAY_MS);
