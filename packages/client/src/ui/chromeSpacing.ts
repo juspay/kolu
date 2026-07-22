@@ -94,17 +94,18 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
  *
  *  R-activity-merge collapsed the old leading pair — a 12 px live-activity
  *  track + a 16/20 px state-pip track — into ONE 18 px column holding the
- *  merged `StatePip` (its green live glow halo replacing the standalone
- *  dot), so the row's dead left margin is reclaimed and desktop/touch no
- *  longer differ in this geometry — hence ONE shared template, not a
- *  desktop/touch pair. 18 px is the pip box; the live halo bleeds into
- *  `DOCK_ROW_GAP` (which does not clip). If a real desktop/touch divergence
- *  returns later, reintroduce a second constant then, when it once again
- *  encodes a difference. */
+ *  merged `StatePip` (its green live plate behind the identity glyph
+ *  replacing the standalone activity dot), so the row's dead left margin is
+ *  reclaimed and desktop/touch no longer differ in this geometry — hence ONE
+ *  shared template, not a desktop/touch pair. 18 px is the pip box; the live
+ *  plate is contained inside it. If a real desktop/touch divergence returns
+ *  later, reintroduce a second constant then, when it once again encodes a
+ *  difference. */
 export const DOCK_ROW_GRID = "grid-cols-[18px_minmax(0,1fr)_auto_auto]";
 /** Column gap between the status indicator and the branch label — matches
- *  the Option C mockup (`gap: 0 0.7rem`). Wide enough that the live glow
- *  halo (≈8 px blur outside the 18 px pip) does not collide with the
- *  branch text. Shared by desktop cards and the touch list. */
+ *  the Option C mockup (`gap: 0 0.7rem`). Gives the 18 px pip + identity
+ *  glyph breathing room from the branch text (the live plate is contained
+ *  inside the pip and no longer bleeds). Shared by desktop cards and the
+ *  touch list. */
 export const DOCK_ROW_GAP = "gap-x-[0.7rem]";
 export const DOCK_ROW_BRANCH_COL = "col-start-2";

@@ -633,7 +633,7 @@ const DockRow: Component<{
           title="Jump to this terminal"
         >
           {/* Identity status indicator — agent brand or shell glyph, state
-           *  paint/motion, live glow halo, unread corner dot. Centred across
+           *  paint/motion, live plate, unread corner dot. Centred across
            *  both row lines. */}
           <span class="row-span-2 flex self-center">
             <StatePip
