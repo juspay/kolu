@@ -43,8 +43,10 @@ export interface AttentionCore {
 export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
   const prevByHost = new Map<string, PadiUrgency>();
   const unseenByHost = new Map<string, Set<TerminalId>>();
-  const latched = new Set<string>();
-  const keyOf = (encHost: string, id: TerminalId): string => `${encHost}/${id}`;
+  // Per-host fire-once latch — same `Map<encHost, …>` shape as its two siblings, so
+  // a host's latch is data the structure holds directly (a `forgetHost` delete),
+  // never something replayed from `prevByHost`.
+  const latched = new Map<string, Set<TerminalId>>();
 
   const observe = (encHost: string, cur: PadiUrgency): void => {
     const prev = prevByHost.get(encHost) ?? null;
@@ -62,21 +64,24 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
 
     // Episode end: a terminal back to work clears its latch, so its NEXT
     // finish/ask is a fresh episode that fires again.
-    for (const id of ended) latched.delete(keyOf(encHost, id));
+    for (const id of ended) latched.get(encHost)?.delete(id);
 
     // `candidates` is empty on the baseline (a finish already present when a host
     // binds is a discovery, not a transition — enforced in `attentionTransitions`),
     // so this loop records-only on the first frame with no guard here.
     for (const { id, asking } of candidates) {
-      const key = keyOf(encHost, id);
-      if (latched.has(key)) continue;
+      if (latched.get(encHost)?.has(id) ?? false) continue;
       const seen = hooks.isWatched(encHost, id);
       const alerted = hooks.alertsEnabled() && !seen;
       if (alerted) hooks.deliver(encHost, id, asking);
       // Latch once the user has been MADE AWARE — an actual alert, OR looking
       // right at a live gate (eyes work with sound off). A `finished` seen
       // while watched is NOT latched, so a later real gate still fires (#1177).
-      if (alerted || (asking && seen)) latched.add(key);
+      if (alerted || (asking && seen)) {
+        (
+          latched.get(encHost) ?? latched.set(encHost, new Set()).get(encHost)!
+        ).add(id);
+      }
     }
 
     // SNAPSHOT the frame — never keep a reference. The live surface delivers this
@@ -91,14 +96,9 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
   };
 
   const forgetHost = (encHost: string): void => {
-    for (const id of prevByHost.get(encHost)?.awaitingIds ?? []) {
-      latched.delete(keyOf(encHost, id));
-    }
-    for (const id of prevByHost.get(encHost)?.finishedIds ?? []) {
-      latched.delete(keyOf(encHost, id));
-    }
     prevByHost.delete(encHost);
     unseenByHost.delete(encHost);
+    latched.delete(encHost);
     hooks.writeMark(encHost, 0);
   };
 
