@@ -166,7 +166,7 @@ const SettingsPopover: Component<{
             }}
           >
             <Toggle
-              testId="activity-alerts-toggle"
+              testId="attention-alerts-toggle"
               enabled={preferences().attentionAlerts}
               onChange={(on) => updatePreferences({ attentionAlerts: on })}
             />
