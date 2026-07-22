@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 520" font-family="ui-sans-serif,system-ui" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 480" font-family="ui-sans-serif,system-ui" font-size="13">
   <defs>
     <marker id="ef-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
@@ -9,81 +9,60 @@
   </defs>
 
   <text x="24" y="28" font-weight="700" fill="#1a1c20" font-size="15">EF — phase tree (each box is one mergeable PR)</text>
-  <text x="24" y="48" font-size="12" fill="#5b6470">Strict dependency down the spine. EF0 done. Never land EF2 without EF1; never land EF4 without a live→idle unit test.</text>
+  <text x="24" y="48" font-size="12" fill="#5b6470">EF0 done. EF1 is a full activity cutover (no dual path). EF2 is finish honesty. Never ship a dead wire beside the old mechanism.</text>
 
-  <!-- spine nodes -->
-  <rect x="40" y="72" width="280" height="56" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <!-- spine -->
+  <rect x="40" y="72" width="300" height="56" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
   <text x="56" y="96" font-weight="700" fill="#1b7a3a">EF0 · close / capture ✓</text>
   <text x="56" y="114" font-size="12" fill="#15803d">done · #1938 closed · plan of record</text>
 
-  <line x1="180" y1="128" x2="180" y2="148" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+  <line x1="190" y1="128" x2="190" y2="148" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
 
-  <rect x="40" y="150" width="280" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.5"/>
-  <text x="56" y="174" font-weight="700" fill="#0b6478">EF1 · kaval activity edge</text>
-  <text x="56" y="192" font-size="12" fill="#1a1c20">fact only · no consumer behaviour</text>
+  <rect x="40" y="150" width="300" height="100" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
+  <text x="56" y="174" font-weight="700" fill="#1b7a3a">EF1 · activity cutover (full stack)</text>
+  <text x="56" y="194" font-size="12" fill="#1a1c20">kaval edge · padi liveActivity · client dots</text>
+  <text x="56" y="212" font-size="12" fill="#1a1c20">delete byte taps + suppress + noteOutput</text>
+  <text x="56" y="232" font-size="11" fill="#1b7a3a">first user-facing · testable in the dock</text>
 
-  <line x1="180" y1="206" x2="180" y2="226" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+  <line x1="190" y1="250" x2="190" y2="270" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
 
-  <rect x="40" y="228" width="280" height="64" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
-  <text x="56" y="252" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold</text>
-  <text x="56" y="270" font-size="12" fill="#1a1c20">first user-facing fix</text>
-  <text x="56" y="286" font-size="11" fill="#1b7a3a">premature “finished” → honest quiet</text>
+  <rect x="40" y="272" width="300" height="88" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
+  <text x="56" y="296" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold</text>
+  <text x="56" y="316" font-size="12" fill="#1a1c20">waiting + quiet → finishedIds</text>
+  <text x="56" y="334" font-size="12" fill="#1a1c20">reuses EF1 edge · no second taps</text>
+  <text x="56" y="352" font-size="11" fill="#1b7a3a">second user-facing · honest chime</text>
 
-  <line x1="180" y1="292" x2="180" y2="312" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
+  <line x1="190" y1="360" x2="190" y2="380" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
 
-  <rect x="40" y="314" width="280" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.5"/>
-  <text x="56" y="338" font-weight="700" fill="#0b6478">EF3 · padi activity stream</text>
-  <text x="56" y="356" font-size="12" fill="#1a1c20">liveActivity on edge · drop byte taps</text>
+  <rect x="40" y="382" width="300" height="48" rx="8" fill="#f0f1f3" stroke="#5b6470" stroke-width="1.2"/>
+  <text x="56" y="404" font-weight="700" fill="#5b6470" font-size="12">EF3 · harden / e2e / docs</text>
+  <text x="56" y="420" font-size="11" fill="#5b6470">shared fan-out · visit regression · changelog</text>
 
-  <line x1="180" y1="370" x2="180" y2="390" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+  <!-- right: EF1 stack detail -->
+  <text x="400" y="88" font-weight="700" fill="#1a1c20" font-size="14">EF1 stack (one volatility, one PR)</text>
 
-  <rect x="40" y="392" width="280" height="64" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
-  <text x="56" y="416" font-weight="700" fill="#1b7a3a">EF4 · client live-dot mirror</text>
-  <text x="56" y="434" font-size="12" fill="#1a1c20">second user-facing fix</text>
-  <text x="56" y="450" font-size="11" fill="#1b7a3a">plain array copies · live→idle test</text>
+  <rect x="400" y="108" width="540" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="416" y="132" font-weight="700" fill="#0b6478">kaval · meaningful-output edge</text>
+  <text x="416" y="150" font-size="12" fill="#1a1c20">onData · resize mute · throttle · contract bump</text>
 
-  <line x1="180" y1="456" x2="180" y2="476" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
+  <line x1="670" y1="164" x2="670" y2="184" stroke="#5b6470" stroke-width="1.3" marker-end="url(#ef-arr)"/>
 
-  <rect x="40" y="478" width="280" height="32" rx="8" fill="#f0f1f3" stroke="#5b6470" stroke-width="1.2"/>
-  <text x="56" y="498" font-weight="700" fill="#5b6470" font-size="12">EF5 · harden / rename / e2e</text>
+  <rect x="400" y="186" width="540" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="416" y="210" font-weight="700" fill="#0b6478">padi · activity live set</text>
+  <text x="416" y="228" font-size="12" fill="#1a1c20">fold edge through short idle window · drop byte taps</text>
 
-  <!-- right column: architecture of the end state -->
-  <text x="380" y="88" font-weight="700" fill="#1a1c20" font-size="14">End state (after EF4)</text>
+  <line x1="670" y1="242" x2="670" y2="262" stroke="#5b6470" stroke-width="1.3" marker-end="url(#ef-arr)"/>
 
-  <rect x="380" y="108" width="560" height="72" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
-  <text x="396" y="132" font-weight="700" fill="#0b6478">kaval · meaningful-output edge</text>
-  <text x="396" y="152" font-size="12" fill="#1a1c20">onData funnel · resize mute before proc.resize</text>
-  <text x="396" y="170" font-size="12" fill="#5b6470">ships { id } only — never a quiet boolean / window</text>
+  <rect x="400" y="264" width="540" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="416" y="288" font-weight="700" fill="#0b6478">client · isLive mirror</text>
+  <text x="416" y="306" font-size="12" fill="#1a1c20">plain array copies · drop suppress / noteOutput · live→idle test</text>
 
-  <line x1="660" y1="180" x2="660" y2="204" stroke="#5b6470" stroke-width="1.4" marker-end="url(#ef-arr)"/>
+  <rect x="400" y="340" width="540" height="72" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.4"/>
+  <text x="416" y="364" font-weight="700" fill="#1b7a3a">EF2 · finish (separate volatility)</text>
+  <text x="416" y="384" font-size="12" fill="#1a1c20">enteredWaitingAt + lastMeaningfulArrivalAt → finishedIds</text>
+  <text x="416" y="402" font-size="12" fill="#5b6470">attention chime honesty — not mixed into the activity cutover</text>
 
-  <rect x="380" y="206" width="270" height="100" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.4"/>
-  <text x="396" y="230" font-weight="700" fill="#1b7a3a">padi · finish fold (EF2)</text>
-  <text x="396" y="250" font-size="12" fill="#1a1c20">enteredWaitingAt (agent edge)</text>
-  <text x="396" y="268" font-size="12" fill="#1a1c20">lastMeaningfulArrivalAt (edge)</text>
-  <text x="396" y="286" font-size="12" fill="#1a1c20">finished ⇔ quiet ≥ ~5s</text>
-
-  <rect x="670" y="206" width="270" height="100" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
-  <text x="686" y="230" font-weight="700" fill="#0b6478">padi · activity set (EF3)</text>
-  <text x="686" y="250" font-size="12" fill="#1a1c20">same edge · short idle window</text>
-  <text x="686" y="268" font-size="12" fill="#1a1c20">TERMINAL_IDLE_AFTER_MS</text>
-  <text x="686" y="286" font-size="12" fill="#1a1c20">full live-id[] frames</text>
-
-  <line x1="515" y1="306" x2="515" y2="334" stroke="#5b6470" stroke-width="1.2" marker-end="url(#ef-arr)"/>
-  <line x1="805" y1="306" x2="805" y2="334" stroke="#5b6470" stroke-width="1.2" marker-end="url(#ef-arr)"/>
-
-  <rect x="380" y="336" width="270" height="72" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.4"/>
-  <text x="396" y="360" font-weight="700" fill="#8a5200">urgency.finishedIds</text>
-  <text x="396" y="380" font-size="12" fill="#1a1c20">attention chime / host-tab / dock</text>
-  <text x="396" y="398" font-size="11" fill="#5b6470">client attention unchanged</text>
-
-  <rect x="670" y="336" width="270" height="72" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.4"/>
-  <text x="686" y="360" font-weight="700" fill="#8a5200">client isLive (EF4)</text>
-  <text x="686" y="380" font-size="12" fill="#1a1c20">mirror activity stream</text>
-  <text x="686" y="398" font-size="11" fill="#5b6470">copy frames — never store proxy as prev</text>
-
-  <rect x="380" y="430" width="560" height="64" rx="10" fill="#fff" stroke="#b3261e" stroke-width="1.3"/>
-  <text x="396" y="454" font-weight="700" fill="#b3261e">What #1938 mixed (do not again)</text>
-  <text x="396" y="474" font-size="12" fill="#1a1c20">finish + kaval contract + liveActivity + client mirror in one PR</text>
-  <text x="396" y="492" font-size="12" fill="#5b6470">four volatilities · bugs masked each other · sticky-live shipped untested</text>
+  <rect x="400" y="430" width="540" height="40" rx="10" fill="#fff" stroke="#b3261e" stroke-width="1.3"/>
+  <text x="416" y="454" font-size="12" fill="#b3261e" font-weight="700">Anti-pattern:</text>
+  <text x="520" y="454" font-size="12" fill="#1a1c20">dead wire + old path left in place (half-baked dual mechanism)</text>
 </svg>

@@ -1,6 +1,6 @@
 ---
 title: Effective Finish — Quiet Chronology, Phased
-description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; padi pure-folds finishedIds; live dots mirror the same edge. Phased EF0–EF5 (EF0 done) after closing the #1938 big-bang.
+description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; one full activity cutover (kaval→padi→client); then pure-fold finishedIds. Phased EF0–EF3 (EF0 done) after closing the #1938 big-bang.
 parents: [agent-attention, analysis]
 status: proposed
 maturity: seedling
@@ -21,14 +21,14 @@ background sub-agents still emit bytes. Raw `waiting` in `finishedIds` is then a
 The fix is not a second byte-tap state machine in padi. It is:
 
 1. **kaval** reports *meaningful* PTY output (resize repaints excluded at the source),
-2. **padi** stamps arrival on **its** clock and pure-folds finish,
-3. **live dots** reuse the same edge with a short idle window.
+2. **padi + client** cut over live-dots onto that fact in **one** PR (no dual path),
+3. **padi** pure-folds finish from the same edge + waiting episode stamps.
 
 Work items use the **EF** track prefix (new; no Atlas collisions). <PrLink pr={1938} />
 closed without merge — design kept, big-bang delivery discarded. This note is the plan
 of record; master stays on raw-`waiting` finished until **EF2**.
 
-<Svg svg={phaseTree} wide caption="EF phase tree (left) and end-state data flow (right). EF0 is done (dashed). Green boxes are the two user-facing landings; blue is infrastructure. Strict spine: EF1 before EF2, EF3 before EF4." />
+<Svg svg={phaseTree} wide caption="EF phase tree (left) and EF1 stack (right). EF0 done (dashed). EF1 is one full activity cutover — kaval, padi, client — so nothing user-visible still rides the old wiretaps. EF2 is finish honesty only." />
 
 ## The problem
 
@@ -39,7 +39,8 @@ of record; master stays on raw-`waiting` finished until **EF2**.
 | Sticky “all terminals live” | #1938 Phase D stored a Solid **reconcile proxy** as `prev`; removals never applied |
 
 Attention already has one model (<Cite file="docs/atlas/src/content/atlas/agent-attention.mdx" /> / <PrLink pr={1931} />).
-This note only makes the **finished** half of that model honest.
+This note only makes the **finished** half of that model honest — and, as a
+prerequisite, makes **activity** a single source of truth.
 
 ## End state
 
@@ -70,12 +71,14 @@ finished(id) =
 - **Deadline wake** for the “stayed quiet” non-event (timer at next crossing).
 - No settle set, no attach observer, no six parallel maps.
 
-### Live activity (same edge, different window)
+### Live activity (same edge, short window)
 
 - Short window: `TERMINAL_IDLE_AFTER_MS` (~1s).
 - padi `activity` stream = live id set; client mirrors it for dock/title dots.
 - Client **must** copy frames to plain arrays before set-diff (`prev = [...frame]`),
   never hold the store proxy from `reconcile`.
+- **No dual path:** after EF1, no padi byte taps for activity, no client
+  `noteOutput` / resize-suppress hack.
 
 ### What kaval does *not* own
 
@@ -83,10 +86,18 @@ Quiet **windows** (5s finish vs 1s live-dot) stay **consumer policy**. Kaval own
 **which bursts count** (resize-aware filter + throttle), not a single live/quiet
 boolean with one internal timer.
 
+## Why not “edge only, consumers later”?
+
+Shipping a kaval stream with **nothing** product-facing on it leaves the old
+mechanism in place (padi taps, client attach counters). That is a half-baked dual
+path: untestable end-to-end, two truths for “is live,” and a second PR tax to
+finish the cutover. **EF1 is one volatility axis — activity ownership — cut over
+completely.** Finish is a *different* axis (attention policy) and stays **EF2**.
+
 ## Phase tree
 
-Strict dependency: **EF0 → EF1 → EF2 → EF3 → EF4 → EF5**. Each remaining box is
-one PR, green alone, revertible alone. **EF0 is complete.**
+Strict dependency: **EF0 → EF1 → EF2 → EF3**. Each remaining box is one PR, green
+alone, revertible alone. **EF0 is complete.**
 
 ### EF0 — close / capture
 
@@ -103,44 +114,49 @@ stuck “live” dots. App behaviour stays as it is for now.
 - This note is the plan of record (landing as <PrLink pr={1944} />).
 - Master stays on raw-`waiting` finished until **EF2** — annoying but honest.
 
-### EF1 — kaval activity edge (fact only)
+### EF1 — activity cutover (kaval → padi → client)
 
-<Phase id="EF1" name="kaval activity edge" status="next" needs={["EF0"]} blocks={["EF2"]} />
+<Phase id="EF1" name="activity cutover" status="next" needs={["EF0"]} blocks={["EF2"]} />
 
 <Callout kind="note" title="ELI15">
-Teach the terminal owner (kaval) to shout “this shell just produced real output”
-— and to stay quiet when the only noise is a window resize redraw. Nobody in the
-app listens yet; you’re wiring the doorbell, not the intercom.
+One PR moves “is this terminal typing?” to the process that owns the PTY. The
+server and the dock both watch the same doorbell. Resize redraws don’t light the
+dot. Old wiretaps and the browser’s 600ms mute hack are deleted — not left beside
+the new path.
 </Callout>
 
-| Ship | Do not |
-| --- | --- |
-| Host-global `activity` stream on `ptyHostSurface` (`{ id }` edges) | Change `finishedIds` |
-| Emit from the one `onData` funnel | Change client dots |
-| Resize mute **before** `proc.resize` | Rewrite liveActivity consumers |
-| Pure `shouldEmitActivityEdge` + unit tests | Open a finish “gate” product |
-| Contract minor bump (force kaval recycle) | |
+**One volatility, full stack — ship together:**
 
-**Done when:** write → edge; inside resize mute → no edge; throttle holds. **Zero
-user-facing change** if nothing product-facing subscribes yet.
+| Layer | Ship | Delete |
+| --- | --- | --- |
+| **kaval** | Host-global `activity` edges (`{ id }`); emit from `onData`; resize mute **before** `proc.resize`; throttle; pure `shouldEmitActivityEdge` + tests; contract minor bump | — |
+| **padi** | `liveActivity` folds the edge through the short idle tracker | Per-terminal activity byte taps / dirty reconcile for taps |
+| **client** | `useTerminalActivity` mirrors per-host `streams.activity`; **plain array copies** for frame/`prev` | `noteOutput`, `suppress`, `RESIZE_ACTIVITY_SUPPRESS_MS`, attach-sink lighting |
 
-### EF2 — pure finish fold (first user-facing fix)
+**Do not** in EF1: change `finishedIds` / attention finish policy (that is EF2).
+
+**Done when:**
+
+- Unit: edge emit, resize exclusion, throttle; live set enter/leave; **live frame → empty → `isLive` false** (sticky-live fence).
+- Manual / harness: dock dots light on real output; **visit/resize idle tile does not flash**; dots clear when quiet; background terminals *may* light (host-global — document if intentional).
+- **No dual activity path remains** on master after merge.
+
+### EF2 — pure finish fold (finish honesty)
 
 <Phase id="EF2" name="pure finish fold" status="todo" needs={["EF1"]} blocks={["EF3"]} />
 
 <Callout kind="note" title="ELI15">
 When the agent says “I’m done,” wait until the terminal has been actually quiet
-for a few seconds before the “finished” ping. If background work is still
-typing, keep waiting. You finally *use* the doorbell from EF1 here — first thing
-users notice.
+for a few seconds before the “finished” ping. Background work still typing keeps
+you waiting. Reuses the doorbell from EF1 — no new wiretaps.
 </Callout>
 
 | Ship | Do not |
 | --- | --- |
-| One kaval `activity` sub; stamp arrival on padi clock | Rewrite `useTerminalActivity` |
-| Stamp `enteredWaitingAt` on agent-bucket edge (+ boot seed if needed) | Byte-tap waiting terminals |
-| Pure fold into `urgency.finishedIds` + deadline wake | Six-set / attach / gen-fence machine |
-| Unit: enter waiting + quiet → finish; edge resets window; episode restamp | Client mute changes (still owns live-dot resize) |
+| Subscribe to kaval `activity` (or shared padi fan-out of it); stamp arrival on padi clock | Byte-tap waiting terminals |
+| Stamp `enteredWaitingAt` on agent-bucket edge (+ boot seed if needed) | Six-set / attach / gen-fence machine |
+| Pure fold into `urgency.finishedIds` + deadline wake | Re-open activity cutover (EF1 already done) |
+| Unit: enter waiting + quiet → finish; edge resets window; episode restamp | |
 | Regression: resize-class edge does **not** re-open finish | |
 
 Prefer stamps + fold next to urgency / commit — a thin module is fine; a second
@@ -148,74 +164,32 @@ Prefer stamps + fold next to urgency / commit — a thin module is fine; a secon
 suffices.
 
 **Done when:** background-subagent case does not chime early; visit-finished
-regression is fenced (injection/unit minimum; e2e may wait for EF5).
+regression is fenced (injection/unit minimum; e2e may wait for EF3).
 
-### EF3 — padi `activity` stream on the edge
+### EF3 — harden / e2e / docs
 
-<Phase id="EF3" name="padi activity stream" status="todo" needs={["EF2"]} blocks={["EF4"]} />
-
-<Callout kind="note" title="ELI15">
-Stop opening a secret second wiretap on every terminal just to power the
-server-side “who’s live right now?” list. Reuse kaval’s doorbell. The browser’s
-little green dots still use the old path for one more step.
-</Callout>
-
-| Ship | Do not |
-| --- | --- |
-| `liveActivity` folds the kaval edge through the short tracker | Change the client yet |
-| Drop per-terminal activity byte taps | |
-| Tests: edge → id in set; quiet → leave set | |
-
-**Done when:** server-side activity consumers match old behaviour for real
-output; resize does not flash (inherits kaval mute). Client still on attach
-`noteOutput` — short, documented transitional dual source.
-
-### EF4 — client live-dot mirror (second user-facing fix)
-
-<Phase id="EF4" name="client live-dot mirror" status="todo" needs={["EF3"]} blocks={["EF5"]} />
+<Phase id="EF3" name="harden / e2e / docs" status="todo" needs={["EF2"]} />
 
 <Callout kind="note" title="ELI15">
-The dock’s “this terminal is typing” dots stop counting keystrokes in the
-browser. They just watch the server’s live list. Fix the bug where a terminal
-that was live once stayed lit forever (forgot to turn the light off). Second
-thing users notice.
+Tidy-up: one shared subscription if EF1+EF2 still open two, clearer names, a real
+end-to-end check that you get one finish ping not two, and docs that match the app.
 </Callout>
 
-| Ship | Do not |
-| --- | --- |
-| `useTerminalActivity` mirrors per-host `streams.activity` | Ship without live→idle test |
-| **Plain array copies** for frame and `prev` | Store `sub()` proxy as `prev` |
-| Drop client suppress + attach `noteOutput` | Delete tests without replacement |
-| Unit: live frame → empty frame → `isLive` false | |
-
-**Done when:** dock dots track the server live set; no sticky-live; visit idle
-tile does not leave every id permanently lit. Background terminals *may* light
-(host-global fact) — document if intentional.
-
-### EF5 — harden / rename / e2e
-
-<Phase id="EF5" name="harden / rename / e2e" status="todo" needs={["EF4"]} />
-
-<Callout kind="note" title="ELI15">
-Tidy-up: one subscription instead of two, clearer names, a real end-to-end check
-that you get one finish ping not two, and docs that match what the app does.
-</Callout>
-
-- One shared padi fan-out of kaval `activity` (finish + liveActivity), not two
-  re-subscribe loops.
+- Shared padi fan-out of kaval `activity` if finish + liveActivity still double-subscribe.
 - Drop residual “gate” naming if any remains.
 - e2e or scripted: agent finish → chime once; visit → no second chime.
 - Product docs + changelog once the *user* story is true end-to-end.
 - Point [agent attention](agent-attention.html) at shipped behaviour.
 
-## Anti-patterns (from #1938)
+## Anti-patterns
 
 | Do not | Why |
 | --- | --- |
-| One PR = finish + contract + liveActivity + client | Four volatilities; bugs mask each other |
+| Dead kaval wire + old padi/client paths left in place | Half-baked dual mechanism; untestable; second PR tax |
+| One PR = activity cutover **and** finish fold | Two volatilities; #1938 failure mode (bugs mask each other) |
 | Quiet **boolean** with one window in kaval | Complects producer with consumer policy |
 | Absolute kaval time for the fold | Breaks recency-free / invites cross-host compare |
-| Delete client activity tests in the mirror PR | Sticky-live shipped silent |
+| Delete client activity tests in the mirror cutover | Sticky-live shipped silent |
 | Ship EF2 without a visit/re-open fence | Known regression class |
 | Call the pure fold a “gate v2” and claim deletion | Reviewers cannot tell the machine is gone |
 
@@ -224,22 +198,20 @@ that you get one finish ping not two, and docs that match what the app does.
 If premature finish must land before EF1–EF2: a **sticky-per-waiting-episode**
 finished membership (bytes cannot eject until leave-waiting) weakens “resume
 after long pause” and is **not** the plan of record — stopgap only, then still
-run EF1→EF4.
+run EF1→EF2.
 
 ## Checklist per PR
 
 | Phase | Must have |
 | --- | --- |
 | **EF0** | ✓ done — #1938 closed; this plan of record |
-| **EF1** | pure + integration edge tests; no product consumer required |
+| **EF1** | kaval edge tests; liveActivity cutover; client mirror + live→idle test; **old activity paths deleted** |
 | **EF2** | fold unit tests; episode restamp; no-edge-on-resize; urgency wiring |
-| **EF3** | live set enter/leave tests; no client |
-| **EF4** | live→idle unit test; plain copies; suppress deleted |
-| **EF5** | shared sub and/or e2e; docs |
+| **EF3** | shared sub and/or e2e; docs |
 
 ## Relation to attention
 
 [Agent Attention](agent-attention.html) owns the **rules** (fire once, seen,
-host-tab, dock). This note owns the **truth of finished** before those rules
-run. After EF2, `finishedIds` means effective quiet; after EF4, live dots stop
-lying about resize and stop sticking on.
+host-tab, dock). This note owns (1) **one activity fact** end-to-end and (2) the
+**truth of finished** before those rules run. After EF1, live dots tell the truth
+about output; after EF2, `finishedIds` means effective quiet.
