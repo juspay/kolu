@@ -1,6 +1,13 @@
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
+const rhaiGrammarPath = process.env.KOLU_RHAI_GRAMMAR;
+if (!rhaiGrammarPath) {
+  throw new Error(
+    "KOLU_RHAI_GRAMMAR is not set. Run tests inside the Nix dev shell.",
+  );
+}
+
 export default defineConfig({
   // The Solid JSX transform — so the `.test.tsx` render harness compiles its JSX
   // to real DOM. Harmless for the `.test.ts` files (no JSX); the per-file
@@ -13,6 +20,7 @@ export default defineConfig({
   // browser bundle directly — mirrors `packages/surface/vitest.config.ts`.
   resolve: {
     alias: {
+      "kolu-rhai-grammar": rhaiGrammarPath,
       "solid-js/store": new URL(
         "./node_modules/solid-js/store/dist/store.js",
         import.meta.url,
