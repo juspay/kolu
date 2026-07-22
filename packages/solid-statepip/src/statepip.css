@@ -75,26 +75,22 @@
 }
 
 /* alert badge = a fired notification a surface wants surfaced (the Dock's
- * unopened-unread, pulam-web's live notify-class — each names it via `alertLabel`):
- * a small amber CORNER BADGE at the top-right, NOT a ring — so it never competes
- * with the live ring or nests into a second circle. The dark separator lifts it
- * off the live ring + the row background; the gentle pulse draws the eye without
- * shouting.
- *
- * The amber FILL + rounded-pill SHAPE come from the shared `ATTENTION_PILL_CLASS`
- * (composed at the render site) — the SAME pill the host-tab awaiting-count badge
- * paints, so the two can't drift. This class carries only the overlay-specific
- * geometry: absolute corner placement, the pill DIMENSIONS (a small capsule —
- * wider than tall — so it reads as the count pill's FORM even with no number, the
- * per-terminal boolean case), the separator ring, and the pulse. No colour and no
- * border-radius here: those are the shared pill's, single-sourced. */
+ * unopened-unread — each surface names it via `alertLabel`): a small amber
+ * CORNER DOT at the top-right, NOT a ring and NOT the host-tab count pill —
+ * Option C mockup's 7px attention pip. Shape is deliberately a circle so it
+ * never competes with the live glow halo or reads as a count capsule on a
+ * 14px identity glyph. The surface separator lifts it off the row; a gentle
+ * pulse draws the eye without shouting. Fill is `--color-attention` (the
+ * warm "needs you" amber), single-sourced in this leaf. */
 .statepip-alert-badge {
   position: absolute;
   top: -2px;
   right: -2px;
-  min-width: 12px;
-  height: 8px;
-  box-shadow: 0 0 0 1.5px var(--color-surface-1);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-attention);
+  box-shadow: 0 0 0 2px var(--color-surface-0);
   animation: statepip-pulse 1.8s ease-in-out infinite;
   pointer-events: none;
 }
