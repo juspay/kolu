@@ -140,6 +140,7 @@ const TerminalMeta: Component<{
                 <StatePip
                   variant={pipVariant(paintBucket(agent()))}
                   glyph={pipGlyphFor(v().meta)}
+                  still={agent().state === "waiting"}
                   alert={props.unread}
                   alertLabel="unread alert"
                   class={TITLE_PIP_BOX}

@@ -169,16 +169,25 @@ export function pipGlyph(id: PipGlyphId): PipGlyphDef {
  *  classes live in `statepip.css` and carry reduced-motion safety there. */
 export type PipBody = { class: string };
 
+/** Motion classes applied on top of paint. Separated so a `waiting` agent can
+ *  keep the lingering violet paint (same `awaiting` PipVariant / agentPaintClass)
+ *  while holding still — "animated by state": working→breathe, awaiting_user→glow,
+ *  waiting/sleeping→still. Callers suppress glow via `StatePip`'s `still` prop. */
+export const PIP_MOTION: Record<Exclude<PipVariant, "empty">, string | null> = {
+  awaiting:
+    "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
+  working: "statepip-anim-breathe motion-reduce:animate-none",
+  idle: null,
+  sleeping: null,
+};
+
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // lingering violet — post-turn + awaiting share this paint class
-  awaiting: {
-    class:
-      "text-alert/55 statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
-  },
-  // accent teal + breathe
-  working: {
-    class: "text-accent statepip-anim-breathe motion-reduce:animate-none",
-  },
+  // lingering violet-55% — post-turn (`waiting`) and `awaiting_user` share this
+  // paint via agentPaintClass; motion (glow) is layered from PIP_MOTION unless
+  // the caller sets `still` for the post-turn lull.
+  awaiting: { class: "text-alert/55" },
+  // accent teal; breathe from PIP_MOTION
+  working: { class: "text-accent" },
   // muted shell (brightens to fg-2 when a foreground process runs — caller)
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)

@@ -648,6 +648,7 @@ const DockRow: Component<{
               variant={pipVariant(props.pip)}
               glyph={pipGlyphFor(c().meta)}
               busy={!!activeArm(c().meta)?.foreground}
+              still={activeArm(c().meta)?.agent?.state === "waiting"}
               live={activity.isLive(props.id)}
               alert={unread()}
               alertLabel="unread alert"

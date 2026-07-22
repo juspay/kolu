@@ -55,6 +55,7 @@ import {
   INDICATOR_BASE,
   LIVE_RING_CLASS,
   PIP_BODY,
+  PIP_MOTION,
   PIP_TITLES,
   type PipGlyphDef,
   type PipGlyphId,
@@ -92,6 +93,11 @@ export const StatePip: Component<{
   /** Shell with a foreground process — brightens the idle shell mark from
    *  `fg-3` to `fg-2`. Ignored for agent glyphs. Default off. */
   busy?: boolean;
+  /** Hold motion still while keeping the variant's paint — used for the post-
+   *  turn `waiting` lull (lingering violet-55%, no glow) so paint and motion
+   *  stay decoupled: order≠colour's paint class stays `awaiting`, motion is
+   *  none. Sleeping already has no motion in `PIP_MOTION`. Default off. */
+  still?: boolean;
   /** Terminal moving bytes right now → the green live-output RING around the
    *  core. The activity dot, folded into the indicator's edge. Default off. */
   live?: boolean;
@@ -137,14 +143,18 @@ export const StatePip: Component<{
     ].filter((p): p is string => Boolean(p));
     return parts.join(" · ");
   });
-  // Idle shell brightens when a foreground process is running.
+  // Idle shell brightens when a foreground process is running. Motion layers
+  // on top of paint unless `still` (post-turn waiting) suppresses it.
   const coreClass = createMemo(() => {
     const b = body();
     if (!b) return null;
     if (props.busy && glyphId() === "shell" && variant() === "idle") {
       return SHELL_BUSY_CLASS;
     }
-    return b.class;
+    const v = variant();
+    const motion =
+      !props.still && v !== "empty" ? (PIP_MOTION[v] ?? null) : null;
+    return motion ? `${b.class} ${motion}` : b.class;
   });
   return (
     // `data-testid="state-pip"` is the surface-neutral e2e selector for this

@@ -12,6 +12,7 @@ import {
   INDICATOR_BASE,
   LIVE_RING_CLASS,
   PIP_BODY,
+  PIP_MOTION,
   PIP_TITLES,
   type PipVariant,
   SHELL_BUSY_CLASS,
@@ -59,22 +60,16 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
   }
 });
 
-// Pin the rendered LOOK of each variant — `StatePip` paints the identity glyph
-// from `PIP_BODY`, so asserting the class set here catches an appearance
-// regression (e.g. swapping `working`'s `text-accent` for `text-busy`) that the
-// fold-string tests above would not. Shape is the glyph; this is only paint ×
-// motion.
+// Paint and motion are separate so a post-turn `waiting` agent can keep the
+// lingering violet paint (agentPaintClass → awaiting) while holding still.
 const bodyCases: Array<[PipVariant, string[]]> = [
-  [
-    "awaiting",
-    ["text-alert/55", "statepip-anim-glow", "statepip-awaiting-core"],
-  ],
-  ["working", ["text-accent", "statepip-anim-breathe"]],
+  ["awaiting", ["text-alert/55"]],
+  ["working", ["text-accent"]],
   ["idle", ["text-fg-3"]],
   ["sleeping", ["text-moonlit/65"]],
 ];
 
-describe("PIP_BODY — the rendered class set per variant", () => {
+describe("PIP_BODY — paint only per variant", () => {
   for (const [variant, tokens] of bodyCases) {
     it(`${variant} carries ${tokens.join(" + ")}`, () => {
       const body = PIP_BODY[variant];
@@ -82,17 +77,14 @@ describe("PIP_BODY — the rendered class set per variant", () => {
       for (const token of tokens) {
         expect(body?.class.split(/\s+/)).toContain(token);
       }
+      // Motion is not mixed into paint.
+      expect(body?.class).not.toMatch(/statepip-anim-/);
     });
   }
 
-  it("working + awaiting motion is reduced-motion safe", () => {
-    expect(PIP_BODY.working?.class).toContain("motion-reduce:animate-none");
-    expect(PIP_BODY.awaiting?.class).toContain("motion-reduce:animate-none");
-  });
-
-  it("sleeping no longer carries a ☾ text glyph — moonlit paint + stillness", () => {
-    // PIP_BODY has no glyph field under Option C; identity is the SVG mark.
+  it("sleeping is moonlit paint only — stillness is no motion, not a ☾ glyph", () => {
     expect(PIP_BODY.sleeping).toEqual({ class: "text-moonlit/65" });
+    expect(PIP_MOTION.sleeping).toBeNull();
   });
 
   it("empty renders nothing inside the cell", () => {
@@ -109,6 +101,18 @@ describe("PIP_BODY — the rendered class set per variant", () => {
 
   it("SHELL_BUSY_CLASS brightens the idle shell mark", () => {
     expect(SHELL_BUSY_CLASS).toBe("text-fg-2");
+  });
+});
+
+describe("PIP_MOTION — layered on paint unless still", () => {
+  it("working breathes; awaiting glows; idle/sleeping are still", () => {
+    expect(PIP_MOTION.working).toContain("statepip-anim-breathe");
+    expect(PIP_MOTION.working).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION.awaiting).toContain("statepip-anim-glow");
+    expect(PIP_MOTION.awaiting).toContain("statepip-awaiting-core");
+    expect(PIP_MOTION.awaiting).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION.idle).toBeNull();
+    expect(PIP_MOTION.sleeping).toBeNull();
   });
 });
 
