@@ -24,9 +24,20 @@ import type { PadiTerminal, PadiUrgency } from "./surface.ts";
  *  (`awaiting_user`), in the map's insertion order. Takes the collection as its
  *  argument (`$.terminals()`), so it reads exactly what the wire serves and the
  *  reactive graph tracks the dependency. Recency-free by design: nothing
- *  cross-host ever compares two hosts' clocks. */
+ *  cross-host ever compares two hosts' clocks.
+ *
+ *  `settledFinished` is the EFFECTIVE-finish gate (see `finishGate.ts`): the set
+ *  of `waiting` terminals whose PTY has actually gone quiet for the debounce
+ *  window. An agent (Claude Code is the motivating case) can mark its turn
+ *  `waiting` while background sub-agents keep emitting bytes, so raw `waiting` is
+ *  a premature "finished". A `waiting` terminal enters `finishedIds` only once
+ *  the gate has confirmed it quiet — DEFAULT-EXCLUDED, so a terminal that just
+ *  flipped to `waiting` (and isn't yet in the set) is held back rather than
+ *  firing early. The ASKING path is UNGATED: `awaiting_user` is blocking and
+ *  actionable, so it fires at once regardless of output. */
 export function recomputeUrgency(
   terminals: ReadonlyMap<TerminalId, PadiTerminal>,
+  settledFinished: ReadonlySet<TerminalId>,
 ): PadiUrgency {
   const awaitingIds: TerminalId[] = [];
   const finishedIds: TerminalId[] = [];
@@ -47,7 +58,11 @@ export function recomputeUrgency(
     // carried so `useAttention` applies identical rules on every host.
     const bucket = agentBucket(agent.state);
     if (bucket === "awaiting") awaitingIds.push(id);
-    else if (bucket === "waiting") finishedIds.push(id);
+    // `waiting` is only an EFFECTIVE finish once the gate confirms PTY quiet —
+    // a terminal still moving bytes (background sub-agents) is deliberately held
+    // out of `finishedIds` until it settles.
+    else if (bucket === "waiting" && settledFinished.has(id))
+      finishedIds.push(id);
   }
   return { awaitingIds, finishedIds };
 }

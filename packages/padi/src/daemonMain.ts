@@ -60,6 +60,7 @@ import {
 } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
 import { publisher } from "./publisher.ts";
+import { createPadiFinishGate } from "./padiFinishGate.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
 import {
@@ -242,6 +243,11 @@ function serveDaemonSurfaces(
 ): SurfacesServed {
   const { stateRoot, onDrain, log, lifetime } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
+  // The effective-finish gate — byte-taps `waiting` terminals so a still-working
+  // agent (background sub-agents) is held out of `finishedIds` until its PTY goes
+  // quiet. Its `settledFinished()` feeds the `urgency` fold; disposed with the
+  // runtime below so its taps + reconcile loop don't outlive the serve.
+  const finishGate = createPadiFinishGate({ log: padiLog });
   const runtime = implementSurfacesOnPublisher(
     padiDaemonSurfaces,
     {
@@ -277,6 +283,7 @@ function serveDaemonSurfaces(
         // The `hostInventory` derived poll cell resolves its held-kaval fallback
         // address from this state-root.
         stateRoot,
+        finishGate,
       }),
       control: buildControlCoreDeps({
         stateRoot,
@@ -314,7 +321,12 @@ function serveDaemonSurfaces(
     phase: "served",
     gate: identity.gate,
     router: servedRouter,
-    close: runtime.close,
+    // Dispose the finish gate (its taps + reconcile loop) with the runtime — it was
+    // constructed here, outside the surface members, so its lifetime is ours to end.
+    close: async () => {
+      finishGate.dispose();
+      await runtime.close();
+    },
   };
 }
 

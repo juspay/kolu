@@ -24,7 +24,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import { derived } from "@kolu/surface/reactor";
 import { implementSurface } from "@kolu/surface/server";
-import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
@@ -120,7 +120,11 @@ function runFirehose(materialize: boolean): number {
       },
     },
     cells: {
-      urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+      // The finish gate is orthogonal to compose cost — this test measures the
+      // `$.terminals()` recompose fan-out, so pass an empty settled set.
+      urgency: derived.cell(($) =>
+        recomputeUrgency($.terminals(), new Set<TerminalId>()),
+      ),
     },
   });
 

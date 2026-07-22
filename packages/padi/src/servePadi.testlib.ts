@@ -9,6 +9,7 @@
 
 import type { Logger } from "pino";
 import type { TerminalEndpoint } from "./endpoint.ts";
+import type { FinishGate } from "./finishGate.ts";
 
 /** A stub logger — constructing the deps threads it through, but the read
  *  handlers under test never call it. */
@@ -22,6 +23,14 @@ export const stubLog = {
 
 /** A fake endpoint — the members under test read neither `fs` nor `git`, so
  *  the wrapper (`fsGitSurfaceDeps`) only needs the shape to construct. */
+/** An inert finish gate — the members under test don't exercise the effective-finish
+ *  debounce, so it reports nothing settled and disposes to a no-op. (The gate's own
+ *  behavior is covered by `finishGate.test.ts`.) */
+export const stubFinishGate: FinishGate = {
+  settledFinished: () => new Set(),
+  dispose: () => {},
+};
+
 export const fakeEndpoint = {
   fs: {
     listAll: async () => [],

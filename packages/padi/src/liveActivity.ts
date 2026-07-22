@@ -13,8 +13,10 @@
  * `terminalAttach` bytes (`useTerminalActivity`), never this surface member.
  *
  * This is the padi-owned twin of the retired `pulam/src/activity.ts` tracker
- * (pulam dies at W2.3); the tracker + `sameActivitySet` are reimplemented here
- * rather than imported from the dying package.
+ * (pulam dies at W2.3). The tracker + `sameActivitySet` themselves live in the
+ * shared `terminalActivityTracker.ts` leaf (also fed by the `finishGate`
+ * effective-finish debounce), parameterized by window; this module wires them to
+ * the byte taps and the `activity` stream.
  */
 
 import { pollOnEvent } from "@kolu/surface/server";
@@ -24,6 +26,10 @@ import {
 } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { terminalsDirtyChannel } from "./publisher.ts";
+import {
+  createActivityTracker,
+  sameActivitySet,
+} from "./terminalActivityTracker.ts";
 import { registryMap } from "./terminal-registry.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 
@@ -38,81 +44,6 @@ type ActivityStreamDeps = {
     signal: AbortSignal | undefined,
   ) => AsyncIterable<TerminalId[]>;
 };
-
-interface ActivityTracker {
-  /** Record a chunk of output for `id`: light its live flag (publishing a change
-   *  if it was static) and arm/refresh the quiet-period timer. */
-  noteOutput(id: TerminalId): void;
-  /** Drop a departed (or newly-tapped-then-gone) terminal — clears its timer and
-   *  removes it from the live set at once. */
-  forget(id: TerminalId): void;
-  /** The current live set as a SORTED array — a stable wire frame (so an unordered
-   *  Set mutation can't churn the stream with reordered-but-equal frames). */
-  snapshot(): TerminalId[];
-  /** Subscribe to live-set changes; returns an unsubscribe. */
-  onChange(listener: () => void): () => void;
-  /** Stop every timer and drop all state. */
-  dispose(): void;
-}
-
-function createActivityTracker(
-  idleAfterMs = TERMINAL_IDLE_AFTER_MS,
-): ActivityTracker {
-  const live = new Set<TerminalId>();
-  const timers = new Map<TerminalId, ReturnType<typeof setTimeout>>();
-  const listeners = new Set<() => void>();
-  const notify = (): void => {
-    for (const l of listeners) l();
-  };
-  return {
-    noteOutput(id) {
-      if (!live.has(id)) {
-        live.add(id);
-        notify();
-      }
-      const pending = timers.get(id);
-      if (pending) clearTimeout(pending);
-      const timer = setTimeout(() => {
-        timers.delete(id);
-        if (live.delete(id)) notify();
-      }, idleAfterMs);
-      // Don't let a pending idle-timer keep the process alive — the serve link does.
-      timer.unref?.();
-      timers.set(id, timer);
-    },
-    forget(id) {
-      const pending = timers.get(id);
-      if (pending) clearTimeout(pending);
-      timers.delete(id);
-      if (live.delete(id)) notify();
-    },
-    snapshot() {
-      return [...live].sort();
-    },
-    onChange(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    dispose() {
-      for (const timer of timers.values()) clearTimeout(timer);
-      timers.clear();
-      live.clear();
-      listeners.clear();
-    },
-  };
-}
-
-/** Frame equality for the `activity` stream — both come from `snapshot()` so they
- *  are sorted; compare length then element-wise. Lets `pollOnEvent` suppress a
- *  redundant yield when a timer re-arm didn't actually change the live set. */
-function sameActivitySet(
-  a: readonly TerminalId[],
-  b: readonly TerminalId[],
-): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
 
 /** The live location a terminal record carries — the arg `resolveTerminalEndpoint`
  *  routes an attach by. Read off the active arm (only active terminals have a live
@@ -149,7 +80,7 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
             });
         }
         const sig = localAbort.signal;
-        const tracker = createActivityTracker();
+        const tracker = createActivityTracker(TERMINAL_IDLE_AFTER_MS);
         // One byte-tap AbortController per tapped terminal — aborting it ends that
         // terminal's attach subscription.
         const taps = new Map<TerminalId, AbortController>();

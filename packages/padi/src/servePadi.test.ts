@@ -25,7 +25,7 @@ import {
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { fakeEndpoint, stubFinishGate, stubLog } from "./servePadi.testlib.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
   PADI_SURFACE_VERSION,
@@ -150,6 +150,7 @@ function terminalsBacking(): {
     commit: "",
     lifetime: { kind: "forever" },
     stateRoot: "/tmp/padi-test-state-root",
+    finishGate: stubFinishGate,
   });
   // `terminals` is an AUTHORED collection (the `readAll`/`readOne` arm), not a
   // graph-owned `derived.collection`; narrow the dep union by the presence of the
@@ -189,6 +190,7 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       commit: opts.commit,
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
+      finishGate: stubFinishGate,
     });
     // White-box read of the authored cell's backing store. The cell-dep slot is a
     // union whose poll arm carries no `store`, so narrow to the store-bearing shape.
@@ -282,6 +284,7 @@ function scratchWrite(): (args: {
     commit: "",
     lifetime: { kind: "forever" },
     stateRoot: "/tmp/padi-test-state-root",
+    finishGate: stubFinishGate,
   });
   const w = deps.procedures?.scratch?.write;
   if (!w) throw new Error("padi deps must serve scratch.write");
@@ -399,6 +402,7 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
       commit: "",
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
+      finishGate: stubFinishGate,
     });
     // White-box read of the authored cell's backing store (see `identityBacking`).
     const s = (
@@ -519,6 +523,7 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
       commit: "",
       lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
+      finishGate: stubFinishGate,
     });
     const create = deps.procedures?.lifecycle?.create as
       | ((a: { input: Record<string, never> }) => unknown)

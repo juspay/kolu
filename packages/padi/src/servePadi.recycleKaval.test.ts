@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { fakeEndpoint, stubFinishGate, stubLog } from "./servePadi.testlib.ts";
 
 vi.mock("./ptyHost/restartLocal.ts", () => ({
   restartLocalDaemon: vi.fn(),
@@ -64,6 +64,7 @@ function recycleKavalHandler() {
     commit: "",
     lifetime: { kind: "forever" },
     stateRoot: "/tmp/padi-recyclekaval-test-state-root",
+    finishGate: stubFinishGate,
   });
   const recycle = deps.procedures?.lifecycle?.recycleKaval as
     | ((opts: { errors: typeof errorCtors }) => Promise<void>)

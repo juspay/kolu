@@ -98,6 +98,7 @@ import {
 } from "./terminals.ts";
 import { exportTranscriptHtml } from "./transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
+import type { FinishGate } from "./finishGate.ts";
 import { recomputeUrgency } from "./urgency.ts";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
@@ -153,8 +154,14 @@ export function buildPadiSurfaceDeps(deps: {
   /** padi's resolved state-root — the `hostInventory` poll read resolves the
    *  held-kaval fallback address from it (`samplePadiHostInventory`). */
   stateRoot: string;
+  /** The effective-finish gate — the set of `waiting` terminals whose PTY has gone
+   *  quiet (see `finishGate.ts`). The `urgency` fold reads it so a still-working
+   *  agent (background sub-agents) is held out of `finishedIds` until it settles.
+   *  Constructed and DISPOSED by the caller (daemonMain), alongside the runtime. */
+  finishGate: FinishGate;
 }): PadiDeps {
-  const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
+  const { endpoint, log, startedAt, commit, lifetime, stateRoot, finishGate } =
+    deps;
   const fsGit = padiFsGitDeps(endpoint, log);
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -245,7 +252,13 @@ export function buildPadiSurfaceDeps(deps: {
       // example 1 of the reactive-bridge note). No `store`/`equals` here — the graph
       // is the one writer (a write verb would crash the boot walk) and `equals`
       // lives on the spec.
-      urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+      // Reading `finishGate.settledFinished()` inside the compute makes urgency
+      // re-fold when a `waiting` terminal crosses the quiet threshold (a non-event
+      // on the wire — the gate's own debounce timer is what pushes that edge into
+      // the graph), on top of the `$.terminals()` refold on every agent-state change.
+      urgency: derived.cell(($) =>
+        recomputeUrgency($.terminals(), finishGate.settledFinished()),
+      ),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The

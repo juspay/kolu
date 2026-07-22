@@ -28,7 +28,7 @@ at" changes is whether a terminal counts as already **seen**.
 | Agent state | Sound + popup (once) | On-screen marks | Goes away when |
 | --- | --- | --- | --- |
 | **Asking you** (waiting for input) | if not already seen | loud amber host-tab count + dock pip | you answer |
-| **Just finished** (no input needed) | if not already seen | quiet dim-amber host-tab dot + dock unread | you look at it |
+| **Just finished** (no input needed, PTY gone quiet) | if not already seen | quiet dim-amber host-tab dot + dock unread | you look at it |
 | Working / idle | — | (optional "live" ring) | — |
 
 The two host-tab marks speak **one** amber "needs you" language in two tiers: the
@@ -57,6 +57,29 @@ active-only "seen" ledger — so the same agent behaved differently depending on
 Those are gone. Shipped in <PrLink pr={1931} />; the `activityAlerts` setting was
 renamed `attentionAlerts` (with a migration).
 
+## Effective finish — agent state fused with terminal quiet
+
+An agent like Claude Code can mark its turn *finished* while background sub-agents keep
+working, so a raw `waiting` is a **premature** "finished" — the transcript says done,
+but the terminal is still moving bytes. The fix: a `waiting` terminal is only an
+**effective** finish once its PTY has gone **quiet** for a debounce window (~5s). The
+gate byte-taps *only* the `waiting` terminals — a small, bounded set — debounces each on
+the same tracker the live-dot uses <Cite file="packages/padi/src/terminalActivityTracker.ts" />, and feeds the
+settled set into the `urgency` fold, which admits a `waiting` terminal to `finishedIds`
+only when settled. <Cite file="packages/padi/src/urgency.ts" line={64} />
+
+Three decisions make it correct. It lives in **padi**, not the client live-dot
+`useTerminalActivity` (which only sees attached tiles) — padi sees every terminal's
+bytes, active *or* background, so the whole cross-host model rides it. <Cite file="packages/padi/src/finishGate.ts" /> It's
+**default-excluded** — a terminal that just flipped to `waiting` isn't yet settled, so a
+late observation only *delays* a finish (the lesser, non-blocking nudge), it can never
+fire one early. And it gates **finished only**: the ASKING path (`awaiting_user`) is
+blocking and actionable, so it fires at once, never debounced. Because "output stopped"
+is a non-event on the wire, the gate carries its own debounce timer and pushes the
+quiet-crossing edge into the reactor graph so `urgency` re-folds. It's a heuristic tuned
+by the quiet window: a chatty background agent is caught, and an agent whose TUI redraws
+at rest (a spinner emitting real bytes) would defer a real finish. Shipped in <PrLink pr={1938} />.
+
 ## Follow-ups
 
 What the review gauntlet surfaced but the first cut left out. Items marked
@@ -64,19 +87,6 @@ What the review gauntlet surfaced but the first cut left out. Items marked
 
 **Correctness**
 
-- **Effective "finished" — fuse agent state with terminal quiet.** *(user-facing)* An
-  agent like Claude Code can mark its turn *finished* while background sub-agents keep
-  working, so kolu fires a premature "finished." The transcript can't catch this — but
-  the terminal is still **moving bytes** while the sub-agents run. Derive an *effective*
-  finish (agent-state `waiting` **and** the PTY quiet for a debounce) and let only those
-  terminals enter `finishedIds`, so the whole model rides it cross-host. <Cite file="packages/padi/src/urgency.ts" line={30} /> The
-  signal must live in **padi** — it sees every terminal's bytes, active *or* background —
-  not the client live-dot `useTerminalActivity`, which only tracks attached tiles. <Cite file="packages/client/src/terminal/useTerminalActivity.ts" line={90} /> Gate
-  *finished* only; a real *asking* gate still fires at once. It's a heuristic tuned by the
-  quiet window: a chatty background agent is caught, a silent one fires early, and an
-  agent whose TUI redraws at rest could defer a real finish. (One wrinkle: "output
-  stopped" is a non-event, so padi needs a debounce timer to re-fold when a waiting
-  terminal crosses the quiet threshold.)
 - **Split-aware "seen".** *(user-facing)* The seen check compares the active *tile* id,
   so a finished pane you can plainly see inside a split can still chime. The right test
   is "a visible pane of the active tile," not tile-or-focus alone. <Cite file="packages/client/src/attention/useAttention.ts" line={113} />

@@ -80,6 +80,13 @@ function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
 const ID_A = "urg-a";
 const ID_B = "urg-b";
 
+/** The EFFECTIVE-finish gate input — every `waiting` id passed here is treated as
+ *  settled (PTY quiet), so the fold's finished-gating is exercised explicitly.
+ *  Tests with no `waiting` terminals pass the empty set. */
+function settled(...ids: string[]): ReadonlySet<TerminalId> {
+  return new Set(ids as TerminalId[]);
+}
+
 describe("recomputeUrgency", () => {
   it("carries id lists only (no separate count field) for both attention buckets", () => {
     const urgency = recomputeUrgency(
@@ -87,6 +94,7 @@ describe("recomputeUrgency", () => {
         [ID_A, makeAgent("awaiting_user")],
         [ID_B, makeAgent("thinking")],
       ]),
+      settled(),
     );
 
     expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
@@ -94,16 +102,42 @@ describe("recomputeUrgency", () => {
     expect(Object.keys(urgency).sort()).toEqual(["awaitingIds", "finishedIds"]);
   });
 
-  it("folds finished (`waiting`) agents into finishedIds, separate from awaiting", () => {
+  it("folds finished (`waiting`) agents into finishedIds when the gate has settled them", () => {
     const urgency = recomputeUrgency(
       terminalsMap([
         [ID_A, makeAgent("awaiting_user")],
         [ID_B, makeAgent("waiting")],
         ["urg-c", makeAgent("thinking")],
       ]),
+      settled(ID_B),
     );
-    // `awaiting_user` → asking; `waiting` → finished; working states → neither.
+    // `awaiting_user` → asking; a SETTLED `waiting` → finished; working → neither.
     expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [ID_B] });
+  });
+
+  it("HOLDS an unsettled `waiting` agent out of finishedIds (still moving bytes)", () => {
+    // The motivating bug: a Claude Code turn marks itself `waiting` while its
+    // background sub-agents keep emitting output. Until the gate confirms the PTY
+    // quiet, the terminal is NOT an effective finish, so it stays out of
+    // finishedIds — no premature "finished" fires. The ASKING path is unaffected.
+    const urgency = recomputeUrgency(
+      terminalsMap([
+        [ID_A, makeAgent("awaiting_user")],
+        [ID_B, makeAgent("waiting")],
+      ]),
+      settled(), // ID_B has not settled yet
+    );
+    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
+  });
+
+  it("fires an ASKING agent immediately regardless of the finish gate", () => {
+    // `awaiting_user` is blocking and actionable — it is never debounced by the
+    // quiet gate, even when the same terminal is absent from the settled set.
+    const urgency = recomputeUrgency(
+      terminalsMap([[ID_A, makeAgent("awaiting_user")]]),
+      settled(),
+    );
+    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
   });
 
   it("folds ids in the map's insertion order, and an agentless entry contributes 0", () => {
@@ -113,13 +147,17 @@ describe("recomputeUrgency", () => {
         ["urg-c", null],
         [ID_A, makeAgent("awaiting_user")],
       ]),
+      settled(),
     );
     expect(urgency).toEqual({ awaitingIds: [ID_B, ID_A], finishedIds: [] });
   });
 
   it("is empty for a map with no attention-worthy agents", () => {
     expect(
-      recomputeUrgency(terminalsMap([[ID_A, makeAgent("thinking")]])),
+      recomputeUrgency(
+        terminalsMap([[ID_A, makeAgent("thinking")]]),
+        settled(),
+      ),
     ).toEqual({ awaitingIds: [], finishedIds: [] });
   });
 
@@ -135,7 +173,7 @@ describe("recomputeUrgency", () => {
       [ID_B as TerminalId, activeTerminal(makeAgent("awaiting_user"))],
     ]);
     // Only the ACTIVE awaiting terminal counts; the sleeping one is excluded.
-    expect(recomputeUrgency(map)).toEqual({
+    expect(recomputeUrgency(map, settled())).toEqual({
       awaitingIds: [ID_B],
       finishedIds: [],
     });

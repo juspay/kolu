@@ -51,6 +51,15 @@ isn't blocked drops to idle instead). The vocabulary of states is
   every time you return to its machine.
 </Aside>
 
+<Aside type="note" title="A finish waits for the terminal to go quiet">
+  Some agents (Claude Code among them) can mark their turn *finished* while
+  background sub-agents keep working — the transcript says done, but the terminal
+  is still producing output. So a *finished* chime holds until the terminal has
+  actually fallen quiet for a few seconds, which keeps a still-working agent from
+  pinging early. A *needs your input* prompt is never held back this way — it is
+  blocking, so it reaches you at once.
+</Aside>
+
 ## Across machines
 
 The needs-you signal is a first-class part of the [multi-host](/remote-hosts)
