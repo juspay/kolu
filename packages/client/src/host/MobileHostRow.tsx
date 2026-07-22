@@ -42,7 +42,6 @@ import {
   statusTitle,
 } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { hostMarks } from "../attention/attentionMarks";
 import { useHostMembers } from "./useHostMembers";
 
@@ -135,8 +134,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
 
 /** The in-sheet add-host SECTION — the mobile-native variant of the desktop `+`
  *  popover. A FULL-WIDTH block inside the sheet (no anchored popover to clip at
- *  phone width) carrying the same ALPHA notice and ssh field, committing
- *  through the shared `addHost`. `onClose` collapses it on success or Escape. */
+ *  phone width) with the ssh field, committing through the shared `addHost`.
+ *  `onClose` collapses it on success or Escape. */
 const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   const [draft, setDraft] = createSignal("");
   let inputEl: HTMLInputElement | undefined;
@@ -157,7 +156,6 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
       // sheet. Same guard the sheet's other controls (palette, settings) wear.
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <RemoteHostsAlphaNotice />
       <div class="flex items-center gap-2">
         <input
           ref={inputEl}
@@ -165,6 +163,7 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
           data-testid="mobile-host-add-input"
           class="h-11 min-w-0 flex-1 rounded-lg border border-edge bg-surface-0 px-3 text-sm text-fg placeholder:text-fg-3 focus:border-accent/50 focus:outline-none"
           placeholder="ssh host, e.g. srid@zest"
+          aria-label="ssh host"
           value={draft()}
           onInput={(e) => setDraft(e.currentTarget.value)}
           onKeyDown={(e) => {

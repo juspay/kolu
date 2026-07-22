@@ -15,14 +15,19 @@
  *  an unread-notification **alert** — were each a SEPARATE dot before, defined
  *  (and drifting) per surface; they now compose here, once, as overlay elements
  *  (`LIVE_RING_CLASS`, `ALERT_BADGE_CLASS`; visuals in `statepip.css`):
- *    - the live RING — a thin green `--color-ok` arc that gently sweeps, the old
- *      `LiveActivityDot` folded into the indicator's edge instead of a second
- *      dot beside it;
+ *    - the live RING — a static green glow halo while the terminal is emitting
+ *      (the old conic sweep retired once identity glyphs claimed motion);
  *    - the alert BADGE — a small amber `--color-attention` corner badge, the
  *      Dock's old loud `attention` pip retired: a different SHAPE from the ring
  *      (not another circle/halo), so the two never compound into nested rings,
  *      and the live state core stays fully visible.
  *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
+ *
+ *  Option C: every core is an **identity glyph** ("who is driving this
+ *  terminal") — a real agent brand mark, or the shell prompt for a plain
+ *  terminal — painted and animated by `PipVariant`. Shape carries identity;
+ *  colour + motion carry state. The glyph path record is a `satisfies never`-
+ *  fenced fold over `AgentKind`, so a new agent kind compile-fails HERE.
  *
  *  `pipForPaintClass` is the single definition of "which pip an agent's paint
  *  class shows", imported by the Dock's `pipVariant` (and any fleet mirror's
@@ -46,18 +51,22 @@
  *  The rendering call sites import `StatePip` from the barrel; the two entry
  *  points are a deliberate value/JSX split, not redundancy. */
 
+import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
 
 export type PipVariant =
-  | "awaiting" // awaiting, already seen: quiet dim dot (lingering)
-  | "working" // hollow spinning ring
-  | "idle" // muted small dot
-  | "sleeping" // dormant: moonlit ☾ glyph
+  | "awaiting" // awaiting, already seen: quiet dim (lingering)
+  | "working" // accent + breathe
+  | "idle" // muted shell / none-agent
+  | "sleeping" // dormant: moonlit paint + still
   | "empty"; // parked / none — render nothing
+
+/** Who is driving the terminal — an agent kind, or the plain shell. */
+export type PipGlyphId = AgentKind | "shell";
 
 /** The shared agent-paint → pip fold. Speaks only the three agent paint classes
  *  (`@kolu/terminal-vocab/agentProjection`'s `AgentPaintClass`): `none` (no
- *  agent paint) renders nothing — a surface that wants a muted dot for a
+ *  agent paint) renders nothing — a surface that wants a muted mark for a
  *  touched-but-agentless terminal maps that case itself (the Dock's `idle`,
  *  a fleet mirror's nonagent), it does not belong to the agent-paint vocabulary.
  *  Exhaustive with a `satisfies never` fence so a new paint class forces a pip
@@ -76,34 +85,121 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
   }
 }
 
-/** The rendered body for each variant — the inner span's Tailwind class set and,
- *  for `sleeping`, its glyph. This is the per-variant LOOK as data, the single
- *  source `StatePip` renders from, so the agreed appearance is pinned by a pure
- *  test (`pipVariant.test.ts`) rather than living only inside JSX where a class
- *  edit (e.g. `working`'s `border-accent` → `border-busy`) would slip past every
- *  test. `null` is a variant that renders nothing inside the cell (`empty`).
- *  Colours are `@kolu/theme` tokens (`bg-alert`, `border-accent`, `bg-fg-3`,
- *  `text-moonlit`) so both surfaces resolve them identically; the pulse/spin
- *  carry `motion-reduce:animate-none` so the pip holds still under a
- *  reduced-motion preference on every consumer. */
-export type PipBody = { class: string; glyph?: string };
+/** A brand mark or shell prompt — one render shape for both fill and stroke. */
+export type PipGlyphDef = {
+  viewBox: string;
+  /** `fill` for brand marks; `stroke` for the shell chevron. */
+  paint: "fill" | "stroke";
+  paths: readonly string[];
+  /** Stroke width when `paint === "stroke"`. */
+  strokeWidth?: number;
+};
+
+// ── Identity glyph paths ────────────────────────────────────────────────
+// Real brand marks — do not hand-draw approximations. Attribution per path.
+// claude / opencode / openai(codex): simple-icons (CC0).
+// grok: lobehub icon set (xAI/grok is NOT in simple-icons).
+
+function fillMark(viewBox: string, d: string): PipGlyphDef {
+  return { viewBox, paint: "fill", paths: [d] };
+}
+
+/** Claude Code spark — simple-icons `anthropic` / Claude mark, 24×24. */
+const GLYPH_CLAUDE = fillMark(
+  "0 0 24 24",
+  "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z",
+);
+
+/** Grok comet — lobehub icon set (xAI/grok is not in simple-icons). */
+const GLYPH_GROK = fillMark(
+  "0 0 24 24",
+  "M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815",
+);
+
+/** Codex / OpenAI knot — simple-icons `openai`, 24×24. */
+const GLYPH_CODEX = fillMark(
+  "0 0 24 24",
+  "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
+);
+
+/** OpenCode frame — simple-icons `opencode`, 24×24. */
+const GLYPH_OPENCODE = fillMark(
+  "0 0 24 24",
+  "M22 24H2V0h20zM17 4.8H7v14.4h10z",
+);
+
+/** Shell prompt — chevron + cursor (`❯ _`), stroked so it reads at 14px. */
+const GLYPH_SHELL: PipGlyphDef = {
+  viewBox: "0 0 24 24",
+  paint: "stroke",
+  strokeWidth: 2.8,
+  paths: ["M4.5 6.5 11 12l-6.5 5.5", "M13.5 18.5h6"],
+};
+
+/** Agent-kind → brand mark. Exhaustive over `AgentKind` so a new kind forces
+ *  a glyph decision here — never a silent shell fallback. */
+export function agentGlyph(kind: AgentKind): PipGlyphDef {
+  switch (kind) {
+    case "claude-code":
+      return GLYPH_CLAUDE;
+    case "codex":
+      return GLYPH_CODEX;
+    case "opencode":
+      return GLYPH_OPENCODE;
+    case "grok":
+      return GLYPH_GROK;
+    default:
+      kind satisfies never;
+      return GLYPH_SHELL;
+  }
+}
+
+/** Identity glyph for a pip core — agent brand or shell prompt. */
+export function pipGlyph(id: PipGlyphId): PipGlyphDef {
+  if (id === "shell") return GLYPH_SHELL;
+  return agentGlyph(id);
+}
+
+/** The rendered LOOK for each variant — Tailwind colour + motion class tokens
+ *  applied to the identity glyph. Shape is the glyph (`pipGlyph`); this record
+ *  is only paint × motion, pinned by a pure test so a colour swap (e.g.
+ *  `text-accent` → `text-busy`) is caught without a DOM harness. `null` is a
+ *  variant that renders nothing inside the cell (`empty`). Colours are
+ *  `@kolu/theme` tokens so every surface resolves them identically; motion
+ *  classes live in `statepip.css` and carry reduced-motion safety there. */
+export type PipBody = { class: string };
+
+/** Motion classes applied on top of paint. Separated so a `waiting` agent can
+ *  keep the lingering violet paint (same `awaiting` PipVariant / agentPaintClass)
+ *  while holding still — "animated by state": working→breathe, awaiting_user→glow,
+ *  waiting/sleeping→still. Callers suppress glow via `StatePip`'s `still` prop. */
+export const PIP_MOTION: Record<Exclude<PipVariant, "empty">, string | null> = {
+  awaiting:
+    "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
+  working: "statepip-anim-breathe motion-reduce:animate-none",
+  idle: null,
+  sleeping: null,
+};
 
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // awaiting, already seen: quiet dim dot (lingering)
-  awaiting: { class: "w-1.5 h-1.5 rounded-full bg-alert/55" },
-  // working: hollow spinning ring
-  working: {
-    class:
-      "w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin motion-reduce:animate-none",
-  },
-  // idle: muted small dot
-  idle: { class: "w-1.5 h-1.5 rounded-full bg-fg-3/55" },
-  // dormant: moonlit ☾ glyph — visually distinct from the agent shapes and the
-  // parked-drop; `text-moonlit` is the shared fixed sleeping accent.
-  sleeping: { class: "text-[0.7rem] leading-none text-moonlit", glyph: "☾" },
+  // lingering violet-55% — post-turn (`waiting`) and `awaiting_user` share this
+  // paint via agentPaintClass; motion (glow) is layered from PIP_MOTION unless
+  // the caller sets `still` for the post-turn lull.
+  awaiting: { class: "text-alert/55" },
+  // accent teal; breathe from PIP_MOTION
+  working: { class: "text-accent" },
+  // muted shell (brightens to fg-2 when a foreground process runs — caller)
+  idle: { class: "text-fg-3" },
+  // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
+  sleeping: { class: "text-moonlit/65" },
   // parked / none — render nothing inside the cell
   empty: null,
 };
+
+/** Class applied to the shell glyph when a foreground process is running —
+ *  brightens `idle`'s `text-fg-3` to `text-fg-2`. Callers pass `busy` on
+ *  `StatePip`; this token is the single source of that brightening. */
+export const SHELL_BUSY_CLASS = "text-fg-2";
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
@@ -145,46 +241,29 @@ export const DOCK_ROW_PIP_BOX = "w-[18px] h-[18px] rounded-full";
  *  than the taller dock-row track. Caller's geometry, same as `DOCK_ROW_PIP_BOX`. */
 export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
 
-/** The live RING overlay class — a thin green arc that gently rotates while the
- *  terminal is moving bytes (the old standalone live dot, folded into the
- *  indicator's edge). The visual (conic-gradient + mask + spin) lives in
- *  `statepip.css`; both surfaces import it, so it can't drift. */
+/** The live RING overlay class — a static green glow halo while the terminal is
+ *  moving bytes (one motion per row: motion belongs to agent state; the halo is
+ *  presence only). Visuals in `statepip.css`; both surfaces import it. */
 export const LIVE_RING_CLASS = "statepip-live-ring";
 
-/** The shared "amber attention pill" — the SINGLE source of styling truth for
- *  every surface that paints the amber "needs you / unread" cue, so the mark
- *  can't drift in colour or shape between them. Extracted verbatim from the host
- *  selector strip's awaiting-count badge (`HostSelectorStrip.tsx`), which is the
- *  pixel reference; consuming it there is a pure regroup (identical class set),
- *  so that chip stays pixel-identical.
- *
- *  Two surfaces consume it:
- *    - the host-tab chip's COUNT pill — this class + its own `min-w-4 px-1 h-4`
- *      sizing + the numeric awaiting count inside;
- *    - the Dock's per-terminal unread BADGE — this class composed with
- *      `ALERT_BADGE_CLASS` (its absolute corner placement + pill dims + pulse
- *      from `statepip.css`), boolean, no count.
- *  A fleet mirror's rows render the same `StatePip` alert axis, so any mirror
- *  adopts it too on its next dep bump — the dock-fleet-mirror contract, by construction.
- *
- *  A Tailwind class STRING (not a raw-CSS colour) so it is pixel-identical to the
- *  chip's current utilities; it single-sources across repos the same way
- *  `PIP_BODY`'s `bg-alert/55` does — every consumer's Tailwind `@source`s this
- *  package's `src`, so the utilities are generated wherever `StatePip` renders.
- *  The literal `bg-amber-500/90` (rather than the `--color-attention` theme
- *  token, which is a DIFFERENT amber) is deliberate: the chip is the designated
- *  pixel reference and must not shift, so its colour becomes the shared truth. */
+/** The shared "amber attention pill" — styling truth for the host-tab
+ *  awaiting-count badge (`HostSelectorStrip.tsx`). A Tailwind class STRING so it
+ *  is pixel-identical to the chip's utilities; the literal `bg-amber-500/90`
+ *  (rather than `--color-attention`) is deliberate: the chip is the designated
+ *  pixel reference and must not shift. The Dock's per-terminal unread mark is a
+ *  DIFFERENT shape (a 7px corner dot — `ALERT_BADGE_CLASS`); Option C retired
+ *  the pill form on the pip so a 14px identity glyph is not crowded by a
+ *  count-capsule silhouette. */
 export const ATTENTION_PILL_CLASS =
   "inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums";
 
-/** The alert overlay class — the amber CORNER BADGE (top-right), not a ring: a
- *  surrounding alert ring (especially nested with the live ring) read as
- *  overwhelming, so the alert uses a different shape that never competes with the
- *  live ring. What the badge MEANS is the surface's to name (`StatePip`'s
- *  `alertLabel`): the Dock's unopened-unread, a fleet mirror's live notify-class.
- *
- *  Composed WITH `ATTENTION_PILL_CLASS` at the render site: this class carries
- *  only the overlay's absolute corner placement, pill dimensions, separator ring
- *  and pulse (in `statepip.css`); the amber fill + rounded-pill shape come from
- *  the shared pill, so the badge and the host-tab count pill can't drift. */
+/** The alert overlay class — a small amber CORNER DOT (top-right), not a ring
+ *  and not the host-tab count pill. What the badge MEANS is the surface's to
+ *  name (`StatePip`'s `alertLabel`): the Dock's unopened-unread. Visuals
+ *  (7px circle, `--color-attention` fill, separator ring, pulse) live in
+ *  `statepip.css` — Option C mockup. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
+
+/** Glyph size inside the 18 px dock pip box — 14 px mark, 2 px inset each side
+ *  (matches the approved Option C prototype). */
+export const GLYPH_SVG_CLASS = "block w-[14px] h-[14px]";

@@ -549,31 +549,22 @@ body {
 .dock-cards-section {
   border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
 }
+/* Sticky header band — faintly repo-tinted (Option C mockup: 6% repo mix).
+ * Mixed into `surface-1` so the band stays opaque enough for rows to scroll
+ * cleanly underneath, while the repo colour still reads as a section break
+ * together with the left spine. */
 .dock-cards-section-header {
   position: sticky;
   top: 0;
   z-index: 10;
-  /* Neutral + opaque — matches the dock body (`bg-surface-1`) so the header
-   * reads as no band at all: the repo colour rides the name chip below and
-   * the section's left spine. Opaque so rows scroll cleanly under the pinned
-   * header with no bleed-through. */
-  background: var(--color-surface-1);
+  background: color-mix(in oklab, var(--repo-color) 6%, var(--color-surface-1));
+  border-bottom-color: color-mix(in oklab, var(--color-edge) 50%, transparent);
 }
-/* The repo name is a filled colour chip — a tag. The old treatment painted
- * the name in the raw `--repo-color` (a light `L=0.75`) on a light tinted
- * band, so in light mode it washed out (light-on-light). A solid chip pops on
- * any ground, per theme: dark mode uses the bright repo colour with dark text
- * (chip lifts off the dark dock); light mode deepens the chip toward the
- * foreground and uses white text (a bold tag on the light dock). */
+/* Repo name is a plain uppercase label in the repo colour — not a filled
+ * chip. The mockup's `.sect-hd .name` treatment: colour + weight + tracking
+ * carry the identity; the tinted band + spine carry the grouping. */
 .dock-cards-section-name {
-  background: var(--repo-color);
-  color: var(--color-surface-0);
-  padding: 0.1rem 0.4rem;
-  border-radius: 5px;
-}
-:root:not(.dark) .dock-cards-section-name {
-  background: color-mix(in oklch, var(--repo-color) 82%, var(--color-fg));
-  color: #fff;
+  color: var(--repo-color);
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────

@@ -18,7 +18,7 @@ import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
-import { pipVariant } from "../canvas/dock/pipVariant";
+import { pipGlyphFor, pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -139,6 +139,8 @@ const TerminalMeta: Component<{
               {(agent) => (
                 <StatePip
                   variant={pipVariant(paintBucket(agent()))}
+                  glyph={pipGlyphFor(v().meta)}
+                  still={agent().state === "waiting"}
                   alert={props.unread}
                   alertLabel="unread alert"
                   class={TITLE_PIP_BOX}
