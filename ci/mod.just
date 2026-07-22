@@ -208,6 +208,15 @@ atlas-sync:
 attach:
     nix run .#odu -- attach
 
+# The final green-gate: print the required `<recipe>@<platform>` status
+# contexts the canonical DAG produces for BOTH CI platforms (x86_64-linux +
+# aarch64-darwin) — exactly the contexts branch protection gates on. This is
+# the source of truth for "is CI done"; verify each is green with
+# `gh pr checks`. Pins both platforms so the required list is never a
+# single-platform subset (see the ci skill's green-gate).
+protect:
+    nix run .#odu protect -- --platform x86_64-linux --platform aarch64-darwin
+
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're
 # unreachable from `default` and the runner never schedules them. They manage
