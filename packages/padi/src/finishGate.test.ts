@@ -11,6 +11,7 @@
  *   - leaving `waiting` (or teardown) drops the terminal from the settled set.
  */
 
+import { computed, derived } from "@kolu/surface/reactor";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFinishGate, type FinishGate } from "./finishGate.ts";
@@ -253,6 +254,32 @@ describe("createFinishGate", () => {
     attach(A); // replacement tap attaches — fresh window
     vi.advanceTimersByTime(QUIET);
     expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
+  it("publishes NO transient finish when an attached terminal leaves waiting mid-window", () => {
+    // F5 (round 4): leaving waiting must fence the settle listener BEFORE dropping the
+    // quiet timer — `tracker.forget` notifies synchronously, so if `awaitingRearm` isn't
+    // set first, the settle loop briefly sees an attached, not-yet-fenced, now-quiet
+    // terminal and emits a transient false finish. Record EVERY emitted frame (an eager
+    // reactor effect over the gate's settled level) and assert A never appears.
+    const frames: TerminalId[][] = [];
+    const observed = derived.cell(computed(() => [...gate.settledFinished()]));
+    const stop = observed.connect({
+      set: (v) => frames.push(v as TerminalId[]),
+    });
+
+    waiting.set(A, "loc-a");
+    reconcileTick();
+    attach(A); // A is attached and live — its quiet window is running
+    vi.advanceTimersByTime(QUIET / 2); // partway through the window (not settled)
+    expect(gate.settledFinished().has(A)).toBe(false);
+
+    observe(A, false); // agent leaves waiting mid-window
+    // No frame — transient or final — may ever contain A.
+    expect(frames.every((f) => !f.includes(A))).toBe(true);
+    expect(gate.settledFinished().has(A)).toBe(false);
+
+    if (typeof stop === "function") stop();
   });
 
   it("closes every tap on dispose", () => {

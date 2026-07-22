@@ -231,11 +231,13 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       if (!tracked.has(id)) return; // membership is the poll's job; only re-arm what we track
       if (!isWaiting) {
         // Left the waiting episode — invalidate the settle/quiet state so the next
-        // waiting turn must earn a fresh window. `awaitingRearm` also fences the
-        // settle loop, so it cannot settle while out of a waiting episode. The tap
-        // and its `attached` fact stay (same PTY, same observer).
-        tracker.forget(id);
+        // waiting turn must earn a fresh window. The tap and its `attached` fact stay
+        // (same PTY, same observer). Set `awaitingRearm` FIRST: `tracker.forget`
+        // synchronously fires the settle listener (it removes the live flag), and
+        // that listener must already see this terminal fenced out of its waiting
+        // episode — otherwise it would publish a transient false finish in the gap.
         awaitingRearm.add(id);
+        tracker.forget(id);
         if (settled.delete(id)) publish();
       } else if (awaitingRearm.delete(id)) {
         // Re-entered waiting after a blip — re-arm a fresh quiet window, but ONLY if
