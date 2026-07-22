@@ -6,7 +6,9 @@
  *  the pip a given agent paint class shows is defined ONCE — the same fold
  *  a fleet mirror's `pipVariantFor` calls — and can't drift between surfaces.
  *  This function adds only the dock-only `idle`/`sleeping`/`parked` triage
- *  buckets that have no agent paint to share.
+ *  buckets that have no agent paint to share. Dock *rows* paint plain shells
+ *  as `idle` (shell glyph) via `paintDockRow` — `none`→`empty` remains for
+ *  call sites that genuinely mean blank (parked, workspace column legends).
  *
  *  `unread` is NO LONGER folded in here (R-activity-merge): an unread alert used
  *  to REPLACE the whole pip with a loud `attention` disk; it now rides as the

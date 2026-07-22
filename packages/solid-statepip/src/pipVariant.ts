@@ -15,12 +15,12 @@
  *  an unread-notification **alert** — were each a SEPARATE dot before, defined
  *  (and drifting) per surface; they now compose here, once, as overlay elements
  *  (`LIVE_RING_CLASS`, `ALERT_BADGE_CLASS`; visuals in `statepip.css`):
- *    - the live RING — a static green glow halo while the terminal is emitting
- *      (the old conic sweep retired once identity glyphs claimed motion);
- *    - the alert BADGE — a small amber `--color-attention` corner badge, the
- *      Dock's old loud `attention` pip retired: a different SHAPE from the ring
- *      (not another circle/halo), so the two never compound into nested rings,
- *      and the live state core stays fully visible.
+ *    - the live PLATE — a faint green disc behind the identity glyph while the
+ *      terminal is emitting (contained presence; no glow bleed past the pip);
+ *    - the alert BADGE — a small amber `--color-attention` corner dot, the
+ *      Dock's old loud `attention` pip retired: a different SHAPE from the plate
+ *      so the two never compound into nested rings, and the glyph stays fully
+ *      visible.
  *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
  *
  *  Option C: every core is an **identity glyph** ("who is driving this
@@ -241,10 +241,11 @@ export const DOCK_ROW_PIP_BOX = "w-[18px] h-[18px] rounded-full";
  *  than the taller dock-row track. Caller's geometry, same as `DOCK_ROW_PIP_BOX`. */
 export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
 
-/** The live RING overlay class — a static green glow halo while the terminal is
- *  moving bytes (one motion per row: motion belongs to agent state; the halo is
- *  presence only). Visuals in `statepip.css`; both surfaces import it. */
-export const LIVE_RING_CLASS = "statepip-live-ring";
+/** The live PLATE overlay class — a faint green disc behind the identity glyph
+ *  while the terminal is moving bytes (presence only; agent state owns motion).
+ *  Visuals in `statepip.css`; both surfaces import it. Export name kept for the
+ *  `live` prop contract; the CSS class is `statepip-live-plate`. */
+export const LIVE_RING_CLASS = "statepip-live-plate";
 
 /** The shared "amber attention pill" — styling truth for the host-tab
  *  awaiting-count badge (`HostSelectorStrip.tsx`). A Tailwind class STRING so it

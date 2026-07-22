@@ -1,20 +1,22 @@
-/* The merged status indicator's outer axes + core motion — the live RING, the
- * alert BADGE, and the identity-glyph breathe/glow animations that `StatePip`
- * composes (R-activity-merge + Option C). Shipped as a CSS leaf rather than
- * Tailwind utilities because the live halo is a multi-stop box-shadow and the
- * glow uses `filter: drop-shadow` — neither express cleanly as utility classes.
- * kolu's client `@import`s `@kolu/solid-statepip/statepip.css`, so the rings are
- * single-sourced (one definition, can't drift). Colours are the shared
- * `@kolu/theme` CSS vars, resolved by whichever surface imports the theme.
+/* The merged status indicator's outer axes + core motion — the live PLATE,
+ * the alert BADGE, and the identity-glyph breathe/glow animations that
+ * `StatePip` composes (R-activity-merge + Option C). Shipped as a CSS leaf
+ * rather than Tailwind utilities because the live plate is a colour-mix
+ * disc and the glyph glow uses `filter: drop-shadow` — neither express
+ * cleanly as utility classes. kolu's client `@import`s
+ * `@kolu/solid-statepip/statepip.css`, so the overlays are single-sourced
+ * (one definition, can't drift). Colours are the shared `@kolu/theme` CSS
+ * vars, resolved by whichever surface imports the theme.
  *
- * The live ring is a static glow halo (it wraps the core); the alert is a small
- * CORNER BADGE, deliberately NOT a second ring — a surrounding alert ring
- * (especially nested with the live ring) read as overwhelming, so the two axes
- * use different shapes and never compound into concentric circles. Motion is
- * transform/opacity/filter only (compositor-friendly — no per-frame layout),
- * and a reduced-motion preference holds animations still. Under reduced motion
- * the awaiting core keeps a violet hollow outline so state never degrades to
- * colour alone (Option C spent shape on identity). */
+ * The live plate is a faint green disc BEHIND the identity glyph (presence,
+ * contained inside the pip — no glow bleed past the box). The alert is a
+ * small CORNER DOT, deliberately NOT a ring — a surrounding alert ring
+ * (especially nested with a live disc) read as overwhelming, so the two
+ * axes use different shapes. Motion is transform/opacity/filter only
+ * (compositor-friendly — no per-frame layout), and a reduced-motion
+ * preference holds animations still. Under reduced motion the awaiting
+ * core keeps a violet hollow outline so state never degrades to colour
+ * alone (Option C spent shape on identity). */
 
 @keyframes statepip-breathe {
   0%,
@@ -59,18 +61,15 @@
   animation: statepip-glow 2.2s ease-in-out infinite;
 }
 
-/* live = this terminal is moving bytes right now: a static green glow halo
- * around the core. The old conic sweep was retired once identity glyphs claimed
- * motion (one motion per row — the halo is presence, agent state is motion).
- * `inset: -1px` so the glow sits just outside the 18px pip box without eating
- * the amber badge's corner. */
-.statepip-live-ring {
+/* live = this terminal is moving bytes right now: a faint green disc
+ * (avatar plate) behind the identity glyph. Contained inside the pip —
+ * no box-shadow bleed past the edge. Presence only; agent state owns
+ * motion. Rendered under the glyph in StatePip's DOM order. */
+.statepip-live-plate {
   position: absolute;
   inset: -1px;
   border-radius: 9999px;
-  box-shadow:
-    0 0 8px 2px color-mix(in oklab, var(--color-ok) 45%, transparent),
-    0 0 2px 0.5px color-mix(in oklab, var(--color-ok) 55%, transparent);
+  background: color-mix(in oklab, var(--color-ok) 13%, transparent);
   pointer-events: none;
 }
 
@@ -78,7 +77,7 @@
  * unopened-unread — each surface names it via `alertLabel`): a small amber
  * CORNER DOT at the top-right, NOT a ring and NOT the host-tab count pill —
  * Option C mockup's 7px attention pip. Shape is deliberately a circle so it
- * never competes with the live glow halo or reads as a count capsule on a
+ * never competes with the live plate or reads as a count capsule on a
  * 14px identity glyph. The surface separator lifts it off the row; a gentle
  * pulse draws the eye without shouting. Fill is `--color-attention` (the
  * warm "needs you" amber), single-sourced in this leaf. */

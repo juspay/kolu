@@ -6,8 +6,9 @@ import { pipGlyphFor, pipVariant } from "./pipVariant";
 
 // The bucket carries only the CORE state now — `unread` is no longer folded in
 // (R-activity-merge moved it to the indicator's `alert` corner badge). awaiting is the
-// quiet lingering paint; working breathes; idle is muted; none/parked
-// render empty; sleeping is moonlit + still (identity glyph, not ☾).
+// quiet lingering paint; working breathes; idle is the shell mark (fg-3);
+// none/parked render empty (blank call sites only — dock rows paint shells as
+// idle via paintDockRow); sleeping is moonlit + still.
 const cases: Array<[DockRowBucket, PipVariant]> = [
   ["awaiting", "awaiting"],
   ["working", "working"],
@@ -23,6 +24,13 @@ describe("pipVariant", () => {
       expect(pipVariant(bucket)).toBe(expected);
     });
   }
+
+  it("idle is the shell identity paint (not empty) so non-agent rows get a core", () => {
+    // paintDockRow maps every agentless dock row to idle; this is the
+    // body that actually draws the shell glyph.
+    expect(pipVariant("idle")).toBe("idle");
+    expect(pipVariant("none")).toBe("empty");
+  });
 });
 
 // pipGlyphFor only reads activeArm(meta)?.agent?.kind and meta.restoreTarget —

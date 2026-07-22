@@ -19,21 +19,21 @@
  *      `pipVariant`; a fleet mirror maps its own rows the same way), both folding
  *      the shared agent-paint classes through `pipForPaintClass`.
  *    - `glyph` (the CORE shape) — identity: agent kind or `"shell"`.
- *    - `live` (the RING) — this terminal is moving bytes right now: a static
- *      green glow halo around the core (the row/title live signal, folded into
- *      the indicator's edge; the glyph-only rail + sub-tabs keep the standalone
- *      `LiveActivityDot` corner dot, which has no core to ring).
+ *    - `live` (the PLATE) — this terminal is moving bytes right now: a faint
+ *      green disc BEHIND the identity glyph (contained presence; the glyph-only
+ *      rail + sub-tabs keep the standalone `LiveActivityDot` corner dot, which
+ *      has no plate to sit under).
  *    - `alert` (the BADGE) — a fired notification you haven't opened (the Dock's
- *      `unread`, or a fleet mirror's notify-class): a small amber corner badge, NOT a
- *      ring — a surrounding alert ring (especially nested with the live ring)
+ *      `unread`, or a fleet mirror's notify-class): a small amber corner dot, NOT a
+ *      ring — a surrounding alert ring (especially nested with the live plate)
  *      read as overwhelming, so the two axes use different shapes and never
- *      compound into concentric circles. The state core stays fully visible.
+ *      compound into concentric circles. The glyph stays fully visible.
  *
  *  Pure presentation: the per-variant CORE class set lives in `PIP_BODY`; the
- *  glyph path data in `pipGlyph` / `agentGlyph`; the ring + badge are overlay
+ *  glyph path data in `pipGlyph` / `agentGlyph`; the plate + badge are overlay
  *  elements whose class names (`LIVE_RING_CLASS`, `ALERT_BADGE_CLASS`) and
  *  visuals live in `statepip.css`. Both surfaces `@import` that CSS, so the
- *  rings can't drift; the class data is pinned by a pure test (no DOM harness,
+ *  overlays can't drift; the class data is pinned by a pure test (no DOM harness,
  *  matching the other `@kolu/solid-*` leaves). Colours are the shared
  *  `@kolu/theme` tokens, so both surfaces resolve them identically.
  *
@@ -97,8 +97,8 @@ export const StatePip: Component<{
    *  stay decoupled: order≠colour's paint class stays `awaiting`, motion is
    *  none. Sleeping already has no motion in `PIP_MOTION`. Default off. */
   still?: boolean;
-  /** Terminal moving bytes right now → the green live-output RING around the
-   *  core. The activity dot, folded into the indicator's edge. Default off. */
+  /** Terminal moving bytes right now → the green live-output PLATE behind the
+   *  identity glyph. The activity cue, folded into the indicator. Default off. */
   live?: boolean;
   /** A fired notification not yet opened → a small amber `--color-attention`
    *  corner badge (top-right), NOT a ring, so it never compounds with the live
@@ -181,20 +181,19 @@ export const StatePip: Component<{
       aria-label={label() || undefined}
       aria-hidden={label() ? undefined : "true"}
     >
+      {/* Live plate first so it paints BEHIND the identity glyph (DOM order,
+          not z-index). Alert badge last so it sits on top of both. */}
+      <Show when={props.live}>
+        <span class={LIVE_RING_CLASS} aria-hidden="true" />
+      </Show>
       <Show when={coreClass()}>
         {(cls) => (
-          <span class={`flex items-center justify-center ${cls()}`}>
+          <span class={`relative flex items-center justify-center ${cls()}`}>
             <GlyphSvg def={def()} />
           </span>
         )}
       </Show>
-      {/* The two outer-axis overlays — a green glow halo while the terminal is
-          live, and a small amber attention DOT while an alert is unread (not a
-          ring, not the host-tab count pill — Option C mockup's 7px corner pip).
-          Boolean here; fill + size live in statepip.css. */}
-      <Show when={props.live}>
-        <span class={LIVE_RING_CLASS} aria-hidden="true" />
-      </Show>
+      {/* Unread attention DOT — Option C mockup's 7px corner pip. */}
       <Show when={props.alert}>
         <span class={ALERT_BADGE_CLASS} aria-hidden="true" />
       </Show>
