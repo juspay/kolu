@@ -16,7 +16,7 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 | | Issue | What the user feels |
 | --- | --- | --- |
-| ✅ | <Issue n={1334} /> | ~~Kolu's own dev/test can **kill the live kolu you are using**~~ — the state-root default is deleted; the path is chosen out loud or the process dies. (PR #1933, after #1911 was closed under review; the full arc: [state isolation](./state-isolation.html). Residuals: the run-once `e2e-ssh` verification, SI1, and the <Issue n={1912} /> wire-verb guard.) |
+| ✅ | <Issue n={1334} /> | ~~Kolu's own dev/test can **kill the live kolu you are using**~~ — the state-root default is deleted; the path is chosen out loud or the process dies. (PR #1933; the full arc: [state isolation](./state-isolation.html).) |
 | ✅ | <Issue n={1375} /> | ~~A local `vitest` run forks 30+ real daemons and OOM-reaps prod kaval~~ — real-daemon suites are **off by default** now. (PR #1921) |
 | ✅ | <Issue n={1754} /> | ~~The dock says **"thinking" forever** after the agent already finished~~ — append-poll floor under fs.watch. (PR #1914, deliberately `Refs` not `Closes`: the issue stays open until the e2e asserts descoped in PR #1751 are restored by a follow-up once #1751 merges.) |
 | ✅ | <Issue n={1859} /> | ~~One corrupt message makes a connection play dead while it keeps listening~~ — "settled ⟹ stopped" holds by construction. (PR #1901) |
