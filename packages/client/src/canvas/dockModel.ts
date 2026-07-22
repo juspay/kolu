@@ -121,8 +121,10 @@ export const AGENT_BUCKETS = [
     key: "working",
     label: "Working",
     empty: "No agents are running",
-    textClass: "text-accent",
-    accentVar: "var(--color-accent)",
+    // Busy orange — same machine-in-flight token as StatePip working /
+    // AgentIndicator (not teal accent, which is chrome selection).
+    textClass: "text-busy",
+    accentVar: "var(--color-busy)",
     borderClass: "pill-border pill-border-working",
     glyph: "▸",
   },

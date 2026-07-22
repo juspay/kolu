@@ -56,7 +56,7 @@ import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
 
 export type PipVariant =
   | "awaiting" // awaiting, already seen: quiet dim (lingering)
-  | "working" // accent + breathe
+  | "working" // busy orange + breathe
   | "idle" // muted shell / none-agent
   | "sleeping" // dormant: moonlit paint + still
   | "empty"; // parked / none — render nothing
@@ -194,12 +194,13 @@ export const PIP_MOTION: Record<Exclude<PipVariant, "empty">, string | null> = {
 
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   // lingering violet-55% — post-turn (`waiting`) and `awaiting_user` share this
-  // paint via agentPaintClass; motion (glow) is layered from PIP_MOTION unless
-  // the caller sets `still` for the post-turn lull.
+  // paint via agentPaintClass ("your turn" / lingering). Full-strength needs-you
+  // is still `text-alert`; the /55 is the quiet post-turn linger.
   awaiting: { class: "text-alert/55" },
-  // accent teal; breathe from PIP_MOTION
-  working: { class: "text-accent" },
-  // muted shell (brightens to fg-2 when a foreground process runs — caller)
+  // rust/orange busy — machine in flight (thinking / tools / background).
+  // Deliberately NOT teal accent: accent is chrome selection, not agent work.
+  working: { class: "text-busy" },
+  // muted shell (live/busy shells brighten via StatePip shell paint rules)
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
   sleeping: { class: "text-moonlit/65" },
@@ -207,10 +208,13 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   empty: null,
 };
 
-/** Class applied to the shell glyph when a foreground process is running —
- *  brightens `idle`'s `text-fg-3` to `text-fg-2`. Callers pass `busy` on
- *  `StatePip`; this token is the single source of that brightening. */
+/** Shell with a foreground process but not (yet) live-output — quiet bump
+ *  from fg-3. Live shells use `SHELL_LIVE_CLASS` instead (more salient). */
 export const SHELL_BUSY_CLASS = "text-fg-2";
+
+/** Shell with meaningful live output (btop, builds, tail -f) — same busy
+ *  orange as a working agent so activity reads one colour everywhere. */
+export const SHELL_LIVE_CLASS = "text-busy";
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
@@ -258,22 +262,32 @@ export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
  *  `live` prop contract; the CSS class is `statepip-live-plate`. */
 export const LIVE_RING_CLASS = "statepip-live-plate";
 
-/** The shared "amber attention pill" — styling truth for the host-tab
- *  awaiting-count badge (`HostSelectorStrip.tsx`). A Tailwind class STRING so it
- *  is pixel-identical to the chip's utilities; the literal `bg-amber-500/90`
- *  (rather than `--color-attention`) is deliberate: the chip is the designated
- *  pixel reference and must not shift. The Dock's per-terminal unread mark is a
- *  DIFFERENT shape (a 7px corner dot — `ALERT_BADGE_CLASS`); Option C retired
- *  the pill form on the pip so a 14px identity glyph is not crowded by a
- *  count-capsule silhouette. */
-export const ATTENTION_PILL_CLASS =
-  "inline-flex items-center justify-center rounded-full bg-amber-500/90 text-[10px] font-semibold text-black/80 tabular-nums";
+/** Needs-you count pill — agents blocked on your input (`awaiting_user`).
+ *  Cool violet (`bg-alert`), same family as StatePip awaiting paint/glow.
+ *  Host tab (`HostAwaitingPill`) and any future count of "asking" use THIS.
+ *
+ *  Distinct from unread (amber):
+ *    · needs-you  → violet  (state: blocked on you; host pill; pip glow)
+ *    · unread     → amber   (obligation: unopened; corner badge; finished-unseen) */
+export const NEEDS_YOU_PILL_CLASS =
+  "inline-flex items-center justify-center rounded-full bg-alert/90 text-[10px] font-semibold text-black/80 tabular-nums";
 
-/** The alert overlay class — a small amber CORNER DOT (top-right), not a ring
- *  and not the host-tab count pill. What the badge MEANS is the surface's to
- *  name (`StatePip`'s `alertLabel`): the Dock's unopened-unread. Visuals
- *  (7px circle, `--color-attention` fill, separator ring, pulse) live in
- *  `statepip.css` — Option C mockup. */
+/** Unread / obligation FILL for pill-shaped chrome (workspace-card corner ping).
+ *  Warm amber — same hue family as `ALERT_BADGE_CLASS` / HostFinishedDot.
+ *  NEVER use this for needs-you (that is `NEEDS_YOU_PILL_CLASS` / violet). */
+export const UNREAD_PILL_CLASS =
+  "inline-flex items-center justify-center rounded-full bg-attention/90 text-[10px] font-semibold text-black/80 tabular-nums";
+
+/** @deprecated Prefer `UNREAD_PILL_CLASS` for unread chrome, or
+ *  `NEEDS_YOU_PILL_CLASS` for awaiting-count. Kept as the amber unread token
+ *  so WorkspaceGrid mid-flight imports keep the correct hue. */
+export const ATTENTION_PILL_CLASS = UNREAD_PILL_CLASS;
+
+/** Unread / obligation CORNER DOT on StatePip (top-right). Warm amber
+ *  (`--color-attention`) — deliberately a different hue from needs-you
+ *  violet so "state is awaiting" and "you have an unopened notification"
+ *  never collapse into one mark. Host tab's quieter finished-unseen mark
+ *  (`HostFinishedDot`) is the same amber family, softer. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 
 /** Glyph size inside the 18 px dock pip box — 14 px mark, 2 px inset each side

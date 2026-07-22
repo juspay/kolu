@@ -11,12 +11,15 @@ import {
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
   LIVE_RING_CLASS,
+  NEEDS_YOU_PILL_CLASS,
   PIP_BODY,
   PIP_MOTION,
   PIP_TITLES,
   type PipVariant,
   SHELL_BUSY_CLASS,
+  SHELL_LIVE_CLASS,
   TITLE_PIP_BOX,
+  UNREAD_PILL_CLASS,
   agentGlyph,
   pipForPaintClass,
   pipGlyph,
@@ -64,7 +67,7 @@ describe("agent state → pip (shared Dock ≡ pulam-web path)", () => {
 // lingering violet paint (agentPaintClass → awaiting) while holding still.
 const bodyCases: Array<[PipVariant, string[]]> = [
   ["awaiting", ["text-alert/55"]],
-  ["working", ["text-accent"]],
+  ["working", ["text-busy"]],
   ["idle", ["text-fg-3"]],
   ["sleeping", ["text-moonlit/65"]],
 ];
@@ -101,6 +104,10 @@ describe("PIP_BODY — paint only per variant", () => {
 
   it("SHELL_BUSY_CLASS brightens the idle shell mark", () => {
     expect(SHELL_BUSY_CLASS).toBe("text-fg-2");
+  });
+
+  it("SHELL_LIVE_CLASS is busy orange — same as a working agent", () => {
+    expect(SHELL_LIVE_CLASS).toBe("text-busy");
   });
 });
 
@@ -184,13 +191,21 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });
 
-  // Host-tab awaiting-count pill only — deliberately NOT composed onto the
-  // dock's unread corner dot (that is ALERT_BADGE_CLASS / statepip.css).
-  it("ATTENTION_PILL_CLASS carries the host-tab amber-pill identity (fill + shape + numerals)", () => {
-    const cls = ATTENTION_PILL_CLASS.split(/\s+/);
-    expect(cls).toContain("bg-amber-500/90");
+  // Two host/chrome pills, deliberately different hues:
+  //   needs-you (violet) ≠ unread (amber). Never collapse them.
+  it("NEEDS_YOU_PILL_CLASS is violet (awaiting) — not amber unread", () => {
+    const cls = NEEDS_YOU_PILL_CLASS.split(/\s+/);
+    expect(cls).toContain("bg-alert/90");
     expect(cls).toContain("rounded-full");
     expect(cls).toContain("tabular-nums");
-    expect(cls).toContain("text-black/80");
+  });
+
+  it("UNREAD_PILL_CLASS is amber attention — not violet needs-you", () => {
+    const cls = UNREAD_PILL_CLASS.split(/\s+/);
+    expect(cls).toContain("bg-attention/90");
+    expect(cls).toContain("rounded-full");
+    // Historical alias stays on the amber unread token.
+    expect(ATTENTION_PILL_CLASS).toBe(UNREAD_PILL_CLASS);
+    expect(ATTENTION_PILL_CLASS).not.toBe(NEEDS_YOU_PILL_CLASS);
   });
 });

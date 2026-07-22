@@ -208,7 +208,7 @@ body {
 .pill-border-working::before {
   background: color-mix(
     in oklch,
-    var(--pill-state-color, var(--color-accent)) 80%,
+    var(--pill-state-color, var(--color-busy)) 80%,
     transparent
   );
   animation: pill-working-pulse 2.4s ease-in-out infinite;

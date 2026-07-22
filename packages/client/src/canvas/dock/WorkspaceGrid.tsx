@@ -13,7 +13,7 @@
  *  three echoes of the same truth. */
 
 import { activeArm, activePr } from "@kolu/padi/surface";
-import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
+import { UNREAD_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -513,21 +513,17 @@ const WorkspaceCard: Component<{
           style={{ "background-color": props.entry.info.branchColor }}
         />
       </Show>
-      {/* Unread ping — the card-corner twin of the dock row's unread badge.
-       *  Placement + ping motion stay; only the FILL is unified to the shared
-       *  `ATTENTION_PILL_CLASS` amber (was the cool `bg-alert` violet — the same
-       *  "your turn" state hue, a drift from the amber every OTHER unread mark
-       *  paints), so all three unread surfaces read as one cue. The pill class's
-       *  text utilities are inert here (no content); its fill + rounding carry. */}
+      {/* Unread ping — card-corner twin of the dock row's amber unread badge.
+       *  Warm `UNREAD_PILL_CLASS` (attention), never violet needs-you. */}
       <Show when={props.unread}>
         <span
           class="absolute right-2 top-2 inline-flex h-2 w-2"
           aria-hidden="true"
         >
           <span
-            class={`absolute h-full w-full opacity-75 animate-ping ${ATTENTION_PILL_CLASS}`}
+            class={`absolute h-full w-full opacity-75 animate-ping ${UNREAD_PILL_CLASS}`}
           />
-          <span class={`relative h-2 w-2 ${ATTENTION_PILL_CLASS}`} />
+          <span class={`relative h-2 w-2 ${UNREAD_PILL_CLASS}`} />
         </span>
       </Show>
 

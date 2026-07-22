@@ -12,7 +12,11 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
+import {
+  activeArm,
+  sleepingArm,
+  type TerminalMetadata,
+} from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
@@ -83,11 +87,19 @@ const TerminalMeta: Component<{
             agent: agent(),
             active: pipActive(),
           });
+        // Sleeping recedes on the title the same way dock rows do (55%).
+        // Applied per row (not a contents-wrapper): opacity does not inherit
+        // through `display: contents` into the canvas title grid.
+        const sleepClass = () =>
+          sleepingArm(v().meta) ? "opacity-55" : undefined;
         return (
           <>
             {/* Name row — T1: identity StatePip leads (app-icon position),
              *  then repo name / suffix / worktree / fg / progress. */}
-            <div class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            <div
+              class={`col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0 ${sleepClass() ?? ""}`}
+              data-sleeping={sleepingArm(v().meta) ? "" : undefined}
+            >
               <Show when={arm()}>
                 <StatePip
                   variant={variant()}
@@ -146,8 +158,11 @@ const TerminalMeta: Component<{
             </div>
 
             {/* Annotation row (supplant rule) + PR — no identity pip here
-             *  (T1: brand mark appears once, on line 1). */}
-            <div class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs">
+             *  (T1: brand mark appears once, on line 1). Sleeps with the name
+             *  row so a dormant tile recedes on both chrome lines. */}
+            <div
+              class={`col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs ${sleepClass() ?? ""}`}
+            >
               <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
                 <button
                   type="button"

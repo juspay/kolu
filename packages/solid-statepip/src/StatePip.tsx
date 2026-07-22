@@ -29,6 +29,7 @@ import {
   type PipMotionKind,
   type PipVariant,
   SHELL_BUSY_CLASS,
+  SHELL_LIVE_CLASS,
   pipGlyph,
 } from "./pipVariant.ts";
 
@@ -68,7 +69,7 @@ export const StatePip: Component<{
   /** @deprecated Use `motion: "none"` when effectively quiet. Kept so a stray
    *  caller does not break; when true, forces motion none. */
   still?: boolean;
-  /** Unread / needs-attention corner badge. */
+  /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
   alert?: boolean;
   alertLabel?: string;
   class?: string;
@@ -92,11 +93,17 @@ export const StatePip: Component<{
   const coreClass = createMemo(() => {
     const b = body();
     if (!b) return null;
-    if (props.busy && glyphId() === "shell" && variant() === "idle") {
-      return SHELL_BUSY_CLASS;
+    // Shell paint ladder (idle variant only): live output → busy orange
+    // (same as a working agent — obvious for btop/builds); foreground
+    // process without live → quiet fg-2; quiet shell → fg-3. Motion layers
+    // on top so live shells still breathe.
+    let paint = b.class;
+    if (glyphId() === "shell" && variant() === "idle") {
+      if (props.live) paint = SHELL_LIVE_CLASS;
+      else if (props.busy) paint = SHELL_BUSY_CLASS;
     }
     const motion = PIP_MOTION_CLASS[motionKind()];
-    return motion ? `${b.class} ${motion}` : b.class;
+    return motion ? `${paint} ${motion}` : paint;
   });
   return (
     <span

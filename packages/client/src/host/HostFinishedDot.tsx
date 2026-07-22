@@ -1,9 +1,8 @@
-/** The quiet "N finished, unseen" amber dot — the softer tier of the same
- *  "needs you" amber the `HostAwaitingPill` speaks, for finished-but-unlooked-at
- *  work on a host you are NOT viewing. One owner so the desktop chip, the narrow
- *  host-switcher row, and the mobile chip render the SAME dot (colour + copy +
- *  a11y) from one place — the sibling of `HostAwaitingPill`, whose own doc records
- *  the amber mark drifting once when it was hand-rolled per site.
+/** The quiet "N finished, unseen" amber dot — warm attention family (same hue
+ *  as StatePip's unread corner badge), NOT the violet needs-you pill. For
+ *  finished-but-unlooked-at work on a host you are NOT viewing. Sibling of
+ *  `HostAwaitingPill` (violet = blocked on you; amber = something finished you
+ *  have not opened).
  *
  *  Shown only when there's unseen work AND you're NOT viewing this host — pass the
  *  chip's own `active` flag and the suppression lives here, one place, instead of an
@@ -22,7 +21,7 @@ export const HostFinishedDot: Component<{
   <Show when={props.count > 0 && !props.active}>
     <span
       role="img"
-      class={`shrink-0 rounded-full bg-amber-500/50 ${props.sizeClass}`}
+      class={`shrink-0 rounded-full bg-attention/50 ${props.sizeClass}`}
       title={`${props.count} finished, unseen, on ${props.hostLabel}`}
       aria-label={`${props.count} finished terminals you haven't seen on ${props.hostLabel}`}
     />
