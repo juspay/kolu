@@ -148,8 +148,8 @@ fit — not as a shortcut past a quick scenario that would do.
 **Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so
 the main context stays clear of capture noise. Brief it with the box name, the branch, whether the
 deliverable is an image or a video, the scenario to record (feature file + exact scenario name) or
-the live state to drive, a `<slug>`, and the PR number; have it return only the markdown body it
-posted.
+the live state to drive, a `<slug>`, the PR number, and the fixed `pr-evidence` release tag; have it
+return only the markdown body it posted.
 
 ## How the harness records (wired in `packages/tests/support/hooks.ts`, gated on `KOLU_EVIDENCE`)
 
@@ -270,20 +270,23 @@ pu connect "$host" -- 'bash -lc "
 `gh pr comment` can't attach binaries, so copy artifacts back and upload to a long-lived
 GitHub release. (A screenshot from §A is a `.png` — upload and embed it the same way.)
 
+**`pr-evidence` is the one fixed evidence-release tag.** It already exists. Never derive a release
+tag from the PR number or artifact slug, and never create another release. Verify `pr-evidence`
+exists before uploading; if it does not, fail loudly.
+
 ```sh
 scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/evidence-<slug>.png
 scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.gif /tmp/evidence-<slug>.gif
 scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.mp4 /tmp/evidence-<slug>.mp4
-gh release view <RELEASE> >/dev/null 2>&1 || \
-  gh release create <RELEASE> --prerelease --title "Evidence assets" --notes "Do not delete."
-gh release upload <RELEASE> /tmp/evidence-<slug>.png /tmp/evidence-<slug>.gif /tmp/evidence-<slug>.mp4 --clobber
+gh release view pr-evidence >/dev/null
+gh release upload pr-evidence /tmp/evidence-<slug>.png /tmp/evidence-<slug>.gif /tmp/evidence-<slug>.mp4 --clobber
 ```
 
 Embed inline (GitHub renders PNG **and** animated GIF from any release URL):
 
 ```
-![](https://github.com/<OWNER>/<REPO>/releases/download/<RELEASE>/<slug>.png)
-![](https://github.com/<OWNER>/<REPO>/releases/download/<RELEASE>/<slug>.gif)
+![](https://github.com/<OWNER>/<REPO>/releases/download/pr-evidence/<slug>.png)
+![](https://github.com/<OWNER>/<REPO>/releases/download/pr-evidence/<slug>.gif)
 ```
 
 For a **before↔after** comparison, post the two stills side by side (a small two-cell table or two
