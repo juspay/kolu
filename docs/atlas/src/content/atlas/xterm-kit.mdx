@@ -231,10 +231,9 @@ closure-guard test walks the root's import graph and fails if either returns.
 
 ```ts
 import {
-  // mirror anchoring (the kaval half) + reattach discrimination — runtime-neutral
+  // mirror anchoring (the kaval half) — runtime-neutral
   createMirrorAnchor,       // absolute-line origin that survives eviction and RIS
   snapToWrapHead,           // never cut a serialize at a soft-wrap continuation
-  createSnapshotBoundary,   // first-frame-is-snapshot vs live-delta discrimination
 } from "@kolu/xterm-kit";
 
 import {
@@ -249,10 +248,6 @@ import {
 } from "@kolu/xterm-kit/internals"; // cosmetic reads — degrade to null
 ```
 
-- **`createSnapshotBoundary()`** exists because a reattaching stream's first
-  frame is a repaint, not activity: it gives any consumer the one bit
-  "is this chunk a genuine live delta?" without the consumer tracking retry
-  state itself.
 - **`createBackfillController(term, { fetch, onError })`** exists because
   extending a live buffer upward is a minefield of races — in-flight fetches
   vs. reset/resize/RIS, foreign reflows, seam provenance under scroll lock —

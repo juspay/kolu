@@ -35,7 +35,6 @@ import {
   isTerminalQueryResponse,
   wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
-import { createSnapshotBoundary } from "@kolu/xterm-kit";
 import {
   type BackfillController,
   createBackfillController,
@@ -67,7 +66,6 @@ import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
-import { useTerminalActivity } from "./useTerminalActivity";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
 import {
@@ -93,12 +91,6 @@ function bufferToBase64(buf: ArrayBuffer): string {
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
-/** How long to suppress the live-activity ping after the client resizes a PTY.
- *  Covers the resize round-trip + the shell's repaint so a reveal/resize of a
- *  quiet tile doesn't flash its live ring; short enough not to swallow genuine
- *  output for long. (See `publishDimensions` + `useTerminalActivity.suppress`.) */
-const RESIZE_ACTIVITY_SUPPRESS_MS = 600;
 
 const Terminal: Component<{
   terminalId: TerminalId;
@@ -130,7 +122,6 @@ const Terminal: Component<{
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
   const terminalStore = useTerminalStore();
-  const activity = useTerminalActivity();
 
   // Gate zoom on `focused`, not `visible`: in canvas mode every tile is
   // `visible` (so inactive xterms stay sized), so a `visible` gate let every
@@ -208,12 +199,10 @@ const Terminal: Component<{
   async function publishDimensions(size: { cols: number; rows: number }) {
     const { cols, rows } = size;
     if (cols <= 0 || rows <= 0) return;
-    // A PTY resize makes the shell REPAINT (SIGWINCH) — a genuine delta on the
-    // attach stream, but not real activity. Suppress the live-activity ping for
-    // a beat so revealing/resizing a quiet tile doesn't blip its live ring off
-    // the resize's own repaint (the round-trip + repaint settles well inside the
-    // window). Armed BEFORE the resize so the repaint can't slip in first.
-    activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
+    // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
+    // longer needs suppressing here: kaval excludes resize repaints from its
+    // meaningful-output edge at the source, so the live dot (mirrored off padi's
+    // `activity` set) never lights on a reveal/resize in the first place.
     try {
       await activePadiRpc.lifecycle.resize({
         id: props.terminalId,
@@ -252,7 +241,6 @@ const Terminal: Component<{
     onCleanup(() => {
       streamAbort?.abort();
       unregisterTerminalRefs(props.terminalId);
-      activity.forget(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
       linkProviderDisposable?.dispose();
@@ -392,24 +380,20 @@ const Terminal: Component<{
     });
 
     // The attach stream's FIRST yield is a serialized screen snapshot
-    // (scrollback), not live output — see `terminal.attach` in router.ts.
-    // Lighting the live dot for it would mean a quiet terminal with scrollback
-    // flashes "live" for ~1s on every mount, mode remount, or reconnect retry —
-    // the indicator lying exactly when a glance across the workspace relies on
-    // it. The snapshot boundary swallows that one frame's `noteOutput`, then
-    // every later chunk is a genuine PTY delta. It re-arms in `onRetry` because a
-    // transparent re-subscribe replays a fresh snapshot first too. The snapshot
-    // is still WRITTEN to xterm; only the activity ping is suppressed.
-    const snapshotBoundary = createSnapshotBoundary();
-    // Reset xterm + the scroll lock and re-arm the snapshot boundary so the NEXT
-    // stream's first frame (a fresh snapshot) replaces stale bytes without
-    // double-painting. Shared by the inner `onRetry` (a transparent STREAM_RETRY
-    // re-subscribe on a transport blip) and the outer re-attach (a mid-chain padi
-    // death STREAM_RETRY won't retry — done-criterion (c)).
+    // (scrollback), not live output — see `terminal.attach` in router.ts. The
+    // snapshot is still WRITTEN to xterm; live-dot activity no longer rides this
+    // attach sink (it mirrors padi's activity set off the wire — see
+    // `useTerminalActivity`), so the client no longer needs a snapshot-vs-delta
+    // boundary here: the backfill controller keys off the frame's own
+    // `kind === "snapshot"` discriminator below.
+    // Reset xterm + the scroll lock so the NEXT stream's first frame (a fresh
+    // snapshot) replaces stale bytes without double-painting. Shared by the inner
+    // `onRetry` (a transparent STREAM_RETRY re-subscribe on a transport blip) and
+    // the outer re-attach (a mid-chain padi death STREAM_RETRY won't retry —
+    // done-criterion (c)).
     const resetForFreshSnapshot = () => {
       handle()?.terminal?.reset();
       h.scrollLock.reset();
-      snapshotBoundary.armSnapshot();
       // Forget the backfill cursor: the next frame is a fresh snapshot that
       // re-seeds it (below). Fetching against the old cursor would splice onto
       // the terminal we just reset.
@@ -473,13 +457,10 @@ const Terminal: Component<{
           ? `${commitSeed.seam}${frame.data}`
           : frame.data;
         if (handle()) {
-          // Every chunk AFTER the snapshot boundary is live output — light the
-          // terminal's live-activity dot (dock + title), even when scroll-locked
-          // (the bytes still arrived; the user just isn't at the bottom). The
-          // store debounces back to static after a quiet gap.
-          if (snapshotBoundary.isLiveDelta()) {
-            activity.noteOutput(props.terminalId);
-          }
+          // The live-activity dot is no longer lit from this attach sink — it
+          // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
+          // wire, so it works for background terminals and never flashes on a
+          // reveal/resize repaint. See `useTerminalActivity`.
           // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
           // `term.write` returns immediately and parses the chunk asynchronously
           // (off a setTimeout), so noteData() run here synchronously would arm a

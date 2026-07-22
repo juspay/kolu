@@ -22,8 +22,6 @@ named import that crashes Node's cjs-module-lexer under tsx — both pinned by
 - `createMirrorAnchor` / `snapToWrapHead` — absolute mirror-line coordinates that
   survive scrollback eviction and a RIS buffer swap (the bookkeeping lifted from
   kaval's `ptyHost`). The only core piece the headless daemon consumes.
-- `createSnapshotBoundary` — first-frame-is-snapshot vs. live-delta
-  discrimination for a reattaching stream.
 
 ## `@kolu/xterm-kit/backfill` — in-place scrollback backfill (browser-only)
 

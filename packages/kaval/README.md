@@ -32,6 +32,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | Tap            | Source                          | API                       |
 | -------------- | ------------------------------- | ------------------------- |
 | screen output  | `node-pty` `onData`             | `attach` (bounded snapshot+deltas) · `getHistory` (older chunks) |
+| meaningful output (activity edge) | `onData`, **resize-repaint excluded** | host-global `activity` stream (`{ id }` edges; contract 5.3+) |
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
 | command-run    | OSC 633 ; E ; `<cmd>` preexec   | `subscribeCommandRun` / `getLastCommand` |
