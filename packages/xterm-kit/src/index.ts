@@ -19,8 +19,3 @@
 // piece the headless daemon actually consumes.
 export { createMirrorAnchor, snapToWrapHead } from "./mirrorAnchor";
 export type { MirrorAnchor } from "./mirrorAnchor";
-
-// First-frame-is-snapshot vs. live-delta discrimination for a reattaching stream
-// — runtime-neutral (constructs nothing), so it stays on the daemon-safe root.
-export { createSnapshotBoundary } from "./snapshotBoundary";
-export type { SnapshotBoundary } from "./snapshotBoundary";

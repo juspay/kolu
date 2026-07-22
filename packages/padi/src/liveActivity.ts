@@ -17,6 +17,7 @@ import {
   type TerminalId,
 } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
+import { abortableDelay } from "./abortableDelay.ts";
 import { ptyHostClient } from "./ptyHost/index.ts";
 import {
   createActivityTracker,
@@ -92,14 +93,7 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
                 ),
             );
             if (sig.aborted) return;
-            await new Promise<void>((resolve) => {
-              const t = setTimeout(resolve, ACTIVITY_RESUBSCRIBE_DELAY_MS);
-              t.unref?.();
-              sig.addEventListener("abort", () => {
-                clearTimeout(t);
-                resolve();
-              });
-            });
+            await abortableDelay(ACTIVITY_RESUBSCRIBE_DELAY_MS, sig);
           }
         })();
 

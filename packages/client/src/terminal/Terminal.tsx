@@ -35,7 +35,6 @@ import {
   isTerminalQueryResponse,
   wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
-import { createSnapshotBoundary } from "@kolu/xterm-kit";
 import {
   type BackfillController,
   createBackfillController,
@@ -381,21 +380,20 @@ const Terminal: Component<{
     });
 
     // The attach stream's FIRST yield is a serialized screen snapshot
-    // (scrollback), not live output — see `terminal.attach` in router.ts.
-    // The snapshot is still WRITTEN to xterm; live-dot activity no longer rides
-    // this attach sink (it mirrors padi's activity set off the wire — see
-    // `useTerminalActivity`). The snapshot boundary still gates other first-frame
-    // concerns on re-attach.
-    const snapshotBoundary = createSnapshotBoundary();
-    // Reset xterm + the scroll lock and re-arm the snapshot boundary so the NEXT
-    // stream's first frame (a fresh snapshot) replaces stale bytes without
-    // double-painting. Shared by the inner `onRetry` (a transparent STREAM_RETRY
-    // re-subscribe on a transport blip) and the outer re-attach (a mid-chain padi
-    // death STREAM_RETRY won't retry — done-criterion (c)).
+    // (scrollback), not live output — see `terminal.attach` in router.ts. The
+    // snapshot is still WRITTEN to xterm; live-dot activity no longer rides this
+    // attach sink (it mirrors padi's activity set off the wire — see
+    // `useTerminalActivity`), so the client no longer needs a snapshot-vs-delta
+    // boundary here: the backfill controller keys off the frame's own
+    // `kind === "snapshot"` discriminator below.
+    // Reset xterm + the scroll lock so the NEXT stream's first frame (a fresh
+    // snapshot) replaces stale bytes without double-painting. Shared by the inner
+    // `onRetry` (a transparent STREAM_RETRY re-subscribe on a transport blip) and
+    // the outer re-attach (a mid-chain padi death STREAM_RETRY won't retry —
+    // done-criterion (c)).
     const resetForFreshSnapshot = () => {
       handle()?.terminal?.reset();
       h.scrollLock.reset();
-      snapshotBoundary.armSnapshot();
       // Forget the backfill cursor: the next frame is a fresh snapshot that
       // re-seeds it (below). Fetching against the old cursor would splice onto
       // the terminal we just reset.

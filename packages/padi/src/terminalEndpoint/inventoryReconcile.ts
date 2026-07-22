@@ -34,6 +34,7 @@ import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
+import { abortableDelay } from "../abortableDelay.ts";
 import {
   adoptLocalInventoryOrphan,
   bridgeStream,
@@ -82,7 +83,7 @@ async function runReconciler(signal: AbortSignal): Promise<void> {
       log.debug({ err }, "kaval inventory subscribe failed; will re-subscribe");
     }
     if (signal.aborted) return;
-    await delay(RESUBSCRIBE_DELAY_MS, signal);
+    await abortableDelay(RESUBSCRIBE_DELAY_MS, signal);
   }
 }
 
@@ -225,18 +226,3 @@ const isTrackedById = (id: TerminalId): boolean =>
  *  same kolu's-domain-cannot-hold-this answer the boot reconcile gives. */
 const onInvalidId = (rawId: string): void => reapUnrepresentablePty(rawId);
 
-/** Resolve after `ms`, or early if `signal` aborts — so a shutdown during the
- *  re-subscribe gap ends the loop promptly instead of after the full delay. */
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}

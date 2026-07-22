@@ -61,9 +61,11 @@ export const useTerminalActivity = createSharedRoot(() => {
     () => hostKeys().map(encodeHostKey),
     (encHost) => {
       const entry = padiMap.entry(decodeHostKey(encHost));
-      // Bare `.use()` — the padi `activity` stream declares its own error policy
-      // on the spec, so the use-site carries none. Each frame is the full current
-      // live set for THIS host.
+      // Bare `.use()` — a bound stream's `.use()` already applies the framework's
+      // standard reconnect/health behavior (STREAM_RETRY) by default, and a
+      // `StreamSpec` carries no client error policy to configure (only cells and
+      // collections take one), so the use-site needs no error options. Each frame
+      // is the full current live set for THIS host.
       const sub = entry.streams.activity.use(() => ({}));
       // This host's previous live set as a PLAIN array (never the store proxy
       // `sub()` returns — writeWrappedValue reconciles into that proxy in place,
