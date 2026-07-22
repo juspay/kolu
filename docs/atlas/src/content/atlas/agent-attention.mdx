@@ -1,6 +1,6 @@
 ---
 title: Agent Attention — One Model, One Place
-description: When an agent finishes or asks a question, kolu can play a sound, show a popup, badge the app icon, and mark the dock and host tab. Today those rules live in three modules split by which host you're looking at, so the same terminal behaves differently depending on focus. This note picks one word for it — attention — writes down the rules kolu should follow, and puts them in one place.
+description: When an agent finishes or asks a question, kolu plays a sound, shows a popup, badges the app icon, and marks the dock and host tab. This note picks one word for it — attention — writes down the rules, and records that they now live in one place, plus the follow-ups the review left open.
 parents: [analysis]
 status: implemented
 maturity: budding
@@ -14,44 +14,16 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import diagram from "../../diagrams/agent-attention.svg?raw";
 
-When an agent finishes a turn, or stops to ask you a question, kolu can react in
-several ways: play a sound, show an OS popup, badge the app icon, put a mark on the
-host tab, and color the dot in the dock. All of that is one thing: getting your
-**attention**.
+When an agent finishes a turn, or stops to ask you a question, kolu reacts: a sound,
+an OS popup, an app-icon badge, a host-tab mark, a dock dot. That is all **one
+thing** — getting your **attention** — and it now lives in one model, in one place.
 
-The reactions themselves are fine. The problem is **where the rules live**. They're
-spread across three modules, split by one thing that shouldn't matter: **whether
-you're currently looking at that host.**
+<Svg svg={diagram} wide caption="It used to be three modules, split by whether you were looking at the host. Now one module applies the same rules everywhere, on top of the existing delivery code." />
 
-- The host you're on uses one module.<Footnote>`useTerminalAlerts` — plays sound, shows a popup, marks unread, and treats a *finished* agent as noteworthy. But only for the active host (`activeId()` / `document.hasFocus()`). <Cite file="packages/client/src/terminal/useTerminalAlerts.ts" line={160} /></Footnote>
-- Every other host uses a different module, with different rules.<Footnote>`useHostAttention` — popup + app-icon badge, but only for an agent *asking* you (`awaiting_user`); it ignores plain finishes. <Cite file="packages/client/src/host/useHostAttention.ts" line={54} /></Footnote>
-- "Have I seen this yet?" is tracked for the current host only.<Footnote>The unread mark lives in per-host view state and is only written for the active host. <Cite file="packages/client/src/hostScope/createViewState.ts" line={44} /></Footnote>
+## The rules — one set, every host
 
-So a finished agent on a **background** host tells you nothing, while the same agent
-on the host you're looking at plays a sound. That split is why the whole thing is
-hard to reason about.
-
-<Svg svg={diagram} wide caption="Today three modules hold the rules, split by whether you're looking at the host. The fix is one module that applies the same rules everywhere, sitting on top of the existing delivery code." />
-
-## One word: attention
-
-The code calls this three different things — *alerts*, *attention*, *notifications*
-— which is half the confusion. Pick one: **attention** (the system that decides when
-a terminal needs you, and how to show it). The renames that follow:
-
-- `useTerminalAlerts` + `useHostAttention` → fold into one `useAttention`.
-- the `activityAlerts` setting → `attention` (a stored key, so it needs a small
-  rename-with-migration).
-- `fireActivityAlert` → an internal step inside `useAttention`.
-
-Keep the word **notification** for one thing only: the OS/browser popup — that's the
-platform's own word (the `Notification` API). It's a *channel* attention uses, not
-the concept.
-
-## What you should experience
-
-There should be **one set of rules, the same on every host.** Whether you're looking
-at a host only changes one thing: whether the terminal counts as already **seen**.
+One set of rules, identical on every host. The only thing "which host you're looking
+at" changes is whether a terminal counts as already **seen**.
 
 | Agent state | Sound + popup (once) | On-screen marks | Goes away when |
 | --- | --- | --- | --- |
@@ -59,56 +31,67 @@ at a host only changes one thing: whether the terminal counts as already **seen*
 | **Just finished** (no input needed) | if not already seen | quiet dim-amber host-tab dot + dock unread | you look at it |
 | Working / idle | — | (optional "live" ring) | — |
 
-The two host-tab marks share **one** colour language — the amber "needs you" of the
-count pill and the unread badge — in two tiers: the full-amber count for *asking*
-(actionable, blocking) and a dim-amber dot for an *unseen finish* (a lesser nudge),
-never a separate grey vocabulary.<Footnote>The dot reads the cross-host **unseen-finished** mark `useAttention` publishes, not the raw `finishedIds` — a finished agent idles in `waiting` ~forever, so "has any finished agent" would light every host permanently. The unseen rule is the pure, unit-tested `nextUnseenFinished`.</Footnote>
+The two host-tab marks speak **one** amber "needs you" language in two tiers: the
+full-amber count for *asking* (blocking, actionable) and a dim-amber dot for an
+*unseen finish* (a lesser nudge) — never a separate grey vocabulary.<Footnote>The dot reads the cross-host **unseen-finished** mark `useAttention` publishes, not the raw `finishedIds` — a finished agent idles in `waiting` ~forever, so "has any finished agent" would light every host permanently. The unseen rule is the pure, unit-tested `nextUnseenFinished`.</Footnote>
+"Which host" enters in exactly one place — **seen**: a terminal you're staring at is
+seen; one on a background host isn't. Everything else is host-agnostic.
 
-The only place "which host" enters is **seen**: a terminal you're staring at is seen
-by definition; one on a background host isn't. Everything else is identical across
-hosts.
+## One word: attention
 
-## Why it's tangled today
+The code used to call this three things — *alerts*, *attention*, *notifications*.
+Now it's one word, **attention**: the system that decides when a terminal needs you
+and how to show it. **Notification** is kept for one thing only — the OS/browser
+popup (the platform's own `Notification` API), a *channel* attention uses, not the
+concept.
 
-Two parts of this are already clean and should stay:
+## How it's built
 
-- **Deciding the state** — one shared file already maps every agent state to a
-  coarse class. <Cite file="packages/terminal-vocab/src/agentProjection.ts" line={72} />
-- **Delivering a popup** — one file owns the actual sound / OS-notification
-  plumbing. <Cite file="packages/client/src/attentionNotify.ts" /> Nothing wrong here.
+One `useAttention` module owns the rules. Underneath it: a pure `attentionTransitions`
+decides "needs you now" vs "just finished" (unit-tested, off the wire); delivery — the
+sound and OS popup — rides the existing `attentionNotify` seam <Cite file="packages/client/src/attentionNotify.ts" />; and agent-state → class stays in the shared `agentProjection` fold <Cite file="packages/terminal-vocab/src/agentProjection.ts" line={72} />. Every host reads its own `urgency` cell (now carrying `finishedIds` too), so a background host's finished agent pings and shows a quiet mark exactly like the active host's — the behavior that used to be missing.
 
-The tangle is the **middle** — the *rules* (fire once, only if unseen, roll up per
-host, badge the app). That middle is what got split three ways by the active-host
-line. Nobody planned that split; it grew.
+Before, the rules were split across three modules by whether you were looking at the
+host — `useTerminalAlerts` (active host), `useHostAttention` (the others), and an
+active-only "seen" ledger — so the same agent behaved differently depending on focus.
+Those are gone. Shipped in <PrLink pr={1931} />; the `activityAlerts` setting was
+renamed `attentionAlerts` (with a migration).
 
-## The fix — one owner
+## Follow-ups
 
-Pull the three rule-fragments into a **single `useAttention` module** that:
+What the review gauntlet surfaced but the first cut left out.
 
-1. reads every host's agent states (the shared fact the host tabs already use),
-2. keeps one "seen" record across **all** hosts (not just the active one),
-3. emits what each screen cue needs — the per-host marks, the dock dots, the app
-   badge, and a "new, unseen" signal for the sound/popup.
+**Correctness**
 
-Then `useTerminalAlerts` and `useHostAttention` disappear into it. The active-vs-other
-split is gone, because "seen" becomes a simple per-terminal check instead of two
-separate code paths.
+- **Split-aware "seen".** The seen check compares the active *tile* id, so a finished
+  pane you can plainly see inside a split can still chime. The right test is "a
+  visible pane of the active tile," not tile-or-focus alone. <Cite file="packages/client/src/attention/useAttention.ts" line={109} />
+- **Test the real path.** e2e drives a simulate hook that *bypasses* the detect→fire
+  engine — the exact gap that let a `reconcile`-mutation bug ship. The engine has unit
+  tests now; an e2e over the real *agent-state → deliver* path would close the class.
 
-<Callout kind="note" title="It's a plain client module, not a new package">
-This is kolu's own logic (its agents, hosts, and what "seen" means), so it belongs in
-one client module — not a shared library. The one genuinely reusable, tricky part —
-the popup/sound delivery — is *already* its own file (`attentionNotify`). So this is
-tidying, not new infrastructure.
+**Robustness**
+
+- **Route notification clicks through the deep-link resolver** — so a click lands the
+  right split, survives a cold boot, and reports a departed terminal, instead of a raw
+  tile focus.
+- **Dedup the sound across windows** — every open window plays the chime; the popup
+  already dedups by tag, the sound doesn't (an origin-wide audio owner would).
+- **Carry membership in the `urgency` cell** — *only if it bites*: a terminal first
+  *seen* already-finished (a wake, another tab) can't be told from a real finish,
+  because working terminals are invisible to the cell.
+
+**Structure**
+
+- Fold the app-badge painter's ordering/dedup/retry into `@kolu/surface-app`'s
+  `setAttention` seam and route through it, dropping the app-local copy.
+- Export surface-map's `WatchedValue` liveness so `useAttention` stops duplicating it.
+- Move the e2e-only `AttentionDeps` fields off the production seam.
+
+<Callout kind="note" title="CI hygiene — the recurring darwin flake">
+The darwin `code-tab` fs-watch scenarios flake because odu leaks temp checkouts *and*
+orphaned e2e processes on the macOS CI boxes, and the leaks peg fseventsd. A post-run
+temp-dir + orphaned-process reap (plus hardening the file-watch `waitFor`s — a retry
+doesn't touch the wedged fseventsd layer) would stop it recurring every darwin run.
+Not attention code, but it's what turns a green PR red.
 </Callout>
-
-## Built
-
-Shipped in <PrLink pr={1931} />. The three rule-fragments now live in one
-`packages/client/src/attention/useAttention.ts`, wired once in `App.tsx`;
-`useTerminalAlerts`, `useHostAttention`, and the old activity-alert delivery module
-are gone. Every host runs the same rules off its `urgency` cell (now carrying
-`finishedIds` too), so — falling out for free — a background host's finished agent
-now pings and shows a quiet host-tab mark, exactly like the active host's. The
-`activityAlerts` setting was renamed `attentionAlerts` (with a migration), and the
-"needs you now / just finished" decision is the pure, unit-tested
-`attentionTransitions`.
