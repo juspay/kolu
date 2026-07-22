@@ -1,6 +1,7 @@
 /** AI agent state indicator — state label + compact context-token count + a
- *  live running-for duration. Words and state color only: the brand mark lives
- *  once on the surface in the leading StatePip (T1). */
+ *  live running-for duration. Words and state color only: the brand mark and
+ *  activity motion live once on the surface in the leading StatePip (T1). No
+ *  per-state CSS animation here (spinning "Tool use" text was a defect). */
 
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -12,21 +13,15 @@ import { useDuration } from "./staleness";
  *  waiting agent reads one color everywhere (not yellow here, orange there). */
 const BUSY_COLOR = "text-busy";
 
-/** State → display config. Keyed on state, not kind — all agents currently
- *  share the same visual treatment per state. When agents diverge in states,
- *  this becomes a per-kind dispatch (the `agentIcons`/`agentNames` tables
- *  already handle the per-kind axis). */
-const stateConfig: Record<
-  AgentInfo["state"],
-  { color: string; animation: string }
-> = {
-  thinking: { color: BUSY_COLOR, animation: "animate-pulse" },
-  tool_use: { color: BUSY_COLOR, animation: "animate-spin" },
-  waiting: { color: "text-alert", animation: "animate-pulse" },
-  awaiting_user: { color: "text-alert", animation: "animate-pulse" },
-  // Busy, not awaiting: the agent is working in a background task, so use
-  // the busy treatment rather than the alert color reserved for needs-user.
-  running_background: { color: BUSY_COLOR, animation: "animate-spin" },
+/** State → text colour. Keyed on state, not kind — all agents currently share
+ *  the same paint per state. Motion is the StatePip's job, not this cluster. */
+const stateColor: Record<AgentInfo["state"], string> = {
+  thinking: BUSY_COLOR,
+  tool_use: BUSY_COLOR,
+  waiting: "text-alert",
+  awaiting_user: "text-alert",
+  // Busy, not awaiting: background work uses busy, not the needs-user alert.
+  running_background: BUSY_COLOR,
 };
 
 /** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
@@ -47,7 +42,7 @@ function contextTokensTooltip(tokens: number, model: string | null): string {
 }
 
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
-  const cfg = () => stateConfig[props.agent.state];
+  const color = () => stateColor[props.agent.state];
   const name = () => agentNames[props.agent.kind];
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
@@ -59,14 +54,14 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const runningFor = useDuration();
   return (
     <span
-      class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
+      class={`inline-flex items-center gap-1 text-xs ${color()}`}
       data-testid="agent-indicator"
       data-agent-kind={props.agent.kind}
       data-agent-state={props.agent.state}
       title={`${name()}: ${label()}`}
     >
-      {/* Words only — brand icon is the StatePip on the title (T1 once-per-surface). */}
-      <span class={`hidden sm:inline ${cfg().animation}`}>{label()}</span>
+      {/* Static label — no spin/pulse; activity motion is the StatePip. */}
+      <span class="hidden sm:inline">{label()}</span>
       {/* Wrap the value in an object so `<Show>`'s truthy check fires
        *  even when `contextTokens` is `0` — a legitimate value for a
        *  synthetic assistant entry with a zeroed usage block. Show's
