@@ -14,8 +14,8 @@
  *     badge top-right. Tiny tinted dividers between repo groups
  *     carry the cards-mode section-header colour into the rail so
  *     the two modes share one repo-identity vocabulary — every
- *     repo-tinted dock surface (cards spine, sticky header, name,
- *     rail chip bg+ring, rail divider) reads the same `--repo-color`
+ *     repo-tinted dock surface (cards spine, sticky header band + name
+ *     colour, rail chip bg+ring, rail divider) reads the same `--repo-color`
  *     custom property, so the shared socket is a structural fact, not
  *     a comment. (Canvas tiles' `--card-color` / `--aura-c` are a
  *     separate module; converging them onto `--repo-color` is future
@@ -96,6 +96,7 @@ import {
   DOCK_CARDS_GUTTER_NEG_CLASS,
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
   DOCK_ROW_GRID,
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
@@ -517,31 +518,28 @@ const RepoSection: Component<{
     data-testid="dock-section"
     data-repo={props.group.name}
     style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-2 pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
+    class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
-    {/* Header is a sticky band tinted with the repo colour (see
-     *  `.dock-cards-section-header`), riding above the repo-colour
-     *  spine the section's left border draws — so a `KOLU` /
-     *  `NIXOS-CONFIG` label reads as a coloured section break that
-     *  stays pinned while its rows scroll, not a faint label that
-     *  blends in and slides away. The name carries the repo colour
-     *  too; count stays neutral. Header text and row content both sit
-     *  at `pl-3` (12 px) from the dock's outer edge, so the row's
-     *  leading status indicator aligns with the repo name — the repo
-     *  spine + tinted header band carry the grouping (R-activity-merge
-     *  reclaimed the old `pl-6` row indent). */}
+    {/* Header is a sticky, faintly repo-tinted band (see
+     *  `.dock-cards-section-header` — Option C mockup: 6% repo mix),
+     *  riding above the repo-colour spine the section's left border
+     *  draws. The name is a plain uppercase label in the repo colour
+     *  (not a filled chip); count stays neutral. Header text and row
+     *  content both sit at `pl-3` (12 px) from the dock's outer edge,
+     *  so the row's leading status indicator aligns with the repo name
+     *  — the repo spine + tinted header band carry the grouping. */}
     <div
       data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-b border-edge/30`}
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-[0.45rem] border-b`}
     >
       <span
         data-testid="dock-section-name"
-        class="dock-cards-section-name font-mono text-[0.6rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
+        class="dock-cards-section-name font-mono text-[0.62rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
         title={props.group.name}
       >
         {props.group.name}
       </span>
-      <span class="ml-auto font-mono text-[0.6rem] tabular-nums text-fg-3 shrink-0">
+      <span class="ml-auto font-mono text-[0.62rem] tabular-nums text-fg-3 shrink-0">
         {props.group.rows.length}
       </span>
     </div>

@@ -28,6 +28,7 @@ import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
   DOCK_ROW_GRID,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
@@ -94,19 +95,19 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-3 pl-3 pr-3`}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2 border-b border-edge/30"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-[0.45rem] border-b"
       >
         <span
           data-testid="mobile-dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
+          class="dock-cards-section-name font-mono text-[0.62rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
         >
           {props.group.name}
         </span>
-        <span class="ml-auto font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
+        <span class="ml-auto font-mono text-[0.62rem] tabular-nums text-fg-3 shrink-0">
           {props.group.rows.length}
         </span>
       </div>
