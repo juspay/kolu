@@ -59,8 +59,8 @@ import {
   setPadiServeSocketPath,
 } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint, setSpawnServerVersion } from "./ptyHost/index.ts";
-import { publisher } from "./publisher.ts";
 import { createPadiFinishGate } from "./padiFinishGate.ts";
+import { publisher } from "./publisher.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { saveSession, setSavedSessionFromSnapshot } from "./session.ts";
 import {

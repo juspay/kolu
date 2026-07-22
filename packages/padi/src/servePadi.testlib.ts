@@ -21,8 +21,6 @@ export const stubLog = {
   child: () => stubLog,
 } as unknown as Logger;
 
-/** A fake endpoint — the members under test read neither `fs` nor `git`, so
- *  the wrapper (`fsGitSurfaceDeps`) only needs the shape to construct. */
 /** An inert finish gate — the members under test don't exercise the effective-finish
  *  debounce, so it reports nothing settled and disposes to a no-op. (The gate's own
  *  behavior is covered by `finishGate.test.ts`.) */
@@ -31,6 +29,8 @@ export const stubFinishGate: FinishGate = {
   dispose: () => {},
 };
 
+/** A fake endpoint — the members under test read neither `fs` nor `git`, so
+ *  the wrapper (`fsGitSurfaceDeps`) only needs the shape to construct. */
 export const fakeEndpoint = {
   fs: {
     listAll: async () => [],

@@ -36,7 +36,6 @@
 
 import { source } from "@kolu/surface/reactor";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { Logger } from "pino";
 import {
   type ActivityTracker,
   createActivityTracker,
@@ -71,13 +70,23 @@ function sameIdSet(
  *  routing key); the gate never inspects it, only threads it from `listWaiting` to
  *  `openTap`. */
 export interface FinishGateDeps<L> {
-  log: Logger;
   /** Every terminal currently `waiting` (active + agent bucket `waiting`), mapped to
    *  its tap location. Re-read each reconcile. */
   listWaiting: () => Map<TerminalId, L>;
   /** Open a byte tap for `id`: invoke `onOutput` on each output chunk (the FACT of
-   *  bytes, never the bytes); return a disposer that closes the tap. */
-  openTap: (id: TerminalId, location: L, onOutput: () => void) => () => void;
+   *  bytes, never the bytes), and `onClosed` if the tap ENDS ON ITS OWN (a graceful
+   *  stream end or a transient kaval drop — NOT the returned disposer, which the
+   *  core calls when the terminal leaves `waiting`). Return a disposer that closes
+   *  the tap. `onClosed` is the recovery seam: a tap that dies while its terminal is
+   *  still `waiting` must not be believed alive, or the core would see no more output
+   *  and falsely settle the terminal — so the core drops it and the next reconcile
+   *  re-taps with a fresh quiet window. */
+  openTap: (
+    id: TerminalId,
+    location: L,
+    onOutput: () => void,
+    onClosed: () => void,
+  ) => () => void;
   /** Override the quiet window (tests). Defaults to {@link EFFECTIVE_FINISH_QUIET_MS}. */
   quietMs?: number;
   /** Override the reconcile cadence (tests). Defaults to
@@ -126,6 +135,26 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       emit(next);
     };
 
+    // A tap that ENDED ON ITS OWN (a graceful stream end / transient kaval drop,
+    // not our disposer) while the terminal is still `waiting`: drop it so the next
+    // reconcile RE-TAPS with a fresh quiet window. Without this the core keeps
+    // believing it's watching, sees no more output, and the tracker timer falsely
+    // settles the terminal — a premature finish, the exact harm this gate prevents.
+    // Forgetting holds it OUT of the settled set during the observation gap
+    // (default-excluded), so recovery only ever DELAYS a finish, never fires one.
+    const onTapClosed = (id: TerminalId): void => {
+      if (!tracked.has(id)) return; // already stopped by us (terminal left `waiting`)
+      // If it ALREADY settled (observed quiet a full window on a live tap), it is
+      // genuinely finished — the debounce is done and a tap drop now doesn't
+      // un-finish it; leave it settled (no flicker). Recover ONLY a still-live
+      // terminal, where we would otherwise conclude quiet from a dead tap.
+      if (!tracker.isLive(id)) return;
+      tracked.delete(id);
+      taps.delete(id);
+      tracker.forget(id);
+      publish();
+    };
+
     const startTracking = (id: TerminalId, location: L): void => {
       if (tracked.has(id)) return;
       tracked.add(id);
@@ -133,10 +162,15 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       // live for one `quietMs`, so it can't settle before we've watched it stay
       // silent (and can't fire early if a background burst is about to land).
       tracker.noteOutput(id);
-      const close = deps.openTap(id, location, () => {
-        tracker.noteOutput(id);
-        publish();
-      });
+      const close = deps.openTap(
+        id,
+        location,
+        () => {
+          tracker.noteOutput(id);
+          publish();
+        },
+        () => onTapClosed(id),
+      );
       taps.set(id, close);
     };
 

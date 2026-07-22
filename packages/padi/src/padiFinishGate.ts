@@ -31,7 +31,6 @@ type TerminalLocation = Parameters<typeof resolveTerminalEndpoint>[0];
 export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
   const { log } = deps;
   return createFinishGate<TerminalLocation>({
-    log,
     listWaiting: () => {
       const waiting = new Map<TerminalId, TerminalLocation>();
       for (const [id, entry] of registryMap((e) => ({
@@ -49,7 +48,7 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
       }
       return waiting;
     },
-    openTap: (id, location, onOutput) => {
+    openTap: (id, location, onOutput, onClosed) => {
       const abort = new AbortController();
       void (async () => {
         try {
@@ -65,6 +64,12 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
           if (!abort.signal.aborted) {
             log.debug({ err, terminal: id }, "finish-gate byte-tap ended");
           }
+        } finally {
+          // The stream ended (graceful end or a transient kaval drop) without us
+          // aborting — signal the core to re-tap (a terminal still `waiting` mustn't
+          // be believed watched, or it falsely settles). An abort is OUR disposer
+          // (the terminal left `waiting`), so it needs no recovery.
+          if (!abort.signal.aborted) onClosed();
         }
       })();
       return () => abort.abort();

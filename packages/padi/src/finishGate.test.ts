@@ -8,7 +8,6 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFinishGate, type FinishGate } from "./finishGate.ts";
 
@@ -17,16 +16,10 @@ const RECONCILE = 50;
 const A = "fin-a" as TerminalId;
 const B = "fin-b" as TerminalId;
 
-const noopLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-} as unknown as Logger;
-
 describe("createFinishGate", () => {
   let waiting: Map<TerminalId, string>;
   let outputHandlers: Map<TerminalId, () => void>;
+  let closedHandlers: Map<TerminalId, () => void>;
   let closes: Map<TerminalId, () => void>;
   let gate: FinishGate;
 
@@ -34,14 +27,15 @@ describe("createFinishGate", () => {
     vi.useFakeTimers();
     waiting = new Map();
     outputHandlers = new Map();
+    closedHandlers = new Map();
     closes = new Map();
     gate = createFinishGate<string>({
-      log: noopLog,
       quietMs: QUIET,
       reconcileMs: RECONCILE,
       listWaiting: () => new Map(waiting),
-      openTap: (id, _location, onOutput) => {
+      openTap: (id, _location, onOutput, onClosed) => {
         outputHandlers.set(id, onOutput);
+        closedHandlers.set(id, onClosed);
         const close = vi.fn();
         closes.set(id, close);
         return close;
@@ -108,6 +102,38 @@ describe("createFinishGate", () => {
 
     vi.advanceTimersByTime(QUIET); // B settles too
     expect([...gate.settledFinished()].sort()).toEqual([A, B]);
+  });
+
+  it("does not settle a still-working terminal off a dead tap — re-taps with a fresh window", () => {
+    // The failure the tap must NOT have: a transient kaval drop ends the byte tap
+    // while the terminal is still `waiting` AND still live. If the gate believed it
+    // was still watching, it would see no more output and settle the terminal after
+    // the quiet window — a premature finish while background sub-agents keep working.
+    waiting.set(A, "loc-a");
+    reconcileTick(); // A tracked, seeded live (not yet settled)
+    // The tap dies on its own (stream end / kaval drop) while A is still live.
+    closedHandlers.get(A)?.();
+    // A is dropped, not settled — a dead tap can't conclude quiet (default-excluded).
+    expect(gate.settledFinished().has(A)).toBe(false);
+
+    // The reconcile re-taps with a FRESH quiet window; A settles only after a full
+    // window of real quiet on the NEW tap, never off the stale one.
+    reconcileTick(); // re-tap (fresh seed)
+    vi.advanceTimersByTime(QUIET - 1);
+    expect(gate.settledFinished().has(A)).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
+  it("keeps an already-settled terminal finished when its tap drops (the debounce is done)", () => {
+    waiting.set(A, "loc-a");
+    reconcileTick();
+    vi.advanceTimersByTime(QUIET); // A settles — genuinely quiet for a full window
+    expect(gate.settledFinished().has(A)).toBe(true);
+
+    // A tap drop on an already-finished terminal must not un-finish it (no flicker).
+    closedHandlers.get(A)?.();
+    expect(gate.settledFinished().has(A)).toBe(true);
   });
 
   it("closes every tap on dispose", () => {
