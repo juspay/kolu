@@ -182,12 +182,17 @@ boolean with one internal timer.</p>
 <p>Strict dependency: <strong>EF0 → EF1 → EF2 → EF3 → EF4 → EF5</strong>. Each box is one PR,
 green alone, revertible alone.</p>
 <h3 id="ef0--close--capture">EF0 — close / capture</h3>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>ELI15</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Stop the messy all-in-one PR. Write down the plan. Don’t ship broken chimes or
+stuck “live” dots. App behaviour stays as it is for now.</p></div></aside>
 <ul>
 <li>Close <a href="https://github.com/juspay/kolu/pull/1938" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1938</a> (done); do not resurrect the branch wholesale.</li>
 <li>This note is the plan of record.</li>
 <li>Master stays on raw-<code>waiting</code> finished until <strong>EF2</strong> — annoying but honest.</li>
 </ul>
 <h3 id="ef1--kaval-activity-edge-fact-only">EF1 — kaval activity edge (fact only)</h3>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>ELI15</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Teach the terminal owner (kaval) to shout “this shell just produced real output”
+— and to stay quiet when the only noise is a window resize redraw. Nobody in the
+app listens yet; you’re wiring the doorbell, not the intercom.</p></div></aside>
 <table>
 <thead>
 <tr>
@@ -221,6 +226,10 @@ green alone, revertible alone.</p>
 <p><strong>Done when:</strong> write → edge; inside resize mute → no edge; throttle holds. <strong>Zero
 user-facing change</strong> if nothing product-facing subscribes yet.</p>
 <h3 id="ef2--pure-finish-fold-first-user-facing-fix">EF2 — pure finish fold (first user-facing fix)</h3>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>ELI15</p><div class="callout-body" data-astro-cid-q2ml7llr><p>When the agent says “I’m done,” wait until the terminal has been actually quiet
+for a few seconds before the “finished” ping. If background work is still
+typing, keep waiting. You finally <em>use</em> the doorbell from EF1 here — first thing
+users notice.</p></div></aside>
 <table>
 <thead>
 <tr>
@@ -257,6 +266,9 @@ suffices.</p>
 <p><strong>Done when:</strong> background-subagent case does not chime early; visit-finished
 regression is fenced (injection/unit minimum; e2e may wait for EF5).</p>
 <h3 id="ef3--padi-activity-stream-on-the-edge">EF3 — padi <code>activity</code> stream on the edge</h3>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>ELI15</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Stop opening a secret second wiretap on every terminal just to power the
+server-side “who’s live right now?” list. Reuse kaval’s doorbell. The browser’s
+little green dots still use the old path for one more step.</p></div></aside>
 <table>
 <thead>
 <tr>
@@ -283,6 +295,10 @@ regression is fenced (injection/unit minimum; e2e may wait for EF5).</p>
 output; resize does not flash (inherits kaval mute). Client still on attach
 <code>noteOutput</code> — short, documented transitional dual source.</p>
 <h3 id="ef4--client-live-dot-mirror-second-user-facing-fix">EF4 — client live-dot mirror (second user-facing fix)</h3>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>ELI15</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The dock’s “this terminal is typing” dots stop counting keystrokes in the
+browser. They just watch the server’s live list. Fix the bug where a terminal
+that was live once stayed lit forever (forgot to turn the light off). Second
+thing users notice.</p></div></aside>
 <table>
 <thead>
 <tr>
@@ -313,6 +329,8 @@ output; resize does not flash (inherits kaval mute). Client still on attach
 tile does not leave every id permanently lit. Background terminals <em>may</em> light
 (host-global fact) — document if intentional.</p>
 <h3 id="ef5--harden--rename--e2e">EF5 — harden / rename / e2e</h3>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>ELI15</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Tidy-up: one subscription instead of two, clearer names, a real end-to-end check
+that you get one finish ping not two, and docs that match what the app does.</p></div></aside>
 <ul>
 <li>One shared padi fan-out of kaval <code>activity</code> (finish + liveActivity), not two
 re-subscribe loops.</li>

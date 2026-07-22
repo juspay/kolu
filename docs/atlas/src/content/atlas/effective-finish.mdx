@@ -88,11 +88,22 @@ green alone, revertible alone.
 
 ### EF0 — close / capture
 
+<Callout kind="note" title="ELI15">
+Stop the messy all-in-one PR. Write down the plan. Don’t ship broken chimes or
+stuck “live” dots. App behaviour stays as it is for now.
+</Callout>
+
 - Close <PrLink pr={1938} /> (done); do not resurrect the branch wholesale.
 - This note is the plan of record.
 - Master stays on raw-`waiting` finished until **EF2** — annoying but honest.
 
 ### EF1 — kaval activity edge (fact only)
+
+<Callout kind="note" title="ELI15">
+Teach the terminal owner (kaval) to shout “this shell just produced real output”
+— and to stay quiet when the only noise is a window resize redraw. Nobody in the
+app listens yet; you’re wiring the doorbell, not the intercom.
+</Callout>
 
 | Ship | Do not |
 | --- | --- |
@@ -106,6 +117,13 @@ green alone, revertible alone.
 user-facing change** if nothing product-facing subscribes yet.
 
 ### EF2 — pure finish fold (first user-facing fix)
+
+<Callout kind="note" title="ELI15">
+When the agent says “I’m done,” wait until the terminal has been actually quiet
+for a few seconds before the “finished” ping. If background work is still
+typing, keep waiting. You finally *use* the doorbell from EF1 here — first thing
+users notice.
+</Callout>
 
 | Ship | Do not |
 | --- | --- |
@@ -124,6 +142,12 @@ regression is fenced (injection/unit minimum; e2e may wait for EF5).
 
 ### EF3 — padi `activity` stream on the edge
 
+<Callout kind="note" title="ELI15">
+Stop opening a secret second wiretap on every terminal just to power the
+server-side “who’s live right now?” list. Reuse kaval’s doorbell. The browser’s
+little green dots still use the old path for one more step.
+</Callout>
+
 | Ship | Do not |
 | --- | --- |
 | `liveActivity` folds the kaval edge through the short tracker | Change the client yet |
@@ -135,6 +159,13 @@ output; resize does not flash (inherits kaval mute). Client still on attach
 `noteOutput` — short, documented transitional dual source.
 
 ### EF4 — client live-dot mirror (second user-facing fix)
+
+<Callout kind="note" title="ELI15">
+The dock’s “this terminal is typing” dots stop counting keystrokes in the
+browser. They just watch the server’s live list. Fix the bug where a terminal
+that was live once stayed lit forever (forgot to turn the light off). Second
+thing users notice.
+</Callout>
 
 | Ship | Do not |
 | --- | --- |
@@ -148,6 +179,11 @@ tile does not leave every id permanently lit. Background terminals *may* light
 (host-global fact) — document if intentional.
 
 ### EF5 — harden / rename / e2e
+
+<Callout kind="note" title="ELI15">
+Tidy-up: one subscription instead of two, clearer names, a real end-to-end check
+that you get one finish ping not two, and docs that match what the app does.
+</Callout>
 
 - One shared padi fan-out of kaval `activity` (finish + liveActivity), not two
   re-subscribe loops.
