@@ -57,14 +57,26 @@ export function recomputeUrgency(
     if (!agent) continue;
     // The two attention buckets, read through the ONE shared fence: `awaiting`
     // (blocked on you now) and `waiting` (just finished its turn). Both are
-    // carried so `useAttention` applies identical rules on every host.
+    // carried so `useAttention` applies identical rules on every host. Switched
+    // EXHAUSTIVELY (like `agentBucket`'s own `satisfies never` fence) so a new
+    // bucket forces a decision here rather than silently routing to neither.
     const bucket = agentBucket(agent.state);
-    if (bucket === "awaiting") awaitingIds.push(id);
-    // `waiting` is only an EFFECTIVE finish once the gate confirms PTY quiet —
-    // a terminal still moving bytes (background sub-agents) is deliberately held
-    // out of `finishedIds` until it settles.
-    else if (bucket === "waiting" && settledFinished.has(id))
-      finishedIds.push(id);
+    switch (bucket) {
+      case "awaiting":
+        awaitingIds.push(id);
+        break;
+      case "waiting":
+        // `waiting` is only an EFFECTIVE finish once the gate confirms PTY quiet —
+        // a terminal still moving bytes (background sub-agents) is deliberately held
+        // out of `finishedIds` until it settles.
+        if (settledFinished.has(id)) finishedIds.push(id);
+        break;
+      case "working":
+      case "other":
+        break;
+      default:
+        bucket satisfies never;
+    }
   }
   return { awaitingIds, finishedIds };
 }

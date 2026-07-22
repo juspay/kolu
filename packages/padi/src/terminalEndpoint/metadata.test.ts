@@ -15,14 +15,14 @@
  *     is a compile error.
  */
 
-import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import { terminalsDirtyChannel } from "../publisher.ts";
+import { subscribeAgentBucket, terminalsDirtyChannel } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -263,5 +263,44 @@ describe("commit seams guard the publish boundary (emit stays infallible)", () =
     const meta = getTerminal(ID)?.meta;
     expect(meta?.lastActivityAt).toBe(77);
     expect(meta?.lastAgentCommand).toBe("claude");
+  });
+});
+
+describe("commitSnapshot agent-bucket edge (the finish gate's episode signal)", () => {
+  const agentSnapshot = (state: AgentInfo["state"]): TerminalSnapshot => ({
+    ...snapshot(),
+    agent: {
+      kind: "claude-code",
+      state,
+      sessionId: "s1",
+      model: null,
+      summary: null,
+      taskProgress: null,
+      workflow: null,
+      contextTokens: null,
+      startedAt: null,
+    },
+  });
+
+  it("publishes an agent-bucket transition ONLY when the `waiting` bucket is crossed", () => {
+    const seen: Array<{ id: string; isWaiting: boolean }> = [];
+    const off = subscribeAgentBucket((id, isWaiting) =>
+      seen.push({ id, isWaiting }),
+    );
+    try {
+      // The registered entry starts with agent === null (not waiting).
+      commitSnapshot(ID, agentSnapshot("thinking")); // null→working: no crossing
+      commitSnapshot(ID, agentSnapshot("waiting")); // working→waiting: CROSS in
+      commitSnapshot(ID, agentSnapshot("waiting")); // waiting→waiting: same bucket
+      commitSnapshot(ID, agentSnapshot("tool_use")); // waiting→working: CROSS out
+      commitSnapshot(ID, agentSnapshot("awaiting_user")); // working→awaiting: no cross
+      // Exactly the two crossings fire — synchronously, before the composed publish.
+      expect(seen).toEqual([
+        { id: ID, isWaiting: true },
+        { id: ID, isWaiting: false },
+      ]);
+    } finally {
+      off();
+    }
   });
 });

@@ -112,6 +112,18 @@ What the review gauntlet surfaced but the first cut left out. Items marked
   `setAttention` seam and route through it, dropping the app-local copy.
 - Export surface-map's `WatchedValue` liveness so `useAttention` stops duplicating it.
 - Move the e2e-only `AttentionDeps` fields off the production seam.
+- **Model the finish gate's per-terminal lifecycle as a type, not six sets.** The gate
+  tracks each terminal across six parallel keyed collections — `tracked`, `taps`,
+  `tapGen`, `attached`, `settled`, `awaitingRearm` <Cite file="packages/padi/src/finishGate.ts" line={142} /> — whose
+  invariants (settled ⟹ attached; settled ∧ awaitingRearm never co-hold) are enforced by
+  call-order discipline, documented in prose. A single `Map<TerminalId, TapState>` with a
+  discriminated `TapState` would make the illegal combinations unspellable at the type
+  level. Deferred, not done: the state is a genuine *product* (attachment × episode ×
+  quiet) plus per-tap metadata (`tapGen`, the disposer) that coexists with every arm, so
+  it isn't a clean single discriminant — and the current form is quiet-window-timing
+  sensitive, thoroughly unit-tested (incl. the F1/F3/F5 edges), and freshly hardened
+  through the review, so the rewrite is a follow-up to weigh carefully rather than churn
+  to force now.
 
 <Callout kind="note" title="CI hygiene — the recurring darwin flake">
 The darwin `code-tab` fs-watch scenarios flake because odu leaks temp checkouts *and*

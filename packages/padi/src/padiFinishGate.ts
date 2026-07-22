@@ -15,11 +15,11 @@
  */
 
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { createFinishGate, type FinishGate } from "./finishGate.ts";
 import { subscribeAgentBucket } from "./publisher.ts";
-import { registryMap } from "./terminal-registry.ts";
+import { registryMap, type TerminalProcess } from "./terminal-registry.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 
 /** The live location a terminal record carries — the arg `resolveTerminalEndpoint`
@@ -27,28 +27,43 @@ import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
  *  PTY to tap), exactly as `liveActivity.ts` reads it. */
 type TerminalLocation = Parameters<typeof resolveTerminalEndpoint>[0];
 
+/** The registry projection the gate's membership reads — a terminal's authored
+ *  `meta` (union arm) and its live `agent`. Exported for the filter's unit test. */
+export type WaitingCandidate = {
+  meta: TerminalProcess["meta"];
+  agent: AgentInfo | null;
+};
+
+/** The finish gate's MEMBERSHIP set: the ACTIVE terminals whose agent is in the
+ *  `waiting` bucket, mapped to their tap location. Pure over a registry projection
+ *  (not the live registry), so the `active` + `waiting`-bucket filter — the exact
+ *  contract `finishGate` assumes it is fed — is unit-testable on its own. Only an
+ *  active terminal has a live PTY to tap; only a `waiting` agent is a finish
+ *  candidate (a sleeping/parked arm and an awaiting/working agent are both excluded,
+ *  through the ONE shared `agentBucket` fence). */
+export function selectWaitingTerminals(
+  entries: ReadonlyMap<TerminalId, WaitingCandidate>,
+): Map<TerminalId, TerminalLocation> {
+  const waiting = new Map<TerminalId, TerminalLocation>();
+  for (const [id, entry] of entries) {
+    if (entry.meta.state !== "active") continue;
+    if (!entry.agent) continue;
+    if (agentBucket(entry.agent.state) === "waiting") {
+      waiting.set(id, entry.meta.location);
+    }
+  }
+  return waiting;
+}
+
 /** Build the effective-finish gate wired to padi's registry + byte taps. Disposed
  *  by the caller (daemonMain) alongside the surface runtime's `close`. */
 export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
   const { log } = deps;
   return createFinishGate<TerminalLocation>({
-    listWaiting: () => {
-      const waiting = new Map<TerminalId, TerminalLocation>();
-      for (const [id, entry] of registryMap((e) => ({
-        meta: e.meta,
-        agent: e.snapshot.agent,
-      }))) {
-        // Only an ACTIVE terminal has a live PTY to tap; only a `waiting` agent is a
-        // finish candidate. A sleeping/parked entry (a different meta arm) and an
-        // awaiting/working agent are both excluded here.
-        if (entry.meta.state !== "active") continue;
-        if (!entry.agent) continue;
-        if (agentBucket(entry.agent.state) === "waiting") {
-          waiting.set(id, entry.meta.location);
-        }
-      }
-      return waiting;
-    },
+    listWaiting: () =>
+      selectWaitingTerminals(
+        registryMap((e) => ({ meta: e.meta, agent: e.snapshot.agent })),
+      ),
     // The RELIABLE agent-state edge — a synchronous fan-out `commitSnapshot`
     // publishes on every `waiting` bucket transition, so the gate never misses a
     // fast episode cycle the poll would.
@@ -81,7 +96,14 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
           for await (const _chunk of deltas) onOutput();
         } catch (err) {
           if (!abort.signal.aborted) {
-            log.debug({ err, terminal: id }, "finish-gate byte-tap ended");
+            // A real caught fault on a live tap (attach threw, or the delta stream
+            // errored) — degraded but recoverable: the `finally`/reconcile re-taps.
+            // `warn`, not `debug` — a graceful end never throws (it exits the loop),
+            // so reaching here is an actual failure worth surfacing.
+            log.warn(
+              { err, terminal: id },
+              "finish-gate byte-tap failed; will re-tap",
+            );
           }
         } finally {
           // The stream ended (graceful end or a transient kaval drop) without us

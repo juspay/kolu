@@ -168,6 +168,18 @@ finish, because working terminals are invisible to the cell.</li>
 <code>setAttention</code> seam and route through it, dropping the app-local copy.</li>
 <li>Export surface-map’s <code>WatchedValue</code> liveness so <code>useAttention</code> stops duplicating it.</li>
 <li>Move the e2e-only <code>AttentionDeps</code> fields off the production seam.</li>
+<li><strong>Model the finish gate’s per-terminal lifecycle as a type, not six sets.</strong> The gate
+tracks each terminal across six parallel keyed collections — <code>tracked</code>, <code>taps</code>,
+<code>tapGen</code>, <code>attached</code>, <code>settled</code>, <code>awaitingRearm</code> <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/finishGate.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/finishGate.ts</a> — whose
+invariants (settled ⟹ attached; settled ∧ awaitingRearm never co-hold) are enforced by
+call-order discipline, documented in prose. A single <code>Map&lt;TerminalId, TapState&gt;</code> with a
+discriminated <code>TapState</code> would make the illegal combinations unspellable at the type
+level. Deferred, not done: the state is a genuine <em>product</em> (attachment × episode ×
+quiet) plus per-tap metadata (<code>tapGen</code>, the disposer) that coexists with every arm, so
+it isn’t a clean single discriminant — and the current form is quiet-window-timing
+sensitive, thoroughly unit-tested (incl. the F1/F3/F5 edges), and freshly hardened
+through the review, so the rewrite is a follow-up to weigh carefully rather than churn
+to force now.</li>
 </ul>
 <aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>CI hygiene — the recurring darwin flake</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The darwin <code>code-tab</code> fs-watch scenarios flake because odu leaks temp checkouts <em>and</em>
 orphaned e2e processes on the macOS CI boxes, and the leaks peg fseventsd. A post-run
