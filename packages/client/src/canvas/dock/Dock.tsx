@@ -67,7 +67,7 @@
  *  affordance. App.tsx mounts it (desktop only) inside the empty-state
  *  canvas as well as the populated one. */
 
-import { activeArm } from "@kolu/padi/surface";
+import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
@@ -88,6 +88,7 @@ import { annotationLine } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { useFinishedQuiet } from "../../terminal/useFinishedQuiet";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
@@ -114,6 +115,7 @@ import {
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import { pipIsActive, pipMotionKind } from "./pipMotion";
 import { pipGlyphFor, pipVariant } from "./pipVariant";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
@@ -591,127 +593,147 @@ const DockRow: Component<{
   const store = useTerminalStore();
   const tileStore = useTileStore();
   const activity = useTerminalActivity();
+  const finishedQuiet = useFinishedQuiet();
   const combined = createDockRowData(props.id);
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
   // the terminal store.
-  const active = () => tileStore.activeId() === props.id;
+  const rowActive = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
-      {(c) => (
-        // Row is `<div role="button">` rather than `<button>` so the
-        // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
-        // elements (`<a>` inside `<button>`) produce unreliable
-        // keyboard / screen-reader behaviour; the div+role pattern
-        // keeps the row activatable via mouse, Enter, and Space
-        // without that nesting. Biome's a11y rule wants a native
-        // `<button>` here, but that's exactly what we can't use —
-        // the PR pip must remain a real link (Cmd-click, right-click
-        // context menu) and HTML forbids `<a>` inside `<button>`.
-        // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
-        <div
-          role="button"
-          tabIndex={0}
-          data-testid="dock-row"
-          data-terminal-id={props.id}
-          data-bucket={props.bucket}
-          data-agent-state={activeArm(c().meta)?.agent?.state}
-          data-active={active() ? "" : undefined}
-          data-unread={unread() ? "" : undefined}
-          data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
-          onClick={() => tileStore.activate(props.id)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              tileStore.activate(props.id);
-            }
-          }}
-          class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
-          title="Jump to this terminal"
-        >
-          {/* Identity status indicator — agent brand or shell glyph, state
-           *  paint/motion, live plate, unread corner dot. Centred across
-           *  both row lines. */}
-          <span class="row-span-2 flex self-center">
-            <StatePip
-              variant={pipVariant(props.pip)}
-              glyph={pipGlyphFor(c().meta)}
-              busy={!!activeArm(c().meta)?.foreground}
-              still={activeArm(c().meta)?.agent?.state === "waiting"}
-              live={activity.isLive(props.id)}
-              alert={unread()}
-              alertLabel="unread alert"
-              class={DOCK_ROW_PIP_BOX}
-            />
-          </span>
-          <span
-            class="dock-cards-row-label text-[0.84rem]"
-            style={{
-              color: c().info.annotationColor,
-            }}
-          >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
-            />
-          </span>
-          <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — "Xs ago". Shared with the touch drawer; the
-           *  no-reflow width contract lives in RecencyCell. The live signal
-           *  rides the leading StatePip's ring, not here. */}
-          <RecencyCell
-            recencyAt={rowRecencyAt(c().meta)}
-            textSize="text-[0.6rem]"
-          />
-          <Show when={showShortcutHint()}>
-            <span
-              data-testid="dock-row-shortcut-hint"
-              class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
-              aria-hidden="true"
-            >
-              {props.flatIndex + 1}
-            </span>
-          </Show>
-          {/* Second line — flex row spanning the branch column → end.
-           *  Leads with the PR pip (left edge anchored to the branch
-           *  column's left, so PR icons align across every section)
-           *  followed by the subline text (agent summary / state, or
-           *  foreground process title, or an invisible placeholder
-           *  keeping the row two-line tall). */}
+      {(c) => {
+        const agent = () => activeArm(c().meta)?.agent;
+        const variant = () => pipVariant(props.pip);
+        const pipActive = () =>
+          pipIsActive({
+            agent: agent(),
+            isLive: activity.isLive(props.id),
+            isFinished: finishedQuiet.isFinished(props.id),
+          });
+        const motion = () =>
+          pipMotionKind({
+            variant: variant(),
+            agent: agent(),
+            active: pipActive(),
+          });
+        const sleeping = () => sleepingArm(c().meta) !== undefined;
+        return (
+          // Row is `<div role="button">` rather than `<button>` so the
+          // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
+          // elements (`<a>` inside `<button>`) produce unreliable
+          // keyboard / screen-reader behaviour; the div+role pattern
+          // keeps the row activatable via mouse, Enter, and Space
+          // without that nesting. Biome's a11y rule wants a native
+          // `<button>` here, but that's exactly what we can't use —
+          // the PR pip must remain a real link (Cmd-click, right-click
+          // context menu) and HTML forbids `<a>` inside `<button>`.
+          // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
           <div
-            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
-          >
-            <PrPip meta={c().meta} />
-            <Show
-              when={rowSubline(c().meta)}
-              fallback={
-                <span
-                  aria-hidden="true"
-                  class="font-mono text-[0.68rem] leading-tight invisible"
-                >
-                  &nbsp;
-                </span>
+            role="button"
+            tabIndex={0}
+            data-testid="dock-row"
+            data-terminal-id={props.id}
+            data-bucket={props.bucket}
+            data-agent-state={agent()?.state}
+            data-active={rowActive() ? "" : undefined}
+            data-unread={unread() ? "" : undefined}
+            data-sub-count={
+              c().info.subCount > 0 ? c().info.subCount : undefined
+            }
+            data-sleeping={sleeping() ? "" : undefined}
+            onClick={() => tileStore.activate(props.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                tileStore.activate(props.id);
               }
+            }}
+            class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
+            title="Jump to this terminal"
+          >
+            {/* Identity status indicator — motion carries activity (breathe
+             *  until effectively quiet); plate only under reduced-motion. */}
+            <span class="row-span-2 flex self-center">
+              <StatePip
+                variant={variant()}
+                glyph={pipGlyphFor(c().meta)}
+                busy={!!activeArm(c().meta)?.foreground}
+                motion={motion()}
+                live={pipActive()}
+                alert={unread()}
+                alertLabel="unread alert"
+                class={DOCK_ROW_PIP_BOX}
+              />
+            </span>
+            <span
+              class="dock-cards-row-label text-[0.84rem]"
+              style={{
+                color: c().info.annotationColor,
+              }}
             >
-              {(line) => (
-                <span
-                  data-testid={
-                    activeArm(c().meta)?.agent
-                      ? "dock-agent-subline"
-                      : "dock-quiet-foreground"
-                  }
-                  class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
-                  title={line()}
-                >
-                  {line()}
-                </span>
-              )}
+              <IntentMarkdownInline
+                markdown={annotationLine(c().meta.intent, c().info.key.label)}
+              />
+            </span>
+            <SubCountCell subCount={c().info.subCount} />
+            {/* Recency cell — "Xs ago". Shared with the touch drawer; the
+             *  no-reflow width contract lives in RecencyCell. The live signal
+             *  rides the leading StatePip's ring, not here. */}
+            <RecencyCell
+              recencyAt={rowRecencyAt(c().meta)}
+              textSize="text-[0.6rem]"
+            />
+            <Show when={showShortcutHint()}>
+              <span
+                data-testid="dock-row-shortcut-hint"
+                class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
+                aria-hidden="true"
+              >
+                {props.flatIndex + 1}
+              </span>
             </Show>
+            {/* Second line — flex row spanning the branch column → end.
+             *  Leads with the PR pip (left edge anchored to the branch
+             *  column's left, so PR icons align across every section)
+             *  followed by the subline text (agent summary / state, or
+             *  foreground process title, or an invisible placeholder
+             *  keeping the row two-line tall). */}
+            <div
+              class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
+            >
+              <PrPip meta={c().meta} />
+              <Show
+                when={rowSubline(c().meta)}
+                fallback={
+                  <span
+                    aria-hidden="true"
+                    class="font-mono text-[0.68rem] leading-tight invisible"
+                  >
+                    &nbsp;
+                  </span>
+                }
+              >
+                {(line) => (
+                  <span
+                    data-testid={
+                      activeArm(c().meta)?.agent
+                        ? "dock-agent-subline"
+                        : "dock-quiet-foreground"
+                    }
+                    class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
+                    title={line()}
+                  >
+                    {line()}
+                  </span>
+                )}
+              </Show>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      }}
     </Show>
   );
 };

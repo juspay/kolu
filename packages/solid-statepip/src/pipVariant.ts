@@ -169,14 +169,25 @@ export function pipGlyph(id: PipGlyphId): PipGlyphDef {
  *  classes live in `statepip.css` and carry reduced-motion safety there. */
 export type PipBody = { class: string };
 
-/** Motion classes applied on top of paint. Separated so a `waiting` agent can
- *  keep the lingering violet paint (same `awaiting` PipVariant / agentPaintClass)
- *  while holding still — "animated by state": working→breathe, awaiting_user→glow,
- *  waiting/sleeping→still. Callers suppress glow via `StatePip`'s `still` prop. */
+/** Motion channel kinds — activity drives which runs. Callers pick via the pure
+ *  dock `pipMotionKind` fold (working→breathe, awaiting_user→glow, waiting→
+ *  breathe until EF2 quiet, shell→breathe while live). */
+export type PipMotionKind = "breathe" | "glow" | "none";
+
+/** CSS class tokens per motion kind. `none` is null (still). Glow carries the
+ *  reduced-motion awaiting hollow-outline class so needs-you never degrades to
+ *  colour alone under prefers-reduced-motion. */
+export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
+  breathe: "statepip-anim-breathe motion-reduce:animate-none",
+  glow: "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
+  none: null,
+};
+
+/** @deprecated Prefer `PIP_MOTION_CLASS` + caller-side `pipMotionKind`. Kept as
+ *  the paint-variant default table for tests that pin historical tokens. */
 export const PIP_MOTION: Record<Exclude<PipVariant, "empty">, string | null> = {
-  awaiting:
-    "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
-  working: "statepip-anim-breathe motion-reduce:animate-none",
+  awaiting: PIP_MOTION_CLASS.glow,
+  working: PIP_MOTION_CLASS.breathe,
   idle: null,
   sleeping: null,
 };

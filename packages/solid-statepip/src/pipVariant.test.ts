@@ -104,8 +104,8 @@ describe("PIP_BODY — paint only per variant", () => {
   });
 });
 
-describe("PIP_MOTION — layered on paint unless still", () => {
-  it("working breathes; awaiting glows; idle/sleeping are still", () => {
+describe("PIP_MOTION / PIP_MOTION_CLASS — activity channel tokens", () => {
+  it("working defaults to breathe; awaiting paint defaults to glow", () => {
     expect(PIP_MOTION.working).toContain("statepip-anim-breathe");
     expect(PIP_MOTION.working).toContain("motion-reduce:animate-none");
     expect(PIP_MOTION.awaiting).toContain("statepip-anim-glow");

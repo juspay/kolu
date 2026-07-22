@@ -1,11 +1,10 @@
-/** AI agent state indicator — logo + state label + compact context-token
- *  count + a live running-for duration. Logo animates when active. Renders the
- *  appropriate icon per agent kind (Claude Code, OpenCode). */
+/** AI agent state indicator — state label + compact context-token count + a
+ *  live running-for duration. Words and state color only: the brand mark lives
+ *  once on the surface in the leading StatePip (T1). */
 
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
+import { agentNames, stateLabels } from "../ui/agentDisplay";
 import { useDuration } from "./staleness";
 
 /** Busy = actively working (thinking or running tools). Alert = needs user input
@@ -49,7 +48,6 @@ function contextTokensTooltip(tokens: number, model: string | null): string {
 
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const cfg = () => stateConfig[props.agent.state];
-  const Icon = () => agentIcons[props.agent.kind];
   const name = () => agentNames[props.agent.kind];
   const label = () => stateLabels[props.agent.state];
   // Live elapsed-since formatter for the running-for badge; ticks every second
@@ -67,10 +65,8 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
       data-agent-state={props.agent.state}
       title={`${name()}: ${label()}`}
     >
-      <span class={`shrink-0 ${cfg().animation}`}>
-        <Dynamic component={Icon()} class="w-3 h-3" />
-      </span>
-      <span class="hidden sm:inline">{label()}</span>
+      {/* Words only — brand icon is the StatePip on the title (T1 once-per-surface). */}
+      <span class={`hidden sm:inline ${cfg().animation}`}>{label()}</span>
       {/* Wrap the value in an object so `<Show>`'s truthy check fires
        *  even when `contextTokens` is `0` — a legitimate value for a
        *  synthetic assistant entry with a zeroed usage block. Show's

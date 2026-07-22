@@ -61,11 +61,11 @@
   animation: statepip-glow 2.2s ease-in-out infinite;
 }
 
-/* live = this terminal is moving bytes right now: a faint green disc
- * (avatar plate) behind the identity glyph. Contained inside the pip —
- * no box-shadow bleed past the edge. Presence only; agent state owns
- * motion. Rendered under the glyph in StatePip's DOM order. */
+/* live plate — default OFF. Motion (breathe) is the active channel; the plate
+ * only reappears under prefers-reduced-motion as the static active substitute
+ * when breathe is suppressed. Contained disc behind the glyph (DOM order). */
 .statepip-live-plate {
+  display: none;
   position: absolute;
   inset: -1px;
   border-radius: 9999px;
@@ -99,6 +99,11 @@
   .statepip-anim-glow,
   .statepip-alert-badge {
     animation: none;
+  }
+  /* Static active mark when breathe is gone — only when the live plate
+   * element is present (StatePip passes live/active). */
+  .statepip-live-plate {
+    display: block;
   }
   /* Awaiting state under reduced motion: violet hollow ring outline so state
    * is not colour-only once motion (the second state channel) is gone. */

@@ -16,8 +16,9 @@ import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
-import { prUnavailableSource } from "kolu-common/surface";
+import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
+import { pipIsActive, pipMotionKind } from "../canvas/dock/pipMotion";
 import { pipGlyphFor, pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
@@ -29,6 +30,8 @@ import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import { pairDisplayRow, type TerminalDisplayInfo } from "./terminalDisplay";
+import { useFinishedQuiet } from "./useFinishedQuiet";
+import { useTerminalActivity } from "./useTerminalActivity";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -41,6 +44,8 @@ const TerminalMeta: Component<{
    *  the same leaf the dock does and can never lag it. `info` carries only the
    *  display decorations (colors + identity key). */
   meta: TerminalMetadata | undefined;
+  /** Terminal id — required for activity / EF2 finished motion folds. */
+  terminalId?: TerminalId;
   /** True when this terminal has unseen agent activity. Drives the
    *  leading state pip's attention escalation exactly as the dock row
    *  does, so the title and the dock can't disagree on what's loud.
@@ -51,163 +56,166 @@ const TerminalMeta: Component<{
   onOpenIntent: () => void;
 }> = (props) => {
   const view = createMemo(() => pairDisplayRow(props.info, props.meta));
+  const activity = useTerminalActivity();
+  const finishedQuiet = useFinishedQuiet();
   return (
     <Show when={view()} fallback={<TerminalMetaSkeleton />}>
-      {(v) => (
-        <>
-          {/* Name row — `name suffix [worktree-icon] [fg-title] [progress]`.
-           *  Sub-count lives on the title-bar split toggle (one source
-           *  of truth for "this tile has children"); the agent task
-           *  progress bar owns the right slot when an agent is running.
-           *  The agent state itself (Thinking/Tool use/Waiting) is
-           *  shown by the title bar's agent indicator button — no
-           *  separate agent row here. CWD is implicit (tooltip on the
-           *  repo name) — visible space is reserved for the OSC 2
-           *  process title. */}
-          <div class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            <NameSpan info={v().info} meta={v().meta} />
-            <Show when={v().info.key.suffix}>
-              {(suffix) => (
-                <span
-                  data-testid="terminal-meta-suffix"
-                  class="font-mono text-xs text-fg-3 tabular-nums shrink-0"
-                  title="Identifier — distinguishes terminals that share repo + branch (or cwd)"
-                >
-                  {suffix()}
-                </span>
-              )}
-            </Show>
-            <Show when={v().meta.git?.isWorktree}>
-              <WorktreeBadge />
-            </Show>
-            {/* Foreground process title — OSC 2 string when present.
-             *  Replaces what used to be the cwd slot; cwd is now a
-             *  tooltip on the repo name. `flex-1` so it fills until
-             *  the progress bar (when shown) eats its right edge. */}
-            <Show when={activeArm(v().meta)?.foreground}>
-              {(fg) => (
-                <span
-                  data-testid="process-name"
-                  class="text-xs text-fg-3 truncate min-w-0 flex-1"
-                  title={fg().title ?? fg().name}
-                >
-                  {fg().title ?? fg().name}
-                </span>
-              )}
-            </Show>
-            <Show when={agentWorkflow(activeArm(v().meta)?.agent)}>
-              {(wf) => (
-                <AgentWorkflowBadge name={wf().name} agents={wf().agents} />
-              )}
-            </Show>
-            <Show when={activeArm(v().meta)?.agent?.taskProgress}>
-              {(tp) => (
-                <AgentTaskProgress
-                  completed={tp().completed}
-                  total={tp().total}
-                />
-              )}
-            </Show>
-          </div>
-
-          {/* Annotation row (supplant rule) + PR.
-           *
-           *  The slot shows intent line-1 if the user set one, else the
-           *  git branch name, else a non-breaking-space placeholder.
-           *  Clicking always opens the intent editor — there is no
-           *  separate glyph chip, so this slot is the canvas tile's
-           *  sole intent affordance regardless of git state. */}
-          <div class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs">
-            {/* Identity pip leading the branch/intent annotation — the same
-             *  StatePip the dock row leads with (agent brand or shell prompt,
-             *  state paint + motion). Active terminals always show it: a plain
-             *  shell is still "who is driving this" (`shell` glyph, idle/busy).
-             *  Sleeping tiles have no live arm here (the dock paints them via
-             *  the sleeping bucket). `unread` rides as the amber corner DOT.
-             *  No live ring: the title bar has never shown the byte-motion
-             *  axis. `TITLE_PIP_BOX` gives the badge a corner to anchor to. */}
-            <Show when={activeArm(v().meta)}>
-              {(arm) => (
+      {(v) => {
+        // T1 invariant: a surface renders the agent's brand mark exactly once
+        // — in the StatePip. AgentIndicator (title chrome) speaks in words
+        // only; no second spark.
+        const arm = () => activeArm(v().meta);
+        const agent = () => arm()?.agent;
+        const variant = () =>
+          agent() ? pipVariant(paintBucket(agent())) : "idle";
+        const id = () => props.terminalId;
+        const pipActive = () =>
+          id()
+            ? pipIsActive({
+                agent: agent(),
+                isLive: activity.isLive(id()!),
+                isFinished: finishedQuiet.isFinished(id()!),
+              })
+            : !!agent();
+        const motion = () =>
+          pipMotionKind({
+            variant: variant(),
+            agent: agent(),
+            active: pipActive(),
+          });
+        return (
+          <>
+            {/* Name row — T1: identity StatePip leads (app-icon position),
+             *  then repo name / suffix / worktree / fg / progress. */}
+            <div class="col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+              <Show when={arm()}>
                 <StatePip
-                  variant={
-                    arm().agent ? pipVariant(paintBucket(arm().agent)) : "idle"
-                  }
+                  variant={variant()}
                   glyph={pipGlyphFor(v().meta)}
-                  busy={!!arm().foreground}
-                  still={arm().agent?.state === "waiting"}
+                  busy={!!arm()?.foreground}
+                  motion={motion()}
+                  live={pipActive()}
                   alert={props.unread}
                   alertLabel="unread alert"
                   class={TITLE_PIP_BOX}
                 />
-              )}
-            </Show>
-            <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
-              <button
-                type="button"
-                data-testid="terminal-meta-branch"
-                aria-label={
-                  v().meta.intent
-                    ? "Edit terminal intent"
-                    : "Set terminal intent"
-                }
-                class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate min-w-0 cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                style={{ color: v().info.annotationColor }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  props.onOpenIntent();
-                }}
-                onDblClick={(e) => e.stopPropagation()}
-              >
-                <IntentMarkdownInline
-                  markdown={annotationLine(
-                    v().meta.intent,
-                    v().meta.git?.branch ?? "—",
-                  )}
-                />
-              </button>
-            </Tip>
-            <Show when={activeArm(v().meta)}>
-              {(active) => (
-                <>
-                  <Show when={prValue(active().pr)}>
-                    {(pr) => (
-                      <span
-                        class="flex items-center gap-1 text-fg-2 truncate min-w-0"
-                        data-testid="terminal-meta-pr"
-                        title={prTooltip(pr())}
-                      >
-                        <PrStateIcon state={pr().state} class="w-3 h-3" />
-                        <Show when={pr().checks}>
-                          {(checks) => <ChecksIndicator status={checks()} />}
-                        </Show>
-                        <a
-                          href={pr().url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="hover:text-accent shrink-0"
-                          onClick={(e) => e.stopPropagation()}
+              </Show>
+              <NameSpan info={v().info} meta={v().meta} />
+              <Show when={v().info.key.suffix}>
+                {(suffix) => (
+                  <span
+                    data-testid="terminal-meta-suffix"
+                    class="font-mono text-xs text-fg-3 tabular-nums shrink-0"
+                    title="Identifier — distinguishes terminals that share repo + branch (or cwd)"
+                  >
+                    {suffix()}
+                  </span>
+                )}
+              </Show>
+              <Show when={v().meta.git?.isWorktree}>
+                <WorktreeBadge />
+              </Show>
+              {/* Foreground process title — OSC 2 string when present.
+               *  Replaces what used to be the cwd slot; cwd is now a
+               *  tooltip on the repo name. `flex-1` so it fills until
+               *  the progress bar (when shown) eats its right edge. */}
+              <Show when={activeArm(v().meta)?.foreground}>
+                {(fg) => (
+                  <span
+                    data-testid="process-name"
+                    class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                    title={fg().title ?? fg().name}
+                  >
+                    {fg().title ?? fg().name}
+                  </span>
+                )}
+              </Show>
+              <Show when={agentWorkflow(activeArm(v().meta)?.agent)}>
+                {(wf) => (
+                  <AgentWorkflowBadge name={wf().name} agents={wf().agents} />
+                )}
+              </Show>
+              <Show when={activeArm(v().meta)?.agent?.taskProgress}>
+                {(tp) => (
+                  <AgentTaskProgress
+                    completed={tp().completed}
+                    total={tp().total}
+                  />
+                )}
+              </Show>
+            </div>
+
+            {/* Annotation row (supplant rule) + PR — no identity pip here
+             *  (T1: brand mark appears once, on line 1). */}
+            <div class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs">
+              <Tip label={v().meta.intent ? "Edit intent" : "Set intent"}>
+                <button
+                  type="button"
+                  data-testid="terminal-meta-branch"
+                  aria-label={
+                    v().meta.intent
+                      ? "Edit terminal intent"
+                      : "Set terminal intent"
+                  }
+                  class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate min-w-0 cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                  style={{ color: v().info.annotationColor }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onOpenIntent();
+                  }}
+                  onDblClick={(e) => e.stopPropagation()}
+                >
+                  <IntentMarkdownInline
+                    markdown={annotationLine(
+                      v().meta.intent,
+                      v().meta.git?.branch ?? "—",
+                    )}
+                  />
+                </button>
+              </Tip>
+              <Show when={activeArm(v().meta)}>
+                {(active) => (
+                  <>
+                    <Show when={prValue(active().pr)}>
+                      {(pr) => (
+                        <span
+                          class="flex items-center gap-1 text-fg-2 truncate min-w-0"
+                          data-testid="terminal-meta-pr"
+                          title={prTooltip(pr())}
                         >
-                          #{pr().number}
-                        </a>
-                        <span class="truncate">{pr().title}</span>
-                      </span>
-                    )}
-                  </Show>
-                  <Show when={prUnavailableSource(active().pr)}>
-                    {(source) => (
-                      <PrUnavailableButton
-                        source={source()}
-                        testId="terminal-meta-pr-unavailable"
-                      />
-                    )}
-                  </Show>
-                </>
-              )}
-            </Show>
-          </div>
-        </>
-      )}
+                          <PrStateIcon state={pr().state} class="w-3 h-3" />
+                          <Show when={pr().checks}>
+                            {(checks) => <ChecksIndicator status={checks()} />}
+                          </Show>
+                          <a
+                            href={pr().url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="hover:text-accent shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            #{pr().number}
+                          </a>
+                          <span class="truncate">{pr().title}</span>
+                        </span>
+                      )}
+                    </Show>
+                    <Show when={prUnavailableSource(active().pr)}>
+                      {(source) => (
+                        <PrUnavailableButton
+                          source={source()}
+                          testId="terminal-meta-pr-unavailable"
+                        />
+                      )}
+                    </Show>
+                  </>
+                )}
+              </Show>
+            </div>
+          </>
+        );
+      }}
     </Show>
   );
 };
