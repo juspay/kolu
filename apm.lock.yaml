@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-22T15:35:42.784796+00:00'
+generated_at: '2026-07-22T19:53:52.949082+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -133,7 +133,8 @@ dependencies:
 - repo_url: juspay/odu
   name: odu
   host: github.com
-  resolved_commit: c506b43e73473dd3a7dd9cf36cf75535130a784a
+  resolved_commit: 8cdb57b94feea490b4fd198a52c49382f0b42aad
+  resolved_ref: grokbe/venue-pools-lease
   version: 1.0.0
   package_type: apm_package
   deployed_files:
@@ -148,13 +149,13 @@ dependencies:
   - .claude/skills/odu-mcp/bin/serve
   - .claude/skills/odu/SKILL.md
   deployed_file_hashes:
-    .agents/skills/odu-mcp/SKILL.md: sha256:d704536fdd36cfd1298ffc1d0276734bbc177ea22c3c5f0bade95cc1abf54af2
+    .agents/skills/odu-mcp/SKILL.md: sha256:7f21c048b3dede237e2eb5890457461293208ff55fc77a6c818a21e080608696
     .agents/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-    .agents/skills/odu/SKILL.md: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
-    .claude/skills/odu-mcp/SKILL.md: sha256:d704536fdd36cfd1298ffc1d0276734bbc177ea22c3c5f0bade95cc1abf54af2
+    .agents/skills/odu/SKILL.md: sha256:46fd3d4a1c1a5120547eada5115fac39ee1dbdf56afc6206da1d501d8ad22e4f
+    .claude/skills/odu-mcp/SKILL.md: sha256:7f21c048b3dede237e2eb5890457461293208ff55fc77a6c818a21e080608696
     .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
-    .claude/skills/odu/SKILL.md: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
-  content_hash: sha256:ba06aebb6021366d32dd5d651568249eb765224522d0b7d8e8d24f50b170ce28
+    .claude/skills/odu/SKILL.md: sha256:46fd3d4a1c1a5120547eada5115fac39ee1dbdf56afc6206da1d501d8ad22e4f
+  content_hash: sha256:de0b83cde5acdfcbf5a4fd83a72ee8889ecf8d67122b1174d33bf7d41919efb1
 - repo_url: juspay/project-unknown
   name: project-unknown
   host: github.com
@@ -375,7 +376,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:0cf2e42f2f8de848d8bbe23fc9efa4790eece5dd815873ba90c2cc340ea9b1ac
+  content_hash: sha256:92ccb5711f78e92d204dbe430f37d34548d083cf6c820f22604c5a07ff2f76b8
 - kind: project-relative
   target: agents
   value: .agents/skills/ci/pu/diagnose.sh
@@ -934,7 +935,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:0cf2e42f2f8de848d8bbe23fc9efa4790eece5dd815873ba90c2cc340ea9b1ac
+  content_hash: sha256:92ccb5711f78e92d204dbe430f37d34548d083cf6c820f22604c5a07ff2f76b8
 - kind: project-relative
   target: claude
   value: .claude/skills/ci/pu/diagnose.sh
@@ -1384,7 +1385,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:d704536fdd36cfd1298ffc1d0276734bbc177ea22c3c5f0bade95cc1abf54af2
+  content_hash: sha256:7f21c048b3dede237e2eb5890457461293208ff55fc77a6c818a21e080608696
 - kind: project-relative
   target: claude
   value: .claude/skills/odu-mcp/bin/serve
@@ -1402,7 +1403,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
+  content_hash: sha256:46fd3d4a1c1a5120547eada5115fac39ee1dbdf56afc6206da1d501d8ad22e4f
 - kind: project-relative
   target: claude
   value: .claude/skills/parcel
@@ -2113,7 +2114,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:d704536fdd36cfd1298ffc1d0276734bbc177ea22c3c5f0bade95cc1abf54af2
+  content_hash: sha256:7f21c048b3dede237e2eb5890457461293208ff55fc77a6c818a21e080608696
 - kind: project-relative
   target: codex
   value: .agents/skills/odu-mcp/bin/serve
@@ -2131,7 +2132,7 @@ deployments:
   owners:
   - juspay/odu
   active_owner: juspay/odu
-  content_hash: sha256:9e387042f15013cc8b2cae1854d56e53bc2db3fed817addedd794e9c55cc8306
+  content_hash: sha256:46fd3d4a1c1a5120547eada5115fac39ee1dbdf56afc6206da1d501d8ad22e4f
 - kind: project-relative
   target: codex
   value: .agents/skills/perfection-review
@@ -2438,7 +2439,7 @@ local_deployed_files:
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:6ba8ba4a147b450cbf8b51ea5d71999f9592bd40279fd005b2c982bab3296689
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .agents/skills/ci/SKILL.md: sha256:0cf2e42f2f8de848d8bbe23fc9efa4790eece5dd815873ba90c2cc340ea9b1ac
+  .agents/skills/ci/SKILL.md: sha256:92ccb5711f78e92d204dbe430f37d34548d083cf6c820f22604c5a07ff2f76b8
   .agents/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
   .agents/skills/ci/pu/lease.sh: sha256:5e5ca3de9a41d247f5a7be66044cb5811e15c26f9da2127c299f6939db5275ee
   .agents/skills/ci/pu/pool.sh: sha256:d41f96205e452547489c63df7e0b561293971b9cdbb51580ec6851505a5a646b
@@ -2474,7 +2475,7 @@ local_deployed_file_hashes:
   .claude/rules/website-docs.md: sha256:09c4389e0f30d14acdc722e7d0a58486545c03645df4cbc8f9ccbc2df5612512
   .claude/skills/atlas/SKILL.md: sha256:6ba8ba4a147b450cbf8b51ea5d71999f9592bd40279fd005b2c982bab3296689
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .claude/skills/ci/SKILL.md: sha256:0cf2e42f2f8de848d8bbe23fc9efa4790eece5dd815873ba90c2cc340ea9b1ac
+  .claude/skills/ci/SKILL.md: sha256:92ccb5711f78e92d204dbe430f37d34548d083cf6c820f22604c5a07ff2f76b8
   .claude/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
   .claude/skills/ci/pu/lease.sh: sha256:5e5ca3de9a41d247f5a7be66044cb5811e15c26f9da2127c299f6939db5275ee
   .claude/skills/ci/pu/pool.sh: sha256:d41f96205e452547489c63df7e0b561293971b9cdbb51580ec6851505a5a646b
