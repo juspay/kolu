@@ -73,6 +73,25 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     ]);
   });
 
+  it("EF2 sticky: steady finishedIds while waiting does not re-deliver", () => {
+    // Product decision (field-corrected): sticky-per-episode on the server —
+    // finishedIds stays set for the whole waiting episode, so mid-waiting TUI
+    // noise never un-finishes. The client must not re-fire on steady finished
+    // frames; only leave-both-sets (back to work) re-arms for a later finish.
+    const { core, delivered } = harness();
+    core.observe("h", u([], [])); // baseline — working
+    core.observe("h", u([], ["B"])); // first finish → fire once
+    core.observe("h", u([], ["B"])); // steady (server sticky; noise while waiting)
+    core.observe("h", u([], ["B"])); // still finished
+    expect(delivered).toEqual([{ id: "B", asking: false }]);
+    core.observe("h", u([], [])); // back to work — episode end, latch clears
+    core.observe("h", u([], ["B"])); // new episode → fire again
+    expect(delivered).toEqual([
+      { id: "B", asking: false },
+      { id: "B", asking: false },
+    ]);
+  });
+
   it("REPRO (deploy bug): detects a transition even when the cell REUSES one mutated object", () => {
     // The live surface delivers cell values via SolidJS `reconcile` — ONE object
     // mutated in place across frames. If the engine keeps a REFERENCE to it as

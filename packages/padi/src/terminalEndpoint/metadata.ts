@@ -24,13 +24,13 @@
  *     `TerminalClientMetadata`.
  *
  * Urgency is NO LONGER a concern these seams carry. It is now a DERIVED member —
- * `derived.cell(($) => recomputeUrgency($.terminals()))` (`servePadi.ts`) — so the
- * reactive graph tracks the `terminals → urgency` edge and recomputes the badge
- * whenever a `terminals` upsert/remove fires, deduped by the cell's `equals`. The
- * old `publishUrgency` rider that every composed publish (and the removal path) had
- * to remember is gone: a registry writer can no longer forget urgency, because the
- * edge is tracked rather than conventional (worked example 1 of the reactive-bridge
- * note). ONE cross-cutting concern still rides these seams:
+ * dual-edged on terminals + finish-quiet (`servePadi.ts`) — so the reactive graph
+ * tracks the `terminals → urgency` edge (and the quiet-timer edge) and recomputes
+ * the badge whenever a `terminals` upsert/remove fires, deduped by the cell's
+ * `equals`. The old `publishUrgency` rider that every composed publish (and the
+ * removal path) had to remember is gone: a registry writer can no longer forget
+ * urgency, because the edge is tracked rather than conventional (worked example 1
+ * of the reactive-bridge note). ONE cross-cutting concern still rides these seams:
  *
  *   - **Autosave arming.** A seam that should schedule a session save calls
  *     {@link notifyDirty} (the `AutosaveGate`'s single writer entry);

@@ -120,7 +120,10 @@ function runFirehose(materialize: boolean): number {
       },
     },
     cells: {
-      urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+      // Quiet predicate: compose-cost gate is about the terminals view, not EF2.
+      urgency: derived.cell(($) =>
+        recomputeUrgency($.terminals(), () => false),
+      ),
     },
   });
 
