@@ -192,8 +192,8 @@ alone, revertible alone. **EF0 and EF1 are complete.**
   links={[{ label: "#1938 closed", href: "https://github.com/juspay/kolu/pull/1938" }, { label: "plan #1944", href: "https://github.com/juspay/kolu/pull/1944" }]} />
 
 <Callout kind="note" title="ELI15">
-Stop the messy all-in-one PR. Write down the plan. Don’t ship broken chimes or
-stuck “live” dots. App behaviour stays as it is for now.
+Stop the messy all-in-one PR. Write down the plan so the next steps don’t ship
+broken chimes or stuck “live” dots.
 </Callout>
 
 - Close <PrLink pr={1938} /> without merge (done) — do not resurrect that branch wholesale.
@@ -227,8 +227,9 @@ Finish policy (`finishedIds`) was deliberately **not** changed here — that is 
 <Callout kind="note" title="ELI15">
 When the agent says “I’m done,” wait until the terminal has been actually quiet
 for a few seconds before the “finished” ping. Background work still typing keeps
-you waiting. Reuses EF1’s doorbell and EF1’s timer type — a longer quiet window —
-not a new wiretap and not a second stamp machine.
+you waiting. If work starts again and then goes quiet again, you get another ping.
+Reuses EF1’s doorbell and timer type — a longer quiet window — not a new wiretap
+and not a second stamp machine.
 </Callout>
 
 #### Realization (explicit — not stamps + hand deadline)
