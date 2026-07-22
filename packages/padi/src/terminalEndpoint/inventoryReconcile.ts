@@ -34,11 +34,10 @@ import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
-import { abortableDelay } from "../abortableDelay.ts";
 import {
   adoptLocalInventoryOrphan,
-  bridgeStream,
   reapUnrepresentablePty,
+  resubscribeStream,
 } from "./local.ts";
 
 /** Delay before re-subscribing after the inventory stream ends (daemon recycle
@@ -56,35 +55,21 @@ export function startInventoryReconciler(signal: AbortSignal): void {
 }
 
 async function runReconciler(signal: AbortSignal): Promise<void> {
-  // The ONLY new mechanism here is the re-subscribe loop across daemon recycles
-  // (a B3.2 restart, a supervisor reconnect): per-PTY taps die with their PTY
-  // and never re-subscribe, so this loop is genuinely new. The inner consume —
-  // await the stream, fence each event, treat an abort as expected teardown —
-  // is the SAME contract the per-terminal taps carry, so it plugs into
-  // `bridgeStream` (the one receptacle for that volatility) rather than being
-  // re-derived here. `bridgeStream` resolves (never rejects) when the stream
-  // ends or aborts; a non-abort end is a daemon drop, so we delay and re-subscribe.
-  while (!signal.aborted) {
-    try {
-      // The forwarding facade calls `liveClient()` EAGERLY, so `inventory.get`
-      // THROWS synchronously when the daemon isn't connected (a dead-on-boot or
-      // mid-recycle endpoint) — before `bridgeStream` ever runs, so its internal
-      // fence can't catch it. This try owns exactly that pre-subscribe throw (a
-      // distinct failure from the stream draining, which `bridgeStream` resolves
-      // and never rejects); without it the throw escapes to `unhandledRejection`
-      // and exits the server on the honest dead-daemon path. Treat it as a drop.
-      await bridgeStream(
-        ptyHostClient.surface.inventory.get({}, { signal }),
-        signal,
-        applyEvent,
-      );
-    } catch (err) {
-      if (signal.aborted) return;
-      log.debug({ err }, "kaval inventory subscribe failed; will re-subscribe");
-    }
-    if (signal.aborted) return;
-    await abortableDelay(RESUBSCRIBE_DELAY_MS, signal);
-  }
+  // The re-subscribe loop across daemon recycles (a B3.2 restart, a supervisor
+  // reconnect) is `resubscribeStream`'s job — including the guard against the
+  // forwarding facade's EAGER synchronous throw when the daemon is down (see its
+  // doc). Per-PTY taps die with their PTY and never re-subscribe; this host-global
+  // inventory stream does, so the same shared loop that backs `liveActivity` backs
+  // it. Stream drains keep bridgeStream's default (ERROR) log; a pre-subscribe
+  // throw is the daemon-down drop, logged at debug.
+  await resubscribeStream({
+    signal,
+    delayMs: RESUBSCRIBE_DELAY_MS,
+    getStream: () => ptyHostClient.surface.inventory.get({}, { signal }),
+    onEvent: applyEvent,
+    onDrop: (err) =>
+      log.debug({ err }, "kaval inventory subscribe failed; will re-subscribe"),
+  });
 }
 
 /** One PTY to adopt: its already-VALIDATED `TerminalId` (the inventory boundary

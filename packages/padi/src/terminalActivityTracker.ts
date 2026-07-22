@@ -4,15 +4,18 @@
  * `noteOutput` and leaves once `idleAfterMs` pass with no further output, each
  * chunk re-arming the timer.
  *
- * Extracted from `liveActivity.ts` (its first home) so the SECOND consumer — the
- * `finishGate` effective-finish debounce — reuses the SAME timer machinery rather
- * than hand-rolling a near-identical copy. The two differ only in their WINDOW
- * (`liveActivity` the sub-second live-dot cadence; the gate the multi-second
- * effective-finish debounce) and in how they READ the set (`liveActivity` streams
- * the sorted `snapshot()`; the gate reads `isLive(id)` to tell a still-noisy
- * `waiting` terminal from a settled one) — both parameterized here, so the fold
- * itself is one source of truth. This is the padi twin of the client's
- * `useTerminalActivity` (a different runtime — browser store, no timer `unref`).
+ * Extracted from `liveActivity.ts` (its first home) so a PLANNED second consumer —
+ * the `finishGate` effective-finish debounce (EF2, not yet built) — will reuse the
+ * SAME timer machinery rather than hand-rolling a near-identical copy. The two will
+ * differ only in their WINDOW (`liveActivity` the sub-second live-dot cadence; the
+ * gate the multi-second effective-finish debounce) and in how they READ the set
+ * (`liveActivity` streams the sorted `snapshot()`; the gate will read `isLive(id)`
+ * to tell a still-noisy `waiting` terminal from a settled one) — both parameterized
+ * here, so the fold itself is one source of truth. `isLive` and `forget` therefore
+ * have no caller yet: they are the read/eviction shape the planned gate needs, kept
+ * on the interface so adding that consumer is a parameter change, not a
+ * re-extraction. This is the padi twin of the client's `useTerminalActivity` (a
+ * different runtime — browser store, no timer `unref`).
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
@@ -25,8 +28,8 @@ export interface ActivityTracker {
    *  removes it from the live set at once. */
   forget(id: TerminalId): void;
   /** Whether `id` is in the live set right now — output landed within the last
-   *  `idleAfterMs`. The gate reads this to hold a still-noisy `waiting` terminal
-   *  out of the settled set. */
+   *  `idleAfterMs`. The planned finish gate will read this to hold a still-noisy
+   *  `waiting` terminal out of the settled set (no caller yet — see the header). */
   isLive(id: TerminalId): boolean;
   /** The current live set as a SORTED array — a stable wire frame (so an unordered
    *  Set mutation can't churn a consumer with reordered-but-equal frames). */

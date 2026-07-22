@@ -17,13 +17,12 @@ import {
   type TerminalId,
 } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
-import { abortableDelay } from "./abortableDelay.ts";
 import { ptyHostClient } from "./ptyHost/index.ts";
 import {
   createActivityTracker,
   sameActivitySet,
 } from "./terminalActivityTracker.ts";
-import { bridgeStream } from "./terminalEndpoint/local.ts";
+import { resubscribeStream } from "./terminalEndpoint/local.ts";
 
 /** Delay before re-subscribing to kaval's `activity` stream after it ends (a daemon
  *  recycle) — long enough not to hot-loop while kaval is down, short enough that the
@@ -71,31 +70,25 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
         const tracker = createActivityTracker(TERMINAL_IDLE_AFTER_MS);
 
         // Feed the tracker from kaval's meaningful-output edge — the resize-excluded
-        // activity fact, shared with the finish fold. Re-subscribe across a kaval
-        // recycle so a long watch survives a daemon restart.
-        void (async () => {
-          while (!sig.aborted) {
-            // `bridgeStream` RESOLVES on a non-abort stream failure (it does not
-            // reject), so the re-subscribe hangs off the resolve, not a catch. The
-            // `onError` supplies the intended debug note — an EXPECTED kaval recycle
-            // (e.g. the 5.2->5.3 daemon force-recycle), which must NOT surface as
-            // bridgeStream's generic ERROR "tap subscription failed". Same reason the
-            // foreground/exit taps pass an `onError`: the default error log is wrong
-            // for them.
-            await bridgeStream(
-              ptyHostClient.surface.activity.get({}, { signal: sig }),
-              sig,
-              (edge) => tracker.noteOutput(edge.id as TerminalId),
-              (err) =>
-                log.debug(
-                  { err },
-                  "kaval activity subscribe ended; will re-subscribe",
-                ),
-            );
-            if (sig.aborted) return;
-            await abortableDelay(ACTIVITY_RESUBSCRIBE_DELAY_MS, sig);
-          }
-        })();
+        // activity fact, shared with the finish fold. `resubscribeStream` owns the
+        // re-subscribe loop across a kaval recycle (so a long watch survives a daemon
+        // restart) AND the guard against the forwarding facade's EAGER synchronous
+        // throw when the daemon is down — see its doc. A drained stream (an expected
+        // recycle) logs at debug rather than bridgeStream's generic ERROR.
+        void resubscribeStream({
+          signal: sig,
+          delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
+          getStream: () =>
+            ptyHostClient.surface.activity.get({}, { signal: sig }),
+          onEvent: (edge) => tracker.noteOutput(edge.id as TerminalId),
+          onStreamError: (err) =>
+            log.debug({ err }, "kaval activity subscribe ended; will re-subscribe"),
+          onDrop: (err) =>
+            log.debug(
+              { err },
+              "kaval activity subscribe failed; will re-subscribe",
+            ),
+        });
 
         try {
           yield* pollOnEvent<TerminalId[]>({

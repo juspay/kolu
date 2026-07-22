@@ -20,7 +20,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { ForegroundSample } from "kaval";
-import { bridgeStream, onForegroundTapError } from "./local.ts";
+import {
+  bridgeStream,
+  onForegroundTapError,
+  resubscribeStream,
+} from "./local.ts";
 
 /** An async iterable that REJECTS on first pull — the shape a dropped tap socket
  *  surfaces (the `for await` throws rather than ending cleanly). */
@@ -115,5 +119,63 @@ describe("onForegroundTapError — the production handler never publishes (STAYS
     );
 
     expect(published).toEqual([]);
+  });
+});
+
+describe("resubscribeStream — the eager synchronous-throw guard", () => {
+  it("catches getStream()'s SYNCHRONOUS throw (daemon down) as a drop and re-subscribes, never rejecting", async () => {
+    // The forwarding facade calls `liveClient()` eagerly, so `getStream()` throws
+    // SYNCHRONOUSLY when the daemon is disconnected — before bridgeStream runs, so
+    // its fence can't catch it. Without the guard this rejects and (as a void'd
+    // detached task) crashes the server on `unhandledRejection`.
+    const drops: unknown[] = [];
+    let calls = 0;
+    const ac = new AbortController();
+    await resubscribeStream<number>({
+      signal: ac.signal,
+      delayMs: 0,
+      getStream: () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("pty-host endpoint is not connected"); // daemon down
+        }
+        // Second attempt: the daemon is back — a clean, empty stream that ends.
+        ac.abort(); // stop the loop after one successful re-subscribe
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
+        };
+      },
+      onEvent: () => {},
+      onDrop: (err) => drops.push(err),
+    });
+
+    // The synchronous throw was caught as a drop (not propagated), and the loop
+    // re-subscribed rather than dying.
+    expect(drops).toHaveLength(1);
+    expect(drops[0]).toBeInstanceOf(Error);
+    expect(calls).toBe(2);
+  });
+
+  it("stops promptly without re-subscribing once the signal is aborted", async () => {
+    let calls = 0;
+    const ac = new AbortController();
+    ac.abort();
+    await resubscribeStream<number>({
+      signal: ac.signal,
+      delayMs: 0,
+      getStream: () => {
+        calls += 1;
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
+        };
+      },
+      onEvent: () => {},
+      onDrop: () => {},
+    });
+    expect(calls).toBe(0); // aborted before the first subscribe
   });
 });
