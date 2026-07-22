@@ -220,6 +220,41 @@ describe("createFinishGate", () => {
     expect([...gate.settledFinished()]).toEqual([A]);
   });
 
+  it("does not manufacture readiness on re-entry when the tap is still PENDING", () => {
+    // F3 (round 3): a poll-missed episode blip must NOT let a re-entry start a quiet
+    // window on a tap that has never attached — that would settle with no observer.
+    waiting.set(A, "loc-a");
+    reconcileTick(); // T1 opened, PENDING — attach() deliberately not called
+    observe(A, false); // leave waiting
+    observe(A, true); // re-enter (before reconcile) — tap still pending
+
+    vi.advanceTimersByTime(QUIET * 2);
+    expect(gate.settledFinished().has(A)).toBe(false); // never attached → never settles
+
+    attach(A); // the pending tap finally establishes — window starts here
+    vi.advanceTimersByTime(QUIET);
+    expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
+  it("does not settle across a poll-missed episode blip when the tap has CLOSED", () => {
+    // F3 (round 3): the same must hold when the observer is gone (tap dropped) — a
+    // re-entry must wait for the replacement tap to attach, not settle on the dead one.
+    waiting.set(A, "loc-a");
+    reconcileTick();
+    attach(A);
+    closed.get(A)?.(); // tap drops (attached cleared) while still tracked
+    observe(A, false); // leave waiting
+    observe(A, true); // re-enter — the tap is gone, so no observer
+
+    vi.advanceTimersByTime(QUIET * 2);
+    expect(gate.settledFinished().has(A)).toBe(false); // not attached → not settled
+
+    reconcileTick(); // reconcile re-taps
+    attach(A); // replacement tap attaches — fresh window
+    vi.advanceTimersByTime(QUIET);
+    expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
   it("closes every tap on dispose", () => {
     waiting.set(A, "loc-a");
     waiting.set(B, "loc-b");

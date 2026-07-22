@@ -131,12 +131,13 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
   const src = source<ReadonlySet<TerminalId>>((emit) => {
     // The debounce core. `tracker` is the shared quiet-window timer (windowed to
     // `quietMs`); `tracked` maps each tapped terminal to its location (kept so a
-    // dropped tap can be RE-OPENED); `ready` is the terminals whose attach has
-    // established (a live observer exists); `settled` is the STICKY finished set —
-    // a terminal enters it when the quiet window elapses while ready, and leaves it
-    // ONLY on real output. Keeping `settled` explicit (not derived from `!isLive`)
-    // is what lets a settled terminal survive a transient tap drop without a
-    // finishedIds flicker while STILL re-observing resumed output.
+    // dropped tap can be RE-OPENED); `attached` is the terminals whose CURRENT tap
+    // has actually reported `onReady` (a live observer exists) — set ONLY by an
+    // attach, never manufactured; `settled` is the STICKY finished set — a terminal
+    // enters it when the quiet window elapses while attached, and leaves it ONLY on
+    // real output. Keeping `settled` explicit (not derived from `!isLive`) is what
+    // lets a settled terminal survive a transient tap drop without a finishedIds
+    // flicker while STILL re-observing resumed output.
     const tracker: ActivityTracker = createActivityTracker(quietMs);
     const tracked = new Map<TerminalId, L>();
     const taps = new Map<TerminalId, () => void>();
@@ -146,12 +147,17 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
     // endpoint's empty-attachment path) can never mutate the CURRENT tap's state.
     const tapGen = new Map<TerminalId, number>();
     let tapSeq = 0;
-    const ready = new Set<TerminalId>();
+    // `attached` is the TRUE "a live observer exists" fact — set only by the current
+    // tap's `onReady`/`onOutput`, so a settle can never happen without an established
+    // attach (a pending or closed tap is NOT attached, so it cannot settle).
+    const attached = new Set<TerminalId>();
     const settled = new Set<TerminalId>();
     // Terminals that LEFT `waiting` and are awaiting re-arm — a fast
     // `waiting → working → waiting` blip the poll misses is caught by the
     // agent-observation edge, which drops the stale settled/quiet state on leave and
     // re-arms a fresh window on re-entry (so turn 2 never inherits turn 1's settle).
+    // While a terminal is in this set it is OUT of its waiting episode and cannot
+    // settle.
     const awaitingRearm = new Set<TerminalId>();
     let lastEmitted: ReadonlySet<TerminalId> = EMPTY;
 
@@ -177,14 +183,16 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
           // tap's generation, so an aborted tap's late `onReady` can't ready a newer one.
           onReady: () => {
             if (!current()) return;
-            ready.add(id);
-            tracker.noteOutput(id);
+            attached.add(id);
+            // Don't start a window for a terminal that is BETWEEN waiting episodes
+            // (left waiting, not yet re-entered) — it must wait for its re-entry.
+            if (!awaitingRearm.has(id)) tracker.noteOutput(id);
           },
           // Real output — re-arm the window and clear any settled level (resumed
           // output un-settles, even on a terminal that had already finished).
           onOutput: () => {
             if (!current()) return;
-            ready.add(id); // output implies the attach is live
+            attached.add(id); // output implies the attach is live
             tracker.noteOutput(id);
             if (settled.delete(id)) publish();
           },
@@ -197,7 +205,7 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
           // tap during the gap (it re-seeds on the next attach's `onReady`).
           onClosed: () => {
             if (!current()) return; // our disposer / replaced / already stopped
-            ready.delete(id);
+            attached.delete(id); // the observer is gone — a replacement must re-attach
             taps.delete(id);
             tracker.forget(id);
           },
@@ -210,7 +218,7 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       taps.get(id)?.();
       taps.delete(id);
       tapGen.delete(id);
-      ready.delete(id);
+      attached.delete(id);
       tracker.forget(id);
       awaitingRearm.delete(id);
       settled.delete(id);
@@ -223,17 +231,18 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       if (!tracked.has(id)) return; // membership is the poll's job; only re-arm what we track
       if (!isWaiting) {
         // Left the waiting episode — invalidate the settle/quiet state so the next
-        // waiting turn must earn a fresh window. (The tap stays open — same PTY.)
-        ready.delete(id);
+        // waiting turn must earn a fresh window. `awaitingRearm` also fences the
+        // settle loop, so it cannot settle while out of a waiting episode. The tap
+        // and its `attached` fact stay (same PTY, same observer).
         tracker.forget(id);
         awaitingRearm.add(id);
         if (settled.delete(id)) publish();
       } else if (awaitingRearm.delete(id)) {
-        // Re-entered waiting after a blip — re-arm a fresh quiet window on the still-
-        // open tap. `onReady` won't fire again on the same tap, so restore `ready`
-        // here; the window (re)starts now, so it can't settle until quiet elapses again.
-        ready.add(id);
-        tracker.noteOutput(id);
+        // Re-entered waiting after a blip — re-arm a fresh quiet window, but ONLY if
+        // the current tap has actually attached. If it is still pending (or closed),
+        // do nothing: its `onReady` (once the current generation attaches) starts the
+        // window, so we never manufacture readiness for a tap nothing has observed.
+        if (attached.has(id)) tracker.noteOutput(id);
       }
     };
 
@@ -256,12 +265,19 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       publish();
     };
 
-    // A quiet-window expiry (tracker live→static) settles every ready terminal that
-    // has fallen quiet — the "output stopped" non-event, pushed into the graph.
+    // A quiet-window expiry (tracker live→static) settles every terminal that has
+    // fallen quiet WHILE attached and inside its waiting episode — the "output
+    // stopped" non-event, pushed into the graph. `attached` bars a pending/closed
+    // tap; `!awaitingRearm` bars a terminal between waiting episodes.
     const offTracker = tracker.onChange(() => {
       let changed = false;
       for (const id of tracked.keys()) {
-        if (ready.has(id) && !tracker.isLive(id) && !settled.has(id)) {
+        if (
+          attached.has(id) &&
+          !awaitingRearm.has(id) &&
+          !tracker.isLive(id) &&
+          !settled.has(id)
+        ) {
           settled.add(id);
           changed = true;
         }
@@ -281,7 +297,7 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       taps.clear();
       tapGen.clear();
       tracked.clear();
-      ready.clear();
+      attached.clear();
       settled.clear();
       awaitingRearm.clear();
       tracker.dispose();
