@@ -116,7 +116,8 @@ stuck “live” dots. App behaviour stays as it is for now.
 
 ### EF1 — activity cutover (kaval → padi → client)
 
-<Phase id="EF1" name="activity cutover" status="next" needs={["EF0"]} blocks={["EF2"]} />
+<Phase id="EF1" name="activity cutover" status="next" needs={["EF0"]} blocks={["EF2"]}
+  links={[{ label: "PR #1945", href: "https://github.com/juspay/kolu/pull/1945" }]} />
 
 <Callout kind="note" title="ELI15">
 One PR moves “is this terminal typing?” to the process that owns the PTY. The
