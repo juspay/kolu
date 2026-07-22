@@ -7,7 +7,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" vitest run --fileParallelism=false"
+    "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" KOLU_PADI_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/padi\" vitest run --fileParallelism=false"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.13",

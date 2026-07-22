@@ -325,8 +325,8 @@ export function localPadiDriver(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface EnsurePadiBindingOptions {
-  /** Explicit state-root override (dev/e2e); else `resolvePadiStateRoot`'s default
-   *  (`KOLU_PADI_STATE_DIR` else the binary default). */
+  /** Explicit state-root override (dev/e2e); else `resolvePadiStateRoot` reads
+   *  `KOLU_PADI_STATE_DIR` (required — no silent default; juspay/kolu#1334). */
   stateRoot?: string;
   /** The nix-shell env whitelist forwarded to padi as its CLI flag. */
   nixShellWhitelist?: string;
