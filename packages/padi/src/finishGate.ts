@@ -205,12 +205,17 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
     };
   }, EMPTY);
 
-  // Keep the source installed for the gate's lifetime — the `urgency` compute reads
-  // the source LEVEL (`settledFinished`), which does not itself subscribe.
-  const keepAlive = src.subscribe(() => {});
+  // Force the lazy install for the gate's lifetime — the `urgency` compute reads
+  // the source LEVEL (`settledFinished`), which does not itself subscribe. The
+  // returned disposer tears the source down directly, so this subscription's
+  // unsubscribe is not load-bearing for cleanup.
+  src.subscribe(() => {});
 
   return {
     settledFinished: () => src.value.value ?? EMPTY,
-    dispose: () => keepAlive(),
+    // Tear the source down directly — `dispose()` clears listeners and runs
+    // teardown unconditionally, so the gate's cleanup no longer depends on the
+    // keep-alive being the source's sole subscriber.
+    dispose: () => src.dispose(),
   };
 }
