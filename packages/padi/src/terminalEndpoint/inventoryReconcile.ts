@@ -225,4 +225,3 @@ const isTrackedById = (id: TerminalId): boolean =>
  *  it FAILS CLOSED through the shared policy: kill the unrepresentable PTY, the
  *  same kolu's-domain-cannot-hold-this answer the boot reconcile gives. */
 const onInvalidId = (rawId: string): void => reapUnrepresentablePty(rawId);
-

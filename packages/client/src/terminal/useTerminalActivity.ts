@@ -47,6 +47,41 @@ export function activityFrameDiff(
   return { adds, removes };
 }
 
+/** One host's activity-frame reducer — owns the previous live set as a PLAIN
+ *  snapshot and diffs each incoming frame against it, invoking
+ *  `onChange(adds, removes)` only when the set actually changes.
+ *
+ *  It SNAPSHOTS every frame (`[...frame]`) before storing it as `prev`, which is
+ *  the sticky-live fence: the wire hands `.use()` a Solid `reconcile` proxy that
+ *  mutates in place across ticks, so retaining that value directly as `prev`
+ *  would let a later live→empty reconcile mutate `prev` underfoot — removals
+ *  would never apply and every once-live id would stick true. Owning the
+ *  snapshot HERE (not at the call site) makes the footgun unspellable by a caller
+ *  AND makes the fence unit-testable without any wire. */
+export function createActivityFrameReducer(
+  onChange: (adds: TerminalId[], removes: TerminalId[]) => void,
+): {
+  apply: (frame: readonly TerminalId[]) => void;
+  drain: () => TerminalId[];
+} {
+  let prev: TerminalId[] = [];
+  return {
+    apply(frame) {
+      const next = [...frame];
+      const { adds, removes } = activityFrameDiff(prev, next);
+      if (adds.length > 0 || removes.length > 0) onChange(adds, removes);
+      prev = next;
+    },
+    // Return the still-live ids and clear — the caller drops them from the store
+    // when the host leaves the pool so no dead key lingers.
+    drain() {
+      const held = prev;
+      prev = [];
+      return held;
+    },
+  };
+}
+
 export const useTerminalActivity = createSharedRoot(() => {
   // createStore for per-terminal fine-grained reactivity: setting one
   // terminal's flag wakes only the dots reading that terminal, not every row.
@@ -67,33 +102,29 @@ export const useTerminalActivity = createSharedRoot(() => {
       // collections take one), so the use-site needs no error options. Each frame
       // is the full current live set for THIS host.
       const sub = entry.streams.activity.use(() => ({}));
-      // This host's previous live set as a PLAIN array (never the store proxy
-      // `sub()` returns — writeWrappedValue reconciles into that proxy in place,
-      // so storing it as `prev` would mutate underfoot and leave every once-live
-      // id stuck true).
-      let prev: TerminalId[] = [];
-      createEffect(() => {
-        // Snapshot to a plain array before set-diff (see comment on `prev`).
-        const frame = [...(sub() ?? [])];
-        const { adds, removes } = activityFrameDiff(prev, frame);
-        if (adds.length > 0 || removes.length > 0) {
+      // The reducer owns this host's previous live set as a plain snapshot, so
+      // feeding it the store proxy `sub()` returns is safe — it copies before
+      // diffing (the sticky-live fence lives inside `apply`, not at this call
+      // site).
+      const reduce = createActivityFrameReducer((adds, removes) =>
+        setLive(
+          produce((s) => {
+            for (const id of adds) s[id] = true;
+            for (const id of removes) delete s[id];
+          }),
+        ),
+      );
+      createEffect(() => reduce.apply(sub() ?? []));
+      onCleanup(() => {
+        // Host left the pool — drop all of its live flags so no dead key lingers.
+        const held = reduce.drain();
+        if (held.length > 0) {
           setLive(
             produce((s) => {
-              for (const id of adds) s[id] = true;
-              for (const id of removes) delete s[id];
+              for (const id of held) delete s[id];
             }),
           );
         }
-        prev = frame;
-      });
-      onCleanup(() => {
-        // Host left the pool — drop all of its live flags so no dead key lingers.
-        setLive(
-          produce((s) => {
-            for (const id of prev) delete s[id];
-          }),
-        );
-        prev = [];
       });
       return null;
     },

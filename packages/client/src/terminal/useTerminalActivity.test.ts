@@ -8,7 +8,10 @@
 
 import { describe, expect, it } from "vitest";
 import type { TerminalId } from "kolu-common/surface";
-import { activityFrameDiff } from "./useTerminalActivity";
+import {
+  activityFrameDiff,
+  createActivityFrameReducer,
+} from "./useTerminalActivity";
 
 const A = "t-a" as TerminalId;
 const B = "t-b" as TerminalId;
@@ -40,5 +43,45 @@ describe("activityFrameDiff", () => {
       adds: [],
       removes: [],
     });
+  });
+});
+
+describe("createActivityFrameReducer", () => {
+  it("clears a live id when its host frame goes empty (live → empty → not live)", () => {
+    const live: Record<string, boolean> = {};
+    const reduce = createActivityFrameReducer((adds, removes) => {
+      for (const id of adds) live[id] = true;
+      for (const id of removes) delete live[id];
+    });
+    reduce.apply([A]);
+    expect(live[A]).toBe(true);
+    reduce.apply([]);
+    expect(live[A]).toBeUndefined();
+  });
+
+  it("snapshots each frame so an in-place-mutated (reconcile-proxy) accessor can't strand a live id", () => {
+    const live: Record<string, boolean> = {};
+    const reduce = createActivityFrameReducer((adds, removes) => {
+      for (const id of adds) live[id] = true;
+      for (const id of removes) delete live[id];
+    });
+    // Simulate the wire's `reconcile` proxy: ONE array reused across ticks,
+    // mutated in place from [A] to [] rather than replaced. If the reducer
+    // retained this reference as `prev` instead of snapshotting it, the
+    // live → empty diff would see `prev` already empty and never emit the
+    // removal — the historical sticky-live bug.
+    const frame: TerminalId[] = [A];
+    reduce.apply(frame);
+    expect(live[A]).toBe(true);
+    frame.length = 0; // in-place live → empty reconcile
+    reduce.apply(frame);
+    expect(live[A]).toBeUndefined();
+  });
+
+  it("drain returns the still-live ids once, then is empty", () => {
+    const reduce = createActivityFrameReducer(() => {});
+    reduce.apply([A, B]);
+    expect([...reduce.drain()].sort()).toEqual([A, B].sort());
+    expect(reduce.drain()).toEqual([]);
   });
 });
