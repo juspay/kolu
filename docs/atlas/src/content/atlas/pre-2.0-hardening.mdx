@@ -28,9 +28,7 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 | | Issue | What the user feels |
 | --- | --- | --- |
-| ⬜ | <Issue n={1658} /> | A bad write could **lose all your terminals and sessions** — back up state on start. |
-| 🔶 | <Issue n={1667} /> | Closing the last terminals can **focus a dead one**. Fix PR #1677 open; its merge conflicts are being resolved (dispatched 2026-07-21). |
-| ⬜ | <Issue n={1666} /> | Removing a worktree **strands its running terminal**. |
+| ✅ | <Issue n={1667} /> | ~~Closing the last terminals can **focus a dead one**~~ — focus clamps past all departing tiles. (PR #1677) |
 | ⬜ | <Issue n={1680} /> | On a remote mac, agent state **freezes silently** until restart. |
 | ⬜ | <Issue n={1076} /> | A terminal is left **frozen** (raw mode) after a TUI app exits. |
 | ⬜ | <Issue n={1875} /> | A reconnect race can **dial the same host twice**. |
@@ -59,7 +57,9 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 ## Deferred past 2.0
 
-Features (<Issue n={1240} />, <Issue n={1218} />, <Issue n={1295} />) · render
+Cut at the 2026-07-22 triage, closed not-planned (<Issue n={1658} /> state
+backup on start · <Issue n={1666} /> worktree-remove strands a terminal) ·
+features (<Issue n={1240} />, <Issue n={1218} />, <Issue n={1295} />) · render
 polish (<Issue n={1305} /> / <Issue n={1306} />) · no-current-victim ledgers
 (<Issue n={1688} />, <Issue n={1863} />) · <Issue n={706} /> full containment
 (needs a VM) · the campaign-surface build-out.
