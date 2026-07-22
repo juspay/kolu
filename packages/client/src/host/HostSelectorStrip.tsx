@@ -143,11 +143,11 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
-  // Both host-tab attention marks read the ONE cross-host store `useAttention`
-  // publishes: the amber "asking" pill and the quiet "finished, unseen" dot. Neither
-  // is the raw urgency count (a finished agent idles in `waiting` forever).
-  // Both marks from the ONE store, bundled once (the host is fixed for this chip's
-  // lifetime, so its key is encoded a single time).
+  // Both host-tab attention marks — the amber "asking" pill and the quiet
+  // "finished, unseen" dot — read from the ONE cross-host store `useAttention`
+  // publishes (neither is the raw urgency count: a finished agent idles in
+  // `waiting` forever). Bundled once; the host is fixed for this chip's lifetime,
+  // so its key is encoded a single time.
   const marks = hostMarks(encodeHostKey(props.host));
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
@@ -225,7 +225,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
            *  — shown only on a host you are NOT currently viewing, so switching to a
            *  host clears it; it answers "which host did that finish sound come from"
            *  without inflating the loud asking count. */}
-          <HostAwaitingPill count={marks.asking()} sizeClass="min-w-4 px-1 h-4" />
+          <HostAwaitingPill
+            count={marks.asking()}
+            sizeClass="min-w-4 px-1 h-4"
+          />
           <HostFinishedDot
             count={marks.unseenFinished()}
             active={isActive()}
