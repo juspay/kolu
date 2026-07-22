@@ -43,7 +43,7 @@ import {
 } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
-import { hostAsking, hostUnseenFinished } from "../attention/attentionMarks";
+import { hostMarks } from "../attention/attentionMarks";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
@@ -61,10 +61,8 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
-  // The host is fixed for this chip's lifetime — encode the key ONCE.
-  const key = encodeHostKey(props.host);
-  const awaiting = () => hostAsking(key);
-  const unseenFinished = () => hostUnseenFinished(key);
+  // Both marks from the ONE store, bundled once (the host is fixed for this chip).
+  const marks = hostMarks(encodeHostKey(props.host));
 
   return (
     <button
@@ -122,11 +120,12 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       {/* Unread pill — the shared `HostAwaitingPill` (roomier mobile sizing),
        *  the same token the desktop chip and switcher row render, hidden at
        *  zero. */}
-      <HostAwaitingPill count={awaiting()} sizeClass="h-5 min-w-5 px-1.5" />
+      <HostAwaitingPill count={marks.asking()} sizeClass="h-5 min-w-5 px-1.5" />
       {/* Quiet finished-work dot — the same shared cue, so a phone user sees which
        *  background host finished (suppressed on the active host). */}
       <HostFinishedDot
-        count={isActive() ? 0 : unseenFinished()}
+        count={marks.unseenFinished()}
+        active={isActive()}
         hostLabel={hostLabel(props.host)}
         sizeClass="h-2 w-2"
       />

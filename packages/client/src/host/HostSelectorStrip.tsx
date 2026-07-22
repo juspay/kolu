@@ -95,7 +95,7 @@ import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { hostAsking, hostUnseenFinished } from "../attention/attentionMarks";
+import { hostMarks } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
@@ -146,11 +146,9 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // Both host-tab attention marks read the ONE cross-host store `useAttention`
   // publishes: the amber "asking" pill and the quiet "finished, unseen" dot. Neither
   // is the raw urgency count (a finished agent idles in `waiting` forever).
-  // The host is fixed for this chip's lifetime, so encode its key ONCE rather than
-  // re-encoding on every reactive read of either mark.
-  const key = encodeHostKey(props.host);
-  const awaiting = () => hostAsking(key);
-  const unseenFinished = () => hostUnseenFinished(key);
+  // Both marks from the ONE store, bundled once (the host is fixed for this chip's
+  // lifetime, so its key is encoded a single time).
+  const marks = hostMarks(encodeHostKey(props.host));
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -227,9 +225,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
            *  — shown only on a host you are NOT currently viewing, so switching to a
            *  host clears it; it answers "which host did that finish sound come from"
            *  without inflating the loud asking count. */}
-          <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
+          <HostAwaitingPill count={marks.asking()} sizeClass="min-w-4 px-1 h-4" />
           <HostFinishedDot
-            count={isActive() ? 0 : unseenFinished()}
+            count={marks.unseenFinished()}
+            active={isActive()}
             hostLabel={hostLabel(props.host)}
             sizeClass="ml-0.5 h-1.5 w-1.5"
           />
@@ -275,8 +274,7 @@ const HostSwitcherRow: Component<{
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
-  const awaiting = () => hostAsking(props.hostKey);
-  const unseenFinished = () => hostUnseenFinished(props.hostKey);
+  const marks = hostMarks(props.hostKey);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
     props.onPicked();
@@ -332,11 +330,12 @@ const HostSwitcherRow: Component<{
             {statusLabel(host)}
           </span>
         </span>
-        <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
+        <HostAwaitingPill count={marks.asking()} sizeClass="min-w-4 px-1 h-4" />
         {/* The quieter finished-work tier — the shared dot, so the cue survives the
             overflow picker (suppressed on the active host you're already viewing). */}
         <HostFinishedDot
-          count={isActive() ? 0 : unseenFinished()}
+          count={marks.unseenFinished()}
+          active={isActive()}
           hostLabel={hostLabel(host)}
           sizeClass="h-1.5 w-1.5"
         />

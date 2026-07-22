@@ -115,28 +115,39 @@ export function useAttention(deps: AttentionDeps): {
 
   /** Actually reach the user for one terminal: sound + OS popup, plus the dock
    *  unread when it's an active-host background tile. The `WHEN` gate lives in the
-   *  engine; this is the delivery, shared with the simulate hook. */
+   *  engine; this is the delivery, shared with the simulate hook.
+   *
+   *  The FUNNEL GUARD: both emission paths (the engine's `hooks.deliver`, fired
+   *  from a per-host `createEffect`, and `simulateAlert`) run through here, and the
+   *  body calls caller-supplied deps (`activeSubject`, `markUnread`). A throw from
+   *  one of those must NOT escape — from the engine path it would kill that host's
+   *  attention effect for the rest of its life; from simulate it would throw out of
+   *  a command action. Surface it and move on. */
   function deliver(host: HostKey, id: TerminalId, asking: boolean): void {
-    playSound();
-    const encHost = encodeHostKey(host);
-    const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
-    const title = rich
-      ? asking
-        ? `${rich.title} needs your input`
-        : `${rich.title} finished`
-      : asking
-        ? `An agent needs your input on ${hostLabel(host)}`
-        : `An agent finished on ${hostLabel(host)}`;
-    void notify.show({
-      tag: `${encHost}/${id}`,
-      title,
-      body: rich?.description,
-      icon: "/favicon.svg",
-      data: { kind: "terminal", host: encHost, terminalId: id },
-    });
-    // `rich` is non-undefined iff this is the active host, so reuse it rather than
-    // a second `sameHost` compare — the dock unread is an active-host background tile.
-    if (rich && id !== deps.activeId()) deps.markUnread(id);
+    try {
+      playSound();
+      const encHost = encodeHostKey(host);
+      const rich = isActiveHost(host) ? deps.activeSubject(id) : undefined;
+      const title = rich
+        ? asking
+          ? `${rich.title} needs your input`
+          : `${rich.title} finished`
+        : asking
+          ? `An agent needs your input on ${hostLabel(host)}`
+          : `An agent finished on ${hostLabel(host)}`;
+      void notify.show({
+        tag: `${encHost}/${id}`,
+        title,
+        body: rich?.description,
+        icon: "/favicon.svg",
+        data: { kind: "terminal", host: encHost, terminalId: id },
+      });
+      // `rich` is non-undefined iff this is the active host, so reuse it rather than
+      // a second `sameHost` compare — the dock unread is an active-host background tile.
+      if (rich && id !== deps.activeId()) deps.markUnread(id);
+    } catch (err) {
+      console.error("useAttention: attention delivery failed", err);
+    }
   }
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns

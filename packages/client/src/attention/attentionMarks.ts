@@ -57,6 +57,20 @@ export function hostUnseenFinished(encHost: string): number {
   return marks[encHost]?.unseenFinished ?? 0;
 }
 
+/** Both of a host's chip marks as reactive accessors in one call — the amber
+ *  asking pill and the quiet unseen-finished dot — so a chip reads them from ONE
+ *  place instead of re-deriving each per render site (the desktop chip, the narrow
+ *  switcher row, and the mobile chip all bundle from here). */
+export function hostMarks(encHost: string): {
+  asking: () => number;
+  unseenFinished: () => number;
+} {
+  return {
+    asking: () => hostAsking(encHost),
+    unseenFinished: () => hostUnseenFinished(encHost),
+  };
+}
+
 /** The app-badge fold: Σ `asking` over LIVE hosts — read reactively inside the
  *  badge effect. A dead host's held count never inflates it. */
 export function liveAskingTotal(): number {
