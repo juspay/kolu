@@ -4,7 +4,7 @@ description: "Architectural wire: Xyne Spaces ↔ pesu ↔ padi/kaval — one th
 parents: [feature, comparison]
 status: proposed
 maturity: seedling
-updated: 2026-07-21
+updated: 2026-07-22
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -315,6 +315,39 @@ Ack + deep link into kolu. Replies still read in kolu (CT1+CH1) until PE1.
 
 **Done when:** phone → XS → agent is running on your machine; you can continue
 in the Inspector conversation.
+
+#### Prior art — PR #1810 (do not merge; port the leaf)
+
+An earlier draft PR — [#1810](https://github.com/juspay/kolu/pull/1810)
+(`pesu-b0`) — implemented the **old** B0: one XS thread bound to an **existing
+coordinator** (resolve terminal **by title**), FIFO write floor, attributed
+paste drive loop, growing reply via loaders + `updateMessage`. That product
+shape is **superseded** by this note (thread ↔ **one new terminal**,
+create-on-miss; CT1+CH1 first). **Do not merge #1810 onto master.** Open a
+**new** PE0 PR and **port** what still applies.
+
+| Port into PE0 (XS leaf) | Why it still fits |
+| --- | --- |
+| `webhook.ts` + HMAC tests | Same XS events (`APP_MENTIONED` / `DIRECT_MESSAGE`); constant-time verify; 200-then-async |
+| `xyneApi.ts` + fake XS tests | `postMessage` / `updateMessage` / `user/info` (and later PE1/PE2) |
+| `config.ts` fail-fast env | Crashes if secrets / base URL / allowlist absent — no defaults |
+| `log.ts` (pino + Hono access log) | Always-on visibility; secrets never logged |
+| Author allowlist + visible decline | Same single-operator v1 gate (never silence) |
+| `nix run .#pesu` packaging | Deploy shell for the daemon |
+
+| Leave behind (wrong model) | Why |
+| --- | --- |
+| `coordinator.ts` — title lookup + drive loop | PE0 does **not** bind a pre-existing coordinator; it **creates** a terminal |
+| “One thread → the campaign orchestrator” | One thread → one agent terminal; no multi-worker door |
+| FIFO inbox as the product | Optional later if concurrent webhooks hurt; not the core bind |
+| Growing-reply as B0’s main outbound | Outbound is **PE1** (`transcriptChat` → post); PE0 is inbound + ack |
+| Atlas B0 text / roadmap on that branch | This note is the plan of record |
+
+**Implement PE0 as:** webhook → author gate → bind miss ⇒ `lifecycle.create` +
+agent launch + store `conversationId → { terminalId, authorUserId }` →
+`sendInput` user text → ack `postMessage` (+ deep link). Dial padi like
+`padi-tui` (`@kolu/padi/dial`), not kolu-server. Cherry-pick or copy the
+salvage rows above; rewrite binds/turns for create-on-miss.
 
 <a id="pe1"></a>
 
