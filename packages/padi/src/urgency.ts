@@ -15,10 +15,10 @@
  * `agent: null` and contributes 0.
  *
  * **Effective finish (EF2):** `finishedIds` is not raw `waiting` — a waiting
- * agent is finished only when the finish tracker's quiet window has closed
- * (`!isFinishLive(id)`). `awaiting_user` stays ungated. The tracker feed
- * (enter-waiting noteOutput, edges, restamp) lives in `finishQuiet.ts`; this
- * fold stays pure over `(terminals, isFinishLive)`.
+ * agent is finished when the finish-quiet episode predicate says so
+ * (`isEpisodeFinished`: first quiet-crossing sticky until leave-waiting).
+ * `awaiting_user` stays ungated. The tracker + sticky live in `finishQuiet.ts`;
+ * this fold stays pure over `(terminals, isEpisodeFinished)`.
  */
 
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
@@ -27,17 +27,18 @@ import type { PadiTerminal, PadiUrgency } from "./surface.ts";
 
 /** Fold the composed `terminals` collection into the urgency projection — the
  *  ids of terminals whose agent is awaiting the user (`awaiting_user`), and of
- *  terminals that have effectively finished (`waiting` ∧ quiet). Takes the
- *  collection as its argument (`$.terminals()`), so it reads exactly what the
- *  wire serves and the reactive graph tracks the dependency. Recency-free by
+ *  terminals that have effectively finished (`waiting` ∧ episode-finished). Takes
+ *  the collection as its argument (`$.terminals()`), so it reads exactly what
+ *  the wire serves and the reactive graph tracks the dependency. Recency-free by
  *  design: nothing cross-host ever compares two hosts' clocks.
  *
- *  `isFinishLive(id)` is the finish tracker's live-window predicate (true while
- *  the quiet window is still open). Never-noted ids read false — the feed MUST
- *  `noteOutput` on enter-waiting so default-excluded stays "not finished yet." */
+ *  `isEpisodeFinished(id)` is the sticky-aware finish predicate: true once the
+ *  quiet window has closed for this waiting episode (or boot-seeded). The feed
+ *  must still start a window on *enter*-waiting so a fresh episode does not
+ *  immediate-finish before quiet. */
 export function recomputeUrgency(
   terminals: ReadonlyMap<TerminalId, PadiTerminal>,
-  isFinishLive: (id: TerminalId) => boolean,
+  isEpisodeFinished: (id: TerminalId) => boolean,
 ): PadiUrgency {
   const awaitingIds: TerminalId[] = [];
   const finishedIds: TerminalId[] = [];
@@ -56,10 +57,12 @@ export function recomputeUrgency(
     // The two attention buckets, read through the ONE shared fence: `awaiting`
     // (blocked on you now) and `waiting` (just finished its turn). Both are
     // carried so `useAttention` applies identical rules on every host. Waiting
-    // is gated on effective quiet (EF2); asking is not.
+    // is gated on effective quiet + sticky-per-episode (EF2); asking is not.
     const bucket = agentBucket(agent.state);
     if (bucket === "awaiting") awaitingIds.push(id);
-    else if (bucket === "waiting" && !isFinishLive(id)) finishedIds.push(id);
+    else if (bucket === "waiting" && isEpisodeFinished(id)) {
+      finishedIds.push(id);
+    }
   }
   return { awaitingIds, finishedIds };
 }

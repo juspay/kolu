@@ -1,6 +1,7 @@
 /**
  * Dual-edge pin: quiet-timer expiry re-folds urgency without a terminals write.
  * Production wiring is the same shape as servePadi's derived urgency cell.
+ * Boot seed is sticky-immediate; this tests the *post-boot enter-waiting* path.
  */
 
 import { defineSurface } from "@kolu/surface/define";
@@ -72,6 +73,83 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    // Empty store at wire — first sync bootstraps with no waiting ids so a later
+    // enter-waiting takes the first-finish debounce path (not boot-seed sticky).
+    const store = new Map<TerminalId, PadiTerminal>();
+
+    const surface = defineSurface({
+      collections: {
+        terminals: {
+          keySchema: TerminalIdSchema,
+          schema: PadiTerminalSchema,
+        },
+      },
+      cells: {
+        urgency: {
+          schema: PadiUrgencySchema,
+          default: { awaitingIds: [], finishedIds: [] },
+          equals: urgencyEqual,
+          verbs: ["get"],
+        },
+      },
+    });
+
+    const { ctx } = implementSurface(surface, {
+      collections: {
+        terminals: {
+          readAll: () => store,
+          readOne: (k) => store.get(k),
+          upsert: (k, v) => {
+            store.set(k, v);
+          },
+          remove: (k) => {
+            store.delete(k);
+          },
+          materializeSiblingView: true,
+        },
+      },
+      cells: {
+        urgency: derived.cell(($) => {
+          finish.track();
+          const terminals = $.terminals();
+          finish.syncWaiting(terminals);
+          return recomputeUrgency(terminals, (id) =>
+            finish.isEpisodeFinished(id),
+          );
+        }),
+      },
+    });
+
+    // Boot seed of empty set.
+    expect(ctx.cells.urgency.get()).toEqual({
+      awaitingIds: [],
+      finishedIds: [],
+    });
+
+    // Enter waiting — window open → not finished yet.
+    const terminal = activeTerminal(makeAgent("waiting"));
+    store.set(A, terminal);
+    ctx.collections.terminals.upsert(A, terminal);
+    expect(ctx.cells.urgency.get()).toEqual({
+      awaitingIds: [],
+      finishedIds: [],
+    });
+
+    // Quiet expires — dual-edge must re-fold without another terminals upsert.
+    vi.advanceTimersByTime(QUIET);
+    expect(ctx.cells.urgency.get()).toEqual({
+      awaitingIds: [],
+      finishedIds: [A],
+    });
+    finish.dispose();
+  });
+
+  it("boot seed of already-waiting is immediately finished (no timer)", () => {
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+    });
     const store = new Map<TerminalId, PadiTerminal>();
     store.set(A, activeTerminal(makeAgent("waiting")));
 
@@ -111,19 +189,14 @@ describe("dual-edge urgency (finish quiet generation)", () => {
           finish.track();
           const terminals = $.terminals();
           finish.syncWaiting(terminals);
-          return recomputeUrgency(terminals, (id) => finish.isLive(id));
+          return recomputeUrgency(terminals, (id) =>
+            finish.isEpisodeFinished(id),
+          );
         }),
       },
     });
 
-    // Seed: waiting + window open → not finished.
-    expect(ctx.cells.urgency.get()).toEqual({
-      awaitingIds: [],
-      finishedIds: [],
-    });
-
-    // Quiet expires — dual-edge must re-fold without a terminals upsert.
-    vi.advanceTimersByTime(QUIET);
+    // Discovery at boot — sticky-finished, no quiet debounce.
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [A],

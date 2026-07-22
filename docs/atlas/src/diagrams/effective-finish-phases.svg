@@ -30,7 +30,7 @@
   <text x="56" y="296" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold ✓</text>
   <text x="56" y="316" font-size="12" fill="#15803d">shipped #1947 · 2nd tracker @ ~5s</text>
   <text x="56" y="334" font-size="12" fill="#1a1c20">daemon-lifetime · dual-edge urgency</text>
-  <text x="56" y="352" font-size="11" fill="#15803d">re-chime per quiet-crossing</text>
+  <text x="56" y="352" font-size="11" fill="#15803d">sticky-per-episode finished</text>
 
   <line x1="190" y1="360" x2="190" y2="380" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
 
@@ -61,5 +61,5 @@
   <text x="416" y="364" font-weight="700" fill="#1b7a3a">EF2 · finish tracker ✓ #1947</text>
   <text x="416" y="384" font-size="12" fill="#1a1c20">createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)</text>
   <text x="416" y="402" font-size="12" fill="#1a1c20">noteOutput: enter-waiting · kaval edge · boot seed · resubscribe restamp</text>
-  <text x="416" y="420" font-size="12" fill="#15803d">finished = waiting ∧ !isLive · dual-edge urgency · re-chime per quiet</text>
+  <text x="416" y="420" font-size="12" fill="#15803d">finished = waiting ∧ sticky quiet · dual-edge · no idle re-chime</text>
 </svg>

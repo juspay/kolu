@@ -1,7 +1,7 @@
 /**
- * EF2 finish-quiet feed + fold pins. Exercises the tracker realization without
- * a live kaval (standingSub: false): enter-waiting, edge re-arm, boot seed,
- * resubscribe restamp, leave, and awaiting→waiting demotion.
+ * EF2 finish-quiet feed + fold pins. Exercises sticky-per-episode without a
+ * live kaval (standingSub: false): enter-waiting first-finish debounce, boot
+ * seed → sticky, mid-waiting edges do not un-finish, leave re-arms, demotion.
  */
 
 import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
@@ -69,10 +69,19 @@ function fold(
   terminals: Map<TerminalId, PadiTerminal>,
 ) {
   finish.syncWaiting(terminals);
-  return recomputeUrgency(terminals, (id) => finish.isLive(id));
+  return recomputeUrgency(terminals, (id) => finish.isEpisodeFinished(id));
 }
 
-describe("finishQuiet + recomputeUrgency (EF2)", () => {
+/**
+ * Production-shaped harness: first sync is empty (boot seed of nothing), so a
+ * later enter-waiting exercises the first-finish quiet window rather than the
+ * boot-seed sticky path.
+ */
+function afterBootEmpty(finish: ReturnType<typeof createFinishQuiet>): void {
+  fold(finish, terminalsMap([]));
+}
+
+describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
@@ -82,21 +91,20 @@ describe("finishQuiet + recomputeUrgency (EF2)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    afterBootEmpty(finish);
     const terms = terminalsMap([[A, "waiting"]]);
     // Just entered — window open → not finished yet.
     expect(fold(finish, terms)).toEqual({
       awaitingIds: [],
       finishedIds: [],
     });
-    expect(finish.isLive(A)).toBe(true);
 
     vi.advanceTimersByTime(QUIET);
-    expect(finish.isLive(A)).toBe(false);
-    // Steady re-sync (no re-enter) + pure fold after quiet.
     expect(fold(finish, terms)).toEqual({
       awaitingIds: [],
       finishedIds: [A],
     });
+    expect(finish.stickySnapshot()).toEqual([A]);
     finish.dispose();
   });
 
@@ -106,84 +114,101 @@ describe("finishQuiet + recomputeUrgency (EF2)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    afterBootEmpty(finish);
     const terms = terminalsMap([[A, "waiting"]]);
     fold(finish, terms);
 
     vi.advanceTimersByTime(QUIET - 10);
-    finish.noteEdge(A); // real output mid-window
+    finish.noteEdge(A); // real output mid-window (pre-finish)
     vi.advanceTimersByTime(QUIET - 10);
-    expect(finish.isLive(A)).toBe(true);
     expect(fold(finish, terms).finishedIds).toEqual([]);
 
     vi.advanceTimersByTime(10);
-    expect(finish.isLive(A)).toBe(false);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
     finish.dispose();
   });
 
-  it("boot seed: already-waiting at start → window starts (no transition edge)", () => {
+  it("boot seed: already-waiting at start → immediately sticky-finished (discovery)", () => {
     const finish = createFinishQuiet({
       log: silentLog,
       idleAfterMs: QUIET,
       standingSub: false,
     });
-    // First sync is the boot seed — already-waiting must NOT immediate-finish.
+    // First sync is the boot seed — already-waiting is a discovery, not a
+    // transition: sticky-finished at once (no 5s window, no mass-chime later).
     const terms = terminalsMap([
       [A, "waiting"],
       [B, "thinking"],
     ]);
     expect(fold(finish, terms)).toEqual({
       awaitingIds: [],
-      finishedIds: [],
+      finishedIds: [A],
     });
-    expect(finish.isLive(A)).toBe(true);
+    expect(finish.stickySnapshot()).toEqual([A]);
     expect(finish.waitingSnapshot()).toEqual([A]);
-
-    vi.advanceTimersByTime(QUIET);
-    expect(fold(finish, terms).finishedIds).toEqual([A]);
     finish.dispose();
   });
 
-  it("resubscribe restamp: gap > QUIET while noisy + restamp → not early finish", () => {
+  it("mid-waiting edge after finish does NOT un-finish (sticky-per-episode)", () => {
     const finish = createFinishQuiet({
       log: silentLog,
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    afterBootEmpty(finish);
+    const terms = terminalsMap([[A, "waiting"]]);
+    fold(finish, terms);
+    vi.advanceTimersByTime(QUIET);
+    expect(fold(finish, terms).finishedIds).toEqual([A]);
+
+    // Idle TUI noise / "real" mid-episode output — must stay finished.
+    finish.noteEdge(A);
+    expect(fold(finish, terms).finishedIds).toEqual([A]);
+    vi.advanceTimersByTime(QUIET);
+    expect(fold(finish, terms).finishedIds).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("resubscribe restamp during debounce delays finish; after sticky does not un-finish", () => {
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+    });
+    afterBootEmpty(finish);
     const terms = terminalsMap([[A, "waiting"]]);
     fold(finish, terms);
 
-    // Simulate a recycle gap longer than QUIET with no edges (tracker ages out).
-    vi.advanceTimersByTime(QUIET + 50);
-    expect(finish.isLive(A)).toBe(false);
-    // Without restamp, fold would early-finish while the PTY is still noisy.
+    // Mid-debounce restamp re-opens the window (pre-finish).
+    vi.advanceTimersByTime(QUIET - 10);
+    finish.restampWaiting();
+    vi.advanceTimersByTime(QUIET - 10);
+    expect(fold(finish, terms).finishedIds).toEqual([]);
+    vi.advanceTimersByTime(10);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
 
-    // Successful (re)subscribe restamps all waiting ids → delay, not early finish.
+    // After sticky, restamp must not un-finish (recycle under idle TUI noise).
     finish.restampWaiting();
-    expect(finish.isLive(A)).toBe(true);
-    expect(fold(finish, terms).finishedIds).toEqual([]);
-
-    vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
     finish.dispose();
   });
 
-  it("leave waiting / leave pool → forget; re-entry earns a fresh window", () => {
+  it("leave waiting / leave pool clears sticky; re-entry earns a fresh window", () => {
     const finish = createFinishQuiet({
       log: silentLog,
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    afterBootEmpty(finish);
     fold(finish, terminalsMap([[A, "waiting"]]));
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
       A,
     ]);
 
-    // Leave waiting (back to work) — forget.
+    // Leave waiting (back to work) — sticky cleared.
     fold(finish, terminalsMap([[A, "thinking"]]));
-    expect(finish.isLive(A)).toBe(false);
+    expect(finish.stickySnapshot()).toEqual([]);
     expect(finish.waitingSnapshot()).toEqual([]);
 
     // Re-enter waiting — fresh window, not immediately finished.
@@ -191,7 +216,6 @@ describe("finishQuiet + recomputeUrgency (EF2)", () => {
       awaitingIds: [],
       finishedIds: [],
     });
-    expect(finish.isLive(A)).toBe(true);
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
       A,
@@ -199,50 +223,28 @@ describe("finishQuiet + recomputeUrgency (EF2)", () => {
     finish.dispose();
   });
 
-  it("awaiting_user → waiting demotion restamps the window", () => {
+  it("awaiting_user → waiting demotion starts a quiet window (not sticky yet)", () => {
     const finish = createFinishQuiet({
       log: silentLog,
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    afterBootEmpty(finish);
     // Asking is ungated — no finish membership while awaiting.
     expect(fold(finish, terminalsMap([[A, "awaiting_user"]]))).toEqual({
       awaitingIds: [A],
       finishedIds: [],
     });
-    expect(finish.isLive(A)).toBe(false);
 
     // Demotion to waiting starts a quiet window (enter-waiting noteOutput).
     expect(fold(finish, terminalsMap([[A, "waiting"]]))).toEqual({
       awaitingIds: [],
       finishedIds: [],
     });
-    expect(finish.isLive(A)).toBe(true);
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
       A,
     ]);
-    finish.dispose();
-  });
-
-  it("mid-waiting edge un-finishes then re-quiets (re-chime product path)", () => {
-    const finish = createFinishQuiet({
-      log: silentLog,
-      idleAfterMs: QUIET,
-      standingSub: false,
-    });
-    const terms = terminalsMap([[A, "waiting"]]);
-    fold(finish, terms);
-    vi.advanceTimersByTime(QUIET);
-    expect(fold(finish, terms).finishedIds).toEqual([A]);
-
-    // Real work resumes while still waiting → leave finishedIds.
-    finish.noteEdge(A);
-    expect(fold(finish, terms).finishedIds).toEqual([]);
-
-    // Quiet again → re-enter finishedIds (attention re-chimes on this edge).
-    vi.advanceTimersByTime(QUIET);
-    expect(fold(finish, terms).finishedIds).toEqual([A]);
     finish.dispose();
   });
 });

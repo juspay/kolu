@@ -67,27 +67,36 @@ builds a **second** `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` instance.
 | Live dots (`liveActivity` + client) | `TERMINAL_IDLE_AFTER_MS` (~1s) | `snapshot()` → stream | Per activity-stream subscriber |
 | Effective finish | `EFFECTIVE_FINISH_QUIET_MS` (~5s) | `isLive(id)` | **Daemon-lifetime** (urgency honest with zero watchers) |
 
-### Pure finish fold (mental model ≡ tracker)
+### Pure finish fold (mental model ≡ tracker + sticky)
 
 ```
 finished(id) =
   active ∧ agentBucket = waiting
-  ∧ !finishTracker.isLive(id)
+  ∧ isEpisodeFinished(id)
+
+isEpisodeFinished(id) =
+  sticky.has(id)
+  ∨ (!finishTracker.isLive(id) ∧ sticky.add(id))
 ```
 
-That is **identical** to the stamp form
+The first quiet-crossing is **identical** to the stamp form
 
 ```
 now − max(enteredWaitingAt, lastArrival ?? enteredWaitingAt) ≥ QUIET
 ```
 
-**iff** the tracker is fed:
+**iff** the tracker is fed for the first-finish debounce:
 
-1. **`noteOutput(id)` on enter-waiting** (including boot seed of already-waiting
-   agents, and `awaiting_user` → `waiting` demotion) — without this,
-   never-noted ⇒ `!isLive` ⇒ **immediate** finish (default-excluded inverted);
-2. **`noteOutput(id)` on every kaval activity edge** (while we care about the id);
-3. **`forget(id)`** on leave-waiting and leave-pool.
+1. **`noteOutput(id)` on enter-waiting** (`awaiting_user` → `waiting`, re-entry
+   after leave-work) — without this, never-noted ⇒ `!isLive` ⇒ **immediate**
+   finish (default-excluded inverted);
+2. **`noteOutput(id)` on every kaval activity edge** while not yet sticky
+   (re-arms the window during the debounce);
+3. **`forget(id)` + sticky clear** on leave-waiting and leave-pool.
+
+**Boot seed** is special: already-waiting on first sync goes **straight to sticky**
+(discovery, not a transition). **Sticky** is what stops mid-waiting TUI noise from
+un-finishing after the first quiet-crossing.
 
 **ASKING** (`awaiting_user`) stays **ungated** — never gated on quiet.
 
@@ -136,28 +145,38 @@ graph inputs.
 Optional **shared fan-out** of the kaval activity stream (one sub, many
 consumers) can wait for **EF3**; the **standing** finish sub is **EF2-required**.
 
-### Un-finish and re-chime (product decision)
+### Sticky-per-episode (product decision — field-corrected)
 
 Client attention treats “left both `awaitingIds` and `finishedIds`” as episode
 end and **clears the fire-once latch**
 (<Cite file="packages/client/src/attention/attentionTransitions.ts" /> /
-<Cite file="packages/client/src/attention/attentionCore.ts" />). Under EF2, a
-mid-waiting **real** edge drops the id from `finishedIds` while the agent stays
-`waiting` → latch clears → later re-quiet → re-enter `finishedIds` → **fresh
-chime**.
+<Cite file="packages/client/src/attention/attentionCore.ts" />). So if the server
+*un-finishes* while the agent stays `waiting`, the latch clears and a later
+re-quiet re-chimes.
 
-**Chosen semantics: re-chime per quiet-crossing** within a waiting episode —
-correct for background sub-agents that truly stop, resume, stop again. Not the
-same as visit/resize re-chime (resize must not move the kaval edge after EF1).
+**Chosen semantics: sticky-per-episode.** Once a waiting id crosses quiet and
+enters `finishedIds`, it **stays** finished until it leaves the waiting bucket
+(agent runs again / asks / leaves pool). Mid-waiting edges (including idle TUI
+statusline/clock/context ticks that pass kaval’s resize-only mute) **do not**
+un-finish.
 
-**Pin in attention unit tests** (engine `observe` path, not simulate):
+Earlier plan chose re-chime-per-quiet-crossing under the assumption that idle
+terminals are byte-quiet. **Field falsified that** — every idle agent TUI that
+repaints on an interval &gt; ~5s flapped `finishedIds` forever on every host.
+Sticky kills the flap for every noise source (including resubscribe restamp after
+the first quiet-crossing). The first-finish ~5s debounce is untouched.
 
-- finishedIds leave then re-enter while still waiting → second finished
-  candidate / deliver;
-- resize-class edge does not un-finish (kaval mute; fold test).
+**Boot seed:** already-waiting ids on first `syncWaiting` go **straight to sticky
+finished** (discovery is not a transition — matches the client baseline and
+pre-EF2 master; avoids mass chime on padi restart under a connected client).
 
-Sticky-once-per-episode is **rejected** for the plan of record (quieter UX, lies
-about a second real stop).
+**Pin in unit tests:**
+
+- mid-waiting edge after finish does **not** un-finish (fold / tracker);
+- boot seed already-waiting → immediately finished (no debounce window);
+- steady finishedIds while waiting → no re-deliver; leave-both-sets re-arms
+  (attention engine `observe`);
+- resize-class edge does not start an episode (kaval mute; EF1).
 
 ### Live activity (EF1 — shipped)
 
@@ -228,21 +247,24 @@ Finish policy (`finishedIds`) was deliberately **not** changed here — that is 
 <Callout kind="note" title="ELI15">
 When the agent says “I’m done,” wait until the terminal has been actually quiet
 for a few seconds before the “finished” ping. Background work still typing keeps
-you waiting. If work starts again and then goes quiet again, you get another ping.
-Reuses EF1’s doorbell and timer type — a longer quiet window — not a new wiretap
-and not a second stamp machine.
+you waiting. Once finished, idle TUI noise (statusline ticks) does **not** un-finish
+and re-chime — finished sticks until the agent truly runs again. Reuses EF1’s
+doorbell and timer type — a longer quiet window — not a new wiretap and not a
+second stamp machine.
 </Callout>
 
-**Shipped in <PrLink pr={1947} />** — tracker realization, not stamps + deadline:
+**Shipped in <PrLink pr={1947} />** — tracker realization, not stamps + deadline;
+product corrected to sticky-per-episode after field flap:
 
 | Piece | What |
 | --- | --- |
 | Tracker | `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` (~5s) — second instance of the EF1 leaf <Cite file="packages/padi/src/terminalActivityTracker.ts" /> via <Cite file="packages/padi/src/finishQuiet.ts" /> |
-| Feed | `noteOutput` on: enter-waiting (incl. `awaiting`→`waiting`); every kaval activity edge; **boot seed** of already-waiting ids; **all waiting ids on (re)subscribe** |
-| Evict | `forget(id)` on leave-waiting and leave-pool |
-| Fold | `finishedIds` = active waiting ids with `!finishTracker.isLive(id)`; asking ungated — <Cite file="packages/padi/src/urgency.ts" /> |
-| Graph | Daemon-lifetime standing kaval `resubscribeStream` + reactor push source on `onChange`; dual-edge `derived.cell` (`finish.track()` + `$.terminals()`) in <Cite file="packages/padi/src/servePadi.ts" /> |
-| Product | **Re-chime per quiet-crossing** while still waiting (not sticky-once-per-episode) — attention engine test |
+| Feed | `noteOutput` on enter-waiting (`awaiting`→`waiting`, re-entry); every kaval edge (pre-finish debounce); **resubscribe restamp** of not-yet-sticky waiting ids |
+| Boot | already-waiting on first sync → **sticky finished immediately** (discovery) |
+| Evict | `forget` + sticky-clear on leave-waiting / leave-pool |
+| Fold | `finishedIds` = active waiting ∧ `isEpisodeFinished(id)` (sticky memoize) — <Cite file="packages/padi/src/urgency.ts" />; asking ungated |
+| Graph | Daemon-lifetime standing kaval `resubscribeStream` + reactor push source on `onChange`; dual-edge `derived.cell` in <Cite file="packages/padi/src/servePadi.ts" /> |
+| Product | **Sticky-per-episode** — once quiet-crossed, stay finished until leave waiting |
 
 #### Tests shipped
 
@@ -250,12 +272,13 @@ and not a second stamp machine.
 | --- | --- |
 | Enter waiting + quiet ≥ QUIET → in `finishedIds` | fold / tracker |
 | Edge mid-window resets; not finished until QUIET after last edge | fold / tracker |
-| Boot seed: already-waiting at start → window starts (no transition edge) | fold / tracker |
-| Resubscribe restamp: gap > QUIET while noisy + restamp → **not** early finish | fold / tracker |
-| Leave waiting / leave pool → `forget`; re-entry earns a fresh window | fold / tracker |
-| `awaiting_user` → `waiting` demotion restamps window | fold / tracker |
+| Boot seed: already-waiting → **immediately** sticky-finished | fold / tracker |
+| Mid-waiting edge after finish does **not** un-finish | fold / tracker |
+| Resubscribe restamp pre-finish delays; post-sticky does not un-finish | fold / tracker |
+| Leave waiting / leave pool clears sticky; re-entry earns a fresh window | fold / tracker |
+| `awaiting_user` → `waiting` demotion starts window | fold / tracker |
 | Quiet timer expiry re-folds without a terminals write | dual-edge integration |
-| FinishedIds leave then re-enter while still waiting → **second** finished deliver | attention engine (`observe`, not simulate) |
+| Steady finishedIds while waiting → no re-deliver; leave-both re-arms | attention engine (`observe`) |
 
 Resize-class mute remains kaval EF1 (`shouldEmitActivityEdge`); no second mute in the finish fold.
 
@@ -270,7 +293,7 @@ the product chose, and docs that match the app.
 </Callout>
 
 - Shared padi fan-out of kaval `activity` if finish + liveActivity still double-subscribe.
-- e2e or scripted: agent finish → chime; real mid-episode work → un-finish → re-quiet → re-chime (if the product decision is still re-chime-per-quiet); visit → no chime from resize.
+- e2e or scripted: agent finish → chime after quiet; mid-waiting TUI noise → **no** second chime; leave-waiting → work → finish again → one chime; visit → no chime from resize; padi restart under connected client → no mass chime for already-waiting.
 - Product docs + changelog once the *user* story is true end-to-end.
 - Point [agent attention](agent-attention.html) at shipped behaviour.
 
@@ -284,17 +307,11 @@ the product chose, and docs that match the app.
 | Absolute kaval time for the fold | Breaks recency-free / invites cross-host compare |
 | Hand-rolled stamp maps + deadline instead of second ActivityTracker | Re-derives shipped EF1 machinery |
 | Standing finish sub only while someone watches `activity` | Urgency lies with zero stream subscribers |
-| Assume “late only delays” without resubscribe restamp | Lost edges → **early** finish during recycle gap |
-| Ship EF2 without defining re-chime vs sticky flap | Client latch clears when finishedIds alone drops |
+| Assume “late only delays” without resubscribe restamp | Lost edges during debounce → **early** finish |
+| Assume idle terminals are byte-quiet (re-chime-per-quiet) | Idle TUI statuslines flap finishedIds forever — field bug; sticky-per-episode is the plan of record |
+| Strengthen kaval “meaningful” to kill idle ticks | Heuristic whack-a-mole at the wrong layer; quiet policy is consumer-side |
 | Delete client activity tests in the mirror cutover | Sticky-live shipped silent |
 | Call the pure fold a “gate v2” and claim deletion | Reviewers cannot tell the machine is gone |
-
-## Minimal hotfix (only if on fire)
-
-If premature finish must land before EF2: a **sticky-per-waiting-episode**
-finished membership (bytes cannot eject until leave-waiting) weakens “resume
-after long pause” and is **not** the plan of record — stopgap only, then still
-run EF2 as above.
 
 ## Checklist per PR
 
@@ -302,7 +319,7 @@ run EF2 as above.
 | --- | --- |
 | **EF0** | ✓ done — #1938 closed; plan <PrLink pr={1944} /> |
 | **EF1** | ✓ done — <PrLink pr={1945} /> activity cutover (kaval + padi + client; no dual path) |
-| **EF2** | ✓ done — <PrLink pr={1947} /> second tracker @ `EFFECTIVE_FINISH_QUIET_MS`; feeds + restamp; dual-edge urgency; fold + attention re-chime tests |
+| **EF2** | ✓ done — <PrLink pr={1947} /> second tracker @ `EFFECTIVE_FINISH_QUIET_MS`; sticky-per-episode; boot-seed sticky; dual-edge urgency; fold + attention tests |
 | **EF3** | shared fan-out and/or e2e; docs polish |
 
 ## Relation to attention
@@ -310,5 +327,5 @@ run EF2 as above.
 [Agent Attention](agent-attention.html) owns the **rules** (fire once, seen,
 host-tab, dock). This note owns (1) **one activity fact** end-to-end and (2) the
 **truth of finished** before those rules run. After EF1, live dots tell the truth
-about output; after EF2, `finishedIds` means effective quiet, with re-chime on
-each real quiet-crossing while still waiting.
+about output; after EF2, `finishedIds` means effective quiet **sticky for the
+waiting episode** — first quiet-crossing sticks until leave-waiting.

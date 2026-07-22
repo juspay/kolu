@@ -246,14 +246,17 @@ export function buildPadiSurfaceDeps(deps: {
       // dual-edged with the finish-quiet generation (`finish.track()`): urgency
       // recomputes when a terminals upsert/remove fires OR when the multi-second
       // quiet timer expires (no agent-state change needed). The enter/leave-waiting
-      // feed (`syncWaiting`) runs before the pure fold so never-noted cannot
-      // immediate-finish. Spec `equals` (`urgencyEqual`) is the ONE wire dedup
-      // point. No `store`/`equals` here — the graph is the one writer.
+      // feed (`syncWaiting`) runs before the pure fold so a fresh episode cannot
+      // immediate-finish before quiet; sticky-finished ids stay finished through
+      // mid-waiting TUI noise. Spec `equals` (`urgencyEqual`) is the ONE wire
+      // dedup point. No `store`/`equals` here — the graph is the one writer.
       urgency: derived.cell(($) => {
         finish.track();
         const terminals = $.terminals();
         finish.syncWaiting(terminals);
-        return recomputeUrgency(terminals, (id) => finish.isLive(id));
+        return recomputeUrgency(terminals, (id) =>
+          finish.isEpisodeFinished(id),
+        );
       }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here

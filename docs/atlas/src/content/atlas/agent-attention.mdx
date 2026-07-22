@@ -115,10 +115,10 @@ now pings and shows a quiet host-tab mark, exactly like the active host's. The
 
 ## Honest “finished” (EF2)
 
-`finishedIds` is **effective quiet**: active + agent `waiting` + no meaningful
-output for ~5s (`EFFECTIVE_FINISH_QUIET_MS`). Background sub-agents still typing
-hold the finished chime; real mid-lull work then re-quiet re-chimes (product:
-re-chime per quiet-crossing). Live dots and finish both ride kaval's
-resize-aware activity edge — track **EF** in
-[Effective Finish — Quiet Chronology, Phased](effective-finish.html)
+`finishedIds` is **effective quiet, sticky per waiting episode**: active + agent
+`waiting` + first quiet-crossing (~5s with no meaningful output), then held until
+the agent leaves `waiting`. Background sub-agents still typing hold the finished
+chime; idle TUI statusline ticks after finish do **not** un-finish and re-chime.
+Live dots and finish both ride kaval's resize-aware activity edge — track **EF**
+in [Effective Finish — Quiet Chronology, Phased](effective-finish.html)
 (<PrLink pr={1945} /> EF1, <PrLink pr={1947} /> EF2).

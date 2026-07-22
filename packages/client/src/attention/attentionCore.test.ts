@@ -73,16 +73,19 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     ]);
   });
 
-  it("EF2 re-chime: finishedIds leave then re-enter while still waiting → second finished deliver", () => {
-    // Product decision: re-chime per quiet-crossing within a waiting episode.
-    // Mid-waiting real output drops the id from finishedIds (latch clears via
-    // `ended`) while the agent stays waiting; later re-quiet re-enters
-    // finishedIds and must deliver a second finished chime. Not sticky-once.
+  it("EF2 sticky: steady finishedIds while waiting does not re-deliver", () => {
+    // Product decision (field-corrected): sticky-per-episode on the server —
+    // finishedIds stays set for the whole waiting episode, so mid-waiting TUI
+    // noise never un-finishes. The client must not re-fire on steady finished
+    // frames; only leave-both-sets (back to work) re-arms for a later finish.
     const { core, delivered } = harness();
     core.observe("h", u([], [])); // baseline — working
-    core.observe("h", u([], ["B"])); // first quiet-crossing → fire
-    core.observe("h", u([], [])); // un-finish (mid-episode edge; still waiting at agent layer)
-    core.observe("h", u([], ["B"])); // second quiet-crossing → fire again
+    core.observe("h", u([], ["B"])); // first finish → fire once
+    core.observe("h", u([], ["B"])); // steady (server sticky; noise while waiting)
+    core.observe("h", u([], ["B"])); // still finished
+    expect(delivered).toEqual([{ id: "B", asking: false }]);
+    core.observe("h", u([], [])); // back to work — episode end, latch clears
+    core.observe("h", u([], ["B"])); // new episode → fire again
     expect(delivered).toEqual([
       { id: "B", asking: false },
       { id: "B", asking: false },
