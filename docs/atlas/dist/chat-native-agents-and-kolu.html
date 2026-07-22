@@ -187,8 +187,8 @@ conversation path has to pick one deliberately — a one-shot is not a stream.</
 <tbody>
 <tr>
 <td><strong><code>streams</code></strong></td>
-<td>input → async iterator; <strong>snapshot-then-deltas</strong> (or full replace each frame); reconnect re-subscribes via <code>STREAM_RETRY</code></td>
-<td><strong>Yes — CT1.</strong> Per-terminal <code>{ id }</code>, first frame = chat-filtered snapshot, later = new/growing messages</td>
+<td>input → async iterator; reconnect re-subscribes via <code>STREAM_RETRY</code></td>
+<td><strong>Yes — CT1.</strong> Per-terminal <code>{ id }</code>, <strong>forward-only</strong> chat deltas (optional cheap live/cursor hello — <strong>not</strong> history snapshot)</td>
 </tr>
 <tr>
 <td><strong><code>procedures</code></strong></td>
@@ -214,17 +214,18 @@ conversation path has to pick one deliberately — a one-shot is not a stream.</
 </table>
 <p><strong>Client consume:</strong></p>
 <ul>
-<li>Kolu UI (CT1+CH1, one PR): <code>client.streams.transcriptChat.use(() =&gt; ({ id: focusedTerminal() }))</code> — enrolled by default; reduce into a <strong>bounded tail</strong>, not an unbounded list.</li>
-<li>pesu (PE1): same stream over the dialed client; track a post <strong>cursor</strong>, not full session RAM.</li>
+<li>Kolu UI (CT1+CH1, one PR): <code>client.streams.transcriptChat.use(() =&gt; ({ id: focusedTerminal() }))</code> — enrolled by default; <strong>append deltas only</strong> (empty after hard reload).</li>
+<li>pesu (PE1): same stream; track a post <strong>cursor</strong>, not full session RAM.</li>
 </ul>
 <p><strong>Re-serve forwarding:</strong> <strong><code>delta</code></strong> (fail-through) — same class as <code>activity</code> / <code>terminalAttach</code>.</p>
 <p><strong>Rejected alternatives (recorded):</strong></p>
 <ul>
 <li>Procedure-first + poll — not live.</li>
-<li>Full message list every stream frame — re-bloats every yield; fights windowing.</li>
+<li>Full message list every stream frame — re-bloats every yield.</li>
+<li><strong>History snapshot on subscribe/hard reload</strong> — slow on long LLM sessions; use export for the past.</li>
 <li>Cell of “last assistant text” — loses multi-bubble turns.</li>
 <li>Event of “assistant said X” — no backlog on subscribe.</li>
-<li>Unbounded Solid store of all chat events — multi-hour sessions blow memory.</li>
+<li>Unbounded Solid store of all chat events ever received in a multi-day open tab.</li>
 </ul>
 <h2 id="bind-state-pesu-local">Bind state (pesu-local)</h2>
 <p>pesu holds the only new durable fact:</p>
@@ -360,17 +361,17 @@ next to pesu (file/env scope TBD; start with on-disk JSON beside the daemon).</l
 <tr>
 <td>C</td>
 <td><strong><code>streams.transcriptChat</code></strong></td>
-<td>input <code>{ id }</code>; first yield = full chat snapshot; later = deltas (new messages or growing assistant text)</td>
+<td>input <code>{ id, after? }</code>; <strong>forward-only</strong> chat deltas from current offset / cursor</td>
 </tr>
 <tr>
 <td>D</td>
 <td>CT1+CH1 / PE1</td>
-<td>Inspector windowed list; pesu posts with a cursor</td>
+<td>Inspector appends live; pesu posts with a cursor</td>
 </tr>
 </tbody>
 </table>
-<p>Reconnect: fresh <strong>bounded</strong> snapshot replaces the window (surface stream
-invariant). No poll; no unbounded accumulator.</p>
+<p>Hard reload / re-subscribe: <strong>no history snapshot</strong> — continue from last
+offset (or empty until next message). Full past → export.</p>
 <h2 id="what-each-api-is-and-is-not">What each API is (and is not)</h2>
 <h3 id="xyne-spaces--pesu-webhook">Xyne Spaces → pesu (webhook)</h3>
 <table>
@@ -487,7 +488,7 @@ half of the product</strong> does not: live conversation in the Inspector over a
 <tbody>
 <tr>
 <td><strong>CT1+CH1</strong> (one PR)</td>
-<td>Live <strong>read-only chat log</strong> in Inspector (same filter as export) + windowed stream</td>
+<td>Live <strong>read-only chat log</strong> in Inspector (same filter as export); <strong>forward-only</strong> stream</td>
 </tr>
 <tr>
 <td><strong>PE0</strong></td>
@@ -503,7 +504,7 @@ half of the product</strong> does not: live conversation in the Inspector over a
 — that is a different note (<a href="campaign-surface.html">campaign surface</a>). Here
 we only productize the <strong>1:1 conversation</strong> that pesu will also use.</p>
 
-<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — conversation in kolu, then pesu</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">CT1+CH1 · live read-only chat log in Inspector (one PR)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ct1-ch1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">same filter as export · windowed</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE0 · pesu inbound — create + type</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 · XS</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE1 · pesu outbound — stream → postMessage</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 + PE0</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE2 · deep link + turn UX</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PE0</a></span></div></div>
+<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">ROADMAP — conversation in kolu, then pesu</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">CT1+CH1 · live read-only chat log in Inspector (one PR)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#ct1-ch1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">forward-only · no history snapshot</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE0 · pesu inbound — create + type</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe0" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 · XS</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE1 · pesu outbound — stream → postMessage</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe1" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs CT1+CH1 + PE0</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">PE2 · deep link + turn UX</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#pe2" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs PE0</a></span></div></div>
 <a id="ct1-ch1"></a>
 <a id="ct1"></a>
 <a id="ch1"></a>
@@ -518,8 +519,8 @@ No “chat Send = submit” decision in this PR.</p>
 <p>You already have an agent in a tile. Open the right panel → <strong>Inspector</strong>.
 Above Compose, a <strong>Conversation</strong> section shows the session as a chat log —
 exactly the cut export’s chat mode uses. As the agent works, the log follows
-the live edge (windowed). Tools and edits stay on the <strong>tile</strong> PTY and out of
-this list.</p>
+the live edge (forward-only). Tools and edits stay on the <strong>tile</strong> PTY and out
+of this list.</p>
 <div role="img" aria-label="Kolu desktop shell mockup. Left: canvas tile with title bar claude on kolu and a dark xterm body showing tool calls. Right: right panel tab bar Inspector and Code with Inspector active, new Conversation section with human and AI messages, then existing Compose section with draft textarea and Send button, then Directory section." style="margin:1.25rem 0;max-width:44rem;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;background:#0e1014;box-shadow:0 6px 22px rgba(0,0,0,.35);font-family:ui-sans-serif,system-ui,sans-serif;display:flex;min-height:22rem"><div style="flex:1.35;min-width:0;display:flex;flex-direction:column;border-right:1px solid #2a2e37"><div style="display:flex;align-items:center;gap:.4rem;height:1.75rem;padding:0 .5rem;background:#161a20;border-bottom:1px solid #2a2e37"><span style="width:6px;height:6px;border-radius:50%;background:#d6a35c;flex:none"></span><span style="font:600 .68rem/1 ui-monospace,Menlo,monospace;color:#c7ccd6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">claude · ~/code/kolu</span><span style="margin-left:auto;font:.58rem/1 ui-sans-serif;color:#5b626d">tile = PTY</span></div><div style="flex:1;padding:.55rem .6rem;background:#0a0c10;font:500 .62rem/1.55 ui-monospace,Menlo,monospace;color:#8b929d"><div><span style="color:#5b626d">●</span> Edit <span style="color:#7eb0e8">ExportSessionDialog.tsx</span></div><div style="color:#5b626d">  picker — Chat log · Full · Both</div><div><span style="color:#6cc070">+</span> write mode.ts</div><div><span style="color:#5b626d">●</span> Bash just check</div><div style="color:#6cc070">✔ green</div><div style="margin-top:.5rem;color:#5b626d">agent TUI stays on the tile</div></div></div><div style="flex:1;min-width:11.5rem;max-width:15.5rem;display:flex;flex-direction:column;background:#12151a"><div style="display:flex;align-items:center;height:2rem;background:#161a20;border-bottom:1px solid #2a2e37;flex:none"><span style="height:100%;padding:0 .75rem;font:500 .7rem/2rem ui-sans-serif;color:#c7ccd6;background:#12151a;border-bottom:2px solid #6ea8e0">Inspector</span><span style="height:100%;padding:0 .75rem;font:500 .7rem/2rem ui-sans-serif;color:#5b626d">Code</span></div><div style="flex:1;overflow:hidden;display:flex;flex-direction:column"><div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37;border-left:2px solid #6ea8e0"><div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.45rem">Conversation</div><div style="font:.62rem/1.4 ui-sans-serif;color:#8b929d;margin-bottom:.35rem"><span style="font:700 .55rem/1 ui-sans-serif;letter-spacing:.04em;color:#6ea8e0">HUMAN</span> Make session export a lightweight chat log…</div><div style="font:.62rem/1.4 ui-sans-serif;color:#c7ccd6;margin-bottom:.35rem"><span style="font:700 .55rem/1 ui-sans-serif;letter-spacing:.04em;color:#6cc070">CLAUDE</span> Picker + chat-only export. Opening PR when green.</div><div style="font:.58rem/1 ui-sans-serif;color:#5b626d">live · tools omitted (CT1 filter)</div></div><div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37"><div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.45rem">Compose</div><div style="border:1px solid #2a2e37;border-radius:6px;background:rgba(22,26,32,.5);padding:.4rem .5rem;min-height:3.2rem;font:500 .62rem/1.4 ui-monospace,Menlo,monospace;color:#5b626d">Draft a prompt for the agent… ⌘⏎ to send</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:.4rem;gap:.4rem"><span style="font:.55rem/1.25 ui-sans-serif;color:#5b626d">Inserts into the terminal — press Enter there to submit</span><span style="flex:none;border:1px solid rgba(110,168,224,.3);background:rgba(110,168,224,.15);border-radius:6px;padding:.28rem .55rem;font:600 .62rem/1 ui-sans-serif;color:#6ea8e0">Send →</span></div></div><div style="padding:.65rem .7rem;border-bottom:1px solid #2a2e37"><div style="font:700 .58rem/1 ui-sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#5b626d;margin-bottom:.35rem">Directory</div><div style="font:500 .6rem/1.35 ui-monospace,Menlo,monospace;color:#c7ccd6;word-break:break-all">/home/srid/code/kolu</div></div><div style="padding:.5rem .7rem;font:.55rem/1.3 ui-sans-serif;color:#5b626d">Git · Agent · Attach… unchanged below</div></div></div></div>
 <table>
 <thead>
@@ -572,22 +573,35 @@ this list.</p>
 </table>
 <p>Write-from-chat (submit-on-send, etc.) can come later once the read path is
 honest. Compose remains available for insert as today.</p>
-<h4 id="wire-ct1">Wire (CT1)</h4>
+<h4 id="wire-ct1--live-forward-only-no-history-snapshot">Wire (CT1) — live forward only, no history snapshot</h4>
 <p><strong>Today:</strong> loaders → IR; <code>transcript.exportHtml</code> with <code>mode: &quot;chat&quot;</code> is the
-offline document of the same filter.</p>
-<p><strong>Ship:</strong> <code>streams.transcriptChat</code> on <code>padiSurface</code>:</p>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>input:  { id: terminalId }</span></span>
-<span class="line"><span>output: { kind: &quot;snapshot&quot; | &quot;delta&quot;, … }   // attach-style; bounded tail snapshot</span></span></code></pre>
+offline document of the same filter (full session, O(S) — on demand only).</p>
+<p><strong>Ship:</strong> <code>streams.transcriptChat</code> on <code>padiSurface</code> as a <strong>live feed of new
+chat events</strong>, not a history API:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>input:  { id: terminalId, after?: Cursor }   // optional resume cursor</span></span>
+<span class="line"><span>output: chat-filtered events (deltas)         // no full-session payload</span></span></code></pre>
 <ul>
-<li>Filter = <strong>chat log</strong> IR: <code>user</code> + <code>assistant</code> only (share the filter with
-export’s chat mode — one source of truth, not a second definition).</li>
-<li>Snapshot-then-deltas; reconnect replaces the window.</li>
-<li>Forwarding: <strong><code>delta</code></strong> (fail-through).</li>
-<li>Bounded tail <em>N</em> in the snapshot contract — not full-list every frame.</li>
+<li>Filter = <strong>chat log</strong> IR: <code>user</code> + <code>assistant</code> only (same definition as
+export chat mode — one source of truth).</li>
+<li><strong>No heavy snapshot</strong> of the last <em>N</em> messages (and never the whole session)
+on subscribe or hard reload. That path re-reads/parses long JSONL/SQLite and
+is exactly what we refuse for multi-hour agents.</li>
+<li><strong>Continue from last message:</strong> the stream only emits <strong>new</strong> chat-visible
+events after the current file/DB offset (or after <code>after</code> if supplied). A
+hard reload <strong>does not</strong> rehydrate history into the panel.</li>
+<li>Open Conversation after reload → <strong>empty</strong> until the next human/AI message.
+Full history stays <strong>Export → Chat log</strong>.</li>
+<li>Forwarding: <strong><code>delta</code></strong> (fail-through). Mid-chain drop terminates the
+stream; client re-subscribes and resumes from <strong>last seen cursor</strong> (or from
+“now” if none) — still no history dump.</li>
+<li>Surface reconnect discipline: first frame may be a <strong>cheap hello</strong>
+(<code>{ kind: &quot;live&quot;, cursor }</code>) or empty ack — <strong>not</strong> a bounded transcript
+window rebuild. Do not cargo-cult attach-style “first frame = full
+scrollback.”</li>
 </ul>
-<p><code>exportHtml</code> remains the path for a full offline document (and optional full
-history). The live panel must not materialize that whole document in a store.</p>
-<h4 id="memory-live-tail-not-an-archive-in-ram">Memory: live tail, not an archive in RAM</h4>
+<p><code>exportHtml</code> remains the path for offline full history. The live panel is a
+<strong>ticker</strong>, not a browser for the archive.</p>
+<h4 id="memory-only-what-arrived-this-ui-session">Memory: only what arrived this UI session</h4>
 <table>
 <thead>
 <tr>
@@ -597,30 +611,30 @@ history). The live panel must not materialize that whole document in a store.</p
 </thead>
 <tbody>
 <tr>
-<td><strong>Bounded client buffer</strong></td>
-<td>Ring / tail window — not every message of the session</td>
+<td><strong>Append-only while open</strong></td>
+<td>Client keeps messages received <strong>since this subscribe</strong> (optionally a small ring if the open tab runs for hours)</td>
+</tr>
+<tr>
+<td><strong>Hard reload</strong></td>
+<td>Client RAM gone → Conversation starts <strong>empty</strong>; stream resumes <strong>forward only</strong> — no snapshot catch-up</td>
 </tr>
 <tr>
 <td><strong>Virtualized list</strong></td>
-<td>Only near-viewport rows mount DOM</td>
+<td>Only near-viewport rows mount DOM for whatever is in the buffer</td>
 </tr>
 <tr>
 <td><strong>Stick to bottom</strong></td>
-<td>Follow live edge when at bottom; scroll up pauses follow</td>
-</tr>
-<tr>
-<td><strong>Reconnect</strong></td>
-<td>Snapshot <strong>replaces</strong> the window; never concat onto stale state</td>
+<td>Follow live edge when at bottom</td>
 </tr>
 <tr>
 <td><strong>Export stays separate</strong></td>
-<td>Full archive → HTML export, not the panel</td>
+<td>Want the past → HTML chat log export, not the live panel</td>
 </tr>
 </tbody>
 </table>
 <h4 id="backend-cost-why-ct1-must-not-re-export">Backend cost (why CT1 must not re-export)</h4>
 <p>Grounded in what padi already does — implementers must not invent a “poll
-exportHtml” stream.</p>
+exportHtml” stream <strong>or</strong> a “snapshot last N chat messages on subscribe.”</p>
 <table>
 <thead>
 <tr>
@@ -642,7 +656,7 @@ exportHtml” stream.</p>
 </tr>
 <tr>
 <td><strong>Session watcher</strong> (dock agent state)</td>
-<td><code>subscribeFileAppends</code> + <strong>256 KB tail</strong> (<code>TAIL_BYTES</code>) + <strong>150 ms debounce</strong></td>
+<td><code>subscribeFileAppends</code> + <strong>256 KB tail</strong> (<code>TAIL_BYTES</code>) + <strong>150 ms debounce</strong></td>
 <td><strong>O(1)</strong> amortized in <em>S</em> for <em>state</em> — not chat text</td>
 </tr>
 </tbody>
@@ -650,8 +664,9 @@ exportHtml” stream.</p>
 <p>Claude’s watcher comment is load-bearing: without debounce, token streaming
 fires the handler dozens–hundreds of times per second, each allocating a large
 tail buffer. Export is deliberately not that path.</p>
-<p><strong>Naïve stream (forbidden):</strong> on every debounced append, call the full export
-loader, filter chat, emit.</p>
+<p><strong>Naïve stream (forbidden):</strong> on every debounced append <strong>or on every
+subscribe/reload</strong>, call the full export loader (or rebuild last <em>N</em> chat
+messages by scanning <em>S</em>).</p>
 <table>
 <thead>
 <tr>
@@ -661,7 +676,7 @@ loader, filter chat, emit.</p>
 </thead>
 <tbody>
 <tr>
-<td>Per update while the agent streams</td>
+<td>Per update while the agent streams (full re-export)</td>
 <td><strong>O(S)</strong> CPU + peak memory</td>
 </tr>
 <tr>
@@ -669,15 +684,13 @@ loader, filter chat, emit.</p>
 <td><strong>O(U · S)</strong> → ~<strong>O(S²)</strong> when <em>U</em> tracks <em>S</em></td>
 </tr>
 <tr>
-<td><em>N</em> independent full reloads per client</td>
-<td><strong>O(N · S)</strong> per update</td>
+<td>Snapshot history on hard reload</td>
+<td><strong>O(S)</strong> or <strong>O(scan)</strong> — rejected; long LLM sessions make this the pain</td>
 </tr>
 </tbody>
 </table>
-<p>Multi-hour Claude JSONL can be tens–hundreds of MB. Re-exporting that every
-~150 ms is not viable.</p>
 <p><strong>Sound stream (required):</strong> same <em>shape</em> as the session watcher, not the
-export loader.</p>
+export loader — <strong>forward-only</strong>.</p>
 <table>
 <thead>
 <tr>
@@ -692,7 +705,7 @@ export loader.</p>
 </tr>
 <tr>
 <td>Debounce</td>
-<td>~150 ms (same idea as watcher)</td>
+<td>~150 ms (same idea as watcher)</td>
 </tr>
 <tr>
 <td>Read <strong>new bytes only</strong> from last file offset (or new SQLite rows by id)</td>
@@ -707,13 +720,14 @@ export loader.</p>
 <td><strong>O(chat bytes out)</strong></td>
 </tr>
 <tr>
-<td>Snapshot for a new subscriber</td>
-<td><strong>O(W)</strong> for bounded tail <em>W</em> — not <strong>O(S)</strong> full rebuild unless once and never for live ticks</td>
+<td>Subscribe / hard reload</td>
+<td><strong>O(1)</strong> — open at current end (or resume <code>after</code> cursor); <strong>no</strong> history materialization</td>
 </tr>
 </tbody>
 </table>
 <p>Steady state (one agent streaming, one subscriber): <strong>O(Δ) per debounced tick</strong>.
-Lifetime: <strong>O(S)</strong> total work (each byte processed a constant number of times).</p>
+Lifetime of processed file: <strong>O(S)</strong> once as the session grows (each byte
+forward once). Reload does <strong>not</strong> re-walk <em>S</em>.</p>
 <table>
 <thead>
 <tr>
@@ -728,25 +742,27 @@ Lifetime: <strong>O(S)</strong> total work (each byte processed a constant numbe
 </tr>
 <tr>
 <td><strong>Terminals <em>T</em></strong></td>
-<td>Chat reducer is <strong>subscribe-driven</strong> — only open Inspector / pesu mirrors pay; awareness sensors already watch agents for free.</td>
+<td>Chat reducer is <strong>subscribe-driven</strong> — only open Inspector / pesu mirrors pay.</td>
 </tr>
 <tr>
 <td><strong>Wire</strong></td>
-<td>Bounded snapshot + small deltas. Full list every frame is <strong>O(history)</strong> on the wire and fights windowing.</td>
+<td>Deltas only (plus optional tiny live/cursor hello). Never full list / never “last <em>N</em> messages” dump.</td>
 </tr>
 </tbody>
 </table>
 <p><strong>Bottom line for implementers:</strong> streaming is fine if CT1 is built like the
-<strong>session watcher</strong> (append + debounce + incremental). It is <strong>not</strong> fine if
-it is <strong><code>exportHtml</code> on a timer</strong>. The expensive path already exists; the
-live stream must refuse to use it for updates.</p>
+<strong>session watcher</strong> (append + debounce + incremental, <strong>continue from last
+offset</strong>). It is <strong>not</strong> fine if it is <strong><code>exportHtml</code> on a timer</strong> or
+<strong>snapshot history on reconnect</strong>. Hard reload = empty panel + forward feed;
+archive = export.</p>
 <h4 id="done-when-this-one-pr">Done when (this one PR)</h4>
 <ul>
-<li>Focused terminal’s chat log is <strong>readable live</strong> in Inspector (human + AI only).</li>
+<li>Focused terminal’s <strong>new</strong> chat messages are <strong>readable live</strong> in Inspector
+(human + AI only).</li>
 <li>Same filter semantics as export chat log (one definition).</li>
-<li>Windowed + virtualized — multi-hour sessions do not unbounded-grow client heap.</li>
-<li>Backend: <strong>incremental</strong> (O(Δ) per tick), not full re-export per tick.</li>
-<li>Reconnect does not double-paint.</li>
+<li><strong>Hard reload does not snapshot history</strong> — panel restarts empty (or
+cursor-resume only); full past stays export.</li>
+<li>Backend: <strong>incremental O(Δ)</strong> per tick; subscribe/reload <strong>O(1)</strong> w.r.t. <em>S</em>.</li>
 <li>Tile stays the PTY; Compose behavior unchanged.</li>
 </ul>
 <a id="pe0"></a>
@@ -842,7 +858,7 @@ salvage rows above; rewrite binds/turns for create-on-miss.</p>
 event id / hash) — it does not need to retain the full session in memory
 either. <code>updateMessage</code> / <code>agentProgress</code> optional here or PE2.</p>
 <p><strong>Done when:</strong> agent replies appear in the XS thread without tools/edits, and
-survive pesu reconnect without duplicate history storms (snapshot replace).</p>
+survive pesu reconnect without duplicate posts (cursor / last-posted id).</p>
 <a id="pe2"></a>
 <h3 id="pe2--deep-link--turn-ux">PE2 — deep link + turn UX</h3>
 <div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">PE2</span><span style="color:#334155">· open terminal in PWA; growing reply; typing indicator</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> PE0</span></div></div>
@@ -851,8 +867,8 @@ while a turn streams; <code>agentProgress</code> while working.</p>
 <h2 id="done-criterion-full-tree">Done criterion (full tree)</h2>
 <p>DM the bot → terminal under padi/kaval → first prompt is yours → assistant
 replies in the XS thread (messages only) <strong>and</strong> the same conversation is
-live in the Inspector Conversation (windowed) over <strong>one</strong> padi stream → deep
-link opens that terminal.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./campaign-surface.html" data-astro-cid-aziudkuj>The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
+live forward in the Inspector Conversation over <strong>one</strong> padi stream (reload
+does not rehydrate history) → deep link opens that terminal.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./campaign-surface.html" data-astro-cid-aziudkuj>The campaign surface — plain-file knowledge, an observed board, a graph of terminal-actors</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article><script>
   (function () {
     var fns = Array.prototype.slice.call(
       document.querySelectorAll(".fn[data-fn]"),

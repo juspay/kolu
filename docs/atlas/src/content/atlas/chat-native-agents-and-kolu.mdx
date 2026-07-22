@@ -58,7 +58,7 @@ conversation path has to pick one deliberately — a one-shot is not a stream.
 
 | Primitive | Shape | Fit for chat log? |
 | --- | --- | --- |
-| **`streams`** | input → async iterator; **snapshot-then-deltas** (or full replace each frame); reconnect re-subscribes via `STREAM_RETRY` | **Yes — CT1.** Per-terminal `{ id }`, first frame = chat-filtered snapshot, later = new/growing messages |
+| **`streams`** | input → async iterator; reconnect re-subscribes via `STREAM_RETRY` | **Yes — CT1.** Per-terminal `{ id }`, **forward-only** chat deltas (optional cheap live/cursor hello — **not** history snapshot) |
 | **`procedures`** | request → one response | One-shot only. Today's `transcript.exportHtml`. Fine for export/dump; live only if a consumer polls+diffs — not the product path |
 | **`events`** | discrete fires | No backlog on subscribe — wrong for conversation history |
 | **`cells`** | standing single value | Not per-terminal append-heavy log |
@@ -66,18 +66,19 @@ conversation path has to pick one deliberately — a one-shot is not a stream.
 
 **Client consume:**
 
-- Kolu UI (CT1+CH1, one PR): `client.streams.transcriptChat.use(() => ({ id: focusedTerminal() }))` — enrolled by default; reduce into a **bounded tail**, not an unbounded list.
-- pesu (PE1): same stream over the dialed client; track a post **cursor**, not full session RAM.
+- Kolu UI (CT1+CH1, one PR): `client.streams.transcriptChat.use(() => ({ id: focusedTerminal() }))` — enrolled by default; **append deltas only** (empty after hard reload).
+- pesu (PE1): same stream; track a post **cursor**, not full session RAM.
 
 **Re-serve forwarding:** **`delta`** (fail-through) — same class as `activity` / `terminalAttach`.
 
 **Rejected alternatives (recorded):**
 
 - Procedure-first + poll — not live.
-- Full message list every stream frame — re-bloats every yield; fights windowing.
+- Full message list every stream frame — re-bloats every yield.
+- **History snapshot on subscribe/hard reload** — slow on long LLM sessions; use export for the past.
 - Cell of “last assistant text” — loses multi-bubble turns.
 - Event of “assistant said X” — no backlog on subscribe.
-- Unbounded Solid store of all chat events — multi-hour sessions blow memory.
+- Unbounded Solid store of all chat events ever received in a multi-day open tab.
 
 ## Bind state (pesu-local)
 
@@ -134,11 +135,11 @@ Return half — **CT1 is the wire for this.** Today: loaders + `transcript.expor
 | --- | --- | --- |
 | A | agent CLI | appends to vendor session store (Claude JSONL, Codex/OpenCode SQLite, …) |
 | B | padi | loaders → IR; filter to chat (`user` / `assistant` — same cut as HTML chat-log mode) |
-| C | **`streams.transcriptChat`** | input `{ id }`; first yield = full chat snapshot; later = deltas (new messages or growing assistant text) |
-| D | CT1+CH1 / PE1 | Inspector windowed list; pesu posts with a cursor |
+| C | **`streams.transcriptChat`** | input `{ id, after? }`; **forward-only** chat deltas from current offset / cursor |
+| D | CT1+CH1 / PE1 | Inspector appends live; pesu posts with a cursor |
 
-Reconnect: fresh **bounded** snapshot replaces the window (surface stream
-invariant). No poll; no unbounded accumulator.
+Hard reload / re-subscribe: **no history snapshot** — continue from last
+offset (or empty until next message). Full past → export.
 
 ## What each API is (and is not)
 
@@ -205,7 +206,7 @@ half of the product** does not: live conversation in the Inspector over a
 
 | Do first | Why |
 | --- | --- |
-| **CT1+CH1** (one PR) | Live **read-only chat log** in Inspector (same filter as export) + windowed stream |
+| **CT1+CH1** (one PR) | Live **read-only chat log** in Inspector (same filter as export); **forward-only** stream |
 | **PE0** | Chat can create/drive a terminal from XS (half duplex still useful) |
 | **PE1** | Same stream, second consumer (post into XS) |
 
@@ -214,7 +215,7 @@ Not in this tree: multi-agent campaign board / bridge dashboard as product UI
 we only productize the **1:1 conversation** that pesu will also use.
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · live read-only chat log in Inspector (one PR)", m: "same filter as export · windowed", h: "#ct1-ch1" },
+  { d: 0, g: "▶", c: "prog", l: "CT1+CH1 · live read-only chat log in Inspector (one PR)", m: "forward-only · no history snapshot", h: "#ct1-ch1" },
   { d: 0, g: "○", c: "last", l: "PE0 · pesu inbound — create + type", m: "needs CT1+CH1 · XS", h: "#pe0" },
   { d: 0, g: "○", c: "last", l: "PE1 · pesu outbound — stream → postMessage", m: "needs CT1+CH1 + PE0", h: "#pe1" },
   { d: 0, g: "○", c: "last", l: "PE2 · deep link + turn UX", m: "needs PE0", h: "#pe2" },
@@ -242,8 +243,8 @@ No “chat Send = submit” decision in this PR.
 You already have an agent in a tile. Open the right panel → **Inspector**.
 Above Compose, a **Conversation** section shows the session as a chat log —
 exactly the cut export’s chat mode uses. As the agent works, the log follows
-the live edge (windowed). Tools and edits stay on the **tile** PTY and out of
-this list.
+the live edge (forward-only). Tools and edits stay on the **tile** PTY and out
+of this list.
 
 <KoluShellMockup />
 
@@ -265,97 +266,111 @@ this list.
 Write-from-chat (submit-on-send, etc.) can come later once the read path is
 honest. Compose remains available for insert as today.
 
-#### Wire (CT1)
+#### Wire (CT1) — live forward only, no history snapshot
 
 **Today:** loaders → IR; `transcript.exportHtml` with `mode: "chat"` is the
-offline document of the same filter.
+offline document of the same filter (full session, O(S) — on demand only).
 
-**Ship:** `streams.transcriptChat` on `padiSurface`:
+**Ship:** `streams.transcriptChat` on `padiSurface` as a **live feed of new
+chat events**, not a history API:
 
 ```
-input:  { id: terminalId }
-output: { kind: "snapshot" | "delta", … }   // attach-style; bounded tail snapshot
+input:  { id: terminalId, after?: Cursor }   // optional resume cursor
+output: chat-filtered events (deltas)         // no full-session payload
 ```
 
-- Filter = **chat log** IR: `user` + `assistant` only (share the filter with
-  export’s chat mode — one source of truth, not a second definition).
-- Snapshot-then-deltas; reconnect replaces the window.
-- Forwarding: **`delta`** (fail-through).
-- Bounded tail *N* in the snapshot contract — not full-list every frame.
+- Filter = **chat log** IR: `user` + `assistant` only (same definition as
+  export chat mode — one source of truth).
+- **No heavy snapshot** of the last *N* messages (and never the whole session)
+  on subscribe or hard reload. That path re-reads/parses long JSONL/SQLite and
+  is exactly what we refuse for multi-hour agents.
+- **Continue from last message:** the stream only emits **new** chat-visible
+  events after the current file/DB offset (or after `after` if supplied). A
+  hard reload **does not** rehydrate history into the panel.
+- Open Conversation after reload → **empty** until the next human/AI message.
+  Full history stays **Export → Chat log**.
+- Forwarding: **`delta`** (fail-through). Mid-chain drop terminates the
+  stream; client re-subscribes and resumes from **last seen cursor** (or from
+  "now" if none) — still no history dump.
+- Surface reconnect discipline: first frame may be a **cheap hello**
+  (`{ kind: "live", cursor }`) or empty ack — **not** a bounded transcript
+  window rebuild. Do not cargo-cult attach-style "first frame = full
+  scrollback."
 
-`exportHtml` remains the path for a full offline document (and optional full
-history). The live panel must not materialize that whole document in a store.
+`exportHtml` remains the path for offline full history. The live panel is a
+**ticker**, not a browser for the archive.
 
-#### Memory: live tail, not an archive in RAM
+#### Memory: only what arrived this UI session
 
 | Rule | Detail |
 | --- | --- |
-| **Bounded client buffer** | Ring / tail window — not every message of the session |
-| **Virtualized list** | Only near-viewport rows mount DOM |
-| **Stick to bottom** | Follow live edge when at bottom; scroll up pauses follow |
-| **Reconnect** | Snapshot **replaces** the window; never concat onto stale state |
-| **Export stays separate** | Full archive → HTML export, not the panel |
+| **Append-only while open** | Client keeps messages received **since this subscribe** (optionally a small ring if the open tab runs for hours) |
+| **Hard reload** | Client RAM gone → Conversation starts **empty**; stream resumes **forward only** — no snapshot catch-up |
+| **Virtualized list** | Only near-viewport rows mount DOM for whatever is in the buffer |
+| **Stick to bottom** | Follow live edge when at bottom |
+| **Export stays separate** | Want the past → HTML chat log export, not the live panel |
 
 #### Backend cost (why CT1 must not re-export)
 
-Grounded in what padi already does — implementers must not invent a “poll
-exportHtml” stream.
+Grounded in what padi already does — implementers must not invent a "poll
+exportHtml" stream **or** a "snapshot last N chat messages on subscribe."
 
 | Path today | Work per fire | Role |
 | --- | --- | --- |
 | **Export loaders** (`loadClaudeCodeTranscript`, Codex rollout, Grok JSONL) | `readFileSync` **whole** file → parse **all** lines → full IR | **O(S)** in session file bytes *S* — end-of-session / on-demand only |
 | **OpenCode loader** | SQL over the session DB | **O(M)** in messages — still full session, not live |
-| **Session watcher** (dock agent state) | `subscribeFileAppends` + **256 KB tail** (`TAIL_BYTES`) + **150 ms debounce** | **O(1)** amortized in *S* for *state* — not chat text |
+| **Session watcher** (dock agent state) | `subscribeFileAppends` + **256 KB tail** (`TAIL_BYTES`) + **150 ms debounce** | **O(1)** amortized in *S* for *state* — not chat text |
 
-Claude’s watcher comment is load-bearing: without debounce, token streaming
+Claude's watcher comment is load-bearing: without debounce, token streaming
 fires the handler dozens–hundreds of times per second, each allocating a large
 tail buffer. Export is deliberately not that path.
 
-**Naïve stream (forbidden):** on every debounced append, call the full export
-loader, filter chat, emit.
+**Naïve stream (forbidden):** on every debounced append **or on every
+subscribe/reload**, call the full export loader (or rebuild last *N* chat
+messages by scanning *S*).
 
 | | Complexity |
 | --- | --- |
-| Per update while the agent streams | **O(S)** CPU + peak memory |
+| Per update while the agent streams (full re-export) | **O(S)** CPU + peak memory |
 | Over a session of size *S* with *U* updates | **O(U · S)** → ~**O(S²)** when *U* tracks *S* |
-| *N* independent full reloads per client | **O(N · S)** per update |
-
-Multi-hour Claude JSONL can be tens–hundreds of MB. Re-exporting that every
-~150 ms is not viable.
+| Snapshot history on hard reload | **O(S)** or **O(scan)** — rejected; long LLM sessions make this the pain |
 
 **Sound stream (required):** same *shape* as the session watcher, not the
-export loader.
+export loader — **forward-only**.
 
 | Step | Cost |
 | --- | --- |
 | Detect append | **O(1)** — existing append subscribe / poll floor |
-| Debounce | ~150 ms (same idea as watcher) |
+| Debounce | ~150 ms (same idea as watcher) |
 | Read **new bytes only** from last file offset (or new SQLite rows by id) | **O(Δ)** |
 | Parse new lines / map to chat filter | **O(events in Δ)** — chat rows are sparse vs tools |
 | Emit delta(s) | **O(chat bytes out)** |
-| Snapshot for a new subscriber | **O(W)** for bounded tail *W* — not **O(S)** full rebuild unless once and never for live ticks |
+| Subscribe / hard reload | **O(1)** — open at current end (or resume `after` cursor); **no** history materialization |
 
 Steady state (one agent streaming, one subscriber): **O(Δ) per debounced tick**.
-Lifetime: **O(S)** total work (each byte processed a constant number of times).
+Lifetime of processed file: **O(S)** once as the session grows (each byte
+forward once). Reload does **not** re-walk *S*.
 
 | Extra factor | Rule |
 | --- | --- |
 | **Subscribers *N*** | One shared per-terminal producer + fan-out (**O(Δ)** once, cheap emit × *N*). Never *N* full reloads. |
-| **Terminals *T*** | Chat reducer is **subscribe-driven** — only open Inspector / pesu mirrors pay; awareness sensors already watch agents for free. |
-| **Wire** | Bounded snapshot + small deltas. Full list every frame is **O(history)** on the wire and fights windowing. |
+| **Terminals *T*** | Chat reducer is **subscribe-driven** — only open Inspector / pesu mirrors pay. |
+| **Wire** | Deltas only (plus optional tiny live/cursor hello). Never full list / never "last *N* messages" dump. |
 
 **Bottom line for implementers:** streaming is fine if CT1 is built like the
-**session watcher** (append + debounce + incremental). It is **not** fine if
-it is **`exportHtml` on a timer**. The expensive path already exists; the
-live stream must refuse to use it for updates.
+**session watcher** (append + debounce + incremental, **continue from last
+offset**). It is **not** fine if it is **`exportHtml` on a timer** or
+**snapshot history on reconnect**. Hard reload = empty panel + forward feed;
+archive = export.
 
 #### Done when (this one PR)
 
-- Focused terminal’s chat log is **readable live** in Inspector (human + AI only).
+- Focused terminal's **new** chat messages are **readable live** in Inspector
+  (human + AI only).
 - Same filter semantics as export chat log (one definition).
-- Windowed + virtualized — multi-hour sessions do not unbounded-grow client heap.
-- Backend: **incremental** (O(Δ) per tick), not full re-export per tick.
-- Reconnect does not double-paint.
+- **Hard reload does not snapshot history** — panel restarts empty (or
+  cursor-resume only); full past stays export.
+- Backend: **incremental O(Δ)** per tick; subscribe/reload **O(1)** w.r.t. *S*.
 - Tile stays the PTY; Compose behavior unchanged.
 
 <a id="pe0"></a>
@@ -416,7 +431,7 @@ event id / hash) — it does not need to retain the full session in memory
 either. `updateMessage` / `agentProgress` optional here or PE2.
 
 **Done when:** agent replies appear in the XS thread without tools/edits, and
-survive pesu reconnect without duplicate history storms (snapshot replace).
+survive pesu reconnect without duplicate posts (cursor / last-posted id).
 
 <a id="pe2"></a>
 
@@ -431,8 +446,8 @@ while a turn streams; `agentProgress` while working.
 
 DM the bot → terminal under padi/kaval → first prompt is yours → assistant
 replies in the XS thread (messages only) **and** the same conversation is
-live in the Inspector Conversation (windowed) over **one** padi stream → deep
-link opens that terminal.
+live forward in the Inspector Conversation over **one** padi stream (reload
+does not rehydrate history) → deep link opens that terminal.
 
 export const KoluShellMockup = () => (
   <div
