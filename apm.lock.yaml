@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-22T01:48:12.855476+00:00'
+generated_at: '2026-07-22T15:35:42.784796+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -456,7 +456,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
+  content_hash: sha256:c51b1f61e22fe8ad3d5c02c22a05d4c77b672e19959ef60b4f76d4331f4141cd
 - kind: project-relative
   target: agents
   value: .agents/skills/parcel
@@ -1132,7 +1132,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
+  content_hash: sha256:c51b1f61e22fe8ad3d5c02c22a05d4c77b672e19959ef60b4f76d4331f4141cd
 - kind: project-relative
   target: claude
   value: .claude/skills/fact-check
@@ -2445,7 +2445,7 @@ local_deployed_file_hashes:
   .agents/skills/ci/pu/report.sh: sha256:2bcce1c13acfd168ed70e0793e49eef5cd051864e4bea7b17833b889e3129bb3
   .agents/skills/ci/smoke.sh: sha256:40e266945ae0d1da5785f6bcfb242b041f47ffe1f195ab239ea47828c3eb127a
   .agents/skills/dev-server/SKILL.md: sha256:f1a8947e78b4c42744a1d49be9f607ed67a2d403e0bb673159fd18599461992a
-  .agents/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
+  .agents/skills/evidence/SKILL.md: sha256:c51b1f61e22fe8ad3d5c02c22a05d4c77b672e19959ef60b4f76d4331f4141cd
   .agents/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
@@ -2481,7 +2481,7 @@ local_deployed_file_hashes:
   .claude/skills/ci/pu/report.sh: sha256:2bcce1c13acfd168ed70e0793e49eef5cd051864e4bea7b17833b889e3129bb3
   .claude/skills/ci/smoke.sh: sha256:40e266945ae0d1da5785f6bcfb242b041f47ffe1f195ab239ea47828c3eb127a
   .claude/skills/dev-server/SKILL.md: sha256:f1a8947e78b4c42744a1d49be9f607ed67a2d403e0bb673159fd18599461992a
-  .claude/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
+  .claude/skills/evidence/SKILL.md: sha256:c51b1f61e22fe8ad3d5c02c22a05d4c77b672e19959ef60b4f76d4331f4141cd
   .claude/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
