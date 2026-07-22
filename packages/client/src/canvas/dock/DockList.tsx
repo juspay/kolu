@@ -205,12 +205,11 @@ function DockListRow(props: {
             // as one symbol.
             class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
           >
-            {/* Identity status indicator — motion carries activity. See Dock.tsx. */}
+            {/* Identity status indicator — plate + motion. See Dock.tsx. */}
             <span class="row-span-2 flex self-center">
               <StatePip
                 variant={variant()}
                 glyph={pipGlyphFor(c().meta)}
-                busy={!!activeArm(c().meta)?.foreground}
                 motion={motion()}
                 live={pipActive()}
                 alert={unread()}

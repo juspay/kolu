@@ -12,8 +12,9 @@
  *  sidebar's selection bar, the card eyebrow, and the card border —
  *  three echoes of the same truth. */
 
-import { activeArm, activePr } from "@kolu/padi/surface";
-import { UNREAD_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
+import { activeArm, activePr, sleepingArm } from "@kolu/padi/surface";
+import { StatePip } from "@kolu/solid-statepip";
+import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -32,6 +33,8 @@ import { annotationLine } from "../../intent/text";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
+import { useFinishedQuiet } from "../../terminal/useFinishedQuiet";
+import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { PrStateIcon } from "../../ui/Icons";
@@ -41,8 +44,11 @@ import {
   type DockColumn,
   type DockEntry,
   type DockSourceEntry,
+  paintBucket,
 } from "../dockModel";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
+import { pipIsActive, pipMotionKind } from "./pipMotion";
+import { pipGlyphFor, pipVariant } from "./pipVariant";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
  *  value so the lookup stays scoped to *this* grid instance even if a
@@ -471,12 +477,34 @@ const WorkspaceCard: Component<{
   unread: boolean;
   onSelect: () => void;
 }> = (props) => {
+  const activity = useTerminalActivity();
+  const finishedQuiet = useFinishedQuiet();
   const agent = () => activeArm(props.entry.meta)?.agent;
   const pr = () => activePr(props.entry.meta);
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
+  // Same paint fold as dock rows: sleeping → moonlit; agentless → idle shell
+  // glyph (not empty); agents via agentPaintClass.
+  const pipBucket = () => {
+    if (sleepingArm(props.entry.meta)) return "sleeping" as const;
+    const paint = paintBucket(agent());
+    return paint === "none" ? ("idle" as const) : paint;
+  };
+  const variant = () => pipVariant(pipBucket());
+  const pipActive = () =>
+    pipIsActive({
+      agent: agent(),
+      isLive: activity.isLive(props.entry.id),
+      isFinished: finishedQuiet.isFinished(props.entry.id),
+    });
+  const motion = () =>
+    pipMotionKind({
+      variant: variant(),
+      agent: agent(),
+      active: pipActive(),
+    });
 
   return (
     <button
@@ -512,19 +540,6 @@ const WorkspaceCard: Component<{
           class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full"
           style={{ "background-color": props.entry.info.branchColor }}
         />
-      </Show>
-      {/* Unread ping — card-corner twin of the dock row's amber unread badge.
-       *  Warm `UNREAD_PILL_CLASS` (attention), never violet needs-you. */}
-      <Show when={props.unread}>
-        <span
-          class="absolute right-2 top-2 inline-flex h-2 w-2"
-          aria-hidden="true"
-        >
-          <span
-            class={`absolute h-full w-full opacity-75 animate-ping ${UNREAD_PILL_CLASS}`}
-          />
-          <span class={`relative h-2 w-2 ${UNREAD_PILL_CLASS}`} />
-        </span>
       </Show>
 
       {/* Eyebrow: repo identity + (right) PR badge if resolved.
@@ -583,15 +598,18 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
-      {/* Status: glyph color encodes bucket; agent label and tokens
-       *  sit on the same line for left-edge scanability. */}
+      {/* Status: same StatePip as dock rows (identity + paint + motion +
+       *  plate + unread badge); agent label and tokens sit beside it. */}
       <div class="mt-2 flex items-center gap-1.5 min-w-0 text-[0.72rem] text-fg-2">
-        <span
-          aria-hidden="true"
-          class={`font-mono leading-none shrink-0 ${bucketInfo().textClass}`}
-        >
-          {bucketInfo().glyph}
-        </span>
+        <StatePip
+          variant={variant()}
+          glyph={pipGlyphFor(props.entry.meta)}
+          motion={motion()}
+          live={pipActive()}
+          alert={props.unread}
+          alertLabel="unread alert"
+          class={DOCK_ROW_PIP_BOX}
+        />
         <span class="truncate">{agentLabel(agent())}</span>
         <Show when={tokens()}>
           {(t) => (

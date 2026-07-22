@@ -9,8 +9,8 @@ import { agentNames, stateLabels } from "../ui/agentDisplay";
 import { useDuration } from "./staleness";
 
 /** Busy = actively working (thinking or running tools). Alert = needs user input
- *  — the same "your turn" token the dock pip and awaiting column use, so a
- *  waiting agent reads one color everywhere (not yellow here, orange there). */
+ *  — same violet family as the dock StatePip. Post-turn `waiting` lingers at
+ *  /55 (matches pip `text-alert/55`); genuine `awaiting_user` is full strength. */
 const BUSY_COLOR = "text-busy";
 
 /** State → text colour. Keyed on state, not kind — all agents currently share
@@ -18,7 +18,9 @@ const BUSY_COLOR = "text-busy";
 const stateColor: Record<AgentInfo["state"], string> = {
   thinking: BUSY_COLOR,
   tool_use: BUSY_COLOR,
-  waiting: "text-alert",
+  // Linger violet — matches StatePip awaiting paint for post-turn quiet.
+  waiting: "text-alert/55",
+  // Full violet — blocked on you (needs-you).
   awaiting_user: "text-alert",
   // Busy, not awaiting: background work uses busy, not the needs-user alert.
   running_background: BUSY_COLOR,

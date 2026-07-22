@@ -8,12 +8,12 @@
  *    - `variant` — paint (agent state colour)
  *    - `motion` — activity channel (breathe / glow / none); callers fold
  *      working∨live∨(waiting∧¬finished) into the kind
- *    - `live` / `active` — effectively active; under reduced-motion the green
- *      plate substitutes for breathe (default mode: no plate)
- *    - `alert` — unread obligation badge
+ *    - `live` — green plate behind the glyph (static live/active mark) plus
+ *      accessible "live output" label; motion still layers on top
+ *    - `alert` — unread obligation badge (amber)
  *
  *  Shape no longer encodes state. Under `prefers-reduced-motion` awaiting keeps
- *  a violet hollow outline; the live plate reappears as the static active mark. */
+ *  a violet hollow outline and motion freezes; the plate stays (static green). */
 
 import { type Component, createMemo, For, Show } from "solid-js";
 import {
@@ -28,7 +28,6 @@ import {
   type PipGlyphId,
   type PipMotionKind,
   type PipVariant,
-  SHELL_BUSY_CLASS,
   SHELL_LIVE_CLASS,
   pipGlyph,
 } from "./pipVariant.ts";
@@ -57,18 +56,13 @@ export const StatePip: Component<{
   /** Who is driving this terminal — agent brand mark, or `"shell"`. Defaults
    *  to shell. */
   glyph?: PipGlyphId;
-  /** Shell with a foreground process — brightens idle shell from fg-3 to fg-2. */
-  busy?: boolean;
   /** Activity motion channel. Callers compute via `pipMotionKind` (dock).
    *  Default `"none"` (still). */
   motion?: PipMotionKind;
   /** Effectively active — working ∨ live output ∨ (waiting ∧ ¬EF2 finished).
-   *  Under reduced-motion, lights the green plate as the static active mark.
-   *  Also folds into the accessible label as "live output". */
+   *  Lights the green live plate (static presence; motion is separate) and
+   *  folds into the accessible label as "live output". */
   live?: boolean;
-  /** @deprecated Use `motion: "none"` when effectively quiet. Kept so a stray
-   *  caller does not break; when true, forces motion none. */
-  still?: boolean;
   /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
   alert?: boolean;
   alertLabel?: string;
@@ -78,10 +72,7 @@ export const StatePip: Component<{
   const glyphId = createMemo((): PipGlyphId => props.glyph ?? "shell");
   const body = createMemo(() => PIP_BODY[variant()]);
   const def = createMemo(() => pipGlyph(glyphId()));
-  const motionKind = createMemo((): PipMotionKind => {
-    if (props.still) return "none";
-    return props.motion ?? "none";
-  });
+  const motionKind = createMemo((): PipMotionKind => props.motion ?? "none");
   const label = createMemo(() => {
     const parts = [
       PIP_TITLES[variant()],
@@ -93,14 +84,12 @@ export const StatePip: Component<{
   const coreClass = createMemo(() => {
     const b = body();
     if (!b) return null;
-    // Shell paint ladder (idle variant only): live output → busy orange
-    // (same as a working agent — obvious for btop/builds); foreground
-    // process without live → quiet fg-2; quiet shell → fg-3. Motion layers
-    // on top so live shells still breathe.
+    // One shell tier: quiet shell → fg-3; live output → busy orange (same as a
+    // working agent). No mid tier for "foreground present" — the sub-line names
+    // the process in words. Motion layers on top so live shells still breathe.
     let paint = b.class;
-    if (glyphId() === "shell" && variant() === "idle") {
-      if (props.live) paint = SHELL_LIVE_CLASS;
-      else if (props.busy) paint = SHELL_BUSY_CLASS;
+    if (glyphId() === "shell" && variant() === "idle" && props.live) {
+      paint = SHELL_LIVE_CLASS;
     }
     const motion = PIP_MOTION_CLASS[motionKind()];
     return motion ? `${paint} ${motion}` : paint;
@@ -119,7 +108,7 @@ export const StatePip: Component<{
       aria-label={label() || undefined}
       aria-hidden={label() ? undefined : "true"}
     >
-      {/* Live plate only under reduced-motion (CSS); still behind glyph in DOM. */}
+      {/* Live plate always when live — static green presence; motion on glyph. */}
       <Show when={props.live}>
         <span class={LIVE_RING_CLASS} aria-hidden="true" />
       </Show>

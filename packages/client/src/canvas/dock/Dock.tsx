@@ -654,13 +654,12 @@ const DockRow: Component<{
             class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent data-[sleeping]:opacity-55`}
             title="Jump to this terminal"
           >
-            {/* Identity status indicator — motion carries activity (breathe
-             *  until effectively quiet); plate only under reduced-motion. */}
+            {/* Identity status indicator — plate = static live; motion =
+             *  activity channel (breathe/glow until effectively quiet). */}
             <span class="row-span-2 flex self-center">
               <StatePip
                 variant={variant()}
                 glyph={pipGlyphFor(c().meta)}
-                busy={!!activeArm(c().meta)?.foreground}
                 motion={motion()}
                 live={pipActive()}
                 alert={unread()}

@@ -6,6 +6,7 @@ import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
+  AWAITING_PILL_CLASS,
   DOCK_ROW_PIP_BOX,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
@@ -15,7 +16,6 @@ import {
   PIP_MOTION_CLASS,
   PIP_TITLES,
   type PipVariant,
-  SHELL_BUSY_CLASS,
   SHELL_LIVE_CLASS,
   TITLE_PIP_BOX,
   UNREAD_PILL_CLASS,
@@ -101,11 +101,7 @@ describe("PIP_BODY — paint only per variant", () => {
     expect(PIP_TITLES.working).toBe("Working");
   });
 
-  it("SHELL_BUSY_CLASS brightens the idle shell mark", () => {
-    expect(SHELL_BUSY_CLASS).toBe("text-fg-2");
-  });
-
-  it("SHELL_LIVE_CLASS is busy orange — same as a working agent", () => {
+  it("SHELL_LIVE_CLASS is busy orange — one shell tier when live", () => {
     expect(SHELL_LIVE_CLASS).toBe("text-busy");
   });
 });
@@ -196,6 +192,7 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(cls).toContain("bg-alert/90");
     expect(cls).toContain("rounded-full");
     expect(cls).toContain("tabular-nums");
+    expect(AWAITING_PILL_CLASS).toBe(NEEDS_YOU_PILL_CLASS);
   });
 
   it("UNREAD_PILL_CLASS is amber attention — not violet needs-you", () => {

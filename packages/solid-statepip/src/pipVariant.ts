@@ -183,24 +183,16 @@ export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
   none: null,
 };
 
-/** @deprecated Prefer `PIP_MOTION_CLASS` + caller-side `pipMotionKind`. Kept as
- *  the paint-variant default table for tests that pin historical tokens. */
-export const PIP_MOTION: Record<Exclude<PipVariant, "empty">, string | null> = {
-  awaiting: PIP_MOTION_CLASS.glow,
-  working: PIP_MOTION_CLASS.breathe,
-  idle: null,
-  sleeping: null,
-};
-
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   // lingering violet-55% — post-turn (`waiting`) and `awaiting_user` share this
-  // paint via agentPaintClass ("your turn" / lingering). Full-strength needs-you
-  // is still `text-alert`; the /55 is the quiet post-turn linger.
+  // paint via agentPaintClass. Needs-you is still the full violet channel via
+  // glow motion + host pill; AgentIndicator mirrors /55 for `waiting` and full
+  // `text-alert` for `awaiting_user`.
   awaiting: { class: "text-alert/55" },
   // rust/orange busy — machine in flight (thinking / tools / background).
   // Deliberately NOT teal accent: accent is chrome selection, not agent work.
   working: { class: "text-busy" },
-  // muted shell (live/busy shells brighten via StatePip shell paint rules)
+  // muted shell — live shells brighten via StatePip → SHELL_LIVE_CLASS
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
   sleeping: { class: "text-moonlit/65" },
@@ -208,12 +200,12 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   empty: null,
 };
 
-/** Shell with a foreground process but not (yet) live-output — quiet bump
- *  from fg-3. Live shells use `SHELL_LIVE_CLASS` instead (more salient). */
-export const SHELL_BUSY_CLASS = "text-fg-2";
-
 /** Shell with meaningful live output (btop, builds, tail -f) — same busy
- *  orange as a working agent so activity reads one colour everywhere. */
+ *  orange as a working agent so activity reads one colour everywhere.
+ *
+ *  One shell tier only: quiet → `text-fg-3` (idle body); active/live → this
+ *  class. There is no mid tier for "foreground process present" — the
+ *  process name already sits on the sub-line in words. */
 export const SHELL_LIVE_CLASS = "text-busy";
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
@@ -262,9 +254,9 @@ export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
  *  `live` prop contract; the CSS class is `statepip-live-plate`. */
 export const LIVE_RING_CLASS = "statepip-live-plate";
 
-/** Needs-you count pill — agents blocked on your input (`awaiting_user`).
- *  Cool violet (`bg-alert`), same family as StatePip awaiting paint/glow.
- *  Host tab (`HostAwaitingPill`) and any future count of "asking" use THIS.
+/** Needs-you / awaiting-you count pill — agents blocked on your input
+ *  (`awaiting_user`). Cool violet (`bg-alert`), same family as StatePip
+ *  awaiting paint/glow. Host tab (`HostAwaitingPill`) uses THIS.
  *
  *  Distinct from unread (amber):
  *    · needs-you  → violet  (state: blocked on you; host pill; pip glow)
@@ -272,16 +264,14 @@ export const LIVE_RING_CLASS = "statepip-live-plate";
 export const NEEDS_YOU_PILL_CLASS =
   "inline-flex items-center justify-center rounded-full bg-alert/90 text-[10px] font-semibold text-black/80 tabular-nums";
 
+/** Alias — same violet needs-you pill (name prefers "awaiting" vocabulary). */
+export const AWAITING_PILL_CLASS = NEEDS_YOU_PILL_CLASS;
+
 /** Unread / obligation FILL for pill-shaped chrome (workspace-card corner ping).
  *  Warm amber — same hue family as `ALERT_BADGE_CLASS` / HostFinishedDot.
  *  NEVER use this for needs-you (that is `NEEDS_YOU_PILL_CLASS` / violet). */
 export const UNREAD_PILL_CLASS =
   "inline-flex items-center justify-center rounded-full bg-attention/90 text-[10px] font-semibold text-black/80 tabular-nums";
-
-/** @deprecated Prefer `UNREAD_PILL_CLASS` for unread chrome, or
- *  `NEEDS_YOU_PILL_CLASS` for awaiting-count. Kept as the amber unread token
- *  so WorkspaceGrid mid-flight imports keep the correct hue. */
-export const ATTENTION_PILL_CLASS = UNREAD_PILL_CLASS;
 
 /** Unread / obligation CORNER DOT on StatePip (top-right). Warm amber
  *  (`--color-attention`) — deliberately a different hue from needs-you

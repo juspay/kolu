@@ -104,7 +104,6 @@ const TerminalMeta: Component<{
                 <StatePip
                   variant={variant()}
                   glyph={pipGlyphFor(v().meta)}
-                  busy={!!arm()?.foreground}
                   motion={motion()}
                   live={pipActive()}
                   alert={props.unread}

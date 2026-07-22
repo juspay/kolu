@@ -61,11 +61,12 @@
   animation: statepip-glow 2.2s ease-in-out infinite;
 }
 
-/* live plate — default OFF. Motion (breathe) is the active channel; the plate
- * only reappears under prefers-reduced-motion as the static active substitute
- * when breathe is suppressed. Contained disc behind the glyph (DOM order). */
+/* live plate — always on when StatePip mounts it (`live`). Static green
+ * presence behind the identity glyph; motion (breathe/glow) layers on the
+ * glyph itself. Under reduced motion, animations freeze and the plate remains
+ * the screenshot-surviving live cue. Contained disc (DOM order behind glyph). */
 .statepip-live-plate {
-  display: none;
+  display: block;
   position: absolute;
   inset: -1px;
   border-radius: 9999px;
@@ -78,9 +79,9 @@
  * CORNER DOT at the top-right, NOT a ring and NOT the host-tab count pill —
  * Option C mockup's 7px attention pip. Shape is deliberately a circle so it
  * never competes with the live plate or reads as a count capsule on a
- * 14px identity glyph. The surface separator lifts it off the row; a gentle
- * pulse draws the eye without shouting. Fill is `--color-attention` (the
- * warm "needs you" amber), single-sourced in this leaf. */
+ * identity glyph. The surface separator lifts it off the row; a gentle
+ * pulse draws the eye without shouting. Fill is `--color-attention` (warm
+ * unread amber), single-sourced in this leaf. */
 .statepip-alert-badge {
   position: absolute;
   top: -2px;
@@ -99,11 +100,6 @@
   .statepip-anim-glow,
   .statepip-alert-badge {
     animation: none;
-  }
-  /* Static active mark when breathe is gone — only when the live plate
-   * element is present (StatePip passes live/active). */
-  .statepip-live-plate {
-    display: block;
   }
   /* Awaiting state under reduced motion: violet hollow ring outline so state
    * is not colour-only once motion (the second state channel) is gone. */
