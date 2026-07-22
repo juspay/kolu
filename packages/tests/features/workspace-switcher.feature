@@ -139,16 +139,14 @@ Feature: Workspace switcher (unified palette navigator)
     And the workspace switcher idle column should show sub-buckets "4h-12h, 12h-24h, 24h-48h, 48h+"
     And there should be no page errors
 
-  Scenario: Workspace switcher column titles carry the agent-state pip
-    # The same shape-distinct StatePip the dock row and tile title lead
-    # with now labels each agent-state column header (reused verbatim),
-    # so the Working column title carries the spinning ring and the
-    # Awaiting column a quiet dot — one agent-state vocabulary across
-    # every surface. The No-agent column omits the pip.
+  Scenario: Workspace switcher column titles are label-only legends
+    # Column headers are state legends, not terminals — colour + label
+    # carry the bucket identity (#1950). StatePip stays on real terminal
+    # rows and the tile title, not the column chrome (a shell/agent glyph
+    # on every bucket header would misread the legend).
     When I hover the workspace switcher
     Then the workspace switcher panel should be visible
-    And the workspace switcher "working" column title should show a "working" state pip
-    And the workspace switcher "awaiting" column title should show a "awaiting" state pip
+    And the workspace switcher should show buckets "idle, awaiting, working, none"
     And there should be no page errors
 
   @mobile

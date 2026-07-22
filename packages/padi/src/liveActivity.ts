@@ -22,12 +22,8 @@ import {
   createActivityTracker,
   sameActivitySet,
 } from "./terminalActivityTracker.ts";
+import { ACTIVITY_RESUBSCRIBE_DELAY_MS } from "./finishQuiet.ts";
 import { resubscribeStream } from "./terminalEndpoint/local.ts";
-
-/** Delay before re-subscribing to kaval's `activity` stream after it ends (a daemon
- *  recycle) — long enough not to hot-loop while kaval is down, short enough that the
- *  live dots resume promptly. */
-const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 
 /** The `activity` stream backing shape — the live-set `source` thunk padi's
  *  `padiSurface` activity stream is wired with. Re-invoked per subscription

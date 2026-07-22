@@ -5,6 +5,10 @@
  * composed `terminals` collection — the value the derived `urgency` cell reads
  * via `$.terminals()` — into ids only; every reader derives the count as
  * `.length` at its own read site (`HostSelectorStrip.tsx`'s `awaiting()`).
+ *
+ * EF2: `finishedIds` is gated on `isEpisodeFinished` — sticky-aware quiet for
+ * waiting agents. Tests below pass an explicit predicate so the pure fold is
+ * pinned without the tracker.
  */
 
 import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
@@ -80,6 +84,11 @@ function sleepingTerminal(agent: AgentInfo | null): PadiTerminal {
 const ID_A = "urg-a";
 const ID_B = "urg-b";
 
+/** Episode finished — every id has crossed quiet (or is sticky). */
+const finished = (): boolean => true;
+/** Still in the first-finish quiet window — not episode-finished yet. */
+const stillDebouncing = (): boolean => false;
+
 describe("recomputeUrgency", () => {
   it("carries id lists only (no separate count field) for both attention buckets", () => {
     const urgency = recomputeUrgency(
@@ -87,6 +96,7 @@ describe("recomputeUrgency", () => {
         [ID_A, makeAgent("awaiting_user")],
         [ID_B, makeAgent("thinking")],
       ]),
+      finished,
     );
 
     expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
@@ -94,16 +104,41 @@ describe("recomputeUrgency", () => {
     expect(Object.keys(urgency).sort()).toEqual(["awaitingIds", "finishedIds"]);
   });
 
-  it("folds finished (`waiting`) agents into finishedIds, separate from awaiting", () => {
+  it("folds episode-finished (`waiting`) agents into finishedIds, separate from awaiting", () => {
     const urgency = recomputeUrgency(
       terminalsMap([
         [ID_A, makeAgent("awaiting_user")],
         [ID_B, makeAgent("waiting")],
         ["urg-c", makeAgent("thinking")],
       ]),
+      finished,
     );
-    // `awaiting_user` → asking; `waiting` → finished; working states → neither.
+    // `awaiting_user` → asking (ungated); episode-finished `waiting` → finished.
     expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [ID_B] });
+  });
+
+  it("holds a still-debouncing waiting agent OUT of finishedIds (first-finish quiet)", () => {
+    const urgency = recomputeUrgency(
+      terminalsMap([
+        [ID_A, makeAgent("awaiting_user")],
+        [ID_B, makeAgent("waiting")],
+      ]),
+      stillDebouncing,
+    );
+    // Asking still ungated; waiting gated by isEpisodeFinished.
+    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
+  });
+
+  it("gates finish per-id: only episode-finished waiting ids land in finishedIds", () => {
+    const done = new Set<string>([ID_A]);
+    const urgency = recomputeUrgency(
+      terminalsMap([
+        [ID_A, makeAgent("waiting")],
+        [ID_B, makeAgent("waiting")],
+      ]),
+      (id) => done.has(id),
+    );
+    expect(urgency).toEqual({ awaitingIds: [], finishedIds: [ID_A] });
   });
 
   it("folds ids in the map's insertion order, and an agentless entry contributes 0", () => {
@@ -113,13 +148,14 @@ describe("recomputeUrgency", () => {
         ["urg-c", null],
         [ID_A, makeAgent("awaiting_user")],
       ]),
+      finished,
     );
     expect(urgency).toEqual({ awaitingIds: [ID_B, ID_A], finishedIds: [] });
   });
 
   it("is empty for a map with no attention-worthy agents", () => {
     expect(
-      recomputeUrgency(terminalsMap([[ID_A, makeAgent("thinking")]])),
+      recomputeUrgency(terminalsMap([[ID_A, makeAgent("thinking")]]), finished),
     ).toEqual({ awaitingIds: [], finishedIds: [] });
   });
 
@@ -135,7 +171,7 @@ describe("recomputeUrgency", () => {
       [ID_B as TerminalId, activeTerminal(makeAgent("awaiting_user"))],
     ]);
     // Only the ACTIVE awaiting terminal counts; the sleeping one is excluded.
-    expect(recomputeUrgency(map)).toEqual({
+    expect(recomputeUrgency(map, finished)).toEqual({
       awaitingIds: [ID_B],
       finishedIds: [],
     });
