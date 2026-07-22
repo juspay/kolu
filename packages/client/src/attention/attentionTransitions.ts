@@ -57,22 +57,22 @@ export function attentionTransitions(
  *      escalates to asking, drops out);
  *    • it grows only by a FRESH background finish (a `waiting` a terminal just
  *      entered), never by the baseline discovery of already-finished agents.
- *  Pure and stateful-by-fold: the caller threads the previous set back in. */
+ *  Pure and stateful-by-fold: the caller threads the previous set back in, together
+ *  with the transition it ALREADY computed this frame (no re-diff here — the
+ *  transition is the one source of truth for "what changed"). On the baseline
+ *  `candidates` is empty, so nothing is added; no separate `prev === null` guard. */
 export function nextUnseenFinished(
   unseen: ReadonlySet<TerminalId>,
-  prev: PadiUrgency | null,
-  cur: PadiUrgency,
+  candidates: AttentionTransition["candidates"],
+  finishedNow: ReadonlySet<TerminalId>,
   isActiveHost: boolean,
 ): Set<TerminalId> {
   if (isActiveHost) return new Set(); // you're looking at it → nothing unseen.
-  const finishedNow = new Set(cur.finishedIds);
   // Keep only ids still finished (drops ended + finished→asking).
   const next = new Set<TerminalId>(
     [...unseen].filter((id) => finishedNow.has(id)),
   );
-  // On the baseline `attentionTransitions` yields no candidates (a discovery is
-  // not a transition), so nothing is added — no separate `prev === null` guard.
-  for (const { id, asking } of attentionTransitions(prev, cur).candidates) {
+  for (const { id, asking } of candidates) {
     if (!asking) next.add(id); // a fresh background finish is unseen.
   }
   return next;

@@ -62,40 +62,39 @@ describe("attentionTransitions", () => {
 
 const S = (...ids: string[]) => new Set(ids as TerminalId[]);
 
+// The fold now takes the ALREADY-computed transition candidates + the current
+// finished set (observe threads in the `candidates` it already holds — no re-diff).
+const cand = (...c: Array<{ id: string; asking: boolean }>) =>
+  c as Array<{ id: TerminalId; asking: boolean }>;
+
 describe("nextUnseenFinished (the host-tab dot's meaning — the #<this-PR> dot bug)", () => {
   // THE BUG: the dot showed for any host with a finished agent, and a finished
   // agent idles in `waiting` ~forever — so the dot was on every host, always.
-  it("a STEADY finished agent is NOT unseen (same frame twice)", () => {
-    expect(nextUnseenFinished(S(), u([], ["a"]), u([], ["a"]), false)).toEqual(
-      S(),
-    );
+  it("a STEADY finished agent is NOT unseen (no fresh candidate)", () => {
+    expect(nextUnseenFinished(S(), cand(), S("a"), false)).toEqual(S());
   });
 
-  it("a finished agent present at BASELINE (discovery) is NOT unseen", () => {
-    expect(nextUnseenFinished(S(), null, u([], ["a"]), false)).toEqual(S());
+  it("a finished agent present at BASELINE (discovery, no candidates) is NOT unseen", () => {
+    expect(nextUnseenFinished(S(), cand(), S("a"), false)).toEqual(S());
   });
 
   it("a FRESH background finish IS unseen", () => {
-    expect(nextUnseenFinished(S(), u([], []), u([], ["a"]), false)).toEqual(
-      S("a"),
-    );
+    expect(
+      nextUnseenFinished(S(), cand({ id: "a", asking: false }), S("a"), false),
+    ).toEqual(S("a"));
   });
 
   it("an unseen finish on the ACTIVE host clears (you're looking at it)", () => {
-    expect(
-      nextUnseenFinished(S("a"), u([], ["a"]), u([], ["a"]), true),
-    ).toEqual(S());
+    expect(nextUnseenFinished(S("a"), cand(), S("a"), true)).toEqual(S());
   });
 
   it("an unseen finish that goes back to work drops out", () => {
-    expect(nextUnseenFinished(S("a"), u([], ["a"]), u([], []), false)).toEqual(
-      S(),
-    );
+    expect(nextUnseenFinished(S("a"), cand(), S(), false)).toEqual(S());
   });
 
   it("an unseen finish that escalates to asking drops out (it's now the amber pill)", () => {
     expect(
-      nextUnseenFinished(S("a"), u([], ["a"]), u(["a"], []), false),
+      nextUnseenFinished(S("a"), cand({ id: "a", asking: true }), S(), false),
     ).toEqual(S());
   });
 });

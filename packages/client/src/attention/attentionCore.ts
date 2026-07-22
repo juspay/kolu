@@ -52,11 +52,13 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     const prev = prevByHost.get(encHost) ?? null;
     const { candidates, ended } = attentionTransitions(prev, cur);
 
-    // The quiet host-tab dot — folded every frame so it tracks back to zero.
+    // The quiet host-tab dot — folded every frame so it tracks back to zero. Reuses
+    // the `candidates` already computed above (the ONE transition per frame) rather
+    // than re-diffing prev↔cur inside the fold.
     const unseen = nextUnseenFinished(
       unseenByHost.get(encHost) ?? new Set(),
-      prev,
-      cur,
+      candidates,
+      new Set(cur.finishedIds),
       hooks.isActiveHost(encHost),
     );
     unseenByHost.set(encHost, unseen);
