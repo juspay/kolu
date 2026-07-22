@@ -549,22 +549,68 @@ body {
 .dock-cards-section {
   border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
 }
-/* Sticky header band — faintly repo-tinted (Option C mockup: 6% repo mix).
- * Mixed into `surface-1` so the band stays opaque enough for rows to scroll
- * cleanly underneath, while the repo colour still reads as a section break
- * together with the left spine. */
+/* Sticky header band — a quiet repo wash (opaque enough for scroll-under)
+ * plus a hairline that borrows a hint of the repo colour so sections
+ * separate without a hard edge. */
 .dock-cards-section-header {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: color-mix(in oklab, var(--repo-color) 6%, var(--color-surface-1));
-  border-bottom-color: color-mix(in oklab, var(--color-edge) 50%, transparent);
+  background: color-mix(in oklab, var(--repo-color) 9%, var(--color-surface-1));
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--repo-color) 18%, var(--color-edge));
 }
-/* Repo name is a plain uppercase label in the repo colour — not a filled
- * chip. The mockup's `.sect-hd .name` treatment: colour + weight + tracking
- * carry the identity; the tinted band + spine carry the grouping. */
+/* Solid colour swatch — a 7×7 mark that anchors the section without the
+ * old filled-name chip. Spine + swatch + tinted band = three echoes of
+ * the same repo colour at different scales. */
+.dock-cards-section-swatch {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--repo-color);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--repo-color) 35%, transparent);
+}
+/* Repo name — uppercase mono label in the repo colour. Weight + tracking
+ * do the identity work; the swatch and band do the grouping. */
 .dock-cards-section-name {
   color: var(--repo-color);
+}
+/* Terminal count — a quiet capsule so the number doesn't float as bare
+ * type against a tinted band. */
+.dock-cards-section-count {
+  flex: none;
+  margin-left: auto;
+  min-width: 1.25rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 9999px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-3);
+  background: color-mix(in oklab, var(--color-surface-0) 55%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-edge) 55%, transparent);
+}
+/* Branch / intent label on a cards row — slightly denser than body text so
+ * the primary line reads as the row title; colour still comes from the
+ * per-branch `annotationColor` (docs: branch colours distinguish rows
+ * *within* a repo). */
+.dock-cards-row-label {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Soft row dividers — mockup-quiet; last row has none. */
+.dock-cards-section > [data-testid="dock-row"],
+.dock-cards-section > [data-testid="mobile-dock-row"] {
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--color-edge) 28%, transparent);
+}
+.dock-cards-section > [data-testid="dock-row"]:last-child,
+.dock-cards-section > [data-testid="mobile-dock-row"]:last-child {
+  border-bottom: 0;
 }
 
 /* ── Rail-mode chip ────────────────────────────────────────────

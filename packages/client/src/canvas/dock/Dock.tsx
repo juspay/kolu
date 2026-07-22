@@ -520,26 +520,24 @@ const RepoSection: Component<{
     style={{ "--repo-color": props.group.color }}
     class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
-    {/* Header is a sticky, faintly repo-tinted band (see
-     *  `.dock-cards-section-header` — Option C mockup: 6% repo mix),
-     *  riding above the repo-colour spine the section's left border
-     *  draws. The name is a plain uppercase label in the repo colour
-     *  (not a filled chip); count stays neutral. Header text and row
-     *  content both sit at `pl-3` (12 px) from the dock's outer edge,
-     *  so the row's leading status indicator aligns with the repo name
-     *  — the repo spine + tinted header band carry the grouping. */}
+    {/* Sticky repo header — tinted band + colour swatch + uppercase name
+     *  + quiet count capsule (styles in `index.css`). Spine + swatch +
+     *  wash are three scales of the same `--repo-color`. Content inset
+     *  matches the rows (`pl-3`) so the status indicator lines up under
+     *  the name. */}
     <div
       data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-[0.45rem] border-b`}
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-2`}
     >
+      <span class="dock-cards-section-swatch" aria-hidden="true" />
       <span
         data-testid="dock-section-name"
-        class="dock-cards-section-name font-mono text-[0.62rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
+        class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
         title={props.group.name}
       >
         {props.group.name}
       </span>
-      <span class="ml-auto font-mono text-[0.62rem] tabular-nums text-fg-3 shrink-0">
+      <span class="dock-cards-section-count font-mono text-[0.6rem]">
         {props.group.rows.length}
       </span>
     </div>
@@ -631,16 +629,12 @@ const DockRow: Component<{
               tileStore.activate(props.id);
             }
           }}
-          class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+          class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-2 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
           title="Jump to this terminal"
         >
-          {/* One merged status indicator — the agent-state CORE
-           *  (`pipVariant`), wrapped by the green live RING when the
-           *  terminal is moving bytes and the amber unread corner BADGE
-           *  when a fired alert is unopened. The old standalone ActivityPip
-           *  column is gone (its dot is now the ring), reclaiming the
-           *  dead left margin. `row-span-2 self-center` centres it across
-           *  both row lines rather than pinning it to line 1. */}
+          {/* Identity status indicator — agent brand or shell glyph, state
+           *  paint/motion, live glow halo, unread corner dot. Centred across
+           *  both row lines. */}
           <span class="row-span-2 flex self-center">
             <StatePip
               variant={pipVariant(props.pip)}
@@ -654,12 +648,13 @@ const DockRow: Component<{
             />
           </span>
           <span
-            class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
+            class="dock-cards-row-label text-[0.84rem]"
             style={{
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdownInline
+            <IntentMarkdown
+              inline
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
@@ -687,7 +682,7 @@ const DockRow: Component<{
            *  foreground process title, or an invisible placeholder
            *  keeping the row two-line tall). */}
           <div
-            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
+            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
           >
             <PrPip meta={c().meta} />
             <Show
@@ -695,7 +690,7 @@ const DockRow: Component<{
               fallback={
                 <span
                   aria-hidden="true"
-                  class="font-mono text-[0.65rem] leading-tight invisible"
+                  class="font-mono text-[0.68rem] leading-tight invisible"
                 >
                   &nbsp;
                 </span>
@@ -708,7 +703,7 @@ const DockRow: Component<{
                       ? "dock-agent-subline"
                       : "dock-quiet-foreground"
                   }
-                  class="font-mono text-[0.65rem] leading-tight text-fg-2 truncate min-w-0"
+                  class="font-mono text-[0.68rem] leading-snug text-fg-3 truncate min-w-0"
                   title={line()}
                 >
                   {line()}
