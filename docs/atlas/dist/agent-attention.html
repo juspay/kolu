@@ -119,26 +119,28 @@ active-only “seen” ledger — so the same agent behaved differently dependin
 Those are gone. Shipped in <a href="https://github.com/juspay/kolu/pull/1931" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1931</a>; the <code>activityAlerts</code> setting was
 renamed <code>attentionAlerts</code> (with a migration).</p>
 <h2 id="follow-ups">Follow-ups</h2>
-<p>What the review gauntlet surfaced but the first cut left out.</p>
+<p>What the review gauntlet surfaced but the first cut left out. Items marked
+<strong>user-facing</strong> change what you see or hear; the rest are internal quality or CI infra.</p>
 <p><strong>Correctness</strong></p>
 <ul>
-<li><strong>Split-aware “seen”.</strong> The seen check compares the active <em>tile</em> id, so a finished
-pane you can plainly see inside a split can still chime. The right test is “a
-visible pane of the active tile,” not tile-or-focus alone. <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/attention/useAttention.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/attention/useAttention.ts</a></li>
+<li><strong>Split-aware “seen”.</strong> <em>(user-facing)</em> The seen check compares the active <em>tile</em> id,
+so a finished pane you can plainly see inside a split can still chime. The right test
+is “a visible pane of the active tile,” not tile-or-focus alone. <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/attention/useAttention.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/attention/useAttention.ts</a></li>
 <li><strong>Test the real path.</strong> e2e drives a simulate hook that <em>bypasses</em> the detect→fire
 engine — the exact gap that let a <code>reconcile</code>-mutation bug ship. The engine has unit
 tests now; an e2e over the real <em>agent-state → deliver</em> path would close the class.</li>
 </ul>
 <p><strong>Robustness</strong></p>
 <ul>
-<li><strong>Route notification clicks through the deep-link resolver</strong> — so a click lands the
-right split, survives a cold boot, and reports a departed terminal, instead of a raw
-tile focus.</li>
-<li><strong>Dedup the sound across windows</strong> — every open window plays the chime; the popup
-already dedups by tag, the sound doesn’t (an origin-wide audio owner would).</li>
-<li><strong>Carry membership in the <code>urgency</code> cell</strong> — <em>only if it bites</em>: a terminal first
-<em>seen</em> already-finished (a wake, another tab) can’t be told from a real finish,
-because working terminals are invisible to the cell.</li>
+<li><strong>Route notification-popup clicks through the deep-link resolver.</strong> <em>(user-facing)</em>
+Clicking the <strong>OS/PWA notification popup</strong> — the banner the service worker shows when
+an agent needs you and you’re not looking (it can arrive with kolu backgrounded or
+closed) — today calls a raw tile activation. Routing it through the same resolver
+<code>#/t/…</code> deep links use would land the right split, survive a cold boot (the app was
+closed when the popup arrived), and report a terminal that’s since gone. <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/attention/useAttention.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/attention/useAttention.ts</a></li>
+<li><strong>Carry membership in the <code>urgency</code> cell.</strong> <em>(user-facing, only if it bites)</em> A
+terminal first <em>seen</em> already-finished (a wake, another tab) can’t be told from a real
+finish, because working terminals are invisible to the cell.</li>
 </ul>
 <p><strong>Structure</strong></p>
 <ul>

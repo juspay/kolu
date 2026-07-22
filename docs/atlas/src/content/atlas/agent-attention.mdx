@@ -59,27 +59,29 @@ renamed `attentionAlerts` (with a migration).
 
 ## Follow-ups
 
-What the review gauntlet surfaced but the first cut left out.
+What the review gauntlet surfaced but the first cut left out. Items marked
+**user-facing** change what you see or hear; the rest are internal quality or CI infra.
 
 **Correctness**
 
-- **Split-aware "seen".** The seen check compares the active *tile* id, so a finished
-  pane you can plainly see inside a split can still chime. The right test is "a
-  visible pane of the active tile," not tile-or-focus alone. <Cite file="packages/client/src/attention/useAttention.ts" line={109} />
+- **Split-aware "seen".** *(user-facing)* The seen check compares the active *tile* id,
+  so a finished pane you can plainly see inside a split can still chime. The right test
+  is "a visible pane of the active tile," not tile-or-focus alone. <Cite file="packages/client/src/attention/useAttention.ts" line={113} />
 - **Test the real path.** e2e drives a simulate hook that *bypasses* the detect→fire
   engine — the exact gap that let a `reconcile`-mutation bug ship. The engine has unit
   tests now; an e2e over the real *agent-state → deliver* path would close the class.
 
 **Robustness**
 
-- **Route notification clicks through the deep-link resolver** — so a click lands the
-  right split, survives a cold boot, and reports a departed terminal, instead of a raw
-  tile focus.
-- **Dedup the sound across windows** — every open window plays the chime; the popup
-  already dedups by tag, the sound doesn't (an origin-wide audio owner would).
-- **Carry membership in the `urgency` cell** — *only if it bites*: a terminal first
-  *seen* already-finished (a wake, another tab) can't be told from a real finish,
-  because working terminals are invisible to the cell.
+- **Route notification-popup clicks through the deep-link resolver.** *(user-facing)*
+  Clicking the **OS/PWA notification popup** — the banner the service worker shows when
+  an agent needs you and you're not looking (it can arrive with kolu backgrounded or
+  closed) — today calls a raw tile activation. Routing it through the same resolver
+  `#/t/…` deep links use would land the right split, survive a cold boot (the app was
+  closed when the popup arrived), and report a terminal that's since gone. <Cite file="packages/client/src/attention/useAttention.ts" line={257} />
+- **Carry membership in the `urgency` cell.** *(user-facing, only if it bites)* A
+  terminal first *seen* already-finished (a wake, another tab) can't be told from a real
+  finish, because working terminals are invisible to the cell.
 
 **Structure**
 
