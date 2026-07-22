@@ -76,6 +76,7 @@ Only the runner posts GitHub commit statuses; the `just` shortcuts below stay en
 nix run .#odu -- run                  # multi-platform fanout + commit statuses (strict by default)
 nix run .#odu -- run --progress json  # + live NDJSON per-node feed on stdout (for agents/tools driving CI in the background)
 nix run .#odu -- attach               # attach a live dashboard to a run in progress
+just ci::attach                                  # same as `nix run .#odu -- attach`
 just ci                                          # local single-platform pipeline, no statuses
 just ci::e2e                                     # one recipe, no statuses
 ```
