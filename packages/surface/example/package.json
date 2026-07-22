@@ -13,7 +13,7 @@
     "start": "tsx src/server/main.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "^2.0.10",
     "@hono/node-ws": "^1.1.0",
     "@kolu/surface": "workspace:*",
     "@orpc/client": "^1.13.13",
