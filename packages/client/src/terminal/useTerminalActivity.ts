@@ -124,7 +124,17 @@ export const useTerminalActivity = createSharedRoot(() => {
           }),
         ),
       );
-      createEffect(() => reduce.apply(sub() ?? []));
+      // Gate on `sub.pending()`, not `sub() === undefined` — the latter also reads
+      // true for a subscription that errored out with no frame ever received
+      // (`subscription-use-pending`: conflating loading with no-data would apply an
+      // empty frame before we even know whether the stream is healthy). Once past
+      // pending, an undefined `sub()` can only mean a terminally-errored
+      // subscription (already toasted above) — falling back to `[]` there is an
+      // honest "we lost this host's live facts", not a hidden default.
+      createEffect(() => {
+        if (sub.pending()) return;
+        reduce.apply(sub() ?? []);
+      });
       onCleanup(() => {
         // Host left the pool — drop all of its live flags so no dead key lingers.
         const held = reduce.drain();
