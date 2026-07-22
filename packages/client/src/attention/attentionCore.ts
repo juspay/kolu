@@ -47,6 +47,15 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
   // a host's latch is data the structure holds directly (a `forgetHost` delete),
   // never something replayed from `prevByHost`.
   const latched = new Map<string, Set<TerminalId>>();
+  /** This host's latch set, created on first touch — one place for the get-or-create. */
+  const latchOf = (encHost: string): Set<TerminalId> => {
+    let set = latched.get(encHost);
+    if (!set) {
+      set = new Set();
+      latched.set(encHost, set);
+    }
+    return set;
+  };
 
   const observe = (encHost: string, cur: PadiUrgency): void => {
     const prev = prevByHost.get(encHost) ?? null;
@@ -58,7 +67,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     const unseen = nextUnseenFinished(
       unseenByHost.get(encHost) ?? new Set(),
       candidates,
-      new Set(cur.finishedIds),
+      cur.finishedIds,
       hooks.isActiveHost(encHost),
     );
     unseenByHost.set(encHost, unseen);
@@ -76,9 +85,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // genuine finished→asking gate over it still fires (#1177); and the latch clears
     // when the terminal leaves both sets (`ended`), so a real NEW episode chimes.
     if (prev === null && cur.awaitingIds.length > 0) {
-      const set =
-        latched.get(encHost) ?? latched.set(encHost, new Set()).get(encHost)!;
-      for (const id of cur.awaitingIds) set.add(id);
+      for (const id of cur.awaitingIds) latchOf(encHost).add(id);
     }
 
     // `candidates` is empty on the baseline (a finish already present when a host
@@ -92,11 +99,7 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
       // Latch once the user has been MADE AWARE — an actual alert, OR looking
       // right at a live gate (eyes work with sound off). A `finished` seen
       // while watched is NOT latched, so a later real gate still fires (#1177).
-      if (alerted || (asking && seen)) {
-        (
-          latched.get(encHost) ?? latched.set(encHost, new Set()).get(encHost)!
-        ).add(id);
-      }
+      if (alerted || (asking && seen)) latchOf(encHost).add(id);
     }
 
     // SNAPSHOT the frame — never keep a reference. The live surface delivers this

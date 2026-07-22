@@ -97,6 +97,7 @@ import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { hostAsking, hostUnseenFinished } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
+import { HostFinishedDot } from "./HostFinishedDot";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostMembers } from "./useHostMembers";
 import { HostIdentityLabel } from "./HostIdentityLabel";
@@ -145,8 +146,11 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // Both host-tab attention marks read the ONE cross-host store `useAttention`
   // publishes: the amber "asking" pill and the quiet "finished, unseen" dot. Neither
   // is the raw urgency count (a finished agent idles in `waiting` forever).
-  const awaiting = () => hostAsking(encodeHostKey(props.host));
-  const unseenFinished = () => hostUnseenFinished(encodeHostKey(props.host));
+  // The host is fixed for this chip's lifetime, so encode its key ONCE rather than
+  // re-encoding on every reactive read of either mark.
+  const key = encodeHostKey(props.host);
+  const awaiting = () => hostAsking(key);
+  const unseenFinished = () => hostUnseenFinished(key);
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
@@ -224,18 +228,11 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
            *  host clears it; it answers "which host did that finish sound come from"
            *  without inflating the loud asking count. */}
           <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
-          <Show when={unseenFinished() > 0 && !isActive()}>
-            <span
-              role="img"
-              // The quieter tier of the SAME amber "needs you" language the asking
-              // pill and the unread badge speak (`bg-amber-500`) — dimmed, so
-              // finished reads as lesser attention than a full asking pill, not a
-              // different (grey) vocabulary.
-              class="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/50"
-              title={`${unseenFinished()} finished, unseen, on ${hostLabel(props.host)}`}
-              aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(props.host)}`}
-            />
-          </Show>
+          <HostFinishedDot
+            count={isActive() ? 0 : unseenFinished()}
+            hostLabel={hostLabel(props.host)}
+            sizeClass="ml-0.5 h-1.5 w-1.5"
+          />
         </button>
         <div
           class="flex h-8 items-center transition-colors"
@@ -336,18 +333,13 @@ const HostSwitcherRow: Component<{
           </span>
         </span>
         <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
-        {/* The quieter tier of the same amber "needs you" language — a host with
-            finished, unseen work you aren't looking at (suppressed on the active
-            host, which you ARE looking at). Mirrors the desktop `HostChip` dot so
-            the cue survives the overflow picker, not only the tab strip. */}
-        <Show when={unseenFinished() > 0 && !isActive()}>
-          <span
-            class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/50"
-            role="img"
-            title={`${unseenFinished()} finished, unseen, on ${hostLabel(host)}`}
-            aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(host)}`}
-          />
-        </Show>
+        {/* The quieter finished-work tier — the shared dot, so the cue survives the
+            overflow picker (suppressed on the active host you're already viewing). */}
+        <HostFinishedDot
+          count={isActive() ? 0 : unseenFinished()}
+          hostLabel={hostLabel(host)}
+          sizeClass="h-1.5 w-1.5"
+        />
       </button>
       <button
         type="button"

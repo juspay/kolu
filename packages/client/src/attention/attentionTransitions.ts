@@ -32,18 +32,28 @@ export function attentionTransitions(
   const prevAsk = new Set(prev.awaitingIds);
   const prevFin = new Set(prev.finishedIds);
 
+  // Walk the source arrays directly (the two buckets are disjoint and each id is
+  // unique, so `awaitingIds` then `finishedIds` IS the union) — no throwaway
+  // spread array per frame on this ~150 ms-per-host hot path.
   const ended: TerminalId[] = [];
-  for (const id of [...prevAsk, ...prevFin]) {
+  for (const id of prev.awaitingIds) {
+    if (!nextAsk.has(id) && !nextFin.has(id)) ended.push(id);
+  }
+  for (const id of prev.finishedIds) {
     if (!nextAsk.has(id) && !nextFin.has(id)) ended.push(id);
   }
 
   const candidates: Array<{ id: TerminalId; asking: boolean }> = [];
-  for (const id of [...nextAsk, ...nextFin]) {
-    const nowAsking = nextAsk.has(id);
-    const wasAsking = prevAsk.has(id);
-    const wasInClass = wasAsking || prevFin.has(id);
-    if (!wasInClass || (nowAsking && !wasAsking)) {
-      candidates.push({ id, asking: nowAsking });
+  // An ASKING id chimes unless it was already asking — a fresh entry AND a
+  // finished→asking escalation both reduce to "wasn't asking last frame" (#1177).
+  for (const id of cur.awaitingIds) {
+    if (!prevAsk.has(id)) candidates.push({ id, asking: true });
+  }
+  // A FINISHED id chimes only as a FRESH entry into the class — it was in neither
+  // prev set. (A de-escalation asking→finished, still in class, is not a candidate.)
+  for (const id of cur.finishedIds) {
+    if (!prevAsk.has(id) && !prevFin.has(id)) {
+      candidates.push({ id, asking: false });
     }
   }
   return { candidates, ended };
@@ -60,15 +70,19 @@ export function attentionTransitions(
  *  Pure and stateful-by-fold: the caller threads the previous set back in, together
  *  with the transition it ALREADY computed this frame (no re-diff here — the
  *  transition is the one source of truth for "what changed"). On the baseline
- *  `candidates` is empty, so nothing is added; no separate `prev === null` guard. */
+ *  `candidates` is empty, so nothing is added; no separate `prev === null` guard.
+ *  Takes the raw `finishedIds` array and builds its lookup Set only AFTER the
+ *  active-host early-return, so the frequently-ticking active host never allocates
+ *  a Set it discards. */
 export function nextUnseenFinished(
   unseen: ReadonlySet<TerminalId>,
   candidates: AttentionTransition["candidates"],
-  finishedNow: ReadonlySet<TerminalId>,
+  finishedIds: readonly TerminalId[],
   isActiveHost: boolean,
 ): Set<TerminalId> {
   if (isActiveHost) return new Set(); // you're looking at it → nothing unseen.
   // Keep only ids still finished (drops ended + finished→asking).
+  const finishedNow = new Set(finishedIds);
   const next = new Set<TerminalId>(
     [...unseen].filter((id) => finishedNow.has(id)),
   );

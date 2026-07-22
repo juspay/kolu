@@ -33,6 +33,7 @@ import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostAwaitingPill } from "./HostAwaitingPill";
+import { HostFinishedDot } from "./HostFinishedDot";
 import {
   dotClass,
   hostHue,
@@ -60,8 +61,10 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
-  const awaiting = () => hostAsking(encodeHostKey(props.host));
-  const unseenFinished = () => hostUnseenFinished(encodeHostKey(props.host));
+  // The host is fixed for this chip's lifetime — encode the key ONCE.
+  const key = encodeHostKey(props.host);
+  const awaiting = () => hostAsking(key);
+  const unseenFinished = () => hostUnseenFinished(key);
 
   return (
     <button
@@ -120,17 +123,13 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
        *  the same token the desktop chip and switcher row render, hidden at
        *  zero. */}
       <HostAwaitingPill count={awaiting()} sizeClass="h-5 min-w-5 px-1.5" />
-      {/* Quiet "finished, unseen" amber dot — the same cue the desktop chip and
-       *  switcher row carry, so a phone user sees which background host finished,
-       *  suppressed on the active host. */}
-      <Show when={unseenFinished() > 0 && !isActive()}>
-        <span
-          class="h-2 w-2 shrink-0 rounded-full bg-amber-500/50"
-          role="img"
-          title={`${unseenFinished()} finished, unseen, on ${hostLabel(props.host)}`}
-          aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(props.host)}`}
-        />
-      </Show>
+      {/* Quiet finished-work dot — the same shared cue, so a phone user sees which
+       *  background host finished (suppressed on the active host). */}
+      <HostFinishedDot
+        count={isActive() ? 0 : unseenFinished()}
+        hostLabel={hostLabel(props.host)}
+        sizeClass="h-2 w-2"
+      />
     </button>
   );
 };

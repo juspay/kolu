@@ -134,7 +134,9 @@ export function useAttention(deps: AttentionDeps): {
       icon: "/favicon.svg",
       data: { kind: "terminal", host: encHost, terminalId: id },
     });
-    if (isActiveHost(host) && id !== deps.activeId()) deps.markUnread(id);
+    // `rich` is non-undefined iff this is the active host, so reuse it rather than
+    // a second `sameHost` compare — the dock unread is an active-host background tile.
+    if (rich && id !== deps.activeId()) deps.markUnread(id);
   }
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
