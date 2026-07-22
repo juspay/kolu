@@ -99,7 +99,6 @@ import {
 } from "./terminals.ts";
 import { exportTranscriptHtml } from "./transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
-import { recomputeUrgency } from "./urgency.ts";
 
 // Baked scrollback-backfill invariant, asserted at daemon startup (fail fast, no
 // degrade): a client's own scrollback must hold the ENTIRE reachable history —
@@ -241,23 +240,12 @@ export function buildPadiSurfaceDeps(deps: {
           install: everyMsOr(MEMORY_SAMPLE_INTERVAL_MS, onDaemonStatusChange),
         }),
       ),
-      // A DERIVED member — the urgency projection is `recomputeUrgency` folded off
-      // the `terminals` collection through the reactive bridge's `$` sibling read,
-      // dual-edged with the finish-quiet generation (`finish.track()`): urgency
-      // recomputes when a terminals upsert/remove fires OR when the multi-second
-      // quiet timer expires (no agent-state change needed). The enter/leave-waiting
-      // feed (`syncWaiting`) runs before the pure fold so a fresh episode cannot
-      // immediate-finish before quiet; sticky-finished ids stay finished through
-      // mid-waiting TUI noise. Spec `equals` (`urgencyEqual`) is the ONE wire
+      // A DERIVED member — finish.project owns track + enter/leave-waiting sync +
+      // pure recomputeUrgency so call sites cannot drift. Dual-edged on terminals
+      // and the finish generation (quiet-exit promote re-folds without an
+      // agent-state change). Spec `equals` (`urgencyEqual`) is the ONE wire
       // dedup point. No `store`/`equals` here — the graph is the one writer.
-      urgency: derived.cell(($) => {
-        finish.track();
-        const terminals = $.terminals();
-        finish.syncWaiting(terminals);
-        return recomputeUrgency(terminals, (id) =>
-          finish.isEpisodeFinished(id),
-        );
-      }),
+      urgency: derived.cell(($) => finish.project($.terminals())),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The

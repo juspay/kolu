@@ -4,31 +4,27 @@
  * A **second** {@link createActivityTracker} at {@link EFFECTIVE_FINISH_QUIET_MS}
  * (~5s), fed by:
  *   1. enter-waiting (awaiting→waiting and re-entry after leave-work) — starts
- *      the first-finish quiet window
- *   2. every kaval meaningful-output edge (re-arms the window *before* the first
- *      quiet-crossing; ignored for membership once sticky)
- *   3. restamp of currently-waiting, not-yet-sticky ids on every successful
- *      (re)subscribe (recycle gap during the debounce → delay, not early finish)
- * and evicted by `forget` / sticky-clear on leave-waiting / leave-pool.
+ *      the first-finish quiet window (`debouncing`)
+ *   2. every kaval meaningful-output edge while still debouncing (re-arms the
+ *      window; **ignored once finished**)
+ *   3. restamp of currently-debouncing ids on every successful (re)subscribe
+ *      (recycle gap during the debounce → delay, not early finish)
+ * and evicted on leave-waiting / leave-pool.
  *
- * **Product: sticky-per-episode.** Once a waiting id crosses quiet and enters
- * `finishedIds`, it STAYS finished until it leaves the waiting bucket (agent
- * runs again / asks / leaves pool). Mid-waiting TUI noise (statusline clocks,
- * context meters — bytes that pass kaval's resize-only mute) must not un-finish
- * and re-chime forever. Field falsified the earlier re-chime-per-quiet-crossing
- * assumption that idle terminals are byte-quiet.
+ * **Product: sticky-per-episode.** Once a waiting id crosses quiet (`finished`
+ * phase), it STAYS finished until it leaves the waiting bucket. Mid-waiting TUI
+ * noise must not un-finish. Field falsified re-chime-per-quiet-crossing.
  *
  * **Boot seed:** already-waiting ids on the first `syncWaiting` go straight to
- * sticky-finished (discovery is not a transition — matches client baseline and
- * pre-EF2 master; avoids a mass chime on padi restart under a connected client).
+ * `finished` (discovery is not a transition).
  *
- * Publishes a reactor **push source** whose level bumps on tracker `onChange`, so
- * urgency's dual-edge derived cell re-folds when the quiet timer expires without
- * an agent-state change. The fold stays pure over `(terminals, isEpisodeFinished)`.
+ * Episode phase is one `Map` (`debouncing` | `finished`) — not parallel
+ * waiting/sticky sets with sticky-on-read. Promotion to finished is an event on
+ * tracker quiet-exit; `isEpisodeFinished` is a pure read. Dual-edge generation
+ * bumps only when a phase changes (enter / leave / promote), not on every
+ * mid-waiting re-arm of an already-finished id.
  *
- * Standing kaval `resubscribeStream` is **daemon-lifetime** — not nested inside
- * `liveActivity`'s per-subscriber source — so urgency is honest with zero
- * activity-stream watchers.
+ * Standing kaval `resubscribeStream` is **daemon-lifetime**.
  */
 
 import { source } from "@kolu/surface/reactor";
@@ -38,38 +34,40 @@ import {
   type TerminalId,
 } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
-import type { PadiTerminal } from "./surface.ts";
+import type { PadiTerminal, PadiUrgency } from "./surface.ts";
 import { ptyHostClient } from "./ptyHost/index.ts";
 import {
   createActivityTracker,
   type ActivityTracker,
 } from "./terminalActivityTracker.ts";
 import { resubscribeStream } from "./terminalEndpoint/local.ts";
+import { recomputeUrgency } from "./urgency.ts";
 
 /** Delay before re-subscribing to kaval's `activity` stream after it ends — same
  *  cadence as liveActivity so recycle recovery feels consistent. */
 const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 
+/** Waiting-episode phase for one terminal — one ADT, not waiting∪sticky∪isLive. */
+export type FinishEpisodePhase = "debouncing" | "finished";
+
 export type FinishQuiet = {
   /**
-   * Read inside a reactor `engineComputed` (e.g. urgency's dual-edge
-   * `derived.cell`) so a tracker onChange re-folds without a terminals write.
-   * Side-effect free; the value itself is only a generation counter.
+   * Read inside a reactor `engineComputed` so a phase change re-folds without a
+   * terminals write. Side-effect free; value is a generation counter.
    */
   track(): void;
-  /**
-   * Sticky-aware finished predicate for a waiting id: true once the quiet window
-   * has closed for this waiting episode (or boot-seeded sticky). Memoizes into
-   * the sticky set so later edges while still waiting cannot un-finish.
-   */
+  /** Pure: true iff this waiting episode is in the `finished` phase. */
   isEpisodeFinished(id: TerminalId): boolean;
   /**
-   * Enter/leave-waiting feed from the current terminals map. Call once per
-   * urgency recompute **before** the pure fold — only *transitions* note/forget
-   * (steady-state is a no-op, so the ~150 ms firehose does not re-arm windows).
+   * Enter/leave-waiting feed from the current terminals map. Prefer
+   * {@link project} at call sites so track/sync/fold cannot drift.
    */
   syncWaiting(terminals: ReadonlyMap<TerminalId, PadiTerminal>): void;
-  /** Test / dispose: stop the standing sub and drop tracker state. */
+  /**
+   * Dual-edge entry: track generation, sync waiting membership, pure fold.
+   * The only recompute shape production and dual-edge tests should use.
+   */
+  project(terminals: ReadonlyMap<TerminalId, PadiTerminal>): PadiUrgency;
   dispose(): void;
 };
 
@@ -90,75 +88,80 @@ export function waitingIdsOf(
 /**
  * Build the finish-quiet fact. When `standingSub` is true (production default),
  * opens a daemon-lifetime kaval activity subscription. Tests pass `standingSub:
- * false` and drive `noteEdge` / `restampWaiting` (via the returned test hooks)
- * themselves — or only exercise `syncWaiting` + timer expiry.
+ * false` and drive `noteEdge` / `restampWaiting` themselves.
  */
 export function createFinishQuiet(opts: {
   log: Logger;
   idleAfterMs?: number;
-  /** Open the standing kaval activity sub (default true). */
   standingSub?: boolean;
 }): FinishQuiet & {
-  /** Test hook — feed a kaval activity edge. */
   noteEdge(id: TerminalId): void;
-  /** Test hook — restamp not-yet-sticky waiting ids (resubscribe). */
   restampWaiting(): void;
-  /** Test hook — current waiting set the feed tracks. */
+  /** Test hook — ids currently in any waiting-episode phase. */
   waitingSnapshot(): TerminalId[];
-  /** Test hook — sticky-finished set. */
+  /** Test hook — ids in `finished` phase. */
   stickySnapshot(): TerminalId[];
+  /** Test hook — phase map snapshot. */
+  episodeSnapshot(): Array<[TerminalId, FinishEpisodePhase]>;
 } {
   const idleAfterMs = opts.idleAfterMs ?? EFFECTIVE_FINISH_QUIET_MS;
   const tracker: ActivityTracker = createActivityTracker(idleAfterMs);
-  /** Ids currently in the waiting bucket — enter/leave detection. */
-  const waiting = new Set<TerminalId>();
   /**
-   * Ids that have crossed quiet (or boot-seeded) in the current waiting episode.
-   * Cleared only on leave-waiting / leave-pool — never by mid-waiting edges.
+   * One map for the waiting-episode phase. Absent ⇒ not in a waiting episode.
+   * Debounce timers live only on the tracker for `debouncing` ids.
    */
-  const sticky = new Set<TerminalId>();
+  const episode = new Map<TerminalId, FinishEpisodePhase>();
   /** First `syncWaiting` is discovery (boot seed), not a transition. */
   let bootstrapped = false;
 
-  // Generation counter — bump on every tracker live-set change so a dual-edge
-  // computed that reads `gen.value` re-runs when the quiet timer expires.
   let gen = 0;
+  let emitGen: ((n: number) => void) | undefined;
+  const bump = (): void => {
+    gen += 1;
+    emitGen?.(gen);
+  };
+
   const genSrc = source<number>((emit) => {
-    return tracker.onChange(() => {
-      gen += 1;
-      emit(gen);
-    });
+    emitGen = emit;
+    return () => {
+      emitGen = undefined;
+    };
   }, 0);
-  // Keep the source installed for daemon life (level updates only while
-  // subscribed; urgency's track() reads the level but does not subscribe).
   const keepAlive = genSrc.subscribe(() => {});
 
+  /** Promote debouncing ids whose quiet window closed — event, not a read. */
+  const promoteQuietExits = (): void => {
+    let changed = false;
+    for (const [id, phase] of episode) {
+      if (phase !== "debouncing") continue;
+      if (tracker.isLive(id)) continue;
+      episode.set(id, "finished");
+      changed = true;
+    }
+    if (changed) bump();
+  };
+
+  // Tracker live-set changes: re-arm (no phase change) or quiet exit (promote).
+  tracker.onChange(() => {
+    promoteQuietExits();
+  });
+
   const noteEdge = (id: TerminalId): void => {
-    // Sticky ids ignore edges for membership; re-arming the tracker is harmless
-    // (isEpisodeFinished short-circuits on sticky) and keeps pre-finish debounce
-    // correct for non-sticky waiting ids.
+    // Only re-arm the first-finish window. Finished episodes ignore edges for
+    // membership AND must not re-arm timers (would dual-edge-recompute forever
+    // under idle TUI noise).
+    if (episode.get(id) !== "debouncing") return;
     tracker.noteOutput(id);
   };
 
   const restampWaiting = (): void => {
-    // Only restamp ids still in the first-finish debounce — sticky-finished ids
-    // must not be reopened (and the fold ignores their live flag anyway).
-    for (const id of waiting) {
-      if (!sticky.has(id)) tracker.noteOutput(id);
+    for (const [id, phase] of episode) {
+      if (phase === "debouncing") tracker.noteOutput(id);
     }
   };
 
-  const isEpisodeFinished = (id: TerminalId): boolean => {
-    if (sticky.has(id)) return true;
-    // Not waiting → not finished (caller also gates on waiting; belt-and-braces).
-    if (!waiting.has(id)) return false;
-    if (!tracker.isLive(id)) {
-      // First quiet-crossing this episode → stick.
-      sticky.add(id);
-      return true;
-    }
-    return false;
-  };
+  const isEpisodeFinished = (id: TerminalId): boolean =>
+    episode.get(id) === "finished";
 
   const syncWaiting = (
     terminals: ReadonlyMap<TerminalId, PadiTerminal>,
@@ -166,33 +169,38 @@ export function createFinishQuiet(opts: {
     const next = new Set(waitingIdsOf(terminals));
 
     if (!bootstrapped) {
-      // Boot seed: already-waiting is a discovery, not a transition — go straight
-      // to sticky-finished (matches client baseline + pre-EF2 raw-waiting on
-      // master; avoids mass chime on padi restart under a connected client).
       bootstrapped = true;
-      for (const id of next) sticky.add(id);
-      waiting.clear();
-      for (const id of next) waiting.add(id);
+      for (const id of next) episode.set(id, "finished");
+      if (next.size > 0) bump();
       return;
     }
 
+    let changed = false;
     for (const id of next) {
-      if (!waiting.has(id)) {
-        // Enter-waiting (awaiting→waiting, or re-entry after leave-work): start
-        // the first-finish quiet window. Without noteOutput, never-noted would
-        // read !isLive and immediate-finish (default-excluded inverted).
-        sticky.delete(id);
+      if (!episode.has(id)) {
+        // Enter-waiting: start first-finish quiet window.
+        episode.set(id, "debouncing");
         tracker.noteOutput(id);
+        changed = true;
       }
     }
-    for (const id of waiting) {
+    for (const id of [...episode.keys()]) {
       if (!next.has(id)) {
         tracker.forget(id);
-        sticky.delete(id);
+        episode.delete(id);
+        changed = true;
       }
     }
-    waiting.clear();
-    for (const id of next) waiting.add(id);
+    if (changed) bump();
+  };
+
+  const project = (
+    terminals: ReadonlyMap<TerminalId, PadiTerminal>,
+  ): PadiUrgency => {
+    // Dual-edge: depend on generation, then sync membership, then pure fold.
+    genSrc.value.value;
+    syncWaiting(terminals);
+    return recomputeUrgency(terminals, isEpisodeFinished);
   };
 
   const localAbort = new AbortController();
@@ -202,9 +210,6 @@ export function createFinishQuiet(opts: {
       signal: sig,
       delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
       getStream: () => {
-        // Establishment of a successful (re)subscribe: restamp waiting ids that
-        // have not yet sticky-finished so a recycle gap during the debounce
-        // cannot early-finish. Sticky ids stay finished through the restamp.
         const stream = ptyHostClient.surface.activity.get({}, { signal: sig });
         return Promise.resolve(stream).then((s) => {
           restampWaiting();
@@ -222,26 +227,33 @@ export function createFinishQuiet(opts: {
 
   return {
     track() {
-      // Engine-tracked read of the generation signal (dual-edge).
       genSrc.value.value;
     },
     isEpisodeFinished,
     syncWaiting,
+    project,
     noteEdge,
     restampWaiting,
     waitingSnapshot() {
-      return [...waiting].sort();
+      return [...episode.keys()].sort();
     },
     stickySnapshot() {
-      return [...sticky].sort();
+      return [...episode]
+        .filter(([, p]) => p === "finished")
+        .map(([id]) => id)
+        .sort();
+    },
+    episodeSnapshot() {
+      return [...episode.entries()].sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      );
     },
     dispose() {
       localAbort.abort();
       keepAlive();
       genSrc.dispose();
       tracker.dispose();
-      waiting.clear();
-      sticky.clear();
+      episode.clear();
     },
   };
 }

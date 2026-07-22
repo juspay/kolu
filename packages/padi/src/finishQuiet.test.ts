@@ -1,7 +1,6 @@
 /**
- * EF2 finish-quiet feed + fold pins. Exercises sticky-per-episode without a
- * live kaval (standingSub: false): enter-waiting first-finish debounce, boot
- * seed → sticky, mid-waiting edges do not un-finish, leave re-arms, demotion.
+ * EF2 finish-quiet feed + fold pins. Sticky-per-episode via one episode map
+ * (debouncing | finished); no sticky-on-read.
  */
 
 import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
@@ -10,7 +9,6 @@ import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFinishQuiet, waitingIdsOf } from "./finishQuiet.ts";
 import type { PadiTerminal } from "./surface.ts";
-import { recomputeUrgency } from "./urgency.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "./vocab.ts";
 
 const QUIET = 100;
@@ -63,20 +61,13 @@ function terminalsMap(
   );
 }
 
-/** Fold after syncing the finish feed — the production urgency path shape. */
 function fold(
   finish: ReturnType<typeof createFinishQuiet>,
   terminals: Map<TerminalId, PadiTerminal>,
 ) {
-  finish.syncWaiting(terminals);
-  return recomputeUrgency(terminals, (id) => finish.isEpisodeFinished(id));
+  return finish.project(terminals);
 }
 
-/**
- * Production-shaped harness: first sync is empty (boot seed of nothing), so a
- * later enter-waiting exercises the first-finish quiet window rather than the
- * boot-seed sticky path.
- */
 function afterBootEmpty(finish: ReturnType<typeof createFinishQuiet>): void {
   fold(finish, terminalsMap([]));
 }
@@ -93,7 +84,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     });
     afterBootEmpty(finish);
     const terms = terminalsMap([[A, "waiting"]]);
-    // Just entered — window open → not finished yet.
     expect(fold(finish, terms)).toEqual({
       awaitingIds: [],
       finishedIds: [],
@@ -105,6 +95,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       finishedIds: [A],
     });
     expect(finish.stickySnapshot()).toEqual([A]);
+    expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
     finish.dispose();
   });
 
@@ -119,7 +110,7 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     fold(finish, terms);
 
     vi.advanceTimersByTime(QUIET - 10);
-    finish.noteEdge(A); // real output mid-window (pre-finish)
+    finish.noteEdge(A);
     vi.advanceTimersByTime(QUIET - 10);
     expect(fold(finish, terms).finishedIds).toEqual([]);
 
@@ -134,8 +125,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
-    // First sync is the boot seed — already-waiting is a discovery, not a
-    // transition: sticky-finished at once (no 5s window, no mass-chime later).
     const terms = terminalsMap([
       [A, "waiting"],
       [B, "thinking"],
@@ -161,11 +150,30 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
 
-    // Idle TUI noise / "real" mid-episode output — must stay finished.
     finish.noteEdge(A);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
     vi.advanceTimersByTime(QUIET);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("noteEdge on finished episode does not re-arm the tracker", () => {
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+    });
+    afterBootEmpty(finish);
+    const terms = terminalsMap([[A, "waiting"]]);
+    fold(finish, terms);
+    vi.advanceTimersByTime(QUIET);
+    fold(finish, terms);
+    expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
+
+    // Edge after finish must no-op on the tracker (not re-open debouncing).
+    finish.noteEdge(A);
+    expect(finish.isEpisodeFinished(A)).toBe(true);
+    expect(finish.episodeSnapshot()).toEqual([[A, "finished"]]);
     finish.dispose();
   });
 
@@ -179,7 +187,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     const terms = terminalsMap([[A, "waiting"]]);
     fold(finish, terms);
 
-    // Mid-debounce restamp re-opens the window (pre-finish).
     vi.advanceTimersByTime(QUIET - 10);
     finish.restampWaiting();
     vi.advanceTimersByTime(QUIET - 10);
@@ -187,7 +194,6 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     vi.advanceTimersByTime(10);
     expect(fold(finish, terms).finishedIds).toEqual([A]);
 
-    // After sticky, restamp must not un-finish (recycle under idle TUI noise).
     finish.restampWaiting();
     expect(fold(finish, terms).finishedIds).toEqual([A]);
     finish.dispose();
@@ -206,12 +212,10 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       A,
     ]);
 
-    // Leave waiting (back to work) — sticky cleared.
     fold(finish, terminalsMap([[A, "thinking"]]));
     expect(finish.stickySnapshot()).toEqual([]);
     expect(finish.waitingSnapshot()).toEqual([]);
 
-    // Re-enter waiting — fresh window, not immediately finished.
     expect(fold(finish, terminalsMap([[A, "waiting"]]))).toEqual({
       awaitingIds: [],
       finishedIds: [],
@@ -230,13 +234,11 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       standingSub: false,
     });
     afterBootEmpty(finish);
-    // Asking is ungated — no finish membership while awaiting.
     expect(fold(finish, terminalsMap([[A, "awaiting_user"]]))).toEqual({
       awaitingIds: [A],
       finishedIds: [],
     });
 
-    // Demotion to waiting starts a quiet window (enter-waiting noteOutput).
     expect(fold(finish, terminalsMap([[A, "waiting"]]))).toEqual({
       awaitingIds: [],
       finishedIds: [],

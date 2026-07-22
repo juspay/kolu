@@ -67,16 +67,21 @@ builds a **second** `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` instance.
 | Live dots (`liveActivity` + client) | `TERMINAL_IDLE_AFTER_MS` (~1s) | `snapshot()` → stream | Per activity-stream subscriber |
 | Effective finish | `EFFECTIVE_FINISH_QUIET_MS` (~5s) | `isLive(id)` | **Daemon-lifetime** (urgency honest with zero watchers) |
 
-### Pure finish fold (mental model ≡ tracker + sticky)
+### Pure finish fold (mental model ≡ episode map + tracker)
 
 ```
+episode: Map<id, "debouncing" | "finished">
+
 finished(id) =
   active ∧ agentBucket = waiting
-  ∧ isEpisodeFinished(id)
+  ∧ episode.get(id) === "finished"
 
-isEpisodeFinished(id) =
-  sticky.has(id)
-  ∨ (!finishTracker.isLive(id) ∧ sticky.add(id))
+// events (not reads):
+enter-waiting     → episode.set(id, "debouncing"); tracker.noteOutput(id)
+quiet-exit        → episode.set(id, "finished")   // tracker.onChange
+leave-waiting     → episode.delete(id); tracker.forget(id)
+boot seed         → episode.set(id, "finished")   // discovery
+edge / restamp    → tracker.noteOutput only if phase === "debouncing"
 ```
 
 The first quiet-crossing is **identical** to the stamp form
@@ -85,18 +90,10 @@ The first quiet-crossing is **identical** to the stamp form
 now − max(enteredWaitingAt, lastArrival ?? enteredWaitingAt) ≥ QUIET
 ```
 
-**iff** the tracker is fed for the first-finish debounce:
-
-1. **`noteOutput(id)` on enter-waiting** (`awaiting_user` → `waiting`, re-entry
-   after leave-work) — without this, never-noted ⇒ `!isLive` ⇒ **immediate**
-   finish (default-excluded inverted);
-2. **`noteOutput(id)` on every kaval activity edge** while not yet sticky
-   (re-arms the window during the debounce);
-3. **`forget(id)` + sticky clear** on leave-waiting and leave-pool.
-
-**Boot seed** is special: already-waiting on first sync goes **straight to sticky**
-(discovery, not a transition). **Sticky** is what stops mid-waiting TUI noise from
-un-finishing after the first quiet-crossing.
+**iff** the tracker is fed for the first-finish debounce. Promotion to
+`finished` is an **event** (quiet exit), never a side-effect inside the
+predicate. Mid-waiting TUI noise does not re-arm a finished episode’s timer
+(and so does not dual-edge-recompute forever).
 
 **ASKING** (`awaiting_user`) stays **ungated** — never gated on quiet.
 

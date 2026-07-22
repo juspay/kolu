@@ -1,7 +1,6 @@
 /**
  * Dual-edge pin: quiet-timer expiry re-folds urgency without a terminals write.
- * Production wiring is the same shape as servePadi's derived urgency cell.
- * Boot seed is sticky-immediate; this tests the *post-boot enter-waiting* path.
+ * Uses finish.project (the production recompute shape).
  */
 
 import { defineSurface } from "@kolu/surface/define";
@@ -22,7 +21,6 @@ import {
   PadiUrgencySchema,
   urgencyEqual,
 } from "./surface.ts";
-import { recomputeUrgency } from "./urgency.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "./vocab.ts";
 
 const QUIET = 50;
@@ -73,8 +71,6 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
-    // Empty store at wire — first sync bootstraps with no waiting ids so a later
-    // enter-waiting takes the first-finish debounce path (not boot-seed sticky).
     const store = new Map<TerminalId, PadiTerminal>();
 
     const surface = defineSurface({
@@ -109,24 +105,15 @@ describe("dual-edge urgency (finish quiet generation)", () => {
         },
       },
       cells: {
-        urgency: derived.cell(($) => {
-          finish.track();
-          const terminals = $.terminals();
-          finish.syncWaiting(terminals);
-          return recomputeUrgency(terminals, (id) =>
-            finish.isEpisodeFinished(id),
-          );
-        }),
+        urgency: derived.cell(($) => finish.project($.terminals())),
       },
     });
 
-    // Boot seed of empty set.
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [],
     });
 
-    // Enter waiting — window open → not finished yet.
     const terminal = activeTerminal(makeAgent("waiting"));
     store.set(A, terminal);
     ctx.collections.terminals.upsert(A, terminal);
@@ -135,7 +122,6 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [],
     });
 
-    // Quiet expires — dual-edge must re-fold without another terminals upsert.
     vi.advanceTimersByTime(QUIET);
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
@@ -185,18 +171,10 @@ describe("dual-edge urgency (finish quiet generation)", () => {
         },
       },
       cells: {
-        urgency: derived.cell(($) => {
-          finish.track();
-          const terminals = $.terminals();
-          finish.syncWaiting(terminals);
-          return recomputeUrgency(terminals, (id) =>
-            finish.isEpisodeFinished(id),
-          );
-        }),
+        urgency: derived.cell(($) => finish.project($.terminals())),
       },
     });
 
-    // Discovery at boot — sticky-finished, no quiet debounce.
     expect(ctx.cells.urgency.get()).toEqual({
       awaitingIds: [],
       finishedIds: [A],
