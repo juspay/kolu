@@ -8,6 +8,7 @@ import {
 let registered = false;
 
 const loadRhai = async (): Promise<{ default: LanguageRegistration[] }> => {
+  // biome-ignore lint/correctness/noUndeclaredDependencies: Vite resolves this Nix-backed virtual module.
   const { default: source } = await import("kolu-rhai-grammar");
   // The Nix-fetched JSON enters through a virtual Vite alias. Validate the
   // actual grammar by loading it through Shiki (covered by rhai.test.ts), and

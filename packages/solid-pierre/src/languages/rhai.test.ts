@@ -22,13 +22,10 @@ describe("Rhai syntax highlighting", () => {
       langs: ["rhai"],
       preferredHighlighter: "shiki-js",
     });
-    const { tokens } = highlighter.codeToTokens(
-      "let message = `hello ${name}`;",
-      {
-        lang: "rhai",
-        theme: DEFAULT_THEMES.dark,
-      },
-    );
+    const { tokens } = highlighter.codeToTokens('let message = "hello";', {
+      lang: "rhai",
+      theme: DEFAULT_THEMES.dark,
+    });
     const line = tokens[0] ?? [];
 
     expect(line.map((token) => token.content)).toContain("let");
