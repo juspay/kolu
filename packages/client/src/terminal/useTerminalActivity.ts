@@ -28,7 +28,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createEffect, mapArray, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { createSharedRoot } from "../createSharedRoot";
-import { hostKeys, padiMap } from "../wire";
+import { hostKeys, interpretClientError, padiMap } from "../wire";
 
 /** Diff one host's previous live-id frame against the next. Pure so the
  *  sticky-live fence (live → empty must remove) is unit-testable without the
@@ -95,13 +95,23 @@ export const useTerminalActivity = createSharedRoot(() => {
   const roots = mapArray(
     () => hostKeys().map(encodeHostKey),
     (encHost) => {
-      const entry = padiMap.entry(decodeHostKey(encHost));
-      // Bare `.use()` — a bound stream's `.use()` already applies the framework's
-      // standard reconnect/health behavior (STREAM_RETRY) by default, and a
-      // `StreamSpec` carries no client error policy to configure (only cells and
-      // collections take one), so the use-site needs no error options. Each frame
-      // is the full current live set for THIS host.
-      const sub = entry.streams.activity.use(() => ({}));
+      const host = decodeHostKey(encHost);
+      const entry = padiMap.entry(host);
+      // Unlike a cell/collection, a `StreamSpec` has no `client` field to declare
+      // a policy on (see `define.ts`) — so, unlike the SR11 bare `.use()` cells get
+      // for free (`useAttention`'s `urgency`), a stream's use-site MUST supply
+      // `onError` itself or a terminal subscription failure silently freezes this
+      // host's live dots with no surface (the package's own canonical example,
+      // `consume-solid.ts`, does the same). Routed through the shared
+      // `interpretClientError` (`hostToast`) for the same per-host-toast shape the
+      // declared-policy members get. Each frame is the full current live set for
+      // THIS host.
+      const sub = entry.streams.activity.use(() => ({}), {
+        onError: (err) =>
+          interpretClientError({ kind: "hostToast", label: "activity" }, err, {
+            key: host,
+          }),
+      });
       // The reducer owns this host's previous live set as a plain snapshot, so
       // feeding it the store proxy `sub()` returns is safe — it copies before
       // diffing (the sticky-live fence lives inside `apply`, not at this call
