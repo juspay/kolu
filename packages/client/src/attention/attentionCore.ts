@@ -101,7 +101,8 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     prevByHost.delete(encHost);
     unseenByHost.delete(encHost);
     latched.delete(encHost);
-    hooks.writeMark(encHost, 0);
+    // The mark is cleared by the caller's `onCleanup` (which DELETES the host's
+    // record), so the engine does not also write a 0 here — one clear, one place.
   };
 
   const markHostSeen = (encHost: string): void => {
