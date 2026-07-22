@@ -84,8 +84,12 @@ export interface AttentionDeps {
 
 function playSound(): void {
   const audio = new Audio("/sounds/notification.mp3");
-  audio.play().catch(() => {
-    // Autoplay policy or unsupported — swallow silently.
+  audio.play().catch((err: unknown) => {
+    // An autoplay-policy block (no user gesture yet) or an unsupported codec is
+    // EXPECTED and benign — but surface it (never a silent collapse) so a broken
+    // sound channel is distinguishable from success. `debug` keeps the expected
+    // autoplay-block out of the warning stream while still being observable.
+    console.debug("useAttention: notification sound did not play", err);
   });
 }
 

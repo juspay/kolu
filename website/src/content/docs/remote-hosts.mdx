@@ -163,8 +163,12 @@ says so.
 
 A chip also carries an **awaiting badge** — a count of agents on that host waiting
 for your input — so a host you're not looking at can tell you it needs you without
-your switching to it first. An [installed PWA](/install-pwa) surfaces the same
-counts as an app-badge and notifications across all your hosts.
+your switching to it first, plus a quiet **amber dot** when an agent **finished**
+on that host while you weren't looking (it clears the moment you switch there).
+Attention reaches you the **same way on every host**: a background machine's agent
+that finishes or starts waiting chimes and pops a notification just as the active
+machine's does. An [installed PWA](/install-pwa) surfaces the awaiting count as an
+app-badge and notifications across all your hosts.
 
 Switching back to a host you've already visited is instant: kolu keeps each visited
 host's state — its terminal list, saved sessions, activity, and the Code tab's reads

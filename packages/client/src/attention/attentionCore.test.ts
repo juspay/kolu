@@ -87,6 +87,29 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     expect(delivered).toEqual([{ id: "B", asking: false }]);
   });
 
+  it("REPRO: a baseline-asking terminal that settle-flaps (asking→waiting→asking) does NOT phantom-chime", () => {
+    // A terminal already ASKING when the host binds (e.g. an app reload catching it
+    // mid-ask) is a discovery, not a transition. If it then flaps asking→waiting→
+    // asking (a settle jitter), the finished→asking re-escalation must NOT chime —
+    // the terminal never left the attention episode. The retired per-terminal
+    // machine pinned this by pre-latching a first-sighted awaiting id.
+    const { core, delivered } = harness();
+    core.observe("h", u(["A"], [])); // baseline — A already asking
+    core.observe("h", u([], ["A"])); // A → waiting (de-escalation, no chime)
+    core.observe("h", u(["A"], [])); // A → asking again (flap) — must NOT chime
+    expect(delivered).toEqual([]);
+  });
+
+  it("a baseline-asking terminal that goes back to WORK then re-asks DOES chime (fresh episode)", () => {
+    // The pre-latch is not permanent: leaving both sets (back to work) is the
+    // episode boundary that clears the latch, so a genuine later ask fires.
+    const { core, delivered } = harness();
+    core.observe("h", u(["A"], [])); // baseline — A already asking (pre-latched)
+    core.observe("h", u([], [])); // A → working (episode end, latch clears)
+    core.observe("h", u(["A"], [])); // A asks again — fresh episode → chimes
+    expect(delivered).toEqual([{ id: "A", asking: true }]);
+  });
+
   it("an asking gate fires with asking=true", () => {
     const { core, delivered } = harness();
     core.observe("h", u([], []));

@@ -42,7 +42,7 @@ import {
 } from "./hostChipTone";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
-import { hostAsking } from "../attention/attentionMarks";
+import { hostAsking, hostUnseenFinished } from "../attention/attentionMarks";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
@@ -61,6 +61,7 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
   const awaiting = () => hostAsking(encodeHostKey(props.host));
+  const unseenFinished = () => hostUnseenFinished(encodeHostKey(props.host));
 
   return (
     <button
@@ -119,6 +120,17 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
        *  the same token the desktop chip and switcher row render, hidden at
        *  zero. */}
       <HostAwaitingPill count={awaiting()} sizeClass="h-5 min-w-5 px-1.5" />
+      {/* Quiet "finished, unseen" amber dot — the same cue the desktop chip and
+       *  switcher row carry, so a phone user sees which background host finished,
+       *  suppressed on the active host. */}
+      <Show when={unseenFinished() > 0 && !isActive()}>
+        <span
+          class="h-2 w-2 shrink-0 rounded-full bg-amber-500/50"
+          role="img"
+          title={`${unseenFinished()} finished, unseen, on ${hostLabel(props.host)}`}
+          aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(props.host)}`}
+        />
+      </Show>
     </button>
   );
 };

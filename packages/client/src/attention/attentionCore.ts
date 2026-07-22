@@ -68,6 +68,19 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // finish/ask is a fresh episode that fires again.
     for (const id of ended) latched.get(encHost)?.delete(id);
 
+    // BASELINE pre-latch: on the first frame per host, PRE-LATCH ids already
+    // ASKING, so a settle-flap around a PRE-EXISTING gate (asking→waiting→asking
+    // — e.g. an app reload that catches a terminal mid-ask) does not phantom-chime
+    // on the re-escalation. This is per-terminal, restoring the retired machine's
+    // guarantee. A baseline FINISHED id is deliberately NOT pre-latched, so a later
+    // genuine finished→asking gate over it still fires (#1177); and the latch clears
+    // when the terminal leaves both sets (`ended`), so a real NEW episode chimes.
+    if (prev === null && cur.awaitingIds.length > 0) {
+      const set =
+        latched.get(encHost) ?? latched.set(encHost, new Set()).get(encHost)!;
+      for (const id of cur.awaitingIds) set.add(id);
+    }
+
     // `candidates` is empty on the baseline (a finish already present when a host
     // binds is a discovery, not a transition — enforced in `attentionTransitions`),
     // so this loop records-only on the first frame with no guard here.

@@ -54,11 +54,16 @@ isn't blocked drops to idle instead). The vocabulary of states is
 ## Across machines
 
 The needs-you signal is a first-class part of the [multi-host](/remote-hosts)
-story: each host chip shows a live awaiting-you count read straight off that
-machine, a host whose link drops **dims** its chip rather than dropping the
-count, and the whole roll-up reaches you on the machine you're actually looking
-at. On a phone, the same amber "needs you" pill rides the host row in the
-pull-down sheet — see [kolu on a phone](/mobile).
+story, and it reaches you **the same way on every host** — an agent that finishes
+or starts waiting on a *background* machine chimes, shows a backgrounded-tab
+popup, and marks that host, exactly as the active machine's does. Each host chip
+shows a live **awaiting-you count** read straight off that machine (a host whose
+link drops **dims** its chip rather than dropping the count), and a host where an
+agent **finished while you weren't looking** carries a quiet **amber dot** beside
+its name until you switch to it — the softer tier of the same "needs you" amber
+the awaiting pill speaks. The whole roll-up reaches you on the machine you're
+actually looking at. On a phone, the same amber "needs you" pill rides the host
+row in the pull-down sheet — see [kolu on a phone](/mobile).
 
 ## Next
 

@@ -279,6 +279,7 @@ const HostSwitcherRow: Component<{
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
   const awaiting = () => hostAsking(props.hostKey);
+  const unseenFinished = () => hostUnseenFinished(props.hostKey);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
     props.onPicked();
@@ -335,6 +336,18 @@ const HostSwitcherRow: Component<{
           </span>
         </span>
         <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
+        {/* The quieter tier of the same amber "needs you" language — a host with
+            finished, unseen work you aren't looking at (suppressed on the active
+            host, which you ARE looking at). Mirrors the desktop `HostChip` dot so
+            the cue survives the overflow picker, not only the tab strip. */}
+        <Show when={unseenFinished() > 0 && !isActive()}>
+          <span
+            class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/50"
+            role="img"
+            title={`${unseenFinished()} finished, unseen, on ${hostLabel(host)}`}
+            aria-label={`${unseenFinished()} finished terminals you haven't seen on ${hostLabel(host)}`}
+          />
+        </Show>
       </button>
       <button
         type="button"
