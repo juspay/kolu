@@ -546,6 +546,9 @@ const RESIZE_ACTIVITY_MUTE_MS = 600;
 /** Coalesce the meaningful-output edge to at most one per PTY per window — a
  *  streaming agent produces thousands of chunks/sec, but the edge only needs to
  *  say "still producing", so the wire carries ~5 tiny frames/sec instead. */
+// MUST stay well below the consumer's idle window (TERMINAL_IDLE_AFTER_MS, 1000ms):
+// the fold re-arms its idle timer on each edge, so a throttle >= that window would
+// let a busy terminal expire between edges and flicker its live dot.
 const ACTIVITY_EDGE_THROTTLE_MS = 200;
 
 /** Whether an output chunk at `now` should publish a meaningful-output edge:
