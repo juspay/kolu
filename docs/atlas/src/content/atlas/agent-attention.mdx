@@ -64,6 +64,19 @@ What the review gauntlet surfaced but the first cut left out. Items marked
 
 **Correctness**
 
+- **Effective "finished" — fuse agent state with terminal quiet.** *(user-facing)* An
+  agent like Claude Code can mark its turn *finished* while background sub-agents keep
+  working, so kolu fires a premature "finished." The transcript can't catch this — but
+  the terminal is still **moving bytes** while the sub-agents run. Derive an *effective*
+  finish (agent-state `waiting` **and** the PTY quiet for a debounce) and let only those
+  terminals enter `finishedIds`, so the whole model rides it cross-host. <Cite file="packages/padi/src/urgency.ts" line={30} /> The
+  signal must live in **padi** — it sees every terminal's bytes, active *or* background —
+  not the client live-dot `useTerminalActivity`, which only tracks attached tiles. <Cite file="packages/client/src/terminal/useTerminalActivity.ts" line={90} /> Gate
+  *finished* only; a real *asking* gate still fires at once. It's a heuristic tuned by the
+  quiet window: a chatty background agent is caught, a silent one fires early, and an
+  agent whose TUI redraws at rest could defer a real finish. (One wrinkle: "output
+  stopped" is a non-event, so padi needs a debounce timer to re-fold when a waiting
+  terminal crosses the quiet threshold.)
 - **Split-aware "seen".** *(user-facing)* The seen check compares the active *tile* id,
   so a finished pane you can plainly see inside a split can still chime. The right test
   is "a visible pane of the active tile," not tile-or-focus alone. <Cite file="packages/client/src/attention/useAttention.ts" line={113} />

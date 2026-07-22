@@ -123,6 +123,19 @@ renamed <code>attentionAlerts</code> (with a migration).</p>
 <strong>user-facing</strong> change what you see or hear; the rest are internal quality or CI infra.</p>
 <p><strong>Correctness</strong></p>
 <ul>
+<li><strong>Effective “finished” — fuse agent state with terminal quiet.</strong> <em>(user-facing)</em> An
+agent like Claude Code can mark its turn <em>finished</em> while background sub-agents keep
+working, so kolu fires a premature “finished.” The transcript can’t catch this — but
+the terminal is still <strong>moving bytes</strong> while the sub-agents run. Derive an <em>effective</em>
+finish (agent-state <code>waiting</code> <strong>and</strong> the PTY quiet for a debounce) and let only those
+terminals enter <code>finishedIds</code>, so the whole model rides it cross-host. <a href="https://github.com/juspay/kolu/blob/master/packages/padi/src/urgency.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/padi/src/urgency.ts</a> The
+signal must live in <strong>padi</strong> — it sees every terminal’s bytes, active <em>or</em> background —
+not the client live-dot <code>useTerminalActivity</code>, which only tracks attached tiles. <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/useTerminalActivity.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/terminal/useTerminalActivity.ts</a> Gate
+<em>finished</em> only; a real <em>asking</em> gate still fires at once. It’s a heuristic tuned by the
+quiet window: a chatty background agent is caught, a silent one fires early, and an
+agent whose TUI redraws at rest could defer a real finish. (One wrinkle: “output
+stopped” is a non-event, so padi needs a debounce timer to re-fold when a waiting
+terminal crosses the quiet threshold.)</li>
 <li><strong>Split-aware “seen”.</strong> <em>(user-facing)</em> The seen check compares the active <em>tile</em> id,
 so a finished pane you can plainly see inside a split can still chime. The right test
 is “a visible pane of the active tile,” not tile-or-focus alone. <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/attention/useAttention.ts" rel="noopener" class="cite" data-astro-cid-5pdjtcv2>packages/client/src/attention/useAttention.ts</a></li>
