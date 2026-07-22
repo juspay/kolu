@@ -1,116 +1,110 @@
 /**
- * The padi WIRING for the effective-finish gate — the volatile transport the pure
- * {@link createFinishGate} core stands on, kept here so the core knows nothing of
- * the registry or the endpoint:
+ * The padi WIRING for the effective-finish gate — the padi-local inputs the pure
+ * {@link createFinishGate} fold stands on, kept here so the fold knows nothing of the
+ * registry, the agent-bucket channel, or kaval:
  *   - `listWaiting` reads the live registry for terminals that are ACTIVE and whose
- *     agent is in the `waiting` bucket (through the ONE shared `agentBucket` fence),
- *     mapping each to its endpoint routing location;
- *   - `openTap` opens a kaval byte tap (the same `terminalAttach` deltas the browser
- *     green dot reads) and reports the FACT of each output chunk — never the bytes.
+ *     agent is in the `waiting` bucket (through the ONE shared `agentBucket` fence) —
+ *     a boot/adopt seed for `enteredWaitingAt`;
+ *   - `subscribeAgentObservations` rides the synchronous agent-bucket edge
+ *     (`commitSnapshot` → `publishAgentBucket`), so the fold sees every
+ *     waiting-episode boundary the moment it happens;
+ *   - `subscribeActivity` consumes kaval's host-global `activity` stream — the
+ *     meaningful-output edge, with resize repaints already excluded at the source.
  *
- * This mirrors `liveActivity.ts`'s tap wiring; the two differ only in WHICH
- * terminals they tap (liveActivity every active terminal while its stream is
- * watched; the gate only the `waiting` ones, always) and the window, both owned by
- * the core.
+ * There is no byte tap and no per-terminal subscription here anymore: activity is
+ * owned by kaval (the process that sees every byte AND every resize), and this padi
+ * subscribes ONCE to its local kaval for the whole host.
  */
 
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { createFinishGate, type FinishGate } from "./finishGate.ts";
+import { ptyHostClient } from "./ptyHost/index.ts";
 import { subscribeAgentBucket } from "./publisher.ts";
 import { registryMap, type TerminalProcess } from "./terminal-registry.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+import { bridgeStream } from "./terminalEndpoint/local.ts";
 
-/** The live location a terminal record carries — the arg `resolveTerminalEndpoint`
- *  routes an attach by. Read off the active arm (only active terminals have a live
- *  PTY to tap), exactly as `liveActivity.ts` reads it. */
-type TerminalLocation = Parameters<typeof resolveTerminalEndpoint>[0];
+/** Delay before re-subscribing to kaval's `activity` stream after it ends (a daemon
+ *  recycle / reconnect) — long enough not to hot-loop while kaval is down, short
+ *  enough that finish detection resumes promptly. Mirrors the inventory reconciler's
+ *  re-subscribe cadence. */
+const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 
-/** The registry projection the gate's membership reads — a terminal's authored
+/** The registry projection the gate's membership seed reads — a terminal's authored
  *  `meta` (union arm) and its live `agent`. Exported for the filter's unit test. */
 export type WaitingCandidate = {
   meta: TerminalProcess["meta"];
   agent: AgentInfo | null;
 };
 
-/** The finish gate's MEMBERSHIP set: the ACTIVE terminals whose agent is in the
- *  `waiting` bucket, mapped to their tap location. Pure over a registry projection
- *  (not the live registry), so the `active` + `waiting`-bucket filter — the exact
- *  contract `finishGate` assumes it is fed — is unit-testable on its own. Only an
- *  active terminal has a live PTY to tap; only a `waiting` agent is a finish
- *  candidate (a sleeping/parked arm and an awaiting/working agent are both excluded,
- *  through the ONE shared `agentBucket` fence). */
+/** The finish gate's MEMBERSHIP set: the ids of ACTIVE terminals whose agent is in
+ *  the `waiting` bucket. Pure over a registry projection (not the live registry), so
+ *  the `active` + `waiting`-bucket filter is unit-testable on its own. Only an active
+ *  terminal is a finish candidate; a sleeping/parked arm and an awaiting/working agent
+ *  are excluded, through the ONE shared `agentBucket` fence. */
 export function selectWaitingTerminals(
   entries: ReadonlyMap<TerminalId, WaitingCandidate>,
-): Map<TerminalId, TerminalLocation> {
-  const waiting = new Map<TerminalId, TerminalLocation>();
+): Set<TerminalId> {
+  const waiting = new Set<TerminalId>();
   for (const [id, entry] of entries) {
     if (entry.meta.state !== "active") continue;
     if (!entry.agent) continue;
-    if (agentBucket(entry.agent.state) === "waiting") {
-      waiting.set(id, entry.meta.location);
-    }
+    if (agentBucket(entry.agent.state) === "waiting") waiting.add(id);
   }
   return waiting;
 }
 
-/** Build the effective-finish gate wired to padi's registry + byte taps. Disposed
- *  by the caller (daemonMain) alongside the surface runtime's `close`. */
+/** Build the effective-finish gate wired to padi's registry, agent-bucket edge, and
+ *  the local kaval's meaningful-output stream. Disposed by the caller (daemonMain)
+ *  alongside the surface runtime's `close`. */
 export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
   const { log } = deps;
-  return createFinishGate<TerminalLocation>({
+  return createFinishGate({
     listWaiting: () =>
       selectWaitingTerminals(
         registryMap((e) => ({ meta: e.meta, agent: e.snapshot.agent })),
       ),
-    // The RELIABLE agent-state edge — a synchronous fan-out `commitSnapshot`
-    // publishes on every `waiting` bucket transition, so the gate never misses a
-    // fast episode cycle the poll would.
+    // The RELIABLE agent-state edge — a synchronous fan-out `commitSnapshot` publishes
+    // on every `waiting` bucket transition (never a missed episode boundary).
     subscribeAgentObservations: (onObserve) =>
       subscribeAgentBucket((id, isWaiting) =>
         onObserve(id as TerminalId, isWaiting),
       ),
-    openTap: (id, location, { onReady, onOutput, onClosed }) => {
+    // kaval's host-global meaningful-output edge (resize-excluded at the source). One
+    // subscription per host, re-established across a kaval recycle so a working
+    // terminal's window can't be starved into a false finish by a lost stream.
+    subscribeActivity: (onOutput) => {
       const abort = new AbortController();
+      const { signal } = abort;
       void (async () => {
-        try {
-          const { deltas } = await resolveTerminalEndpoint(location).attach(
-            id,
-            abort.signal,
-          );
-          // A tap aborted while its attach was in flight (the terminal left `waiting`,
-          // or the tap was replaced) can still RESOLVE here — the endpoint returns an
-          // empty attachment on an aborted first-frame. Bail before reporting anything,
-          // so a stale tap can't ready/feed a newer episode (the core also generation-
-          // fences its handlers, but suppressing at the source keeps it honest).
-          if (abort.signal.aborted) return;
-          // The attach has ESTABLISHED — a live observer now exists, so the quiet
-          // window may start. Reporting readiness here (not when the tap was
-          // requested) is what stops a slow/wedged attach from letting a terminal
-          // settle before anything actually watched it.
-          onReady();
-          // Each delta is fresh output — the FACT of bytes, not the bytes. The
-          // attach's first frame (the scrollback snapshot) is delivered separately
-          // (never through `deltas`), so replayed screen can't false-light it.
-          for await (const _chunk of deltas) onOutput();
-        } catch (err) {
-          if (!abort.signal.aborted) {
-            // A real caught fault on a live tap (attach threw, or the delta stream
-            // errored) — degraded but recoverable: the `finally`/reconcile re-taps.
-            // `warn`, not `debug` — a graceful end never throws (it exits the loop),
-            // so reaching here is an actual failure worth surfacing.
-            log.warn(
-              { err, terminal: id },
-              "finish-gate byte-tap failed; will re-tap",
+        while (!signal.aborted) {
+          try {
+            // The forwarding client calls `liveClient()` eagerly, so `activity.get`
+            // THROWS synchronously when kaval isn't connected — this try owns that
+            // pre-subscribe throw (distinct from the stream draining, which
+            // `bridgeStream` resolves and never rejects).
+            await bridgeStream(
+              ptyHostClient.surface.activity.get({}, { signal }),
+              signal,
+              (edge) => onOutput(edge.id as TerminalId),
+            );
+          } catch (err) {
+            if (signal.aborted) return;
+            log.debug(
+              { err },
+              "kaval activity subscribe failed; will re-subscribe",
             );
           }
-        } finally {
-          // The stream ended (graceful end or a transient kaval drop) without us
-          // aborting — signal the core to re-tap (a terminal still `waiting` mustn't
-          // be believed watched, or it falsely settles). An abort is OUR disposer
-          // (the terminal left `waiting`), so it needs no recovery.
-          if (!abort.signal.aborted) onClosed();
+          if (signal.aborted) return;
+          await new Promise<void>((resolve) => {
+            const t = setTimeout(resolve, ACTIVITY_RESUBSCRIBE_DELAY_MS);
+            t.unref?.();
+            signal.addEventListener("abort", () => {
+              clearTimeout(t);
+              resolve();
+            });
+          });
         }
       })();
       return () => abort.abort();

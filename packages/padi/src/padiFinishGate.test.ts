@@ -45,7 +45,7 @@ const sleeping = (a: AgentInfo | null): WaitingCandidate => ({
 });
 
 describe("selectWaitingTerminals", () => {
-  it("selects ONLY active + `waiting`-bucket terminals, mapped to their tap location", () => {
+  it("selects ONLY active + `waiting`-bucket terminal ids", () => {
     const result = selectWaitingTerminals(
       new Map([
         ["w" as TerminalId, active(agent("waiting"))], // ✓ waiting
@@ -56,8 +56,7 @@ describe("selectWaitingTerminals", () => {
         ["asleep" as TerminalId, sleeping(agent("waiting"))], // sleeping arm — excluded
       ]),
     );
-    expect([...result.keys()]).toEqual(["w"]);
-    expect(result.get("w" as TerminalId)).toEqual(LOCAL_LOCATION);
+    expect([...result]).toEqual(["w"]);
   });
 
   it("is empty when nothing is waiting", () => {
