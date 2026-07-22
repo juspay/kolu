@@ -173,7 +173,15 @@ import { z } from "zod";
  *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
  *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
  *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior. */
-export const PTY_HOST_CONTRACT_VERSION = "5.2";
+/*  Bumped to 5.3 (MINOR): the host-global `activity` stream (meaningful-output
+ *  edges). This is a NEW EMITTED STREAM MEMBER, not an optional field — a survivor
+ *  5.2 daemon does not serve it at all, so a 5.3 consumer subscribing would hit a
+ *  missing stream. Unlike `commandRooted`/`lifetime` (optional fields whose absence
+ *  degrades to the status quo), there is no graceful degradation for an absent
+ *  stream the finish/activity design depends on — so the minor bump correctly
+ *  force-recycles a surviving old kaval (its session parks + restores) rather than
+ *  leave a consumer talking to a stream that isn't there. */
+export const PTY_HOST_CONTRACT_VERSION = "5.3";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -308,6 +316,10 @@ const InventoryEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("created"), entry: TerminalListEntrySchema }),
   z.object({ kind: z.literal("exited"), id: PtyIdSchema }),
 ]);
+
+/** One frame of the host-global `activity` stream — a PTY that just produced
+ *  meaningful (non-resize) output. See the stream member below. */
+const ActivityEdgeSchema = z.object({ id: PtyIdSchema });
 
 /** Raw foreground sample (`tcgetpgrp(3)` pid + node-pty process name) — the
  *  one live PTY read agent detection needs that can't cross a wire as a
@@ -452,6 +464,17 @@ export const ptyHostSurface = defineSurface({
     inventory: {
       inputSchema: z.object({}),
       outputSchema: InventoryEventSchema,
+    },
+    /** Host-global MEANINGFUL-OUTPUT edges (contract 5.3) — each frame names a PTY
+     *  that just produced real output, with resize repaints EXCLUDED at the source.
+     *  A consumer subscribes once and stamps ARRIVAL time on its own clock, deriving
+     *  its own idle windows — so kaval never re-streams bytes just to maintain a
+     *  boolean, and no consumer needs its own byte tap or a resize-mute hack. Purely
+     *  live (no snapshot frame): a missed edge across a reconnect only delays a
+     *  downstream finish (default-excluded). */
+    activity: {
+      inputSchema: z.object({}),
+      outputSchema: ActivityEdgeSchema,
     },
   },
   procedures: {
