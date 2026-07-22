@@ -213,9 +213,11 @@ attach:
 # aarch64-darwin) — exactly the contexts branch protection gates on. This is
 # the source of truth for "is CI done"; verify each is green with
 # `gh pr checks`. Pins both platforms so the required list is never a
-# single-platform subset (see the ci skill's green-gate).
-protect:
-    nix run .#odu protect -- --platform x86_64-linux --platform aarch64-darwin
+# single-platform subset (see the ci skill's green-gate). Extra args pass
+# straight through to odu, so `just ci::protect --dry-run` prints the contexts
+# without touching the PR.
+protect *args:
+    nix run .#odu protect -- --platform x86_64-linux --platform aarch64-darwin {{ args }}
 
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're
