@@ -24,6 +24,12 @@ if (!fontsDir) {
     "KOLU_FONTS_DIR env var is not set. Run inside the Nix devShell (just dev).",
   );
 }
+const rhaiGrammarPath = process.env.KOLU_RHAI_GRAMMAR;
+if (!rhaiGrammarPath) {
+  throw new Error(
+    "KOLU_RHAI_GRAMMAR env var is not set. Run inside the Nix devShell.",
+  );
+}
 
 export default defineConfig({
   // No VitePWA / no *caching* service worker: kolu can't work offline and a
@@ -79,6 +85,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      "kolu-rhai-grammar": rhaiGrammarPath,
       "kolu-fonts": `${fontsDir}/fonts.css`,
     },
   },

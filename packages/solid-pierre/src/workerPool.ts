@@ -28,6 +28,7 @@ import {
   getOrCreateWorkerPoolSingleton,
   type WorkerPoolManager,
 } from "@pierre/diffs/worker";
+import { registerRhaiLanguage } from "./languages/rhai";
 
 /** The single highlighter contract every Kolu `CodeView` shares with the worker
  *  pool that tokenizes for it. Both facts here must hold for the off-thread
@@ -64,8 +65,12 @@ const POOL_SIZE = 2;
  *  ignores its args. A per-CodeView-mount call is therefore free and never
  *  builds a second pool — this wrapper is a pure adapter that pre-fills Kolu's
  *  options (one lifetime cache, Pierre's, instead of mirroring it locally). */
-export const getCodeViewWorkerPool = (): WorkerPoolManager =>
-  getOrCreateWorkerPoolSingleton({
+export const getCodeViewWorkerPool = (): WorkerPoolManager => {
+  // Custom languages must be registered on the main thread before Pierre
+  // resolves and transfers their grammars to its workers.
+  registerRhaiLanguage();
+
+  return getOrCreateWorkerPoolSingleton({
     poolOptions: {
       // Kolu owns the worker factory, so the worker bundles through the
       // client's Vite (`new Worker(new URL(...))` is Vite's worker pattern)
@@ -84,3 +89,4 @@ export const getCodeViewWorkerPool = (): WorkerPoolManager =>
     // binding is passed directly (no defensive copy needed).
     highlighterOptions: HIGHLIGHTER_CONTRACT,
   });
+};
