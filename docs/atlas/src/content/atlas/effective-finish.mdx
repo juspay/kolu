@@ -1,6 +1,6 @@
 ---
 title: Effective Finish — Quiet Chronology, Phased
-description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; full activity cutover shipped (EF1); pure-fold finishedIds next (EF2) via a second createActivityTracker. Phased EF0–EF3 (EF0–EF1 done) after closing the #1938 big-bang.
+description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; activity cutover (EF1) and pure-fold finishedIds via a second createActivityTracker (EF2) shipped. Phased EF0–EF3 (EF0–EF2 done) after closing the #1938 big-bang.
 parents: [agent-attention, analysis]
 status: proposed
 maturity: seedling
@@ -23,14 +23,14 @@ The fix is not a second byte-tap state machine in padi. It is:
 1. **kaval** reports *meaningful* PTY output (resize repaints excluded at the source),
 2. **padi + client** cut over live-dots onto that fact in **one** PR (no dual path) — **done**,
 3. **padi** pure-folds finish from the **same** edge via a second
-   `createActivityTracker` at a multi-second window (EF2).
+   `createActivityTracker` at a multi-second window (EF2) — **done**.
 
 Work items use the **EF** track prefix (new; no Atlas collisions). <PrLink pr={1938} />
 closed without merge — design kept, big-bang delivery discarded. This note is the plan
-of record (<PrLink pr={1944} />). **EF1 shipped** (<PrLink pr={1945} />): activity is a
-single host-side fact. Master still uses raw-`waiting` for `finishedIds` until **EF2**.
+of record (<PrLink pr={1944} />). **EF1 shipped** (<PrLink pr={1945} />); **EF2 shipped**
+(<PrLink pr={1947} />): `finishedIds` is effective quiet, not raw `waiting`.
 
-<Svg svg={phaseTree} wide caption="EF phase tree (left) and stack (right). EF0–EF1 done (dashed). EF2 is finish honesty: a second ActivityTracker at ~5s, daemon-lifetime, feeding urgency’s graph — not hand-rolled stamps + deadline." />
+<Svg svg={phaseTree} wide caption="EF phase tree (left) and stack (right). EF0–EF2 done (dashed). EF3 is shared fan-out / e2e / docs polish." />
 
 ## The problem
 
@@ -183,7 +183,7 @@ axis (attention policy) and stays **EF2**.
 ## Phase tree
 
 Strict dependency: **EF0 → EF1 → EF2 → EF3**. Each remaining box is one PR, green
-alone, revertible alone. **EF0 and EF1 are complete.**
+alone, revertible alone. **EF0–EF2 are complete.**
 
 ### EF0 — close / capture
 
@@ -222,7 +222,8 @@ Finish policy (`finishedIds`) was deliberately **not** changed here — that is 
 
 ### EF2 — pure finish fold (finish honesty)
 
-<Phase id="EF2" name="pure finish fold" status="next" needs={["EF1"]} blocks={["EF3"]} />
+<Phase id="EF2" name="pure finish fold" status="shipped" needs={["EF1"]} blocks={["EF3"]}
+  links={[{ label: "#1947", href: "https://github.com/juspay/kolu/pull/1947" }]} />
 
 <Callout kind="note" title="ELI15">
 When the agent says “I’m done,” wait until the terminal has been actually quiet
@@ -232,28 +233,18 @@ Reuses EF1’s doorbell and timer type — a longer quiet window — not a new w
 and not a second stamp machine.
 </Callout>
 
-#### Realization (explicit — not stamps + hand deadline)
+**Shipped in <PrLink pr={1947} />** — tracker realization, not stamps + deadline:
 
 | Piece | What |
 | --- | --- |
-| Tracker | `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` (~5s) — second instance of the EF1 leaf <Cite file="packages/padi/src/terminalActivityTracker.ts" /> |
+| Tracker | `createActivityTracker(EFFECTIVE_FINISH_QUIET_MS)` (~5s) — second instance of the EF1 leaf <Cite file="packages/padi/src/terminalActivityTracker.ts" /> via <Cite file="packages/padi/src/finishQuiet.ts" /> |
 | Feed | `noteOutput` on: enter-waiting (incl. `awaiting`→`waiting`); every kaval activity edge; **boot seed** of already-waiting ids; **all waiting ids on (re)subscribe** |
 | Evict | `forget(id)` on leave-waiting and leave-pool |
-| Fold | `finishedIds` = active waiting ids with `!finishTracker.isLive(id)`; asking ungated |
-| Graph | Daemon-lifetime standing kaval `resubscribeStream` + reactor `source` on `onChange`; `derived.cell(($) => recomputeUrgency($.terminals(), quietFact()))` |
-| Product | **Re-chime per quiet-crossing** while still waiting (not sticky-once-per-episode) |
+| Fold | `finishedIds` = active waiting ids with `!finishTracker.isLive(id)`; asking ungated — <Cite file="packages/padi/src/urgency.ts" /> |
+| Graph | Daemon-lifetime standing kaval `resubscribeStream` + reactor push source on `onChange`; dual-edge `derived.cell` (`finish.track()` + `$.terminals()`) in <Cite file="packages/padi/src/servePadi.ts" /> |
+| Product | **Re-chime per quiet-crossing** while still waiting (not sticky-once-per-episode) — attention engine test |
 
-#### Do not
-
-| Do not | Why |
-| --- | --- |
-| Byte-tap waiting terminals | EF1 edge is the source |
-| Parallel stamp maps + hand `setTimeout` deadline | Re-derives the shipped tracker |
-| Nest finish sub inside `liveActivity`’s per-subscriber source | Urgency must work with zero activity watchers |
-| Six-set / attach / gen-fence machine | #1938 shape |
-| Change live-dot window or client mirror | EF1 done |
-
-#### Tests (required)
+#### Tests shipped
 
 | Case | Layer |
 | --- | --- |
@@ -263,12 +254,10 @@ and not a second stamp machine.
 | Resubscribe restamp: gap > QUIET while noisy + restamp → **not** early finish | fold / tracker |
 | Leave waiting / leave pool → `forget`; re-entry earns a fresh window | fold / tracker |
 | `awaiting_user` → `waiting` demotion restamps window | fold / tracker |
-| Resize-class edge does **not** un-finish (kaval mute) | edge + fold |
+| Quiet timer expiry re-folds without a terminals write | dual-edge integration |
 | FinishedIds leave then re-enter while still waiting → **second** finished deliver | attention engine (`observe`, not simulate) |
 
-**Done when:** background-subagent case does not chime early; recycle gap does not
-fire early; re-chime-on-re-quiet is intentional and unit-tested; urgency updates
-on quiet expiry without an agent-state change.
+Resize-class mute remains kaval EF1 (`shouldEmitActivityEdge`); no second mute in the finish fold.
 
 ### EF3 — harden / e2e / docs
 
@@ -313,8 +302,8 @@ run EF2 as above.
 | --- | --- |
 | **EF0** | ✓ done — #1938 closed; plan <PrLink pr={1944} /> |
 | **EF1** | ✓ done — <PrLink pr={1945} /> activity cutover (kaval + padi + client; no dual path) |
-| **EF2** | second tracker @ `EFFECTIVE_FINISH_QUIET_MS`; enter-waiting + edge + boot seed + resubscribe restamp feeds; `forget` on leave; reactor quiet fact; urgency dual-edge; fold unit tests; attention re-chime test; no-edge-on-resize |
-| **EF3** | shared fan-out and/or e2e; docs |
+| **EF2** | ✓ done — <PrLink pr={1947} /> second tracker @ `EFFECTIVE_FINISH_QUIET_MS`; feeds + restamp; dual-edge urgency; fold + attention re-chime tests |
+| **EF3** | shared fan-out and/or e2e; docs polish |
 
 ## Relation to attention
 

@@ -73,6 +73,22 @@ describe("attentionCore — detect→fire (the path e2e/simulate skips)", () => 
     ]);
   });
 
+  it("EF2 re-chime: finishedIds leave then re-enter while still waiting → second finished deliver", () => {
+    // Product decision: re-chime per quiet-crossing within a waiting episode.
+    // Mid-waiting real output drops the id from finishedIds (latch clears via
+    // `ended`) while the agent stays waiting; later re-quiet re-enters
+    // finishedIds and must deliver a second finished chime. Not sticky-once.
+    const { core, delivered } = harness();
+    core.observe("h", u([], [])); // baseline — working
+    core.observe("h", u([], ["B"])); // first quiet-crossing → fire
+    core.observe("h", u([], [])); // un-finish (mid-episode edge; still waiting at agent layer)
+    core.observe("h", u([], ["B"])); // second quiet-crossing → fire again
+    expect(delivered).toEqual([
+      { id: "B", asking: false },
+      { id: "B", asking: false },
+    ]);
+  });
+
   it("REPRO (deploy bug): detects a transition even when the cell REUSES one mutated object", () => {
     // The live surface delivers cell values via SolidJS `reconcile` — ONE object
     // mutated in place across frames. If the engine keeps a REFERENCE to it as

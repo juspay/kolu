@@ -38,6 +38,7 @@ import {
 } from "./confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
+import { createFinishQuiet } from "./finishQuiet.ts";
 import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
@@ -156,6 +157,10 @@ export function buildPadiSurfaceDeps(deps: {
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
+  // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
+  // with terminals: urgency re-folds when the quiet timer expires without an
+  // agent-state change (see `finish.track()` inside the derived cell).
+  const finish = createFinishQuiet({ log });
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
   // moment a daemon's status changes — so a fresh daemon's readout reflects its
@@ -237,15 +242,19 @@ export function buildPadiSurfaceDeps(deps: {
         }),
       ),
       // A DERIVED member — the urgency projection is `recomputeUrgency` folded off
-      // the `terminals` collection through the reactive bridge's `$` sibling read.
-      // The graph tracks the `terminals → urgency` edge, so no seam has to remember
-      // to refold: urgency recomputes exactly when a terminals upsert/remove fires,
-      // and the spec's `equals` (`urgencyEqual`) is the ONE wire dedup point. This
-      // deletes the old `publishUrgency` rider on every composed publish (worked
-      // example 1 of the reactive-bridge note). No `store`/`equals` here — the graph
-      // is the one writer (a write verb would crash the boot walk) and `equals`
-      // lives on the spec.
-      urgency: derived.cell(($) => recomputeUrgency($.terminals())),
+      // the `terminals` collection through the reactive bridge's `$` sibling read,
+      // dual-edged with the finish-quiet generation (`finish.track()`): urgency
+      // recomputes when a terminals upsert/remove fires OR when the multi-second
+      // quiet timer expires (no agent-state change needed). The enter/leave-waiting
+      // feed (`syncWaiting`) runs before the pure fold so never-noted cannot
+      // immediate-finish. Spec `equals` (`urgencyEqual`) is the ONE wire dedup
+      // point. No `store`/`equals` here — the graph is the one writer.
+      urgency: derived.cell(($) => {
+        finish.track();
+        const terminals = $.terminals();
+        finish.syncWaiting(terminals);
+        return recomputeUrgency(terminals, (id) => finish.isLive(id));
+      }),
       // The saved session — backed by padi's OWN state-root Conf, set by padi's
       // daemonMain at boot (`setPadiSessionStore`, see `confStores.ts`), read here
       // via `requirePadiSessionStore`. The

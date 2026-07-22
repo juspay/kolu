@@ -312,6 +312,15 @@ export type ProcessRss = z.infer<typeof ProcessRssSchema>;
  *  the two dots can't drift out of lockstep behind a comment. */
 export const TERMINAL_IDLE_AFTER_MS = 1000;
 
+/** Quiet window for the effective-finish fold (`finishedIds`): an active agent in
+ *  the `waiting` bucket is finished only once this long has passed without a
+ *  meaningful-output edge (and the enter-waiting restamp). Longer than
+ *  {@link TERMINAL_IDLE_AFTER_MS} so background sub-agent bursts still suppress
+ *  a premature chime; short enough the finished nudge is not noticeably late.
+ *  Padi-only policy today (lives on this shared leaf so the window is one
+ *  named constant, not a magic number in the finish tracker). */
+export const EFFECTIVE_FINISH_QUIET_MS = 5_000;
+
 // ── Schema-derived sub-types ──────────────────────────────────────────
 
 export type AgentKind = z.infer<typeof AgentKindSchema>;
