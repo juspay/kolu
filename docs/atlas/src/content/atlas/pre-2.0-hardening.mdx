@@ -4,7 +4,7 @@ description: "Ship-status board for the 2.0 tag: what can hurt the user, in thei
 parents: [analysis, roadmap]
 status: proposed
 maturity: budding
-updated: 2026-07-21
+updated: 2026-07-22
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -16,7 +16,7 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 
 | | Issue | What the user feels |
 | --- | --- | --- |
-| 🔶 | <Issue n={1334} /> | Kolu's own dev/test can **kill the live kolu you are using** — daemons reaped, terminals lost. PR #1911 **closed after adversarial review** (srid, 2026-07-21); rebuild plan of record: [state isolation](./state-isolation.html) (SI1 gate-leak fix → SI2 the lock). Wire-verb bypass split to <Issue n={1912} />; [the locks, in plain words](./host-isolation-locks.html). |
+| ✅ | <Issue n={1334} /> | ~~Kolu's own dev/test can **kill the live kolu you are using**~~ — the state-root default is deleted; the path is chosen out loud or the process dies. (PR #1933, after #1911 was closed under review; the full arc: [state isolation](./state-isolation.html). Residuals: the run-once `e2e-ssh` verification, SI1, and the <Issue n={1912} /> wire-verb guard.) |
 | ✅ | <Issue n={1375} /> | ~~A local `vitest` run forks 30+ real daemons and OOM-reaps prod kaval~~ — real-daemon suites are **off by default** now. (PR #1921) |
 | ✅ | <Issue n={1754} /> | ~~The dock says **"thinking" forever** after the agent already finished~~ — append-poll floor under fs.watch. (PR #1914, deliberately `Refs` not `Closes`: the issue stays open until the e2e asserts descoped in PR #1751 are restored by a follow-up once #1751 merges.) |
 | ✅ | <Issue n={1859} /> | ~~One corrupt message makes a connection play dead while it keeps listening~~ — "settled ⟹ stopped" holds by construction. (PR #1901) |
@@ -24,23 +24,12 @@ One rule: fix what a user would *feel*. ✅ done · 🔶 in flight · ⬜ not st
 | ✅ | <Issue n={1177} /> | An agent that needs you **always chimes** now. (PR #1894) |
 | ✅ | <Issue n={1763} /> | "Connecting to local…" **can no longer spin forever** — a stuck boot names its failure and offers Reload. (PR #1898) |
 
-### PR #1911 — closed after review (2026-07-21)
-
-Adversarial review (11 hunters, refuter-verified) found the lock core sound
-but only ~52% of the 1,483 added lines serving it — the rest was role markers
-nothing reads (their reader was rejected to <Issue n={1912} />) plus kaval
-machinery closing a window the PR itself opened; both ssh e2e lanes broke
-invisibly. srid ruled: **close and rebuild lock-only.** The plan of record —
-SI1 (padi gate-leak fix, the one treasure extracted) then SI2 (the lock: padi
-+ server + nix, zero kaval) — lives in **[state
-isolation](./state-isolation.html)**; the full verdict is on the closed PR.
-
 ## 🟡 Yellow alert — land next
 
 | | Issue | What the user feels |
 | --- | --- | --- |
 | ⬜ | <Issue n={1658} /> | A bad write could **lose all your terminals and sessions** — back up state on start. |
-| ⬜ | <Issue n={1667} /> | Closing the last terminals can **focus a dead one**. Fix PR #1677 already open — land it. |
+| 🔶 | <Issue n={1667} /> | Closing the last terminals can **focus a dead one**. Fix PR #1677 open; its merge conflicts are being resolved (dispatched 2026-07-21). |
 | ⬜ | <Issue n={1666} /> | Removing a worktree **strands its running terminal**. |
 | ⬜ | <Issue n={1680} /> | On a remote mac, agent state **freezes silently** until restart. |
 | ⬜ | <Issue n={1076} /> | A terminal is left **frozen** (raw mode) after a TUI app exits. |
@@ -75,9 +64,10 @@ polish (<Issue n={1305} /> / <Issue n={1306} />) · no-current-victim ledgers
 (<Issue n={1688} />, <Issue n={1863} />) · <Issue n={706} /> full containment
 (needs a VM) · the campaign-surface build-out.
 
-<Callout kind="accent" title="One-thing cut">
-  If only one lands: **the <Issue n={1334} /> state-root lock.** Everything
-  else degrades the experience; that one can eat your prod instance.
+<Callout kind="accent" title="One-thing cut — landed">
+  The one item that could eat your prod instance, <Issue n={1334} />, shipped
+  as PR #1933 (2026-07-22). Everything still open above degrades the
+  experience; nothing left on this board destroys it.
 </Callout>
 
 ## Standing facts (coordinator)
