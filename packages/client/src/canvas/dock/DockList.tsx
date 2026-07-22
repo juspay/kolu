@@ -28,12 +28,13 @@ import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GAP,
   DOCK_ROW_GRID,
 } from "../../ui/chromeSpacing";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { pipVariant } from "./pipVariant";
+import { pipGlyphFor, pipVariant } from "./pipVariant";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -94,19 +95,20 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-3 pl-3 pr-3`}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID} ${DOCK_ROW_GAP} pl-3 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2 border-b border-edge/30"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2.5"
       >
+        <span class="dock-cards-section-swatch" aria-hidden="true" />
         <span
           data-testid="mobile-dock-section-name"
-          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.1em] truncate min-w-0"
+          class="dock-cards-section-name font-mono text-[0.65rem] font-bold uppercase tracking-[0.12em] truncate min-w-0"
         >
           {props.group.name}
         </span>
-        <span class="ml-auto font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
+        <span class="dock-cards-section-count font-mono text-[0.6rem]">
           {props.group.rows.length}
         </span>
       </div>
@@ -179,7 +181,7 @@ function DockListRow(props: {
           // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
           // side is symmetric between the two surfaces, so it ships
           // as one symbol.
-          class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+          class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           {/* One merged status indicator — agent-state core, green live
            *  ring, amber unread corner badge; centred across both row lines.
@@ -187,6 +189,9 @@ function DockListRow(props: {
           <span class="row-span-2 flex self-center">
             <StatePip
               variant={pipVariant(props.pip)}
+              glyph={pipGlyphFor(c().meta)}
+              busy={!!activeArm(c().meta)?.foreground}
+              still={activeArm(c().meta)?.agent?.state === "waiting"}
               live={activity.isLive(props.id)}
               alert={unread()}
               alertLabel="unread alert"
@@ -194,7 +199,7 @@ function DockListRow(props: {
             />
           </span>
           <span
-            class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
+            class="dock-cards-row-label text-[0.9rem]"
             style={{
               color: c().info.annotationColor,
             }}
@@ -216,7 +221,7 @@ function DockListRow(props: {
            *  edge so it aligns across every section), subline text
            *  following. */}
           <div
-            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
+            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0 mt-0.5`}
           >
             <PrPip meta={c().meta} />
             <Show
@@ -237,7 +242,7 @@ function DockListRow(props: {
                       ? "mobile-dock-agent-subline"
                       : "mobile-dock-foreground"
                   }
-                  class="font-mono text-[0.7rem] leading-tight text-fg-2 truncate min-w-0"
+                  class="font-mono text-[0.7rem] leading-snug text-fg-3 truncate min-w-0"
                   title={line()}
                 >
                   {line()}

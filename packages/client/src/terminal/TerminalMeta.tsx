@@ -18,7 +18,7 @@ import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
-import { pipVariant } from "../canvas/dock/pipVariant";
+import { pipGlyphFor, pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -118,27 +118,23 @@ const TerminalMeta: Component<{
            *  separate glyph chip, so this slot is the canvas tile's
            *  sole intent affordance regardless of git state. */}
           <div class="col-start-1 col-span-2 row-start-2 flex items-center gap-1.5 min-w-0 text-xs">
-            {/* Agent-state pip leading the branch/intent annotation —
-             *  the same shape-distinct StatePip the dock row leads its
-             *  annotation line with (spinning ring = working, dot =
-             *  awaiting), reused verbatim so a working/awaiting agent
-             *  reads identically in the title and the dock, and sits
-             *  beside the same branch/intent context it does there.
-             *  `unread` rides as the indicator's amber corner BADGE (the
-             *  `alert` prop) rather than replacing the state core — the
-             *  dock-row treatment, one fold over. A reserved `TITLE_PIP_BOX`
-             *  (smaller than the dock's box, sized to this `text-xs` row) gives
-             *  the badge a corner to anchor to instead of pinning it on the
-             *  6 px core. No live ring here: the title bar has never shown the
-             *  byte-motion axis. Gated on a
-             *  live agent: when none is attached the title shows no pip
-             *  (exactly as its agent-kind indicator vanishes when the
-             *  session ends), leaving the dock's idle/parked triage
-             *  states — which fold in recency/staleness — dock-only. */}
-            <Show when={activeArm(v().meta)?.agent}>
-              {(agent) => (
+            {/* Identity pip leading the branch/intent annotation — the same
+             *  StatePip the dock row leads with (agent brand or shell prompt,
+             *  state paint + motion). Active terminals always show it: a plain
+             *  shell is still "who is driving this" (`shell` glyph, idle/busy).
+             *  Sleeping tiles have no live arm here (the dock paints them via
+             *  the sleeping bucket). `unread` rides as the amber corner DOT.
+             *  No live ring: the title bar has never shown the byte-motion
+             *  axis. `TITLE_PIP_BOX` gives the badge a corner to anchor to. */}
+            <Show when={activeArm(v().meta)}>
+              {(arm) => (
                 <StatePip
-                  variant={pipVariant(paintBucket(agent()))}
+                  variant={
+                    arm().agent ? pipVariant(paintBucket(arm().agent)) : "idle"
+                  }
+                  glyph={pipGlyphFor(v().meta)}
+                  busy={!!arm().foreground}
+                  still={arm().agent?.state === "waiting"}
                   alert={props.unread}
                   alertLabel="unread alert"
                   class={TITLE_PIP_BOX}

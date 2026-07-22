@@ -1,22 +1,43 @@
-/* The merged status indicator's two OUTER axes — the live RING and the alert
- * BADGE that `StatePip` adds around its state core (R-activity-merge). Shipped as
- * a CSS leaf rather than Tailwind utilities because the live ring is a thin
- * conic-gradient arc that gently rotates — a `mask` + `conic-gradient` that
- * doesn't express cleanly as utility classes. kolu's client AND pulam-web both
- * `@import "@kolu/solid-statepip/statepip.css"`, so the rings are single-sourced
- * (one definition, can't drift). Colours are the shared `@kolu/theme` CSS vars,
- * resolved by whichever surface imports the theme.
+/* The merged status indicator's outer axes + core motion — the live PLATE,
+ * the alert BADGE, and the identity-glyph breathe/glow animations that
+ * `StatePip` composes (R-activity-merge + Option C). Shipped as a CSS leaf
+ * rather than Tailwind utilities because the live plate is a colour-mix
+ * disc and the glyph glow uses `filter: drop-shadow` — neither express
+ * cleanly as utility classes. kolu's client `@import`s
+ * `@kolu/solid-statepip/statepip.css`, so the overlays are single-sourced
+ * (one definition, can't drift). Colours are the shared `@kolu/theme` CSS
+ * vars, resolved by whichever surface imports the theme.
  *
- * The live ring is a ring (it wraps the core); the alert is a small CORNER BADGE,
- * deliberately NOT a second ring — a surrounding alert ring (especially nested
- * with the live ring) read as overwhelming, so the two axes use different shapes
- * and never compound into concentric circles. Motion is transform/opacity only
- * (compositor-friendly — no per-frame repaint, see performance.mdx), and a
- * reduced-motion preference holds both still. */
+ * The live plate is a faint green disc BEHIND the identity glyph (presence,
+ * contained inside the pip — no glow bleed past the box). The alert is a
+ * small CORNER DOT, deliberately NOT a ring — a surrounding alert ring
+ * (especially nested with a live disc) read as overwhelming, so the two
+ * axes use different shapes. Motion is transform/opacity/filter only
+ * (compositor-friendly — no per-frame layout), and a reduced-motion
+ * preference holds animations still. Under reduced motion the awaiting
+ * core keeps a violet hollow outline so state never degrades to colour
+ * alone (Option C spent shape on identity). */
 
-@keyframes statepip-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes statepip-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.78);
+    opacity: 0.55;
+  }
+}
+@keyframes statepip-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 transparent);
+    opacity: 0.85;
+  }
+  50% {
+    filter: drop-shadow(0 0 3.5px currentColor);
+    opacity: 1;
   }
 }
 @keyframes statepip-pulse {
@@ -29,63 +50,61 @@
   }
 }
 
-/* live = this terminal is moving bytes right now: a thin green arc that sweeps
- * gently around the core (the old standalone live-activity dot, now the
- * indicator's rotating edge). `inset: -2px` so its outer edge matches the alert
- * badge's; the `mask` cuts the centre so only a 1.5px ring remains; the conic arc
- * fades at both ends so the rotation reads as a soft sweep, not a hard spinner. */
-.statepip-live-ring {
+/* working → breathe on the identity glyph (one motion per row) */
+.statepip-anim-breathe {
+  animation: statepip-breathe 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* awaiting → glow on the identity glyph */
+.statepip-anim-glow {
+  animation: statepip-glow 2.2s ease-in-out infinite;
+}
+
+/* live = this terminal is moving bytes right now: a faint green disc
+ * (avatar plate) behind the identity glyph. Contained inside the pip —
+ * no box-shadow bleed past the edge. Presence only; agent state owns
+ * motion. Rendered under the glyph in StatePip's DOM order. */
+.statepip-live-plate {
   position: absolute;
-  inset: -2px;
+  inset: -1px;
   border-radius: 9999px;
-  background: conic-gradient(
-    from 0deg,
-    transparent 18%,
-    var(--color-ok) 50%,
-    transparent 82%
-  );
-  -webkit-mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - 1.5px),
-    #000 calc(100% - 1.5px)
-  );
-  mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - 1.5px),
-    #000 calc(100% - 1.5px)
-  );
-  animation: statepip-spin 3.6s linear infinite;
+  background: color-mix(in oklab, var(--color-ok) 13%, transparent);
   pointer-events: none;
 }
 
 /* alert badge = a fired notification a surface wants surfaced (the Dock's
- * unopened-unread, pulam-web's live notify-class — each names it via `alertLabel`):
- * a small amber CORNER BADGE at the top-right, NOT a ring — so it never competes
- * with the live ring or nests into a second circle. The dark separator lifts it
- * off the live ring + the row background; the gentle pulse draws the eye without
- * shouting.
- *
- * The amber FILL + rounded-pill SHAPE come from the shared `ATTENTION_PILL_CLASS`
- * (composed at the render site) — the SAME pill the host-tab awaiting-count badge
- * paints, so the two can't drift. This class carries only the overlay-specific
- * geometry: absolute corner placement, the pill DIMENSIONS (a small capsule —
- * wider than tall — so it reads as the count pill's FORM even with no number, the
- * per-terminal boolean case), the separator ring, and the pulse. No colour and no
- * border-radius here: those are the shared pill's, single-sourced. */
+ * unopened-unread — each surface names it via `alertLabel`): a small amber
+ * CORNER DOT at the top-right, NOT a ring and NOT the host-tab count pill —
+ * Option C mockup's 7px attention pip. Shape is deliberately a circle so it
+ * never competes with the live plate or reads as a count capsule on a
+ * 14px identity glyph. The surface separator lifts it off the row; a gentle
+ * pulse draws the eye without shouting. Fill is `--color-attention` (the
+ * warm "needs you" amber), single-sourced in this leaf. */
 .statepip-alert-badge {
   position: absolute;
   top: -2px;
   right: -2px;
-  min-width: 12px;
-  height: 8px;
-  box-shadow: 0 0 0 1.5px var(--color-surface-1);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-attention);
+  box-shadow: 0 0 0 2px var(--color-surface-0);
   animation: statepip-pulse 1.8s ease-in-out infinite;
   pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .statepip-live-ring,
+  .statepip-anim-breathe,
+  .statepip-anim-glow,
   .statepip-alert-badge {
     animation: none;
+  }
+  /* Awaiting state under reduced motion: violet hollow ring outline so state
+   * is not colour-only once motion (the second state channel) is gone. */
+  .statepip-awaiting-core {
+    border-radius: 9999px;
+    box-shadow: 0 0 0 1.5px
+      color-mix(in oklab, var(--color-alert) 70%, transparent);
   }
 }
