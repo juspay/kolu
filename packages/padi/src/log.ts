@@ -43,9 +43,12 @@ function buildDefaultLogger(): Logger {
  *  foreground dev run stays visible, a parent that captures stderr (journald under systemd, or
  *  a detached daemon's crash-catcher file wired by the spawn spine) still works, and every
  *  daemon leaves a bounded, readable file instead of `/dev/null`. Fails LOUD at boot if the
- *  state root is unwritable — never a silently log-less daemon. */
-function buildDaemonLogger(): Logger {
-  const file = padiLogPath();
+ *  state root is unwritable — never a silently log-less daemon.
+ *
+ *  `stateRoot` is required (the already-resolved bind path) so this never re-resolves
+ *  ambiently after #1334 removed the silent default from {@link padiLogPath}. */
+function buildDaemonLogger(stateRoot: string): Logger {
+  const file = padiLogPath(stateRoot);
   // Fail-fast writability probe (synchronous, so an unwritable state root crashes the boot
   // loudly rather than the pino-roll worker failing async and the daemon logging nowhere).
   // `mode: 0o700` keeps a freshly-created state root owner-only (consistent with the daemon's
@@ -70,10 +73,11 @@ function buildDaemonLogger(): Logger {
 let active: Logger = buildDefaultLogger();
 
 /** Reconfigure padi's logs for a DAEMON boot — the rolled file + stderr multistream. Called
- *  UNCONDITIONALLY by the daemon entrypoint (`runPadiDaemon`); because EVERY spawn path runs
- *  that same entrypoint, no spawn path can forget it and silently discard logs. Idempotent. */
-export function configureDaemonLog(): void {
-  active = buildDaemonLogger();
+ *  UNCONDITIONALLY by the daemon entrypoint (`runPadiDaemon`) AFTER the state-root is
+ *  resolved; because EVERY spawn path runs that same entrypoint, no spawn path can forget
+ *  it and silently discard logs. Idempotent. */
+export function configureDaemonLog(stateRoot: string): void {
+  active = buildDaemonLogger(stateRoot);
 }
 
 /** A stable handle forwarding to the ACTIVE logger, so {@link configureDaemonLog} can swap the

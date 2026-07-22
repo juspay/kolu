@@ -8,12 +8,12 @@
  * reviewer constructed the failure without it — see padi.mdx §identity):
  *
  *   - **The state-root is PERSISTENT.** It survives reboots — restore depends on
- *     it. Its default is spelled by the padi binary, ON the host, by
- *     {@link defaultPadiStateRoot} — never computed by a remote client and sent
- *     over the wire, because two ways of reaching a host (login shell vs ssh,
- *     different env) could compute two different "defaults" and silently split
- *     the host's terminals across two padis. A client passes nothing (default)
- *     or an explicit path (dev/e2e).
+ *     it. **Bind resolution requires an explicit path** (`--state-root` /
+ *     `KOLU_PADI_STATE_DIR`) — there is no silent default (#1334: a bare launch
+ *     must never inherit production's chair). Production wrappers export the
+ *     well-known path via {@link productionPadiStateRoot}'s formula; dev/e2e set a
+ *     private dir. A remote client never invents the path — the host-side
+ *     wrapper or binder supplies it.
  *
  *   - **The socket + gate + manifest are EPHEMERAL.** They live in the
  *     boot-wiped runtime dir (`$XDG_RUNTIME_DIR/padi-<digest>/`,
@@ -56,39 +56,45 @@ export const PADI_SOCK_FILE = "padi.sock";
 /** The gate filename padi's single-instance lock claims, beside the socket. */
 export const PADI_GATE_FILE = "padi.pid";
 
-/** The default state-root the padi binary spells ON the host —
+/** The well-known **production** state-root formula ON the host —
  *  `$HOME/.local/state/padi` (the OS passwd home if `$HOME` is unset). Persistent
  *  (survives reboots), distinct from kolu-server's `~/.config/kolu` config (session
  *  layout is *state*, not user *config*).
  *
- *  Deliberately **env-insensitive** — it does NOT honor `$XDG_STATE_HOME`, even
- *  though that is the XDG-standard base for state. This is an IDENTITY anchor, not
- *  a user-tunable config path: `$XDG_STATE_HOME` is set in some launch contexts (a
- *  login shell) and unset in others (a bare systemd unit, an `ssh` exec), so
- *  honoring it would let two contexts — the binder and padi, or two binder launches
- *  — resolve DIFFERENT roots and split padi's identity + saved session. `$HOME` is
- *  stable across every context, so the digest is the same wherever it is computed.
- *  Crashes loudly if no home resolves — a bare launch with no anchor must fail
- *  fast, never silently pick a throwaway path that would strand the saved session.
- *  A client wanting a custom path passes `KOLU_PADI_STATE_DIR` / `--state-root`. */
-export function defaultPadiStateRoot(): string {
+ *  **Not a bind default** — {@link resolvePadiStateRoot} never falls back here
+ *  (juspay/kolu#1334). Production nix wrappers export this path as
+ *  `KOLU_PADI_STATE_DIR`; read-only discovery uses it only to name a sensible
+ *  socket when no daemon is found. Deliberately **env-insensitive** — it does
+ *  NOT honor `$XDG_STATE_HOME` (set in some launch contexts, unset in others), so
+ *  two contexts can't compute two "production" paths and split identity. `$HOME`
+ *  is stable across every context. Crashes if no home resolves. */
+export function productionPadiStateRoot(): string {
   const home = process.env.HOME || homedir();
   if (home) return join(resolve(home), ".local", "state", "padi");
   throw new Error(
-    "padi: cannot resolve a default state-root — set $HOME, or pass an explicit " +
-      "--state-root / KOLU_PADI_STATE_DIR. A bare launch with no anchor is refused " +
-      "rather than silently picking a throwaway path that would strand the session.",
+    "padi: cannot resolve the production state-root formula — set $HOME, or pass " +
+      "an explicit --state-root / KOLU_PADI_STATE_DIR.",
   );
 }
 
-/** Resolve the state-root a padi process should use: an explicit override
- *  (`--state-root` / `KOLU_PADI_STATE_DIR`, dev/e2e) if set, else the binary's
- *  {@link defaultPadiStateRoot}. Always absolute, so the digest is stable. The
- *  binder (kolu-server) resolves the SAME way and passes the result explicitly,
- *  so a supervised padi and its supervisor never disagree on the identity. */
+/** Resolve the state-root a padi process should **bind** to. Requires an explicit
+ *  override (`--state-root`) or `KOLU_PADI_STATE_DIR` — there is no silent default
+ *  (juspay/kolu#1334: bare launch must not inherit production's identity). Always
+ *  absolute, so the digest is stable. The binder (kolu-server) resolves the SAME
+ *  way and pins the result when spawning, so a supervised padi and its supervisor
+ *  never disagree on the identity. Production wrappers and `pnpm dev` / tests each
+ *  set the env; a bare process without either crashes with one line. */
 export function resolvePadiStateRoot(override?: string): string {
   const explicit = override ?? process.env.KOLU_PADI_STATE_DIR;
-  return explicit ? resolve(explicit) : defaultPadiStateRoot();
+  if (!explicit) {
+    throw new Error(
+      "KOLU_PADI_STATE_DIR must be set (or pass --state-root). Relative paths " +
+        "are resolved against cwd. The nix-built kolu/padi wrappers, `pnpm dev`, " +
+        "and the test harness each set their own — bare launches are rejected " +
+        "to avoid clobbering production's padi state-root (juspay/kolu#1334).",
+    );
+  }
+  return resolve(explicit);
 }
 
 /** A short, stable digest of the state-root path — the rendezvous key. A hex
@@ -142,9 +148,12 @@ export const PADI_LOG_FILE = "padi.log";
  *  appends the daemon's stderr here (P0), so a padi that OUTLIVES the parent that spawned it
  *  (an ssh front, a kolu-server) still leaves a readable log instead of /dev/null. Homed on
  *  the PERSISTENT state root (not the ephemeral runtime socket dir) so it survives reboots
- *  and is trivial to find: same dir the daemon already owns, keyed by state-root identity. */
-export function padiLogPath(stateRoot?: string): string {
-  return join(resolvePadiStateRoot(stateRoot), PADI_LOG_FILE);
+ *  and is trivial to find: same dir the daemon already owns, keyed by state-root identity.
+ *
+ *  `stateRoot` is the already-resolved bind path — pure join, no ambient
+ *  {@link resolvePadiStateRoot} (callers resolve once at entry). */
+export function padiLogPath(stateRoot: string): string {
+  return join(resolve(stateRoot), PADI_LOG_FILE);
 }
 
 export const PADI_STDERR_LOG_FILE = "padi.stderr.log";
@@ -154,9 +163,11 @@ export const PADI_STDERR_LOG_FILE = "padi.stderr.log";
  *  can't see — native `stderr` writes, an uncaught-exception / unhandled-rejection stack —
  *  the spawn spine hands it as the detached daemon's stderr fd (P0). Bounded by
  *  TRUNCATE-ON-BOOT (the spine rotates the previous to `.old` and starts fresh — one
- *  generation, never unbounded), so it needs no size rotation. */
-export function padiStderrLogPath(stateRoot?: string): string {
-  return join(resolvePadiStateRoot(stateRoot), PADI_STDERR_LOG_FILE);
+ *  generation, never unbounded), so it needs no size rotation.
+ *
+ *  `stateRoot` is the already-resolved bind path — pure join, no ambient bind resolve. */
+export function padiStderrLogPath(stateRoot: string): string {
+  return join(resolve(stateRoot), PADI_STDERR_LOG_FILE);
 }
 
 /** The socket padi's kaval serves on: `$XDG_RUNTIME_DIR/kaval-<digest>/
@@ -394,8 +405,10 @@ export type PadiSocketResolution =
  *      so a flag-less `padi-tui` inside a kolu terminal "just works" and an agent
  *      driving its siblings never scans or guesses a digest-keyed path;
  *   4. else discover the running padi: exactly one → `one`; several → `many` (the
- *      CLI renders a labeled pick-one); none → `none` with the default state-root's
- *      socket, so a connect error names a sensible path.
+ *      CLI renders a labeled pick-one); none → `none` with a *named* socket for
+ *      the error path: explicit/`KOLU_PADI_STATE_DIR` when set, else the
+ *      production formula ({@link productionPadiStateRoot}) — never a throwing
+ *      bind resolve.
  */
 export function resolveRunningPadiSocket(opts?: {
   socket?: string;
@@ -416,7 +429,7 @@ export function resolveRunningPadiSocket(opts?: {
   // predicate `residentPadiSocket` applies too. A discovered daemon is only a
   // directory + gate-pid registration; a dead one (its holder gone, the socket
   // stale) must not be classified `one`/`many`, or a client dials a corpse and
-  // gets an opaque ECONNREFUSED instead of the honest `none` → default-path
+  // gets an opaque ECONNREFUSED instead of the honest `none` → named-path
   // error. A registration whose gate-pid is unreadable (`null`) is likewise not
   // a proven-live daemon, so it drops out too.
   const found = discoverPadiDaemons().filter(daemonIsLive);
@@ -425,5 +438,18 @@ export function resolveRunningPadiSocket(opts?: {
     return { kind: "one", socket: first.socket };
   }
   if (rest.length > 0) return { kind: "many", candidates: found };
-  return { kind: "none", socket: padiSocketPath(resolvePadiStateRoot()) };
+  return {
+    kind: "none",
+    socket: padiSocketPath(namePadiStateRootForDiscovery()),
+  };
+}
+
+/** Read-only chair naming for dial/error paths when no live daemon was found.
+ *  Honors `KOLU_PADI_STATE_DIR` when set so isolated dev/e2e name *their* root;
+ *  otherwise the production formula. Never throws for a missing env (unlike
+ *  {@link resolvePadiStateRoot}). */
+export function namePadiStateRootForDiscovery(): string {
+  const env = process.env.KOLU_PADI_STATE_DIR;
+  if (env !== undefined && env !== "") return resolve(env);
+  return productionPadiStateRoot();
 }

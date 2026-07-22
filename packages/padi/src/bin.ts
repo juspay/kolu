@@ -8,8 +8,9 @@
  * kolu-server binds it (from the W2.2 cutover); kaval-tui and a future padi-tui
  * reach the kaval and padi it stands up.
  *
- *   padi                          serve at $XDG_RUNTIME_DIR/padi-<digest>/padi.sock,
- *                                 anchored to the binary's default state-root
+ *   padi                          serve at $XDG_RUNTIME_DIR/padi-<digest>/padi.sock
+ *                                 (requires KOLU_PADI_STATE_DIR — the nix wrapper
+ *                                 supplies the production path; bare launch refuses)
  *   padi --state-root PATH        anchor to an explicit state-root (dev/e2e); the
  *                                 digest (and so the socket + its kaval) follow it
  *   padi --socket PATH            serve at an explicit socket (gate sits beside it)
@@ -35,11 +36,12 @@ Usage:
 
 Options:
   --state-root PATH   the persistent folder padi anchors to (session · memory ·
-                      pairing). Default: $HOME/.local/state/padi (env-insensitive
-                      — it does NOT honor $XDG_STATE_HOME); override with this flag
-                      or the KOLU_PADI_STATE_DIR env var. The socket + its kaval are
-                      keyed by a digest of this path, so a distinct state-root is a
-                      distinct, isolated padi.
+                      pairing). Required (or set KOLU_PADI_STATE_DIR) — there is no
+                      silent default (juspay/kolu#1334). The nix-built padi/kolu
+                      wrappers export KOLU_PADI_STATE_DIR=$HOME/.local/state/padi
+                      (env-insensitive formula; not $XDG_STATE_HOME). The socket +
+                      its kaval are keyed by a digest of this path, so a distinct
+                      state-root is a distinct, isolated padi.
   --socket PATH       unix socket to serve on (default: keyed by the state-root
                       digest). The single-instance gate sits beside it.
   --stdio             serve over stdin/stdout instead of binding the socket: FRONT

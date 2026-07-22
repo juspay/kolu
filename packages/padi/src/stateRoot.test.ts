@@ -1,6 +1,7 @@
 /**
- * padi's identity mechanics — the state-root default, the digest that keys the
- * runtime rendezvous, and the manifest that maps the digest back. The load-bearing
+ * padi's identity mechanics — the production state-root formula, bind resolution
+ * that refuses a silent default (#1334), the digest that keys the runtime
+ * rendezvous, and the manifest that maps the digest back. The load-bearing
  * property under test is #1313 ISOLATION: distinct state-roots yield distinct
  * digests, so two padis never share a kaval; an identical state-root yields an
  * identical digest, so a re-boot dials the same daemon.
@@ -18,7 +19,8 @@ import {
 } from "@kolu/daemon-test-gate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  defaultPadiStateRoot,
+  productionPadiStateRoot,
+  namePadiStateRootForDiscovery,
   discoverPadiDaemons,
   PADI_GATE_FILE,
   padiDigest,
@@ -91,20 +93,20 @@ afterEach(() => {
   }
 });
 
-describe("defaultPadiStateRoot — the binary spells it on the host", () => {
+describe("productionPadiStateRoot — the production formula (wrappers + discovery)", () => {
   it("IGNORES $XDG_STATE_HOME — HOME-only, so two launch contexts can't split padi's identity", () => {
-    // Even with $XDG_STATE_HOME set (a login shell), the default is env-INSENSITIVE:
+    // Even with $XDG_STATE_HOME set (a login shell), the formula is env-INSENSITIVE:
     // HOME-only, so a context WITHOUT it (a bare systemd unit, an ssh exec) resolves
     // the exact SAME root and the digest never diverges.
     process.env.XDG_STATE_HOME = "/somewhere/else/state";
     process.env.HOME = "/home/u";
-    expect(defaultPadiStateRoot()).toBe("/home/u/.local/state/padi");
+    expect(productionPadiStateRoot()).toBe("/home/u/.local/state/padi");
   });
 
   it("is $HOME/.local/state/padi with no $XDG_STATE_HOME either", () => {
     delete process.env.XDG_STATE_HOME;
     process.env.HOME = "/home/u";
-    expect(defaultPadiStateRoot()).toBe("/home/u/.local/state/padi");
+    expect(productionPadiStateRoot()).toBe("/home/u/.local/state/padi");
   });
 
   it("crashes loudly with no anchor — never a silent throwaway path", () => {
@@ -115,16 +117,16 @@ describe("defaultPadiStateRoot — the binary spells it on the host", () => {
     // returns a real path — which is the point (never a throwaway). We assert the
     // shape either way: a resolved absolute path, or a loud throw.
     try {
-      expect(defaultPadiStateRoot()).toMatch(/^\/.*\/padi$/);
+      expect(productionPadiStateRoot()).toMatch(/^\/.*\/padi$/);
     } catch (e) {
       expect((e as Error).message).toContain(
-        "cannot resolve a default state-root",
+        "cannot resolve the production state-root formula",
       );
     }
   });
 });
 
-describe("resolvePadiStateRoot — override wins, always absolute", () => {
+describe("resolvePadiStateRoot — override wins, always absolute, no silent default (#1334)", () => {
   it("resolves an explicit override to an absolute path", () => {
     expect(resolvePadiStateRoot("/srv/padi")).toBe("/srv/padi");
     expect(resolvePadiStateRoot("relative/dir")).toBe(resolve("relative/dir"));
@@ -135,11 +137,38 @@ describe("resolvePadiStateRoot — override wins, always absolute", () => {
     expect(resolvePadiStateRoot()).toBe("/e2e/worker-3/padi");
   });
 
-  it("falls to the binary default (HOME-only) with neither override nor env", () => {
+  it("crashes with neither override nor env — bare launch cannot inherit production (#1334)", () => {
     delete process.env.KOLU_PADI_STATE_DIR;
-    process.env.XDG_STATE_HOME = "/x/state"; // ignored — the default is env-insensitive
     process.env.HOME = "/home/u";
-    expect(resolvePadiStateRoot()).toBe("/home/u/.local/state/padi");
+    expect(() => resolvePadiStateRoot()).toThrow(
+      /KOLU_PADI_STATE_DIR must be set/,
+    );
+    expect(() => resolvePadiStateRoot()).toThrow(/1334/);
+    // Pin F4 remediation wording — relative paths stay supported; message
+    // must not claim "absolute only".
+    try {
+      resolvePadiStateRoot();
+    } catch (e) {
+      expect((e as Error).message).toMatch(
+        /Relative paths are resolved against cwd/,
+      );
+      expect((e as Error).message).not.toMatch(/absolute directory/);
+    }
+  });
+});
+
+describe("namePadiStateRootForDiscovery — dial/error naming (not bind)", () => {
+  it("honors KOLU_PADI_STATE_DIR when set (isolated dev/e2e chair)", () => {
+    process.env.KOLU_PADI_STATE_DIR = "/e2e/worker-9/padi";
+    process.env.HOME = "/home/u";
+    expect(namePadiStateRootForDiscovery()).toBe("/e2e/worker-9/padi");
+    expect(namePadiStateRootForDiscovery()).not.toBe(productionPadiStateRoot());
+  });
+
+  it("falls to the production formula when env is unset", () => {
+    delete process.env.KOLU_PADI_STATE_DIR;
+    process.env.HOME = "/home/u";
+    expect(namePadiStateRootForDiscovery()).toBe("/home/u/.local/state/padi");
   });
 });
 
