@@ -7,6 +7,7 @@ maturity: seedling
 updated: 2026-07-22
 ---
 
+
 import Callout from "../../components/Callout.astro";
 import Footnote from "../../components/Footnote.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
@@ -295,11 +296,65 @@ history). The live panel must not materialize that whole document in a store.
 | **Reconnect** | Snapshot **replaces** the window; never concat onto stale state |
 | **Export stays separate** | Full archive → HTML export, not the panel |
 
+#### Backend cost (why CT1 must not re-export)
+
+Grounded in what padi already does — implementers must not invent a “poll
+exportHtml” stream.
+
+| Path today | Work per fire | Role |
+| --- | --- | --- |
+| **Export loaders** (`loadClaudeCodeTranscript`, Codex rollout, Grok JSONL) | `readFileSync` **whole** file → parse **all** lines → full IR | **O(S)** in session file bytes *S* — end-of-session / on-demand only |
+| **OpenCode loader** | SQL over the session DB | **O(M)** in messages — still full session, not live |
+| **Session watcher** (dock agent state) | `subscribeFileAppends` + **256 KB tail** (`TAIL_BYTES`) + **150 ms debounce** | **O(1)** amortized in *S* for *state* — not chat text |
+
+Claude’s watcher comment is load-bearing: without debounce, token streaming
+fires the handler dozens–hundreds of times per second, each allocating a large
+tail buffer. Export is deliberately not that path.
+
+**Naïve stream (forbidden):** on every debounced append, call the full export
+loader, filter chat, emit.
+
+| | Complexity |
+| --- | --- |
+| Per update while the agent streams | **O(S)** CPU + peak memory |
+| Over a session of size *S* with *U* updates | **O(U · S)** → ~**O(S²)** when *U* tracks *S* |
+| *N* independent full reloads per client | **O(N · S)** per update |
+
+Multi-hour Claude JSONL can be tens–hundreds of MB. Re-exporting that every
+~150 ms is not viable.
+
+**Sound stream (required):** same *shape* as the session watcher, not the
+export loader.
+
+| Step | Cost |
+| --- | --- |
+| Detect append | **O(1)** — existing append subscribe / poll floor |
+| Debounce | ~150 ms (same idea as watcher) |
+| Read **new bytes only** from last file offset (or new SQLite rows by id) | **O(Δ)** |
+| Parse new lines / map to chat filter | **O(events in Δ)** — chat rows are sparse vs tools |
+| Emit delta(s) | **O(chat bytes out)** |
+| Snapshot for a new subscriber | **O(W)** for bounded tail *W* — not **O(S)** full rebuild unless once and never for live ticks |
+
+Steady state (one agent streaming, one subscriber): **O(Δ) per debounced tick**.
+Lifetime: **O(S)** total work (each byte processed a constant number of times).
+
+| Extra factor | Rule |
+| --- | --- |
+| **Subscribers *N*** | One shared per-terminal producer + fan-out (**O(Δ)** once, cheap emit × *N*). Never *N* full reloads. |
+| **Terminals *T*** | Chat reducer is **subscribe-driven** — only open Inspector / pesu mirrors pay; awareness sensors already watch agents for free. |
+| **Wire** | Bounded snapshot + small deltas. Full list every frame is **O(history)** on the wire and fights windowing. |
+
+**Bottom line for implementers:** streaming is fine if CT1 is built like the
+**session watcher** (append + debounce + incremental). It is **not** fine if
+it is **`exportHtml` on a timer**. The expensive path already exists; the
+live stream must refuse to use it for updates.
+
 #### Done when (this one PR)
 
 - Focused terminal’s chat log is **readable live** in Inspector (human + AI only).
 - Same filter semantics as export chat log (one definition).
 - Windowed + virtualized — multi-hour sessions do not unbounded-grow client heap.
+- Backend: **incremental** (O(Δ) per tick), not full re-export per tick.
 - Reconnect does not double-paint.
 - Tile stays the PTY; Compose behavior unchanged.
 

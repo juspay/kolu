@@ -618,11 +618,134 @@ history). The live panel must not materialize that whole document in a store.</p
 </tr>
 </tbody>
 </table>
+<h4 id="backend-cost-why-ct1-must-not-re-export">Backend cost (why CT1 must not re-export)</h4>
+<p>Grounded in what padi already does — implementers must not invent a “poll
+exportHtml” stream.</p>
+<table>
+<thead>
+<tr>
+<th>Path today</th>
+<th>Work per fire</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Export loaders</strong> (<code>loadClaudeCodeTranscript</code>, Codex rollout, Grok JSONL)</td>
+<td><code>readFileSync</code> <strong>whole</strong> file → parse <strong>all</strong> lines → full IR</td>
+<td><strong>O(S)</strong> in session file bytes <em>S</em> — end-of-session / on-demand only</td>
+</tr>
+<tr>
+<td><strong>OpenCode loader</strong></td>
+<td>SQL over the session DB</td>
+<td><strong>O(M)</strong> in messages — still full session, not live</td>
+</tr>
+<tr>
+<td><strong>Session watcher</strong> (dock agent state)</td>
+<td><code>subscribeFileAppends</code> + <strong>256 KB tail</strong> (<code>TAIL_BYTES</code>) + <strong>150 ms debounce</strong></td>
+<td><strong>O(1)</strong> amortized in <em>S</em> for <em>state</em> — not chat text</td>
+</tr>
+</tbody>
+</table>
+<p>Claude’s watcher comment is load-bearing: without debounce, token streaming
+fires the handler dozens–hundreds of times per second, each allocating a large
+tail buffer. Export is deliberately not that path.</p>
+<p><strong>Naïve stream (forbidden):</strong> on every debounced append, call the full export
+loader, filter chat, emit.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Complexity</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Per update while the agent streams</td>
+<td><strong>O(S)</strong> CPU + peak memory</td>
+</tr>
+<tr>
+<td>Over a session of size <em>S</em> with <em>U</em> updates</td>
+<td><strong>O(U · S)</strong> → ~<strong>O(S²)</strong> when <em>U</em> tracks <em>S</em></td>
+</tr>
+<tr>
+<td><em>N</em> independent full reloads per client</td>
+<td><strong>O(N · S)</strong> per update</td>
+</tr>
+</tbody>
+</table>
+<p>Multi-hour Claude JSONL can be tens–hundreds of MB. Re-exporting that every
+~150 ms is not viable.</p>
+<p><strong>Sound stream (required):</strong> same <em>shape</em> as the session watcher, not the
+export loader.</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Cost</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Detect append</td>
+<td><strong>O(1)</strong> — existing append subscribe / poll floor</td>
+</tr>
+<tr>
+<td>Debounce</td>
+<td>~150 ms (same idea as watcher)</td>
+</tr>
+<tr>
+<td>Read <strong>new bytes only</strong> from last file offset (or new SQLite rows by id)</td>
+<td><strong>O(Δ)</strong></td>
+</tr>
+<tr>
+<td>Parse new lines / map to chat filter</td>
+<td><strong>O(events in Δ)</strong> — chat rows are sparse vs tools</td>
+</tr>
+<tr>
+<td>Emit delta(s)</td>
+<td><strong>O(chat bytes out)</strong></td>
+</tr>
+<tr>
+<td>Snapshot for a new subscriber</td>
+<td><strong>O(W)</strong> for bounded tail <em>W</em> — not <strong>O(S)</strong> full rebuild unless once and never for live ticks</td>
+</tr>
+</tbody>
+</table>
+<p>Steady state (one agent streaming, one subscriber): <strong>O(Δ) per debounced tick</strong>.
+Lifetime: <strong>O(S)</strong> total work (each byte processed a constant number of times).</p>
+<table>
+<thead>
+<tr>
+<th>Extra factor</th>
+<th>Rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Subscribers <em>N</em></strong></td>
+<td>One shared per-terminal producer + fan-out (<strong>O(Δ)</strong> once, cheap emit × <em>N</em>). Never <em>N</em> full reloads.</td>
+</tr>
+<tr>
+<td><strong>Terminals <em>T</em></strong></td>
+<td>Chat reducer is <strong>subscribe-driven</strong> — only open Inspector / pesu mirrors pay; awareness sensors already watch agents for free.</td>
+</tr>
+<tr>
+<td><strong>Wire</strong></td>
+<td>Bounded snapshot + small deltas. Full list every frame is <strong>O(history)</strong> on the wire and fights windowing.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bottom line for implementers:</strong> streaming is fine if CT1 is built like the
+<strong>session watcher</strong> (append + debounce + incremental). It is <strong>not</strong> fine if
+it is <strong><code>exportHtml</code> on a timer</strong>. The expensive path already exists; the
+live stream must refuse to use it for updates.</p>
 <h4 id="done-when-this-one-pr">Done when (this one PR)</h4>
 <ul>
 <li>Focused terminal’s chat log is <strong>readable live</strong> in Inspector (human + AI only).</li>
 <li>Same filter semantics as export chat log (one definition).</li>
 <li>Windowed + virtualized — multi-hour sessions do not unbounded-grow client heap.</li>
+<li>Backend: <strong>incremental</strong> (O(Δ) per tick), not full re-export per tick.</li>
 <li>Reconnect does not double-paint.</li>
 <li>Tile stays the PTY; Compose behavior unchanged.</li>
 </ul>
