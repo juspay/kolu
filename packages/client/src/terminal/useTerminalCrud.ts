@@ -81,8 +81,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeSearch: terminalSearch.removeTerminal,
   };
 
-  const eviction = createEvictionDedup((id, parentId, topLevelBefore) =>
-    evictTerminal(evictionPorts, id, parentId, topLevelBefore),
+  const eviction = createEvictionDedup(
+    (id, parentId, topLevelBefore, departing) =>
+      evictTerminal(evictionPorts, id, parentId, topLevelBefore, departing),
   );
 
   /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
