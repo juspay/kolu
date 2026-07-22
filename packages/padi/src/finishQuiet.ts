@@ -47,16 +47,15 @@ import { recomputeUrgency } from "./urgency.ts";
 export const EFFECTIVE_FINISH_QUIET_MS = 5_000;
 
 /** Delay before re-subscribing to kaval's `activity` stream after it ends — same
- *  cadence as liveActivity so recycle recovery feels consistent. */
-const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
+ *  cadence as liveActivity so recycle recovery feels consistent. One constant for
+ *  both consumers (must not drift). */
+export const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 
 /** Waiting-episode phase for one terminal — one ADT, not waiting∪sticky∪isLive. */
 export type FinishEpisodePhase = "debouncing" | "finished";
 
 export type FinishQuiet = {
-  track(): void;
   isEpisodeFinished(id: TerminalId): boolean;
-  syncWaiting(terminals: ReadonlyMap<TerminalId, PadiTerminal>): void;
   project(terminals: ReadonlyMap<TerminalId, PadiTerminal>): PadiUrgency;
   dispose(): void;
 };
@@ -177,6 +176,11 @@ export function createFinishQuiet(opts: {
     const next = new Set(waitingIdsOf(terminals));
 
     if (!bootstrapped) {
+      // Serve-time eager seed runs with an empty registry (surfaces before kaval
+      // adopt). Do not arm bootstrap on that empty map — wait until a real
+      // inventory observation so already-waiting agents still get sticky
+      // discovery, not a 5s debounce after the empty seed.
+      if (terminals.size === 0) return;
       bootstrapped = true;
       for (const id of next) episode.set(id, "finished");
       if (next.size > 0) bump();
@@ -206,6 +210,7 @@ export function createFinishQuiet(opts: {
   const project = (
     terminals: ReadonlyMap<TerminalId, PadiTerminal>,
   ): PadiUrgency => {
+    // Dual-edge: depend on generation, then sync membership, then pure fold.
     genSrc.value.value;
     syncWaiting(terminals);
     return recomputeUrgency(terminals, isEpisodeFinished);
@@ -236,11 +241,7 @@ export function createFinishQuiet(opts: {
   }
 
   return {
-    track() {
-      genSrc.value.value;
-    },
     isEpisodeFinished,
-    syncWaiting,
     project,
     noteEdge,
     restampWaiting,

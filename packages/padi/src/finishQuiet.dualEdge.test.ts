@@ -114,6 +114,16 @@ describe("dual-edge urgency (finish quiet generation)", () => {
       finishedIds: [],
     });
 
+    // Arm bootstrap with non-waiting inventory (first non-empty must not be
+    // waiting-only or it sticky-discovers).
+    const working = activeTerminal(makeAgent("thinking"));
+    store.set(A, working);
+    ctx.collections.terminals.upsert(A, working);
+    expect(ctx.cells.urgency.get()).toEqual({
+      awaitingIds: [],
+      finishedIds: [],
+    });
+
     const terminal = activeTerminal(makeAgent("waiting"));
     store.set(A, terminal);
     ctx.collections.terminals.upsert(A, terminal);

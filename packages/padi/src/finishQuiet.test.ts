@@ -69,7 +69,9 @@ function fold(
 }
 
 function afterBootEmpty(finish: ReturnType<typeof createFinishQuiet>): void {
+  // Empty serve-time seed does not arm bootstrap; non-waiting inventory does.
   fold(finish, terminalsMap([]));
+  fold(finish, terminalsMap([[B, "thinking"]]));
 }
 
 describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
@@ -125,6 +127,12 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
       idleAfterMs: QUIET,
       standingSub: false,
     });
+    // Empty serve-time seed must not arm bootstrap.
+    expect(fold(finish, terminalsMap([]))).toEqual({
+      awaitingIds: [],
+      finishedIds: [],
+    });
+    // First non-empty inventory with waiting → discovery sticky, not debounce.
     const terms = terminalsMap([
       [A, "waiting"],
       [B, "thinking"],
@@ -135,6 +143,21 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     });
     expect(finish.stickySnapshot()).toEqual([A]);
     expect(finish.waitingSnapshot()).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("empty serve-time seed then later waiting still sticky-discovers", () => {
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+    });
+    fold(finish, terminalsMap([]));
+    // Production boot: surfaces seed empty, then registry fills with waiting.
+    expect(fold(finish, terminalsMap([[A, "waiting"]]))).toEqual({
+      awaitingIds: [],
+      finishedIds: [A],
+    });
     finish.dispose();
   });
 

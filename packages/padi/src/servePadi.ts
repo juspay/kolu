@@ -38,7 +38,7 @@ import {
 } from "./confStores.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
-import { createFinishQuiet } from "./finishQuiet.ts";
+import { createFinishQuiet, type FinishQuiet } from "./finishQuiet.ts";
 import { createLiveActivitySource } from "./liveActivity.ts";
 import { readPreview } from "./preview.ts";
 import {
@@ -117,6 +117,13 @@ if (DEFAULT_SCROLLBACK < DEFAULT_MIRROR_SCROLLBACK + SNAPSHOT_SCROLLBACK) {
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
 
+/** Prior standing finish-quiet handle — disposed when deps are rebuilt (tests). */
+let standingFinishQuiet: FinishQuiet | undefined;
+function disposeStandingFinishQuiet(): void {
+  standingFinishQuiet?.dispose();
+  standingFinishQuiet = undefined;
+}
+
 /** Map a "the file is gone" filesystem error (a raw node `ENOENT`, however the
  *  endpoint surfaces it) to a TYPED `NOT_FOUND` the client can recognize across
  *  the wire; re-throw anything else untouched. A missing file genuinely IS a
@@ -157,9 +164,12 @@ export function buildPadiSurfaceDeps(deps: {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
   const fsGit = padiFsGitDeps(endpoint, log);
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
-  // with terminals: urgency re-folds when the quiet timer expires without an
-  // agent-state change (see `finish.track()` inside the derived cell).
+  // with terminals via `finish.project` (quiet-exit re-folds without an
+  // agent-state change). Dispose any prior handle so servePadi test rebuilds
+  // don't stack resubscribe loops.
+  disposeStandingFinishQuiet();
   const finish = createFinishQuiet({ log });
+  standingFinishQuiet = finish;
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
   // moment a daemon's status changes — so a fresh daemon's readout reflects its
