@@ -1,110 +1,87 @@
+/**
+ * Client live-set frame diff — the sticky-live fence. `useTerminalActivity`
+ * reconciles each host's `activity` stream frame into a per-id live map; if
+ * `prev` is a Solid reconcile proxy (not a plain copy), removals never apply and
+ * every once-live terminal stays lit forever. This pure helper is what the
+ * effect runs; the mirror only wires host streams into it.
+ */
+
+import { describe, expect, it } from "vitest";
 import type { TerminalId } from "kolu-common/surface";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useTerminalActivity } from "./useTerminalActivity";
+import {
+  activityFrameDiff,
+  createActivityFrameReducer,
+} from "./useTerminalActivity";
 
-const tid = (x: string) => x as TerminalId;
+const A = "t-a" as TerminalId;
+const B = "t-b" as TerminalId;
 
-// The store is a module-level singleton (createSharedRoot), so each test uses a
-// distinct id to avoid cross-test bleed through the shared `live` record.
-describe("useTerminalActivity", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  it("is static before any output", () => {
-    expect(useTerminalActivity().isLive(tid("none"))).toBe(false);
+describe("activityFrameDiff", () => {
+  it("adds newly live ids", () => {
+    expect(activityFrameDiff([], [A, B])).toEqual({
+      adds: [A, B],
+      removes: [],
+    });
   });
 
-  it("lights on output and decays to static after the quiet period", () => {
-    const a = useTerminalActivity();
-    const id = tid("decay");
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(true);
-    // Still streaming right up to the threshold…
-    vi.advanceTimersByTime(999);
-    expect(a.isLive(id)).toBe(true);
-    // …then one more tick of silence flips it static.
-    vi.advanceTimersByTime(1);
-    expect(a.isLive(id)).toBe(false);
+  it("removes ids that left the live set (live → empty clears)", () => {
+    expect(activityFrameDiff([A, B], [])).toEqual({
+      adds: [],
+      removes: [A, B],
+    });
   });
 
-  it("re-arms the quiet period on each fresh chunk", () => {
-    const a = useTerminalActivity();
-    const id = tid("rearm");
-    a.noteOutput(id);
-    vi.advanceTimersByTime(900);
-    // A second chunk resets the 1s window — the terminal stays live.
-    a.noteOutput(id);
-    vi.advanceTimersByTime(900);
-    expect(a.isLive(id)).toBe(true);
-    vi.advanceTimersByTime(100);
-    expect(a.isLive(id)).toBe(false);
+  it("diffs a churn (one stays, one leaves, one enters)", () => {
+    expect(activityFrameDiff([A, B], [A, "t-c" as TerminalId])).toEqual({
+      adds: ["t-c" as TerminalId],
+      removes: [B],
+    });
   });
 
-  it("suppress(id, ms) swallows output in the window (resize repaint), then lights again", () => {
-    const a = useTerminalActivity();
-    const id = tid("suppress");
-    // Arm the window (as publishDimensions does around a PTY resize), then the
-    // resize's repaint lands — it must NOT light the live ring.
-    a.suppress(id, 600);
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(false);
-    // Still suppressed right up to the threshold…
-    vi.advanceTimersByTime(599);
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(false);
-    // …then the window closes and genuine output lights it as usual.
-    vi.advanceTimersByTime(1);
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(true);
+  it("no-ops when the set is unchanged (order-insensitive for membership)", () => {
+    expect(activityFrameDiff([A, B], [B, A])).toEqual({
+      adds: [],
+      removes: [],
+    });
+  });
+});
+
+describe("createActivityFrameReducer", () => {
+  it("clears a live id when its host frame goes empty (live → empty → not live)", () => {
+    const live: Record<string, boolean> = {};
+    const reduce = createActivityFrameReducer((adds, removes) => {
+      for (const id of adds) live[id] = true;
+      for (const id of removes) delete live[id];
+    });
+    reduce.apply([A]);
+    expect(live[A]).toBe(true);
+    reduce.apply([]);
+    expect(live[A]).toBeUndefined();
   });
 
-  it("a masked resize repaint on a LIVE terminal doesn't re-arm — the original idle timer still owns decay", () => {
-    const a = useTerminalActivity();
-    const id = tid("suppress-overlap");
-    // The terminal is genuinely streaming: a chunk lights it and arms the 1s
-    // idle timer.
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(true);
-    // 300ms in, the user resizes it: suppress masks the window, and the resize's
-    // own repaint lands. The masked repaint must NOT re-arm/extend liveness —
-    // suppress masks input, the idle timer owns output decay.
-    vi.advanceTimersByTime(300);
-    a.suppress(id, 600);
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(true);
-    // Still live right up to the ORIGINAL idle deadline (1000ms from the first
-    // chunk = 700ms more), not 1000ms from the masked repaint…
-    vi.advanceTimersByTime(699);
-    expect(a.isLive(id)).toBe(true);
-    // …then the original timer prunes it on schedule — the masked repaint added
-    // nothing.
-    vi.advanceTimersByTime(1);
-    expect(a.isLive(id)).toBe(false);
+  it("snapshots each frame so an in-place-mutated (reconcile-proxy) accessor can't strand a live id", () => {
+    const live: Record<string, boolean> = {};
+    const reduce = createActivityFrameReducer((adds, removes) => {
+      for (const id of adds) live[id] = true;
+      for (const id of removes) delete live[id];
+    });
+    // Simulate the wire's `reconcile` proxy: ONE array reused across ticks,
+    // mutated in place from [A] to [] rather than replaced. If the reducer
+    // retained this reference as `prev` instead of snapshotting it, the
+    // live → empty diff would see `prev` already empty and never emit the
+    // removal — the historical sticky-live bug.
+    const frame: TerminalId[] = [A];
+    reduce.apply(frame);
+    expect(live[A]).toBe(true);
+    frame.length = 0; // in-place live → empty reconcile
+    reduce.apply(frame);
+    expect(live[A]).toBeUndefined();
   });
 
-  it("forget(id) clears a pending suppression window too", () => {
-    const a = useTerminalActivity();
-    const id = tid("forget-suppress");
-    a.suppress(id, 600);
-    a.forget(id);
-    // No suppress timer survives a close; a later note lights normally.
-    expect(vi.getTimerCount()).toBe(0);
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(true);
-  });
-
-  it("forget(id) drops the key and clears its pending timer", () => {
-    const a = useTerminalActivity();
-    const id = tid("forget");
-    a.noteOutput(id);
-    expect(a.isLive(id)).toBe(true);
-    // The terminal closes mid-stream — forget prunes the entry outright.
-    a.forget(id);
-    expect(a.isLive(id)).toBe(false);
-    // No stale timer survives to fire setLive after the terminal is gone:
-    // advancing past the quiet window is a no-op, and no timers are pending.
-    expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(2000);
-    expect(a.isLive(id)).toBe(false);
+  it("drain returns the still-live ids once, then is empty", () => {
+    const reduce = createActivityFrameReducer(() => {});
+    reduce.apply([A, B]);
+    expect([...reduce.drain()].sort()).toEqual([A, B].sort());
+    expect(reduce.drain()).toEqual([]);
   });
 });

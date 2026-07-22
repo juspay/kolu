@@ -46,7 +46,10 @@ for space:
   [Agent detection](/agent-detection): working, awaiting you, idle, or a ☾ for a
   sleeping shell;
 - a thin green **live ring** sweeps around the core while the terminal is moving
-  bytes right now (any output, agent or not);
+  bytes right now (any output, agent or not) — including terminals you're not
+  looking at. The signal comes from the host's PTY daemon (kaval), which already
+  ignores pure resize-repaint noise, so revealing a quiet tile no longer flashes
+  the ring;
 - a small amber **corner badge** appears when a background ping fired that you
   haven't seen — beside the core, so a pending alert never hides the live state.
 

@@ -56,6 +56,7 @@ export const CONTRACT_COVERAGE = {
     "foreground",
     "exit",
     "inventory",
+    "activity",
   ],
 } as const;
 
@@ -485,6 +486,34 @@ export function runContractCorpus(opts: {
           expect(exited).toEqual({ kind: "exited", id });
         } finally {
           // Close the subscription (the socket-safety `firstYield` documents).
+          void Promise.resolve(it.return?.()).catch(() => {});
+        }
+      });
+    });
+
+    it("activity: a meaningful-output write yields a host-global edge for that PTY", {
+      timeout: 20000,
+    }, async () => {
+      // The host-global meaningful-output feed. ISOLATED (like inventory) so a
+      // left-open stream can't poison the shared connection, and subscribed FIRST
+      // so the spawn's own output isn't missed.
+      await withIsolated(async (c) => {
+        const act = await c.surface.activity.get({});
+        const it = act[Symbol.asyncIterator]();
+        try {
+          const { id } = await c.surface.terminal.spawn(
+            spawnInput(opts.makeCwd()),
+          );
+          // Drive real output — the shell echoes + runs, producing bytes.
+          await c.surface.terminal.write({
+            id,
+            data: "echo corpus-activity\n",
+          });
+          // An edge for THIS PTY arrives (other terminals' edges are skipped).
+          const edge = await frameUntil(it, (e) => e.id === id);
+          expect(edge).toEqual({ id });
+          await c.surface.terminal.kill({ id });
+        } finally {
           void Promise.resolve(it.return?.()).catch(() => {});
         }
       });

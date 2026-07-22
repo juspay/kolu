@@ -577,6 +577,19 @@ export function eventHandlers<Name extends string, I, T>(
  *  subsequent read failure invokes `onReadError` and continues — a
  *  transient error shouldn't tear down a long-lived subscription.
  *
+ *  SUBSCRIBE-BEFORE-SNAPSHOT: `install` runs BEFORE the initial `read()`, not
+ *  after it. A `yield` is a suspension point until the CONSUMER pulls the next
+ *  item — real wall-clock, not a microtask — so installing the listener only
+ *  once the consumer resumes (the old read→yield→install order) left a window
+ *  where a source that began producing concurrently (e.g. a freshly-established
+ *  upstream subscription delivering its first edge) could change the underlying
+ *  value with NO listener attached: the initial snapshot missed it and, if the
+ *  value settled back before the next real event, the change was never yielded
+ *  at all. Installing first closes that gap — a `dirty` flag buffers any event
+ *  that fires during the initial read (or mid-yield), and the loop coalesces it
+ *  into a single re-read on its next turn, so a concurrent change is delayed at
+ *  worst, never dropped.
+ *
  *  `onReadError` is required so the silent-skip path is an explicit choice
  *  at every call site (a misbehaving source that perpetually fails reads
  *  would otherwise burn CPU re-installing and re-reading with zero
@@ -591,65 +604,51 @@ export async function* pollOnEvent<T>(opts: {
   signal: AbortSignal | undefined;
   onReadError: (err: unknown) => void;
 }): AsyncIterable<T> {
-  let last: T = await opts.read();
-  yield last;
-  for await (const _ of repoEventStream(opts.install, opts.signal)) {
-    let next: T;
-    try {
-      next = await opts.read();
-    } catch (e) {
-      opts.onReadError(e);
-      continue;
-    }
-    if (opts.isEqual(last, next)) continue;
-    last = next;
-    yield last;
-  }
-}
-
-/** Convert a callback-based "something changed" subscription into an
- *  AsyncIterable<void> that yields once per debounced tick.
- *
- *  Coalescing semantics: events that fire while the consumer is mid-yield
- *  collapse into one wakeup (the `dirty` flag flips to true; the consumer
- *  picks it up on the next loop iteration). This complements any upstream
- *  primitive's own debounce — bursts that arrive during snapshot
- *  computation don't queue up extra yields. */
-async function* repoEventStream(
-  install: (onEvent: () => void) => () => void,
-  signal: AbortSignal | undefined,
-): AsyncIterable<void> {
   let dirty = false;
-  let resolve: (() => void) | null = null;
-  // Drain the pending wake promise so the loop's `await` returns. Both
-  // the upstream event callback and the abort signal need this exact
-  // sequence; factoring it out keeps a future log/error addition from
-  // landing in only one path.
-  const drainResolve = (): void => {
-    if (resolve) {
-      const r = resolve;
-      resolve = null;
-      r();
+  let wake: (() => void) | null = null;
+  // Drain the pending wake promise so the loop's `await` returns. Both the
+  // upstream event callback and the abort signal need this exact sequence;
+  // factoring it out keeps a future log/error addition landing in one path.
+  const drainWake = (): void => {
+    if (wake) {
+      const w = wake;
+      wake = null;
+      w();
     }
   };
-  const unsub = install(() => {
+  // Install BEFORE the initial read (subscribe-before-snapshot, above). Events
+  // during the read set `dirty`, coalesced into one re-read on the first loop
+  // turn — never lost. `unsub` runs from the `finally`, so an initial-read
+  // throw still tears the subscription down before it propagates.
+  const unsub = opts.install(() => {
     dirty = true;
-    drainResolve();
+    drainWake();
   });
-  signal?.addEventListener("abort", drainResolve);
+  opts.signal?.addEventListener("abort", drainWake);
   try {
-    while (signal?.aborted !== true) {
+    let last: T = await opts.read();
+    yield last;
+    while (opts.signal?.aborted !== true) {
       if (dirty) {
         dirty = false;
-        yield;
+        let next: T;
+        try {
+          next = await opts.read();
+        } catch (e) {
+          opts.onReadError(e);
+          continue;
+        }
+        if (opts.isEqual(last, next)) continue;
+        last = next;
+        yield last;
         continue;
       }
       await new Promise<void>((r) => {
-        resolve = r;
+        wake = r;
       });
     }
   } finally {
-    signal?.removeEventListener("abort", drainResolve);
+    opts.signal?.removeEventListener("abort", drainWake);
     unsub();
   }
 }

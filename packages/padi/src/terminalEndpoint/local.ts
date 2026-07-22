@@ -42,6 +42,7 @@ import type {
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
+import { abortableDelay } from "../abortableDelay.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
@@ -328,6 +329,42 @@ export function bridgeStream<T>(
       log.error({ err }, "pty-host tap subscription failed");
     }
   })();
+}
+
+/** Subscribe to a `ptyHostClient` stream and RE-SUBSCRIBE across daemon recycles
+ *  (a B3.2 restart, a supervisor reconnect, the 5.2->5.3 force-recycle) until
+ *  `signal` aborts. Fire-and-forget — callers `void` it; the loop owns its own
+ *  failures, so nothing here rejects.
+ *
+ *  Owns the one subtlety BOTH live consumers (`inventoryReconcile`, `liveActivity`)
+ *  need: the forwarding facade calls `liveClient()` EAGERLY, so `getStream()`
+ *  THROWS SYNCHRONOUSLY when the daemon isn't connected (dead-on-boot or
+ *  mid-recycle) — BEFORE `bridgeStream` runs, so bridgeStream's internal fence
+ *  can't catch it. Without this guard that throw escapes to `unhandledRejection`
+ *  and exits the server on the honest dead-daemon path. Caught here as a drop:
+ *  `onDrop` logs, then delay + re-subscribe. A stream that DRAINS (bridgeStream
+ *  resolves, never rejects) is a separate case, routed to `onStreamError` (or
+ *  bridgeStream's default when omitted). Extracting this loop is what keeps the
+ *  eager-throw guard from diverging between the two call sites. */
+export async function resubscribeStream<T>(opts: {
+  signal: AbortSignal;
+  delayMs: number;
+  getStream: () => AsyncIterable<T> | PromiseLike<AsyncIterable<T>>;
+  onEvent: (value: T) => void;
+  onStreamError?: (err: unknown) => void;
+  onDrop: (err: unknown) => void;
+}): Promise<void> {
+  const { signal, delayMs, getStream, onEvent, onStreamError, onDrop } = opts;
+  while (!signal.aborted) {
+    try {
+      await bridgeStream(getStream(), signal, onEvent, onStreamError);
+    } catch (err) {
+      if (signal.aborted) return;
+      onDrop(err);
+    }
+    if (signal.aborted) return;
+    await abortableDelay(delayMs, signal);
+  }
 }
 
 /** The producer's optional screen reader (Claude's AskUserQuestion / ExitPlanMode

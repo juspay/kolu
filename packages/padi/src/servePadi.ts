@@ -323,14 +323,15 @@ export function buildPadiSurfaceDeps(deps: {
     },
 
     streams: {
-      // LIVE (W2.3) — the set of terminals producing output right now, tapped from
-      // kaval's per-terminal byte deltas. Deferred out of W2.2 as a producer with
-      // no consumer; lit here with its FIRST consumer, `padi-tui watch`/`status`,
-      // per the self-sufficiency rule. LAZY: byte taps open only while this stream
-      // has a subscriber (see `createLiveActivitySource`), so an unwatched padi
-      // pays nothing. The client's per-tile green dot is unchanged — it derives
-      // from its OWN `terminalAttach` bytes, never this member. The fs/git
-      // change-pulses are pure reuse of `padiFsGitDeps(...).streams`.
+      // LIVE (W2.3) — the set of terminals producing output right now. The source
+      // folds kaval's host-global, resize-excluded meaningful-output edge (kaval
+      // contract 5.3) through the shared tracker's live-dot window into a live set;
+      // a single kaval subscription per watcher (re-subscribed across a daemon
+      // recycle), no per-terminal byte taps (see `createLiveActivitySource`). The
+      // client's per-tile green dot now MIRRORS this member off
+      // `padiSurface.streams.activity` — it no longer derives from its own
+      // `terminalAttach` bytes. The fs/git change-pulses are pure reuse of
+      // `padiFsGitDeps(...).streams`.
       activity: createLiveActivitySource(log),
       ...fsGit.streams,
       // The per-subscriber terminal byte stream — snapshot-first frame, then

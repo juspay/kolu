@@ -302,6 +302,14 @@ export type PtyInventoryEvent =
   | { kind: "created"; entry: PtyListEntry }
   | { kind: "exited"; id: PtyId };
 
+/** A MEANINGFUL-OUTPUT edge — this PTY just produced real output, NOT a
+ *  resize-driven repaint. Host-global (a consumer subscribes once and hears every
+ *  PTY), momentary (no snapshot): a consumer stamps ARRIVAL time on its OWN clock
+ *  and derives its own idle windows, so a missed edge across a reconnect only
+ *  DELAYS a downstream finish (default-excluded). kaval is the one place that can
+ *  exclude the repaint, because it is the one place that knows it just resized. */
+export type PtyActivityEdge = { id: PtyId };
+
 /** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, last activity,
  *  and the metadata taps' current values (so a one-shot `list` carries the full
  *  picture without per-row tap subscriptions). */
@@ -386,6 +394,9 @@ export interface PtyHost {
    *  dropped. Does NOT replay the current set — the serving layer prepends a
    *  {@link list} snapshot (snapshot-then-deltas). */
   subscribeInventory(signal?: AbortSignal): AsyncIterable<PtyInventoryEvent>;
+  /** Host-global meaningful-output edges — every PTY's resize-excluded output
+   *  bursts. A consumer subscribes ONCE and hears the whole host. */
+  subscribeActivity(signal?: AbortSignal): AsyncIterable<PtyActivityEdge>;
   /** Whether this host still owns a PTY with `id` (an existence check, not a
    *  data read — distinct from `getCwd(id) !== undefined`, which happens to
    *  coincide today only because cwd is always set at spawn). */
@@ -463,6 +474,12 @@ interface Entry {
   cwd: string;
   title: string;
   lastActivity: number;
+  /** Wall-clock until which output is a RESIZE repaint, not work — set by
+   *  `resize()`, read by the meaningful-output edge to exclude the SIGWINCH burst. */
+  resizeMuteUntil: number;
+  /** Wall-clock of the last meaningful-output edge published, to throttle it (see
+   *  `ACTIVITY_EDGE_THROTTLE_MS`). */
+  lastActivityEdgeAt: number;
   exitCode: number | undefined;
   exitWaiters: ((code: number) => void)[];
   disposables: { dispose(): void }[];
@@ -519,6 +536,35 @@ const FOREGROUND_SAMPLE_DELAYS_MS = [0, 75, 300, 700, 1200] as const;
  *  of output. Dedup (`lastForegroundKey`) makes a steady foreground free. */
 const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
 
+/** After kaval resizes a PTY, the shell REPAINTS (SIGWINCH) — a genuine byte burst
+ *  that is NOT work. Output within this window of a resize is excluded from the
+ *  meaningful-output edge. This is the client's old `RESIZE_ACTIVITY_SUPPRESS_MS`
+ *  hack, moved to the one process that actually causes the repaint (so every
+ *  consumer inherits the exclusion, and the client copy is deleted). */
+const RESIZE_ACTIVITY_MUTE_MS = 600;
+
+/** Coalesce the meaningful-output edge to at most one per PTY per window — a
+ *  streaming agent produces thousands of chunks/sec, but the edge only needs to
+ *  say "still producing", so the wire carries ~5 tiny frames/sec instead. */
+// MUST stay well below the consumer's idle window (TERMINAL_IDLE_AFTER_MS, 1000ms):
+// the fold re-arms its idle timer on each edge, so a throttle >= that window would
+// let a busy terminal expire between edges and flicker its live dot.
+const ACTIVITY_EDGE_THROTTLE_MS = 200;
+
+/** Whether an output chunk at `now` should publish a meaningful-output edge:
+ *  NOT inside a resize-mute window (the SIGWINCH repaint is not work) AND not
+ *  throttle-coalesced with the last edge. Pure so the resize-exclusion + throttle
+ *  are unit-testable without a real PTY or a wall clock. */
+export function shouldEmitActivityEdge(
+  now: number,
+  resizeMuteUntil: number,
+  lastEdgeAt: number,
+): boolean {
+  return (
+    now >= resizeMuteUntil && now - lastEdgeAt >= ACTIVITY_EDGE_THROTTLE_MS
+  );
+}
+
 /** Read node-pty's foreground-pid accessor, collapsing the transient 0
  *  (before the child finishes `setsid`) to `undefined`. */
 function readForegroundPid(proc: pty.IPty): number | undefined {
@@ -544,6 +590,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // mutation sites (spawn / teardown). Eager-subscribe, so a spawn racing a
   // subscriber is captured; never closed except on dispose (host shutdown).
   const inventoryChannel = new Channel<PtyInventoryEvent>();
+  // Host-global meaningful-output edges — every PTY's resize-excluded output bursts.
+  const activityChannel = new Channel<PtyActivityEdge>();
 
   function requireEntry(id: PtyId): Entry {
     const entry = entries.get(id);
@@ -677,6 +725,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       proc,
       headless,
       serialize,
+      resizeMuteUntil: 0,
+      lastActivityEdgeAt: 0,
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
       // Absolute-line origin + reflow generation over the headless mirror. The
@@ -831,6 +881,18 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       proc.onData((data: string) => {
         const now = Date.now();
         entry.lastActivity = now;
+        // Meaningful-output edge — the resize-aware activity signal every consumer
+        // reads. Resize repaint excluded + throttled (see `shouldEmitActivityEdge`).
+        if (
+          shouldEmitActivityEdge(
+            now,
+            entry.resizeMuteUntil,
+            entry.lastActivityEdgeAt,
+          )
+        ) {
+          entry.lastActivityEdgeAt = now;
+          activityChannel.publish({ id });
+        }
         // Output-driven foreground sample (throttled) — the fallback for a
         // hook-less terminal that emits no OSC title/633 to trigger the samplers
         // above. A working agent streams output, so this captures its
@@ -1140,6 +1202,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // dims, would otherwise spuriously stale every attached client's cursor
     // (there is no dedupe upstream). Skip it wholesale.
     if (cols === prevCols && rows === prevRows) return;
+    // Open the resize-mute window BEFORE the resize: the SIGWINCH repaint this
+    // triggers is a genuine byte burst that must NOT count as meaningful output
+    // (the reveal/resize "un-finish" regression, killed at the source).
+    entry.resizeMuteUntil = Date.now() + RESIZE_ACTIVITY_MUTE_MS;
     entry.proc.resize(cols, rows);
     entry.headless.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
@@ -1195,6 +1261,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     kill: (id, signal) => entries.get(id)?.proc.kill(signal),
     list: () => [...entries.values()].map(listEntryOf),
     subscribeInventory: (signal) => inventoryChannel.subscribe(signal),
+    subscribeActivity: (signal) => activityChannel.subscribe(signal),
     has: (id) => entries.has(id),
     size: () => entries.size,
     getForegroundPid,
@@ -1214,6 +1281,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // `onExit` → teardown `exited` publishes from the kills above land on a
       // closed channel (a no-op), which is fine: the host is going away.
       inventoryChannel.close();
+      activityChannel.close();
     },
   };
 }

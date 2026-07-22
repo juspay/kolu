@@ -337,11 +337,12 @@ its **local unix socket** — same oRPC framing, a different transport.
 
 Two loops drive the system, both over that one websocket. The **terminal I/O
 loop** is the hot path — your keystrokes and the screen. The **metadata loop** is
-side-channel enrichment — the git, PR, and agent state that light up the dock.
+side-channel enrichment — the git, PR, agent state, and live output activity that
+light up the dock.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 168" role="img" aria-labelledby="ax-flow-title">
-    <title id="ax-flow-title">Two data-flow loops across the four layers. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval's VT taps feed padi's sensors, which derive git, PR, and agent state and push it to the client.</title>
+    <title id="ax-flow-title">Two data-flow loops across the four layers. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client.</title>
     <defs>
       <marker id="ax-flow-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -371,7 +372,7 @@ side-channel enrichment — the git, PR, and agent state that light up the dock.
     <path d="M530,54 H564" class="ax-d-flow" marker-start="url(#ax-flow-arrow)" marker-end="url(#ax-flow-arrow)"></path>
 
     <path d="M636,90 V128 H87 V96" class="ax-d-socket" marker-end="url(#ax-flow-arrow)"></path>
-    <text x="360" y="150" text-anchor="middle" class="ax-d-tlabel">metadata — VT taps → git · PR · agent state (side channel)</text>
+    <text x="360" y="150" text-anchor="middle" class="ax-d-tlabel">metadata — kaval → git · PR · agent · live activity (side channel)</text>
   </svg>
 </figure>
 
@@ -388,7 +389,11 @@ the PR sensor (open PR + CI checks); agent detection tails each agent's session
 store. padi **folds** those observations into each terminal's record and serves it
 on one collection the client reads directly — no client-side join. Adding a new
 agent is one adapter here; adding a new forge is one adapter here. See
-[Agent detection](/agent-detection) for the agent half.
+[Agent detection](/agent-detection) for the agent half. Live output activity is the
+one fact produced a layer down: [kaval](/kaval) owns it — the one process that sees
+every PTY byte _and_ every resize — and emits a host-global, resize-excluded
+meaningful-output edge that padi folds into a short live-dot window and serves the
+same way.
 
 ## The packages
 
@@ -433,8 +438,8 @@ The same surface contract runs over ssh: it's how
 [`kaval-tui --host`](/kaval) drives a daemon on another machine with nothing
 pre-installed there, and how [`padi-tui --host`](/padi) reaches a remote padi from
 the shell. Pointing kolu's **browser** at a `padi` on a remote host — a host
-switcher, remote agents surfacing in your dock — already ships (alpha): see
-[Remote Hosts](/remote-hosts). That is separate from [Remote
+switcher, remote agents surfacing in your dock — ships as a first-class feature:
+see [Remote Hosts](/remote-hosts). That is separate from [Remote
 Access](/remote-access), which serves today's browser UI over private HTTPS.
 
 ## Explore
