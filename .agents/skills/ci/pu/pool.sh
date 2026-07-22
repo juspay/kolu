@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bring the kolu-ci linux CI pool up to strength: N long-lived warm boxes
-# kolu-ci-1 .. kolu-ci-N that .apm/skills/ci/pu/lease.sh leases per CI run (the box is then
-# pinned into the run via the odu MCP's `hosts` argument).
+# kolu-ci-1 .. kolu-ci-N that odu leases from natively per CI run (odu picks a
+# free box from the `hosts.json` pool, holds it for the run, releases on finish).
 #
 # Idempotent. For each slot it probes egress over the box's own ssh_config
 # (the same check the lease uses) and only (re)creates a slot that is missing

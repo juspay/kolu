@@ -125,8 +125,19 @@ nix run github:juspay/odu -- run --no-deps e2e@aarch64-darwin
 # A different DAG root instead of the [metadata("ci")] recipe.
 nix run github:juspay/odu -- run --root ci::e2e
 
-# One-shot redirect of a platform's host (how a pool-lease wrapper pins a box).
+# One-shot redirect of a platform's host (pins one box; waits if busy).
 nix run github:juspay/odu -- run --host x86_64-linux=my-build-box
+
+# Fail immediately when every host in a pool is busy (default: wait in line).
+nix run github:juspay/odu -- run --no-wait
+
+# Venue inventory — free / busy / held-by for every configured host.
+nix run github:juspay/odu -- hosts
+
+# Agent-held lease across runs (no re-queue between odu run iterations).
+nix run github:juspay/odu -- lease
+nix run github:juspay/odu -- lease x86_64-linux --no-wait
+nix run github:juspay/odu -- release
 
 # One NDJSON line per node transition, for agents/tools driving CI:
 # {"node":"ci::e2e@x86_64-linux","recipe":"ci::e2e","platform":"x86_64-linux",
@@ -184,18 +195,27 @@ rerun later (retry a flake), self-reaping after an idle period or on `cancel`.
 
 ```json
 {
-  "x86_64-linux": "my-linux-builder",
+  "x86_64-linux": ["ci-1", "ci-2", "ci-3"],
   "aarch64-darwin": "me@mac-mini.local"
 }
 ```
 
-Keys are Nix system tuples; values are anything ssh dials, or `localhost`
-(runs directly against the snapshot, no closure copy). Platforms absent from
-an *existing* config silently drop from the fanout, but a run that resolves
-**zero** lanes — no file anywhere, no `--host`, no `--platform` — is
-**refused**, not defaulted to `localhost` (juspay/odu#46). `--host PLAT=ADDR`
-overrides per run; run on this machine on purpose with `--host PLAT=localhost`
-or a `"PLAT": "localhost"` entry.
+Keys are Nix system tuples; values are anything ssh dials, a **list** of them
+(a venue pool), or `localhost` (runs directly against the snapshot, no closure
+copy). A plain string is a pool of one. For each platform, `odu run` picks a
+free machine and leases it for the run: the coordinator dials **odu-runner**
+(same agent as the lane) over surface-remote and calls `lease.claim` — flock
+is a Nix dep of odu-runner, held by the agent process. Releases on finish /
+agent death unless an **agent-held** lease (`odu lease` / MCP `lease`) already
+covers the platform — then run reuses that host and leaves the lock alone.
+Busy pool → wait in line (or `--no-wait` fails). `odu hosts` probes via
+`lease.probe`. Platforms absent from an *existing* config silently drop from
+the fanout, but a run that resolves **zero** lanes — no file anywhere, no
+`--host`, no `--platform` — is **refused**, not defaulted to `localhost`
+(juspay/odu#46). `--host PLAT=ADDR` pins one box for the run; run on this
+machine on purpose with `--host PLAT=localhost` or a `"PLAT": "localhost"`
+entry. A mixed pool may list localhost explicitly as a real candidate when
+remotes are busy — still never an implicit fallback.
 
 A lane host needs only **ssh + Nix + outbound https**: the runner ships as
 a Nix closure (`nix copy` → realise on the host), and the source arrives by

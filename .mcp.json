@@ -15,7 +15,10 @@
     "odu": {
       "type": "stdio",
       "command": ".claude/skills/odu-mcp/bin/serve",
-      "args": []
+      "args": [],
+      "env": {
+        "ODU_FLAKE": ".#odu"
+      }
     }
   }
 }
