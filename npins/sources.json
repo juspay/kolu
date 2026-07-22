@@ -33,10 +33,10 @@
         "owner": "juspay",
         "repo": "odu"
       },
-      "branch": "grokbe/venue-pools-lease",
+      "branch": "master",
       "submodules": false,
-      "revision": "8cdb57b94feea490b4fd198a52c49382f0b42aad",
-      "url": "https://github.com/juspay/odu/archive/8cdb57b94feea490b4fd198a52c49382f0b42aad.tar.gz",
+      "revision": "204807c13adf13b8ddf31e4746ae49b01362b695",
+      "url": "https://github.com/juspay/odu/archive/204807c13adf13b8ddf31e4746ae49b01362b695.tar.gz",
       "hash": "sha256-BLoPLP4fo3pg6rZtOS/TlESUI0cIu+AmArYeba7ONhQ="
     },
     "rhai-lsp": {
