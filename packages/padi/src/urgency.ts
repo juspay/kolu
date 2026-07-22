@@ -2,10 +2,12 @@
  * `@kolu/padi/urgency` — the recency-FREE urgency fold off the composed
  * `terminals` collection: how many terminals await the user, and which. Backs
  * the `padiSurface.cells.urgency` cell, which is now a DERIVED member —
- * `derived.cell(($) => recomputeUrgency($.terminals()))` in `servePadi.ts`. The
- * graph tracks the `terminals → urgency` edge, so a registry writer can no
- * longer forget to refold urgency: it recomputes exactly when the collection it
- * reads changes.
+ * `derived.cell(($) => recomputeUrgency($.terminals(), finishGate.settledFinished()))`
+ * in `servePadi.ts`. The graph tracks BOTH edges — `terminals → urgency` (a
+ * registry writer can no longer forget to refold urgency; it recomputes exactly
+ * when the collection it reads changes) AND `finishGate.settledFinished() →
+ * urgency` (a `waiting` terminal crossing the quiet threshold re-folds the badge,
+ * see `finishGate.ts`).
  *
  * The fold reuses the ONE shared agent-state vocabulary
  * (`agentBucket` from `@kolu/terminal-vocab/agentProjection`) rather than a

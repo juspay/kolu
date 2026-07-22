@@ -1,9 +1,13 @@
 /**
- * The effective-finish gate's debounce core — with the transport injected (a fake
- * registry view + fake byte tap) so the timer logic is exercised directly:
- *   - a just-flipped-to-`waiting` terminal is HELD unsettled (default-excluded)
- *     and settles only after the quiet window elapses with no output;
- *   - output inside the window re-arms the debounce;
+ * The effective-finish gate's debounce core — transport injected (a fake registry
+ * view + fake byte tap) so the timer/state logic is exercised directly:
+ *   - a `waiting` terminal settles only after its attach is READY and a full quiet
+ *     window then elapses (it can't settle while the attach is still pending);
+ *   - output inside the window re-arms the debounce, and output AFTER settling
+ *     un-settles it (resumed background work);
+ *   - a tap that drops is re-opened at the next reconcile — a still-working terminal
+ *     is never settled off a dead tap, and an already-settled terminal keeps its
+ *     level across the gap (no flicker) while still re-observing resumed output;
  *   - leaving `waiting` (or teardown) drops the terminal from the settled set.
  */
 
@@ -18,24 +22,28 @@ const B = "fin-b" as TerminalId;
 
 describe("createFinishGate", () => {
   let waiting: Map<TerminalId, string>;
-  let outputHandlers: Map<TerminalId, () => void>;
-  let closedHandlers: Map<TerminalId, () => void>;
+  let ready: Map<TerminalId, () => void>;
+  let output: Map<TerminalId, () => void>;
+  let closed: Map<TerminalId, () => void>;
   let closes: Map<TerminalId, () => void>;
   let gate: FinishGate;
 
   beforeEach(() => {
     vi.useFakeTimers();
     waiting = new Map();
-    outputHandlers = new Map();
-    closedHandlers = new Map();
+    ready = new Map();
+    output = new Map();
+    closed = new Map();
     closes = new Map();
     gate = createFinishGate<string>({
       quietMs: QUIET,
       reconcileMs: RECONCILE,
       listWaiting: () => new Map(waiting),
-      openTap: (id, _location, onOutput, onClosed) => {
-        outputHandlers.set(id, onOutput);
-        closedHandlers.set(id, onClosed);
+      openTap: (id, _location, handlers) => {
+        // Latest tap wins (a re-tap replaces the handlers for this id).
+        ready.set(id, handlers.onReady);
+        output.set(id, handlers.onOutput);
+        closed.set(id, handlers.onClosed);
         const close = vi.fn();
         closes.set(id, close);
         return close;
@@ -48,16 +56,33 @@ describe("createFinishGate", () => {
     vi.useRealTimers();
   });
 
-  /** Drive the reconcile interval once so the gate re-reads `waiting`. */
+  /** Drive the reconcile interval once so the gate re-reads `waiting` (and re-taps
+   *  any dropped tap). */
   const reconcileTick = (): void => {
     vi.advanceTimersByTime(RECONCILE);
   };
+  /** Simulate the terminal's attach establishing (a live observer exists). */
+  const attach = (id: TerminalId): void => ready.get(id)?.();
 
-  it("HOLDS a freshly-`waiting` terminal unsettled, then settles it after the quiet window", () => {
+  it("settles a `waiting` terminal only after attach is ready AND a full quiet window", () => {
     waiting.set(A, "loc-a");
-    reconcileTick(); // gate picks A up, seeds its quiet window
+    reconcileTick(); // A tracked, tap opening — attach not yet ready
     expect(gate.settledFinished().has(A)).toBe(false);
 
+    attach(A); // attach established — the quiet window starts here
+    vi.advanceTimersByTime(QUIET - 1);
+    expect(gate.settledFinished().has(A)).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
+  it("does NOT settle while the attach is still pending (never ready)", () => {
+    waiting.set(A, "loc-a");
+    reconcileTick(); // tap opening, onReady never fires — a slow/wedged attach
+    vi.advanceTimersByTime(QUIET * 3);
+    expect(gate.settledFinished().has(A)).toBe(false);
+
+    attach(A); // once it finally attaches, the window starts
     vi.advanceTimersByTime(QUIET);
     expect([...gate.settledFinished()]).toEqual([A]);
   });
@@ -65,21 +90,56 @@ describe("createFinishGate", () => {
   it("re-arms the debounce on output, so a still-noisy terminal never settles early", () => {
     waiting.set(A, "loc-a");
     reconcileTick();
+    attach(A);
 
-    // Just shy of the window, a byte lands — the terminal is still working.
     vi.advanceTimersByTime(QUIET - 1);
-    outputHandlers.get(A)?.();
+    output.get(A)?.(); // a byte lands — still working
     vi.advanceTimersByTime(QUIET - 1);
     expect(gate.settledFinished().has(A)).toBe(false);
 
-    // Once it finally goes quiet for a full window, it settles.
     vi.advanceTimersByTime(1);
     expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
+  it("does not settle a still-working terminal off a dead tap — re-taps and re-observes", () => {
+    waiting.set(A, "loc-a");
+    reconcileTick();
+    attach(A); // live, not yet settled
+
+    closed.get(A)?.(); // the tap dies mid-window (transient kaval drop)
+    // A is not-yet-settled and its quiet timer was dropped — it can't settle off a
+    // dead tap.
+    vi.advanceTimersByTime(QUIET * 2);
+    expect(gate.settledFinished().has(A)).toBe(false);
+
+    reconcileTick(); // reconcile re-opens the tap
+    attach(A); // the new attach establishes — window restarts
+    vi.advanceTimersByTime(QUIET);
+    expect([...gate.settledFinished()]).toEqual([A]);
+  });
+
+  it("keeps an already-settled terminal across a tap drop (no flicker) and un-settles it on resumed output", () => {
+    waiting.set(A, "loc-a");
+    reconcileTick();
+    attach(A);
+    vi.advanceTimersByTime(QUIET); // A settles — genuinely quiet for a full window
+    expect(gate.settledFinished().has(A)).toBe(true);
+
+    closed.get(A)?.(); // tap drops on an already-finished terminal
+    expect(gate.settledFinished().has(A)).toBe(true); // sticky — no flicker
+
+    reconcileTick(); // re-tap
+    attach(A);
+    expect(gate.settledFinished().has(A)).toBe(true); // still finished after re-attach
+
+    output.get(A)?.(); // background sub-agents resume — real output un-settles it
+    expect(gate.settledFinished().has(A)).toBe(false);
   });
 
   it("drops a terminal from the settled set once it leaves `waiting`", () => {
     waiting.set(A, "loc-a");
     reconcileTick();
+    attach(A);
     vi.advanceTimersByTime(QUIET);
     expect(gate.settledFinished().has(A)).toBe(true);
 
@@ -92,48 +152,18 @@ describe("createFinishGate", () => {
   it("debounces each terminal independently", () => {
     waiting.set(A, "loc-a");
     reconcileTick();
+    attach(A);
     vi.advanceTimersByTime(QUIET); // A settles
     waiting.set(B, "loc-b");
-    reconcileTick(); // B just picked up
+    reconcileTick();
+    attach(B); // B just attached
 
-    const settled = gate.settledFinished();
-    expect(settled.has(A)).toBe(true);
-    expect(settled.has(B)).toBe(false);
+    const s = gate.settledFinished();
+    expect(s.has(A)).toBe(true);
+    expect(s.has(B)).toBe(false);
 
     vi.advanceTimersByTime(QUIET); // B settles too
     expect([...gate.settledFinished()].sort()).toEqual([A, B]);
-  });
-
-  it("does not settle a still-working terminal off a dead tap — re-taps with a fresh window", () => {
-    // The failure the tap must NOT have: a transient kaval drop ends the byte tap
-    // while the terminal is still `waiting` AND still live. If the gate believed it
-    // was still watching, it would see no more output and settle the terminal after
-    // the quiet window — a premature finish while background sub-agents keep working.
-    waiting.set(A, "loc-a");
-    reconcileTick(); // A tracked, seeded live (not yet settled)
-    // The tap dies on its own (stream end / kaval drop) while A is still live.
-    closedHandlers.get(A)?.();
-    // A is dropped, not settled — a dead tap can't conclude quiet (default-excluded).
-    expect(gate.settledFinished().has(A)).toBe(false);
-
-    // The reconcile re-taps with a FRESH quiet window; A settles only after a full
-    // window of real quiet on the NEW tap, never off the stale one.
-    reconcileTick(); // re-tap (fresh seed)
-    vi.advanceTimersByTime(QUIET - 1);
-    expect(gate.settledFinished().has(A)).toBe(false);
-    vi.advanceTimersByTime(1);
-    expect([...gate.settledFinished()]).toEqual([A]);
-  });
-
-  it("keeps an already-settled terminal finished when its tap drops (the debounce is done)", () => {
-    waiting.set(A, "loc-a");
-    reconcileTick();
-    vi.advanceTimersByTime(QUIET); // A settles — genuinely quiet for a full window
-    expect(gate.settledFinished().has(A)).toBe(true);
-
-    // A tap drop on an already-finished terminal must not un-finish it (no flicker).
-    closedHandlers.get(A)?.();
-    expect(gate.settledFinished().has(A)).toBe(true);
   });
 
   it("closes every tap on dispose", () => {

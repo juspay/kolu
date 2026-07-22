@@ -65,6 +65,24 @@ function sameIdSet(
   return true;
 }
 
+/** The callbacks a byte tap reports to the debounce core. The quiet window only
+ *  starts from `onReady` (attach established) — not from the tap being requested —
+ *  so a slow/wedged attach can never let a terminal settle without a live observer. */
+export interface TapHandlers {
+  /** The attach has ESTABLISHED — a live observer now exists, so the quiet window
+   *  may start. Until this fires the terminal cannot settle (it is being observed
+   *  by nothing yet). */
+  onReady: () => void;
+  /** An output chunk landed (the FACT of bytes, never the bytes) — re-arm the quiet
+   *  window and clear any settled level (real output un-settles). */
+  onOutput: () => void;
+  /** The tap ENDED ON ITS OWN — a graceful stream end or a transient kaval drop, NOT
+   *  the returned disposer (which the core calls when the terminal leaves `waiting`).
+   *  The core drops the dead tap and re-opens it at the next reconcile, so a
+   *  still-`waiting` terminal always keeps an observer. */
+  onClosed: () => void;
+}
+
 /** The gate's transport seam — the two volatile capabilities it stands on, injected
  *  so the debounce core stays pure. `L` is the opaque tap location (an endpoint
  *  routing key); the gate never inspects it, only threads it from `listWaiting` to
@@ -73,20 +91,10 @@ export interface FinishGateDeps<L> {
   /** Every terminal currently `waiting` (active + agent bucket `waiting`), mapped to
    *  its tap location. Re-read each reconcile. */
   listWaiting: () => Map<TerminalId, L>;
-  /** Open a byte tap for `id`: invoke `onOutput` on each output chunk (the FACT of
-   *  bytes, never the bytes), and `onClosed` if the tap ENDS ON ITS OWN (a graceful
-   *  stream end or a transient kaval drop — NOT the returned disposer, which the
-   *  core calls when the terminal leaves `waiting`). Return a disposer that closes
-   *  the tap. `onClosed` is the recovery seam: a tap that dies while its terminal is
-   *  still `waiting` must not be believed alive, or the core would see no more output
-   *  and falsely settle the terminal — so the core drops it and the next reconcile
-   *  re-taps with a fresh quiet window. */
-  openTap: (
-    id: TerminalId,
-    location: L,
-    onOutput: () => void,
-    onClosed: () => void,
-  ) => () => void;
+  /** Open a byte tap for `id`, reporting through {@link TapHandlers}. Return a
+   *  disposer that closes the tap (the core calls it when the terminal leaves
+   *  `waiting`). */
+  openTap: (id: TerminalId, location: L, handlers: TapHandlers) => () => void;
   /** Override the quiet window (tests). Defaults to {@link EFFECTIVE_FINISH_QUIET_MS}. */
   quietMs?: number;
   /** Override the reconcile cadence (tests). Defaults to
@@ -112,85 +120,107 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
   const reconcileMs = deps.reconcileMs ?? WAITING_RECONCILE_INTERVAL_MS;
 
   const src = source<ReadonlySet<TerminalId>>((emit) => {
-    // The debounce core: a shared activity tracker windowed to `quietMs`, the set of
-    // terminals we're tapping, and the last set we emitted (for dedup).
+    // The debounce core. `tracker` is the shared quiet-window timer (windowed to
+    // `quietMs`); `tracked` maps each tapped terminal to its location (kept so a
+    // dropped tap can be RE-OPENED); `ready` is the terminals whose attach has
+    // established (a live observer exists); `settled` is the STICKY finished set —
+    // a terminal enters it when the quiet window elapses while ready, and leaves it
+    // ONLY on real output. Keeping `settled` explicit (not derived from `!isLive`)
+    // is what lets a settled terminal survive a transient tap drop without a
+    // finishedIds flicker while STILL re-observing resumed output.
     const tracker: ActivityTracker = createActivityTracker(quietMs);
-    const tracked = new Set<TerminalId>();
+    const tracked = new Map<TerminalId, L>();
     const taps = new Map<TerminalId, () => void>();
+    const ready = new Set<TerminalId>();
+    const settled = new Set<TerminalId>();
     let lastEmitted: ReadonlySet<TerminalId> = EMPTY;
 
-    /** A tracked terminal is SETTLED when it is no longer live — no output for the
-     *  quiet window. A freshly-tracked terminal is seeded live (below), so it is
-     *  excluded until it actually falls quiet. */
-    const currentSettled = (): ReadonlySet<TerminalId> => {
-      const settled = new Set<TerminalId>();
-      for (const id of tracked) if (!tracker.isLive(id)) settled.add(id);
-      return settled;
-    };
-
     const publish = (): void => {
-      const next = currentSettled();
+      // `settled` only ever holds tracked ids (adds gate on `tracked`, stop/close
+      // prune it), so it IS the settled-finished set.
+      const next: ReadonlySet<TerminalId> = new Set(settled);
       if (sameIdSet(next, lastEmitted)) return;
       lastEmitted = next;
       emit(next);
     };
 
-    // A tap that ENDED ON ITS OWN (a graceful stream end / transient kaval drop,
-    // not our disposer) while the terminal is still `waiting`: drop it so the next
-    // reconcile RE-TAPS with a fresh quiet window. Without this the core keeps
-    // believing it's watching, sees no more output, and the tracker timer falsely
-    // settles the terminal — a premature finish, the exact harm this gate prevents.
-    // Forgetting holds it OUT of the settled set during the observation gap
-    // (default-excluded), so recovery only ever DELAYS a finish, never fires one.
-    const onTapClosed = (id: TerminalId): void => {
-      if (!tracked.has(id)) return; // already stopped by us (terminal left `waiting`)
-      // If it ALREADY settled (observed quiet a full window on a live tap), it is
-      // genuinely finished — the debounce is done and a tap drop now doesn't
-      // un-finish it; leave it settled (no flicker). Recover ONLY a still-live
-      // terminal, where we would otherwise conclude quiet from a dead tap.
-      if (!tracker.isLive(id)) return;
-      tracked.delete(id);
-      taps.delete(id);
-      tracker.forget(id);
-      publish();
-    };
-
-    const startTracking = (id: TerminalId, location: L): void => {
-      if (tracked.has(id)) return;
-      tracked.add(id);
-      // Seed the quiet window: a just-flipped-to-`waiting` terminal is treated as
-      // live for one `quietMs`, so it can't settle before we've watched it stay
-      // silent (and can't fire early if a background burst is about to land).
-      tracker.noteOutput(id);
-      const close = deps.openTap(
+    const openTapFor = (id: TerminalId, location: L): void => {
+      taps.set(
         id,
-        location,
-        () => {
-          tracker.noteOutput(id);
-          publish();
-        },
-        () => onTapClosed(id),
+        deps.openTap(id, location, {
+          // Attach established — a live observer now exists. START the quiet window
+          // HERE (not when the tap was requested), so a slow/wedged attach can never
+          // let a terminal settle before anything actually watched it.
+          onReady: () => {
+            if (!tracked.has(id)) return;
+            ready.add(id);
+            tracker.noteOutput(id);
+          },
+          // Real output — re-arm the window and clear any settled level (resumed
+          // output un-settles, even on a terminal that had already finished).
+          onOutput: () => {
+            if (!tracked.has(id)) return;
+            ready.add(id); // output implies the attach is live
+            tracker.noteOutput(id);
+            if (settled.delete(id)) publish();
+          },
+          // The tap ended on its own (graceful end / transient kaval drop) — drop it
+          // (KEEP the sticky `settled` level, so a finished terminal doesn't flicker)
+          // and let the next reconcile re-open it. Re-tapping at the poll — not
+          // inline here — bounds a terminal whose attach ends immediately to one
+          // re-tap per reconcile instead of a hot loop. `tracker.forget` drops the
+          // stale quiet timer so a NOT-yet-settled terminal can't settle off a dead
+          // tap during the gap (it re-seeds on the next attach's `onReady`).
+          onClosed: () => {
+            if (!tracked.has(id)) return; // our disposer / already stopped
+            ready.delete(id);
+            taps.delete(id);
+            tracker.forget(id);
+          },
+        }),
       );
-      taps.set(id, close);
     };
 
     const stopTracking = (id: TerminalId): void => {
       if (!tracked.delete(id)) return;
       taps.get(id)?.();
       taps.delete(id);
+      ready.delete(id);
       tracker.forget(id);
+      settled.delete(id);
     };
 
     const reconcile = (): void => {
       const waiting = deps.listWaiting();
-      for (const [id, location] of waiting) startTracking(id, location);
-      for (const id of [...tracked]) if (!waiting.has(id)) stopTracking(id);
+      for (const [id, location] of waiting) {
+        if (!tracked.has(id)) {
+          // A newly-`waiting` terminal — track it and open its tap. It is
+          // DEFAULT-EXCLUDED (not ready, not settled) until the attach establishes
+          // and a full quiet window then elapses.
+          tracked.set(id, location);
+          openTapFor(id, location);
+        } else if (!taps.has(id)) {
+          // A tracked terminal whose tap dropped (onClosed) — re-open it.
+          openTapFor(id, location);
+        }
+      }
+      for (const id of [...tracked.keys()])
+        if (!waiting.has(id)) stopTracking(id);
       publish();
     };
 
-    // A quiet-threshold crossing (a tracker timer expiring) is the non-event that
-    // makes a terminal settle — re-publish so urgency re-folds.
-    const offTracker = tracker.onChange(publish);
+    // A quiet-window expiry (tracker live→static) settles every ready terminal that
+    // has fallen quiet — the "output stopped" non-event, pushed into the graph.
+    const offTracker = tracker.onChange(() => {
+      let changed = false;
+      for (const id of tracked.keys()) {
+        if (ready.has(id) && !tracker.isLive(id) && !settled.has(id)) {
+          settled.add(id);
+          changed = true;
+        }
+      }
+      if (changed) publish();
+    });
     reconcile();
     const interval = setInterval(reconcile, reconcileMs);
     interval.unref?.();
@@ -201,6 +231,8 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       for (const close of taps.values()) close();
       taps.clear();
       tracked.clear();
+      ready.clear();
+      settled.clear();
       tracker.dispose();
     };
   }, EMPTY);

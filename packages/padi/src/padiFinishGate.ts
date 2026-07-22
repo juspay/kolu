@@ -48,7 +48,7 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
       }
       return waiting;
     },
-    openTap: (id, location, onOutput, onClosed) => {
+    openTap: (id, location, { onReady, onOutput, onClosed }) => {
       const abort = new AbortController();
       void (async () => {
         try {
@@ -56,6 +56,11 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
             id,
             abort.signal,
           );
+          // The attach has ESTABLISHED — a live observer now exists, so the quiet
+          // window may start. Reporting readiness here (not when the tap was
+          // requested) is what stops a slow/wedged attach from letting a terminal
+          // settle before anything actually watched it.
+          onReady();
           // Each delta is fresh output — the FACT of bytes, not the bytes. The
           // attach's first frame (the scrollback snapshot) is delivered separately
           // (never through `deltas`), so replayed screen can't false-light it.

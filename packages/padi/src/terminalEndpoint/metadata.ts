@@ -24,9 +24,12 @@
  *     `TerminalClientMetadata`.
  *
  * Urgency is NO LONGER a concern these seams carry. It is now a DERIVED member —
- * `derived.cell(($) => recomputeUrgency($.terminals()))` (`servePadi.ts`) — so the
- * reactive graph tracks the `terminals → urgency` edge and recomputes the badge
- * whenever a `terminals` upsert/remove fires, deduped by the cell's `equals`. The
+ * `derived.cell(($) => recomputeUrgency($.terminals(), finishGate.settledFinished()))`
+ * (`servePadi.ts`) — so the reactive graph tracks the `terminals → urgency` edge
+ * (these seams' concern) and recomputes the badge whenever a `terminals`
+ * upsert/remove fires, deduped by the cell's `equals`. (The `settledFinished` arg is
+ * a SECOND, gate-owned edge — the effective-finish debounce, `finishGate.ts` — not
+ * driven by these seams.) The
  * old `publishUrgency` rider that every composed publish (and the removal path) had
  * to remember is gone: a registry writer can no longer forget urgency, because the
  * edge is tracked rather than conventional (worked example 1 of the reactive-bridge
