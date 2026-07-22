@@ -73,16 +73,17 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
         // activity fact, shared with the finish fold. `resubscribeStream` owns the
         // re-subscribe loop across a kaval recycle (so a long watch survives a daemon
         // restart) AND the guard against the forwarding facade's EAGER synchronous
-        // throw when the daemon is down — see its doc. A drained stream (an expected
-        // recycle) logs at debug rather than bridgeStream's generic ERROR.
+        // throw when the daemon is down — see its doc. `onStreamError` is omitted
+        // (mirroring `inventoryReconcile`'s identical call) so an established
+        // subscription that breaks mid-stream keeps `bridgeStream`'s default ERROR
+        // log — a genuine connection failure, not a merely-expected-absent condition,
+        // so it must stay visible to error-level alerting (`errors-must-log-at-error`).
         void resubscribeStream({
           signal: sig,
           delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
           getStream: () =>
             ptyHostClient.surface.activity.get({}, { signal: sig }),
           onEvent: (edge) => tracker.noteOutput(edge.id as TerminalId),
-          onStreamError: (err) =>
-            log.debug({ err }, "kaval activity subscribe ended; will re-subscribe"),
           onDrop: (err) =>
             log.debug(
               { err },
