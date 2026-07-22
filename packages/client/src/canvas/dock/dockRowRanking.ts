@@ -111,11 +111,11 @@ function classifyDockRow(
  *  shared `agentPaintClass` — the SAME fold `TerminalMeta` feeds its title pip —
  *  so a fresh `waiting` agent paints `awaiting` (the lingering dim-alert dot) in
  *  BOTH places, even though `classifyDockRow` ranks it `idle` for ORDERING. The
- *  dock-only triage buckets that have no agent to paint — `sleeping` (☾),
- *  `parked` (hidden) and the never-touched `none`/`idle` shells — keep the order
- *  bucket, since the title shows no pip for them at all (it gates on a live
- *  agent). Order (rank) and colour (paint) are thus decoupled: the row sorts by
- *  urgency but glows by paint. */
+ *  dock-only triage buckets that have no agent to paint — `sleeping` (moonlit
+ *  identity glyph), `parked` (hidden/empty), and plain shells — map shells to
+ *  `idle` paint (shell glyph) even when ORDER ranks them `none`. Order (rank)
+ *  and colour (paint) stay decoupled: the row sorts by urgency but paints by
+ *  identity + agent state. */
 function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
   // The overlay also runs in the paint fold so the two folds stay aligned by
   // construction — even though a parked pip never paints (`dockTree` drops the
@@ -123,11 +123,14 @@ function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
   const overlay = dockOverlayBucket(meta, parked);
   if (overlay) return overlay;
   const agent = activeArm(meta)?.agent;
-  // No live agent → no pip colour to share with the title; keep the order
-  // bucket's plain-shell triage (`idle` if touched, else `none`).
-  if (!agent) return meta.lastActivityAt !== null ? "idle" : "none";
+  // No live agent → shell identity glyph (`idle` paint: fg-3, still). Every
+  // dock row core is an identity mark (Option C); never-touched shells still
+  // ORDER as `none` via `classifyDockRow`, but they PAINT as idle so
+  // `PIP_BODY.empty` does not swallow the shell glyph. `parked` stays empty
+  // via the overlay above (and never reaches a visible row).
+  if (!agent) return "idle";
   const paint = agentPaintClass(agent.state);
-  // An unknown state paints `none`; surface it as `idle` (a quiet dot) when the
+  // An unknown state paints `none`; surface it as `idle` (shell mark) when the
   // row has activity rather than an empty cell, matching the order fold.
   return paint === "none" && meta.lastActivityAt !== null ? "idle" : paint;
 }
