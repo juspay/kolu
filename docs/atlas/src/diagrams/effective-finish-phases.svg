@@ -9,28 +9,28 @@
   </defs>
 
   <text x="24" y="28" font-weight="700" fill="#1a1c20" font-size="15">EF — phase tree (each box is one mergeable PR)</text>
-  <text x="24" y="48" font-size="12" fill="#5b6470">EF0 done. EF1 is a full activity cutover (no dual path). EF2 is finish honesty. Never ship a dead wire beside the old mechanism.</text>
+  <text x="24" y="48" font-size="12" fill="#5b6470">EF0–EF1 done. EF2 (next) is finish honesty on the shipped activity edge. Never ship a dead wire beside the old mechanism.</text>
 
   <!-- spine -->
   <rect x="40" y="72" width="300" height="56" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
   <text x="56" y="96" font-weight="700" fill="#1b7a3a">EF0 · close / capture ✓</text>
-  <text x="56" y="114" font-size="12" fill="#15803d">done · #1938 closed · plan of record</text>
+  <text x="56" y="114" font-size="12" fill="#15803d">done · #1938 closed · plan #1944</text>
 
   <line x1="190" y1="128" x2="190" y2="148" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
 
-  <rect x="40" y="150" width="300" height="100" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
-  <text x="56" y="174" font-weight="700" fill="#1b7a3a">EF1 · activity cutover (full stack)</text>
-  <text x="56" y="194" font-size="12" fill="#1a1c20">kaval edge · padi liveActivity · client dots</text>
-  <text x="56" y="212" font-size="12" fill="#1a1c20">delete byte taps + suppress + noteOutput</text>
-  <text x="56" y="232" font-size="11" fill="#1b7a3a">first user-facing · testable in the dock</text>
+  <rect x="40" y="150" width="300" height="100" rx="10" fill="#e6f4ea" stroke="#1b7a3a" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="56" y="174" font-weight="700" fill="#1b7a3a">EF1 · activity cutover ✓</text>
+  <text x="56" y="194" font-size="12" fill="#15803d">shipped #1945 · kaval → padi → client</text>
+  <text x="56" y="212" font-size="12" fill="#1a1c20">no dual path · resize mute at source</text>
+  <text x="56" y="232" font-size="11" fill="#15803d">live dots on host-global fact</text>
 
   <line x1="190" y1="250" x2="190" y2="270" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
 
   <rect x="40" y="272" width="300" height="88" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
-  <text x="56" y="296" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold</text>
+  <text x="56" y="296" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold ▶</text>
   <text x="56" y="316" font-size="12" fill="#1a1c20">waiting + quiet → finishedIds</text>
   <text x="56" y="334" font-size="12" fill="#1a1c20">reuses EF1 edge · no second taps</text>
-  <text x="56" y="352" font-size="11" fill="#1b7a3a">second user-facing · honest chime</text>
+  <text x="56" y="352" font-size="11" fill="#1b7a3a">next · honest finished chime</text>
 
   <line x1="190" y1="360" x2="190" y2="380" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
 

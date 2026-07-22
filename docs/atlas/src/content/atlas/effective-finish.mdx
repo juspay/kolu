@@ -1,6 +1,6 @@
 ---
 title: Effective Finish — Quiet Chronology, Phased
-description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; one full activity cutover (kaval→padi→client); then pure-fold finishedIds. Phased EF0–EF3 (EF0 done) after closing the #1938 big-bang.
+description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; full activity cutover shipped (EF1); pure-fold finishedIds next (EF2). Phased EF0–EF3 (EF0–EF1 done) after closing the #1938 big-bang.
 parents: [agent-attention, analysis]
 status: proposed
 maturity: seedling
@@ -26,9 +26,10 @@ The fix is not a second byte-tap state machine in padi. It is:
 
 Work items use the **EF** track prefix (new; no Atlas collisions). <PrLink pr={1938} />
 closed without merge — design kept, big-bang delivery discarded. This note is the plan
-of record; master stays on raw-`waiting` finished until **EF2**.
+of record (<PrLink pr={1944} />). **EF1 shipped** (<PrLink pr={1945} />): activity is a
+single host-side fact. Master still uses raw-`waiting` for `finishedIds` until **EF2**.
 
-<Svg svg={phaseTree} wide caption="EF phase tree (left) and EF1 stack (right). EF0 done (dashed). EF1 is one full activity cutover — kaval, padi, client — so nothing user-visible still rides the old wiretaps. EF2 is finish honesty only." />
+<Svg svg={phaseTree} wide caption="EF phase tree (left) and EF1 stack (right). EF0–EF1 done (dashed). Activity cutover is on master; EF2 is finish honesty (next); EF3 is harden/e2e." />
 
 ## The problem
 
@@ -97,13 +98,13 @@ completely.** Finish is a *different* axis (attention policy) and stays **EF2**.
 ## Phase tree
 
 Strict dependency: **EF0 → EF1 → EF2 → EF3**. Each remaining box is one PR, green
-alone, revertible alone. **EF0 is complete.**
+alone, revertible alone. **EF0 and EF1 are complete.**
 
 ### EF0 — close / capture
 
 <Phase id="EF0" name="close / capture" status="shipped"
   blocks={["EF1"]}
-  links={[{ label: "#1938 closed", href: "https://github.com/juspay/kolu/pull/1938" }, { label: "plan PR #1944", href: "https://github.com/juspay/kolu/pull/1944" }]} />
+  links={[{ label: "#1938 closed", href: "https://github.com/juspay/kolu/pull/1938" }, { label: "plan #1944", href: "https://github.com/juspay/kolu/pull/1944" }]} />
 
 <Callout kind="note" title="ELI15">
 Stop the messy all-in-one PR. Write down the plan. Don’t ship broken chimes or
@@ -111,40 +112,32 @@ stuck “live” dots. App behaviour stays as it is for now.
 </Callout>
 
 - Close <PrLink pr={1938} /> without merge (done) — do not resurrect that branch wholesale.
-- This note is the plan of record (landing as <PrLink pr={1944} />).
-- Master stays on raw-`waiting` finished until **EF2** — annoying but honest.
+- This note is the plan of record (<PrLink pr={1944} />, merged).
 
 ### EF1 — activity cutover (kaval → padi → client)
 
-<Phase id="EF1" name="activity cutover" status="next" needs={["EF0"]} blocks={["EF2"]}
-  links={[{ label: "PR #1945", href: "https://github.com/juspay/kolu/pull/1945" }]} />
+<Phase id="EF1" name="activity cutover" status="shipped" needs={["EF0"]} blocks={["EF2"]}
+  links={[{ label: "#1945 merged", href: "https://github.com/juspay/kolu/pull/1945" }]} />
 
 <Callout kind="note" title="ELI15">
-One PR moves “is this terminal typing?” to the process that owns the PTY. The
+One PR moved “is this terminal typing?” to the process that owns the PTY. The
 server and the dock both watch the same doorbell. Resize redraws don’t light the
-dot. Old wiretaps and the browser’s 600ms mute hack are deleted — not left beside
-the new path.
+dot. Old wiretaps and the browser’s 600ms mute hack are gone.
 </Callout>
 
-**One volatility, full stack — ship together:**
+**Shipped in <PrLink pr={1945} />** — one volatility, full stack:
 
-| Layer | Ship | Delete |
+| Layer | Shipped | Deleted |
 | --- | --- | --- |
-| **kaval** | Host-global `activity` edges (`{ id }`); emit from `onData`; resize mute **before** `proc.resize`; throttle; pure `shouldEmitActivityEdge` + tests; contract minor bump | — |
+| **kaval** | Host-global `activity` edges (`{ id }`); emit from `onData`; resize mute **before** `proc.resize`; throttle; pure `shouldEmitActivityEdge` + tests; contract **5.3** | — |
 | **padi** | `liveActivity` folds the edge through the short idle tracker | Per-terminal activity byte taps / dirty reconcile for taps |
 | **client** | `useTerminalActivity` mirrors per-host `streams.activity`; **plain array copies** for frame/`prev` | `noteOutput`, `suppress`, `RESIZE_ACTIVITY_SUPPRESS_MS`, attach-sink lighting |
 
-**Do not** in EF1: change `finishedIds` / attention finish policy (that is EF2).
-
-**Done when:**
-
-- Unit: edge emit, resize exclusion, throttle; live set enter/leave; **live frame → empty → `isLive` false** (sticky-live fence).
-- Manual / harness: dock dots light on real output; **visit/resize idle tile does not flash**; dots clear when quiet; background terminals *may* light (host-global — document if intentional).
-- **No dual activity path remains** on master after merge.
+Finish policy (`finishedIds`) was deliberately **not** changed here — that is **EF2**.
 
 ### EF2 — pure finish fold (finish honesty)
 
-<Phase id="EF2" name="pure finish fold" status="todo" needs={["EF1"]} blocks={["EF3"]} />
+<Phase id="EF2" name="pure finish fold" status="next" needs={["EF1"]} blocks={["EF3"]} />
 
 <Callout kind="note" title="ELI15">
 When the agent says “I’m done,” wait until the terminal has been actually quiet
@@ -205,8 +198,8 @@ run EF1→EF2.
 
 | Phase | Must have |
 | --- | --- |
-| **EF0** | ✓ done — #1938 closed; this plan of record |
-| **EF1** | kaval edge tests; liveActivity cutover; client mirror + live→idle test; **old activity paths deleted** |
+| **EF0** | ✓ done — #1938 closed; plan <PrLink pr={1944} /> |
+| **EF1** | ✓ done — <PrLink pr={1945} /> activity cutover (kaval + padi + client; no dual path) |
 | **EF2** | fold unit tests; episode restamp; no-edge-on-resize; urgency wiring |
 | **EF3** | shared sub and/or e2e; docs |
 
