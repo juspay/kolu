@@ -95,6 +95,15 @@ export interface FinishGateDeps<L> {
    *  disposer that closes the tap (the core calls it when the terminal leaves
    *  `waiting`). */
   openTap: (id: TerminalId, location: L, handlers: TapHandlers) => () => void;
+  /** Subscribe to agent-bucket TRANSITIONS (`isWaiting` = the agent is in the
+   *  `waiting` bucket now). This is the RELIABLE episode edge — it fires on every
+   *  agent-state change (the commit firehose), so it never misses a fast
+   *  `waiting → working → waiting` cycle the reconcile poll would. It is what makes
+   *  a NEW waiting episode earn a fresh quiet window instead of inheriting the prior
+   *  episode's settled level. Return an unsubscribe. */
+  subscribeAgentObservations: (
+    onObserve: (id: TerminalId, isWaiting: boolean) => void,
+  ) => () => void;
   /** Override the quiet window (tests). Defaults to {@link EFFECTIVE_FINISH_QUIET_MS}. */
   quietMs?: number;
   /** Override the reconcile cadence (tests). Defaults to
@@ -131,8 +140,19 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
     const tracker: ActivityTracker = createActivityTracker(quietMs);
     const tracked = new Map<TerminalId, L>();
     const taps = new Map<TerminalId, () => void>();
+    // Per-open tap GENERATION — a monotonic token stamped on each `openTapFor`. Every
+    // handler is fenced to the token it was opened under, so a late callback from an
+    // aborted/replaced tap (e.g. an aborted attach resolving through the
+    // endpoint's empty-attachment path) can never mutate the CURRENT tap's state.
+    const tapGen = new Map<TerminalId, number>();
+    let tapSeq = 0;
     const ready = new Set<TerminalId>();
     const settled = new Set<TerminalId>();
+    // Terminals that LEFT `waiting` and are awaiting re-arm — a fast
+    // `waiting → working → waiting` blip the poll misses is caught by the
+    // agent-observation edge, which drops the stale settled/quiet state on leave and
+    // re-arms a fresh window on re-entry (so turn 2 never inherits turn 1's settle).
+    const awaitingRearm = new Set<TerminalId>();
     let lastEmitted: ReadonlySet<TerminalId> = EMPTY;
 
     const publish = (): void => {
@@ -145,21 +165,25 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
     };
 
     const openTapFor = (id: TerminalId, location: L): void => {
+      const gen = ++tapSeq;
+      tapGen.set(id, gen);
+      const current = (): boolean => tracked.has(id) && tapGen.get(id) === gen;
       taps.set(
         id,
         deps.openTap(id, location, {
           // Attach established — a live observer now exists. START the quiet window
           // HERE (not when the tap was requested), so a slow/wedged attach can never
-          // let a terminal settle before anything actually watched it.
+          // let a terminal settle before anything actually watched it. Fenced to this
+          // tap's generation, so an aborted tap's late `onReady` can't ready a newer one.
           onReady: () => {
-            if (!tracked.has(id)) return;
+            if (!current()) return;
             ready.add(id);
             tracker.noteOutput(id);
           },
           // Real output — re-arm the window and clear any settled level (resumed
           // output un-settles, even on a terminal that had already finished).
           onOutput: () => {
-            if (!tracked.has(id)) return;
+            if (!current()) return;
             ready.add(id); // output implies the attach is live
             tracker.noteOutput(id);
             if (settled.delete(id)) publish();
@@ -172,7 +196,7 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
           // stale quiet timer so a NOT-yet-settled terminal can't settle off a dead
           // tap during the gap (it re-seeds on the next attach's `onReady`).
           onClosed: () => {
-            if (!tracked.has(id)) return; // our disposer / already stopped
+            if (!current()) return; // our disposer / replaced / already stopped
             ready.delete(id);
             taps.delete(id);
             tracker.forget(id);
@@ -185,9 +209,32 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       if (!tracked.delete(id)) return;
       taps.get(id)?.();
       taps.delete(id);
+      tapGen.delete(id);
       ready.delete(id);
       tracker.forget(id);
+      awaitingRearm.delete(id);
       settled.delete(id);
+    };
+
+    // The RELIABLE episode edge (the commit firehose). It never misses an agent-state
+    // transition, so it is what keeps a NEW waiting episode from inheriting the prior
+    // episode's settled level when the reconcile poll misses a sub-interval blip.
+    const onObserve = (id: TerminalId, isWaiting: boolean): void => {
+      if (!tracked.has(id)) return; // membership is the poll's job; only re-arm what we track
+      if (!isWaiting) {
+        // Left the waiting episode — invalidate the settle/quiet state so the next
+        // waiting turn must earn a fresh window. (The tap stays open — same PTY.)
+        ready.delete(id);
+        tracker.forget(id);
+        awaitingRearm.add(id);
+        if (settled.delete(id)) publish();
+      } else if (awaitingRearm.delete(id)) {
+        // Re-entered waiting after a blip — re-arm a fresh quiet window on the still-
+        // open tap. `onReady` won't fire again on the same tap, so restore `ready`
+        // here; the window (re)starts now, so it can't settle until quiet elapses again.
+        ready.add(id);
+        tracker.noteOutput(id);
+      }
     };
 
     const reconcile = (): void => {
@@ -221,6 +268,7 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
       }
       if (changed) publish();
     });
+    const offObserve = deps.subscribeAgentObservations(onObserve);
     reconcile();
     const interval = setInterval(reconcile, reconcileMs);
     interval.unref?.();
@@ -228,11 +276,14 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
     return () => {
       clearInterval(interval);
       offTracker();
+      offObserve();
       for (const close of taps.values()) close();
       taps.clear();
+      tapGen.clear();
       tracked.clear();
       ready.clear();
       settled.clear();
+      awaitingRearm.clear();
       tracker.dispose();
     };
   }, EMPTY);

@@ -18,6 +18,7 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { createFinishGate, type FinishGate } from "./finishGate.ts";
+import { subscribeAgentBucket } from "./publisher.ts";
 import { registryMap } from "./terminal-registry.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 
@@ -48,6 +49,13 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
       }
       return waiting;
     },
+    // The RELIABLE agent-state edge — a synchronous fan-out `commitSnapshot`
+    // publishes on every `waiting` bucket transition, so the gate never misses a
+    // fast episode cycle the poll would.
+    subscribeAgentObservations: (onObserve) =>
+      subscribeAgentBucket((id, isWaiting) =>
+        onObserve(id as TerminalId, isWaiting),
+      ),
     openTap: (id, location, { onReady, onOutput, onClosed }) => {
       const abort = new AbortController();
       void (async () => {
@@ -56,6 +64,12 @@ export function createPadiFinishGate(deps: { log: Logger }): FinishGate {
             id,
             abort.signal,
           );
+          // A tap aborted while its attach was in flight (the terminal left `waiting`,
+          // or the tap was replaced) can still RESOLVE here — the endpoint returns an
+          // empty attachment on an aborted first-frame. Bail before reporting anything,
+          // so a stale tap can't ready/feed a newer episode (the core also generation-
+          // fences its handlers, but suppressing at the source keeps it honest).
+          if (abort.signal.aborted) return;
           // The attach has ESTABLISHED — a live observer now exists, so the quiet
           // window may start. Reporting readiness here (not when the tap was
           // requested) is what stops a slow/wedged attach from letting a terminal

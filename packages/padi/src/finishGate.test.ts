@@ -26,6 +26,7 @@ describe("createFinishGate", () => {
   let output: Map<TerminalId, () => void>;
   let closed: Map<TerminalId, () => void>;
   let closes: Map<TerminalId, () => void>;
+  let observe: (id: TerminalId, isWaiting: boolean) => void;
   let gate: FinishGate;
 
   beforeEach(() => {
@@ -35,10 +36,18 @@ describe("createFinishGate", () => {
     output = new Map();
     closed = new Map();
     closes = new Map();
+    let observer: ((id: TerminalId, isWaiting: boolean) => void) | null = null;
+    observe = (id, isWaiting) => observer?.(id, isWaiting);
     gate = createFinishGate<string>({
       quietMs: QUIET,
       reconcileMs: RECONCILE,
       listWaiting: () => new Map(waiting),
+      subscribeAgentObservations: (cb) => {
+        observer = cb;
+        return () => {
+          observer = null;
+        };
+      },
       openTap: (id, _location, handlers) => {
         // Latest tap wins (a re-tap replaces the handlers for this id).
         ready.set(id, handlers.onReady);
@@ -164,6 +173,51 @@ describe("createFinishGate", () => {
 
     vi.advanceTimersByTime(QUIET); // B settles too
     expect([...gate.settledFinished()].sort()).toEqual([A, B]);
+  });
+
+  it("makes a NEW waiting episode earn a fresh window — a settled turn does not carry over a poll-missed working blip", () => {
+    // F1: A settles on turn 1. Its agent then cycles waiting → working → waiting
+    // FASTER than one reconcile poll, so `waiting` (the poll's view) never drops A.
+    // The agent-observation edge (the commit firehose) catches the blip: it must
+    // drop the stale settle on leave and re-arm a fresh window on re-entry, so the
+    // second turn cannot fire a premature finish (the exact background-sub-agent case).
+    waiting.set(A, "loc-a");
+    reconcileTick();
+    attach(A);
+    vi.advanceTimersByTime(QUIET);
+    expect(gate.settledFinished().has(A)).toBe(true); // turn 1 finished
+
+    observe(A, false); // agent left waiting (working) — poll misses it
+    expect(gate.settledFinished().has(A)).toBe(false); // stale settle dropped at once
+    observe(A, true); // agent back to waiting (turn 2, background work launched)
+    // Must NOT immediately re-settle off turn 1 — a fresh window is required.
+    expect(gate.settledFinished().has(A)).toBe(false);
+    vi.advanceTimersByTime(QUIET - 1);
+    expect(gate.settledFinished().has(A)).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect([...gate.settledFinished()]).toEqual([A]); // settles only after the fresh window
+  });
+
+  it("fences a stale tap's late onReady from a newer tap generation", () => {
+    // F3: a pending attach (T1) is aborted when the terminal leaves waiting, then the
+    // same id re-enters and opens a new pending attach (T2). T1's attach can still
+    // resolve late and call its onReady — it must NOT ready T2's generation.
+    waiting.set(A, "loc-a");
+    reconcileTick(); // opens T1 (pending — no attach yet)
+    const staleReady = ready.get(A); // capture T1's onReady before it's replaced
+
+    waiting.delete(A);
+    reconcileTick(); // A leaves waiting → T1 aborted, A untracked
+    waiting.set(A, "loc-a");
+    reconcileTick(); // A re-enters → opens T2 (pending); ready.get(A) is now T2's onReady
+
+    staleReady?.(); // T1's late onReady — must be fenced (wrong generation)
+    vi.advanceTimersByTime(QUIET * 2);
+    expect(gate.settledFinished().has(A)).toBe(false); // T2 never became ready
+
+    attach(A); // T2's real onReady
+    vi.advanceTimersByTime(QUIET);
+    expect([...gate.settledFinished()]).toEqual([A]);
   });
 
   it("closes every tap on dispose", () => {

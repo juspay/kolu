@@ -49,6 +49,44 @@ export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
   "terminals:dirty",
 );
 
+// Agent-bucket TRANSITIONS — a SYNCHRONOUS observer registry (not a MemoryPublisher
+// channel). `commitSnapshot` publishes `{ id, isWaiting }` the moment a terminal's
+// agent crosses INTO or OUT OF the `waiting` bucket; the effective-finish gate
+// (`finishGate.ts`) subscribes. Unlike the reconcile poll it fires on the commit
+// firehose, so it never misses a fast `waiting → working → waiting` cycle. It is
+// deliberately SYNCHRONOUS (a plain callback fan-out, not an async iterator): the
+// gate must drop a stale settle BEFORE `publishComposedTerminal` recomputes urgency
+// off the same commit, and an async delivery would land a microtask too late.
+// Published only on a bucket CHANGE (not every ~150 ms tick), so a static waiting
+// terminal is silent.
+const agentBucketObservers = new Set<
+  (id: string, isWaiting: boolean) => void
+>();
+
+/** Subscribe to agent-bucket transitions (synchronous dispatch). Returns an
+ *  unsubscribe. */
+export function subscribeAgentBucket(
+  cb: (id: string, isWaiting: boolean) => void,
+): () => void {
+  agentBucketObservers.add(cb);
+  return () => {
+    agentBucketObservers.delete(cb);
+  };
+}
+
+/** Publish an agent-bucket transition SYNCHRONOUSLY to every subscriber. Guarded
+ *  per-subscriber like `notifyDirty` — a throwing subscriber must not propagate back
+ *  into the sensor commit path. */
+export function publishAgentBucket(id: string, isWaiting: boolean): void {
+  for (const cb of agentBucketObservers) {
+    try {
+      cb(id, isWaiting);
+    } catch (err) {
+      log.error({ err }, "agent:bucket subscriber threw");
+    }
+  }
+}
+
 /** Emit the shared `terminals:dirty` pulse — the SINGLE writer-facing arm every
  *  terminal/metadata writer calls when a restore-relevant change lands. Arms the
  *  autosave gate (via its subscription) and reconciles the activity taps

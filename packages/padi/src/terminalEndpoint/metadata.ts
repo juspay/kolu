@@ -50,9 +50,10 @@ import type {
   RestoreTarget,
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
+import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
-import { notifyDirty } from "../publisher.ts";
+import { notifyDirty, publishAgentBucket } from "../publisher.ts";
 import { PadiParkedTerminalSchema, type PadiTerminal } from "../surface.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import {
@@ -154,7 +155,19 @@ export function commitSnapshot(
   // where the producer already advanced its dedup baseline (the fold has accepted
   // `observation` above, so the registry stays in sync regardless; a lost publish
   // self-heals on the next observation). This is what makes `emit` infallible.
+  // Publish an agent-bucket TRANSITION (into/out of `waiting`) to the effective-finish
+  // gate BEFORE the composed publish recomputes urgency, and only on a real change —
+  // so the gate drops a stale settle (or re-arms a new waiting episode) synchronously,
+  // ahead of urgency reading its settled set off this same commit. Computed against
+  // the PREVIOUS snapshot's agent before it is overwritten.
+  const prevWaiting =
+    entry.snapshot.agent != null &&
+    agentBucket(entry.snapshot.agent.state) === "waiting";
   entry.snapshot = observation;
+  const nextWaiting =
+    observation.agent != null &&
+    agentBucket(observation.agent.state) === "waiting";
+  if (prevWaiting !== nextWaiting) publishAgentBucket(terminalId, nextWaiting);
   try {
     publishComposedTerminal(terminalId);
   } catch (err) {

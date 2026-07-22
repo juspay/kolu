@@ -50,7 +50,10 @@
 <p>The one story, both sides — derive on whichever side of the wire the inputs live:</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// ── server (producer) ──────────────────────────────</span></span>
 <span class="line"><span style="color:#6F42C1">cells</span><span style="color:#24292E">: {</span></span>
-<span class="line"><span style="color:#6F42C1">  urgency</span><span style="color:#24292E">: derived.</span><span style="color:#6F42C1">cell</span><span style="color:#24292E">((</span><span style="color:#E36209">$</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#6F42C1"> recomputeUrgency</span><span style="color:#24292E">($.</span><span style="color:#6F42C1">terminals</span><span style="color:#24292E">())),</span></span>
+<span class="line"><span style="color:#6A737D">  // Two reactive inputs: the `terminals` sibling collection AND a source-fed</span></span>
+<span class="line"><span style="color:#6A737D">  // signal (the finish gate&#39;s settled set) the compute reads directly.</span></span>
+<span class="line"><span style="color:#6F42C1">  urgency</span><span style="color:#24292E">: derived.</span><span style="color:#6F42C1">cell</span><span style="color:#24292E">((</span><span style="color:#E36209">$</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span></span>
+<span class="line"><span style="color:#6F42C1">    recomputeUrgency</span><span style="color:#24292E">($.</span><span style="color:#6F42C1">terminals</span><span style="color:#24292E">(), finishGate.</span><span style="color:#6F42C1">settledFinished</span><span style="color:#24292E">())),</span></span>
 <span class="line"><span style="color:#24292E">},</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D">// ── client (consumer) ─────────────────────────────</span></span>
