@@ -147,12 +147,10 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
 });
 
 // The two OUTER axes the merged indicator folds around the core (R-activity-
-// merge): the green live RING (a static glow halo) and the unread ALERT (a small
-// amber corner badge — a different shape, so it never competes with the ring or
-// nests into a second circle), drawn as overlay elements whose visuals live in
-// statepip.css. Both surfaces (Dock + pulam-web) render the same component +
-// import the same CSS, so this is the one definition — the "defined twice →
-// drifts" hazard the two separate dots had, closed the way R-pip-unify closed it.
+// merge): the green live PLATE (a faint disc behind the glyph) and the unread
+// ALERT (a small amber corner dot — a different shape, so it never competes
+// with the plate), drawn as overlay elements whose visuals live in
+// statepip.css. Both surfaces render the same component + import the same CSS.
 describe("the indicator wrapper + outer-axis overlays", () => {
   it("the leaf wrapper is a content-sized relative box (anchors the absolute overlays), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
@@ -178,9 +176,10 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(cls).toContain("rounded-full");
   });
 
-  it("the live ring + alert badge are the shared statepip.css classes", () => {
-    expect(LIVE_RING_CLASS).toBe("statepip-live-ring");
-    // a corner DOT, not a halo/ring and not the host-tab count pill —
+  it("the live plate + alert badge are the shared statepip.css classes", () => {
+    // Export keeps LIVE_RING_CLASS for the live prop contract; CSS is the plate.
+    expect(LIVE_RING_CLASS).toBe("statepip-live-plate");
+    // a corner DOT, not a ring and not the host-tab count pill —
     // Option C mockup's 7px attention pip.
     expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });

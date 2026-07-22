@@ -252,9 +252,13 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
     }
   });
 
-  it("a sleeping row keeps its ☾ pip; a never-touched shell keeps none", () => {
+  it("a sleeping row keeps sleeping paint; a never-touched shell paints idle (shell glyph)", () => {
     expect(pip(makeSleepingMeta(), false)).toBe("sleeping");
-    expect(pip(makeMeta(), false)).toBe("none");
+    // ORDER still ranks never-touched as `none` (quieter than idle), but PAINT
+    // is `idle` so the shell identity glyph renders — Option C: every row core
+    // is an identity mark; `empty` is only for genuinely blank call sites.
+    expect(bucket(makeMeta(), false)).toBe("none");
+    expect(pip(makeMeta(), false)).toBe("idle");
   });
 });
 

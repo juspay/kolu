@@ -13,7 +13,6 @@
  *  three echoes of the same truth. */
 
 import { activeArm, activePr } from "@kolu/padi/surface";
-import { StatePip } from "@kolu/solid-statepip";
 import { ATTENTION_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
@@ -44,7 +43,6 @@ import {
   type DockSourceEntry,
 } from "../dockModel";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
-import { pipVariant } from "./pipVariant";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
  *  value so the lookup stays scoped to *this* grid instance even if a
@@ -318,14 +316,10 @@ const ColumnView: Component<{
       }}
     >
       <div class="flex items-center gap-1.5 min-w-0">
-        {/* Bucket-state pip — the same StatePip the dock row and tile
-         *  title lead with, here labelling the whole column: the Working
-         *  header carries the spinning ring, Awaiting/Idle a quiet dot.
-         *  A column header is not a terminal, so it carries neither the
-         *  live ring nor the unread badge (both per-terminal). Rendered
-         *  unconditionally, like the dock and mobile rows — StatePip
-         *  draws an empty cell for the No-agent ('none') bucket. */}
-        <StatePip variant={pipVariant(props.column.key)} />
+        {/* Column headers are state legends, not terminals — no identity
+         *  glyph (Option C shell mark would misread every bucket as a shell).
+         *  Colour + label carry the column identity; StatePip stays on real
+         *  terminal rows and the tile title. */}
         <div
           class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
         >
