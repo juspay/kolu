@@ -152,6 +152,14 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           if (overflow) yield { kind: "overflow" as const };
         },
       },
+      // Host-global meaningful-output edges (resize-excluded at the source). A live
+      // edge feed — no snapshot frame (a consumer stamps arrival time and derives
+      // its own windows; a missed edge only delays a downstream finish).
+      activity: {
+        source: async function* (_input, signal) {
+          for await (const edge of host.subscribeActivity(signal)) yield edge;
+        },
+      },
       cwd: {
         source: async function* (input, signal) {
           requirePty(input.id as PtyId);
