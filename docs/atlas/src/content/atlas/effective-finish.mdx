@@ -1,6 +1,6 @@
 ---
 title: Effective Finish — Quiet Chronology, Phased
-description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; padi pure-folds finishedIds; live dots mirror the same edge. Phased EF1–EF5 after closing the #1938 big-bang.
+description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; padi pure-folds finishedIds; live dots mirror the same edge. Phased EF0–EF5 (EF0 done) after closing the #1938 big-bang.
 parents: [agent-attention, analysis]
 status: proposed
 maturity: seedling
@@ -10,6 +10,7 @@ updated: 2026-07-22
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import Footnote from "../../components/Footnote.astro";
+import Phase from "../../components/Phase.astro";
 import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import phaseTree from "../../diagrams/effective-finish-phases.svg?raw";
@@ -27,7 +28,7 @@ Work items use the **EF** track prefix (new; no Atlas collisions). <PrLink pr={1
 closed without merge — design kept, big-bang delivery discarded. This note is the plan
 of record; master stays on raw-`waiting` finished until **EF2**.
 
-<Svg svg={phaseTree} wide caption="EF phase tree (left) and end-state data flow (right). Green boxes are the two user-facing landings; blue is infrastructure; grey is bookkeeping. Strict spine: EF1 before EF2, EF3 before EF4." />
+<Svg svg={phaseTree} wide caption="EF phase tree (left) and end-state data flow (right). EF0 is done (dashed). Green boxes are the two user-facing landings; blue is infrastructure. Strict spine: EF1 before EF2, EF3 before EF4." />
 
 ## The problem
 
@@ -84,10 +85,27 @@ boolean with one internal timer.
 
 ## Phase tree
 
-Strict dependency: **EF1 → EF2 → EF3 → EF4 → EF5**. Each box is one PR, green
-alone, revertible alone.
+Strict dependency: **EF0 → EF1 → EF2 → EF3 → EF4 → EF5**. Each remaining box is
+one PR, green alone, revertible alone. **EF0 is complete.**
+
+### EF0 — close / capture
+
+<Phase id="EF0" name="close / capture" status="shipped"
+  blocks={["EF1"]}
+  links={[{ label: "#1938 closed", href: "https://github.com/juspay/kolu/pull/1938" }, { label: "plan PR #1944", href: "https://github.com/juspay/kolu/pull/1944" }]} />
+
+<Callout kind="note" title="ELI15">
+Stop the messy all-in-one PR. Write down the plan. Don’t ship broken chimes or
+stuck “live” dots. App behaviour stays as it is for now.
+</Callout>
+
+- Close <PrLink pr={1938} /> without merge (done) — do not resurrect that branch wholesale.
+- This note is the plan of record (landing as <PrLink pr={1944} />).
+- Master stays on raw-`waiting` finished until **EF2** — annoying but honest.
 
 ### EF1 — kaval activity edge (fact only)
+
+<Phase id="EF1" name="kaval activity edge" status="next" needs={["EF0"]} blocks={["EF2"]} />
 
 <Callout kind="note" title="ELI15">
 Teach the terminal owner (kaval) to shout “this shell just produced real output”
@@ -107,6 +125,8 @@ app listens yet; you’re wiring the doorbell, not the intercom.
 user-facing change** if nothing product-facing subscribes yet.
 
 ### EF2 — pure finish fold (first user-facing fix)
+
+<Phase id="EF2" name="pure finish fold" status="todo" needs={["EF1"]} blocks={["EF3"]} />
 
 <Callout kind="note" title="ELI15">
 When the agent says “I’m done,” wait until the terminal has been actually quiet
@@ -132,6 +152,8 @@ regression is fenced (injection/unit minimum; e2e may wait for EF5).
 
 ### EF3 — padi `activity` stream on the edge
 
+<Phase id="EF3" name="padi activity stream" status="todo" needs={["EF2"]} blocks={["EF4"]} />
+
 <Callout kind="note" title="ELI15">
 Stop opening a secret second wiretap on every terminal just to power the
 server-side “who’s live right now?” list. Reuse kaval’s doorbell. The browser’s
@@ -149,6 +171,8 @@ output; resize does not flash (inherits kaval mute). Client still on attach
 `noteOutput` — short, documented transitional dual source.
 
 ### EF4 — client live-dot mirror (second user-facing fix)
+
+<Phase id="EF4" name="client live-dot mirror" status="todo" needs={["EF3"]} blocks={["EF5"]} />
 
 <Callout kind="note" title="ELI15">
 The dock’s “this terminal is typing” dots stop counting keystrokes in the
@@ -169,6 +193,8 @@ tile does not leave every id permanently lit. Background terminals *may* light
 (host-global fact) — document if intentional.
 
 ### EF5 — harden / rename / e2e
+
+<Phase id="EF5" name="harden / rename / e2e" status="todo" needs={["EF4"]} />
 
 <Callout kind="note" title="ELI15">
 Tidy-up: one subscription instead of two, clearer names, a real end-to-end check
@@ -204,6 +230,7 @@ run EF1→EF4.
 
 | Phase | Must have |
 | --- | --- |
+| **EF0** | ✓ done — #1938 closed; this plan of record |
 | **EF1** | pure + integration edge tests; no product consumer required |
 | **EF2** | fold unit tests; episode restamp; no-edge-on-resize; urgency wiring |
 | **EF3** | live set enter/leave tests; no client |
