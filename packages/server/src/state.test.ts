@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
+  migratePreferences_1_34_0,
 } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
@@ -95,6 +96,44 @@ describe("migratePreferences_1_32_0", () => {
       DEFAULT_PREFERENCES.newTerminalCollapsed,
     );
     expect(migrated.newTerminalTheme).toBe("shuffle");
+  });
+});
+
+describe("migratePreferences_1_34_0", () => {
+  it("renames activityAlerts → attentionAlerts, carrying the OFF value forward", () => {
+    // The falsifiable carry-forward: a user who turned alerts OFF keeps them off
+    // across the rename, NOT reset to the `true` default.
+    const migrated = migratePreferences_1_34_0({
+      activityAlerts: false,
+      scrollLock: true,
+    });
+    expect(migrated.attentionAlerts).toBe(false);
+    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true); // guards the above from a default flip
+    expect(migrated).not.toHaveProperty("activityAlerts");
+    // …unrelated preferences carry through verbatim.
+    expect(migrated.scrollLock).toBe(true);
+  });
+
+  it("carries the ON value forward too", () => {
+    const migrated = migratePreferences_1_34_0({ activityAlerts: true });
+    expect(migrated.attentionAlerts).toBe(true);
+    expect(migrated).not.toHaveProperty("activityAlerts");
+  });
+
+  it("leaves an already-migrated record (has attentionAlerts) untouched", () => {
+    const fresh = { attentionAlerts: false, scrollLock: true };
+    expect(migratePreferences_1_34_0(fresh)).toEqual(fresh);
+  });
+
+  it("REPRO: a pre-1.34 blob that never set activityAlerts still gets attentionAlerts", () => {
+    // The latent deploy bug: `confStore` reads the raw stored object with NO
+    // schema-default back-fill, so a blob that relied on the old default (no
+    // `activityAlerts` key) must NOT migrate to a MISSING `attentionAlerts` — that
+    // surfaces as `undefined` on the client and silently disables every alert.
+    const migrated = migratePreferences_1_34_0({ scrollLock: true });
+    expect(typeof migrated.attentionAlerts).toBe("boolean");
+    expect(migrated.attentionAlerts).toBe(DEFAULT_PREFERENCES.attentionAlerts);
+    expect(migrated.scrollLock).toBe(true);
   });
 });
 

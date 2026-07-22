@@ -22,14 +22,14 @@ Then(
 );
 
 Then(
-  "the activity alerts toggle should be disabled",
+  "the attention alerts toggle should be disabled",
   async function (this: KoluWorld) {
-    const toggle = this.page.locator('[data-testid="activity-alerts-toggle"]');
+    const toggle = this.page.locator('[data-testid="attention-alerts-toggle"]');
     await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       () =>
         document
-          .querySelector('[data-testid="activity-alerts-toggle"]')
+          .querySelector('[data-testid="attention-alerts-toggle"]')
           ?.getAttribute("data-enabled") === null,
       { timeout: POLL_TIMEOUT },
     );

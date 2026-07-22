@@ -39,9 +39,9 @@ import {
 export interface RunPadiStdioBridgeOptions {
   /** The value of `--state-root`, threaded straight from `bin.ts`'s argv parse,
    *  so the front and the re-exec'd daemon resolve the SAME digest-keyed socket
-   *  from the SAME token. Default (`undefined`): `KOLU_PADI_STATE_DIR` else padi's
-   *  binary default (`$HOME/.local/state/padi`) — the remote padi spells its own
-   *  default state-root on ITS host. */
+   *  from the SAME token. When unset, `KOLU_PADI_STATE_DIR` is required (the
+   *  nix-built padi wrapper supplies the production path on the remote host —
+   *  juspay/kolu#1334; no silent code default). */
   stateRoot?: string;
   /** The value of `--socket` (rare override); the daemon's gate sits beside it. */
   socketOverride?: string;
@@ -51,19 +51,22 @@ export interface RunPadiStdioBridgeOptions {
  *  stdio for the lifetime of the link. Resolves when the link ends; the daemon
  *  it fronts (and its kaval + PTYs) keeps running.
  *
+ *  `async` so a missing-path throw from {@link resolvePadiStateRoot} rejects the
+ *  promise and reaches `bin.ts`'s one error channel (sync throw would escape the
+ *  `.catch` on a bare `runPadiStdioBridge(...).catch(...)` call).
+ *
  *  CLI-only: `reExecAsDetachedDaemon` re-execs `process.argv` (minus `--stdio`),
  *  so the daemon serves the same `--state-root` / `--socket` ONLY because those
- *  tokens are still in argv. Pass `stateRoot`/`socketOverride` here *without* a
- *  matching flag in argv and the daemon would bind the default while the front
- *  waits on the override — so don't call this off the CLI path; for a programmatic
- *  front, use `frontDaemonOverStdio` directly with a path-injecting `spawnDaemon`. */
-export function runPadiStdioBridge(
+ *  tokens are still in argv (or the wrapper-set `KOLU_PADI_STATE_DIR` is inherited
+ *  by the re-exec). Pass `stateRoot`/`socketOverride` here *without* a matching
+ *  flag in argv and the daemon could bind a different root than the front —
+ *  so don't call this off the CLI path; for a programmatic front, use
+ *  `frontDaemonOverStdio` directly with a path-injecting `spawnDaemon`. */
+export async function runPadiStdioBridge(
   opts: RunPadiStdioBridgeOptions = {},
 ): Promise<void> {
-  const socketPath = padiSocketPath(
-    resolvePadiStateRoot(opts.stateRoot),
-    opts.socketOverride,
-  );
+  const stateRoot = resolvePadiStateRoot(opts.stateRoot);
+  const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
   return frontDaemonOverStdio({
     socketPath,
     // Start padi's own durable daemon: re-exec this binary minus `--stdio`. Any
@@ -77,7 +80,7 @@ export function runPadiStdioBridge(
     spawnDaemon: () =>
       reExecAsDetachedDaemon({
         stripArgs: ["--stdio"],
-        stderrLog: padiStderrLogPath(opts.stateRoot),
+        stderrLog: padiStderrLogPath(stateRoot),
       }),
     log: (msg) => process.stderr.write(`padi --stdio: ${msg}\n`),
   });

@@ -43,8 +43,10 @@ The package graduated to a **process**: `package = process = restart-hash`.
   the saved session → stay up until drained. The Nix wrapper runs it as
   `node --import <tsx loader> bin.ts` with a `PADI_BUILD_ID` staleKey (a content
   hash of padi's daemon source closure — pinned by `buildId.closure.test.ts`).
-- **Identity IS the state-root** (`./stateRoot`). The persistent state-root (the
-  binary spells the default on the host: `$XDG_STATE_HOME/padi`) holds padi's
+- **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
+  root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
+  (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
+  `$XDG_STATE_HOME`); dev/test pass a private dir. That folder holds padi's
   `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
   a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
   live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root
@@ -94,8 +96,10 @@ remote host — reusing the local arm's seam, not a parallel one:
 - **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of
   `getHostSession` + `frontDaemonOverStdio` (kill the remote padi → the reconnect
   respawns it; restart kolu-server → it re-adopts the still-running daemon, PTYs
-  intact). The remote padi spells its OWN default state-root on ITS host; the binder
-  passes nothing, and a fresh host's legacy import correctly no-ops.
+  intact). The remote **nix-built padi wrapper** supplies `KOLU_PADI_STATE_DIR` on
+  the host (no silent code default — #1334); the binder passes nothing unless it
+  isolates via `KOLU_REMOTE_PADI_STATE_DIR` / `--state-root`. A fresh host's
+  legacy import correctly no-ops.
 - **The ssh-user 0700 caveat.** The remote padi runs AS THE SSH USER, and (like
   kaval) serves its socket in a `0700` owner-only runtime dir — so the SSH identity
   **is** the daemon owner. Two ssh users get two isolated padis by construction; a
@@ -118,8 +122,9 @@ with the daemon logging to a **deterministic file under its own identity**, in t
 | `<state-root>/padi.stderr.log` | padi's **raw stderr** crash-catcher — what pino can't see: native errors, an uncaught-exception / unhandled-rejection stack. Wired **only when the spawn is DETACHING** (nobody holds the child's stderr); an attached/systemd spawn keeps its stderr in journald instead | **truncate-on-boot**: each boot rotates the previous to `.stderr.log.old` (one generation) |
 | `<kaval digest home>/kaval.log` | kaval has no pino — its stderr (the surface-daemon `stderrLogger`) **is** its log | truncate-on-boot (`.log.old`) |
 
-`<state-root>` is padi's persistent state root (`$KOLU_PADI_STATE_DIR`, else
-`~/.local/state/padi`); the kaval home is its digest-keyed runtime dir (beside its socket).
+`<state-root>` is padi's persistent state root (`$KOLU_PADI_STATE_DIR` or
+`--state-root` — required; the nix wrappers supply `~/.local/state/padi` for
+production); the kaval home is its digest-keyed runtime dir (beside its socket).
 **No env knob** — the two modes are structural: the **daemon entrypoint** (`runPadiDaemon`,
 which every spawn path runs) unconditionally logs to the multistream (and crashes loudly if
 the state root is unwritable), while the `--stdio` front, kolu-server's transitive import of

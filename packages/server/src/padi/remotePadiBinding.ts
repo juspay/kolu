@@ -97,11 +97,12 @@ export const KOLU_PADI_HOST_ENV = "KOLU_PADI_HOST";
  *  binding the SAME remote host with DIFFERENT `KOLU_REMOTE_PADI_STATE_DIR` values
  *  reach two DISTINCT remote padis (distinct state-root digest → distinct socket),
  *  so they never co-supervise one remote daemon — the remote twin of the local
- *  `supervisor.pid` gate's isolation remedy. Unset → the remote padi picks its own
- *  default state-root on the host (the single-kolu common case). The value is a
- *  path ON THE REMOTE host; ssh carries only the command line, so it rides
- *  `--state-root` in `extraArgs`, never an env var (there is no env channel over
- *  the ssh exec). dev / e2e that bind a remote host set this to an isolated path. */
+ *  `supervisor.pid` gate's isolation remedy. Unset → the remote **nix-built padi
+ *  wrapper** supplies `KOLU_PADI_STATE_DIR` on the host (the single-kolu common
+ *  case; #1334 deleted the silent code default). The value is a path ON THE
+ *  REMOTE host; ssh carries only the command line, so it rides `--state-root` in
+ *  `extraArgs`, never an env var (there is no env channel over the ssh exec).
+ *  dev / e2e that bind a remote host set this to an isolated path. */
 export const KOLU_REMOTE_PADI_STATE_DIR_ENV = "KOLU_REMOTE_PADI_STATE_DIR";
 
 /** Parse `KOLU_PADI_HOST` as a comma-separated SEED list of pool hosts (W4 "the
