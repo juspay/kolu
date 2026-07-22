@@ -1,6 +1,6 @@
 ---
 title: Effective Finish — Quiet Chronology, Phased
-description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; padi pure-folds finishedIds; live dots mirror the same edge. Phased EF0–EF5 after closing the #1938 big-bang.
+description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; padi pure-folds finishedIds; live dots mirror the same edge. Phased EF1–EF5 after closing the #1938 big-bang.
 parents: [agent-attention, analysis]
 status: proposed
 maturity: seedling
@@ -24,7 +24,8 @@ The fix is not a second byte-tap state machine in padi. It is:
 3. **live dots** reuse the same edge with a short idle window.
 
 Work items use the **EF** track prefix (new; no Atlas collisions). <PrLink pr={1938} />
-closed without merge — design kept, big-bang delivery discarded.
+closed without merge — design kept, big-bang delivery discarded. This note is the plan
+of record; master stays on raw-`waiting` finished until **EF2**.
 
 <Svg svg={phaseTree} wide caption="EF phase tree (left) and end-state data flow (right). Green boxes are the two user-facing landings; blue is infrastructure; grey is bookkeeping. Strict spine: EF1 before EF2, EF3 before EF4." />
 
@@ -83,19 +84,8 @@ boolean with one internal timer.
 
 ## Phase tree
 
-Strict dependency: **EF0 → EF1 → EF2 → EF3 → EF4 → EF5**. Each box is one PR,
-green alone, revertible alone.
-
-### EF0 — close / capture
-
-<Callout kind="note" title="ELI15">
-Stop the messy all-in-one PR. Write down the plan. Don’t ship broken chimes or
-stuck “live” dots. App behaviour stays as it is for now.
-</Callout>
-
-- Close <PrLink pr={1938} /> (done); do not resurrect the branch wholesale.
-- This note is the plan of record.
-- Master stays on raw-`waiting` finished until **EF2** — annoying but honest.
+Strict dependency: **EF1 → EF2 → EF3 → EF4 → EF5**. Each box is one PR, green
+alone, revertible alone.
 
 ### EF1 — kaval activity edge (fact only)
 
