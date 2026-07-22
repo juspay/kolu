@@ -48,8 +48,7 @@ import {
 import "kolu-common/test-hooks";
 import { createEffect, createMemo, mapArray, onCleanup } from "solid-js";
 import { createAttentionCore } from "./attentionCore";
-import { writeHostMarks } from "./attentionMarks";
-import { createStore } from "solid-js/store";
+import { liveAskingTotal, writeHostMarks } from "./attentionMarks";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel, sameHost } from "../host/hostChipTone";
@@ -83,12 +82,6 @@ export interface AttentionDeps {
   activeAgentState: (id: TerminalId) => AgentInfo["state"] | undefined;
 }
 
-/** The per-host attention summary the badge folds over. */
-interface HostAttention {
-  asking: number;
-  live: boolean;
-}
-
 function playSound(): void {
   const audio = new Audio("/sounds/notification.mp3");
   audio.play().catch(() => {
@@ -107,11 +100,6 @@ export function useAttention(deps: AttentionDeps): {
   createEffect(() => {
     if (alertsEnabled()) void notify.requestPermission();
   });
-
-  // The per-host summary the badge folds over. A host is removed from the store
-  // when its root disposes (membership exit), so a departed host can never inflate
-  // the badge.
-  const [summary, setSummary] = createStore<Record<string, HostAttention>>({});
 
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
 
@@ -157,6 +145,8 @@ export function useAttention(deps: AttentionDeps): {
       deliver(decodeHostKey(encHost), id, asking),
     writeMark: (encHost, unseenFinished) =>
       writeHostMarks(encHost, { unseenFinished }),
+    // ↑ the engine owns `unseenFinished`; `useAttention`'s root (below) owns
+    //   `asking` + `live`. Both merge into the ONE per-host marks record.
   });
 
   // Eager per-host roots over the FULL member set (a background host is precisely
@@ -192,16 +182,16 @@ export function useAttention(deps: AttentionDeps): {
         if (v === undefined) return; // no frame yet — the mirror is silent.
         core.observe(encHost, v);
       });
-      // Reflect this host's asking-count + liveness for the badge fold. Separate from
-      // the transition effect so a link flap (live changes, value doesn't) still
-      // repaints the badge, and a value change doesn't depend on `live`.
+      // Reflect this host's asking-count + liveness into the ONE marks store — the
+      // same store the chips and the badge read. Separate from the transition
+      // effect so a link flap (live changes, value doesn't) still repaints the
+      // badge, and a value change doesn't depend on `live`.
       createEffect(() => {
         const asking = value()?.awaitingIds.length ?? 0;
-        setSummary(encHost, { asking, live: live() });
+        writeHostMarks(encHost, { asking, live: live() });
       });
       onCleanup(() => {
         core.forgetHost(encHost);
-        setSummary(encHost, undefined as unknown as HostAttention);
         writeHostMarks(encHost, undefined);
       });
       return null;
@@ -240,12 +230,7 @@ export function useAttention(deps: AttentionDeps): {
       paintBadge(0);
       return;
     }
-    let count = 0;
-    for (const enc of Object.keys(summary)) {
-      const s = summary[enc];
-      if (s?.live) count += s.asking;
-    }
-    paintBadge(count);
+    paintBadge(liveAskingTotal());
   });
 
   // The SINGLE notification-click router: switch to the originating host first (a

@@ -95,10 +95,9 @@ import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
-import { hostUnseenFinished } from "../attention/attentionMarks";
+import { hostAsking, hostUnseenFinished } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
-import { useHostAwaiting } from "./useHostAwaiting";
 import { useHostMembers } from "./useHostMembers";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { activeHost, client, padiMap, setActiveHost } from "../wire";
@@ -143,9 +142,10 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
   const state = () => padiMap.entry(props.host).state();
   const isLocal = () => props.host.kind === "local";
-  const counts = useHostAwaiting(props.host);
-  // The quiet "finished, unseen" dot reads the cross-host mark `useAttention`
-  // publishes — NOT the raw finished count (a finished agent idles forever).
+  // Both host-tab attention marks read the ONE cross-host store `useAttention`
+  // publishes: the amber "asking" pill and the quiet "finished, unseen" dot. Neither
+  // is the raw urgency count (a finished agent idles in `waiting` forever).
+  const awaiting = () => hostAsking(encodeHostKey(props.host));
   const unseenFinished = () => hostUnseenFinished(encodeHostKey(props.host));
   // The active-host signal + this chip's own host are compared by their CANONICAL
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
@@ -223,10 +223,7 @@ const HostChip: Component<{ host: HostKey; measure?: boolean }> = (props) => {
            *  — shown only on a host you are NOT currently viewing, so switching to a
            *  host clears it; it answers "which host did that finish sound come from"
            *  without inflating the loud asking count. */}
-          <HostAwaitingPill
-            count={counts.awaiting()}
-            sizeClass="min-w-4 px-1 h-4"
-          />
+          <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
           <Show when={unseenFinished() > 0 && !isActive()}>
             <span
               role="img"
@@ -281,7 +278,7 @@ const HostSwitcherRow: Component<{
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
-  const counts = useHostAwaiting(host);
+  const awaiting = () => hostAsking(props.hostKey);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
     props.onPicked();
@@ -337,10 +334,7 @@ const HostSwitcherRow: Component<{
             {statusLabel(host)}
           </span>
         </span>
-        <HostAwaitingPill
-          count={counts.awaiting()}
-          sizeClass="min-w-4 px-1 h-4"
-        />
+        <HostAwaitingPill count={awaiting()} sizeClass="min-w-4 px-1 h-4" />
       </button>
       <button
         type="button"
