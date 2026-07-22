@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 520" font-family="ui-sans-serif,system-ui" font-size="13">
+  <defs>
+    <marker id="ef-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
+    </marker>
+    <marker id="ef-arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1b7a3a"/>
+    </marker>
+  </defs>
+
+  <text x="24" y="28" font-weight="700" fill="#1a1c20" font-size="15">EF — phase tree (each box is one mergeable PR)</text>
+  <text x="24" y="48" font-size="12" fill="#5b6470">Strict dependency down the spine. Never land EF2 without EF1; never land EF4 without a live→idle unit test.</text>
+
+  <!-- spine nodes -->
+  <rect x="40" y="72" width="280" height="56" rx="10" fill="#f0f1f3" stroke="#5b6470" stroke-width="1.4"/>
+  <text x="56" y="96" font-weight="700" fill="#5b6470">EF0 · close / capture</text>
+  <text x="56" y="114" font-size="12" fill="#5b6470">close #1938 · freeze plan · no code</text>
+
+  <line x1="180" y1="128" x2="180" y2="148" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
+
+  <rect x="40" y="150" width="280" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.5"/>
+  <text x="56" y="174" font-weight="700" fill="#0b6478">EF1 · kaval activity edge</text>
+  <text x="56" y="192" font-size="12" fill="#1a1c20">fact only · no consumer behaviour</text>
+
+  <line x1="180" y1="206" x2="180" y2="226" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+
+  <rect x="40" y="228" width="280" height="64" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
+  <text x="56" y="252" font-weight="700" fill="#1b7a3a">EF2 · pure finish fold</text>
+  <text x="56" y="270" font-size="12" fill="#1a1c20">first user-facing fix</text>
+  <text x="56" y="286" font-size="11" fill="#1b7a3a">premature “finished” → honest quiet</text>
+
+  <line x1="180" y1="292" x2="180" y2="312" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
+
+  <rect x="40" y="314" width="280" height="56" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.5"/>
+  <text x="56" y="338" font-weight="700" fill="#0b6478">EF3 · padi activity stream</text>
+  <text x="56" y="356" font-size="12" fill="#1a1c20">liveActivity on edge · drop byte taps</text>
+
+  <line x1="180" y1="370" x2="180" y2="390" stroke="#1b7a3a" stroke-width="1.5" marker-end="url(#ef-arrg)"/>
+
+  <rect x="40" y="392" width="280" height="64" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.8"/>
+  <text x="56" y="416" font-weight="700" fill="#1b7a3a">EF4 · client live-dot mirror</text>
+  <text x="56" y="434" font-size="12" fill="#1a1c20">second user-facing fix</text>
+  <text x="56" y="450" font-size="11" fill="#1b7a3a">plain array copies · live→idle test</text>
+
+  <line x1="180" y1="456" x2="180" y2="476" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ef-arr)"/>
+
+  <rect x="40" y="478" width="280" height="32" rx="8" fill="#f0f1f3" stroke="#5b6470" stroke-width="1.2"/>
+  <text x="56" y="498" font-weight="700" fill="#5b6470" font-size="12">EF5 · harden / rename / e2e</text>
+
+  <!-- right column: architecture of the end state -->
+  <text x="380" y="88" font-weight="700" fill="#1a1c20" font-size="14">End state (after EF4)</text>
+
+  <rect x="380" y="108" width="560" height="72" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="396" y="132" font-weight="700" fill="#0b6478">kaval · meaningful-output edge</text>
+  <text x="396" y="152" font-size="12" fill="#1a1c20">onData funnel · resize mute before proc.resize</text>
+  <text x="396" y="170" font-size="12" fill="#5b6470">ships { id } only — never a quiet boolean / window</text>
+
+  <line x1="660" y1="180" x2="660" y2="204" stroke="#5b6470" stroke-width="1.4" marker-end="url(#ef-arr)"/>
+
+  <rect x="380" y="206" width="270" height="100" rx="10" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="1.4"/>
+  <text x="396" y="230" font-weight="700" fill="#1b7a3a">padi · finish fold (EF2)</text>
+  <text x="396" y="250" font-size="12" fill="#1a1c20">enteredWaitingAt (agent edge)</text>
+  <text x="396" y="268" font-size="12" fill="#1a1c20">lastMeaningfulArrivalAt (edge)</text>
+  <text x="396" y="286" font-size="12" fill="#1a1c20">finished ⇔ quiet ≥ ~5s</text>
+
+  <rect x="670" y="206" width="270" height="100" rx="10" fill="#e8f1f8" stroke="#0b6478" stroke-width="1.4"/>
+  <text x="686" y="230" font-weight="700" fill="#0b6478">padi · activity set (EF3)</text>
+  <text x="686" y="250" font-size="12" fill="#1a1c20">same edge · short idle window</text>
+  <text x="686" y="268" font-size="12" fill="#1a1c20">TERMINAL_IDLE_AFTER_MS</text>
+  <text x="686" y="286" font-size="12" fill="#1a1c20">full live-id[] frames</text>
+
+  <line x1="515" y1="306" x2="515" y2="334" stroke="#5b6470" stroke-width="1.2" marker-end="url(#ef-arr)"/>
+  <line x1="805" y1="306" x2="805" y2="334" stroke="#5b6470" stroke-width="1.2" marker-end="url(#ef-arr)"/>
+
+  <rect x="380" y="336" width="270" height="72" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.4"/>
+  <text x="396" y="360" font-weight="700" fill="#8a5200">urgency.finishedIds</text>
+  <text x="396" y="380" font-size="12" fill="#1a1c20">attention chime / host-tab / dock</text>
+  <text x="396" y="398" font-size="11" fill="#5b6470">client attention unchanged</text>
+
+  <rect x="670" y="336" width="270" height="72" rx="10" fill="#fdf6ec" stroke="#8a5200" stroke-width="1.4"/>
+  <text x="686" y="360" font-weight="700" fill="#8a5200">client isLive (EF4)</text>
+  <text x="686" y="380" font-size="12" fill="#1a1c20">mirror activity stream</text>
+  <text x="686" y="398" font-size="11" fill="#5b6470">copy frames — never store proxy as prev</text>
+
+  <rect x="380" y="430" width="560" height="64" rx="10" fill="#fff" stroke="#b3261e" stroke-width="1.3"/>
+  <text x="396" y="454" font-weight="700" fill="#b3261e">What #1938 mixed (do not again)</text>
+  <text x="396" y="474" font-size="12" fill="#1a1c20">finish + kaval contract + liveActivity + client mirror in one PR</text>
+  <text x="396" y="492" font-size="12" fill="#5b6470">four volatilities · bugs masked each other · sticky-live shipped untested</text>
+</svg>

@@ -1,0 +1,192 @@
+---
+title: Effective Finish — Quiet Chronology, Phased
+description: Plan of record for honest “agent finished” attention — kaval owns resize-aware meaningful-output chronology; padi pure-folds finishedIds; live dots mirror the same edge. Phased EF0–EF5 after closing the #1938 big-bang.
+parents: [agent-attention, analysis]
+status: proposed
+maturity: seedling
+updated: 2026-07-22
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import phaseTree from "../../diagrams/effective-finish-phases.svg?raw";
+
+An agent (Claude Code is the motivating case) can mark its turn **waiting** while
+background sub-agents still emit bytes. Raw `waiting` in `finishedIds` is then a
+**premature** finish — chime and host-tab mark before the work actually stopped.
+The fix is not a second byte-tap state machine in padi. It is:
+
+1. **kaval** reports *meaningful* PTY output (resize repaints excluded at the source),
+2. **padi** stamps arrival on **its** clock and pure-folds finish,
+3. **live dots** reuse the same edge with a short idle window.
+
+Work items use the **EF** track prefix (new; no Atlas collisions). <PrLink pr={1938} />
+closed without merge — design kept, big-bang delivery discarded.
+
+<Svg svg={phaseTree} wide caption="EF phase tree (left) and end-state data flow (right). Green boxes are the two user-facing landings; blue is infrastructure; grey is bookkeeping. Strict spine: EF1 before EF2, EF3 before EF4." />
+
+## The problem
+
+| Symptom | Cause |
+| --- | --- |
+| Premature “finished” | `finishedIds` = raw agent `waiting` <Cite file="packages/padi/src/urgency.ts" /> |
+| Visit finished tile → re-chime | First #1938 design made finish byte-reactive; client resize mute did not travel to padi taps |
+| Sticky “all terminals live” | #1938 Phase D stored a Solid **reconcile proxy** as `prev`; removals never applied |
+
+Attention already has one model (<Cite file="docs/atlas/src/content/atlas/agent-attention.mdx" /> / <PrLink pr={1931} />).
+This note only makes the **finished** half of that model honest.
+
+## End state
+
+### Facts (one writer each)
+
+| Fact | Writer | Clock |
+| --- | --- | --- |
+| Meaningful output edge `{ id }` | kaval `onData` funnel (not resize-muted burst) | n/a on the wire |
+| `lastMeaningfulArrivalAt[id]` | folding **padi**, on edge **arrival** | padi wall clock |
+| `enteredWaitingAt[id]` | padi, on agent-bucket enter `waiting` | padi wall clock |
+
+Never ship kaval absolute timestamps for the fold — the attention model is
+recency-free (“nothing cross-host ever compares two hosts' clocks”). Edge on the
+wire; stamp at the folder.
+
+### Pure finish fold
+
+```
+finished(id) =
+  active ∧ bucket = waiting
+  ∧ enteredWaitingAt ≠ null
+  ∧ now − max(enteredWaitingAt, lastMeaningfulArrivalAt ?? enteredWaitingAt)
+      ≥ EFFECTIVE_FINISH_QUIET_MS   // ~5s
+```
+
+- **ASKING** (`awaiting_user`) stays **ungated** — blocking, fires at once.
+- **Default-excluded** — missing/late stamps only *delay* a finish.
+- **Deadline wake** for the “stayed quiet” non-event (timer at next crossing).
+- No settle set, no attach observer, no six parallel maps.
+
+### Live activity (same edge, different window)
+
+- Short window: `TERMINAL_IDLE_AFTER_MS` (~1s).
+- padi `activity` stream = live id set; client mirrors it for dock/title dots.
+- Client **must** copy frames to plain arrays before set-diff (`prev = [...frame]`),
+  never hold the store proxy from `reconcile`.
+
+### What kaval does *not* own
+
+Quiet **windows** (5s finish vs 1s live-dot) stay **consumer policy**. Kaval owns
+**which bursts count** (resize-aware filter + throttle), not a single live/quiet
+boolean with one internal timer.
+
+## Phase tree
+
+Strict dependency: **EF0 → EF1 → EF2 → EF3 → EF4 → EF5**. Each box is one PR,
+green alone, revertible alone.
+
+### EF0 — close / capture
+
+- Close <PrLink pr={1938} /> (done); do not resurrect the branch wholesale.
+- This note is the plan of record.
+- Master stays on raw-`waiting` finished until **EF2** — annoying but honest.
+
+### EF1 — kaval activity edge (fact only)
+
+| Ship | Do not |
+| --- | --- |
+| Host-global `activity` stream on `ptyHostSurface` (`{ id }` edges) | Change `finishedIds` |
+| Emit from the one `onData` funnel | Change client dots |
+| Resize mute **before** `proc.resize` | Rewrite liveActivity consumers |
+| Pure `shouldEmitActivityEdge` + unit tests | Open a finish “gate” product |
+| Contract minor bump (force kaval recycle) | |
+
+**Done when:** write → edge; inside resize mute → no edge; throttle holds. **Zero
+user-facing change** if nothing product-facing subscribes yet.
+
+### EF2 — pure finish fold (first user-facing fix)
+
+| Ship | Do not |
+| --- | --- |
+| One kaval `activity` sub; stamp arrival on padi clock | Rewrite `useTerminalActivity` |
+| Stamp `enteredWaitingAt` on agent-bucket edge (+ boot seed if needed) | Byte-tap waiting terminals |
+| Pure fold into `urgency.finishedIds` + deadline wake | Six-set / attach / gen-fence machine |
+| Unit: enter waiting + quiet → finish; edge resets window; episode restamp | Client mute changes (still owns live-dot resize) |
+| Regression: resize-class edge does **not** re-open finish | |
+
+Prefer stamps + fold next to urgency / commit — a thin module is fine; a second
+“FinishGate” product name is not required if a pure function + deadline source
+suffices.
+
+**Done when:** background-subagent case does not chime early; visit-finished
+regression is fenced (injection/unit minimum; e2e may wait for EF5).
+
+### EF3 — padi `activity` stream on the edge
+
+| Ship | Do not |
+| --- | --- |
+| `liveActivity` folds the kaval edge through the short tracker | Change the client yet |
+| Drop per-terminal activity byte taps | |
+| Tests: edge → id in set; quiet → leave set | |
+
+**Done when:** server-side activity consumers match old behaviour for real
+output; resize does not flash (inherits kaval mute). Client still on attach
+`noteOutput` — short, documented transitional dual source.
+
+### EF4 — client live-dot mirror (second user-facing fix)
+
+| Ship | Do not |
+| --- | --- |
+| `useTerminalActivity` mirrors per-host `streams.activity` | Ship without live→idle test |
+| **Plain array copies** for frame and `prev` | Store `sub()` proxy as `prev` |
+| Drop client suppress + attach `noteOutput` | Delete tests without replacement |
+| Unit: live frame → empty frame → `isLive` false | |
+
+**Done when:** dock dots track the server live set; no sticky-live; visit idle
+tile does not leave every id permanently lit. Background terminals *may* light
+(host-global fact) — document if intentional.
+
+### EF5 — harden / rename / e2e
+
+- One shared padi fan-out of kaval `activity` (finish + liveActivity), not two
+  re-subscribe loops.
+- Drop residual “gate” naming if any remains.
+- e2e or scripted: agent finish → chime once; visit → no second chime.
+- Product docs + changelog once the *user* story is true end-to-end.
+- Point [agent attention](agent-attention.html) at shipped behaviour.
+
+## Anti-patterns (from #1938)
+
+| Do not | Why |
+| --- | --- |
+| One PR = finish + contract + liveActivity + client | Four volatilities; bugs mask each other |
+| Quiet **boolean** with one window in kaval | Complects producer with consumer policy |
+| Absolute kaval time for the fold | Breaks recency-free / invites cross-host compare |
+| Delete client activity tests in the mirror PR | Sticky-live shipped silent |
+| Ship EF2 without a visit/re-open fence | Known regression class |
+| Call the pure fold a “gate v2” and claim deletion | Reviewers cannot tell the machine is gone |
+
+## Minimal hotfix (only if on fire)
+
+If premature finish must land before EF1–EF2: a **sticky-per-waiting-episode**
+finished membership (bytes cannot eject until leave-waiting) weakens “resume
+after long pause” and is **not** the plan of record — stopgap only, then still
+run EF1→EF4.
+
+## Checklist per PR
+
+| Phase | Must have |
+| --- | --- |
+| **EF1** | pure + integration edge tests; no product consumer required |
+| **EF2** | fold unit tests; episode restamp; no-edge-on-resize; urgency wiring |
+| **EF3** | live set enter/leave tests; no client |
+| **EF4** | live→idle unit test; plain copies; suppress deleted |
+| **EF5** | shared sub and/or e2e; docs |
+
+## Relation to attention
+
+[Agent Attention](agent-attention.html) owns the **rules** (fire once, seen,
+host-tab, dock). This note owns the **truth of finished** before those rules
+run. After EF2, `finishedIds` means effective quiet; after EF4, live dots stop
+lying about resize and stop sticking on.
