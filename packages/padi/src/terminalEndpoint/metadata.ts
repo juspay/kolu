@@ -160,13 +160,11 @@ export function commitSnapshot(
   // so the gate drops a stale settle (or re-arms a new waiting episode) synchronously,
   // ahead of urgency reading its settled set off this same commit. Computed against
   // the PREVIOUS snapshot's agent before it is overwritten.
-  const prevWaiting =
-    entry.snapshot.agent != null &&
-    agentBucket(entry.snapshot.agent.state) === "waiting";
+  const inWaitingBucket = (agent: TerminalSnapshot["agent"]): boolean =>
+    agent != null && agentBucket(agent.state) === "waiting";
+  const prevWaiting = inWaitingBucket(entry.snapshot.agent);
   entry.snapshot = observation;
-  const nextWaiting =
-    observation.agent != null &&
-    agentBucket(observation.agent.state) === "waiting";
+  const nextWaiting = inWaitingBucket(observation.agent);
   if (prevWaiting !== nextWaiting) publishAgentBucket(terminalId, nextWaiting);
   try {
     publishComposedTerminal(terminalId);

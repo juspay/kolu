@@ -163,11 +163,12 @@ export function createFinishGate<L>(deps: FinishGateDeps<L>): FinishGate {
 
     const publish = (): void => {
       // `settled` only ever holds tracked ids (adds gate on `tracked`, stop/close
-      // prune it), so it IS the settled-finished set.
-      const next: ReadonlySet<TerminalId> = new Set(settled);
-      if (sameIdSet(next, lastEmitted)) return;
-      lastEmitted = next;
-      emit(next);
+      // prune it), so it IS the settled-finished set. Compare the live set first and
+      // snapshot ONLY on a real change — `reconcile` publishes every ~1s and the
+      // common case is no-change, so this skips a throwaway Set copy on that path.
+      if (sameIdSet(settled, lastEmitted)) return;
+      lastEmitted = new Set(settled); // immutable snapshot, decoupled from later mutation
+      emit(lastEmitted);
     };
 
     const openTapFor = (id: TerminalId, location: L): void => {
