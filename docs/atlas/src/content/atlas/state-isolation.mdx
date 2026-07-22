@@ -2,7 +2,7 @@
 title: "State Isolation — Plan of Record"
 description: "Dev/test can never sit in production's chair: delete the padi state-root default; the path is chosen out loud or the process dies. No role vocabulary. Rebuilt after PR #1911 was closed."
 parents: [bug]
-status: proposed
+status: implemented
 maturity: budding
 updated: 2026-07-21
 ---
@@ -15,18 +15,18 @@ import Svg from "../../components/Svg.astro";
 import lockDiagram from "../../diagrams/state-isolation-lock.svg?raw";
 
 A daemon's identity is the digest of its state-root, and
-`resolvePadiStateRoot()` silently defaults to production's root — so a bare
-`pnpm dev` / `vitest` / `padi` computes production's identity and the
-adopt/kill machinery can then act on the live kolu (<Issue n={1334} />;
+`resolvePadiStateRoot()` used to silently default to production's root — so a
+bare launch could compute production's identity and the adopt/kill machinery
+could act on the live kolu (<Issue n={1334} />;
 [background](./host-isolation-locks.html)). The first fix,
 <PrLink pr={1911} />, was closed after review for shipping the guard inside
 half a PR of machinery.<Footnote>Review scars this plan keeps: no role stamps
 without a reader (that killed #1911); zero kaval changes; both ssh e2e lanes
 broke invisibly because CI has no ssh. Full verdict on the closed
-PR.</Footnote> This is the rebuild — resized twice by srid/grok's challenges
-(PR #1930 thread): first lock-only, then **no lock at all where deleting the
-default suffices**. Work items carry the **SI** prefix for reference: SI1 a
-small prerequisite bug fix, SI2 the fix itself.
+PR.</Footnote> Rebuilt after srid/grok's challenges (PR #1930 thread): first
+lock-only, then **no lock at all where deleting the default suffices**.
+**SI2 ships in <PrLink pr={1933} />** (path required; wrappers supply
+production). SI1 (gate release on boot throw) remains a separate small fix.
 
 ## The fix — there is no default
 
