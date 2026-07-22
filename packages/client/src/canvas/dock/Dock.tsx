@@ -653,8 +653,7 @@ const DockRow: Component<{
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdown
-              inline
+            <IntentMarkdownInline
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
