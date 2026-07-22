@@ -6,14 +6,13 @@ import type { AgentKind } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
-  ATTENTION_PILL_CLASS,
   DOCK_ROW_PIP_BOX,
   GLYPH_SVG_CLASS,
   INDICATOR_BASE,
   LIVE_RING_CLASS,
   NEEDS_YOU_PILL_CLASS,
   PIP_BODY,
-  PIP_MOTION,
+  PIP_MOTION_CLASS,
   PIP_TITLES,
   type PipVariant,
   SHELL_BUSY_CLASS,
@@ -87,7 +86,7 @@ describe("PIP_BODY — paint only per variant", () => {
 
   it("sleeping is moonlit paint only — stillness is no motion, not a ☾ glyph", () => {
     expect(PIP_BODY.sleeping).toEqual({ class: "text-moonlit/65" });
-    expect(PIP_MOTION.sleeping).toBeNull();
+    expect(PIP_MOTION_CLASS.none).toBeNull();
   });
 
   it("empty renders nothing inside the cell", () => {
@@ -111,15 +110,14 @@ describe("PIP_BODY — paint only per variant", () => {
   });
 });
 
-describe("PIP_MOTION / PIP_MOTION_CLASS — activity channel tokens", () => {
-  it("working defaults to breathe; awaiting paint defaults to glow", () => {
-    expect(PIP_MOTION.working).toContain("statepip-anim-breathe");
-    expect(PIP_MOTION.working).toContain("motion-reduce:animate-none");
-    expect(PIP_MOTION.awaiting).toContain("statepip-anim-glow");
-    expect(PIP_MOTION.awaiting).toContain("statepip-awaiting-core");
-    expect(PIP_MOTION.awaiting).toContain("motion-reduce:animate-none");
-    expect(PIP_MOTION.idle).toBeNull();
-    expect(PIP_MOTION.sleeping).toBeNull();
+describe("PIP_MOTION_CLASS — activity channel tokens", () => {
+  it("breathe / glow / none kinds carry the right class tokens", () => {
+    expect(PIP_MOTION_CLASS.breathe).toContain("statepip-anim-breathe");
+    expect(PIP_MOTION_CLASS.breathe).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION_CLASS.glow).toContain("statepip-anim-glow");
+    expect(PIP_MOTION_CLASS.glow).toContain("statepip-awaiting-core");
+    expect(PIP_MOTION_CLASS.glow).toContain("motion-reduce:animate-none");
+    expect(PIP_MOTION_CLASS.none).toBeNull();
   });
 });
 
@@ -146,9 +144,9 @@ describe("pipGlyph / agentGlyph — identity marks", () => {
     expect(g.strokeWidth).toBe(2.8);
   });
 
-  it("GLYPH_SVG_CLASS is the 14px mark inside the 18px pip box", () => {
+  it("GLYPH_SVG_CLASS is the 16px mark inside the 20px dock pip box", () => {
     expect(GLYPH_SVG_CLASS.split(/\s+/)).toEqual(
-      expect.arrayContaining(["w-[14px]", "h-[14px]"]),
+      expect.arrayContaining(["w-[16px]", "h-[16px]"]),
     );
   });
 });
@@ -165,21 +163,21 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     expect(cls).toContain("flex-none"); // never stretch/shrink beside flexed siblings
     // The leaf owns NO fixed box — a surface that reserves a column passes the
     // box in via `DOCK_ROW_PIP_BOX`, so an inline caller sizes to its own text.
-    expect(cls).not.toContain("w-[18px]");
+    expect(cls).not.toContain("w-[20px]");
     expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
   });
 
-  it("DOCK_ROW_PIP_BOX is the caller-supplied 18px column box, not baked into the leaf", () => {
+  it("DOCK_ROW_PIP_BOX is the caller-supplied 20px column box, not baked into the leaf", () => {
     const cls = DOCK_ROW_PIP_BOX.split(/\s+/);
-    expect(cls).toContain("w-[18px]");
-    expect(cls).toContain("h-[18px]");
+    expect(cls).toContain("w-[20px]");
+    expect(cls).toContain("h-[20px]");
     expect(cls).toContain("rounded-full");
   });
 
-  it("TITLE_PIP_BOX is the smaller caller-supplied 14px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
+  it("TITLE_PIP_BOX is the smaller caller-supplied 16px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
     const cls = TITLE_PIP_BOX.split(/\s+/);
-    expect(cls).toContain("w-[14px]");
-    expect(cls).toContain("h-[14px]");
+    expect(cls).toContain("w-[16px]");
+    expect(cls).toContain("h-[16px]");
     expect(cls).toContain("rounded-full");
   });
 
@@ -204,8 +202,6 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     const cls = UNREAD_PILL_CLASS.split(/\s+/);
     expect(cls).toContain("bg-attention/90");
     expect(cls).toContain("rounded-full");
-    // Historical alias stays on the amber unread token.
-    expect(ATTENTION_PILL_CLASS).toBe(UNREAD_PILL_CLASS);
-    expect(ATTENTION_PILL_CLASS).not.toBe(NEEDS_YOU_PILL_CLASS);
+    expect(UNREAD_PILL_CLASS).not.toBe(NEEDS_YOU_PILL_CLASS);
   });
 });

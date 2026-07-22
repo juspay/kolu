@@ -84,7 +84,7 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
 
 /** Dock row column geometry — single invariant shared by the desktop
  *  dock (`Dock.tsx`) and the touch dock (`DockList.tsx`). The row is one
- *  concept: `[indicator 18px][branch minmax(0,1fr)][sub-count auto][time
+ *  concept: `[indicator 20px][branch minmax(0,1fr)][sub-count auto][time
  *  auto]` (the `DOCK_ROW_GRID` template below), with the line-2 flex row
  *  (PR pip + subline) starting at the branch column. The line-2 start is
  *  derived, not free: branch = (pre-branch track count) + 1 = (indicator =
@@ -101,7 +101,7 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
  *  plate is contained inside it. If a real desktop/touch divergence returns
  *  later, reintroduce a second constant then, when it once again encodes a
  *  difference. */
-export const DOCK_ROW_GRID = "grid-cols-[18px_minmax(0,1fr)_auto_auto]";
+export const DOCK_ROW_GRID = "grid-cols-[20px_minmax(0,1fr)_auto_auto]";
 /** Column gap between the status indicator and the branch label — matches
  *  the Option C mockup (`gap: 0 0.7rem`). Gives the 18 px pip + identity
  *  glyph breathing room from the branch text (the live plate is contained

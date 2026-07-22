@@ -238,23 +238,23 @@ export const PIP_TITLES: Record<PipVariant, string> = {
 export const INDICATOR_BASE =
   "relative inline-flex flex-none items-center justify-center";
 
-/** The dock-row / fleet-row pip BOX — the fixed 18 px circle a surface that
- *  reserves a column passes to `StatePip` via its `class` prop. 18 px matches the
+/** The dock-row / fleet-row pip BOX — the fixed 20 px circle a surface that
+ *  reserves a column passes to `StatePip` via its `class` prop. 20 px matches the
  *  `DOCK_ROW_GRID` leading track, so the indicator never shifts as the axes flip
  *  and an axis-less pip is an invisible box that still reserves the column. Lives
  *  here beside `INDICATOR_BASE` so the box and the leaf stay co-described, but it
  *  is a CALLER's geometry, not the leaf's — non-row callers (the tile title, the
  *  workspace column header) pass nothing and get an intrinsically-sized pip. */
-export const DOCK_ROW_PIP_BOX = "w-[18px] h-[18px] rounded-full";
+export const DOCK_ROW_PIP_BOX = "w-[20px] h-[20px] rounded-full";
 
 /** The tile-title pip BOX — a smaller fixed circle the canvas title bar passes to
  *  `StatePip`. The title pip carries the `alert` BADGE (the row's `unread`), and
  *  the badge anchors to the wrapper's top-right corner; a content-sized wrapper
  *  for a 6 px core would pin that 6 px badge ON the core and bury it. A reserved
- *  14 px box gives the core (≤10 px, centred) clearance so the corner badge reads
- *  beside it, not over it — sized to the `text-xs` annotation row it leads rather
- *  than the taller dock-row track. Caller's geometry, same as `DOCK_ROW_PIP_BOX`. */
-export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
+ *  16 px box gives the 16 px glyph + corner badge room — sized to the title
+ *  chrome rather than the taller dock-row track. Caller's geometry, same as
+ *  `DOCK_ROW_PIP_BOX`. */
+export const TITLE_PIP_BOX = "w-[16px] h-[16px] rounded-full";
 
 /** The live PLATE overlay class — a faint green disc behind the identity glyph
  *  while the terminal is moving bytes (presence only; agent state owns motion).
@@ -290,6 +290,6 @@ export const ATTENTION_PILL_CLASS = UNREAD_PILL_CLASS;
  *  (`HostFinishedDot`) is the same amber family, softer. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";
 
-/** Glyph size inside the 18 px dock pip box — 14 px mark, 2 px inset each side
- *  (matches the approved Option C prototype). */
-export const GLYPH_SVG_CLASS = "block w-[14px] h-[14px]";
+/** Glyph size inside the 20 px dock pip box — 16 px mark, 2 px inset each side.
+ *  Reads at a glance next to dock row text (14 px was a touch shy). */
+export const GLYPH_SVG_CLASS = "block w-[16px] h-[16px]";

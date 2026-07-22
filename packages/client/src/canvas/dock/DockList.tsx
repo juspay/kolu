@@ -81,7 +81,7 @@ function DockListSection(props: {
 }) {
   // Subgrid container — same shape as the desktop dock (the shared
   // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
-  // The leading 18px indicator track is fixed (not `auto`) holding the
+  // The leading 20px indicator track is fixed (not `auto`) holding the
   // merged `StatePip` (its green live ring replacing the old standalone
   // activity dot), so the indicator never shifts as its axes flip. PR
   // pip lives on line 2 (left) alongside the subline, anchored to the

@@ -503,7 +503,7 @@ const RepoSection: Component<{
 }> = (props) => (
   // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
   // template): indicator · branch · sub-count · time. The leading
-  // indicator column is a fixed 18px reserved track (not `auto`) holding
+  // indicator column is a fixed 20px reserved track (not `auto`) holding
   // the merged `StatePip` — R-activity-merge collapsed the old leading
   // pair (a 12px live-activity track + a separate state-pip track) into
   // this one column, the live dot now folded into the pip's green ring —
