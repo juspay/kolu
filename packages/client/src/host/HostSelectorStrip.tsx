@@ -3,11 +3,10 @@
  *
  *  Multi-host is NO LONGER gated on `KOLU_PADI_HOST` — the old server-authored
  *  `hostMapGate` cell is gone entirely: every pool member gets a chip and the
- *  trailing "+ add a host" affordance is ALWAYS present. Remote hosts is an
- *  ALPHA feature, so that warning rides the "+" popover (`AddHostAffordance`)
- *  rather than an env gate. With no seed the pool is just the local host, so the
- *  resting strip is one chip + "+". (`KOLU_PADI_HOST` still works as an optional
- *  launch-time SEED — see `parseKoluPadiHostSeed`.)
+ *  trailing "+ add a host" affordance is ALWAYS present. With no seed the pool
+ *  is just the local host, so the resting strip is one chip + "+".
+ *  (`KOLU_PADI_HOST` still works as an optional launch-time SEED — see
+ *  `parseKoluPadiHostSeed`.)
  *
  *  Host-first: each host tab carries a FIXED-width dual-daemon slot
  *  (`HostDualDaemonSlot`) filled with THAT host's Padi + Kaval marks (active
@@ -57,8 +56,8 @@
  *      active host (still carrying the dual-daemon fill), opening an
  *      anchored host switcher panel.
  *
- *  A trailing "+ add" opens the `AddHostAffordance` popover (alpha notice + doc
- *  link + ssh input) → `client.hosts.add`. */
+ *  A trailing "+ add" opens the `AddHostAffordance` popover (ssh-target input)
+ *  → `client.hosts.add`. */
 
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
@@ -98,7 +97,6 @@ import { focusOnMount } from "./focusOnMount";
 import { hostMarks } from "../attention/attentionMarks";
 import { HostAwaitingPill } from "./HostAwaitingPill";
 import { HostFinishedDot } from "./HostFinishedDot";
-import { RemoteHostsAlphaNotice } from "./RemoteHostsAlphaNotice";
 import { useHostMembers } from "./useHostMembers";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { activeHost, client, padiMap, setActiveHost } from "../wire";
@@ -524,10 +522,9 @@ const addHostChrome = surface({
 });
 
 /** The "+ add a host" affordance — always present now that multi-host is
- *  ungated. Remote hosts is an ALPHA feature, so clicking "+" opens an anchored
- *  popover that LEADS with that notice + a kolu.dev link before the ssh-target
- *  input (the old inline input is gone). Enter commits via `client.hosts.add`;
- *  the canvas jumps to the new host once it joins membership. */
+ *  ungated. Clicking "+" opens an anchored popover with an ssh-target input.
+ *  Enter commits via `client.hosts.add`; the canvas jumps to the new host once
+ *  it joins membership. */
 const AddHostAffordance: Component = () => {
   const [open, setOpen] = createSignal(false);
   const [draft, setDraft] = createSignal("");
@@ -580,13 +577,13 @@ const AddHostAffordance: Component = () => {
             class={`fixed z-50 w-[min(20rem,calc(100vw-1rem))] p-3 ${addHostChrome.class}`}
             style={{ ...panelStyle(), ...addHostChrome.style }}
           >
-            <RemoteHostsAlphaNotice />
             <input
               ref={inputEl}
               type="text"
               data-testid="host-add-input"
               class="pointer-events-auto h-8 w-full rounded-lg border border-edge bg-surface-1 px-2.5 text-xs text-fg placeholder:text-fg-3 transition-colors focus:border-accent/50 focus:bg-surface-2 focus:outline-none"
               placeholder="ssh host, e.g. srid@zest"
+              aria-label="ssh host"
               value={draft()}
               onInput={(e) => setDraft(e.currentTarget.value)}
               onKeyDown={(e) => {
@@ -622,11 +619,10 @@ const HostSearchButton: Component = () => {
 
 const HostSelectorStrip: Component = () => {
   // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
-  // gets a chip and the "+ add a host" affordance is always present (the alpha
-  // warning rides the "+" popover — see AddHostAffordance). With no seed the
-  // pool is just the local host, so this renders exactly the local chip + "+".
-  // `useHostMembers` owns the `padiMap.entries` subscription + `onError` (shared
-  // with the mobile row).
+  // gets a chip and the "+ add a host" affordance is always present. With no
+  // seed the pool is just the local host, so this renders exactly the local
+  // chip + "+". `useHostMembers` owns the `padiMap.entries` subscription +
+  // `onError` (shared with the mobile row).
   const renderableHosts = useHostMembers();
 
   // ── Overflow fit (narrow-window stage 3) ──────────────────────────────
@@ -768,8 +764,7 @@ const HostSelectorStrip: Component = () => {
         <HostSearchButton />
       </Show>
 
-      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate);
-       *  the alpha warning rides its popover. */}
+      {/* Add a host at runtime — always present now (no `KOLU_PADI_HOST` gate). */}
       <AddHostAffordance />
     </div>
   );

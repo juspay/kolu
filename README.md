@@ -35,7 +35,7 @@ Every capability below is documented in full on [kolu.dev](https://kolu.dev):
 - **[Git & GitHub](https://kolu.dev/code-tab)** — auto-detected repo/branch/PR/CI, a Code-tab file browser with git-status tinting, rendered Markdown, inline HTML/SVG/PDF/image/video preview, and file comments.
 - **[Theming](https://kolu.dev/theming)** · **[Clipboard & files](https://kolu.dev/clipboard)** — 200+ color schemes with inherit/shuffle; paste an image or drop a file and its path lands on the agent's input line.
 - **[Power features](https://kolu.dev/power-features)** — transcript export, workspace screen recording, and driving kolu from the shell.
-- **[Remote access](https://kolu.dev/remote-access)** & **[remote hosts](https://kolu.dev/remote-hosts)** — reach kolu over private HTTPS, and (alpha) run terminals on other machines as first-class tiles.
+- **[Remote access](https://kolu.dev/remote-access)** & **[remote hosts](https://kolu.dev/remote-hosts)** — reach kolu over private HTTPS, and run terminals on other machines as first-class tiles.
 
 
 ## Architecture
