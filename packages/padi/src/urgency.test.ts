@@ -81,7 +81,7 @@ const ID_A = "urg-a";
 const ID_B = "urg-b";
 
 describe("recomputeUrgency", () => {
-  it("returns ONLY awaitingIds — no separate count field on the value", () => {
+  it("carries id lists only (no separate count field) for both attention buckets", () => {
     const urgency = recomputeUrgency(
       terminalsMap([
         [ID_A, makeAgent("awaiting_user")],
@@ -89,9 +89,21 @@ describe("recomputeUrgency", () => {
       ]),
     );
 
-    expect(urgency).toEqual({ awaitingIds: [ID_A] });
-    // The count is derived at the read site, never carried on the value.
-    expect(Object.keys(urgency).sort()).toEqual(["awaitingIds"]);
+    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [] });
+    // Each count is derived at the read site (`.length`), never carried on the value.
+    expect(Object.keys(urgency).sort()).toEqual(["awaitingIds", "finishedIds"]);
+  });
+
+  it("folds finished (`waiting`) agents into finishedIds, separate from awaiting", () => {
+    const urgency = recomputeUrgency(
+      terminalsMap([
+        [ID_A, makeAgent("awaiting_user")],
+        [ID_B, makeAgent("waiting")],
+        ["urg-c", makeAgent("thinking")],
+      ]),
+    );
+    // `awaiting_user` → asking; `waiting` → finished; working states → neither.
+    expect(urgency).toEqual({ awaitingIds: [ID_A], finishedIds: [ID_B] });
   });
 
   it("folds ids in the map's insertion order, and an agentless entry contributes 0", () => {
@@ -102,13 +114,13 @@ describe("recomputeUrgency", () => {
         [ID_A, makeAgent("awaiting_user")],
       ]),
     );
-    expect(urgency).toEqual({ awaitingIds: [ID_B, ID_A] });
+    expect(urgency).toEqual({ awaitingIds: [ID_B, ID_A], finishedIds: [] });
   });
 
-  it("is empty for a map with no awaiting agents", () => {
+  it("is empty for a map with no attention-worthy agents", () => {
     expect(
       recomputeUrgency(terminalsMap([[ID_A, makeAgent("thinking")]])),
-    ).toEqual({ awaitingIds: [] });
+    ).toEqual({ awaitingIds: [], finishedIds: [] });
   });
 
   it("EXCLUDES a SLEEPING terminal even when its agent reads as awaiting_user", () => {
@@ -123,23 +135,38 @@ describe("recomputeUrgency", () => {
       [ID_B as TerminalId, activeTerminal(makeAgent("awaiting_user"))],
     ]);
     // Only the ACTIVE awaiting terminal counts; the sleeping one is excluded.
-    expect(recomputeUrgency(map)).toEqual({ awaitingIds: [ID_B] });
+    expect(recomputeUrgency(map)).toEqual({
+      awaitingIds: [ID_B],
+      finishedIds: [],
+    });
   });
 });
 
 describe("urgencyEqual", () => {
   it("is true for two readings with the same ids in the same order", () => {
     expect(
-      urgencyEqual({ awaitingIds: ["a", "b"] }, { awaitingIds: ["a", "b"] }),
+      urgencyEqual(
+        { awaitingIds: ["a", "b"], finishedIds: ["c"] },
+        { awaitingIds: ["a", "b"], finishedIds: ["c"] },
+      ),
     ).toBe(true);
   });
 
-  it("is false when the id set differs", () => {
+  it("is false when the awaiting set differs", () => {
     expect(
-      urgencyEqual({ awaitingIds: ["a"] }, { awaitingIds: ["a", "b"] }),
+      urgencyEqual(
+        { awaitingIds: ["a"], finishedIds: [] },
+        { awaitingIds: ["a", "b"], finishedIds: [] },
+      ),
     ).toBe(false);
-    expect(urgencyEqual({ awaitingIds: ["a"] }, { awaitingIds: ["b"] })).toBe(
-      false,
-    );
+  });
+
+  it("is false when ONLY the finished set differs — a finish must still publish", () => {
+    expect(
+      urgencyEqual(
+        { awaitingIds: ["a"], finishedIds: [] },
+        { awaitingIds: ["a"], finishedIds: ["b"] },
+      ),
+    ).toBe(false);
   });
 });

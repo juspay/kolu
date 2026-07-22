@@ -1139,7 +1139,7 @@ Before(async function (this: KoluWorld, scenario) {
         newTerminalCollapsed: !X11CAP,
         shuffleBehavior: "auto",
         scrollLock: true,
-        activityAlerts: true,
+        attentionAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
         // `rightPanel` preferences hold the panel width and the Code-tab tree

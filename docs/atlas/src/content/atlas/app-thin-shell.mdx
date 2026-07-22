@@ -144,7 +144,7 @@ Two cross-cutting moves enable the table. **`useTerminalCrud` is promoted from a
 `useIntentEditor` de-deps) so `TerminalContent`/`TileTitleActions` can read it
 directly instead of receiving crud-derived closures — this is the load-bearing
 prerequisite for seam 4. And the **`__koluSimulateAlert` test-hook folds into its
-producer** (`useTerminalAlerts`), which already owns the `window`/`navigator` test
+producer** (`useAttention`), which already owns the `window`/`navigator` test
 surface.
 
 ## ③ What the review gauntlet changed

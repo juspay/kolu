@@ -13,7 +13,7 @@
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Resizable from "@corvu/resizable";
-import { sleepingArm } from "@kolu/padi/surface";
+import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
@@ -70,7 +70,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
-import { useHostAttention } from "./host/useHostAttention";
+import { useAttention } from "./attention/useAttention";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { realSizes } from "./ui/corvuResizable";
@@ -88,12 +88,19 @@ import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
 
 const App: Component = () => {
-  const { store, crud, session, worktree, alerts } = useTerminals();
-  // Cross-host attention (W5): OS notification + app badge + one-action click for
-  // an agent awaiting on a host you are NOT looking at, off the urgency projection
-  // the host chips already read. `store.activate` focuses a tile on the (post-
-  // switch) active host.
-  useHostAttention({ focusTerminal: store.activate });
+  const { store, crud, session, worktree, getSubject } = useTerminals();
+  // Attention (the ONE owner): every host runs the same rules — sound + OS popup +
+  // app badge + host marks + dock unread — off each host's `urgency` cell, with the
+  // active host supplying rich copy / dock unread. `store.activate` focuses a tile
+  // on the (post-switch) active host. See `useAttention`.
+  const attention = useAttention({
+    activeId: store.activeId,
+    activate: store.activate,
+    markUnread: store.markUnread,
+    activeSubject: getSubject,
+    terminalIds: store.terminalIds,
+    activeAgentState: (id) => activeArm(store.getMetadata(id))?.agent?.state,
+  });
   // Deep links: a `#/…` URL (bookmark, orchestrator tag, PWA launch) commands the
   // view onto a host / terminal / file / settings — through the SAME view actions,
   // view-only by law. See `useDeepLinks`.
@@ -245,7 +252,7 @@ const App: Component = () => {
     handleResetActiveTileSize: arrange.resetActiveTileSize,
     handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () => void runImportSession(),
-    simulateAlert: alerts.simulateAlert,
+    simulateAlert: attention.simulateAlert,
     canvasCenterActive: arrange.centerActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
     workspaceEntries,

@@ -24,8 +24,10 @@
  *    deliberately differs from urgency on `waiting`: a just-finished agent
  *    paints `awaiting` (the lingering dot) but RANKS idle — order≠colour.
  *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership.
- *    Read by kolu's `useTerminalAlerts` today; a downstream fleet mirror's
- *    notifications are the next consumer to fill in. It notifies on a finished
+ *    kolu's attention engine now derives notify membership from `agentBucket`
+ *    (awaiting ∪ waiting) directly, so this coarser fold currently has no live
+ *    consumer; a downstream fleet mirror's notifications remain the next consumer
+ *    for the partition (it lives on per the folds'-home rule). It notifies on a finished
  *    agent (`waiting`) too — "notify me something happened" ≠ "rank by what
  *    needs my action".
  *
@@ -133,8 +135,10 @@ export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
   }
 }
 
-/** The agent-state ALERT class — the partition the terminal alert layer
- *  (`useTerminalAlerts`) fires on. `notify` = the agent just finished its turn
+/** The agent-state ALERT class — the partition a fire-a-notification layer keys
+ *  on (kolu's attention engine now keys on `agentBucket` directly; this remains
+ *  the canonical notify-membership fold for a future mirror). `notify` = the agent
+ *  just finished its turn
  *  and yielded (`waiting`) or actively blocks on the user (`awaiting_user`);
  *  `quiet` = everything else. Folding the two notify states into ONE class means
  *  flipping between them within a session doesn't double-alert.

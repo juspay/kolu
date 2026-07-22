@@ -25,15 +25,15 @@ Feature: Server-side preferences
     Then the scroll lock toggle should be disabled
     And there should be no page errors
 
-  Scenario: Activity alerts toggle persists across reload
+  Scenario: Attention alerts toggle persists across reload
     When I click the settings button
     Then the settings popover should be visible
-    When I click the activity alerts toggle
-    Then the activity alerts toggle should be disabled
+    When I click the attention alerts toggle
+    Then the attention alerts toggle should be disabled
     When I reload the page and wait for ready
     When I click the settings button
     Then the settings popover should be visible
-    Then the activity alerts toggle should be disabled
+    Then the attention alerts toggle should be disabled
     And there should be no page errors
 
   Scenario: Terminal renderer preference swaps the active tile and persists

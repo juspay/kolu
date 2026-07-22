@@ -1,8 +1,8 @@
 /** The pool's host list as a reactive accessor — the standing `padiMap.entries`
  *  membership subscription plus its `HostKey[]` projection, owned once. Both the
  *  desktop `HostSelectorStrip` and the mobile `MobileHostRow` render off this;
- *  extracting it (the sibling of `useHostAwaiting`) keeps the membership read in
- *  ONE place rather than hand-wired at each site. Its error policy (`Host membership
+ *  extracting it keeps the membership read in ONE place rather than hand-wired at
+ *  each site. Its error policy (`Host membership
  *  error: …`) rides the map's `entriesClient` declaration, routed through the ONE
  *  interpreter, so the use-site is bare.
  *

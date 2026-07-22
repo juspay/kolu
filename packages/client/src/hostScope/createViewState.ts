@@ -39,7 +39,7 @@ import { padiMap } from "../wire";
 
 // A terminal that has drawn attention while unwatched, surfaced as a dock unread
 // mark. (The former `"badge-only"` state drove the active-host OS badge; W5
-// moved the badge to the cross-host urgency sum in `useHostAttention`, so unread
+// moved the badge to the cross-host urgency sum in `useAttention`, so unread
 // is the only attention mark this per-host state carries now.)
 type TerminalAttention = "unread";
 

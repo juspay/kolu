@@ -36,6 +36,7 @@ version: Unreleased
 ### [Notifications](/notifications)
 
 - <Change kind="fixed" title="A question that lands right after a finished turn now still chimes" pr={1894}>When an agent stops to ask you something — a question or a permission prompt — kolu plays its sound and shows a backgrounded-tab notification. But if the agent had *just* finished its previous turn when the prompt arrived, that chime was sometimes swallowed and only the dock badge lit up; whether you heard it came down to timing. Now a live gate reliably rings even when it lands on the heels of a finished turn, and a question kolu catches cleanly announces itself as "needs your input" rather than a bare "finished" — a brief flicker between states as the prompt settles still rings only once (that one ring may keep the earlier "finished" wording, but it fires).</Change>
+- <Change kind="changed" title="Agent attention now reaches you the same way on every host" pr={1931}>Agent attention is now **consistent across every host**: an agent that finishes or starts waiting on you on a **background** machine reaches you exactly the way the active machine's does — a sound, a backgrounded-tab popup, and a quiet amber mark on that host's tab — instead of the thinner ping background hosts used to get. An agent that's **waiting for your input** additionally counts toward the **app-icon badge** (which tallies agents blocked on you, across every host). And the **Activity alerts** setting is now **Attention alerts** to match.</Change>
 
 ### [The Right Panel](/right-panel)
 
