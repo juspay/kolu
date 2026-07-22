@@ -112,3 +112,12 @@ now pings and shows a quiet host-tab mark, exactly like the active host's. The
 `activityAlerts` setting was renamed `attentionAlerts` (with a migration), and the
 "needs you now / just finished" decision is the pure, unit-tested
 `attentionTransitions`.
+
+## What's next — honest “finished”
+
+`finishedIds` still means raw agent `waiting`. An agent can mark the turn done while
+background sub-agents keep emitting bytes, so the chime can fire early. Making
+finished mean **waiting and PTY quiet** (and fixing live-dot ownership so resize
+repaints cannot lie) is planned as track **EF** in
+[Effective Finish — Quiet Chronology, Phased](effective-finish.html). <PrLink pr={1938} />
+closed without merge; implement from that note, not the abandoned branch.
