@@ -107,9 +107,9 @@ describe("PIP_BODY — paint only per variant", () => {
 });
 
 describe("PIP_MOTION_CLASS — activity channel tokens", () => {
-  it("breathe / glow / none kinds carry the right class tokens", () => {
-    expect(PIP_MOTION_CLASS.breathe).toContain("statepip-anim-breathe");
-    expect(PIP_MOTION_CLASS.breathe).toContain("motion-reduce:animate-none");
+  it("spin / glow / none kinds carry the right class tokens", () => {
+    expect(PIP_MOTION_CLASS.spin).toContain("statepip-anim-spin");
+    expect(PIP_MOTION_CLASS.spin).toContain("motion-reduce:animate-none");
     expect(PIP_MOTION_CLASS.glow).toContain("statepip-anim-glow");
     expect(PIP_MOTION_CLASS.glow).toContain("statepip-awaiting-core");
     expect(PIP_MOTION_CLASS.glow).toContain("motion-reduce:animate-none");

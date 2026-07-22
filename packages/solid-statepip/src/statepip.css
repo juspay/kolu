@@ -1,5 +1,5 @@
 /* The merged status indicator's outer axes + core motion — the live PLATE,
- * the alert BADGE, and the identity-glyph breathe/glow animations that
+ * the alert BADGE, and the identity-glyph spin/glow animations that
  * `StatePip` composes (R-activity-merge + Option C). Shipped as a CSS leaf
  * rather than Tailwind utilities because the live plate is a colour-mix
  * disc and the glyph glow uses `filter: drop-shadow` — neither express
@@ -18,15 +18,9 @@
  * core keeps a violet hollow outline so state never degrades to colour
  * alone (Option C spent shape on identity). */
 
-@keyframes statepip-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.78);
-    opacity: 0.55;
+@keyframes statepip-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 @keyframes statepip-glow {
@@ -50,9 +44,9 @@
   }
 }
 
-/* working → breathe on the identity glyph (one motion per row) */
-.statepip-anim-breathe {
-  animation: statepip-breathe 1.8s ease-in-out infinite;
+/* active → continuous spin on the identity glyph (working, live shell, …) */
+.statepip-anim-spin {
+  animation: statepip-spin 2.8s linear infinite;
   transform-origin: center;
 }
 
@@ -62,7 +56,7 @@
 }
 
 /* live plate — always on when StatePip mounts it (`live`). Static green
- * presence behind the identity glyph; motion (breathe/glow) layers on the
+ * presence behind the identity glyph; motion (spin/glow) layers on the
  * glyph itself. Under reduced motion, animations freeze and the plate remains
  * the screenshot-surviving live cue. Contained disc (DOM order behind glyph). */
 .statepip-live-plate {
@@ -96,7 +90,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .statepip-anim-breathe,
+  .statepip-anim-spin,
   .statepip-anim-glow,
   .statepip-alert-badge {
     animation: none;

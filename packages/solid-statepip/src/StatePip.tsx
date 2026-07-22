@@ -6,7 +6,7 @@
  *  Option C axes:
  *    - `glyph` — identity (who is driving)
  *    - `variant` — paint (agent state colour)
- *    - `motion` — activity channel (breathe / glow / none); callers fold
+ *    - `motion` — activity channel (spin / glow / none); callers fold
  *      working∨live∨(waiting∧¬finished) into the kind
  *    - `live` — green plate behind the glyph (static live/active mark) plus
  *      accessible "live output" label; motion still layers on top
@@ -86,7 +86,7 @@ export const StatePip: Component<{
     if (!b) return null;
     // One shell tier: quiet shell → fg-3; live output → busy orange (same as a
     // working agent). No mid tier for "foreground present" — the sub-line names
-    // the process in words. Motion layers on top so live shells still breathe.
+    // the process in words. Motion layers on top so live shells still spin.
     let paint = b.class;
     if (glyphId() === "shell" && variant() === "idle" && props.live) {
       paint = SHELL_LIVE_CLASS;

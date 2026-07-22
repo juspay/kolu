@@ -55,14 +55,14 @@ describe("pipIsActive", () => {
 });
 
 describe("pipMotionKind", () => {
-  it("working always breathes", () => {
+  it("working always spins", () => {
     expect(
       pipMotionKind({
         variant: "working",
         agent: agent("thinking"),
         active: true,
       }),
-    ).toBe("breathe");
+    ).toBe("spin");
   });
 
   it("awaiting_user always glows", () => {
@@ -75,14 +75,14 @@ describe("pipMotionKind", () => {
     ).toBe("glow");
   });
 
-  it("waiting breathes while active, still when finished", () => {
+  it("waiting spins while active, still when finished", () => {
     expect(
       pipMotionKind({
         variant: "awaiting",
         agent: agent("waiting"),
         active: true,
       }),
-    ).toBe("breathe");
+    ).toBe("spin");
     expect(
       pipMotionKind({
         variant: "awaiting",
@@ -92,12 +92,12 @@ describe("pipMotionKind", () => {
     ).toBe("none");
   });
 
-  it("shell idles still, breathes when active", () => {
+  it("shell idles still, spins when active", () => {
     expect(pipMotionKind({ variant: "idle", agent: null, active: false })).toBe(
       "none",
     );
     expect(pipMotionKind({ variant: "idle", agent: null, active: true })).toBe(
-      "breathe",
+      "spin",
     );
   });
 

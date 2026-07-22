@@ -655,7 +655,7 @@ const DockRow: Component<{
             title="Jump to this terminal"
           >
             {/* Identity status indicator — plate = static live; motion =
-             *  activity channel (breathe/glow until effectively quiet). */}
+             *  activity channel (spin/glow until effectively quiet). */}
             <span class="row-span-2 flex self-center">
               <StatePip
                 variant={variant()}

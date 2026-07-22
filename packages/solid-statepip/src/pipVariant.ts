@@ -56,7 +56,7 @@ import type { AgentPaintClass } from "@kolu/terminal-vocab/agentProjection";
 
 export type PipVariant =
   | "awaiting" // awaiting, already seen: quiet dim (lingering)
-  | "working" // busy orange + breathe
+  | "working" // busy orange + spin
   | "idle" // muted shell / none-agent
   | "sleeping" // dormant: moonlit paint + still
   | "empty"; // parked / none — render nothing
@@ -170,15 +170,15 @@ export function pipGlyph(id: PipGlyphId): PipGlyphDef {
 export type PipBody = { class: string };
 
 /** Motion channel kinds — activity drives which runs. Callers pick via the pure
- *  dock `pipMotionKind` fold (working→breathe, awaiting_user→glow, waiting→
- *  breathe until EF2 quiet, shell→breathe while live). */
-export type PipMotionKind = "breathe" | "glow" | "none";
+ *  dock `pipMotionKind` fold (working→spin, awaiting_user→glow, waiting→
+ *  spin until EF2 quiet, shell→spin while live). */
+export type PipMotionKind = "spin" | "glow" | "none";
 
 /** CSS class tokens per motion kind. `none` is null (still). Glow carries the
  *  reduced-motion awaiting hollow-outline class so needs-you never degrades to
  *  colour alone under prefers-reduced-motion. */
 export const PIP_MOTION_CLASS: Record<PipMotionKind, string | null> = {
-  breathe: "statepip-anim-breathe motion-reduce:animate-none",
+  spin: "statepip-anim-spin motion-reduce:animate-none",
   glow: "statepip-anim-glow motion-reduce:animate-none statepip-awaiting-core",
   none: null,
 };

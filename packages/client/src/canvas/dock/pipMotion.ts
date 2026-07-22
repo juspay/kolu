@@ -8,10 +8,10 @@
  *    dormancy → row recedes (caller)
  *
  *  Motion kinds:
- *    - working → always breathe
- *    - awaiting_user → always glow ("calling you" ranks above breathe)
- *    - waiting → breathe until effectively finished (EF2 `finishedIds`), then still
- *    - shell / idle → breathe while live output, still otherwise
+ *    - working → always spin (2.8s linear)
+ *    - awaiting_user → always glow ("calling you" ranks above spin)
+ *    - waiting → spin until effectively finished (EF2 `finishedIds`), then still
+ *    - shell / idle → spin while live output, still otherwise
  *
  *  Paint stays decoupled: waiting keeps lingering violet via PipVariant
  *  `awaiting` even when motion holds still. */
@@ -19,7 +19,7 @@
 import type { PipVariant } from "@kolu/solid-statepip/pipVariant";
 import { agentBucket, type AgentInfo } from "kolu-common/surface";
 
-export type PipMotionKind = "breathe" | "glow" | "none";
+export type PipMotionKind = "spin" | "glow" | "none";
 
 /** Whether the terminal is "effectively active" for motion — complement of
  *  EF2 effective finish for waiting agents; live-output for shells; always
@@ -57,19 +57,19 @@ export function pipMotionKind(input: {
   if (agent) {
     switch (agentBucket(agent.state)) {
       case "working":
-        return "breathe";
+        return "spin";
       case "awaiting":
         return "glow";
       case "waiting":
-        // Lingering violet paint (variant awaiting) + breathe until EF2 quiet.
-        return input.active ? "breathe" : "none";
+        // Lingering violet paint (variant awaiting) + spin until EF2 quiet.
+        return input.active ? "spin" : "none";
       default:
-        return input.active ? "breathe" : "none";
+        return input.active ? "spin" : "none";
     }
   }
 
-  // Shell / agentless: breathe while live, still otherwise.
-  if (input.variant === "working") return "breathe";
+  // Shell / agentless: spin while live, still otherwise.
+  if (input.variant === "working") return "spin";
   if (input.variant === "awaiting") return input.active ? "glow" : "none";
-  return input.active ? "breathe" : "none";
+  return input.active ? "spin" : "none";
 }
