@@ -64,20 +64,19 @@ export function createAttentionCore(hooks: AttentionHooks): AttentionCore {
     // finish/ask is a fresh episode that fires again.
     for (const id of ended) latched.delete(keyOf(encHost, id));
 
-    // The baseline (first frame) records only — a finish already present when a
-    // host binds is a discovery, not a transition.
-    if (prev !== null) {
-      for (const { id, asking } of candidates) {
-        const key = keyOf(encHost, id);
-        if (latched.has(key)) continue;
-        const seen = hooks.isWatched(encHost, id);
-        const alerted = hooks.alertsEnabled() && !seen;
-        if (alerted) hooks.deliver(encHost, id, asking);
-        // Latch once the user has been MADE AWARE — an actual alert, OR looking
-        // right at a live gate (eyes work with sound off). A `finished` seen
-        // while watched is NOT latched, so a later real gate still fires (#1177).
-        if (alerted || (asking && seen)) latched.add(key);
-      }
+    // `candidates` is empty on the baseline (a finish already present when a host
+    // binds is a discovery, not a transition — enforced in `attentionTransitions`),
+    // so this loop records-only on the first frame with no guard here.
+    for (const { id, asking } of candidates) {
+      const key = keyOf(encHost, id);
+      if (latched.has(key)) continue;
+      const seen = hooks.isWatched(encHost, id);
+      const alerted = hooks.alertsEnabled() && !seen;
+      if (alerted) hooks.deliver(encHost, id, asking);
+      // Latch once the user has been MADE AWARE — an actual alert, OR looking
+      // right at a live gate (eyes work with sound off). A `finished` seen
+      // while watched is NOT latched, so a later real gate still fires (#1177).
+      if (alerted || (asking && seen)) latched.add(key);
     }
 
     // SNAPSHOT the frame — never keep a reference. The live surface delivers this

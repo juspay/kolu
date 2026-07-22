@@ -16,12 +16,9 @@ const u = (awaiting: string[], finished: string[] = []): PadiUrgency => ({
 });
 
 describe("attentionTransitions", () => {
-  it("baseline (prev=null): every current id is a candidate, none ended", () => {
+  it("baseline (prev=null) is a discovery, not a transition: no candidates, none ended", () => {
     const t = attentionTransitions(null, u(["a"], ["b"]));
-    expect(t.candidates).toEqual([
-      { id: "a", asking: true },
-      { id: "b", asking: false },
-    ]);
+    expect(t.candidates).toEqual([]);
     expect(t.ended).toEqual([]);
   });
 

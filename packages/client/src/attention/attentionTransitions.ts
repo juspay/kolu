@@ -18,16 +18,19 @@ export interface AttentionTransition {
   ended: TerminalId[];
 }
 
-/** `prev === null` is the baseline (treated as empty sets); the caller ignores
- *  `candidates` on the baseline — a discovery is not a transition. */
+/** `prev === null` is the baseline — the FIRST frame per host. A discovery is
+ *  definitionally not a transition, so it yields no candidates and no ends; the
+ *  rule lives HERE, once, not as a "remember to check prev" guard at each caller. */
 export function attentionTransitions(
   prev: PadiUrgency | null,
   cur: PadiUrgency,
 ): AttentionTransition {
+  if (prev === null) return { candidates: [], ended: [] };
+
   const nextAsk = new Set(cur.awaitingIds);
   const nextFin = new Set(cur.finishedIds);
-  const prevAsk = new Set(prev?.awaitingIds ?? []);
-  const prevFin = new Set(prev?.finishedIds ?? []);
+  const prevAsk = new Set(prev.awaitingIds);
+  const prevFin = new Set(prev.finishedIds);
 
   const ended: TerminalId[] = [];
   for (const id of [...prevAsk, ...prevFin]) {
@@ -67,7 +70,8 @@ export function nextUnseenFinished(
   const next = new Set<TerminalId>(
     [...unseen].filter((id) => finishedNow.has(id)),
   );
-  if (prev === null) return next; // baseline discovery is not "unseen".
+  // On the baseline `attentionTransitions` yields no candidates (a discovery is
+  // not a transition), so nothing is added — no separate `prev === null` guard.
   for (const { id, asking } of attentionTransitions(prev, cur).candidates) {
     if (!asking) next.add(id); // a fresh background finish is unseen.
   }
