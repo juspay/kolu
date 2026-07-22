@@ -29,6 +29,7 @@ export function recomputeUrgency(
   terminals: ReadonlyMap<TerminalId, PadiTerminal>,
 ): PadiUrgency {
   const awaitingIds: TerminalId[] = [];
+  const finishedIds: TerminalId[] = [];
   for (const [id, terminal] of terminals) {
     // Only LIVE (active) terminals can await the user. Gating on the composed
     // record's `active` discriminant is the collection-side twin of the old
@@ -40,7 +41,13 @@ export function recomputeUrgency(
     // discriminant.
     if (terminal.state !== "active") continue;
     const agent = terminal.agent;
-    if (agent && agentBucket(agent.state) === "awaiting") awaitingIds.push(id);
+    if (!agent) continue;
+    // The two attention buckets, read through the ONE shared fence: `awaiting`
+    // (blocked on you now) and `waiting` (just finished its turn). Both are
+    // carried so `useAttention` applies identical rules on every host.
+    const bucket = agentBucket(agent.state);
+    if (bucket === "awaiting") awaitingIds.push(id);
+    else if (bucket === "waiting") finishedIds.push(id);
   }
-  return { awaitingIds };
+  return { awaitingIds, finishedIds };
 }

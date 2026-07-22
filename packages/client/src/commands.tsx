@@ -531,7 +531,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           : []),
         {
           kind: "action",
-          name: "Simulate activity alert",
+          name: "Simulate attention alert",
           onSelect: () => deps.simulateAlert(),
         },
         // Spatial-canvas action — hidden off the canvas (mobile / narrow),

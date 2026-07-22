@@ -105,6 +105,39 @@ export function migratePreferences_1_32_0(
   };
 }
 
+/** 1.34.0 — the `activityAlerts` preference was renamed to `attentionAlerts`
+ *  (terminology standardization on "attention"; same boolean meaning, same
+ *  `true` default). CARRY the old value forward: a user who turned alerts OFF
+ *  keeps them off rather than silently reverting to the default on upgrade.
+ *  Keyed off the PRESENCE of the old key and only when the new key is absent, so
+ *  a record already carrying `attentionAlerts` (a fresh ≥1.34 install) is
+ *  returned untouched. The legacy `activityAlerts` key is dropped so the blob
+ *  matches the schema exactly.
+ *
+ *  Exported so `state.test.ts` can exercise the conversion directly without
+ *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
+export function migratePreferences_1_34_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  // Already migrated (a fresh ≥1.34 record) — just drop any stray legacy key.
+  if ("attentionAlerts" in current) {
+    const { activityAlerts: _drop, ...rest } = current;
+    return rest;
+  }
+  const { activityAlerts, ...rest } = current;
+  // ALWAYS produce a boolean `attentionAlerts` — carry the legacy value forward
+  // when present, else the default. A blob that never explicitly set
+  // `activityAlerts` (relied on the old default) must NOT migrate to a MISSING
+  // `attentionAlerts`: `confStore` reads the raw object with no schema-default
+  // back-fill, so an absent key surfaces as `undefined` on the client and
+  // silently disables ALL attention alerts.
+  const attentionAlerts =
+    typeof activityAlerts === "boolean"
+      ? activityAlerts
+      : DEFAULT_PREFERENCES.attentionAlerts;
+  return { ...rest, attentionAlerts };
+}
+
 /** What conf stores to disk — survives server restart. Internal: each domain module
  *  (`preferences.ts`, `hostPersistence.ts`) reads its own per-domain shape, not this
  *  aggregate. `session` / `activityFeed` left this store at W2.2 (they are padi's now);
@@ -124,7 +157,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.33.0";
+const SCHEMA_VERSION = "1.34.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -579,6 +612,18 @@ export const store = new Conf<PersistedState>({
     // A genuine fleet is only ever written by the pool's `persist` hook, never here.
     "1.33.0": (store: Conf<PersistedState>) => {
       if (!store.has("hosts")) store.set("hosts", []);
+    },
+    // `activityAlerts` renamed to `attentionAlerts` (terminology standardization
+    // on "attention"; same boolean, same `true` default). Carry the old value
+    // forward so a user who turned alerts off keeps them off — see
+    // `migratePreferences_1_34_0` for the rename (legacy-key-wins, drop-old).
+    "1.34.0": (store: Conf<PersistedState>) => {
+      store.set(
+        "preferences",
+        migratePreferences_1_34_0(
+          store.get("preferences") as Record<string, unknown>,
+        ) as unknown as Preferences,
+      );
     },
   },
 });

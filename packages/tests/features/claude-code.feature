@@ -61,14 +61,14 @@ Feature: Claude Code status detection
   Scenario: Workspace switcher pings the branch on unread completion
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
-    And I simulate an activity alert
+    And I simulate an attention alert
     Then a workspace switcher branch should be notified
     And there should be no page errors
 
   Scenario: Visiting an unread agent clears its pill ping
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
-    And I simulate an activity alert
+    And I simulate an attention alert
     Then a workspace switcher branch should be notified
     When I click the notified workspace switcher branch
     Then no workspace switcher branch should be notified

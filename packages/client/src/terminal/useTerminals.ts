@@ -5,7 +5,8 @@
  *    - useTerminalCrud.ts     — create, kill, close-all, theme, copy
  *    - useSessionRestore.ts   — hydration, session restore
  *    - useWorktreeOps.ts      — worktree create/remove
- *    - useTerminalAlerts.ts   — Claude state detection (watches metadata subscriptions)
+ *  (Agent-attention alerts moved out to the ONE cross-host owner,
+ *  `attention/useAttention.ts`, wired in `App.tsx`.)
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
@@ -23,7 +24,6 @@ import { useActiveReconcile } from "./useActiveReconcile";
 import { useAdoptNewSplit } from "./useAdoptNewSplit";
 import { useSessionRestore } from "./useSessionRestore";
 import { useSubPanel } from "./useSubPanel";
-import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalExits } from "./useTerminalExits";
 import { useTerminalStore } from "./useTerminalStore";
@@ -38,15 +38,6 @@ export function useTerminals() {
       store.getMetadata(id),
       store.terminalLabel(id),
     );
-
-  const alerts = useTerminalAlerts({
-    activeId: store.activeId,
-    activate: store.activate,
-    getMetadata: store.getMetadata,
-    getSubject,
-    markUnread: store.markUnread,
-    terminalIds: store.terminalIds,
-  });
 
   /** Open one terminal's exit subscription — purely to TOAST the exit code.
    *  Called from `useTerminalExits` inside the per-terminal reactive owner
@@ -167,5 +158,5 @@ export function useTerminals() {
     handleDiscard: crud.handleDiscard,
   });
 
-  return { store, crud, session, worktree, alerts };
+  return { store, crud, session, worktree, getSubject };
 }

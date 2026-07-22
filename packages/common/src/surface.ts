@@ -183,7 +183,7 @@ export const PreferencesSchema = z.object({
    *  ⌘⇧J action alike — see {@link ShuffleBehaviorSchema}. */
   shuffleBehavior: ShuffleBehaviorSchema,
   scrollLock: z.boolean(),
-  activityAlerts: z.boolean(),
+  attentionAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
    *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
@@ -245,7 +245,7 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   newTerminalCollapsed: false,
   shuffleBehavior: "auto",
   scrollLock: true,
-  activityAlerts: true,
+  attentionAlerts: true,
   colorScheme: "dark",
   terminalRenderer: "auto",
   rightPanel: {

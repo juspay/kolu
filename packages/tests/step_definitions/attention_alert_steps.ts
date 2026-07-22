@@ -3,12 +3,12 @@ import { Then, When } from "@cucumber/cucumber";
 import { pollUntil } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-When("I click the activity alerts toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="activity-alerts-toggle"]');
+When("I click the attention alerts toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="attention-alerts-toggle"]');
   await this.waitForFrame();
 });
 
-When("I simulate an activity alert", async function (this: KoluWorld) {
+When("I simulate an attention alert", async function (this: KoluWorld) {
   // Use page.evaluate to call the simulate function directly,
   // avoiding command palette navigation complexity.
   await this.page.evaluate(() => {
@@ -18,7 +18,7 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
 });
 
 When(
-  "I simulate an activity alert for the active terminal",
+  "I simulate an attention alert for the active terminal",
   async function (this: KoluWorld) {
     await this.page.evaluate(() => {
       window.__koluSimulateAlert?.({ target: "active" });
