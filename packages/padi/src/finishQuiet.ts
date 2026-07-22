@@ -18,21 +18,19 @@
  * **Boot seed:** already-waiting ids on the first `syncWaiting` go straight to
  * `finished` (discovery is not a transition).
  *
- * Episode phase is one `Map` (`debouncing` | `finished`) — not parallel
- * waiting/sticky sets with sticky-on-read. Promotion to finished is an event on
- * tracker quiet-exit; `isEpisodeFinished` is a pure read. Dual-edge generation
- * bumps only when a phase changes (enter / leave / promote), not on every
- * mid-waiting re-arm of an already-finished id.
+ * **Feed liveness:** quiet promotion is blocked while the standing kaval activity
+ * sub is down (recycle / drop). On reconnect, debouncing episodes are restamped
+ * before promotion re-enables — a gap cannot age the tracker into sticky finish.
+ *
+ * Episode phase is one `Map` (`debouncing` | `finished`). Promotion is an event
+ * on tracker quiet-exit (only while feed-live); `isEpisodeFinished` is pure.
  *
  * Standing kaval `resubscribeStream` is **daemon-lifetime**.
  */
 
 import { source } from "@kolu/surface/reactor";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
-import {
-  EFFECTIVE_FINISH_QUIET_MS,
-  type TerminalId,
-} from "@kolu/terminal-vocab/schema";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import type { PadiTerminal, PadiUrgency } from "./surface.ts";
 import { ptyHostClient } from "./ptyHost/index.ts";
@@ -43,6 +41,11 @@ import {
 import { resubscribeStream } from "./terminalEndpoint/local.ts";
 import { recomputeUrgency } from "./urgency.ts";
 
+/** Quiet window for the effective-finish fold — Padi attention policy, not shared
+ *  wire vocabulary. Long enough to ride gaps between background sub-agent bursts;
+ *  short enough the finished nudge is not noticeably late. */
+export const EFFECTIVE_FINISH_QUIET_MS = 5_000;
+
 /** Delay before re-subscribing to kaval's `activity` stream after it ends — same
  *  cadence as liveActivity so recycle recovery feels consistent. */
 const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
@@ -51,22 +54,9 @@ const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
 export type FinishEpisodePhase = "debouncing" | "finished";
 
 export type FinishQuiet = {
-  /**
-   * Read inside a reactor `engineComputed` so a phase change re-folds without a
-   * terminals write. Side-effect free; value is a generation counter.
-   */
   track(): void;
-  /** Pure: true iff this waiting episode is in the `finished` phase. */
   isEpisodeFinished(id: TerminalId): boolean;
-  /**
-   * Enter/leave-waiting feed from the current terminals map. Prefer
-   * {@link project} at call sites so track/sync/fold cannot drift.
-   */
   syncWaiting(terminals: ReadonlyMap<TerminalId, PadiTerminal>): void;
-  /**
-   * Dual-edge entry: track generation, sync waiting membership, pure fold.
-   * The only recompute shape production and dual-edge tests should use.
-   */
   project(terminals: ReadonlyMap<TerminalId, PadiTerminal>): PadiUrgency;
   dispose(): void;
 };
@@ -85,10 +75,23 @@ export function waitingIdsOf(
   return ids;
 }
 
+/** Wrap an async iterable so `onEnd` runs when it drains or throws (after the
+ *  consumer sees the error). Used to latch feed-down before the resubscribe delay. */
+async function* withEndHook<T>(
+  source: AsyncIterable<T>,
+  onEnd: () => void,
+): AsyncGenerator<T> {
+  try {
+    for await (const item of source) yield item;
+  } finally {
+    onEnd();
+  }
+}
+
 /**
  * Build the finish-quiet fact. When `standingSub` is true (production default),
  * opens a daemon-lifetime kaval activity subscription. Tests pass `standingSub:
- * false` and drive `noteEdge` / `restampWaiting` themselves.
+ * false` and drive feed hooks / edges themselves.
  */
 export function createFinishQuiet(opts: {
   log: Logger;
@@ -97,22 +100,21 @@ export function createFinishQuiet(opts: {
 }): FinishQuiet & {
   noteEdge(id: TerminalId): void;
   restampWaiting(): void;
-  /** Test hook — ids currently in any waiting-episode phase. */
+  /** Test hook — activity feed live (promotion allowed). */
+  setFeedLive(live: boolean): void;
   waitingSnapshot(): TerminalId[];
-  /** Test hook — ids in `finished` phase. */
   stickySnapshot(): TerminalId[];
-  /** Test hook — phase map snapshot. */
   episodeSnapshot(): Array<[TerminalId, FinishEpisodePhase]>;
 } {
   const idleAfterMs = opts.idleAfterMs ?? EFFECTIVE_FINISH_QUIET_MS;
   const tracker: ActivityTracker = createActivityTracker(idleAfterMs);
-  /**
-   * One map for the waiting-episode phase. Absent ⇒ not in a waiting episode.
-   * Debounce timers live only on the tracker for `debouncing` ids.
-   */
   const episode = new Map<TerminalId, FinishEpisodePhase>();
-  /** First `syncWaiting` is discovery (boot seed), not a transition. */
   let bootstrapped = false;
+  /**
+   * When false, quiet-exit must not promote debouncing → finished (kaval activity
+   * sub is down — lost edges, not real quiet).
+   */
+  let feedLive = opts.standingSub === false;
 
   let gen = 0;
   let emitGen: ((n: number) => void) | undefined;
@@ -129,8 +131,8 @@ export function createFinishQuiet(opts: {
   }, 0);
   const keepAlive = genSrc.subscribe(() => {});
 
-  /** Promote debouncing ids whose quiet window closed — event, not a read. */
   const promoteQuietExits = (): void => {
+    if (!feedLive) return;
     let changed = false;
     for (const [id, phase] of episode) {
       if (phase !== "debouncing") continue;
@@ -141,15 +143,11 @@ export function createFinishQuiet(opts: {
     if (changed) bump();
   };
 
-  // Tracker live-set changes: re-arm (no phase change) or quiet exit (promote).
   tracker.onChange(() => {
     promoteQuietExits();
   });
 
   const noteEdge = (id: TerminalId): void => {
-    // Only re-arm the first-finish window. Finished episodes ignore edges for
-    // membership AND must not re-arm timers (would dual-edge-recompute forever
-    // under idle TUI noise).
     if (episode.get(id) !== "debouncing") return;
     tracker.noteOutput(id);
   };
@@ -158,6 +156,16 @@ export function createFinishQuiet(opts: {
     for (const [id, phase] of episode) {
       if (phase === "debouncing") tracker.noteOutput(id);
     }
+  };
+
+  const markFeedDown = (): void => {
+    feedLive = false;
+  };
+
+  const markFeedUp = (): void => {
+    // Full quiet window after reconnect before any promote can fire.
+    restampWaiting();
+    feedLive = true;
   };
 
   const isEpisodeFinished = (id: TerminalId): boolean =>
@@ -178,7 +186,6 @@ export function createFinishQuiet(opts: {
     let changed = false;
     for (const id of next) {
       if (!episode.has(id)) {
-        // Enter-waiting: start first-finish quiet window.
         episode.set(id, "debouncing");
         tracker.noteOutput(id);
         changed = true;
@@ -186,8 +193,10 @@ export function createFinishQuiet(opts: {
     }
     for (const id of [...episode.keys()]) {
       if (!next.has(id)) {
-        tracker.forget(id);
+        // Delete episode BEFORE forget so promoteQuietExits cannot fabricate a
+        // debouncing→finished transition on the leave path.
         episode.delete(id);
+        tracker.forget(id);
         changed = true;
       }
     }
@@ -197,7 +206,6 @@ export function createFinishQuiet(opts: {
   const project = (
     terminals: ReadonlyMap<TerminalId, PadiTerminal>,
   ): PadiUrgency => {
-    // Dual-edge: depend on generation, then sync membership, then pure fold.
     genSrc.value.value;
     syncWaiting(terminals);
     return recomputeUrgency(terminals, isEpisodeFinished);
@@ -212,16 +220,18 @@ export function createFinishQuiet(opts: {
       getStream: () => {
         const stream = ptyHostClient.surface.activity.get({}, { signal: sig });
         return Promise.resolve(stream).then((s) => {
-          restampWaiting();
-          return s;
+          markFeedUp();
+          return withEndHook(s, markFeedDown);
         });
       },
       onEvent: (edge) => noteEdge(edge.id as TerminalId),
-      onDrop: (err) =>
+      onDrop: (err) => {
+        markFeedDown();
         opts.log.debug(
           { err },
           "kaval activity subscribe failed (finish quiet); will re-subscribe",
-        ),
+        );
+      },
     });
   }
 
@@ -234,6 +244,10 @@ export function createFinishQuiet(opts: {
     project,
     noteEdge,
     restampWaiting,
+    setFeedLive(live: boolean) {
+      if (live) markFeedUp();
+      else markFeedDown();
+    },
     waitingSnapshot() {
       return [...episode.keys()].sort();
     },

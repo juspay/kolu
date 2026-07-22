@@ -157,6 +157,51 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     finish.dispose();
   });
 
+  it("feed-down during debounce cannot promote; reconnect restamp restarts window", () => {
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+    });
+    afterBootEmpty(finish);
+    const terms = terminalsMap([[A, "waiting"]]);
+    fold(finish, terms);
+
+    // Nearly expired, then activity feed drops (kaval recycle).
+    vi.advanceTimersByTime(QUIET - 10);
+    finish.setFeedLive(false);
+    vi.advanceTimersByTime(QUIET + 50);
+    // Timer fired while feed-down — must NOT sticky-finish.
+    expect(fold(finish, terms).finishedIds).toEqual([]);
+    expect(finish.episodeSnapshot()).toEqual([[A, "debouncing"]]);
+
+    // Reconnect restamps debouncing — full quiet window from reconnect.
+    finish.setFeedLive(true);
+    expect(fold(finish, terms).finishedIds).toEqual([]);
+    vi.advanceTimersByTime(QUIET - 10);
+    expect(fold(finish, terms).finishedIds).toEqual([]);
+    vi.advanceTimersByTime(10);
+    expect(fold(finish, terms).finishedIds).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("leave during debounce does not promote then delete", () => {
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+    });
+    afterBootEmpty(finish);
+    fold(finish, terminalsMap([[A, "waiting"]]));
+    // Leave while still debouncing — must not flash through finished.
+    expect(fold(finish, terminalsMap([[A, "thinking"]]))).toEqual({
+      awaitingIds: [],
+      finishedIds: [],
+    });
+    expect(finish.episodeSnapshot()).toEqual([]);
+    finish.dispose();
+  });
+
   it("noteEdge on finished episode does not re-arm the tracker", () => {
     const finish = createFinishQuiet({
       log: silentLog,
