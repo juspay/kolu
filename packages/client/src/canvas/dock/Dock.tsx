@@ -113,7 +113,7 @@ import {
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { pipVariant } from "./pipVariant";
+import { pipGlyphFor, pipVariant } from "./pipVariant";
 import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
@@ -646,6 +646,8 @@ const DockRow: Component<{
           <span class="row-span-2 flex self-center">
             <StatePip
               variant={pipVariant(props.pip)}
+              glyph={pipGlyphFor(c().meta)}
+              busy={!!activeArm(c().meta)?.foreground}
               live={activity.isLive(props.id)}
               alert={unread()}
               alertLabel="unread alert"
