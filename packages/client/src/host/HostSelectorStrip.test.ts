@@ -1,16 +1,13 @@
 /**
- * HostSelectorStrip — the connection-dot tone is a FACT-ONLY green: the green class is
- * emitted for `connected` and NOTHING else. This is the same discipline `<HostStatusPip>`
- * enforces for a surface's `health()`; a map entry's equivalent fact is its `EntryStatus`
- * (which `connectSurfaceMap` floors on real transport liveness), so a chip can never show
- * green over a host that is warming, failed, or gone.
+ * Host chip status via {@link hostGlance} / {@link chipStatusDot}:
+ * every host always paints connection status (local and remote).
  */
 
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
 import { HostKeySchema } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
-import { dotClass, sameHost, statusTitle } from "./hostChipTone";
+import { chipStatusDot, hostGlance, sameHost } from "./hostChipTone";
 
 const GREEN = "bg-emerald-400";
 
@@ -19,18 +16,80 @@ const GREEN = "bg-emerald-400";
 // old `hostGateOpen` / `shouldRenderHostChip` gate helpers and their tests are
 // gone.
 
-describe("HostSelectorStrip dot tone — fact-only green", () => {
-  it("emits green ONLY for connected", () => {
-    expect(
-      dotClass({
+describe("hostGlance — exception strip + detail co-defined", () => {
+  it("connected: strip silent, detail green, not down", () => {
+    const g = hostGlance({
+      kind: "connected",
+      membershipId: testMembershipId(),
+      clockOffset: 0,
+    });
+    expect(g.stripDot).toBeNull();
+    expect(g.detailDot).toBe(GREEN);
+    expect(g.down).toBe(false);
+    expect(g.short).toBe("connected");
+    expect(g.title).toBe("connected");
+    expect(g.labelDecoration).toBe("");
+  });
+
+  it("warming: amber pulse strip, not down", () => {
+    const g = hostGlance({
+      kind: "warming",
+      membershipId: testMembershipId(),
+    });
+    expect(g.stripDot).toContain("amber");
+    expect(g.stripDot).toContain("animate-pulse");
+    expect(g.stripDot).toContain("motion-reduce:animate-none");
+    expect(g.down).toBe(false);
+    expect(g.short).toBe("connecting");
+    expect(g.title).toBe("connecting…");
+  });
+
+  it("failed: red strip + detail, down, struck, unreachable short, reason in title", () => {
+    const g = hostGlance({
+      kind: "failed",
+      membershipId: testMembershipId(),
+      failure: { cause: "link-failed", reason: "ssh refused" },
+    });
+    expect(g.stripDot).toContain("red");
+    expect(g.detailDot).toContain("red");
+    expect(g.down).toBe(true);
+    expect(g.short).toBe("unreachable");
+    expect(g.title).toBe("failed: ssh refused");
+    expect(g.labelDecoration).toContain("line-through");
+  });
+
+  it("never emits green on the exception strip path", () => {
+    const states: EntryState[] = [
+      {
         kind: "connected",
         membershipId: testMembershipId(),
         clockOffset: 0,
-      }),
-    ).toBe(GREEN);
+      },
+      { kind: "warming", membershipId: testMembershipId() },
+      {
+        kind: "failed",
+        membershipId: testMembershipId(),
+        failure: { cause: "link-failed", reason: "no drv" },
+      },
+      { kind: "not-a-member" },
+    ];
+    for (const s of states) {
+      const cls = hostGlance(s).stripDot;
+      if (cls !== null) {
+        expect(cls).not.toBe(GREEN);
+        expect(cls).not.toContain("emerald");
+      }
+    }
   });
 
-  it("never emits green for a not-connected state", () => {
+  it("detailDot is green ONLY for connected", () => {
+    expect(
+      hostGlance({
+        kind: "connected",
+        membershipId: testMembershipId(),
+        clockOffset: 0,
+      }).detailDot,
+    ).toBe(GREEN);
     const notConnected: EntryState[] = [
       { kind: "warming", membershipId: testMembershipId() },
       {
@@ -41,44 +100,39 @@ describe("HostSelectorStrip dot tone — fact-only green", () => {
       { kind: "not-a-member" },
     ];
     for (const s of notConnected) {
-      expect(dotClass(s)).not.toBe(GREEN);
-      expect(dotClass(s)).not.toContain("emerald");
+      expect(hostGlance(s).detailDot).not.toBe(GREEN);
+      expect(hostGlance(s).detailDot).not.toContain("emerald");
     }
-  });
-
-  it("gives each state a distinct, honest tone", () => {
-    expect(
-      dotClass({ kind: "warming", membershipId: testMembershipId() }),
-    ).toContain("amber");
-    expect(
-      dotClass({
-        kind: "failed",
-        membershipId: testMembershipId(),
-        failure: { cause: "link-failed", reason: "x" },
-      }),
-    ).toContain("red");
   });
 });
 
-describe("HostSelectorStrip status title", () => {
-  it("surfaces the failure reason so a dead host is legible on hover", () => {
-    expect(
-      statusTitle({
-        kind: "failed",
-        membershipId: testMembershipId(),
-        failure: { reason: "ssh refused" },
-      }),
-    ).toBe("failed: ssh refused");
-    expect(
-      statusTitle({
-        kind: "connected",
-        membershipId: testMembershipId(),
-        clockOffset: 3,
-      }),
-    ).toBe("connected");
-    expect(
-      statusTitle({ kind: "warming", membershipId: testMembershipId() }),
-    ).toBe("connecting…");
+describe("chipStatusDot — always-on for every host", () => {
+  const local = HostKeySchema.parse({ kind: "local" });
+  const remote = HostKeySchema.parse({ kind: "remote", target: "srid@zest" });
+  const connected = {
+    kind: "connected" as const,
+    membershipId: testMembershipId(),
+    clockOffset: 0,
+  };
+  const warming = {
+    kind: "warming" as const,
+    membershipId: testMembershipId(),
+  };
+
+  it("local healthy paints green (same as remote)", () => {
+    expect(chipStatusDot(local, connected)).toBe(GREEN);
+  });
+
+  it("remote healthy paints green", () => {
+    expect(chipStatusDot(remote, connected)).toBe(GREEN);
+  });
+
+  it("warming keeps the pulse class on local and remote", () => {
+    for (const host of [local, remote]) {
+      const cls = chipStatusDot(host, warming);
+      expect(cls).toContain("amber");
+      expect(cls).toContain("animate-pulse");
+    }
   });
 });
 

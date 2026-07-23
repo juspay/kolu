@@ -34,13 +34,13 @@ import {
   Show,
   untrack,
 } from "solid-js";
+import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
+import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
 import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import DocLink from "../ui/DocLink";
 import { activeHost, connectionInfo } from "../wire";
 import { connectCanvasCopy, isConnectPhase } from "./connectCanvasCopy";
-import { showsElapsed, tailOf } from "../kaval/connectCanvasView";
-import { DAEMON_STATE_PRESENTATION } from "../kaval/daemonPresentation";
 
 export function ConnectCanvas(props: { daemonState: DaemonState | undefined }) {
   const info = () => connectionInfo();
