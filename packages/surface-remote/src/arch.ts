@@ -17,10 +17,10 @@
  * and Nix's `system` disagree.
  *
  * Why this is safe to depend on: `provisionAgent` already runs
- * `nix-store --realise` on the host over the same non-interactive ssh
- * (see `nixCopy.ts`), so the host's Nix is already a hard requirement
+ * `nix build` (and a GC-root pin) on the host over the same non-interactive
+ * ssh (see `nixCopy.ts`), so the host's Nix is already a hard requirement
  * reachable on that PATH — `nix-instantiate` ships in the same
- * package. The probe adds no dependency the realise step didn't.
+ * package. The probe adds no dependency the build step didn't.
  *
  * Typical use, paired with a per-system `.drv` map the caller builds at
  * its own build time. Pass the probe as `resolveDrvPath` so it runs

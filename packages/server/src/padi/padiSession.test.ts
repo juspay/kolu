@@ -21,6 +21,7 @@ const failed = (error: string): DownSessionState => ({
   cause: "remote",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 });
 
 /** A minimal transient `disconnected` DOWN state (still retrying). */
@@ -33,6 +34,7 @@ const disconnected = (
   cause,
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 });
 
 // `provisions`: false = the LOCAL endpoint arm (no nix-copy), true = a provisioning

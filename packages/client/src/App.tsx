@@ -28,6 +28,7 @@ import {
 import { Toaster } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
+import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
@@ -43,19 +44,21 @@ import EmptyState from "./EmptyState";
 import ExportSessionDialog, {
   exportSessionDialog,
 } from "./ExportSessionDialog";
+import BootStalledCanvas from "./host/BootStalledCanvas";
+import { ConnectCanvas } from "./host/ConnectCanvas";
+import HostDownCanvas from "./host/HostDownCanvas";
+import { hostHue, hostLabel } from "./host/hostChipTone";
+import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { createImportSessionAction } from "./importSessionAction";
-import { useDeepLinks } from "./useDeepLinks";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
-import { ConnectCanvas } from "./host/ConnectCanvas";
 import DegradedCanvas from "./kaval/DegradedCanvas";
-import BootStalledCanvas from "./host/BootStalledCanvas";
-import HostDownCanvas from "./host/HostDownCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
+import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
@@ -69,7 +72,6 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
-import { useAttention } from "./attention/useAttention";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { realSizes } from "./ui/corvuResizable";
@@ -77,15 +79,13 @@ import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
+import { useDeepLinks } from "./useDeepLinks";
 import { isDesktop, layoutMode } from "./useMobile";
 import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { hostHue, hostLabel } from "./host/hostChipTone";
-import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
-import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 
 const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
@@ -295,23 +295,38 @@ const App: Component = () => {
       recordsAwaited: () => store.recordPhases().awaited,
     }),
   );
-  // Narrow the tagged union for the down/warming arms. Plain functions, not
+  // Payload readers for thrash-sensitive canvas arms. Plain functions, not
   // memos — they don't add to the shell's reactive-primitive budget.
-  const downMode = () => {
+  // Key every Match on `mode().kind === "…"` (stable boolean): `mode()` is a
+  // fresh object every getMonotonicNow tick (boot-deadline accrual), so an
+  // object-valued `when` remounts the arm ~1 Hz and wipes local state (elapsed
+  // baseline on ConnectCanvas #1962; focus/action identity on BootStalledCanvas).
+  // Fail loud (not `!`) if the arm is active without its payload — unrepresentable.
+  const requireKind = <K extends CanvasMode["kind"], T>(
+    kind: K,
+    pick: (m: Extract<CanvasMode, { kind: K }>) => T,
+    label: string,
+  ): T => {
     const m = mode();
-    return m.kind === "down" ? m : undefined;
+    if (m.kind !== kind) {
+      throw new Error(
+        `canvas Match ${label}: expected kind ${kind}, got ${m.kind}`,
+      );
+    }
+    return pick(m as Extract<CanvasMode, { kind: K }>);
   };
-  const warmingMode = () => {
+  const downState = () => requireKind("down", (m) => m.down, "down");
+  const hostFailedCause = () =>
+    requireKind("host-failed", (m) => m.cause, "host-failed");
+  const hostFailedReason = () =>
+    requireKind("host-failed", (m) => m.reason, "host-failed");
+  const bootStalledRecovery = () =>
+    requireKind("boot-stalled", (m) => m.recovery, "boot-stalled");
+  // Warming arm's kaval restart state (undefined while a remote provision
+  // narrates off the connection cell) — undefined is a valid payload here.
+  const warmingDaemonState = () => {
     const m = mode();
-    return m.kind === "warming" ? m : undefined;
-  };
-  const hostFailedMode = () => {
-    const m = mode();
-    return m.kind === "host-failed" ? m : undefined;
-  };
-  const bootStalledMode = () => {
-    const m = mode();
-    return m.kind === "boot-stalled" ? m : undefined;
+    return m.kind === "warming" ? m.daemonState : undefined;
   };
 
   return (
@@ -455,29 +470,41 @@ const App: Component = () => {
                 routing flap between the two modes produces identical pixels (no flicker). */}
             <ConnectCanvas daemonState={undefined} />
           </Match>
-          <Match when={downMode()}>
-            {(m) => <DegradedCanvas down={m().down} />}
+          <Match when={mode().kind === "down"}>
+            {/* Boolean kind key — same thrash rule as warming (#1962). Payload via
+                accessors (not object-valued `when`, which remounts ~1 Hz). Kind
+                narrows: when this arm is active the payload is defined. */}
+            <DegradedCanvas down={downState()} />
           </Match>
-          <Match when={hostFailedMode()}>
+          <Match when={mode().kind === "host-failed"}>
             {/* The ACTIVE host's map-membership entry failed (ssh/contract fault,
                 cause-typed) — distinct from `down` (a connected host's dead kaval).
                 Its own surface: cause-typed copy + [Switch to local], no Retry. */}
-            {(m) => <HostDownCanvas cause={m().cause} reason={m().reason} />}
+            <HostDownCanvas
+              cause={hostFailedCause()}
+              reason={hostFailedReason()}
+            />
           </Match>
-          <Match when={bootStalledMode()}>
+          <Match when={mode().kind === "boot-stalled"}>
             {/* #1763 + #1908 D2: a boot overlay held past its per-host ceiling, rendered off the
                 resolver's honest {@link BootStalledRecovery} verdict — a warming-remote campaign
                 the server connector still owns (non-terminal copy, [Retry connection] → recheck())
                 vs a genuinely client-side leg ([Reload]). A hung LOCAL kaval takes the down/dead
-                arm above instead (byte-identical #1713). */}
-            {(m) => <BootStalledCanvas recovery={m().recovery} />}
+                arm above instead (byte-identical #1713). Boolean kind key so focus/action
+                identity on BootStalledCanvas survives monotonic mode() thrash. */}
+            <BootStalledCanvas recovery={bootStalledRecovery()} />
           </Match>
-          <Match when={warmingMode()}>
+          <Match when={mode().kind === "warming"}>
             {/* The host binding is coming up. `ConnectCanvas` narrates a REMOTE cold
                 provision off the connection cell (copying → building, live log tail +
                 elapsed) instead of a mute "Connecting…"; a kaval-restart warming
-                (daemonState defined) keeps the neutral label. */}
-            {(m) => <ConnectCanvas daemonState={m().daemonState} />}
+                (daemonState defined) keeps the neutral label.
+                Key on the STABLE boolean `kind === "warming"` — NOT a mode object.
+                `mode()` is a fresh object every getMonotonicNow tick (boot-deadline
+                accrual); an object-keyed Match remounted ConnectCanvas every second,
+                wiping its elapsed baseline so the timer only jumped when a log frame
+                arrived (#1962). Boolean `when` keeps the arm mounted while kind holds. */}
+            <ConnectCanvas daemonState={warmingDaemonState()} />
           </Match>
           <Match when={mode().kind === "empty"}>
             {/* biome-ignore lint/a11y/noStaticElementInteractions: the zero-terminal canvas surface is the same pointer-driven canvas widget as TerminalCanvas (which lives in biome's spatial-mouse-canvas a11y override) — double-click-to-create's keyboard equivalent is the ⌘K/⌘T palette it opens, so role/tabIndex/fake onKeyDown would claim a11y it doesn't deliver. Scoped inline because App.tsx is the composition root, not a dedicated canvas file that warrants a file-wide override. */}

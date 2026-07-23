@@ -83,13 +83,19 @@ from a fresh snapshot.
 `reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
 a `value` member (cell, collection, value pulse) is held open and **replayed**
 across an upstream drop; a `delta` member (byte or liveness stream) **fails
-through** — the drop ends the downstream stream with the **named retryable
-transport end** `RelayTransportLostError` (an `ORPCError` carrying the
-`SURFACE_RELAY_TRANSPORT_LOST` code, the one code the shared retry fence retries)
-so the client re-subscribes end-to-end and a snapshot only ever leads a fresh
-stream. A raw re-throw would cross oRPC sanitized to a non-retriable error and
-strand the downstream — this named end is what makes fail-through actually
-recover. Holding open a byte stream is a compile error.
+through** — a **mid-stream** upstream drop ends the downstream stream with the
+**named retryable transport end** `RelayTransportLostError` (an `ORPCError`
+carrying the `SURFACE_RELAY_TRANSPORT_LOST` code, the one code the shared retry
+fence retries) so the client re-subscribes end-to-end and a snapshot only ever
+leads a fresh stream. A subscribe **before** any live spawn is up **waits** for
+the next spawn (same pre-connect arm as hold-open) rather than throwing that
+retryable end every second — which used to spam the journal for the whole
+provisioning window. Direct callers of `relayFailThroughStream` (and its
+hold-open sibling) must pass an **`ObservableHolder`** from
+`observableHolder()` — the pre-bind wait needs `whenChanged()`, which a plain
+`LiveSpawnHolder` does not expose. A raw re-throw would cross oRPC sanitized to
+a non-retriable error and strand the downstream — this named end is what makes
+fail-through actually recover. Holding open a byte stream is a compile error.
 
 A collection that declares the `deltas` verb is mirrored through its **single**
 batched snapshot-then-delta stream (folded into the same `{ upsert, remove }`
@@ -156,16 +162,19 @@ leaf a consumer applies to the entry's frame.
 sum, keyed on `phase`: the up arms (`probing` / `copying` / `building` — the ssh
 connector's provisioning phases, `probing` being the warm-check window where the
 agent is looked up but nothing is shipped yet — plus `connecting` / `connected`).
-Every arm carries two fields: a provenance-tagged `log` tail
-(`{ source: "local" | "remote"; line }[]`) and `sinceMs`, the server-stamped elapsed
+Every arm carries three fields: a provenance-tagged `log` tail
+(`{ source: "local" | "remote"; line }[]`); `sinceMs`, the server-stamped elapsed
 of the CURRENT episode in milliseconds — a **duration** on the server's single clock
 (never a foreign epoch the browser would subtract), which the browser extends smoothly
-with its own ticker. Both `log` and `sinceMs` are scoped to the current **campaign**
-(#1908 D3): they are stamped/reset at CAMPAIGN BIRTH — the first (or re-pin) dial, a user
-`reconnect()`/`recheck()`, and a *connected*-link drop — but **NOT** on a backoff retry
-within an ongoing connect campaign. So a wedged provision that retries for ten minutes
-reads ten minutes (not the per-attempt ~1s a per-dial reset showed), and the log survives
-retry dials (capped) so a coming-up card can render the attempt tail. The **`connected`** arm alone additionally carries `clockOffset: number | null`
+with its own ticker; and `campaignEpoch`, the monotonic campaign generation, so a
+client elapsed timer can re-baseline when the same host starts a fresh campaign that
+reopens at `sinceMs: 0` after a quiet multi-minute stretch. Both `log` and `sinceMs`
+are scoped to the current **campaign** (#1908 D3): they are stamped/reset at CAMPAIGN
+BIRTH — the first (or re-pin) dial, a user `reconnect()`/`recheck()`, and a
+*connected*-link drop — but **NOT** on a backoff retry within an ongoing connect
+campaign. So a wedged provision that retries for ten minutes reads ten minutes (not
+the per-attempt ~1s a per-dial reset showed), and the log survives retry dials
+(capped) so a coming-up card can render the attempt tail. The **`connected`** arm alone additionally carries `clockOffset: number | null`
 — the far-end host's wall-clock offset (ms) vs the serving process, measured off the
 framework-reserved `system.clockNow` at admit (RTT-compensated; see
 `measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped

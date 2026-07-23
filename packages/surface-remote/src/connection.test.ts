@@ -29,8 +29,13 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
     // — parse with only `log` + `sinceMs`, no error fields.
     for (const phase of ["probing", "copying", "building", "connecting"]) {
       expect(
-        ConnectionInfoSchema.parse({ phase, log: [], sinceMs: 0 }),
-      ).toEqual({ phase, log: [], sinceMs: 0 });
+        ConnectionInfoSchema.parse({
+          phase,
+          log: [],
+          sinceMs: 0,
+          campaignEpoch: 0,
+        }),
+      ).toEqual({ phase, log: [], sinceMs: 0, campaignEpoch: 0 });
     }
     // `connected` ALSO carries `clockOffset` (the admit `system.clockNow` reading),
     // nullable until measured — a required field, so a connected value without it is
@@ -41,14 +46,22 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         clockOffset: null,
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       }),
-    ).toEqual({ phase: "connected", clockOffset: null, log: [], sinceMs: 0 });
+    ).toEqual({
+      phase: "connected",
+      clockOffset: null,
+      log: [],
+      sinceMs: 0,
+      campaignEpoch: 0,
+    });
     expect(
       ConnectionInfoSchema.parse({
         phase: "connected",
         clockOffset: 42,
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       }),
     ).toMatchObject({ phase: "connected", clockOffset: 42 });
     expect(() =>
@@ -62,6 +75,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         phase: "disconnected",
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       }),
     ).toThrow();
     expect(
@@ -71,6 +85,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         cause: "remote",
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       }),
     ).toMatchObject({ phase: "failed", cause: "remote" });
     expect(
@@ -80,6 +95,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         cause: "network",
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       }),
     ).toMatchObject({ phase: "failed", cause: "network" });
     // …but a bogus cause is still rejected.
@@ -90,6 +106,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         cause: "banana",
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       }),
     ).toThrow();
   });
@@ -107,6 +124,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
         { source: "remote", line: "kaval 3.2 vs pulam 3.3" },
       ],
       sinceMs: 4200,
+      campaignEpoch: 0,
     };
     expect(projectConnection(s)).toBe(s); // identity — same reference
     expect(ConnectionInfoSchema.parse(s)).toEqual(s);
@@ -117,6 +135,7 @@ describe("ConnectionInfo — the browser-safe connection sum", () => {
       phase: "probing",
       log: [{ source: "local", line: "checking for a cached agent…" }],
       sinceMs: 0,
+      campaignEpoch: 0,
     };
     expect(projectConnection(up)).toBe(up);
     expect("error" in projectConnection(up)).toBe(false);
@@ -131,6 +150,7 @@ describe("sessionConnection — the erased-frame → ConnectionInfo seam", () =>
       clockOffset: 42,
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     };
     // Not a clone — the SAME object, so a re-projection of an unchanged cached frame is
     // reference-equal and the entries `equals` can dedup it.
@@ -148,6 +168,7 @@ describe("sessionConnection — the erased-frame → ConnectionInfo seam", () =>
       phase: "connected",
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     } as unknown as SessionState<string>;
     expect(() => sessionConnection(malformed)).toThrow(
       /not a valid ConnectionInfo/,
@@ -159,6 +180,7 @@ describe("sessionConnection — the erased-frame → ConnectionInfo seam", () =>
       phase: "disconnected",
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     } as unknown as SessionState<string>;
     expect(() => sessionConnection(malformed)).toThrow(
       /not a valid ConnectionInfo/,
@@ -170,6 +192,7 @@ describe("sessionConnection — the erased-frame → ConnectionInfo seam", () =>
       phase: "deploying",
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     } as unknown as SessionState<string>;
     expect(() => sessionConnection(alien)).toThrow(
       /not a valid ConnectionInfo/,

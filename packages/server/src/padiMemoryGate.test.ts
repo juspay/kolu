@@ -30,6 +30,7 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       clockOffset: null,
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     }))
     .with("disconnected", (p) => ({
       phase: p,
@@ -37,6 +38,7 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       cause: "network",
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     }))
     .with("failed", (p) => ({
       phase: p,
@@ -44,6 +46,7 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       cause: "remote",
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     }))
     // The up-but-not-connected arms (local `connecting` + the remote provisioning phases)
     // share one shape — collapsed with a multi-pattern `.with`.
@@ -51,6 +54,7 @@ const at = (phase: SessionState<SshProv>["phase"]): SessionState<SshProv> =>
       phase: p,
       log: [],
       sinceMs: 0,
+      campaignEpoch: 0,
     }))
     .exhaustive();
 

@@ -225,6 +225,7 @@ function makeSession() {
     phase: "copying",
     log: [],
     sinceMs: 0,
+    campaignEpoch: 0,
   };
   const fire = (): void => {
     for (const cb of [...listeners]) cb(state);
@@ -263,6 +264,7 @@ function makeSession() {
         cause: "network",
         log: [],
         sinceMs: 0,
+        campaignEpoch: 0,
       };
       fire();
     },

@@ -112,6 +112,7 @@ const localProbing: SessionState<never> = {
   phase: "probing",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 };
 void localProbing;
 
@@ -124,6 +125,7 @@ const missingReason: SessionState<never> = {
   phase: "disconnected",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 };
 void missingReason;
 
@@ -136,6 +138,7 @@ const failedNetwork: SessionState<never> = {
   cause: "network",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 };
 void failedNetwork;
 
@@ -148,6 +151,7 @@ const failedBadCause: SessionState<never> = {
   cause: "banana",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
 };
 void failedBadCause;
 
@@ -156,6 +160,7 @@ const upWithStaleError: SessionState<never> = {
   phase: "connecting",
   log: [],
   sinceMs: 0,
+  campaignEpoch: 0,
   // @ts-expect-error — the up arm has no `error` field to assign; if this line ever
   // compiles, "live with a stale error" is representable again.
   error: "should not compile",

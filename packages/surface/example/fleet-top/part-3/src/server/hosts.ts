@@ -186,7 +186,12 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   const router = runtime.router;
   const link = directLink<typeof surface.contract>(router as never);
 
-  let latest: SessionState<SshProv> = { phase: "probing", log: [], sinceMs: 0 };
+  let latest: SessionState<SshProv> = {
+    phase: "probing",
+    log: [],
+    sinceMs: 0,
+    campaignEpoch: 0,
+  };
   const unsub = session.onState((s) => {
     latest = s;
   });
