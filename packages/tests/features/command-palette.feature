@@ -202,8 +202,8 @@ Feature: Command Palette
   Scenario: Section headers group root commands
     # With a focused terminal, root items split into multiple sections —
     # Active Terminal, UI, Help — each rendered with a sticky uppercase
-    # header. Drilling in or typing collapses headers. Debug lives as a
-    # drill-in group inside Help, not as its own section header.
+    # header. Typing keeps kind-level headers (Commands) for mixed search.
+    # Debug lives as a drill-in group inside Help, not as its own section.
     When I open the app
     And I create a terminal
     And I open the command palette
@@ -211,16 +211,15 @@ Feature: Command Palette
     And palette section header "UI" should be visible
     And palette section header "Help" should be visible
     When I type "Set theme" in the palette
-    Then no palette section header should be visible
+    Then palette section header "Commands" should be visible
     And there should be no page errors
 
-  Scenario: Filtering shows section tags on matched rows
-    # When the user types, sections collapse and each row carries a
-    # small tag indicating which section it belongs to. "Set theme" only
-    # appears with an active terminal, so create one first.
+  Scenario: Filtering shows kind tags on matched rows
+    # At root search each row carries a kind tag (term/host/cmd). "Set theme"
+    # only appears with an active terminal, so create one first.
     When I open the app
     And I create a terminal
     And I open the command palette
     And I type "Set theme" in the palette
-    Then palette item "Set theme" should show section tag "Active Terminal"
+    Then palette item "Set theme" should show section tag "cmd"
     And there should be no page errors

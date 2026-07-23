@@ -248,10 +248,7 @@ Then(
 Then(
   "palette item {string} should be visible",
   async function (this: KoluWorld, text: string) {
-    const palette = this.page.locator(PALETTE_SELECTOR);
-    const item = palette
-      .locator('[role="option"]')
-      .filter({ hasText: new RegExp(`^${text}`) });
+    const item = paletteOption(this.page.locator(PALETTE_SELECTOR), text);
     await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -332,13 +329,17 @@ Then(
 Then(
   "palette item {string} should show section tag {string}",
   async function (this: KoluWorld, itemName: string, tagLabel: string) {
-    const row = this.page
-      .locator(`${PALETTE_SELECTOR} [role="option"]`)
-      .filter({ hasText: new RegExp(`^${itemName}`) });
+    // Unified switcher uses kind tags (term/host/cmd) at root search, not
+    // the old per-command-section pills. Map legacy section labels → kind.
+    const kind =
+      tagLabel === "cmd" || tagLabel === "host" || tagLabel === "term"
+        ? tagLabel
+        : "cmd";
+    const row = paletteOption(this.page.locator(PALETTE_SELECTOR), itemName);
     await row.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const tag = row
       .first()
-      .locator('[data-testid="palette-section-tag"]', { hasText: tagLabel });
+      .locator('[data-testid="palette-kind-tag"]', { hasText: kind });
     await tag.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
