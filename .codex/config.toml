@@ -11,3 +11,10 @@ args = []
 id = ""
 
 [mcp_servers.odu.env]
+
+[mcp_servers.kolu]
+command = "kolu"
+args = ["mcp"]
+id = ""
+
+[mcp_servers.kolu.env]

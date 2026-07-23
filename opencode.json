@@ -14,6 +14,14 @@
       "command": [
         ".agents/skills/odu-mcp/bin/serve"
       ]
+    },
+    "kolu": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "kolu",
+        "mcp"
+      ]
     }
   }
 }

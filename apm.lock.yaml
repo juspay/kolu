@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-23T19:31:40.034799+00:00'
+generated_at: '2026-07-23T19:37:51.478867+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -2260,6 +2260,15 @@ deployments:
   content_hash: null
 - kind: uri
   target: mcp
+  value: kolu
+  runtime: claude
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
   value: odu
   runtime: claude
   scope: project
@@ -2278,6 +2287,15 @@ deployments:
   content_hash: null
 - kind: uri
   target: mcp
+  value: kolu
+  runtime: codex
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
   value: odu
   runtime: codex
   scope: project
@@ -2288,6 +2306,15 @@ deployments:
 - kind: uri
   target: mcp
   value: chrome-devtools
+  runtime: opencode
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
+  value: kolu
   runtime: opencode
   scope: project
   owners:
@@ -2323,6 +2350,7 @@ deployments:
   content_hash: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
 mcp_servers:
 - chrome-devtools
+- kolu
 - odu
 mcp_configs:
   chrome-devtools:
@@ -2330,6 +2358,13 @@ mcp_configs:
     transport: stdio
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
+  kolu:
+    name: kolu
+    transport: stdio
+    args:
+    - mcp
+    registry: false
+    command: kolu
   odu:
     name: odu
     transport: stdio
@@ -2338,15 +2373,19 @@ mcp_configs:
 mcp_target_servers:
   claude:
   - chrome-devtools
+  - kolu
   - odu
   codex:
   - chrome-devtools
+  - kolu
   - odu
   opencode:
   - chrome-devtools
+  - kolu
   - odu
 mcp_config_provenance:
   chrome-devtools: nix-chrome-devtools-mcp
+  kolu: agents
   odu: odu
 local_deployed_files:
 - .agents/skills/atlas
