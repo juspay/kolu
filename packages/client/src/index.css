@@ -65,76 +65,77 @@ body {
     0 1px 0 color-mix(in oklch, var(--color-edge) 16%, transparent);
 }
 
-/* ── Host tabs — a quiet rail where the per-host hue is the identity ──────
+/* ── Host tab bar — browser-style tabs on a quiet rail ───────────────────
  * `--host-hue` is set inline per chip (`hostHue()` → `kolu-common/hostHue`),
  * the SAME palette the PWA theme-color draws from. It tints ONLY the active
- * tab (a soft belly that merges into the canvas — no hard outline box) and the
- * dot's identity ring; the connection dot's STATUS tone (green/amber/red) is
- * never touched, and the Padi/Kaval logos ride along as quiet glyphs so a host
- * reads name-first. The transition makes a switch cross-fade, not snap. */
+ * tab (a soft belly that merges into the canvas). Connection status (green/
+ * amber/red) is fact-only and never tinted by host hue. Identity is Home
+ * (local) or hostname (remote); padi/kaval live in the diagnostics popover. */
+.host-tablist {
+  /* Sit tabs on the rail floor so active bottoms feel continuous with canvas. */
+  align-items: flex-end;
+}
 .host-tab {
-  border-radius: 12px 12px 0 0;
+  border-radius: 10px 10px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
   transition:
     background-color 160ms ease,
     box-shadow 220ms ease,
+    border-color 160ms ease,
     color 160ms ease;
 }
-/* Resting tab: no box, quiet text; a faint hue wash blooms on hover. */
+/* Resting tab: quiet text; faint edge + hue wash on hover. */
 .host-tab-idle {
   color: var(--color-fg-2);
 }
 .host-tab-idle:hover {
   color: var(--color-fg);
   background: color-mix(in oklch, var(--host-hue) 9%, transparent);
+  border-color: color-mix(in oklch, var(--color-edge) 45%, transparent);
 }
-/* Active tab: a soft hue-tinted belly that LIFTS — a hue glow rises off its
- * TOP edge and a top highlight catches the light, so the tab reads as raised
- * out of the rail. No bottom underline and no outline box: its bottom edge sits
- * flush with the canvas, seamless. */
+/* Active tab: raised sheet flush with the canvas edge — top highlight, side
+ * hairlines, no bottom border so it joins the content plane. */
 .host-tab-active {
   color: var(--color-fg);
   background: color-mix(in oklch, var(--host-hue) 13%, var(--color-surface-0));
+  border-color: color-mix(in oklch, var(--host-hue) 28%, var(--color-edge));
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
-    0 -7px 18px -12px var(--host-hue);
+    0 -6px 16px -12px var(--host-hue);
 }
-/* The identity hue ring around each connection dot (status fills the dot). */
-.host-hue-ring {
-  box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 24%, transparent);
+/* Unreachable host — desaturate the tab; struck label is classed in JSX.
+ * Active+down keeps the host-hue belly so the selected failed host is still
+ * the one that owns the canvas. */
+.host-tab-down {
+  opacity: 0.7;
+  filter: grayscale(0.35);
+}
+.host-tab-active.host-tab-down {
+  background: color-mix(in oklch, var(--host-hue) 10%, var(--color-surface-0));
+  opacity: 0.85;
+  filter: grayscale(0.2);
+}
+:root.dark .host-tab-active.host-tab-down {
+  background: color-mix(in oklch, var(--host-hue) 22%, var(--color-surface-1));
 }
 /* Dark mode: a 13% hue mixed into the near-black surface collapses to a muddy
  * grey — every host tab then looks the same. Over the dark surface the hue
- * needs far more presence to read AS a colour and to tell hosts apart, so the
- * active fill, the hover wash, and the dot ring all get boosted. */
+ * needs far more presence to read AS a colour and to tell hosts apart. */
 :root.dark .host-tab-active {
   background: color-mix(in oklch, var(--host-hue) 32%, var(--color-surface-1));
+  border-color: color-mix(in oklch, var(--host-hue) 40%, var(--color-edge));
   box-shadow:
     inset 0 1px 0 color-mix(in oklch, white 10%, transparent),
     0 -8px 20px -12px color-mix(in oklch, var(--host-hue) 80%, transparent);
 }
 :root.dark .host-tab-idle:hover {
   background: color-mix(in oklch, var(--host-hue) 18%, transparent);
+  border-color: color-mix(in oklch, var(--color-edge) 55%, transparent);
 }
-:root.dark .host-hue-ring {
-  box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--host-hue) 55%, transparent);
-}
-/* Daemon logos are quiet grey glyphs at rest — colour lives in their status
- * dots — and bloom to full colour on the active host or on hover, so the pair
- * declutters the row without dropping any Padi/Kaval signal. */
+/* Padi/Kaval logos live only in the diagnostics popover. */
 .host-daemon-logo {
-  filter: saturate(0);
-  opacity: 0.45;
-  transition:
-    filter 160ms ease,
-    opacity 160ms ease;
-}
-.host-tab-active .host-daemon-logo {
-  filter: none;
   opacity: 0.95;
-}
-.host-strip button:hover .host-daemon-logo {
-  filter: none;
-  opacity: 1;
 }
 
 /* ── Pill border channels ────────────────────────────────────

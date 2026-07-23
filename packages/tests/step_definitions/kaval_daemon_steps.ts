@@ -16,7 +16,10 @@ import {
   readKavalGatePid,
   readPadiGatePid,
 } from "../support/hooks.ts";
-import { identityChipSelector } from "../support/hostChip.ts";
+import {
+  identityChipSelector,
+  openActiveHostDiagnostics,
+} from "../support/hostChip.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 async function armWarmingCanvasRecorder(world: KoluWorld): Promise<void> {
@@ -132,9 +135,11 @@ When(
   },
 );
 
-// Open the kaval rail chip's info dialog, where the "Restart kaval" button lives
-// for a RUNNING (not degraded) daemon — the live-but-stuck arm's entry point.
+// Open the kaval mark's info dialog (via the host diagnostics popover — quiet
+// strip), where the "Restart kaval" button lives for a RUNNING (not degraded)
+// daemon — the live-but-stuck arm's entry point.
 When("I open the kaval rail dialog", async function (this: KoluWorld) {
+  await openActiveHostDiagnostics(this.page);
   await this.page.locator(identityChipSelector("kaval-identity-chip")).click();
   await this.page.waitForSelector('[data-testid="restart-kaval"]', {
     timeout: POLL_TIMEOUT,
@@ -334,10 +339,12 @@ Then(
 );
 
 Then("the daemon returns to running", async function (this: KoluWorld) {
-  // The recycle spawns a FRESH daemon (the dead one's stale gate is reaped by
-  // its `acquirePidGate`), so the supervisor's endpoint reports `connected`
-  // again on the rail. A fresh spawn under CI load can be slow — be generous.
-  await this.page.waitForSelector('[data-daemon-state="connected"]', {
-    timeout: 45_000,
-  });
+  // Quiet strip: the connected-state attribute lives on the Kaval mark inside
+  // the diagnostics popover (not on every chip). Open that panel idempotently,
+  // then wait for the scoped mark. A fresh spawn under CI load can be slow.
+  await openActiveHostDiagnostics(this.page);
+  await this.page.waitForSelector(
+    '[data-testid="host-diagnostics-popover"] [data-daemon-state="connected"]',
+    { timeout: 45_000 },
+  );
 });

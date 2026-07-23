@@ -33,8 +33,12 @@ export const useServerIdentity = createSharedRoot(() => {
      *  instant you switch hosts on the ChromeBar strip. The server identity no longer
      *  drives the title (it names kolu-server's OWN host, not the viewed one, and under
      *  always-map would fold the KOLU_PADI_HOST seed-list); this module keeps the
-     *  `server.info` fetch only for `themeColor`. */
+     *  `server.info` fetch for branding fields below. */
     appTitle: () => hostTitle(activeHost()),
+    /** Machine hostname kolu-server runs on (`os.hostname()`), same seed as
+     *  PWA name / theme. Used as the local host tab's label (Home + hostname).
+     *  Undefined until `server.info` resolves. */
+    hostname: () => identity()?.hostname,
     /** PWA chrome theme-color, or undefined before the fetch resolves. */
     themeColor: () => identity()?.themeColor,
   } as const;

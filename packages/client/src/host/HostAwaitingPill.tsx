@@ -7,8 +7,8 @@
  *  `sizeClass` is the pill's ONLY per-surface pixel (min-width / height /
  *  padding). Colour and shape come from the shared token. */
 
-import { type Component, Show } from "solid-js";
 import { NEEDS_YOU_PILL_CLASS } from "@kolu/solid-statepip/pipVariant";
+import { type Component, Show } from "solid-js";
 
 export const HostAwaitingPill: Component<{
   count: number;
