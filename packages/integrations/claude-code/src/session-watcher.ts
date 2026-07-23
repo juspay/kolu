@@ -11,7 +11,13 @@
 
 import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
-import { DEFAULT_APPEND_POLL_MS, subscribeFileAppends } from "kolu-io";
+import {
+  COALESCE_DEBOUNCE_MS,
+  COALESCE_MAX_WAIT_MS,
+  createCoalesceSchedule,
+  DEFAULT_APPEND_POLL_MS,
+  subscribeFileAppends,
+} from "kolu-io";
 import {
   completedBackgroundTaskIds,
   decayTransientState,
@@ -68,13 +74,11 @@ function workflowEqual(
 
 // --- Tuning constants ---
 
-/** Trailing-edge debounce for the transcript fs.watch callback. Claude
- *  streams tokens, and Linux fs.watch fires multiple events per write —
- *  without debouncing, `onTranscriptMaybeChanged` runs dozens to hundreds
- *  of times per second, each iteration re-allocating a 256 KB tail buffer
- *  and firing an async SDK summary fetch. 150 ms coalesces bursts into
- *  one handler run while keeping the user-perceptible lag imperceptible. */
-const TRANSCRIPT_DEBOUNCE_MS = 150;
+/** Quiet-window for the transcript coalesce schedule. Claude streams
+ *  tokens, and Linux fs.watch fires multiple events per write — without
+ *  coalescing, `onTranscriptMaybeChanged` runs dozens to hundreds of
+ *  times per second. Shared `COALESCE_DEBOUNCE_MS` + maxWait (#1952). */
+const TRANSCRIPT_DEBOUNCE_MS = COALESCE_DEBOUNCE_MS;
 
 /** Chunk size for `scanTasksIncremental`. The previous one-shot
  *  `Buffer.alloc(size - offset)` could allocate hundreds of MB transiently
@@ -169,9 +173,13 @@ export function createSessionWatcher(
   // tail of one call would be split-processed at the head of the next
   // call as if it were already a complete line — silent task corruption.
   let taskScanRemainder = "";
-  // Trailing-edge debounce timer for transcript fs.watch events.
-  // Null when idle. Cleared on destroy.
-  let transcriptDebounceTimer: NodeJS.Timeout | null = null;
+  // Quiet + maxWait coalesce for transcript edges (#1952 shared primitive).
+  // Destroyed in `destroy()` so late fires can't run after teardown.
+  const transcriptCoalesce = createCoalesceSchedule({
+    debounceMs: TRANSCRIPT_DEBOUNCE_MS,
+    maxWaitMs: COALESCE_MAX_WAIT_MS,
+    onFire: () => onTranscriptMaybeChanged(),
+  });
   // One-shot timer armed at the next workflow-journal stale deadline while
   // `running_background` is published. A journal going stale produces no
   // fs.watch event (it's the *absence* of writes), so without this the phantom
@@ -205,18 +213,12 @@ export function createSessionWatcher(
     }
   }
 
-  /** Trailing-edge debounce: reset the timer on every event, fire
-   *  `onTranscriptMaybeChanged` once after `TRANSCRIPT_DEBOUNCE_MS` of
-   *  quiet. The handler's own `destroyed` guard makes late-firing
-   *  callbacks safe, but we clear the timer in `destroy()` anyway to
-   *  avoid holding closure refs unnecessarily. */
+  /** Coalesced transcript re-derive: quiet window `TRANSCRIPT_DEBOUNCE_MS`,
+   *  hard maxWait `COALESCE_MAX_WAIT_MS` so a continuous token-stream burst
+   *  cannot starve the handler (juspay/kolu#1952). */
   function scheduleTranscriptCheck() {
     if (destroyed) return;
-    if (transcriptDebounceTimer) clearTimeout(transcriptDebounceTimer);
-    transcriptDebounceTimer = setTimeout(() => {
-      transcriptDebounceTimer = null;
-      onTranscriptMaybeChanged();
-    }, TRANSCRIPT_DEBOUNCE_MS);
+    transcriptCoalesce.schedule();
   }
 
   /** Arm (or clear) the one-shot timer that re-runs the derivation when a
@@ -591,10 +593,7 @@ export function createSessionWatcher(
 
     destroy() {
       destroyed = true;
-      if (transcriptDebounceTimer) {
-        clearTimeout(transcriptDebounceTimer);
-        transcriptDebounceTimer = null;
-      }
+      transcriptCoalesce.destroy();
       if (staleDeadlineTimer) {
         clearTimeout(staleDeadlineTimer);
         staleDeadlineTimer = null;

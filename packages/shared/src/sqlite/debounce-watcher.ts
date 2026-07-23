@@ -11,8 +11,16 @@
  *  events per write, and active-generation bursts are several events per
  *  second. Without coalescing, every burst triggers N refresh passes
  *  (each running SQL queries and JSONL tails) for the same logical state
- *  change. */
+ *  change. A pure trailing window would starve under a continuous burst
+ *  (juspay/kolu#1952); maxWait is baked via `COALESCE_MAX_WAIT_MS` from
+ *  `kolu-io` — not a per-call opt-out.
+ */
 
+import {
+  COALESCE_MAX_WAIT_MS,
+  createCoalesceSchedule,
+  type CoalesceSchedule,
+} from "kolu-io";
 import type { Logger } from "../log.ts";
 import type { Closable } from "./with-db.ts";
 
@@ -25,7 +33,8 @@ export interface DebounceWatcherConfig<Session, Info, Db extends Closable> {
    *  on subscribe/unsubscribe (see `.agency/code-police.md` →
    *  `watcher-lifecycle-logs`). */
   label: string;
-  /** Trailing-edge debounce window in milliseconds. */
+  /** Trailing-edge debounce quiet-window in milliseconds. maxWait is
+   *  always `COALESCE_MAX_WAIT_MS` internally (#1952). */
   debounceMs: number;
   /** DB handle held across the watcher's lifetime. The factory closes
    *  it on `destroy()`. Pass `null` if `openDb` failed — `refresh` will
@@ -68,7 +77,6 @@ export function createDebounceWatcher<Session, Info, Db extends Closable>(
   config: DebounceWatcherConfig<Session, Info, Db>,
 ): DebounceWatcher<Session> {
   let destroyed = false;
-  let debounceTimer: NodeJS.Timeout | null = null;
   let lastInfo: Info | null = null;
 
   function performRefresh(): void {
@@ -80,21 +88,19 @@ export function createDebounceWatcher<Session, Info, Db extends Closable>(
     config.onChange(info);
   }
 
-  // Trailing-edge debounce: every event resets the timer; one
-  // `performRefresh` runs after `debounceMs` of quiet. The handler's
-  // own `destroyed` guard makes late-firing callbacks safe, but we
-  // clear the timer in `destroy()` anyway to avoid holding closure refs.
-  function scheduleRefresh(): void {
-    if (destroyed) return;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      performRefresh();
-    }, config.debounceMs);
-  }
+  // Quiet window + hard maxWait (COALESCE_MAX_WAIT_MS) — pure trailing would
+  // starve under continuous WAL edges (#1952).
+  const coalesce: CoalesceSchedule = createCoalesceSchedule({
+    debounceMs: config.debounceMs,
+    maxWaitMs: COALESCE_MAX_WAIT_MS,
+    onFire: performRefresh,
+  });
 
   const unsubscribe = config.subscribe(
-    scheduleRefresh,
+    () => {
+      if (destroyed) return;
+      coalesce.schedule();
+    },
     (err) => config.log?.error({ err, ...config.logCtx }, "wal listener threw"),
     config.log,
   );
@@ -105,10 +111,7 @@ export function createDebounceWatcher<Session, Info, Db extends Closable>(
     session: config.session,
     destroy(): void {
       destroyed = true;
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
+      coalesce.destroy();
       unsubscribe();
       config.db?.close();
       config.log?.info(config.logCtx, `${config.label} watcher retired`);
