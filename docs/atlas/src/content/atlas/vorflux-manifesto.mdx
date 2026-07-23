@@ -3,7 +3,7 @@ title: The Vorflux Manifesto, Read From Kolu
 description: "A study of vorflux.com/manifesto — the Great Flattening thesis, its six bottlenecks, tokenmaxxing — mapped honestly onto what kolu already is, what it should adopt, and where its doctrine disagrees."
 parents: [analysis]
 maturity: seedling
-updated: 2026-07-15
+updated: 2026-07-23
 ---
 
 import Footnote from "../../components/Footnote.astro";
@@ -27,7 +27,7 @@ The manifesto describes, as a future, the shape of an ordinary kolu campaign. Th
 | Planning | the Atlas plan-of-record: id-first phase trees, dep-sequenced rows, gates, done-criteria |
 | Orchestration | the coordinator's model rule ("fable judges, opus grounds"), lens-run workflows, per-lane briefs |
 | Testing | e2e + seal on the exact shipping SHA, two platforms; agents drive chrome-devtools against the live app |
-| Review | **the gauntlet** — lens-debate, /codex-debate (a competitor lab's model adversarially reviewing, warm-session, to consensus), code-police |
+| Review | **the gauntlet** — lens-debate, /agent-debate (an explicitly selected Claude, Codex, or Grok peer adversarially reviewing, warm-session, to consensus), code-police |
 | the Merge | **deliberately human** — srid merges; see the disagreement below |
 
 And the "job goes meta" line is kolu's operating culture already: every coordinator failure this campaign became an encoded rule the same day (the atlas-branch liveness check, the `/goal` pin, the blocking-ask rule, the design-bearing lens trigger).<Footnote>All in `/bridge` and the surface rule, each carrying its recorded failure as the rationale — the manifesto's "solve why the organism couldn't solve it itself," practiced as skill-writing.</Footnote> The manifesto's sharpest observation — the **blind cloud** — names kolu's exact differentiator: kolu is the anti-blind-cloud, a canvas where agents *and* the human watch the same live terminals, the same running app, the same dashboards.
@@ -35,7 +35,7 @@ And the "job goes meta" line is kolu's operating culture already: every coordina
 ## What to adopt
 
 1. **Say the thesis out loud.** Kolu's story is scattered across notes; the manifesto compresses it: *the harness is the product*. A kolu built for one user today is a company-judgment harness at any scale — the orchestrator skill, the gauntlet, the Atlas graph *are* the encoded judgment. Positioning, docs, and the website should claim this frame.
-2. **Cross-lab review as a first-class feature, not a skill.** /codex-debate proves the pattern (a rival lab's model arguing to consensus); kolu terminals already host codex, opencode, grok. Generalize: a reviewer-panel primitive where N *different-vendor* agents debate a diff on the canvas — the manifesto's bottleneck 5 as a product surface. (The debate skill's `--orchestrate` mode is the seed.)
+2. **Cross-lab review as a first-class feature, not a skill.** /agent-debate proves the pattern with a chosen Claude, Codex, or Grok peer arguing to consensus. Generalize it further into a reviewer-panel primitive where N *different-vendor* agents debate a diff on the canvas — the manifesto's bottleneck 5 as a product surface.
 3. **Vendor neutrality as architecture.** Kolu already runs mixed-vendor agents in PTYs — the neutral-harness claim is true by construction. Keep it structural: nothing in padi/kaval may assume one agent CLI (the `prohibitedKeybinds` registry is the pattern — per-tool facts as data, not baked-in assumptions).
 4. **Token accounting where seat accounting was.** "Tokenmaxxing" needs meters: per-lane token/cost visibility on the dashboard and in reports (this week's 81%-of-weekly-limit moment was discovered *incidentally*, in a terminal footer). A harness that routes work by cost needs cost as a first-class fact.
 5. **Recordings as evidence.** Bottleneck 4's "recordings" names a gap: kolu's evidence class is screenshots + test output; a padi-native "record this lane's screen for the PR" would make visual evidence one verb.

@@ -18,11 +18,11 @@ findings are applied — each as its own commit — and the outcome is **posted 
 the PR** as a comment. You stay out of the middle: the script couriers
 schema-constrained dispositions between the lenses and decides when they agree.
 
-This is the sibling of `/codex-debate` — same debate-to-consensus shape (structured
+This is the sibling of `/agent-debate` — same debate-to-consensus shape (structured
 per-round dispositions, commits but never pushes or merges), differing in *who debates
 whom*. The **mechanics** now differ: this skill runs on the `Workflow` tool, whereas
-`/codex-debate` drives a live codex session in a split terminal (so it no longer shares
-an engine or a schema-forced-JSON consensus with this one).
+`/agent-debate` drives a selected live Claude/Codex/Grok peer in a split terminal
+(so it does not share an engine or schema-forced-JSON consensus with this one).
 
 ## Why this shape
 
@@ -93,10 +93,10 @@ debate phase.
 
 ## Why deadlock is not possible
 
-Neither this skill nor `/codex-debate` has a deadlock exit — both run until
+Neither this skill nor `/agent-debate` has a deadlock exit — both run until
 consensus, as many rounds as it takes. But the *reason* convergence is safe to
-rely on is even stronger here. In `/codex-debate` the asymmetry is reviewer vs
-**author**: Claude wrote the code and carries an authorship stake, so in
+rely on is even stronger here. In `/agent-debate` the asymmetry is reviewer vs
+**author**: the invoking agent wrote the code and carries an authorship stake, so in
 principle it could dig in and dispute a finding round after round (the loop
 trusts good-faith concession to break the tie, and aborts only on reviewer
 *infrastructure* failure).
@@ -156,7 +156,7 @@ is untouched). But it **is** returned in the result's **`escalations`** field:
 the valve:** a caller/coordinator that sees an escalated thread — especially an
 *unresolved* one — should hand that one thread's findings (with both lenses'
 final positions from `settled`/`unresolved`) to warm, interactive debate
-terminals (e.g. a live `/codex-debate`-style session or a human-adjudicated
+terminals (e.g. a live `/agent-debate`-style session or a human-adjudicated
 debate) instead of re-running another cold engine pass over the whole diff. The
 engine's exchange format is deliberately structured (schema-forced positions);
 past ~3 rounds a disagreement is usually about *values or scope*, which
@@ -333,7 +333,7 @@ branch for the human to review):
   escalated threads, and any unresolved findings with both lenses' positions.
   Posting the returned string (rather than re-improvising a table) keeps the
   comment a **deterministic** render of the debate outcome. This mirrors
-  `/codex-debate`; `--no-comment` suppresses it.
+  `/agent-debate`; `--no-comment` suppresses it.
 
 ## Safety & notes
 

@@ -5,13 +5,6 @@
       "command": ".claude/skills/nix-chrome-devtools-mcp/bin/serve",
       "args": []
     },
-    "kolu": {
-      "type": "stdio",
-      "command": "kolu",
-      "args": [
-        "mcp"
-      ]
-    },
     "odu": {
       "type": "stdio",
       "command": ".claude/skills/odu-mcp/bin/serve",
@@ -19,6 +12,16 @@
       "env": {
         "ODU_FLAKE": ".#odu"
       }
+    },
+    "kolu": {
+      "type": "stdio",
+      "command": "kolu",
+      "args": [
+        "mcp"
+      ],
+      "env_vars": [
+        "PADI_SOCKET"
+      ]
     }
   }
 }
