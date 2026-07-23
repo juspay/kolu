@@ -104,6 +104,15 @@ describe("pipMotionKind", () => {
     );
   });
 
+  it("agentless working paint only spins while active", () => {
+    expect(
+      pipMotionKind({ variant: "working", agent: null, active: false }),
+    ).toBe("none");
+    expect(
+      pipMotionKind({ variant: "working", agent: null, active: true }),
+    ).toBe("spin");
+  });
+
   it("sleeping / empty never move", () => {
     expect(
       pipMotionKind({

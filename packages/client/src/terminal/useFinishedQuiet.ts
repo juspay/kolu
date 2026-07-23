@@ -22,14 +22,17 @@ export const useFinishedQuiet = createSharedRoot(() => {
       const host = decodeHostKey(encHost);
       const entry = padiMap.entry(host);
       // Bare `.use()` — urgency declares its own onError policy (see useAttention).
-      const { value } = entry.cells.urgency.use();
+      // Match useTerminalActivity: gate on pending, clear on absent fact (do not
+      // freeze last finishedIds across reconnect/load gaps).
+      const { value, sub } = entry.cells.urgency.use();
       // Per-host previous finished set (plain array — never retain a reconcile
       // proxy as prev).
       let prev: TerminalId[] = [];
       createEffect(() => {
+        if (sub.pending()) return;
         const v = value();
-        if (v === undefined) return;
-        const next = [...v.finishedIds];
+        // Past-pending undefined → apply empty (drop this host's finished keys).
+        const next = v === undefined ? [] : [...v.finishedIds];
         const nextSet = new Set(next);
         const prevSet = new Set(prev);
         setFinished(

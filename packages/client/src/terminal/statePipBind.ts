@@ -25,6 +25,8 @@ export type StatePipBind = {
   active: boolean;
   /** Raw meaningful output — a11y "live output" only. */
   bytesLive: boolean;
+  /** Quiet shell with live PTY bytes → busy orange without agent "Working". */
+  shellLive: boolean;
   alert: boolean;
   alertLabel: string;
 };
@@ -42,24 +44,23 @@ export function bindStatePip(input: {
   const agent = activeArm(input.meta)?.agent;
   const bucket =
     input.pipBucket ?? pipPaintBucket(input.meta, input.parked ?? false);
-  let variant = pipVariant(bucket);
-  // Live plain shell paints as working (busy orange) so StatePip needs no
-  // shell-special paint branch — activity still drives motion via `active`.
-  if (!agent && input.isLive && variant === "idle") {
-    variant = "working";
-  }
+  const variant = pipVariant(bucket);
   const active = pipIsActive({
     agent,
     isLive: input.isLive,
     isFinished: input.isFinished,
   });
   const motion = pipMotionKind({ variant, agent, active });
+  // Live shell keeps idle *variant* (title/a11y stay "Idle") but busy-orange
+  // paint via shellLive — not agent "Working".
+  const shellLive = !agent && input.isLive && variant === "idle";
   return {
     variant,
     glyph: pipGlyphFor(input.meta),
     motion,
     active,
     bytesLive: input.isLive,
+    shellLive,
     alert: input.unread,
     alertLabel: "unread alert",
   };

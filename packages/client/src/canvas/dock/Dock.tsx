@@ -655,6 +655,7 @@ const DockRow: Component<{
                 glyph={pip().glyph}
                 motion={pip().motion}
                 bytesLive={pip().bytesLive}
+                shellLive={pip().shellLive}
                 alert={pip().alert}
                 alertLabel={pip().alertLabel}
                 class={DOCK_ROW_PIP_BOX}
@@ -774,18 +775,29 @@ const RailChip: Component<{
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const activity = useTerminalActivity();
+  const finishedQuiet = useFinishedQuiet();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
         const labels = () => chipInitials(c().meta, c().info);
+        // Same binder as cards StatePip — motion/active drive rail glow.
+        const pip = () =>
+          bindStatePip({
+            meta: c().meta,
+            isLive: activity.isLive(props.id),
+            isFinished: finishedQuiet.isFinished(props.id),
+            unread: unread(),
+            pipBucket: props.pip,
+          });
         return (
           <button
             type="button"
             data-testid="dock-rail"
             data-terminal-id={props.id}
             data-bucket={props.pip}
+            data-motion={pip().motion}
             data-agent-state={activeArm(c().meta)?.agent?.state}
             data-active={active() ? "" : undefined}
             data-unread={unread() ? "" : undefined}
@@ -816,30 +828,14 @@ const RailChip: Component<{
                 {labels().sub}
               </span>
             </span>
-            {/* The glyph-only rail has no timestamp cell to swap, so the live
-             *  dot rides as a corner overlay. It sits BOTTOM-right to stay clear
-             *  of the three already-claimed corners: the unread badge
-             *  (`.dock-rail-chip[data-unread]::after`, top-right) and the
-             *  shortcut hint (`.dock-rail-chip-hint`, top-left) — an unread+live
-             *  chip would otherwise paint both pips in the same top-right corner,
-             *  making each signal ambiguous. The agent-state glow below tracks an
-             *  AGENT's thinking/waiting; this dot is the orthogonal "moving bytes
-             *  right now" signal (a compile, a `tail -f`, any non-agent shell) —
-             *  without it, a live non-agent terminal is indistinguishable from an
-             *  idle one in the rail. */}
-            <Show when={activity.isLive(props.id)}>
+            {/* Live bytes corner — orthogonal to agent motion glow. */}
+            <Show when={pip().bytesLive}>
               <span class="pointer-events-none absolute -bottom-1 -right-1">
                 <LiveActivityDot />
               </span>
             </Show>
-            {/* Agent-state glow on its own child so it animates opacity/transform
-             *  (compositor) rather than repainting the chip's box-shadow every
-             *  frame — see #1308. Gated on the PAINT bucket (`pip`), not the order
-             *  bucket, so a fresh `waiting` agent keeps its lingering glow here as
-             *  it does in cards mode and on its tile title. Only the two paint
-             *  buckets render it; the CSS in index.css picks breath (awaiting) vs
-             *  orbit (working). */}
-            <Show when={props.pip === "awaiting" || props.pip === "working"}>
+            {/* Motion glow/spin from bindStatePip (same as cards StatePip). */}
+            <Show when={pip().motion !== "none"}>
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>
           </button>

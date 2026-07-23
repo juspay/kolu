@@ -590,6 +590,7 @@ const WorkspaceCard: Component<{
           glyph={pip().glyph}
           motion={pip().motion}
           bytesLive={pip().bytesLive}
+          shellLive={pip().shellLive}
           alert={pip().alert}
           alertLabel={pip().alertLabel}
           class={DOCK_ROW_PIP_BOX}
@@ -607,15 +608,12 @@ const WorkspaceCard: Component<{
       {/* Meta line: cwd or foreground process — a quiet trailing whisper. */}
       <div class="mt-0.5 flex items-baseline gap-2 font-mono text-[0.65rem] text-fg-3/90 min-w-0">
         <span class="truncate min-w-0">{metaLine(props.entry)}</span>
-        <Show when={lastActive()}>
+        {/* Same active-recency rule as dock RecencyCell — hide while active. */}
+        <Show when={lastActive() && !pip().active}>
           {(label) => (
             <span
               data-testid="workspace-switcher-card-recency"
               class="tabular-nums text-fg-3/70 shrink-0 ml-auto"
-              // The `<Show when={lastActive()}>` gate already proves this is a
-              // real epoch: `formatTimeAgo` returns "" ONLY for `null`
-              // (never-active), so a non-empty label means `lastActivityAt`
-              // is a number here.
               title={`Last agent activity: ${new Date(props.entry.meta.lastActivityAt as number).toLocaleString()}`}
             >
               {label()}

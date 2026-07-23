@@ -55,13 +55,6 @@
   animation: statepip-glow 2.2s ease-in-out infinite;
 }
 
-/* live plate — retired. Motion (spin/glow) is the active channel; a green
- * disc behind the glyph read as a muddy teal/chrome wash on identity marks.
- * Class kept so a stale import does not 404; element is not mounted. */
-.statepip-live-plate {
-  display: none;
-}
-
 /* alert badge = a fired notification a surface wants surfaced (the Dock's
  * unopened-unread — each surface names it via `alertLabel`): a small amber
  * CORNER DOT at the top-right, NOT a ring and NOT the host-tab count pill —

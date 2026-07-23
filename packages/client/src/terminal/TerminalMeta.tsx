@@ -63,10 +63,7 @@ const TerminalMeta: Component<{
   return (
     <Show when={view()} fallback={<TerminalMetaSkeleton />}>
       {(v) => {
-        // T1 invariant: a surface renders the agent's brand mark exactly once
-        // — in the StatePip. AgentIndicator (title chrome) speaks in words
-        // only; no second spark.
-        const arm = () => activeArm(v().meta);
+        // T1: brand mark lives once on StatePip; AgentIndicator is words only.
         const pip = () =>
           bindStatePip({
             meta: v().meta,
@@ -87,17 +84,18 @@ const TerminalMeta: Component<{
               class={`col-start-1 row-start-1 flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0 ${sleepClass() ?? ""}`}
               data-sleeping={sleepingArm(v().meta) ? "" : undefined}
             >
-              <Show when={arm()}>
-                <StatePip
-                  variant={pip().variant}
-                  glyph={pip().glyph}
-                  motion={pip().motion}
-                  bytesLive={pip().bytesLive}
-                  alert={pip().alert}
-                  alertLabel={pip().alertLabel}
-                  class={TITLE_PIP_BOX}
-                />
-              </Show>
+              {/* Always mount the shared pip — bindStatePip handles sleeping
+               *  moonlit + identity even without a live activeArm. */}
+              <StatePip
+                variant={pip().variant}
+                glyph={pip().glyph}
+                motion={pip().motion}
+                bytesLive={pip().bytesLive}
+                shellLive={pip().shellLive}
+                alert={pip().alert}
+                alertLabel={pip().alertLabel}
+                class={TITLE_PIP_BOX}
+              />
               <NameSpan info={v().info} meta={v().meta} />
               <Show when={v().info.key.suffix}>
                 {(suffix) => (

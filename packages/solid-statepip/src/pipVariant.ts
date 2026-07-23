@@ -197,13 +197,17 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
   // rust/orange busy — machine in flight (thinking / tools / background).
   // Deliberately NOT teal accent: accent is chrome selection, not agent work.
   working: { class: "text-busy" },
-  // muted shell — live shells elevate to working paint in bindStatePip
+  // muted shell — live shells use SHELL_LIVE_CLASS (busy orange) via StatePip
   idle: { class: "text-fg-3" },
   // moonlit + still (the ☾ shape retired — moonlit paint carries sleep)
   sleeping: { class: "text-moonlit/65" },
   // parked / none — render nothing inside the cell
   empty: null,
 };
+
+/** Live plain-shell paint — same busy orange as working agents; applied when
+ *  the binder sets `shellLive` so a11y/data-pip stay idle, not "Working". */
+export const SHELL_LIVE_CLASS = "text-busy";
 
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */

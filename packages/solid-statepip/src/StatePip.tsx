@@ -22,6 +22,7 @@ import {
   type PipGlyphId,
   type PipMotionKind,
   type PipVariant,
+  SHELL_LIVE_CLASS,
   pipGlyph,
 } from "./pipVariant.ts";
 
@@ -53,6 +54,8 @@ export const StatePip: Component<{
   motion?: PipMotionKind;
   /** Raw meaningful PTY output — a11y "live output" only (not effective-active). */
   bytesLive?: boolean;
+  /** Live shell (no agent) — busy-orange paint without rewriting variant to working. */
+  shellLive?: boolean;
   /** Unread obligation corner badge (amber). Needs-you is paint/glow, not this. */
   alert?: boolean;
   alertLabel?: string;
@@ -74,8 +77,12 @@ export const StatePip: Component<{
   const coreClass = createMemo(() => {
     const b = body();
     if (!b) return null;
+    const paint =
+      props.shellLive && glyphId() === "shell" && variant() === "idle"
+        ? SHELL_LIVE_CLASS
+        : b.class;
     const motion = PIP_MOTION_CLASS[motionKind()];
-    return motion ? `${b.class} ${motion}` : b.class;
+    return motion ? `${paint} ${motion}` : paint;
   });
   return (
     <span

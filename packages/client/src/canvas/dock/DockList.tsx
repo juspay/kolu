@@ -205,6 +205,7 @@ function DockListRow(props: {
                 glyph={pip().glyph}
                 motion={pip().motion}
                 bytesLive={pip().bytesLive}
+                shellLive={pip().shellLive}
                 alert={pip().alert}
                 alertLabel={pip().alertLabel}
                 class={DOCK_ROW_PIP_BOX}

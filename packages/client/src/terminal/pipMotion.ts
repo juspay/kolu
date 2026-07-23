@@ -74,9 +74,9 @@ export function pipMotionKind(input: {
     }
   }
 
-  // Shell / agentless: spin while live (variant may be elevated to working
-  // for paint by bindStatePip), still otherwise.
-  if (input.variant === "working") return "spin";
+  // Shell / agentless: spin only while active (never treat agentless
+  // working paint elevation as always-on spin).
+  if (input.variant === "working") return input.active ? "spin" : "none";
   if (input.variant === "awaiting") return input.active ? "glow" : "none";
   return input.active ? "spin" : "none";
 }
