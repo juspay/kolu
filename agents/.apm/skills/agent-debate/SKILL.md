@@ -62,12 +62,16 @@ unrestricted mode (`YOLO mode` for Codex; bypass-permissions/always-approve for
 Claude/Grok). A launch may update and fall back to a shell; never dispatch until
 the expected TUI is visible.
 
-**Keep both terminal references restart-safe.** Record id and stable title for
-the peer split and for your own author terminal. Kaval can re-key terminal ids
-during a no-cap debate. If `send` or `snapshot` reports "no terminal matching",
-list the daemon and re-resolve the id by title. Put both author id and title in
-every peer ask and tell the peer to re-resolve the title before its reverse
-ping.
+**Keep both terminal references restart-safe and unambiguous.** Create a
+per-run label such as `agent-debate:<timestamp>-<pid>`. On the MCP path, read
+your author record from the `terminals` resource and require its stable `intent`
+to be non-empty and unique; stop if it is missing or duplicated. Create the peer
+with unique intent `<run-label>:<peer>`. Record both ids and intents. If `send`
+or `snapshot` reports "no terminal matching", list the resource and re-resolve
+by exact intent, requiring one match. On the CLI fallback, apply the same
+one-match rule to stable titles; if either side lacks a unique title, stop
+rather than guess. Put the author id plus its stable intent/title in every peer
+ask.
 
 Keep one warm peer session for the whole debate. Round 1 receives the full ask;
 later rounds receive lean follow-ups and rely on the session's context.
@@ -75,11 +79,12 @@ later rounds receive lean follow-ups and rely on the session's context.
 **Make the reverse ping executable.** Put this exact protocol in every ask: after
 writing and validating its output file, the peer calls kolu
 `lifecycle_sendInput` on the author terminal with text
-`AGENT-DEBATE <peer-title> VERDICT-WRITTEN <round>`, then calls
+`AGENT-DEBATE <run-label> VERDICT-WRITTEN <round>`, waits for that terminal with
+`wait_outputSettled { idleMs: 250, timeoutMs: 10000 }`, then calls
 `lifecycle_sendInput` again with `key: "Enter"`. If the author id is stale, list
-terminals, match the recorded author title exactly, and use its new id. The
-unique `AGENT-DEBATE` payload wakes the author without being confused for an
-ordinary prompt.
+terminals, require exactly one match for the recorded author intent/title, and
+use its new id. This full text→settle→Enter sequence avoids the dropped-submit
+race; the per-run payload cannot be confused for an ordinary prompt.
 
 **Exchange files, not rendered screen text.** Write each round's instructions to
 `$REPO/.agent-debate/ask-NNN.md` and send only a short pointer to that file.
@@ -190,8 +195,8 @@ After the leading `review`, parse:
    a side effect of review. Remove prior `verdict-*`, `section-*`, `ask-*`,
    `answer-*`, `candidate-*`, `candidate.md`, and `comment.md` artifacts.
 
-2. **Spawn the selected peer** using the engine above. Record id and title for
-   both terminals.
+2. **Spawn the selected peer** using the engine above. Record id and unique
+   intent/title for both terminals.
 
 3. **Debate each round.**
 
